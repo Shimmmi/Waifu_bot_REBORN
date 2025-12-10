@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from waifu_bot.api.deps import get_db, get_player_id
+from waifu_bot.api.deps import get_db, get_player_id, get_redis
 from waifu_bot.core.config import settings
 from waifu_bot.services.combat import CombatService
 from waifu_bot.services.dungeon import DungeonService
@@ -137,7 +137,7 @@ async def tavern_squad_remove(
 
 # --- Dungeon endpoints ---
 dungeon_service = DungeonService()
-combat_service = CombatService(redis_client=None)  # TODO: inject real Redis
+combat_service = CombatService(redis_client=get_redis())
 
 
 @router.get("/dungeons", tags=["dungeon"])

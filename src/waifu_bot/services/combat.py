@@ -110,20 +110,30 @@ class CombatService:
         }
 
     async def _check_spam(self, player_id: int) -> bool:
-        """Check if player is spamming messages."""
+        """Check if player is spamming messages (Redis-based)."""
+        if not self.redis:
+            # Fallback to in-memory if redis not provided
+            now = time.time()
+            player_messages = self._spam_trackers[player_id]
+            player_messages[:] = [ts for ts in player_messages if now - ts < SPAM_WINDOW_SECONDS]
+            if len(player_messages) >= MAX_MESSAGES_PER_WINDOW:
+                return False
+            player_messages.append(now)
+            return True
+
+        key = f"spam:{player_id}"
         now = time.time()
-        player_messages = self._spam_trackers[player_id]
+        window_start = now - SPAM_WINDOW_SECONDS
 
-        # Remove old messages outside window
-        player_messages[:] = [ts for ts in player_messages if now - ts < SPAM_WINDOW_SECONDS]
+        # Use sorted set to store timestamps
+        pipe = self.redis.pipeline()
+        pipe.zadd(key, {now: now})
+        pipe.zremrangebyscore(key, 0, window_start)
+        pipe.zcard(key)
+        pipe.expire(key, SPAM_WINDOW_SECONDS)
+        _, _, count, _ = await pipe.execute()
 
-        # Check limit
-        if len(player_messages) >= MAX_MESSAGES_PER_WINDOW:
-            return False
-
-        # Add current message
-        player_messages.append(now)
-        return True
+        return count <= MAX_MESSAGES_PER_WINDOW
 
     async def _get_active_progress(
         self, session: AsyncSession, player_id: int
