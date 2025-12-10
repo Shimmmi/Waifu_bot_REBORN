@@ -3,18 +3,19 @@ import time
 from collections import defaultdict
 from typing import Optional
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from waifu_bot.db.models import MainWaifu, DungeonProgress, Monster, BattleLog
+from waifu_bot.db.models import BattleLog, DungeonProgress, MainWaifu, Monster
 from waifu_bot.db.models.dungeon import Dungeon
 from waifu_bot.game.constants import MAX_MESSAGES_PER_WINDOW, SPAM_WINDOW_SECONDS, MediaType
 from waifu_bot.game.formulas import (
     calculate_message_damage,
-    roll_crit,
     get_crit_multiplier,
+    roll_crit,
     roll_dodge,
 )
+from waifu_bot.services import sse as sse_service
 
 
 class CombatService:
@@ -94,20 +95,24 @@ class CombatService:
 
         # Check if monster defeated
         if monster_hp_after <= 0:
-            return await self._handle_monster_defeated(session, progress, waifu, monster)
+            result = await self._handle_monster_defeated(session, progress, waifu, monster)
+            await self._publish_battle_event(player_id, result)
+            return result
 
         # Monster counter-attack (optional, can be disabled)
         # player_damage = await self._monster_attack(session, monster, waifu)
 
         await session.commit()
 
-        return {
+        result = {
             "damage": damage,
             "is_crit": is_crit,
             "monster_hp": monster_hp_after,
             "monster_max_hp": monster.max_hp,
             "monster_defeated": False,
         }
+        await self._publish_battle_event(player_id, result)
+        return result
 
     async def _check_spam(self, player_id: int) -> bool:
         """Check if player is spamming messages (Redis-based)."""
@@ -205,4 +210,11 @@ class CombatService:
                 "experience_gained": monster.experience_reward,
                 "next_monster": next_monster.name if next_monster else None,
             }
+
+    async def _publish_battle_event(self, player_id: int, payload: dict) -> None:
+        """Publish battle event via SSE."""
+        if not self.redis:
+            return
+        event = {"type": "battle", "payload": payload}
+        await sse_service.publish_event(self.redis, player_id, event)
 
