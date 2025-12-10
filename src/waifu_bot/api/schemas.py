@@ -4,34 +4,45 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+class ItemOut(BaseModel):
+    id: int
+    name: str
+    rarity: int
+    tier: int
+    level: int
+    item_type: int
+    damage: Optional[int] = None
+    attack_speed: Optional[int] = None
+    weapon_type: Optional[str] = None
+    attack_type: Optional[str] = None
+    base_value: int
+    is_legendary: bool
+    affixes: Optional[dict] = None
+
+
 class ShopInventoryResponse(BaseModel):
-    items: List[int]
+    items: List[ItemOut]
     count: int
 
 
 class BuySellResponse(BaseModel):
     success: bool = True
-    item_id: int
+    item: Optional[ItemOut] = None
     price_paid: Optional[int] = None
     price_received: Optional[int] = None
     gold_remaining: int
+    error: Optional[str] = None
     required: Optional[int] = None
     have: Optional[int] = None
-    error: Optional[str] = None
 
 
 class GambleResponse(BaseModel):
     success: bool = True
-    item_id: int
-    item_name: str
-    item_rarity: int
+    item: ItemOut
     price_paid: int
     gold_remaining: int
     error: Optional[str] = None
-
-
-class TavernListResponse(BaseModel):
-    waifus: List[int]
+    waifus: List["HiredWaifuOut"]
     count: int
 
 
@@ -46,7 +57,7 @@ class TavernActionResponse(BaseModel):
 
 
 class DungeonListResponse(BaseModel):
-    dungeons: List[int]
+    dungeons: List["DungeonOut"]
 
 
 class DungeonStartResponse(BaseModel):
@@ -87,7 +98,7 @@ class GuildCreateResponse(BaseModel):
 
 
 class GuildSearchResponse(BaseModel):
-    guilds: List[int]
+    guilds: List["GuildOut"]
 
 
 class GuildActionResponse(BaseModel):
@@ -99,7 +110,7 @@ class GuildActionResponse(BaseModel):
 
 
 class SkillsListResponse(BaseModel):
-    skills: List[int]
+    skills: List["SkillOut"]
 
 
 class SkillUpgradeResponse(BaseModel):
@@ -108,4 +119,60 @@ class SkillUpgradeResponse(BaseModel):
     new_level: int
     gold_remaining: int
     error: Optional[str] = None
+
+
+class HiredWaifuOut(BaseModel):
+    id: int
+    name: str
+    race: int
+    class_: int = Field(alias="class")
+    rarity: int
+    level: int
+    experience: int
+    strength: int
+    agility: int
+    intelligence: int
+    endurance: int
+    charm: int
+    luck: int
+    squad_position: Optional[int] = None
+
+    class Config:
+        populate_by_name = True
+
+
+class DungeonOut(BaseModel):
+    id: int
+    name: str
+    act: int
+    dungeon_number: int
+    dungeon_type: int
+    level: int
+    obstacle_count: int
+
+
+class GuildOut(BaseModel):
+    id: int
+    name: str
+    tag: str
+    level: int
+    experience: int
+    is_recruiting: bool
+
+
+class SkillOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    skill_type: int
+    tier: int
+    energy_cost: Optional[int] = None
+    cooldown: Optional[int] = None
+    stat_bonus: Optional[str] = None
+    bonus_value: Optional[int] = None
+    max_level_act_1: int
+    max_level_act_2: int
+    max_level_act_3: int
+    max_level_act_4: int
+    max_level_act_5: int
 

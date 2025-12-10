@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from waifu_bot.api.deps import get_db, get_player_id, get_redis
 from waifu_bot.core.config import settings
 from waifu_bot.api import schemas
+from waifu_bot.db import models as m
 from waifu_bot.services.combat import CombatService
 from waifu_bot.services.dungeon import DungeonService
 from waifu_bot.services.guild import GuildService
@@ -47,7 +48,7 @@ async def get_shop_inventory(
     session: AsyncSession = Depends(get_db),
 ):
     items = await shop_service.get_shop_inventory(session, act)
-    return schemas.ShopInventoryResponse(items=[item.id for item in items], count=len(items))
+    return schemas.ShopInventoryResponse(items=[_to_item(item) for item in items], count=len(items))
 
 
 @router.post("/shop/buy", tags=["shop"])
@@ -56,7 +57,12 @@ async def buy_item(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return schemas.BuySellResponse(**await shop_service.buy_item(session, player_id, item_id))
+    result = await shop_service.buy_item(session, player_id, item_id)
+    if result.get("item_id"):
+        item = await session.get(m.Item, result["item_id"])
+        if item:
+            result["item"] = _to_item(item)
+    return schemas.BuySellResponse(**result)
 
 
 @router.post("/shop/sell", tags=["shop"])
@@ -65,7 +71,12 @@ async def sell_item(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return schemas.BuySellResponse(**await shop_service.sell_item(session, player_id, inventory_item_id))
+    result = await shop_service.sell_item(session, player_id, inventory_item_id)
+    if result.get("item_id"):
+        item = await session.get(m.Item, result["item_id"])
+        if item:
+            result["item"] = _to_item(item)
+    return schemas.BuySellResponse(**result)
 
 
 @router.post("/shop/gamble", tags=["shop"])
@@ -74,7 +85,12 @@ async def gamble(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return schemas.GambleResponse(**await shop_service.gamble(session, player_id, act))
+    result = await shop_service.gamble(session, player_id, act)
+    if result.get("item_id"):
+        item = await session.get(m.Item, result["item_id"])
+        if item:
+            result["item"] = _to_item(item)
+    return schemas.GambleResponse(**result)
 
 
 # --- Tavern endpoints ---
@@ -87,7 +103,7 @@ async def tavern_available(
     session: AsyncSession = Depends(get_db),
 ):
     waifus = await tavern_service.get_available_waifus(session, player_id)
-    return schemas.TavernListResponse(waifus=[w.id for w in waifus], count=len(waifus))
+    return schemas.TavernListResponse(waifus=[_to_hired_waifu(w) for w in waifus], count=len(waifus))
 
 
 @router.post("/tavern/hire", tags=["tavern"])
@@ -96,7 +112,13 @@ async def tavern_hire(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return schemas.TavernActionResponse(**await tavern_service.hire_waifu(session, player_id, waifu_id))
+    result = await tavern_service.hire_waifu(session, player_id, waifu_id)
+    if result.get("waifu_id"):
+        waifu = await session.get(m.HiredWaifu, result["waifu_id"])
+        if waifu:
+            result["waifu_name"] = waifu.name
+            result["waifu_rarity"] = waifu.rarity
+    return schemas.TavernActionResponse(**result)
 
 
 @router.get("/tavern/squad", tags=["tavern"])
@@ -105,7 +127,7 @@ async def tavern_squad(
     session: AsyncSession = Depends(get_db),
 ):
     squad = await tavern_service.get_squad(session, player_id)
-    return {"squad": [w.id for w in squad]}
+    return {"squad": [_to_hired_waifu(w) for w in squad]}
 
 
 @router.get("/tavern/reserve", tags=["tavern"])
@@ -114,7 +136,7 @@ async def tavern_reserve(
     session: AsyncSession = Depends(get_db),
 ):
     reserve = await tavern_service.get_reserve(session, player_id)
-    return {"reserve": [w.id for w in reserve]}
+    return {"reserve": [_to_hired_waifu(w) for w in reserve]}
 
 
 @router.post("/tavern/squad/add", tags=["tavern"])
@@ -124,7 +146,8 @@ async def tavern_squad_add(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return schemas.TavernActionResponse(**await tavern_service.add_to_squad(session, player_id, waifu_id, slot))
+    result = await tavern_service.add_to_squad(session, player_id, waifu_id, slot)
+    return schemas.TavernActionResponse(**result)
 
 
 @router.post("/tavern/squad/remove", tags=["tavern"])
@@ -133,7 +156,8 @@ async def tavern_squad_remove(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return schemas.TavernActionResponse(**await tavern_service.remove_from_squad(session, player_id, waifu_id))
+    result = await tavern_service.remove_from_squad(session, player_id, waifu_id)
+    return schemas.TavernActionResponse(**result)
 
 
 # --- Dungeon endpoints ---
@@ -147,7 +171,7 @@ async def list_dungeons(
     session: AsyncSession = Depends(get_db),
 ):
     dungeons = await dungeon_service.get_dungeons_for_act(session, act)
-    return schemas.DungeonListResponse(dungeons=[d.id for d in dungeons])
+    return schemas.DungeonListResponse(dungeons=[_to_dungeon(d) for d in dungeons])
 
 
 @router.post("/dungeons/{dungeon_id}/start", tags=["dungeon"])
@@ -208,7 +232,7 @@ async def search_guilds(
     session: AsyncSession = Depends(get_db),
 ):
     guilds = await guild_service.search_guilds(session, q, limit)
-    return schemas.GuildSearchResponse(guilds=[g.id for g in guilds])
+    return schemas.GuildSearchResponse(guilds=[_to_guild(g) for g in guilds])
 
 
 @router.post("/guilds/{guild_id}/join", tags=["guild"])
@@ -283,7 +307,7 @@ async def available_skills(
     session: AsyncSession = Depends(get_db),
 ):
     skills = await skill_service.get_available_skills(session, player_id, act)
-    return schemas.SkillsListResponse(skills=[s.id for s in skills])
+    return schemas.SkillsListResponse(skills=[_to_skill(s) for s in skills])
 
 
 @router.post("/skills/{skill_id}/upgrade", tags=["skills"])
@@ -295,5 +319,85 @@ async def upgrade_skill(
 ):
     return schemas.SkillUpgradeResponse(
         **await skill_service.upgrade_skill(session, player_id, skill_id, cost)
+    )
+
+
+# --- Serialization helpers ---
+def _to_item(item: m.Item) -> schemas.ItemOut:
+    return schemas.ItemOut(
+        id=item.id,
+        name=item.name,
+        rarity=item.rarity,
+        tier=item.tier,
+        level=item.level,
+        item_type=item.item_type,
+        damage=item.damage,
+        attack_speed=item.attack_speed,
+        weapon_type=item.weapon_type,
+        attack_type=item.attack_type,
+        base_value=item.base_value,
+        is_legendary=item.is_legendary,
+        affixes=item.affixes,
+    )
+
+
+def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
+    return schemas.HiredWaifuOut(
+        id=w.id,
+        name=w.name,
+        race=w.race,
+        class_=w.class_,
+        rarity=w.rarity,
+        level=w.level,
+        experience=w.experience,
+        strength=w.strength,
+        agility=w.agility,
+        intelligence=w.intelligence,
+        endurance=w.endurance,
+        charm=w.charm,
+        luck=w.luck,
+        squad_position=w.squad_position,
+    )
+
+
+def _to_dungeon(d: m.Dungeon) -> schemas.DungeonOut:
+    return schemas.DungeonOut(
+        id=d.id,
+        name=d.name,
+        act=d.act,
+        dungeon_number=d.dungeon_number,
+        dungeon_type=d.dungeon_type,
+        level=d.level,
+        obstacle_count=d.obstacle_count,
+    )
+
+
+def _to_guild(g: m.Guild) -> schemas.GuildOut:
+    return schemas.GuildOut(
+        id=g.id,
+        name=g.name,
+        tag=g.tag,
+        level=g.level,
+        experience=g.experience,
+        is_recruiting=g.is_recruiting,
+    )
+
+
+def _to_skill(s: m.Skill) -> schemas.SkillOut:
+    return schemas.SkillOut(
+        id=s.id,
+        name=s.name,
+        description=s.description,
+        skill_type=s.skill_type,
+        tier=s.tier,
+        energy_cost=s.energy_cost,
+        cooldown=s.cooldown,
+        stat_bonus=s.stat_bonus,
+        bonus_value=s.bonus_value,
+        max_level_act_1=s.max_level_act_1,
+        max_level_act_2=s.max_level_act_2,
+        max_level_act_3=s.max_level_act_3,
+        max_level_act_4=s.max_level_act_4,
+        max_level_act_5=s.max_level_act_5,
     )
 
