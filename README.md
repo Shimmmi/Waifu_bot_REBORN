@@ -13,7 +13,8 @@
 2. `python -m venv .venv && source .venv/bin/activate`
 3. `pip install -r requirements.txt`
 4. Запуск API: `uvicorn waifu_bot.main:app --reload`
-5. При необходимости выставьте вебхук: вызов `setup_webhook()` (добавим CLI позже).
+5. При необходимости выставьте вебхук: `python -m waifu_bot.cli webhook`
+6. Применить миграции: `python -m waifu_bot.cli migrate`
 
 Пример `.env`:
 ```
