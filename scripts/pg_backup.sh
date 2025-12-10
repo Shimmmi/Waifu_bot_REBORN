@@ -11,7 +11,9 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 # Load environment variables
 if [ -f /opt/waifu-bot-REBORN/.env ]; then
-    export $(cat /opt/waifu-bot-REBORN/.env | grep -v '^#' | xargs)
+    set -a
+    source /opt/waifu-bot-REBORN/.env
+    set +a
 fi
 
 # Extract connection details from POSTGRES_DSN
@@ -25,6 +27,10 @@ DB_HOST=${DB_HOST_PORT%%:*}
 DB_PORT=${DB_HOST_PORT#*:}
 DB_PORT=${DB_PORT%%/*}
 DB_NAME=${DB_DSN##*/}
+
+# Fallback to defaults if not set
+DB_HOST=${DB_HOST:-localhost}
+DB_PORT=${DB_PORT:-5432}
 
 # Create backup directory
 mkdir -p "$BACKUP_DIR"
