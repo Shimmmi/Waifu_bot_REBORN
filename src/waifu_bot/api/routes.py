@@ -15,6 +15,7 @@ from waifu_bot.services.shop import ShopService
 from waifu_bot.services.skills import SkillService
 from waifu_bot.services.tavern import TavernService
 from waifu_bot.services.webhook import process_update
+from waifu_bot.services import sse as sse_service
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,15 @@ async def telegram_webhook(request: Request, _: None = Depends(verify_webhook_se
 @router.get("/sse/ping", tags=["sse"])
 async def sse_ping() -> dict:
     return {"pong": True}
+
+
+@router.get("/sse/stream", tags=["sse"])
+async def sse_stream(
+    player_id: int = Depends(get_player_id),
+    redis = Depends(get_redis),
+):
+    channel = f"sse:{player_id}"
+    return sse_service.sse_response(redis, channel)
 
 
 # --- Shop endpoints ---
