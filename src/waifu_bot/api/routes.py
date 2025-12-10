@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.api.deps import get_db, get_player_id, get_redis
 from waifu_bot.core.config import settings
+from waifu_bot.api import schemas
 from waifu_bot.services.combat import CombatService
 from waifu_bot.services.dungeon import DungeonService
 from waifu_bot.services.guild import GuildService
@@ -46,7 +47,7 @@ async def get_shop_inventory(
     session: AsyncSession = Depends(get_db),
 ):
     items = await shop_service.get_shop_inventory(session, act)
-    return {"items": [item.id for item in items], "count": len(items)}
+    return schemas.ShopInventoryResponse(items=[item.id for item in items], count=len(items))
 
 
 @router.post("/shop/buy", tags=["shop"])
@@ -55,7 +56,7 @@ async def buy_item(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await shop_service.buy_item(session, player_id, item_id)
+    return schemas.BuySellResponse(**await shop_service.buy_item(session, player_id, item_id))
 
 
 @router.post("/shop/sell", tags=["shop"])
@@ -64,7 +65,7 @@ async def sell_item(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await shop_service.sell_item(session, player_id, inventory_item_id)
+    return schemas.BuySellResponse(**await shop_service.sell_item(session, player_id, inventory_item_id))
 
 
 @router.post("/shop/gamble", tags=["shop"])
@@ -73,7 +74,7 @@ async def gamble(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await shop_service.gamble(session, player_id, act)
+    return schemas.GambleResponse(**await shop_service.gamble(session, player_id, act))
 
 
 # --- Tavern endpoints ---
@@ -86,7 +87,7 @@ async def tavern_available(
     session: AsyncSession = Depends(get_db),
 ):
     waifus = await tavern_service.get_available_waifus(session, player_id)
-    return {"waifus": [w.id for w in waifus], "count": len(waifus)}
+    return schemas.TavernListResponse(waifus=[w.id for w in waifus], count=len(waifus))
 
 
 @router.post("/tavern/hire", tags=["tavern"])
@@ -95,7 +96,7 @@ async def tavern_hire(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await tavern_service.hire_waifu(session, player_id, waifu_id)
+    return schemas.TavernActionResponse(**await tavern_service.hire_waifu(session, player_id, waifu_id))
 
 
 @router.get("/tavern/squad", tags=["tavern"])
@@ -123,7 +124,7 @@ async def tavern_squad_add(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await tavern_service.add_to_squad(session, player_id, waifu_id, slot)
+    return schemas.TavernActionResponse(**await tavern_service.add_to_squad(session, player_id, waifu_id, slot))
 
 
 @router.post("/tavern/squad/remove", tags=["tavern"])
@@ -132,7 +133,7 @@ async def tavern_squad_remove(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await tavern_service.remove_from_squad(session, player_id, waifu_id)
+    return schemas.TavernActionResponse(**await tavern_service.remove_from_squad(session, player_id, waifu_id))
 
 
 # --- Dungeon endpoints ---
@@ -146,7 +147,7 @@ async def list_dungeons(
     session: AsyncSession = Depends(get_db),
 ):
     dungeons = await dungeon_service.get_dungeons_for_act(session, act)
-    return {"dungeons": [d.id for d in dungeons]}
+    return schemas.DungeonListResponse(dungeons=[d.id for d in dungeons])
 
 
 @router.post("/dungeons/{dungeon_id}/start", tags=["dungeon"])
@@ -155,7 +156,7 @@ async def start_dungeon(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dungeon_service.start_dungeon(session, player_id, dungeon_id)
+    return schemas.DungeonStartResponse(**await dungeon_service.start_dungeon(session, player_id, dungeon_id))
 
 
 @router.get("/dungeons/active", tags=["dungeon"])
@@ -163,7 +164,8 @@ async def active_dungeon(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dungeon_service.get_active_dungeon(session, player_id)
+    data = await dungeon_service.get_active_dungeon(session, player_id)
+    return data if data is None else schemas.DungeonActiveResponse(**data)
 
 
 @router.post("/battle/message", tags=["battle"])
@@ -175,8 +177,10 @@ async def battle_message(
 ):
     from waifu_bot.game.constants import MediaType
 
-    return await combat_service.process_message_damage(
-        session, player_id, MediaType(media_type), message_text=message_text
+    return schemas.BattleMessageResponse(
+        **await combat_service.process_message_damage(
+            session, player_id, MediaType(media_type), message_text=message_text
+        )
     )
 
 
@@ -192,7 +196,9 @@ async def create_guild(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await guild_service.create_guild(session, player_id, name, tag, description)
+    return schemas.GuildCreateResponse(
+        **await guild_service.create_guild(session, player_id, name, tag, description)
+    )
 
 
 @router.get("/guilds/search", tags=["guild"])
@@ -202,7 +208,7 @@ async def search_guilds(
     session: AsyncSession = Depends(get_db),
 ):
     guilds = await guild_service.search_guilds(session, q, limit)
-    return {"guilds": [g.id for g in guilds]}
+    return schemas.GuildSearchResponse(guilds=[g.id for g in guilds])
 
 
 @router.post("/guilds/{guild_id}/join", tags=["guild"])
@@ -211,7 +217,7 @@ async def join_guild(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await guild_service.join_guild(session, player_id, guild_id)
+    return schemas.GuildActionResponse(**await guild_service.join_guild(session, player_id, guild_id))
 
 
 @router.post("/guilds/leave", tags=["guild"])
@@ -219,7 +225,7 @@ async def leave_guild(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await guild_service.leave_guild(session, player_id)
+    return schemas.GuildActionResponse(**await guild_service.leave_guild(session, player_id))
 
 
 @router.post("/guilds/deposit/gold", tags=["guild"])
@@ -228,7 +234,9 @@ async def deposit_guild_gold(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await guild_service.deposit_gold(session, player_id, amount)
+    return schemas.GuildActionResponse(
+        **await guild_service.deposit_gold(session, player_id, amount)
+    )
 
 
 @router.post("/guilds/withdraw/gold", tags=["guild"])
@@ -237,7 +245,9 @@ async def withdraw_guild_gold(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await guild_service.withdraw_gold(session, player_id, amount)
+    return schemas.GuildActionResponse(
+        **await guild_service.withdraw_gold(session, player_id, amount)
+    )
 
 
 @router.post("/guilds/deposit/item", tags=["guild"])
@@ -246,7 +256,9 @@ async def deposit_guild_item(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await guild_service.deposit_item(session, player_id, inventory_item_id)
+    return schemas.GuildActionResponse(
+        **await guild_service.deposit_item(session, player_id, inventory_item_id)
+    )
 
 
 @router.post("/guilds/withdraw/item", tags=["guild"])
@@ -255,7 +267,9 @@ async def withdraw_guild_item(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await guild_service.withdraw_item(session, player_id, bank_item_id)
+    return schemas.GuildActionResponse(
+        **await guild_service.withdraw_item(session, player_id, bank_item_id)
+    )
 
 
 # --- Skills endpoints ---
@@ -269,7 +283,7 @@ async def available_skills(
     session: AsyncSession = Depends(get_db),
 ):
     skills = await skill_service.get_available_skills(session, player_id, act)
-    return {"skills": [s.id for s in skills]}
+    return schemas.SkillsListResponse(skills=[s.id for s in skills])
 
 
 @router.post("/skills/{skill_id}/upgrade", tags=["skills"])
@@ -279,5 +293,7 @@ async def upgrade_skill(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return await skill_service.upgrade_skill(session, player_id, skill_id, cost)
+    return schemas.SkillUpgradeResponse(
+        **await skill_service.upgrade_skill(session, player_id, skill_id, cost)
+    )
 
