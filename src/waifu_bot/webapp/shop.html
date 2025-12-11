@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Магазин</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body
+    onload="WaifuApp.initPage('shop'); WaifuApp.loadProfile().then((p)=>WaifuApp.loadShop(p.act)).catch(console.error);"
+  >
+    <header>
+      <div class="topbar">
+        <div class="badge">Золото: <strong id="badge-gold">—</strong></div>
+        <div class="badge">Акт: <strong id="badge-act">—</strong></div>
+        <div class="badge">Трейдер: <span class="tag">ассортимент 3×3</span></div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="section">
+        <h3>Ассортимент</h3>
+        <div id="shop-items" class="list placeholder" style="text-align: left"></div>
+      </section>
+
+      <section class="section">
+        <h3>Продажа</h3>
+        <div class="placeholder">Инвентарь игрока с фильтрами и мультивыбором.</div>
+      </section>
+
+      <section class="section">
+        <h3>Gamble</h3>
+        <p class="muted">Случайный предмет от Uncommon до Epic. Цена зависит от уровня.</p>
+        <div class="placeholder">Кнопка gamble и всплывающее окно результата.</div>
+      </section>
+    </main>
+
+    <nav class="nav">
+      <a href="./index.html" data-page="town">Город</a>
+      <a href="./shop.html" data-page="shop">Магазин</a>
+      <a href="./tavern.html" data-page="tavern">Таверна</a>
+      <a href="./guild_hall.html" data-page="guild">Гильдия</a>
+    </nav>
+  </body>
+</html>
+

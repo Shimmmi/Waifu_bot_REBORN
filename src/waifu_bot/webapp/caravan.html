@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Караван</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body onload="WaifuApp.initPage('caravan')">
+    <header>
+      <div class="topbar">
+        <div class="badge">Текущий акт: <strong>1</strong></div>
+        <div class="badge">Следующая точка: <span class="tag">открывается после финального босса</span></div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="section">
+        <h3>Маршруты</h3>
+        <div class="placeholder">Карта с точками актов I–V. Переход открывается после финала акта.</div>
+      </section>
+    </main>
+
+    <nav class="nav">
+      <a href="./index.html" data-page="town">Город</a>
+      <a href="./shop.html" data-page="shop">Магазин</a>
+      <a href="./tavern.html" data-page="tavern">Таверна</a>
+      <a href="./guild_hall.html" data-page="guild">Гильдия</a>
+    </nav>
+  </body>
+</html>
+

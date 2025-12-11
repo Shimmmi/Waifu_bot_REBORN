@@ -51,7 +51,7 @@ target_metadata = Base.metadata
 
 def get_url() -> str:
     """Get database URL from settings."""
-    return settings.postgres_dsn.replace("+asyncpg", "")
+    return settings.postgres_dsn
 
 
 def run_migrations_offline() -> None:

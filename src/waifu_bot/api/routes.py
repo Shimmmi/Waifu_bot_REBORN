@@ -8,6 +8,9 @@ from waifu_bot.api.deps import get_db, get_player_id, get_redis
 from waifu_bot.core.config import settings
 from waifu_bot.api import schemas
 from waifu_bot.db import models as m
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
 from waifu_bot.services.combat import CombatService
 from waifu_bot.services.dungeon import DungeonService
 from waifu_bot.services.guild import GuildService
@@ -22,8 +25,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def verify_webhook_secret(x_webhook_secret: str = Header(..., alias="X-Webhook-Secret")) -> None:
-    if x_webhook_secret != settings.webhook_secret:
+def verify_webhook_secret(
+    x_webhook_secret: Optional[str] = Header(None, alias="X-Webhook-Secret"),
+    tg_secret: Optional[str] = Header(None, alias="X-Telegram-Bot-Api-Secret-Token"),
+) -> None:
+    provided = x_webhook_secret or tg_secret
+    if provided != settings.webhook_secret:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid secret")
 
 
@@ -46,6 +53,97 @@ async def sse_stream(
 ):
     channel = f"sse:{player_id}"
     return sse_service.sse_response(redis, channel)
+
+
+# --- Profile/bootstrap ---
+
+
+@router.get("/profile", response_model=schemas.ProfileResponse, tags=["profile"])
+async def get_profile(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    result = await session.execute(
+        select(m.Player)
+        .options(selectinload(m.Player.main_waifu))
+        .where(m.Player.id == player_id)
+    )
+    player = result.scalar_one_or_none()
+    created = False
+    if not player:
+        player = m.Player(
+            id=player_id,
+            username=None,
+            first_name=None,
+            last_name=None,
+            language_code=None,
+            current_act=1,
+            gold=0,
+        )
+        session.add(player)
+        main = m.MainWaifu(
+            player_id=player_id,
+            name="Новичок",
+            race=m.WaifuRace.HUMAN,
+            class_=m.WaifuClass.KNIGHT,
+        )
+        session.add(main)
+        await session.commit()
+        created = True
+        result = await session.execute(
+            select(m.Player)
+            .options(selectinload(m.Player.main_waifu))
+            .where(m.Player.id == player_id)
+        )
+        player = result.scalar_one()
+    main_waifu = player.main_waifu
+    main_payload = None
+    if main_waifu:
+        main_payload = schemas.MainWaifuProfile(
+            id=main_waifu.id,
+            name=main_waifu.name,
+            race=main_waifu.race,
+            class_=main_waifu.class_,
+            level=main_waifu.level,
+            experience=main_waifu.experience,
+            energy=main_waifu.energy,
+            max_energy=main_waifu.max_energy,
+            strength=main_waifu.strength,
+            agility=main_waifu.agility,
+            intelligence=main_waifu.intelligence,
+            endurance=main_waifu.endurance,
+            charm=main_waifu.charm,
+            luck=main_waifu.luck,
+            current_hp=main_waifu.current_hp,
+            max_hp=main_waifu.max_hp,
+        )
+    return schemas.ProfileResponse(
+        player_id=player.id,
+        act=player.current_act,
+        gold=player.gold,
+        main_waifu=main_payload,
+    )
+
+
+@router.get("/waifu/acts/current", tags=["acts"])
+async def current_act(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    result = await session.execute(select(m.Player.current_act).where(m.Player.id == player_id))
+    current = result.scalar_one_or_none()
+    if current is None:
+        # auto-create player if missing
+        session.add(
+            m.Player(
+                id=player_id,
+                current_act=1,
+                gold=0,
+            )
+        )
+        await session.commit()
+        current = 1
+    return {"act": current}
 
 
 # --- Shop endpoints ---

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Тренировочный зал</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body onload="WaifuApp.initPage('training'); WaifuApp.loadProfile().catch(console.error);">
+    <header>
+      <div class="topbar">
+        <div class="badge">Доступные очки навыков: <strong>—</strong></div>
+        <div class="badge">Макс. уровень акта: <strong>3–15</strong></div>
+        <div class="badge">Золото: <strong>—</strong></div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="section">
+        <h3>Пассивные навыки</h3>
+        <p class="muted">Кэп прокачки зависит от акта (1–5 акт: 3/6/9/12/15).</p>
+        <div class="placeholder">Сетка 4×2 с иконками, уровнем X/Y, стоимостью и кнопкой “+”.</div>
+      </section>
+    </main>
+
+    <nav class="nav">
+      <a href="./index.html" data-page="town">Город</a>
+      <a href="./shop.html" data-page="shop">Магазин</a>
+      <a href="./tavern.html" data-page="tavern">Таверна</a>
+      <a href="./guild_hall.html" data-page="guild">Гильдия</a>
+    </nav>
+  </body>
+</html>
+

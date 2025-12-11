@@ -176,3 +176,32 @@ class SkillOut(BaseModel):
     max_level_act_4: int
     max_level_act_5: int
 
+
+class MainWaifuProfile(BaseModel):
+    id: int
+    name: str
+    race: int
+    class_: int = Field(alias="class")
+    level: int
+    experience: int
+    energy: int
+    max_energy: int
+    strength: int
+    agility: int
+    intelligence: int
+    endurance: int
+    charm: int
+    luck: int
+    current_hp: int
+    max_hp: int
+
+    class Config:
+        populate_by_name = True
+
+
+class ProfileResponse(BaseModel):
+    player_id: int
+    act: int
+    gold: int
+    main_waifu: Optional[MainWaifuProfile] = None
+

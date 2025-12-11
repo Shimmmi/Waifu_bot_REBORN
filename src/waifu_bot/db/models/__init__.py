@@ -1,7 +1,13 @@
 """Database models."""
 from waifu_bot.db.models.player import Player
-from waifu_bot.db.models.waifu import MainWaifu, HiredWaifu
-from waifu_bot.db.models.item import Item, InventoryItem
+from waifu_bot.db.models.waifu import (
+    MainWaifu,
+    HiredWaifu,
+    WaifuRace,
+    WaifuClass,
+    WaifuRarity,
+)
+from waifu_bot.db.models.item import Item, InventoryItem, ItemRarity, ItemType
 from waifu_bot.db.models.dungeon import Dungeon, DungeonProgress, Monster
 from waifu_bot.db.models.guild import Guild, GuildMember, GuildBank
 from waifu_bot.db.models.skill import Skill, WaifuSkill, GuildSkill
@@ -11,8 +17,13 @@ __all__ = [
     "Player",
     "MainWaifu",
     "HiredWaifu",
+    "WaifuRace",
+    "WaifuClass",
+    "WaifuRarity",
     "Item",
     "InventoryItem",
+    "ItemRarity",
+    "ItemType",
     "Dungeon",
     "DungeonProgress",
     "Monster",

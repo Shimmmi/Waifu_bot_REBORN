@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Waifu Town</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body onload="WaifuApp.initPage('town'); WaifuApp.loadProfile().catch(console.error);">
+    <header>
+      <div class="topbar">
+        <div class="badge">Акт: <strong id="badge-act">—</strong></div>
+        <div class="badge">Золото: <strong id="badge-gold">—</strong></div>
+        <div class="badge">Энергия: <strong id="badge-energy">—</strong></div>
+        <div class="badge">Данж: <strong>нет</strong></div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <div class="banner">
+        Добро пожаловать в город. Выберите здание, чтобы перейти к соответствующему экрану.
+      </div>
+
+      <section class="cards" style="margin-top: 16px">
+        <a class="card" href="./shop.html">
+          <h3>Магазин</h3>
+          <p>Ассортимент 3×3, покупка/продажа и gamble.</p>
+        </a>
+        <a class="card" href="./tavern.html">
+          <h3>Таверна</h3>
+          <p>Найм наёмных вайфу и управление отрядом.</p>
+        </a>
+        <a class="card" href="./caravan.html">
+          <h3>Караван</h3>
+          <p>Переход между актами и выбор маршрута.</p>
+        </a>
+        <a class="card" href="./guild_hall.html">
+          <h3>Гильдия</h3>
+          <p>Создание/поиск гильдии, банк, чат, управление.</p>
+        </a>
+        <a class="card" href="./training_hall.html">
+          <h3>Тренировочный зал</h3>
+          <p>Пассивные навыки и их прокачка по актам.</p>
+        </a>
+        <a class="card" href="./profile.html">
+          <h3>Профиль вайфу</h3>
+          <p>Статы, экипировка, навыки основной вайфу.</p>
+        </a>
+        <a class="card" href="./mail.html">
+          <h3>Почта</h3>
+          <p>Письма, награды, уведомления.</p>
+        </a>
+        <a class="card" href="./settings.html">
+          <h3>Настройки</h3>
+          <p>Звук, язык, выход, помощь.</p>
+        </a>
+      </section>
+
+      <section class="section">
+        <div class="placeholder">Здесь будет фон города и интерактивные кнопки зданий по ТЗ.</div>
+      </section>
+    </main>
+
+    <nav class="nav">
+      <a href="./index.html" data-page="town">Город</a>
+      <a href="./shop.html" data-page="shop">Магазин</a>
+      <a href="./tavern.html" data-page="tavern">Таверна</a>
+      <a href="./guild_hall.html" data-page="guild">Гильдия</a>
+    </nav>
+  </body>
+</html>
+

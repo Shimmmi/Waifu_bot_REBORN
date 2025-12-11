@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from waifu_bot.api.routes import router as api_router
 from waifu_bot.core.config import settings
@@ -8,6 +11,8 @@ from waifu_bot.core.logging import setup_logging
 
 def create_app() -> FastAPI:
     setup_logging()
+
+    webapp_dir = Path(__file__).resolve().parent / "webapp"
 
     app = FastAPI(
         title="Waifu Bot REBORN",
@@ -26,6 +31,9 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(api_router, prefix="/api")
+
+    if webapp_dir.exists():
+        app.mount("/webapp", StaticFiles(directory=str(webapp_dir), html=True), name="webapp")
 
     @app.get("/health", tags=["infra"])
     async def health() -> dict:

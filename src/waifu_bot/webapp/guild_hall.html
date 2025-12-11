@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Гильдия</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body onload="WaifuApp.initPage('guild'); WaifuApp.loadProfile().catch(console.error);">
+    <header>
+      <div class="topbar">
+        <div class="badge">Статус: <strong>не в гильдии</strong></div>
+        <div class="badge">Банк: <strong>—</strong></div>
+        <div class="badge">Онлайн: <strong>—</strong></div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="section">
+        <h3>Поиск / Создание</h3>
+        <div class="placeholder">Модалки поиска и создания гильдии (название, тег, описание, стоимость 1000 золота).</div>
+      </section>
+
+      <section class="section">
+        <h3>Информация гильдии</h3>
+        <div class="placeholder">Портрет, уровень, прогресс, навыки гильдии, переключение вкладок.</div>
+      </section>
+
+      <section class="grid-2">
+        <div class="section">
+          <h3>Состав</h3>
+          <div class="placeholder">Список участников, онлайн-детект (5 мин), модалка профиля.</div>
+        </div>
+        <div class="section">
+          <h3>Банк</h3>
+          <div class="placeholder">Золото, лимиты снятия, инвентарь 4×4, фильтры, мультивыбор.</div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h3>Чат</h3>
+        <div class="placeholder">Окно сообщений гильдии, ввод, кнопка отправить.</div>
+      </section>
+    </main>
+
+    <nav class="nav">
+      <a href="./index.html" data-page="town">Город</a>
+      <a href="./shop.html" data-page="shop">Магазин</a>
+      <a href="./tavern.html" data-page="tavern">Таверна</a>
+      <a href="./guild_hall.html" data-page="guild">Гильдия</a>
+    </nav>
+  </body>
+</html>
+

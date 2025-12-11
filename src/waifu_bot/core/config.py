@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     def _split_admin_ids(cls, v: str | list[int]) -> list[int]:
         if isinstance(v, list):
             return v
+        if isinstance(v, int):
+            return [v]
         if not v:
             return []
         return [int(x.strip()) for x in v.split(",") if x.strip()]
