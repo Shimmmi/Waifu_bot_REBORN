@@ -24,6 +24,72 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+BASE_STATS = {
+    "strength": 10,
+    "agility": 10,
+    "intelligence": 10,
+    "endurance": 10,
+    "charm": 10,
+    "luck": 10,
+}
+
+RACE_BONUSES = {
+    m.WaifuRace.HUMAN: {},
+    m.WaifuRace.ELF: {"agility": 2, "intelligence": 2, "luck": 1},
+    m.WaifuRace.BEASTKIN: {"strength": 2, "agility": 2, "endurance": 1},
+    m.WaifuRace.ANGEL: {"charm": 2, "intelligence": 1, "luck": 1},
+    m.WaifuRace.VAMPIRE: {"strength": 1, "endurance": 2, "charm": 1, "luck": 1},
+    m.WaifuRace.DEMON: {"strength": 2, "intelligence": 1, "luck": 1},
+    m.WaifuRace.FAIRY: {"agility": 2, "charm": 2, "luck": 2},
+}
+
+CLASS_BONUSES = {
+    m.WaifuClass.KNIGHT: {"strength": 2, "endurance": 2},
+    m.WaifuClass.WARRIOR: {"strength": 2, "agility": 1, "endurance": 1},
+    m.WaifuClass.ARCHER: {"agility": 3, "luck": 1},
+    m.WaifuClass.MAGE: {"intelligence": 3, "luck": 1},
+    m.WaifuClass.ASSASSIN: {"agility": 2, "strength": 1, "luck": 1},
+    m.WaifuClass.HEALER: {"intelligence": 2, "charm": 2},
+    m.WaifuClass.MERCHANT: {"charm": 2, "luck": 2},
+}
+
+
+def _compute_stats(race: m.WaifuRace, class_: m.WaifuClass) -> dict:
+    stats = BASE_STATS.copy()
+    for key, bonus in RACE_BONUSES.get(race, {}).items():
+        stats[key] = stats.get(key, 0) + bonus
+    for key, bonus in CLASS_BONUSES.get(class_, {}).items():
+        stats[key] = stats.get(key, 0) + bonus
+    return stats
+
+
+def _compute_details(main: m.MainWaifu) -> dict:
+    """Compute simple aggregated stats (placeholders until full equipment/skills model is added)."""
+    strength = main.strength or 0
+    agility = main.agility or 0
+    intelligence = main.intelligence or 0
+    endurance = main.endurance or 0
+    charm = main.charm or 0
+    luck = main.luck or 0
+
+    melee_damage = max(0, strength - 10)
+    ranged_damage = max(0, agility - 10)
+    magic_damage = max(0, intelligence - 10)
+    crit_chance = max(0.0, 5.0 + (agility - 10) * 0.5 + (luck - 10) * 0.25)
+    defense = max(0, endurance - 10)
+    merchant_discount = max(0.0, min(50.0, (charm - 10) * 1.0))  # placeholder: up to 50% скидки
+
+    return {
+        "hp_current": main.current_hp,
+        "hp_max": main.max_hp,
+        "melee_damage": melee_damage,
+        "ranged_damage": ranged_damage,
+        "magic_damage": magic_damage,
+        "crit_chance": round(crit_chance, 2),
+        "defense": defense,
+        "merchant_discount": round(merchant_discount, 2),
+    }
+
 
 def verify_webhook_secret(
     x_webhook_secret: Optional[str] = Header(None, alias="X-Webhook-Secret"),
@@ -69,7 +135,6 @@ async def get_profile(
         .where(m.Player.id == player_id)
     )
     player = result.scalar_one_or_none()
-    created = False
     if not player:
         player = m.Player(
             id=player_id,
@@ -81,23 +146,10 @@ async def get_profile(
             gold=0,
         )
         session.add(player)
-        main = m.MainWaifu(
-            player_id=player_id,
-            name="Новичок",
-            race=m.WaifuRace.HUMAN,
-            class_=m.WaifuClass.KNIGHT,
-        )
-        session.add(main)
         await session.commit()
-        created = True
-        result = await session.execute(
-            select(m.Player)
-            .options(selectinload(m.Player.main_waifu))
-            .where(m.Player.id == player_id)
-        )
-        player = result.scalar_one()
     main_waifu = player.main_waifu
     main_payload = None
+    main_details = None
     if main_waifu:
         main_payload = schemas.MainWaifuProfile(
             id=main_waifu.id,
@@ -117,12 +169,93 @@ async def get_profile(
             current_hp=main_waifu.current_hp,
             max_hp=main_waifu.max_hp,
         )
+        main_details = schemas.MainWaifuDetails(**_compute_details(main_waifu))
     return schemas.ProfileResponse(
         player_id=player.id,
         act=player.current_act,
         gold=player.gold,
         main_waifu=main_payload,
+        main_waifu_details=main_details,
     )
+
+
+@router.post("/profile/main-waifu", response_model=schemas.MainWaifuCreateResponse, tags=["profile"])
+async def create_main_waifu(
+    payload: schemas.MainWaifuCreateRequest,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    result = await session.execute(
+        select(m.Player).options(selectinload(m.Player.main_waifu)).where(m.Player.id == player_id)
+    )
+    player = result.scalar_one_or_none()
+    if not player:
+        player = m.Player(
+            id=player_id,
+            username=None,
+            first_name=None,
+            last_name=None,
+            language_code=None,
+            current_act=1,
+            gold=0,
+        )
+        session.add(player)
+        await session.flush()
+
+    if player.main_waifu:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="main waifu already exists")
+
+    main = m.MainWaifu(
+        player_id=player_id,
+        name=payload.name,
+        race=payload.race,
+        class_=payload.class_,
+    )
+    stats = _compute_stats(m.WaifuRace(payload.race), m.WaifuClass(payload.class_))
+    main.strength = stats["strength"]
+    main.agility = stats["agility"]
+    main.intelligence = stats["intelligence"]
+    main.endurance = stats["endurance"]
+    main.charm = stats["charm"]
+    main.luck = stats["luck"]
+    main.max_hp = 100 + stats["endurance"] * 2
+    main.current_hp = main.max_hp
+    session.add(main)
+    await session.commit()
+    await session.refresh(main)
+
+    return schemas.MainWaifuCreateResponse(
+        main_waifu=schemas.MainWaifuProfile(
+            id=main.id,
+            name=main.name,
+            race=main.race,
+            class_=main.class_,
+            level=main.level,
+            experience=main.experience,
+            energy=main.energy,
+            max_energy=main.max_energy,
+            strength=main.strength,
+            agility=main.agility,
+            intelligence=main.intelligence,
+            endurance=main.endurance,
+            charm=main.charm,
+            luck=main.luck,
+            current_hp=main.current_hp,
+            max_hp=main.max_hp,
+        )
+    )
+
+
+@router.delete("/profile/main-waifu", status_code=status.HTTP_204_NO_CONTENT, tags=["profile"])
+async def delete_main_waifu(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    main = await session.scalar(select(m.MainWaifu).where(m.MainWaifu.player_id == player_id))
+    if main:
+        await session.delete(main)
+        await session.commit()
+    return None
 
 
 @router.get("/waifu/acts/current", tags=["acts"])

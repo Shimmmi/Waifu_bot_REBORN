@@ -8,7 +8,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
-  <body onload="WaifuApp.initPage('caravan')">
+  <body onload="WaifuApp.initPage('caravan'); WaifuApp.bootstrapPage('caravan');">
     <header>
       <div class="topbar">
         <div class="badge">Текущий акт: <strong>1</strong></div>
@@ -23,11 +23,31 @@
       </section>
     </main>
 
-    <nav class="nav">
-      <a href="./index.html" data-page="town">Город</a>
-      <a href="./shop.html" data-page="shop">Магазин</a>
-      <a href="./tavern.html" data-page="tavern">Таверна</a>
-      <a href="./guild_hall.html" data-page="guild">Гильдия</a>
+    <nav class="nav basement">
+      <a href="./index.html" data-page="town" title="Город">
+        <span aria-hidden="true">🏠</span>
+      </a>
+      <a href="./shop.html" data-page="shop" title="Магазин">
+        <span aria-hidden="true">🏪</span>
+      </a>
+      <a href="./tavern.html" data-page="tavern" title="Таверна">
+        <span aria-hidden="true">🍻</span>
+      </a>
+      <a href="./caravan.html" data-page="caravan" title="Караван">
+        <span aria-hidden="true">🐫</span>
+      </a>
+      <a href="./guild_hall.html" data-page="guild" title="Гильдия">
+        <span aria-hidden="true">🏛️</span>
+      </a>
+      <a href="./training_hall.html" data-page="training" title="Тренировочный зал">
+        <span aria-hidden="true">💪</span>
+      </a>
+      <a href="./mail.html" data-page="mail" title="Почта">
+        <span aria-hidden="true">📮</span>
+      </a>
+      <a href="./settings.html" data-page="settings" title="Настройки">
+        <span aria-hidden="true">⚙️</span>
+      </a>
     </nav>
   </body>
 </html>

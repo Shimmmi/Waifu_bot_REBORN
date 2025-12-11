@@ -8,67 +8,88 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
-  <body onload="WaifuApp.initPage('town'); WaifuApp.loadProfile().catch(console.error);">
-    <header>
-      <div class="topbar">
-        <div class="badge">Акт: <strong id="badge-act">—</strong></div>
-        <div class="badge">Золото: <strong id="badge-gold">—</strong></div>
-        <div class="badge">Энергия: <strong id="badge-energy">—</strong></div>
-        <div class="badge">Данж: <strong>нет</strong></div>
-      </div>
-    </header>
+  <body onload="WaifuApp.initPage('town'); WaifuApp.bootstrapPage('town');">
+    <div class="screen">
+      <header class="attic">
+        <div class="attic-row">
+          <a class="portrait-block portrait-link" href="./profile.html" data-page="profile" title="Профиль вайфу" role="button">
+            <div class="portrait" aria-hidden="true">👤</div>
+            <div class="attic-name" id="waifu-name">—</div>
+          </a>
+          <div class="chip">
+            <span aria-hidden="true">👤</span>
+            <span>Lvl <strong id="badge-level">1</strong></span>
+          </div>
+          <div class="chip">
+            <span aria-hidden="true">⚡</span>
+            <span id="badge-energy">100/100</span>
+          </div>
+          <div class="chip">
+            <span aria-hidden="true">🏰</span>
+            <span id="badge-dungeon">Д-3 🔶</span>
+          </div>
+          <div class="chip">
+            <span aria-hidden="true">👣</span>
+            <span id="badge-expedition">⏳2h</span>
+          </div>
+          <div class="chip">
+            <span aria-hidden="true">🪙</span>
+            <span id="badge-gold">0</span>
+          </div>
+          <div class="chip chip-ghost" title="Уведомления">
+            <span aria-hidden="true">🔔</span>
+            <span id="badge-notifications">3</span>
+          </div>
+        </div>
+      </header>
 
-    <main class="layout">
-      <div class="banner">
-        Добро пожаловать в город. Выберите здание, чтобы перейти к соответствующему экрану.
-      </div>
+      <main class="city">
+        <div class="city-hero">
+          <div class="city-top">
+            <div>
+              <div class="muted tiny">Текущий акт</div>
+              <div class="city-title">Город акта <span id="city-act">—</span></div>
+            </div>
+            <div class="pill">Городской экран</div>
+          </div>
 
-      <section class="cards" style="margin-top: 16px">
-        <a class="card" href="./shop.html">
-          <h3>Магазин</h3>
-          <p>Ассортимент 3×3, покупка/продажа и gamble.</p>
-        </a>
-        <a class="card" href="./tavern.html">
-          <h3>Таверна</h3>
-          <p>Найм наёмных вайфу и управление отрядом.</p>
-        </a>
-        <a class="card" href="./caravan.html">
-          <h3>Караван</h3>
-          <p>Переход между актами и выбор маршрута.</p>
-        </a>
-        <a class="card" href="./guild_hall.html">
-          <h3>Гильдия</h3>
-          <p>Создание/поиск гильдии, банк, чат, управление.</p>
-        </a>
-        <a class="card" href="./training_hall.html">
-          <h3>Тренировочный зал</h3>
-          <p>Пассивные навыки и их прокачка по актам.</p>
-        </a>
-        <a class="card" href="./profile.html">
-          <h3>Профиль вайфу</h3>
-          <p>Статы, экипировка, навыки основной вайфу.</p>
-        </a>
-        <a class="card" href="./mail.html">
-          <h3>Почта</h3>
-          <p>Письма, награды, уведомления.</p>
-        </a>
-        <a class="card" href="./settings.html">
-          <h3>Настройки</h3>
-          <p>Звук, язык, выход, помощь.</p>
-        </a>
-      </section>
+          <div class="city-bg">
+            <div class="city-overlay">
+              <div class="city-hint">Фоновое изображение</div>
+            </div>
+          </div>
 
-      <section class="section">
-        <div class="placeholder">Здесь будет фон города и интерактивные кнопки зданий по ТЗ.</div>
-      </section>
-    </main>
+          <div class="city-placeholder muted">Доступ к зданиям в нижней панели.</div>
+        </div>
+      </main>
 
-    <nav class="nav">
-      <a href="./index.html" data-page="town">Город</a>
-      <a href="./shop.html" data-page="shop">Магазин</a>
-      <a href="./tavern.html" data-page="tavern">Таверна</a>
-      <a href="./guild_hall.html" data-page="guild">Гильдия</a>
-    </nav>
+      <nav class="nav basement">
+        <a href="./index.html" data-page="town" title="Город">
+          <span aria-hidden="true">🏠</span>
+        </a>
+        <a href="./shop.html" data-page="shop" title="Магазин">
+          <span aria-hidden="true">🏪</span>
+        </a>
+        <a href="./tavern.html" data-page="tavern" title="Таверна">
+          <span aria-hidden="true">🍻</span>
+        </a>
+        <a href="./caravan.html" data-page="caravan" title="Караван">
+          <span aria-hidden="true">🐫</span>
+        </a>
+        <a href="./guild_hall.html" data-page="guild" title="Гильдия">
+          <span aria-hidden="true">🏛️</span>
+        </a>
+        <a href="./training_hall.html" data-page="training" title="Тренировочный зал">
+          <span aria-hidden="true">💪</span>
+        </a>
+        <a href="./mail.html" data-page="mail" title="Почта">
+          <span aria-hidden="true">📮</span>
+        </a>
+        <a href="./settings.html" data-page="settings" title="Настройки">
+          <span aria-hidden="true">⚙️</span>
+        </a>
+      </nav>
+    </div>
   </body>
 </html>
 

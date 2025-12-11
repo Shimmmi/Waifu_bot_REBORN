@@ -199,9 +199,35 @@ class MainWaifuProfile(BaseModel):
         populate_by_name = True
 
 
+class MainWaifuDetails(BaseModel):
+    hp_current: int
+    hp_max: int
+    melee_damage: int
+    ranged_damage: int
+    magic_damage: int
+    crit_chance: float
+    defense: int
+    merchant_discount: float
+
+
 class ProfileResponse(BaseModel):
     player_id: int
     act: int
     gold: int
     main_waifu: Optional[MainWaifuProfile] = None
+    main_waifu_details: Optional[MainWaifuDetails] = None
+
+
+class MainWaifuCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    race: int
+    class_: int = Field(alias="class")
+
+    class Config:
+        populate_by_name = True
+
+
+class MainWaifuCreateResponse(BaseModel):
+    success: bool = True
+    main_waifu: MainWaifuProfile
 

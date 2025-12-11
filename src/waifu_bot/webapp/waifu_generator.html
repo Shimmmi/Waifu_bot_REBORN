@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Создание вайфу</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body onload="WaifuApp.initPage('waifu_generator'); WaifuApp.bootstrapPage('waifu_generator', WaifuApp.initWaifuGenerator);">
+    <header class="attic">
+      <div class="attic-row">
+        <div class="chip chip-ghost">
+          <span aria-hidden="true">✨</span>
+          <span>Создание основной вайфу</span>
+        </div>
+        <div class="chip">
+          <span aria-hidden="true">📜</span>
+          <span>Шаг 1/1</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="section">
+        <h3>Параметры</h3>
+        <div class="form-grid">
+          <label class="form-field">
+            <div class="muted tiny">Имя</div>
+            <input id="waifu-name-input" type="text" maxlength="30" placeholder="Имя вайфу" />
+          </label>
+          <label class="form-field">
+            <div class="muted tiny">Класс</div>
+            <select id="waifu-class-select"></select>
+          </label>
+          <label class="form-field">
+            <div class="muted tiny">Раса</div>
+            <select id="waifu-race-select"></select>
+          </label>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <div>
+            <h3>Стартовые характеристики</h3>
+            <div class="muted tiny">База 10 + бонусы расы и класса</div>
+          </div>
+          <div class="chip" id="waifu-summary">—</div>
+        </div>
+        <div id="waifu-stats" class="stats-grid"></div>
+      </section>
+
+      <section class="section">
+        <h3>Стартовый набор</h3>
+        <div id="waifu-start-kit" class="list placeholder" style="text-align:left"></div>
+      </section>
+    </main>
+
+    <div class="sticky-action">
+      <button id="waifu-create-btn" class="primary" disabled onclick="WaifuApp.submitWaifuCreation()">Создать</button>
+      <div id="waifu-create-error" class="muted tiny"></div>
+    </div>
+  </body>
+</html>
+

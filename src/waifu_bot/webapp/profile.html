@@ -8,39 +8,122 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
-  <body onload="WaifuApp.initPage('profile')">
+  <body onload="WaifuApp.initPage('profile'); WaifuApp.bootstrapPage('profile', WaifuApp.populateProfile);">
     <header>
       <div class="topbar">
-        <div class="badge">Имя: <strong>—</strong></div>
-        <div class="badge">Класс / Раса: <strong>—</strong></div>
-        <div class="badge">Уровень: <strong>—</strong></div>
-        <div class="badge">Энергия: <strong>—</strong></div>
+        <div class="badge">Имя: <strong id="profile-name">—</strong></div>
+        <div class="badge">Класс / Раса: <strong id="profile-class-race">—</strong></div>
+        <div class="badge">Уровень: <strong id="profile-level">—</strong></div>
+        <div class="badge">Энергия: <strong id="profile-energy">—</strong></div>
       </div>
     </header>
 
     <main class="layout">
-      <section class="grid-2">
-        <div class="section">
-          <h3>Статы</h3>
-          <div class="placeholder">СИЛ / ЛОВ / ИНТ / ВЫН / ОБА / УДЧ и производные (HP, урон, крит, уклон).</div>
-        </div>
-        <div class="section">
-          <h3>Экипировка</h3>
-          <div class="placeholder">Слоты: оружие, шлем, броня, перчатки, ботинки, кольца, амулет.</div>
+      <div class="tabs">
+        <button class="tab active" data-tab="profile" onclick="WaifuApp.switchProfileTab('profile')">Профиль</button>
+        <button class="tab" data-tab="inventory" onclick="WaifuApp.switchProfileTab('inventory')">Инвентарь</button>
+        <button class="tab" data-tab="details" onclick="WaifuApp.switchProfileTab('details')">Подробная информация</button>
+      </div>
+
+      <section id="tab-profile" class="tab-panel active">
+        <div class="grid-2">
+          <div class="section">
+            <h3>Портрет</h3>
+            <div class="portrait-3x4">👤</div>
+          </div>
+          <div class="section">
+            <h3>Кратко</h3>
+            <div id="profile-stats-compact" class="stats-grid"></div>
+            <div class="stat-card" style="margin-top:10px;">
+              <span class="muted">HP</span>
+              <strong id="profile-hp">—</strong>
+            </div>
+            <div class="placeholder">Краткие навыки / пассивки будут добавлены.</div>
+          </div>
         </div>
       </section>
 
-      <section class="section">
-        <h3>Навыки</h3>
-        <div class="placeholder">Активные/пассивные с кулдаунами и затратой энергии.</div>
+      <section id="tab-inventory" class="tab-panel">
+        <div class="grid-2">
+          <div class="section">
+            <h3>Экипировка</h3>
+            <div id="profile-gear" class="slots-grid"></div>
+          </div>
+          <div class="section">
+            <h3>Инвентарь</h3>
+            <div class="placeholder">Список предметов инвентаря, фильтры и действия по экипировке появятся после готовности API.</div>
+          </div>
+        </div>
       </section>
+
+      <section id="tab-details" class="tab-panel">
+        <div class="section">
+          <h3>Характеристики</h3>
+          <div id="profile-stats" class="stats-grid"></div>
+          <div class="stat-card" style="margin-top:10px;">
+            <span class="muted">HP</span>
+            <strong id="profile-hp-details">—</strong>
+          </div>
+          <div class="details-grid">
+            <div class="detail-row">
+              <span class="muted">Урон ближ.</span>
+              <strong id="profile-dmg-melee">—</strong>
+            </div>
+            <div class="detail-row">
+              <span class="muted">Урон дальн.</span>
+              <strong id="profile-dmg-ranged">—</strong>
+            </div>
+            <div class="detail-row">
+              <span class="muted">Урон маг.</span>
+              <strong id="profile-dmg-magic">—</strong>
+            </div>
+            <div class="detail-row">
+              <span class="muted">Шанс крита</span>
+              <strong id="profile-crit-chance">—</strong>
+            </div>
+            <div class="detail-row">
+              <span class="muted">Защита</span>
+              <strong id="profile-defense">—</strong>
+            </div>
+            <div class="detail-row">
+              <span class="muted">Скидка у торговцев</span>
+              <strong id="profile-merchant-discount">—</strong>
+            </div>
+          </div>
+          <div class="placeholder">Поля заполнятся, как только API вернёт агрегированные значения.</div>
+        </div>
+      </section>
+
+      <div class="section" style="display:flex; justify-content:flex-end; margin-top:16px;">
+        <button class="secondary danger" onclick="WaifuApp.resetMainWaifu()">♻️ Сбросить вайфу</button>
+      </div>
     </main>
 
-    <nav class="nav">
-      <a href="./index.html" data-page="town">Город</a>
-      <a href="./shop.html" data-page="shop">Магазин</a>
-      <a href="./tavern.html" data-page="tavern">Таверна</a>
-      <a href="./guild_hall.html" data-page="guild">Гильдия</a>
+    <nav class="nav basement">
+      <a href="./index.html" data-page="town" title="Город">
+        <span aria-hidden="true">🏠</span>
+      </a>
+      <a href="./shop.html" data-page="shop" title="Магазин">
+        <span aria-hidden="true">🏪</span>
+      </a>
+      <a href="./tavern.html" data-page="tavern" title="Таверна">
+        <span aria-hidden="true">🍻</span>
+      </a>
+      <a href="./caravan.html" data-page="caravan" title="Караван">
+        <span aria-hidden="true">🐫</span>
+      </a>
+      <a href="./guild_hall.html" data-page="guild" title="Гильдия">
+        <span aria-hidden="true">🏛️</span>
+      </a>
+      <a href="./training_hall.html" data-page="training" title="Тренировочный зал">
+        <span aria-hidden="true">💪</span>
+      </a>
+      <a href="./mail.html" data-page="mail" title="Почта">
+        <span aria-hidden="true">📮</span>
+      </a>
+      <a href="./settings.html" data-page="settings" title="Настройки">
+        <span aria-hidden="true">⚙️</span>
+      </a>
     </nav>
   </body>
 </html>
