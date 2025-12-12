@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     CheckConstraint,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from waifu_bot.db.base import Base
@@ -95,6 +96,18 @@ class InventoryItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     player_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("players.id"))
     item_id: Mapped[int] = mapped_column(Integer, ForeignKey("items.id"))
+    rarity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_legendary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    damage_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    damage_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attack_speed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attack_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    weapon_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    base_stat: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    base_stat_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    requirements: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Equipment slot (if equipped)
     # 0 = not equipped, 1-6 = equipment slot
@@ -103,6 +116,12 @@ class InventoryItem(Base):
     # Relationships
     player: Mapped["Player"] = relationship("Player", back_populates="inventory_items")
     item: Mapped["Item"] = relationship("Item")
+    affixes: Mapped[list["InventoryAffix"]] = relationship(
+        "InventoryAffix",
+        back_populates="inventory_item",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
@@ -114,4 +133,95 @@ class InventoryItem(Base):
             name="check_equipment_slot",
         ),
     )
+
+
+class ItemTemplate(Base):
+    """Base item template (for generation)."""
+
+    __tablename__ = "item_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slot_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    attack_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    weapon_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    base_tier: Mapped[int] = mapped_column(Integer, nullable=False)
+    base_level: Mapped[int] = mapped_column(Integer, nullable=False)
+    base_damage_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    base_damage_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    base_attack_speed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    base_stat: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    base_stat_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    base_rarity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    requirements: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class Affix(Base):
+    """Affix/suffix definition."""
+
+    __tablename__ = "affixes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # affix/suffix
+    stat: Mapped[str] = mapped_column(String(64), nullable=False)
+    value_min: Mapped[int] = mapped_column(Integer, nullable=False)
+    value_max: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_percent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    tier: Mapped[int] = mapped_column(Integer, nullable=False)
+    min_level: Mapped[int] = mapped_column(Integer, nullable=False)
+    applies_to: Mapped[list[str]] = mapped_column(ARRAY(String(32)), nullable=False)
+    weight: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class InventoryAffix(Base):
+    """Affix rolled on specific inventory item."""
+
+    __tablename__ = "inventory_affixes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    inventory_item_id: Mapped[int] = mapped_column(Integer, ForeignKey("inventory_items.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    stat: Mapped[str] = mapped_column(String(64), nullable=False)
+    value: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_percent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # affix/suffix
+    tier: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+    inventory_item: Mapped["InventoryItem"] = relationship("InventoryItem", back_populates="affixes")
+
+
+class ShopOffer(Base):
+    """Daily shop offer for an act."""
+
+    __tablename__ = "shop_offers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    act: Mapped[int] = mapped_column(Integer, nullable=False)
+    slot: Mapped[int] = mapped_column(Integer, nullable=False)
+    inventory_item_id: Mapped[int] = mapped_column(Integer, ForeignKey("inventory_items.id", ondelete="CASCADE"))
+    price_base: Mapped[int] = mapped_column(Integer, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+    inventory_item: Mapped["InventoryItem"] = relationship("InventoryItem")
 

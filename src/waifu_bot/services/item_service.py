@@ -1,153 +1,158 @@
-"""Item generation and management service."""
+"""Item generation and management service (templates + affixes)."""
 import random
-from typing import Optional
+from typing import Optional, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from waifu_bot.db.models import Item, ItemRarity, ItemType
-from waifu_bot.game.drop_tables import (
-    roll_rarity,
-    roll_item_level,
-    calculate_tier,
-    generate_affixes,
-    roll_gamble_rarity,
-    ItemRarityEnum,
-)
+from waifu_bot.db import models as m
+
+
+RARITY_WEIGHTS = [
+    (1, 60),
+    (2, 25),
+    (3, 10),
+    (4, 4),
+    (5, 1),
+]
+
+AFFIX_COUNT = {
+    1: (0, 1),
+    2: (1, 2),
+    3: (2, 3),
+    4: (3, 4),
+    5: (0, 0),
+}
+
+
+def _pick_weighted(options: Sequence[tuple[int, int]]) -> int:
+    total = sum(w for _, w in options)
+    r = random.randint(1, total)
+    acc = 0
+    for val, w in options:
+        acc += w
+        if r <= acc:
+            return val
+    return options[-1][0]
+
+
+def _tier_from_level(level: int) -> int:
+    return max(1, min(10, (level - 1) // 5 + 1))
+
+
+def _tier_cap_for_act(act: int) -> int:
+    return max(1, min(10, act * 2))
 
 
 class ItemService:
-    """Service for item generation and management."""
+    """Service for item generation and management (templates + affixes)."""
 
-    async def generate_item(
+    async def generate_inventory_item(
         self,
         session: AsyncSession,
+        player_id: Optional[int],
         act: int,
-        rarity: Optional[ItemRarity] = None,
+        rarity: Optional[int] = None,
         level: Optional[int] = None,
         is_shop: bool = False,
-    ) -> Item:
-        """Generate a random item for given act."""
-        # Roll rarity if not specified
-        if rarity is None:
-            rarity_enum = roll_rarity(act, is_shop=is_shop)
-            rarity = ItemRarity(rarity_enum.value)
+    ) -> m.InventoryItem:
+        rarity = rarity or _pick_weighted(RARITY_WEIGHTS)
+        level = level or max(1, _tier_cap_for_act(act) * 5 - 4 + random.randint(0, 4))
+        tier = _tier_from_level(level)
+        tier_cap = _tier_cap_for_act(act)
 
-        # Roll level if not specified
-        if level is None:
-            level = roll_item_level(act, ItemRarityEnum(rarity.value))
+        template = await self._pick_template(session, tier_cap)
+        if not template:
+            raise RuntimeError("No item templates available for generation")
 
-        tier = calculate_tier(level)
-
-        # Generate item properties
-        item_type = self._roll_item_type()
-        damage = self._generate_damage(item_type, tier) if item_type in [ItemType.WEAPON_1, ItemType.WEAPON_2] else None
-        attack_speed = random.randint(1, 10) if damage else None
-        weapon_type = self._roll_weapon_type() if damage else None
-        attack_type = self._roll_attack_type(weapon_type) if weapon_type else None
-
-        # Generate affixes
-        affixes = generate_affixes(tier, ItemRarityEnum(rarity.value))
-
-        # Calculate base value
-        base_value = self._calculate_base_value(rarity, tier, level, damage)
-
-        item = Item(
-            name=self._generate_item_name(rarity, item_type, tier),
-            description=f"Item of {rarity.name} quality",
-            rarity=rarity.value,
+        inv = m.InventoryItem(
+            player_id=player_id,
+            item_id=None,
+            rarity=rarity,
             tier=tier,
             level=level,
-            item_type=item_type.value,
-            damage=damage,
-            attack_speed=attack_speed,
-            weapon_type=weapon_type,
-            attack_type=attack_type,
-            required_level=level,
-            affixes=affixes if affixes else None,
-            base_value=base_value,
             is_legendary=False,
+            damage_min=template.base_damage_min,
+            damage_max=template.base_damage_max,
+            attack_speed=template.base_attack_speed,
+            attack_type=template.attack_type,
+            weapon_type=template.weapon_type,
+            base_stat=template.base_stat,
+            base_stat_value=template.base_stat_value,
+            requirements=template.requirements,
+            affixes=[],
         )
-
-        session.add(item)
+        session.add(inv)
         await session.flush()
-        return item
 
-    async def generate_gamble_item(
-        self,
-        session: AsyncSession,
-        act: int,
-        player_level: int,
-    ) -> Item:
-        """Generate item for gamble (Uncommon to Epic)."""
-        rarity_enum = roll_gamble_rarity()
-        rarity = ItemRarity(rarity_enum.value)
+        min_a, max_a = AFFIX_COUNT.get(rarity, (0, 0))
+        count = random.randint(min_a, max_a)
+        candidates = await self._get_affix_candidates(session, template, level, tier_cap)
+        rolled = random.sample(candidates, k=min(count, len(candidates))) if candidates else []
 
-        # Level based on player level and act
-        level = roll_item_level(act, rarity_enum)
-        # Ensure level doesn't exceed player level too much
-        level = min(level, player_level + 5)
+        dmg_flat = 0
+        dmg_pct = 0
+        for aff in rolled:
+            val = random.randint(aff.value_min, aff.value_max)
+            inv.affixes.append(
+                m.InventoryAffix(
+                    inventory_item_id=inv.id,
+                    name=aff.name,
+                    stat=aff.stat,
+                    value=str(val),
+                    is_percent=aff.is_percent,
+                    kind=aff.kind,
+                    tier=aff.tier,
+                )
+            )
+            if aff.stat == "damage_flat":
+                dmg_flat += val
+            if aff.stat == "damage_pct":
+                dmg_pct += val
 
-        return await self.generate_item(session, act, rarity=rarity, level=level, is_shop=False)
+        if inv.damage_min is not None:
+            inv.damage_min = int((inv.damage_min + dmg_flat) * (1 + dmg_pct / 100))
+        if inv.damage_max is not None:
+            inv.damage_max = int((inv.damage_max + dmg_flat) * (1 + dmg_pct / 100))
 
-    def _roll_item_type(self) -> ItemType:
-        """Roll random item type."""
-        types = [
-            ItemType.WEAPON_1,
-            ItemType.WEAPON_2,
-            ItemType.COSTUME,
-            ItemType.RING_1,
-            ItemType.RING_2,
-            ItemType.AMULET,
-        ]
-        return random.choice(types)
+        await session.flush()
+        return inv
 
-    def _roll_weapon_type(self) -> Optional[str]:
-        """Roll weapon type."""
-        return random.choice(["melee", "ranged", "magic"])
+    async def generate_gamble_item(self, session: AsyncSession, act: int, player_level: int) -> m.InventoryItem:
+        """Generate gamble item (uncommon-epic) into inventory."""
+        rarity = _pick_weighted([(2, 60), (3, 30), (4, 10)])
+        level = max(1, min(player_level + 5, _tier_cap_for_act(act) * 5 - 4 + random.randint(0, 4)))
+        return await self.generate_inventory_item(session, player_id=player_level, act=act, rarity=rarity, level=level)
 
-    def _roll_attack_type(self, weapon_type: Optional[str]) -> Optional[str]:
-        """Roll attack type based on weapon type."""
-        if weapon_type == "melee":
-            return "melee"
-        elif weapon_type == "ranged":
-            return "ranged"
-        elif weapon_type == "magic":
-            return "spell"
-        return None
+    async def _pick_template(self, session: AsyncSession, tier_cap: int) -> Optional[m.ItemTemplate]:
+        res = await session.execute(
+            select(m.ItemTemplate).where(m.ItemTemplate.base_tier <= tier_cap)
+        )
+        templates = res.scalars().all()
+        if not templates:
+            return None
+        return random.choice(templates)
 
-    def _generate_damage(self, item_type: ItemType, tier: int) -> int:
-        """Generate weapon damage based on tier."""
-        base_damage = 10 + (tier * 5)
-        variance = random.randint(-2, 2)
-        return max(1, base_damage + variance)
-
-    def _generate_item_name(self, rarity: ItemRarity, item_type: ItemType, tier: int) -> str:
-        """Generate item name."""
-        rarity_names = {
-            ItemRarity.COMMON: "Common",
-            ItemRarity.UNCOMMON: "Uncommon",
-            ItemRarity.RARE: "Rare",
-            ItemRarity.EPIC: "Epic",
-            ItemRarity.LEGENDARY: "Legendary",
-        }
-        type_names = {
-            ItemType.WEAPON_1: "Sword",
-            ItemType.WEAPON_2: "Dagger",
-            ItemType.COSTUME: "Armor",
-            ItemType.RING_1: "Ring",
-            ItemType.RING_2: "Ring",
-            ItemType.AMULET: "Amulet",
-        }
-        return f"{rarity_names[rarity]} {type_names[item_type]} T{tier}"
-
-    def _calculate_base_value(self, rarity: ItemRarity, tier: int, level: int, damage: Optional[int]) -> int:
-        """Calculate base item value for shop."""
-        base = 100
-        rarity_mult = {ItemRarity.COMMON: 1, ItemRarity.UNCOMMON: 2, ItemRarity.RARE: 5, ItemRarity.EPIC: 10, ItemRarity.LEGENDARY: 50}
-        tier_mult = tier
-        level_mult = level // 5 + 1
-        damage_mult = (damage // 10) if damage else 1
-
-        return int(base * rarity_mult.get(rarity, 1) * tier_mult * level_mult * damage_mult)
+    async def _get_affix_candidates(
+        self, session: AsyncSession, template: m.ItemTemplate, level: int, tier_cap: int
+    ) -> list[m.Affix]:
+        tags = {"any", template.slot_type}
+        if template.attack_type:
+            tags.add(template.attack_type)
+        if template.weapon_type:
+            tags.add(template.weapon_type)
+        res = await session.execute(
+            select(m.Affix).where(
+                m.Affix.tier <= tier_cap,
+                m.Affix.min_level <= level,
+            )
+        )
+        affixes = []
+        for aff in res.scalars().all():
+            applies = aff.applies_to or []
+            if isinstance(applies, dict):
+                applies = applies.get("tags", [])
+            if "any" in applies or tags.intersection(applies):
+                affixes.append(aff)
+        return affixes
 

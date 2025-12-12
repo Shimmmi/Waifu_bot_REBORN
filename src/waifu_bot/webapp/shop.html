@@ -9,29 +9,85 @@
     <script defer src="./app.js"></script>
   </head>
   <body onload="WaifuApp.initPage('shop'); WaifuApp.bootstrapPage('shop',(p)=>WaifuApp.loadShop(p.act));">
-    <header>
+    <header class="attic">
       <div class="topbar">
         <div class="badge">Золото: <strong id="badge-gold">—</strong></div>
+        <div class="badge">Магазин</div>
         <div class="badge">Акт: <strong id="badge-act">—</strong></div>
-        <div class="badge">Трейдер: <span class="tag">ассортимент 3×3</span></div>
+        <div class="badge admin-only" id="shop-refresh" style="display:none;">
+          <button class="secondary" onclick="WaifuApp.refreshShop()">Обновить ассортимент</button>
+        </div>
+        <a class="chip link-chip" href="./index.html" title="Назад в город">🏠 Назад</a>
       </div>
     </header>
 
     <main class="layout">
       <section class="section">
-        <h3>Ассортимент</h3>
-        <div id="shop-items" class="list placeholder" style="text-align: left"></div>
+        <div class="shop-hero">
+          <div class="shop-bg">
+            <div class="shop-merchant">
+              <div class="shop-merchant-img" id="shop-merchant-img">🧙‍♂️</div>
+              <div class="shop-hint" id="shop-hint" style="display:none;">—</div>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section class="section">
-        <h3>Продажа</h3>
-        <div class="placeholder">Инвентарь игрока с фильтрами и мультивыбором.</div>
+      <div class="tabs">
+        <button class="tab active" data-tab="buy" onclick="WaifuApp.switchShopTab('buy')">Купить</button>
+        <button class="tab" data-tab="sell" onclick="WaifuApp.switchShopTab('sell')">Продать</button>
+        <button class="tab" data-tab="gamble" onclick="WaifuApp.switchShopTab('gamble')">🎲 Gamble</button>
+      </div>
+
+      <section id="tab-buy" class="tab-panel active">
+        <div class="section">
+          <h3>Ассортимент</h3>
+          <div id="shop-items" class="grid-3 placeholder">Загрузка...</div>
+          <div id="shop-modal" class="modal" style="display:none;">
+            <div class="modal-content">
+              <div class="modal-head">
+                <div>
+                  <div class="muted tiny" id="shop-modal-rarity">—</div>
+                  <div class="modal-title" id="shop-modal-name">—</div>
+                  <div class="muted tiny" id="shop-modal-level">—</div>
+                </div>
+                <button class="secondary" onclick="WaifuApp.closeShopModal()">✖</button>
+              </div>
+              <div class="modal-body" id="shop-modal-body"></div>
+              <div class="modal-footer">
+                <div class="modal-price">
+                  <span class="muted">Цена:</span>
+                  <strong id="shop-modal-price">—</strong>
+                </div>
+                <button class="primary" id="shop-modal-buy" onclick="WaifuApp.confirmBuy()">Купить</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section class="section">
-        <h3>Gamble</h3>
-        <p class="muted">Случайный предмет от Uncommon до Epic. Цена зависит от уровня.</p>
-        <div class="placeholder">Кнопка gamble и всплывающее окно результата.</div>
+      <section id="tab-sell" class="tab-panel">
+        <div class="section">
+          <h3>Продажа</h3>
+          <div id="sell-inventory" class="grid-3 placeholder">Загрузка...</div>
+          <div style="margin-top:10px; display:flex; gap:10px; align-items:center;">
+            <button class="primary" onclick="WaifuApp.sellSelected()">Продать выбранные</button>
+            <div class="muted tiny" id="sell-result">—</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-gamble" class="tab-panel">
+        <div class="section">
+          <h3>Gamble</h3>
+          <p class="muted">Случайный предмет от Uncommon до Epic. Цена зависит от уровня (до 10000).</p>
+          <button class="primary" onclick="WaifuApp.gambleShop()">Купить случайный предмет</button>
+          <div id="shop-gamble-result" class="placeholder" style="margin-top:10px;">—</div>
+        </div>
+      </section>
+
+      <section class="section" style="margin-bottom:80px;">
+        <button class="secondary" onclick="WaifuApp.refreshShopDebug()">🔄 Обновить магазин (debug)</button>
       </section>
     </main>
 

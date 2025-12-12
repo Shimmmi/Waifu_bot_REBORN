@@ -21,8 +21,12 @@ class ItemOut(BaseModel):
 
 
 class ShopInventoryResponse(BaseModel):
-    items: List[ItemOut]
+    items: List[dict]
     count: int
+
+
+class InventorySellRequest(BaseModel):
+    inventory_item_ids: List[int]
 
 
 class BuySellResponse(BaseModel):
@@ -31,6 +35,9 @@ class BuySellResponse(BaseModel):
     price_paid: Optional[int] = None
     price_received: Optional[int] = None
     gold_remaining: int
+    error: Optional[str] = None
+    required: Optional[int] = None
+    have: Optional[int] = None
     error: Optional[str] = None
     required: Optional[int] = None
     have: Optional[int] = None
@@ -54,6 +61,11 @@ class TavernActionResponse(BaseModel):
     gold_remaining: Optional[int] = None
     slot: Optional[int] = None
     error: Optional[str] = None
+
+
+class TavernListResponse(BaseModel):
+    waifus: List["HiredWaifuOut"]
+    count: int
 
 
 class DungeonListResponse(BaseModel):
@@ -210,12 +222,37 @@ class MainWaifuDetails(BaseModel):
     merchant_discount: float
 
 
+class AffixOut(BaseModel):
+    name: str
+    stat: Optional[str] = None
+    value: str | int | float
+
+
+class GearItemOut(BaseModel):
+    slot: str
+    name: str
+    rarity: int
+    level: Optional[int] = None
+    tier: Optional[int] = None
+    damage_min: Optional[int] = None
+    damage_max: Optional[int] = None
+    attack_speed: Optional[int] = None
+    attack_type: Optional[str] = None
+    weapon_type: Optional[str] = None
+    base_stat: Optional[str] = None
+    base_stat_value: Optional[int] = None
+    is_legendary: bool = False
+    requirements: Optional[dict] = None
+    affixes: List[AffixOut] = []
+
+
 class ProfileResponse(BaseModel):
     player_id: int
     act: int
     gold: int
     main_waifu: Optional[MainWaifuProfile] = None
     main_waifu_details: Optional[MainWaifuDetails] = None
+    equipment: List[GearItemOut] = []
 
 
 class MainWaifuCreateRequest(BaseModel):

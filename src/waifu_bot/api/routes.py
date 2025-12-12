@@ -19,10 +19,12 @@ from waifu_bot.services.skills import SkillService
 from waifu_bot.services.tavern import TavernService
 from waifu_bot.services.webhook import process_update
 from waifu_bot.services import sse as sse_service
+from waifu_bot.api.inventory_routes import router as inventory_router
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+router.include_router(inventory_router)
 
 BASE_STATS = {
     "strength": 10,
@@ -91,6 +93,46 @@ def _compute_details(main: m.MainWaifu) -> dict:
     }
 
 
+SLOT_MAP = {
+    1: "weapon_1",
+    2: "weapon_2",
+    3: "costume",
+    4: "ring_1",
+    5: "ring_2",
+    6: "amulet",
+}
+
+
+def _to_gear_item(inv: m.InventoryItem) -> schemas.GearItemOut:
+    slot = SLOT_MAP.get(inv.equipment_slot or 0, "inventory")
+    affixes = [
+        schemas.AffixOut(
+            name=a.name,
+            stat=a.stat,
+            value=a.value,
+        )
+        for a in (inv.affixes or [])
+    ]
+    name = inv.item.name if inv.item else "Предмет"
+    return schemas.GearItemOut(
+        slot=slot,
+        name=name,
+        rarity=inv.rarity or (inv.item.rarity if inv.item else 1),
+        level=inv.level or (inv.item.level if inv.item else None),
+        tier=inv.tier or (inv.item.tier if inv.item else None),
+        damage_min=inv.damage_min,
+        damage_max=inv.damage_max,
+        attack_speed=inv.attack_speed,
+        attack_type=inv.attack_type,
+        weapon_type=inv.weapon_type,
+        base_stat=inv.base_stat,
+        base_stat_value=inv.base_stat_value,
+        is_legendary=inv.is_legendary,
+        requirements=inv.requirements,
+        affixes=affixes,
+    )
+
+
 def verify_webhook_secret(
     x_webhook_secret: Optional[str] = Header(None, alias="X-Webhook-Secret"),
     tg_secret: Optional[str] = Header(None, alias="X-Telegram-Bot-Api-Secret-Token"),
@@ -150,6 +192,7 @@ async def get_profile(
     main_waifu = player.main_waifu
     main_payload = None
     main_details = None
+    equipment_payload: list[schemas.GearItemOut] = []
     if main_waifu:
         main_payload = schemas.MainWaifuProfile(
             id=main_waifu.id,
@@ -170,13 +213,84 @@ async def get_profile(
             max_hp=main_waifu.max_hp,
         )
         main_details = schemas.MainWaifuDetails(**_compute_details(main_waifu))
+        inv_items = await session.execute(
+            select(m.InventoryItem)
+            .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+            .where(m.InventoryItem.player_id == player_id, m.InventoryItem.equipment_slot.isnot(None))
+        )
+        equipment_payload = [_to_gear_item(inv) for inv in inv_items.scalars().all()]
     return schemas.ProfileResponse(
         player_id=player.id,
         act=player.current_act,
         gold=player.gold,
         main_waifu=main_payload,
         main_waifu_details=main_details,
+        equipment=equipment_payload,
     )
+
+
+@router.get("/waifu/equipment", tags=["equipment"])
+async def get_equipment(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    inv_items = await session.execute(
+        select(m.InventoryItem)
+        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+        .where(m.InventoryItem.player_id == player_id)
+    )
+    items = inv_items.scalars().all()
+    equipped = [_to_gear_item(i) for i in items if i.equipment_slot]
+    inventory = [_to_gear_item(i) for i in items if not i.equipment_slot]
+    return {"equipped": equipped, "inventory": inventory}
+
+
+@router.post("/waifu/equipment/equip", tags=["equipment"])
+async def equip_item(
+    inventory_item_id: int,
+    slot: int = Query(..., ge=1, le=6),
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    inv = await session.get(m.InventoryItem, inventory_item_id, options=[selectinload(m.InventoryItem.item)])
+    if not inv or inv.player_id != player_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item not found")
+
+    # Simple requirement check: level requirement
+    req_level = inv.requirements.get("level") if inv.requirements else None
+    if req_level:
+        player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
+        if not player or not player.main_waifu or player.main_waifu.level < req_level:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="requirements not met")
+
+    # Clear existing item in slot
+    existing = await session.execute(
+        select(m.InventoryItem).where(
+            m.InventoryItem.player_id == player_id,
+            m.InventoryItem.equipment_slot == slot,
+        )
+    )
+    for it in existing.scalars().all():
+        it.equipment_slot = None
+
+    inv.equipment_slot = slot
+    await session.commit()
+    await session.refresh(inv)
+    return _to_gear_item(inv)
+
+
+@router.post("/waifu/equipment/unequip", tags=["equipment"])
+async def unequip_item(
+    inventory_item_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    inv = await session.get(m.InventoryItem, inventory_item_id)
+    if not inv or inv.player_id != player_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item not found")
+    inv.equipment_slot = None
+    await session.commit()
+    return {"success": True}
 
 
 @router.post("/profile/main-waifu", response_model=schemas.MainWaifuCreateResponse, tags=["profile"])
@@ -286,24 +400,34 @@ shop_service = ShopService()
 @router.get("/shop/inventory", tags=["shop"])
 async def get_shop_inventory(
     act: int = Query(..., ge=1, le=5),
+    player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    items = await shop_service.get_shop_inventory(session, act)
-    return schemas.ShopInventoryResponse(items=[_to_item(item) for item in items], count=len(items))
+    waifu = await session.scalar(select(m.MainWaifu).where(m.MainWaifu.player_id == player_id))
+    charm = waifu.charm if waifu else None
+    items = await shop_service.get_shop_inventory(session, act, charm=charm)
+    return schemas.ShopInventoryResponse(items=items, count=len(items))
 
 
 @router.post("/shop/buy", tags=["shop"])
 async def buy_item(
-    item_id: int,
+    act: int = Query(..., ge=1, le=5),
+    slot: int = Query(..., ge=1, le=9),
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    result = await shop_service.buy_item(session, player_id, item_id)
-    if result.get("item_id"):
-        item = await session.get(m.Item, result["item_id"])
-        if item:
-            result["item"] = _to_item(item)
-    return schemas.BuySellResponse(**result)
+    result = await shop_service.buy_item(session, player_id, act, slot)
+    if result.get("error"):
+        err = result["error"]
+        if err == "insufficient_gold":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Недостаточно золота. Нужно {result.get('required')}, у вас {result.get('have')}",
+            )
+        if err == "no_waifu":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Сначала создайте вайфу")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Оффер не найден")
+    return result
 
 
 @router.post("/shop/sell", tags=["shop"])
@@ -327,11 +451,25 @@ async def gamble(
     session: AsyncSession = Depends(get_db),
 ):
     result = await shop_service.gamble(session, player_id, act)
-    if result.get("item_id"):
-        item = await session.get(m.Item, result["item_id"])
-        if item:
-            result["item"] = _to_item(item)
-    return schemas.GambleResponse(**result)
+    return result
+
+
+@router.post("/shop/refresh", tags=["shop"])
+async def refresh_shop_inventory(
+    act: int = Query(..., ge=1, le=5),
+    session: AsyncSession = Depends(get_db),
+):
+    offers = await shop_service.refresh_offers(session, act)
+    return {"refreshed": len(offers)}
+
+
+@router.get("/shop/refresh", tags=["shop"])
+async def refresh_shop_inventory_get(
+    act: int = Query(..., ge=1, le=5),
+    session: AsyncSession = Depends(get_db),
+):
+    offers = await shop_service.refresh_offers(session, act)
+    return {"refreshed": len(offers)}
 
 
 # --- Tavern endpoints ---

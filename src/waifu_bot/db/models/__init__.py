@@ -7,7 +7,7 @@ from waifu_bot.db.models.waifu import (
     WaifuClass,
     WaifuRarity,
 )
-from waifu_bot.db.models.item import Item, InventoryItem, ItemRarity, ItemType
+from waifu_bot.db.models.item import Item, InventoryItem, ItemRarity, ItemType, ItemTemplate, Affix, InventoryAffix, ShopOffer
 from waifu_bot.db.models.dungeon import Dungeon, DungeonProgress, Monster
 from waifu_bot.db.models.guild import Guild, GuildMember, GuildBank
 from waifu_bot.db.models.skill import Skill, WaifuSkill, GuildSkill
@@ -24,6 +24,10 @@ __all__ = [
     "InventoryItem",
     "ItemRarity",
     "ItemType",
+    "ItemTemplate",
+    "Affix",
+    "InventoryAffix",
+    "ShopOffer",
     "Dungeon",
     "DungeonProgress",
     "Monster",

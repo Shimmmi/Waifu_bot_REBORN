@@ -197,14 +197,191 @@ async function loadShop(act) {
   const data = await apiFetch(`/shop/inventory?act=${act}`);
   const grid = document.getElementById("shop-items");
   if (!grid) return data;
+  grid.classList.remove("placeholder");
+  grid.classList.add("shop-grid");
   grid.innerHTML = "";
+  const rarityNames = { 1: "Common", 2: "Uncommon", 3: "Rare", 4: "Epic", 5: "Legendary" };
   data.items.forEach((item) => {
     const card = document.createElement("div");
-    card.className = "list-item";
-    card.innerHTML = `<strong>${item.name}</strong><br/><span class="muted">tier ${item.tier} · lvl ${item.level} · rarity ${item.rarity}</span>`;
+    const rarityClass = item.rarity === 2 ? "rarity-uncommon" : item.rarity === 3 ? "rarity-rare" : "rarity-common";
+    card.className = `item-card ${rarityClass}`;
+    card.dataset.offerId = item.offer_id;
+    card.dataset.slot = item.slot;
+    card.dataset.act = act;
+    card.addEventListener("click", () => openShopModal(item, act));
+    card.innerHTML = `
+      <div class="item-icon ${rarityClass}">🗡️</div>
+      <div class="item-level">lvl ${item.level || "-"}</div>
+    `;
     grid.appendChild(card);
   });
   return data;
+}
+function openShopModal(item, act) {
+  const modal = document.getElementById("shop-modal");
+  if (!modal) return;
+  modal.style.display = "grid";
+  document.getElementById("shop-modal-name").textContent = item.name || "Предмет";
+  const rarityShort = item.rarity === 2 ? "U" : item.rarity === 3 ? "R" : "C";
+  document.getElementById("shop-modal-rarity").textContent = `Редкость: ${rarityShort}`;
+  document.getElementById("shop-modal-level").textContent = `Уровень ${item.level || "-"}`;
+  const body = document.getElementById("shop-modal-body");
+  const dmg =
+    item.damage_min !== undefined && item.damage_max !== undefined
+      ? `Урон: ${item.damage_min}-${item.damage_max}`
+      : "";
+  const speed = item.attack_speed ? `Скорость: ${item.attack_speed}` : "";
+  const stat = item.base_stat ? `${item.base_stat}+${item.base_stat_value || 0}` : "";
+  body.innerHTML = `
+    <div class="muted tiny">${[dmg, speed, stat].filter(Boolean).join(" · ")}</div>
+    <div class="muted tiny">Тип атаки: ${item.attack_type || "-"}</div>
+    <div class="muted tiny">Тип оружия: ${item.weapon_type || "-"}</div>
+  `;
+  document.getElementById("shop-modal-price").textContent = item.price ?? "—";
+  window.__shopOfferId = item.offer_id;
+  window.__shopSlot = item.slot;
+  window.__shopAct = act;
+}
+
+function closeShopModal() {
+  const modal = document.getElementById("shop-modal");
+  if (modal) modal.style.display = "none";
+}
+
+async function confirmBuy() {
+  const act = window.__shopAct || window.__lastProfile?.act || 1;
+  const slot = window.__shopSlot || 1;
+  try {
+    const res = await apiFetch(`/shop/buy?act=${act}&slot=${slot}`, { method: "POST" });
+    if (res.error) throw new Error(res.error);
+    alert(`Куплено: ${res.item_name || "предмет"} за ${res.price_paid || "?"}.`);
+    closeShopModal();
+    await loadProfile();
+    await loadShop(act);
+    if (document.getElementById("sell-inventory")) await loadSellInventory();
+  } catch (err) {
+    console.error(err);
+    alert(err.message || "Не удалось купить предмет");
+  }
+}
+
+function switchShopTab(tab) {
+  document.querySelectorAll(".tab").forEach((el) => {
+    if (el.dataset.tab === tab) el.classList.add("active");
+    else el.classList.remove("active");
+  });
+  document.querySelectorAll(".tab-panel").forEach((panel) => {
+    if (panel.id === `tab-${tab}`) panel.classList.add("active");
+    else panel.classList.remove("active");
+  });
+  if (tab === "sell") {
+    loadSellInventory();
+  }
+}
+
+async function buyShopItem() {
+  const act = window.__lastProfile?.act || 1;
+  try {
+    await apiFetch(`/shop/buy?act=${act}&slot=1`, { method: "POST" });
+    alert("Куплено! Проверьте инвентарь.");
+  } catch (err) {
+    console.error(err);
+    alert(err.message || "Не удалось купить предмет");
+  }
+}
+
+async function gambleShop() {
+  const act = window.__lastProfile?.act || 1;
+  try {
+    const res = await apiFetch(`/shop/gamble?act=${act}`, { method: "POST" });
+    const box = document.getElementById("shop-gamble-result");
+    if (box) box.textContent = `Получено: ${res.item_name || "предмет"} (rarity ${res.item_rarity || "-"})`;
+  } catch (err) {
+    console.error(err);
+    alert(err.message || "Не удалось выполнить gamble");
+  }
+}
+
+async function refreshShopDebug() {
+  const act = window.__lastProfile?.act || 1;
+  try {
+    await apiFetch(`/shop/refresh?act=${act}`, { method: "POST" });
+    await loadShop(act);
+    alert("Ассортимент обновлён (debug).");
+  } catch (err) {
+    console.error(err);
+    alert(err.message || "Не удалось обновить магазин");
+  }
+}
+
+async function loadSellInventory() {
+  const grid = document.getElementById("sell-inventory");
+  if (!grid) return;
+  grid.innerHTML = "Загрузка...";
+  try {
+    const data = await apiFetch("/inventory");
+    window.__sellItems = data.items || [];
+    renderSellInventory();
+  } catch (err) {
+    console.error(err);
+    grid.innerHTML = "Ошибка загрузки инвентаря";
+  }
+}
+
+function renderSellInventory() {
+  const grid = document.getElementById("sell-inventory");
+  if (!grid) return;
+  grid.classList.remove("placeholder");
+  grid.innerHTML = "";
+  if (!window.__sellItems?.length) {
+    grid.innerHTML = '<div class="muted">Инвентарь пуст.</div>';
+    return;
+  }
+  const rarityNames = { 1: "Common", 2: "Uncommon", 3: "Rare", 4: "Epic", 5: "Legendary" };
+  (window.__sellItems || []).forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "list-item";
+    card.innerHTML = `
+      <label style="display:flex; gap:6px; align-items:center;">
+        <input type="checkbox" data-id="${item.id}" onchange="WaifuApp.toggleSellItem(${item.id}, this.checked)" />
+        <div>
+          <div><strong>${item.name}</strong></div>
+          <div class="muted tiny">${rarityNames[item.rarity] || "—"} · tier ${item.tier} · lvl ${item.level || "-"}</div>
+          <div class="muted tiny">${item.damage_min && item.damage_max ? `Урон: ${item.damage_min}-${item.damage_max}` : ""}</div>
+        </div>
+      </label>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function toggleSellItem(id, checked) {
+  window.__sellSelected = window.__sellSelected || new Set();
+  if (checked) window.__sellSelected.add(id);
+  else window.__sellSelected.delete(id);
+}
+
+async function sellSelected() {
+  const ids = Array.from(window.__sellSelected || []);
+  const resultBox = document.getElementById("sell-result");
+  if (!ids.length) {
+    if (resultBox) resultBox.textContent = "Не выбрано ни одного предмета";
+    return;
+  }
+  try {
+    const res = await apiFetch("/inventory/sell", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inventory_item_ids: ids }),
+    });
+    if (resultBox) resultBox.textContent = `Продано на ${res.gold_received || 0}. Остаток золота: ${res.gold_remaining || "-"}`;
+    window.__sellSelected = new Set();
+    await loadSellInventory();
+    await loadProfile();
+  } catch (err) {
+    console.error(err);
+    if (resultBox) resultBox.textContent = err.message || "Не удалось продать";
+  }
 }
 
 async function loadTavern() {
@@ -507,6 +684,33 @@ function switchProfileTab(tab) {
     if (panel.id === `tab-${tab}`) panel.classList.add("active");
     else panel.classList.remove("active");
   });
+  if (tab === "inventory") {
+    loadProfileInventory();
+  }
+}
+
+async function loadProfileInventory() {
+  const box = document.getElementById("profile-inventory");
+  if (!box) return;
+  box.innerHTML = "Загрузка...";
+  try {
+    const data = await apiFetch("/inventory");
+    const items = data.items || [];
+    if (!items.length) {
+      box.innerHTML = '<div class="muted">Инвентарь пуст.</div>';
+      return;
+    }
+    box.innerHTML = "";
+    items.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "list-item";
+      row.innerHTML = `<strong>${item.name}</strong><div class="muted tiny">lvl ${item.level || "-"} · tier ${item.tier || "-"} · ${item.damage_min && item.damage_max ? `урон ${item.damage_min}-${item.damage_max}` : "без урона"}</div>`;
+      box.appendChild(row);
+    });
+  } catch (err) {
+    console.error(err);
+    box.innerHTML = "Ошибка загрузки инвентаря";
+  }
 }
 
 function updateGeneratorState() {
@@ -595,6 +799,38 @@ async function resetMainWaifu() {
   }
 }
 
+function switchShopTab(tab) {
+  document.querySelectorAll(".tab").forEach((el) => {
+    if (el.dataset.tab === tab) el.classList.add("active");
+    else el.classList.remove("active");
+  });
+  document.querySelectorAll(".tab-panel").forEach((panel) => {
+    if (panel.id === `tab-${tab}`) panel.classList.add("active");
+    else panel.classList.remove("active");
+  });
+}
+
+async function buyShopItem() {
+  try {
+    await apiFetch("/shop/buy?act=1", { method: "POST" }); // TODO act из профиля
+    alert("Куплено! Проверьте инвентарь.");
+  } catch (err) {
+    console.error(err);
+    alert(err.message || "Не удалось купить предмет");
+  }
+}
+
+async function gambleShop() {
+  try {
+    const res = await apiFetch("/shop/gamble?act=1", { method: "POST" });
+    const box = document.getElementById("shop-gamble-result");
+    if (box) box.textContent = `Получено: ${res.item_name || "предмет"} (rarity ${res.item_rarity || "-"})`;
+  } catch (err) {
+    console.error(err);
+    alert(err.message || "Не удалось выполнить gamble");
+  }
+}
+
 // Expose helpers globally for inline usage
 window.WaifuApp = {
   initPage,
@@ -613,5 +849,15 @@ window.WaifuApp = {
   submitWaifuCreation,
   resetMainWaifu,
   switchProfileTab,
+  switchShopTab,
+  openShopModal,
+  closeShopModal,
+  confirmBuy,
+  buyShopItem,
+  gambleShop,
+  refreshShopDebug,
+  loadSellInventory,
+  toggleSellItem,
+  sellSelected,
   populateProfile: renderProfileStats,
 };
