@@ -8,52 +8,124 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
-  <body onload="WaifuApp.initPage('tavern'); WaifuApp.bootstrapPage('tavern',()=>WaifuApp.loadTavern());">
-    <header>
+  <body class="page-tavern" onload="WaifuApp.bootstrapPage('tavern',(p)=>WaifuApp.loadTavern(p));">
+    <header class="attic">
       <div class="topbar">
         <div class="badge">Золото: <strong id="badge-gold">—</strong></div>
-        <div class="badge">Свободных слотов найма: <strong id="tavern-count">—</strong></div>
-        <div class="badge">Отряд: <strong>0/6</strong></div>
+        <div class="badge"><strong id="tavern-title">Таверна</strong></div>
+        <div class="badge">Найм: <strong id="tavern-count">—</strong></div>
+        <div class="badge">Отряд: <strong id="tavern-squad-count">—</strong></div>
+        <div class="badge admin-only" id="tavern-admin-buttons" style="display:none;">
+          <button class="secondary" title="Обновить слоты найма" aria-label="Обновить слоты найма" onclick="WaifuApp.adminRefreshTavern()">🔄</button>
+        </div>
+        <a class="chip link-chip" href="./index.html" title="Назад в город">🏙️ Город</a>
       </div>
     </header>
 
     <main class="layout">
-      <section class="section">
-        <h3>Найм</h3>
-        <div id="tavern-available" class="list placeholder" style="text-align: left"></div>
-      </section>
+      <div class="tabs tavern-tabs">
+        <button class="tab active" data-tab="hire" onclick="WaifuApp.switchTavernTab('hire')">Найм</button>
+        <button class="tab" data-tab="squad" onclick="WaifuApp.switchTavernTab('squad')">Отряд</button>
+      </div>
 
-      <section class="section">
-        <h3>Отряд</h3>
-        <div class="placeholder">Сетка 2×3 для активных, скролл для резерва, модалки замен/перемещения.</div>
-      </section>
+      <div id="tab-hire" class="tab-panel active">
+        <section class="section">
+          <div id="tavern-scene" class="tavern-scene act-1">
+            <div class="tavern-stage">
+              <div class="tavern-table" aria-hidden="true"></div>
+              <div class="tavern-figures" aria-label="Слоты найма">
+                <button class="tavern-figure" id="tavern-slot-1" data-slot="1" onclick="WaifuApp.hireFromTavern(1)">
+                  <div class="tavern-price" id="tavern-price-1">🪙 —</div>
+                  <div class="tavern-hood" aria-hidden="true"></div>
+                </button>
+                <button class="tavern-figure" id="tavern-slot-2" data-slot="2" onclick="WaifuApp.hireFromTavern(2)">
+                  <div class="tavern-price" id="tavern-price-2">🪙 —</div>
+                  <div class="tavern-hood" aria-hidden="true"></div>
+                </button>
+                <button class="tavern-figure" id="tavern-slot-3" data-slot="3" onclick="WaifuApp.hireFromTavern(3)">
+                  <div class="tavern-price" id="tavern-price-3">🪙 —</div>
+                  <div class="tavern-hood" aria-hidden="true"></div>
+                </button>
+                <button class="tavern-figure" id="tavern-slot-4" data-slot="4" onclick="WaifuApp.hireFromTavern(4)">
+                  <div class="tavern-price" id="tavern-price-4">🪙 —</div>
+                  <div class="tavern-hood" aria-hidden="true"></div>
+                </button>
+              </div>
+            </div>
+            <div class="tavern-hint muted tiny">
+              Нажмите на фигуру, чтобы нанять случайную вайфу. Обновление слотов — 1 раз в день (00:00 МСК).
+            </div>
+            <div id="tavern-hire-error" class="banner" style="display:none;"></div>
+          </div>
+        </section>
+      </div>
+
+      <div id="tab-squad" class="tab-panel" style="display:none;">
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <div style="font-weight:800;">Отряд</div>
+              <div class="muted tiny">6 слотов · нажмите портрет для деталей</div>
+            </div>
+          </div>
+
+          <div id="tavern-squad-grid" class="tavern-squad-grid">
+            <div class="placeholder">Загрузка отряда...</div>
+          </div>
+
+          <div class="muted tiny" style="margin-top:12px;">Запас</div>
+          <div id="tavern-reserve" class="tavern-reserve">
+            <div class="placeholder">Загрузка запаса...</div>
+          </div>
+        </section>
+      </div>
     </main>
 
+    <!-- Waifu details modal -->
+    <div id="tavern-waifu-modal" class="modal" style="display:none;">
+      <div class="modal-content">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title" id="tavern-waifu-modal-title">—</div>
+            <div class="muted tiny" id="tavern-waifu-modal-subtitle">—</div>
+          </div>
+          <button class="secondary" onclick="WaifuApp.closeTavernWaifuModal()">✖</button>
+        </div>
+        <div class="modal-body" id="tavern-waifu-modal-body"></div>
+        <div class="modal-footer">
+          <button class="secondary" onclick="WaifuApp.closeTavernWaifuModal()">Закрыть</button>
+          <button class="primary" style="width:auto; display:none;" id="tavern-waifu-modal-action" onclick="WaifuApp.tavernWaifuModalAction()">—</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Choose squad slot modal -->
+    <div id="tavern-slot-modal" class="modal" style="display:none;">
+      <div class="modal-content">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title">Выберите слот отряда</div>
+            <div class="muted tiny" id="tavern-slot-modal-subtitle">—</div>
+          </div>
+          <button class="secondary" onclick="WaifuApp.closeTavernSlotModal()">✖</button>
+        </div>
+        <div class="modal-body" id="tavern-slot-modal-body"></div>
+        <div class="modal-footer">
+          <button class="secondary" onclick="WaifuApp.closeTavernSlotModal()">Отмена</button>
+          <div class="muted tiny">Замена отправит текущую вайфу в запас.</div>
+        </div>
+      </div>
+    </div>
+
     <nav class="nav basement">
-      <a href="./index.html" data-page="town" title="Город">
-        <span aria-hidden="true">🏠</span>
-      </a>
-      <a href="./shop.html" data-page="shop" title="Магазин">
-        <span aria-hidden="true">🏪</span>
-      </a>
-      <a href="./tavern.html" data-page="tavern" title="Таверна">
-        <span aria-hidden="true">🍻</span>
-      </a>
-      <a href="./caravan.html" data-page="caravan" title="Караван">
-        <span aria-hidden="true">🐫</span>
-      </a>
-      <a href="./guild_hall.html" data-page="guild" title="Гильдия">
-        <span aria-hidden="true">🏛️</span>
-      </a>
-      <a href="./training_hall.html" data-page="training" title="Тренировочный зал">
-        <span aria-hidden="true">💪</span>
-      </a>
-      <a href="./mail.html" data-page="mail" title="Почта">
-        <span aria-hidden="true">📮</span>
-      </a>
-      <a href="./settings.html" data-page="settings" title="Настройки">
-        <span aria-hidden="true">⚙️</span>
-      </a>
+      <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
+      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span aria-hidden="true">🏰</span></a>
+      <a href="./shop.html" data-page="shop" title="Магазин"><span aria-hidden="true">🏪</span></a>
+      <a href="./tavern.html" data-page="tavern" title="Таверна"><span aria-hidden="true">🍻</span></a>
+      <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
+      <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
+      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
+      <a href="./settings.html" data-page="settings" title="Настройки"><span aria-hidden="true">⚙️</span></a>
     </nav>
   </body>
 </html>

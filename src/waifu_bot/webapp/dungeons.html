@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Подземелья</title>
+    <link rel="stylesheet" href="/webapp/styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script defer src="/webapp/app.js"></script>
+  </head>
+  <body class="page-dungeons" onload="WaifuApp.bootstrapPage('dungeons', WaifuApp.populateDungeonsPage);">
+    <div class="screen">
+      <header class="attic">
+        <div class="dungeons-topbar" aria-label="Подземелья">
+          <div class="dungeons-meta">
+            <div class="chip">
+              <span aria-hidden="true">👤</span>
+              <span><strong id="waifu-name">—</strong></span>
+            </div>
+            <div class="chip">
+              <span aria-hidden="true">Lv</span>
+              <span><strong id="badge-level">1</strong></span>
+            </div>
+            <div class="chip">
+              <span aria-hidden="true">⚡</span>
+              <span id="badge-energy">—</span>
+            </div>
+            <div class="chip chip-plus" id="badge-plus-chip" title="Сложность">
+              <span aria-hidden="true">➕</span>
+              <select id="badge-plus-select" class="chip-select" onchange="WaifuApp.onPlusLevelChanged(this.value)">
+                <option value="0">0</option>
+              </select>
+            </div>
+            <div class="chip chip-ghost" title="Акт">
+              <span aria-hidden="true">🎬</span>
+              <span>Акт <strong id="badge-act">—</strong></span>
+            </div>
+            <div class="chip admin-only" id="dungeons-admin-buttons" style="display:none;">
+              <button class="secondary" title="Убить монстра" aria-label="Убить монстра" onclick="WaifuApp.adminKillMonster()">💀</button>
+              <button class="secondary" title="Пройти данж" aria-label="Пройти данж" onclick="WaifuApp.adminCompleteDungeon()">🏁</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <div id="dungeon-list-section">
+          <div id="dungeons-error" class="banner" style="display:none;"></div>
+          <div class="tabs" id="dungeon-tabs">
+            <button class="tab active" data-tab="solo" onclick="WaifuApp.showTab('solo')">Одиночные</button>
+            <button class="tab" data-tab="expedition" onclick="WaifuApp.showTab('expedition')">Экспедиции</button>
+            <button class="tab" data-tab="group" onclick="WaifuApp.showTab('group')">Групповые</button>
+          </div>
+
+          <div id="tab-solo" class="tab-panel active">
+            <div id="solo-active" style="display:none;"></div>
+            <div class="dungeon-acts" id="solo-dungeons">
+              <div class="placeholder">Загрузка подземелий...</div>
+            </div>
+          </div>
+
+          <div id="tab-expedition" class="tab-panel" style="display: none;">
+            <div class="placeholder">Экспедиции скоро будут доступны...</div>
+          </div>
+
+          <div id="tab-group" class="tab-panel" style="display: none;">
+            <div id="gd-dungeons-list" class="dungeons-gd-list"></div>
+            <div id="gd-session-status" class="gd-session-card card" style="display:none;">
+              <h3 class="gd-session-title" id="gd-session-dungeon-name">—</h3>
+              <div class="gd-session-stages" id="gd-session-stages">🔴⚪⚪⚪</div>
+              <div class="gd-session-monster">
+                <span id="gd-session-monster-name">—</span>
+                <span id="gd-session-hp">0 / 0</span>
+              </div>
+              <div class="gd-session-hp-bar"><div id="gd-session-hp-fill" class="gd-hp-fill" style="width:0%"></div></div>
+            </div>
+            <div class="gd-info card">
+              <h3 class="gd-info-title">🏰 Групповые подземелья</h3>
+              <p>Общая сессия для всего чата: 4 этапа (3 монстра + босс). Прогресс идёт от сообщений в чате — урон по монстру наносится автоматически.</p>
+              <ul class="gd-info-list">
+                <li>Нет поражения: подземелье всегда завершается победой (адаптивная регрессия ХП при низкой активности).</li>
+                <li>Награды (опыт, монеты) приходят в личные сообщения бота пропорционально вкладу.</li>
+                <li>Тематические подземелья: Воздушная крепость, Глубинный риф, Пустыня забвения, Лабиринт зеркал, Часовня времени.</li>
+              </ul>
+              <p class="gd-info-how"><strong>Как запустить:</strong> в групповом Telegram-чате с ботом напишите команду <code>/gd_start</code>. Передайте <code>?chat_id=ID_ЧАТА</code> в URL этой страницы, чтобы видеть прогресс.</p>
+              <p class="gd-info-note muted">Запуск доступен только в Telegram; здесь отображается информация о режиме и текущей сессии (если указан chat_id).</p>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <nav class="nav basement">
+        <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
+        <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span aria-hidden="true">🏰</span></a>
+        <a href="./shop.html" data-page="shop" title="Магазин"><span aria-hidden="true">🏪</span></a>
+        <a href="./tavern.html" data-page="tavern" title="Таверна"><span aria-hidden="true">🍻</span></a>
+        <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
+        <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
+        <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
+        <a href="./settings.html" data-page="settings" title="Настройки"><span aria-hidden="true">⚙️</span></a>
+      </nav>
+
+      <!-- Reward modal (boss completion) -->
+      <div id="reward-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+          <div class="modal-head">
+            <div>
+              <div class="modal-title">Награда</div>
+              <div class="muted tiny" id="reward-modal-subtitle">—</div>
+            </div>
+            <button class="secondary" onclick="WaifuApp.closeRewardModal()">✖</button>
+          </div>
+          <div class="modal-body" id="reward-modal-body"></div>
+          <div class="modal-footer">
+            <button class="secondary" style="width:auto;" onclick="WaifuApp.openInventoryFromReward()">🎒</button>
+            <button class="primary" style="width:auto;" onclick="WaifuApp.closeRewardModal()">Ок</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

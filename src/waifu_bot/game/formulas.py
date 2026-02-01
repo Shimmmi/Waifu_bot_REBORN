@@ -55,10 +55,30 @@ def calculate_message_damage(
     agility: int = 0,
     intelligence: int = 0,
     attack_type: str = "melee",
+    message_length: int = 0,
+    weapon_damage: int | None = None,
 ) -> int:
-    """Calculate damage from message: base_skill_damage * media_coef * (1 + stat_bonuses)."""
+    """Calculate damage from message.
+
+    Components:
+    - base = weapon_damage (if provided) else BASE_SKILL_DAMAGE
+    - media multiplier depends on MediaType
+    - length multiplier (text/link only) gives small scaling with message length (capped)
+    - stat scaling depends on attack_type (strength/agility/intelligence)
+    """
     media_coef = MEDIA_COEFFICIENTS.get(media_type, 1.0)
-    base_damage = BASE_SKILL_DAMAGE * media_coef
+    base = int(weapon_damage) if weapon_damage is not None else int(BASE_SKILL_DAMAGE)
+
+    # Only scale with length for text-like actions
+    length = max(0, int(message_length or 0))
+    if media_type in (MediaType.TEXT, MediaType.LINK):
+        # Up to +50% at 200 chars (then capped)
+        length_cap = 200
+        length_mult = 1.0 + (min(length, length_cap) / length_cap) * 0.5
+    else:
+        length_mult = 1.0
+
+    base_damage = base * media_coef * length_mult
 
     return calculate_damage(base_damage, strength, agility, intelligence, attack_type)
 
@@ -109,21 +129,22 @@ def calculate_total_experience_for_level(level: int) -> int:
 
 def calculate_shop_price(base_value: int, charm: int, is_buy: bool = True) -> int:
     """Calculate shop price based on charm (ОБА).
-    
-    Buy: 110-200% of base (higher charm = lower price)
-    Sell: 50-90% of base (higher charm = higher price)
+
+    IMPORTANT: align with profile's merchant_discount:
+      merchant_discount% = clamp((charm - 10) * 1%, 0..50%)
+
+    - Buy: base * (1 - discount%)
+    - Sell: base * (0.5..0.9) scaled by the same discount% (keeps legacy bounds)
     """
-    # Charm range: 10-50 (typical), normalize to 0-1
-    charm_normalized = max(0, min(1, (charm - 10) / 40))
+    discount_pct = max(0.0, min(50.0, (float(charm) - 10.0) * 1.0))
 
     if is_buy:
-        # Higher charm = lower price (110% to 200%)
-        multiplier = 2.0 - (charm_normalized * 0.9)  # 2.0 to 1.1
+        multiplier = 1.0 - (discount_pct / 100.0)  # 1.00 .. 0.50
     else:
-        # Higher charm = higher sell price (50% to 90%)
-        multiplier = 0.5 + (charm_normalized * 0.4)  # 0.5 to 0.9
+        # Keep 0.5..0.9 range, but drive it from the same %.
+        multiplier = 0.5 + (discount_pct / 50.0) * 0.4  # 0.5 .. 0.9
 
-    return int(base_value * multiplier)
+    return int(int(base_value) * multiplier)
 
 
 def calculate_gamble_price(level: int) -> int:

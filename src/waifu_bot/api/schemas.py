@@ -55,12 +55,26 @@ class GambleResponse(BaseModel):
 
 class TavernActionResponse(BaseModel):
     success: bool = True
-    waifu_id: int
+    waifu_id: Optional[int] = None
     waifu_name: Optional[str] = None
     waifu_rarity: Optional[int] = None
     gold_remaining: Optional[int] = None
     slot: Optional[int] = None
     error: Optional[str] = None
+
+
+class TavernHireSlotOut(BaseModel):
+    slot: int
+    available: bool
+    price: int
+    hired_waifu_id: Optional[int] = None
+
+
+class TavernAvailableResponse(BaseModel):
+    slots: List[TavernHireSlotOut]
+    remaining: int
+    total: int
+    price: int
 
 
 class TavernListResponse(BaseModel):
@@ -159,8 +173,25 @@ class DungeonOut(BaseModel):
     act: int
     dungeon_number: int
     dungeon_type: int
-    level: int
+    level: int  # min level
+    location_type: str | None = None
+    difficulty: int | None = None
     obstacle_count: int
+    obstacle_min: int | None = None
+    obstacle_max: int | None = None
+    base_experience: int | None = None
+    base_gold: int | None = None
+
+
+class DungeonPlusStatusOut(BaseModel):
+    dungeon_id: int
+    unlocked_plus_level: int
+    best_completed_plus_level: int
+
+
+class DungeonPlusStatusResponse(BaseModel):
+    global_unlocked: bool
+    status: list[DungeonPlusStatusOut]
 
 
 class GuildOut(BaseModel):
@@ -204,8 +235,23 @@ class MainWaifuProfile(BaseModel):
     endurance: int
     charm: int
     luck: int
+    stat_points: int = 0
     current_hp: int
     max_hp: int
+    # Базовые значения (без бонусов от экипировки)
+    base_strength: Optional[int] = None
+    base_agility: Optional[int] = None
+    base_intelligence: Optional[int] = None
+    base_endurance: Optional[int] = None
+    base_charm: Optional[int] = None
+    base_luck: Optional[int] = None
+    # Бонусы от экипировки
+    bonus_strength: Optional[int] = None
+    bonus_agility: Optional[int] = None
+    bonus_intelligence: Optional[int] = None
+    bonus_endurance: Optional[int] = None
+    bonus_charm: Optional[int] = None
+    bonus_luck: Optional[int] = None
 
     class Config:
         populate_by_name = True
@@ -218,6 +264,7 @@ class MainWaifuDetails(BaseModel):
     ranged_damage: int
     magic_damage: int
     crit_chance: float
+    dodge_chance: float
     defense: int
     merchant_discount: float
 
@@ -226,11 +273,16 @@ class AffixOut(BaseModel):
     name: str
     stat: Optional[str] = None
     value: str | int | float
+    # Optional UI helpers (do not break older clients)
+    kind: Optional[str] = None  # affix / suffix
+    is_percent: Optional[bool] = None
 
 
 class GearItemOut(BaseModel):
+    id: Optional[int] = None  # ID предмета из inventory_items
     slot: str
     name: str
+    display_name: Optional[str] = None
     rarity: int
     level: Optional[int] = None
     tier: Optional[int] = None
@@ -244,6 +296,11 @@ class GearItemOut(BaseModel):
     is_legendary: bool = False
     requirements: Optional[dict] = None
     affixes: List[AffixOut] = []
+    slot_type: Optional[str] = None
+    image_key: Optional[str] = None
+    can_equip: Optional[bool] = None  # Для endpoint available - можно ли экипировать
+    requirement_errors: Optional[List[str]] = None  # Ошибки требований, если can_equip=False
+    equipment_slot: Optional[int] = None  # Номер слота, если предмет экипирован
 
 
 class ProfileResponse(BaseModel):

@@ -1,5 +1,5 @@
 """FastAPI dependencies."""
-from fastapi import Header, HTTPException, Query, status
+from fastapi import Depends, Header, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.core import redis as redis_core
@@ -48,4 +48,17 @@ async def get_player_id(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Missing or invalid Telegram init data",
     )
+
+
+ADMIN_USER_ID = 305174198
+
+
+async def require_admin(player_id: int = Depends(get_player_id)) -> int:
+    """Require that the player is an administrator."""
+    if player_id != ADMIN_USER_ID:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return player_id
 

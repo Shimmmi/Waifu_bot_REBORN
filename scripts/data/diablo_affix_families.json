@@ -1,0 +1,107 @@
+[
+  {
+    "family_id": "p_primary_strength",
+    "kind": "prefix",
+    "exclusive_group": "primary_prefix",
+    "effect_key": "strength",
+    "tags_required": null,
+    "tags_forbidden": null,
+    "allowed_slot_types": null,
+    "allowed_attack_types": null,
+    "weight_base": 100,
+    "max_per_item": 1,
+    "is_legendary_aspect": false
+  },
+  {
+    "family_id": "p_primary_agility",
+    "kind": "prefix",
+    "exclusive_group": "primary_prefix",
+    "effect_key": "agility",
+    "tags_required": null,
+    "tags_forbidden": null,
+    "allowed_slot_types": null,
+    "allowed_attack_types": null,
+    "weight_base": 100,
+    "max_per_item": 1,
+    "is_legendary_aspect": false
+  },
+  {
+    "family_id": "p_primary_intelligence",
+    "kind": "prefix",
+    "exclusive_group": "primary_prefix",
+    "effect_key": "intelligence",
+    "tags_required": null,
+    "tags_forbidden": null,
+    "allowed_slot_types": null,
+    "allowed_attack_types": null,
+    "weight_base": 100,
+    "max_per_item": 1,
+    "is_legendary_aspect": false
+  },
+  {
+    "family_id": "p_primary_endurance",
+    "kind": "prefix",
+    "exclusive_group": "primary_prefix",
+    "effect_key": "endurance",
+    "tags_required": null,
+    "tags_forbidden": null,
+    "allowed_slot_types": null,
+    "allowed_attack_types": null,
+    "weight_base": 100,
+    "max_per_item": 1,
+    "is_legendary_aspect": false
+  },
+  {
+    "family_id": "p_primary_charm",
+    "kind": "prefix",
+    "exclusive_group": "primary_prefix",
+    "effect_key": "charm",
+    "tags_required": null,
+    "tags_forbidden": null,
+    "allowed_slot_types": {"include": ["ring", "amulet", "costume"]},
+    "allowed_attack_types": null,
+    "weight_base": 70,
+    "max_per_item": 1,
+    "is_legendary_aspect": false
+  },
+  {
+    "family_id": "p_primary_luck",
+    "kind": "prefix",
+    "exclusive_group": "primary_prefix",
+    "effect_key": "luck",
+    "tags_required": null,
+    "tags_forbidden": null,
+    "allowed_slot_types": {"include": ["ring", "amulet", "costume"]},
+    "allowed_attack_types": null,
+    "weight_base": 70,
+    "max_per_item": 1,
+    "is_legendary_aspect": false
+  },
+  {
+    "family_id": "s_monster_undead_slayer",
+    "kind": "suffix",
+    "exclusive_group": "monster_slayer",
+    "effect_key": "damage_vs_monster_type_flat:undead",
+    "tags_required": null,
+    "tags_forbidden": null,
+    "allowed_slot_types": null,
+    "allowed_attack_types": null,
+    "weight_base": 40,
+    "max_per_item": 1,
+    "is_legendary_aspect": false
+  },
+  {
+    "family_id": "s_media_text",
+    "kind": "suffix",
+    "exclusive_group": "media_bonus",
+    "effect_key": "media_damage_text_percent",
+    "tags_required": null,
+    "tags_forbidden": null,
+    "allowed_slot_types": null,
+    "allowed_attack_types": null,
+    "weight_base": 40,
+    "max_per_item": 1,
+    "is_legendary_aspect": false
+  }
+]
+

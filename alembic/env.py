@@ -28,6 +28,13 @@ from waifu_bot.db.models import (  # noqa: F401
     WaifuSkill,
     GuildSkill,
     BattleLog,
+    GDDungeonTemplate,
+    GDSession,
+    GDPlayerContribution,
+    PlayerChatFirstSeen,
+    PlayerGameAction,
+    GDEventTemplate,
+    GDCompletion,
 )
 
 # this is the Alembic Config object, which provides

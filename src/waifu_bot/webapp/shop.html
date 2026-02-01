@@ -8,16 +8,17 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
-  <body onload="WaifuApp.initPage('shop'); WaifuApp.bootstrapPage('shop',(p)=>WaifuApp.loadShop(p.act));">
+  <body onload="WaifuApp.bootstrapPage('shop',(p)=>WaifuApp.loadShop(p.act));">
     <header class="attic">
       <div class="topbar">
         <div class="badge">Золото: <strong id="badge-gold">—</strong></div>
         <div class="badge">Магазин</div>
         <div class="badge">Акт: <strong id="badge-act">—</strong></div>
-        <div class="badge admin-only" id="shop-refresh" style="display:none;">
-          <button class="secondary" onclick="WaifuApp.refreshShop()">Обновить ассортимент</button>
+        <div class="badge admin-only" id="shop-admin-buttons" style="display:none;">
+          <button class="secondary" title="Обновить ассортимент" aria-label="Обновить ассортимент" onclick="WaifuApp.refreshShopDebug()">🔄</button>
+          <button class="secondary" title="+10000 золота" aria-label="+10000 золота" onclick="WaifuApp.adminAddGold()">💰</button>
         </div>
-        <a class="chip link-chip" href="./index.html" title="Назад в город">🏠 Назад</a>
+        <a class="chip link-chip" href="./profile.html" title="Профиль">👤 Профиль</a>
       </div>
     </header>
 
@@ -41,7 +42,7 @@
 
       <section id="tab-buy" class="tab-panel active">
         <div class="section">
-          <h3>Ассортимент</h3>
+        <h3>Ассортимент</h3>
           <div id="shop-items" class="grid-3 placeholder">Загрузка...</div>
           <div id="shop-modal" class="modal" style="display:none;">
             <div class="modal-content">
@@ -68,7 +69,7 @@
 
       <section id="tab-sell" class="tab-panel">
         <div class="section">
-          <h3>Продажа</h3>
+        <h3>Продажа</h3>
           <div id="sell-inventory" class="grid-3 placeholder">Загрузка...</div>
           <div style="margin-top:10px; display:flex; gap:10px; align-items:center;">
             <button class="primary" onclick="WaifuApp.sellSelected()">Продать выбранные</button>
@@ -79,7 +80,7 @@
 
       <section id="tab-gamble" class="tab-panel">
         <div class="section">
-          <h3>Gamble</h3>
+        <h3>Gamble</h3>
           <p class="muted">Случайный предмет от Uncommon до Epic. Цена зависит от уровня (до 10000).</p>
           <button class="primary" onclick="WaifuApp.gambleShop()">Купить случайный предмет</button>
           <div id="shop-gamble-result" class="placeholder" style="margin-top:10px;">—</div>
@@ -87,35 +88,19 @@
       </section>
 
       <section class="section" style="margin-bottom:80px;">
-        <button class="secondary" onclick="WaifuApp.refreshShopDebug()">🔄 Обновить магазин (debug)</button>
+        <button class="secondary" title="Обновить магазин (debug)" aria-label="Обновить магазин (debug)" onclick="WaifuApp.refreshShopDebug()">🔄</button>
       </section>
     </main>
 
     <nav class="nav basement">
-      <a href="./index.html" data-page="town" title="Город">
-        <span aria-hidden="true">🏠</span>
-      </a>
-      <a href="./shop.html" data-page="shop" title="Магазин">
-        <span aria-hidden="true">🏪</span>
-      </a>
-      <a href="./tavern.html" data-page="tavern" title="Таверна">
-        <span aria-hidden="true">🍻</span>
-      </a>
-      <a href="./caravan.html" data-page="caravan" title="Караван">
-        <span aria-hidden="true">🐫</span>
-      </a>
-      <a href="./guild_hall.html" data-page="guild" title="Гильдия">
-        <span aria-hidden="true">🏛️</span>
-      </a>
-      <a href="./training_hall.html" data-page="training" title="Тренировочный зал">
-        <span aria-hidden="true">💪</span>
-      </a>
-      <a href="./mail.html" data-page="mail" title="Почта">
-        <span aria-hidden="true">📮</span>
-      </a>
-      <a href="./settings.html" data-page="settings" title="Настройки">
-        <span aria-hidden="true">⚙️</span>
-      </a>
+      <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
+      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span aria-hidden="true">🏰</span></a>
+      <a href="./shop.html" data-page="shop" title="Магазин"><span aria-hidden="true">🏪</span></a>
+      <a href="./tavern.html" data-page="tavern" title="Таверна"><span aria-hidden="true">🍻</span></a>
+      <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
+      <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
+      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
+      <a href="./settings.html" data-page="settings" title="Настройки"><span aria-hidden="true">⚙️</span></a>
     </nav>
   </body>
 </html>

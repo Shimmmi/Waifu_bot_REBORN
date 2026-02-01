@@ -2,10 +2,12 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+.egg-info/
 .venv/
 venv/
 .env
 .env.*
+!.env.example
 /dist/
 /build/
 /.mypy_cache/
@@ -18,4 +20,16 @@ venv/
 node_modules/
 .idea/
 .vscode/
+
+# Секреты и токены (дополнительная защита)
+*secret*
+*token*
+*password*
+*.key
+*.pem
+*.p12
+*.jks
+credentials.json
+secrets.json
+config.local.*
 

@@ -1,0 +1,157 @@
+[
+  {
+    "family_id": "p_primary_strength",
+    "affix_tier": 1,
+    "min_total_level": 1,
+    "max_total_level": 5,
+    "value_min": 1,
+    "value_max": 2,
+    "level_delta_min": 0,
+    "level_delta_max": 1,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "p_primary_agility",
+    "affix_tier": 1,
+    "min_total_level": 1,
+    "max_total_level": 5,
+    "value_min": 1,
+    "value_max": 2,
+    "level_delta_min": 0,
+    "level_delta_max": 1,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "p_primary_intelligence",
+    "affix_tier": 1,
+    "min_total_level": 1,
+    "max_total_level": 5,
+    "value_min": 1,
+    "value_max": 2,
+    "level_delta_min": 0,
+    "level_delta_max": 1,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "p_primary_endurance",
+    "affix_tier": 1,
+    "min_total_level": 1,
+    "max_total_level": 5,
+    "value_min": 1,
+    "value_max": 2,
+    "level_delta_min": 0,
+    "level_delta_max": 1,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "p_primary_charm",
+    "affix_tier": 1,
+    "min_total_level": 1,
+    "max_total_level": 5,
+    "value_min": 1,
+    "value_max": 2,
+    "level_delta_min": 0,
+    "level_delta_max": 1,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "p_primary_luck",
+    "affix_tier": 1,
+    "min_total_level": 1,
+    "max_total_level": 5,
+    "value_min": 1,
+    "value_max": 2,
+    "level_delta_min": 0,
+    "level_delta_max": 1,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "p_primary_strength",
+    "affix_tier": 2,
+    "min_total_level": 6,
+    "max_total_level": 10,
+    "value_min": 2,
+    "value_max": 3,
+    "level_delta_min": 1,
+    "level_delta_max": 2,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "p_primary_agility",
+    "affix_tier": 2,
+    "min_total_level": 6,
+    "max_total_level": 10,
+    "value_min": 2,
+    "value_max": 3,
+    "level_delta_min": 1,
+    "level_delta_max": 2,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "p_primary_intelligence",
+    "affix_tier": 2,
+    "min_total_level": 6,
+    "max_total_level": 10,
+    "value_min": 2,
+    "value_max": 3,
+    "level_delta_min": 1,
+    "level_delta_max": 2,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "p_primary_endurance",
+    "affix_tier": 2,
+    "min_total_level": 6,
+    "max_total_level": 10,
+    "value_min": 2,
+    "value_max": 3,
+    "level_delta_min": 1,
+    "level_delta_max": 2,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "p_primary_charm",
+    "affix_tier": 2,
+    "min_total_level": 6,
+    "max_total_level": 10,
+    "value_min": 2,
+    "value_max": 3,
+    "level_delta_min": 1,
+    "level_delta_max": 2,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "p_primary_luck",
+    "affix_tier": 2,
+    "min_total_level": 6,
+    "max_total_level": 10,
+    "value_min": 2,
+    "value_max": 3,
+    "level_delta_min": 1,
+    "level_delta_max": 2,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "s_monster_undead_slayer",
+    "affix_tier": 2,
+    "min_total_level": 6,
+    "max_total_level": 10,
+    "value_min": 2,
+    "value_max": 4,
+    "level_delta_min": 2,
+    "level_delta_max": 3,
+    "weight_mult": 100
+  },
+  {
+    "family_id": "s_media_text",
+    "affix_tier": 2,
+    "min_total_level": 6,
+    "max_total_level": 10,
+    "value_min": 2,
+    "value_max": 4,
+    "level_delta_min": 2,
+    "level_delta_max": 3,
+    "weight_mult": 100
+  }
+]
+

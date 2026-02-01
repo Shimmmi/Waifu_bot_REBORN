@@ -1,12 +1,29 @@
 """Tavern service for hiring waifus and managing squad."""
-from datetime import datetime, timedelta
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
 from typing import List, Optional
 
+from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
 
-from waifu_bot.db.models import Player, HiredWaifu, WaifuRace, WaifuClass, WaifuRarity
-from waifu_bot.game.constants import TAVERN_HIRE_COST, TAVERN_SLOTS_PER_DAY, SQUAD_SIZE, RESERVE_SIZE
+from waifu_bot.db.models import (
+    HiredWaifu,
+    Player,
+    TavernHireSlot,
+    WaifuClass,
+    WaifuRace,
+    WaifuRarity,
+)
+from waifu_bot.game.constants import RESERVE_SIZE, SQUAD_SIZE, TAVERN_HIRE_COST, TAVERN_SLOTS_PER_DAY
+
+try:
+    from zoneinfo import ZoneInfo
+
+    MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+except Exception:  # pragma: no cover
+    MOSCOW_TZ = timezone.utc
 
 
 class TavernService:
@@ -14,34 +31,22 @@ class TavernService:
 
     async def get_available_waifus(
         self, session: AsyncSession, player_id: int
-    ) -> List[HiredWaifu]:
-        """Get available waifus for hire (4 slots per day)."""
-        # Check if slots need refresh (once per day)
-        # For now, return existing or generate new ones
-        stmt = select(HiredWaifu).where(
-            and_(
-                HiredWaifu.player_id == player_id,
-                HiredWaifu.squad_position.is_(None),  # Not in squad
-            )
-        )
-        result = await session.execute(stmt)
-        available = result.scalars().all()
+    ) -> List[TavernHireSlot]:
+        """
+        Get today's tavern hire slots for a player (4 per Moscow day).
 
-        # If less than 4, generate more (simplified - in real implementation,
-        # this should check daily reset)
-        if len(available) < TAVERN_SLOTS_PER_DAY:
-            needed = TAVERN_SLOTS_PER_DAY - len(available)
-            for _ in range(needed):
-                waifu = await self._generate_waifu(session, player_id)
-                available.append(waifu)
-
-        await session.flush()
-        return available[:TAVERN_SLOTS_PER_DAY]
+        NOTE: These are NOT hired waifus; they are "hooded figures" / opportunities to hire.
+        """
+        today = self._moscow_today()
+        return await self._ensure_day_slots(session, player_id, today)
 
     async def hire_waifu(
-        self, session: AsyncSession, player_id: int, waifu_id: Optional[int] = None
+        self,
+        session: AsyncSession,
+        player_id: int,
+        slot: Optional[int] = None,
     ) -> dict:
-        """Hire a waifu from tavern."""
+        """Hire a waifu from tavern using one daily slot."""
         # Get player
         player = await session.get(Player, player_id)
         if not player:
@@ -62,13 +67,28 @@ class TavernService:
             # For now, just return error
             return {"error": "reserve_full"}
 
-        # Generate or get waifu
-        if waifu_id:
-            waifu = await session.get(HiredWaifu, waifu_id)
-            if not waifu or waifu.player_id != player_id:
-                return {"error": "waifu_not_found"}
+        # Consume a daily hire slot
+        today = self._moscow_today()
+        slots = await self._ensure_day_slots(session, player_id, today)
+        chosen: TavernHireSlot | None = None
+
+        if slot is not None:
+            try:
+                s = int(slot)
+            except Exception:
+                return {"error": "invalid_slot"}
+            chosen = next((x for x in slots if int(x.slot) == s), None)
         else:
-            waifu = await self._generate_waifu(session, player_id)
+            chosen = next((x for x in slots if x.hired_at is None), None)
+
+        if not chosen:
+            return {"error": "slot_not_found"}
+        if chosen.hired_at is not None:
+            return {"error": "slot_taken", "slot": int(chosen.slot)}
+
+        waifu = await self._generate_waifu(session, player_id)
+        chosen.hired_waifu_id = waifu.id
+        chosen.hired_at = datetime.now(tz=timezone.utc)
 
         # Deduct gold
         player.gold -= TAVERN_HIRE_COST
@@ -81,6 +101,7 @@ class TavernService:
             "waifu_name": waifu.name,
             "waifu_rarity": waifu.rarity,
             "gold_remaining": player.gold,
+            "slot": int(chosen.slot),
         }
 
     async def get_squad(self, session: AsyncSession, player_id: int) -> List[HiredWaifu]:
@@ -219,3 +240,39 @@ class TavernService:
         result = await session.execute(stmt)
         return len(list(result.scalars().all()))
 
+    def _moscow_today(self):
+        return datetime.now(tz=MOSCOW_TZ).date()
+
+    async def _ensure_day_slots(
+        self,
+        session: AsyncSession,
+        player_id: int,
+        day,
+    ) -> list[TavernHireSlot]:
+        stmt = (
+            select(TavernHireSlot)
+            .where(and_(TavernHireSlot.player_id == player_id, TavernHireSlot.day == day))
+            .order_by(TavernHireSlot.slot)
+        )
+        existing = (await session.execute(stmt)).scalars().all()
+        have = {int(s.slot) for s in existing}
+        if len(have) < TAVERN_SLOTS_PER_DAY:
+            for s in range(1, TAVERN_SLOTS_PER_DAY + 1):
+                if s in have:
+                    continue
+                session.add(TavernHireSlot(player_id=player_id, day=day, slot=s))
+            await session.flush()
+            existing = (await session.execute(stmt)).scalars().all()
+        return list(existing)
+
+    async def admin_refresh_today(self, session: AsyncSession, player_id: int) -> list[TavernHireSlot]:
+        """
+        Admin-only helper: reset today's hire slots back to full availability.
+        Does NOT delete any hired waifus; only resets the opportunities to hire.
+        """
+        today = self._moscow_today()
+        await session.execute(
+            delete(TavernHireSlot).where(and_(TavernHireSlot.player_id == player_id, TavernHireSlot.day == today))
+        )
+        await session.flush()
+        return await self._ensure_day_slots(session, player_id, today)

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Битва</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body onload="WaifuApp.bootstrapPage('battle',()=>WaifuApp.loadBattle());">
+    <div class="screen">
+      <header class="attic">
+        <div class="attic-row">
+          <a class="portrait-block portrait-link" href="./profile.html" data-page="profile" title="Профиль вайфу" role="button">
+            <div class="portrait" aria-hidden="true">👤</div>
+            <div class="attic-name" id="waifu-name">—</div>
+          </a>
+          <div class="chip">
+            <span aria-hidden="true">👤</span>
+            <span>Lvl <strong id="badge-level">1</strong></span>
+          </div>
+          <div class="chip">
+            <span aria-hidden="true">⚡</span>
+            <span id="badge-energy">100/100</span>
+          </div>
+          <div class="chip">
+            <span aria-hidden="true">🏰</span>
+            <span id="badge-dungeon">Д-3 🔶</span>
+          </div>
+          <div class="chip">
+            <span aria-hidden="true">👣</span>
+            <span id="badge-expedition">⏳2h</span>
+          </div>
+          <div class="chip">
+            <span aria-hidden="true">🪙</span>
+            <span id="badge-gold">0</span>
+          </div>
+          <div class="chip chip-ghost" title="Уведомления">
+            <span aria-hidden="true">🔔</span>
+            <span id="badge-notifications">3</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="battle-screen">
+        <div class="battle-header">
+          <h2 id="battle-title">БИТВА: Загрузка...</h2>
+        </div>
+
+        <!-- Противник -->
+        <div class="battle-enemy">
+          <h3 id="enemy-name">ПРОТИВНИК: Загрузка...</h3>
+          <div class="battle-card enemy-card">
+            <div class="battle-hp-bar">
+              <div class="hp-bar-fill" id="enemy-hp-fill" style="width: 100%;"></div>
+              <div class="hp-bar-text" id="enemy-hp-text">HP: 100/100</div>
+            </div>
+            <div class="battle-image" id="enemy-image">👹</div>
+            <div class="battle-stats">
+              <div class="muted tiny" id="enemy-stats">Атака: — | Защита: — | Тип: —</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ваша вайфу -->
+        <div class="battle-waifu">
+          <h3 id="waifu-battle-name">ВАША ВАЙФУ: Загрузка...</h3>
+          <div class="battle-card waifu-card">
+            <div class="battle-hp-bar">
+              <div class="hp-bar-fill" id="waifu-hp-fill" style="width: 100%;"></div>
+              <div class="hp-bar-text" id="waifu-hp-text">HP: 100/100</div>
+            </div>
+            <div class="battle-energy-bar">
+              <div class="energy-bar-fill" id="waifu-energy-fill" style="width: 100%;"></div>
+              <div class="energy-bar-text" id="waifu-energy-text">Энергия: 100/100</div>
+            </div>
+            <div class="battle-image" id="waifu-image">👤</div>
+            <div class="battle-stats">
+              <div class="muted tiny" id="waifu-stats">Атака: — | Защита: — | Энергия: +5/ход</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Лог боя -->
+        <div class="battle-log">
+          <div class="battle-log-header">Боевой лог</div>
+          <div class="battle-log-content" id="battle-log-content">
+            <div class="muted tiny">Битва начата...</div>
+          </div>
+        </div>
+
+        <!-- Кнопки управления -->
+        <div class="battle-controls">
+          <button class="btn" id="battle-continue-btn" onclick="WaifuApp.continueBattle()">Продолжить битву</button>
+          <button class="btn btn-secondary" onclick="WaifuApp.exitBattle()">Выйти из битвы</button>
+        </div>
+      </main>
+
+      <nav class="nav basement">
+        <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
+        <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span aria-hidden="true">🏰</span></a>
+        <a href="./shop.html" data-page="shop" title="Магазин"><span aria-hidden="true">🏪</span></a>
+        <a href="./tavern.html" data-page="tavern" title="Таверна"><span aria-hidden="true">🍻</span></a>
+        <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
+        <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
+        <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
+        <a href="./settings.html" data-page="settings" title="Настройки"><span aria-hidden="true">⚙️</span></a>
+      </nav>
+    </div>
+  </body>
+</html>

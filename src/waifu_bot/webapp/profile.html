@@ -8,62 +8,67 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
-  <body onload="WaifuApp.initPage('profile'); WaifuApp.bootstrapPage('profile', WaifuApp.populateProfile);">
+  <body class="page-profile" onload="WaifuApp.bootstrapPage('profile', WaifuApp.populateProfile);">
     <header>
-      <div class="topbar">
-        <div class="badge">Имя: <strong id="profile-name">—</strong></div>
-        <div class="badge">Класс / Раса: <strong id="profile-class-race">—</strong></div>
-        <div class="badge">Уровень: <strong id="profile-level">—</strong></div>
-        <div class="badge">Энергия: <strong id="profile-energy">—</strong></div>
+      <div class="profile-topbar" aria-label="Профиль вайфу">
+        <div class="profile-name" id="profile-name">—</div>
+        <div class="profile-meta">
+          <span class="profile-icon" id="profile-class-icon" title="Класс" aria-label="Класс">—</span>
+          <span class="profile-icon" id="profile-race-icon" title="Раса" aria-label="Раса">—</span>
+          <div class="profile-badge profile-level" title="Уровень">
+            <span class="muted tiny">Lv</span>
+            <strong id="profile-level">—</strong>
+          </div>
+          <div class="profile-badge profile-energy" title="Энергия">
+            <span aria-hidden="true">⚡</span>
+            <strong id="profile-energy">—</strong>
+          </div>
+        </div>
       </div>
     </header>
 
     <main class="layout">
-      <div class="tabs">
+      <div class="tabs profile-tabs">
         <button class="tab active" data-tab="profile" onclick="WaifuApp.switchProfileTab('profile')">Профиль</button>
         <button class="tab" data-tab="inventory" onclick="WaifuApp.switchProfileTab('inventory')">Инвентарь</button>
-        <button class="tab" data-tab="details" onclick="WaifuApp.switchProfileTab('details')">Подробная информация</button>
+        <button class="tab" data-tab="info" onclick="WaifuApp.switchProfileTab('info')">Info</button>
+        <button class="tab tab-reset" title="Сбросить вайфу" aria-label="Сбросить вайфу" onclick="WaifuApp.resetMainWaifu()">♻️</button>
       </div>
 
       <section id="tab-profile" class="tab-panel active">
-        <div class="grid-2">
-          <div class="section">
-            <h3>Портрет</h3>
-            <div class="portrait-3x4">👤</div>
-          </div>
-          <div class="section">
-            <h3>Кратко</h3>
-            <div id="profile-stats-compact" class="stats-grid"></div>
-            <div class="stat-card" style="margin-top:10px;">
-              <span class="muted">HP</span>
-              <strong id="profile-hp">—</strong>
+        <div class="section">
+          <div class="portrait-3x4">👤</div>
+          <div id="profile-stats-strip" class="stat-strip" aria-label="Характеристики"></div>
+          <div class="profile-xp profile-xp-below" aria-label="Опыт">
+            <div class="profile-xp-row">
+              <span class="muted tiny">XP</span>
+              <strong id="profile-xp-text">—</strong>
             </div>
-            <div class="placeholder">Краткие навыки / пассивки будут добавлены.</div>
+            <div class="xp-bar" aria-hidden="true">
+              <div class="xp-bar-fill" id="profile-xp-fill" style="width:0%"></div>
+            </div>
           </div>
         </div>
       </section>
 
       <section id="tab-inventory" class="tab-panel">
         <div class="grid-2">
-          <div class="section">
-            <h3>Экипировка</h3>
+        <div class="section">
             <div id="profile-gear" class="slots-grid"></div>
           </div>
           <div class="section">
-            <h3>Инвентарь</h3>
             <div id="profile-inventory" class="placeholder">Загрузка...</div>
           </div>
         </div>
       </section>
 
-      <section id="tab-details" class="tab-panel">
+      <section id="tab-info" class="tab-panel">
         <div class="section">
-          <h3>Характеристики</h3>
-          <div id="profile-stats" class="stats-grid"></div>
-          <div class="stat-card" style="margin-top:10px;">
-            <span class="muted">HP</span>
-            <strong id="profile-hp-details">—</strong>
+          <div class="section-head">
+            <h3>Характеристики</h3>
+            <div class="tag" id="profile-stat-points">ОХ: —</div>
           </div>
+          <div id="profile-stats-breakdown" class="details-grid"></div>
           <div class="details-grid">
             <div class="detail-row">
               <span class="muted">Урон ближ.</span>
@@ -82,6 +87,10 @@
               <strong id="profile-crit-chance">—</strong>
             </div>
             <div class="detail-row">
+              <span class="muted">Шанс уворота</span>
+              <strong id="profile-dodge-chance">—</strong>
+            </div>
+            <div class="detail-row">
               <span class="muted">Защита</span>
               <strong id="profile-defense">—</strong>
             </div>
@@ -94,36 +103,59 @@
         </div>
       </section>
 
-      <div class="section" style="display:flex; justify-content:flex-end; margin-top:16px;">
-        <button class="secondary danger" onclick="WaifuApp.resetMainWaifu()">♻️ Сбросить вайфу</button>
-      </div>
     </main>
 
+    <!-- Модальное окно для выбора предмета при клике на слот -->
+    <div id="slot-modal" class="modal" style="display:none;">
+      <div class="modal-content">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title" id="slot-modal-title">Выберите предмет</div>
+            <div class="muted tiny" id="slot-modal-subtitle">—</div>
+          </div>
+          <button class="secondary" onclick="WaifuApp.closeSlotModal()">✖</button>
+        </div>
+        <div class="modal-body" id="slot-modal-body">
+          <div class="placeholder">Загрузка...</div>
+        </div>
+        <div class="modal-footer">
+          <button class="secondary" onclick="WaifuApp.closeSlotModal()">Отмена</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Модальное окно с деталями предмета -->
+    <div id="item-modal" class="modal" style="display:none;">
+      <div class="modal-content" id="item-modal-content">
+        <div class="modal-head">
+          <div class="item-modal-head">
+            <div class="item-modal-art" id="item-modal-art" aria-hidden="true">📦</div>
+            <div>
+              <div class="muted tiny" id="item-modal-rarity">—</div>
+              <div class="modal-title" id="item-modal-name">—</div>
+              <div class="muted tiny" id="item-modal-level">—</div>
+            </div>
+          </div>
+          <button class="secondary" onclick="WaifuApp.closeItemModal()">✖</button>
+        </div>
+        <div class="modal-body" id="item-modal-body"></div>
+        <div class="modal-footer">
+          <button class="secondary" id="item-modal-unequip" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
+          <button class="primary" id="item-modal-equip" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Экипировать</button>
+          <button class="secondary" onclick="WaifuApp.closeItemModal()">Закрыть</button>
+        </div>
+      </div>
+    </div>
+
     <nav class="nav basement">
-      <a href="./index.html" data-page="town" title="Город">
-        <span aria-hidden="true">🏠</span>
-      </a>
-      <a href="./shop.html" data-page="shop" title="Магазин">
-        <span aria-hidden="true">🏪</span>
-      </a>
-      <a href="./tavern.html" data-page="tavern" title="Таверна">
-        <span aria-hidden="true">🍻</span>
-      </a>
-      <a href="./caravan.html" data-page="caravan" title="Караван">
-        <span aria-hidden="true">🐫</span>
-      </a>
-      <a href="./guild_hall.html" data-page="guild" title="Гильдия">
-        <span aria-hidden="true">🏛️</span>
-      </a>
-      <a href="./training_hall.html" data-page="training" title="Тренировочный зал">
-        <span aria-hidden="true">💪</span>
-      </a>
-      <a href="./mail.html" data-page="mail" title="Почта">
-        <span aria-hidden="true">📮</span>
-      </a>
-      <a href="./settings.html" data-page="settings" title="Настройки">
-        <span aria-hidden="true">⚙️</span>
-      </a>
+      <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
+      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span aria-hidden="true">🏰</span></a>
+      <a href="./shop.html" data-page="shop" title="Магазин"><span aria-hidden="true">🏪</span></a>
+      <a href="./tavern.html" data-page="tavern" title="Таверна"><span aria-hidden="true">🍻</span></a>
+      <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
+      <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
+      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
+      <a href="./settings.html" data-page="settings" title="Настройки"><span aria-hidden="true">⚙️</span></a>
     </nav>
   </body>
 </html>

@@ -8,10 +8,32 @@ from waifu_bot.db.models.waifu import (
     WaifuRarity,
 )
 from waifu_bot.db.models.item import Item, InventoryItem, ItemRarity, ItemType, ItemTemplate, Affix, InventoryAffix, ShopOffer
-from waifu_bot.db.models.dungeon import Dungeon, DungeonProgress, Monster
+from waifu_bot.db.models.dungeon import (
+    Dungeon,
+    DungeonProgress,
+    Monster,
+    MonsterTemplate,
+    DungeonPool,
+    DungeonPoolEntry,
+    DungeonRun,
+    DungeonRunMonster,
+    DropRule,
+)
+from waifu_bot.db.models.endless import PlayerDungeonPlus, ItemBase, AffixFamily, AffixFamilyTier
 from waifu_bot.db.models.guild import Guild, GuildMember, GuildBank
 from waifu_bot.db.models.skill import Skill, WaifuSkill, GuildSkill
 from waifu_bot.db.models.battle import BattleLog
+from waifu_bot.db.models.tavern import TavernHireSlot
+from waifu_bot.db.models.expedition import ExpeditionSlot, ActiveExpedition
+from waifu_bot.db.models.group_dungeon import (
+    GDDungeonTemplate,
+    GDSession,
+    GDPlayerContribution,
+    PlayerChatFirstSeen,
+    PlayerGameAction,
+    GDEventTemplate,
+    GDCompletion,
+)
 
 __all__ = [
     "Player",
@@ -31,6 +53,16 @@ __all__ = [
     "Dungeon",
     "DungeonProgress",
     "Monster",
+    "MonsterTemplate",
+    "DungeonPool",
+    "DungeonPoolEntry",
+    "DungeonRun",
+    "DungeonRunMonster",
+    "DropRule",
+    "PlayerDungeonPlus",
+    "ItemBase",
+    "AffixFamily",
+    "AffixFamilyTier",
     "Guild",
     "GuildMember",
     "GuildBank",
@@ -38,5 +70,15 @@ __all__ = [
     "WaifuSkill",
     "GuildSkill",
     "BattleLog",
+    "TavernHireSlot",
+    "ExpeditionSlot",
+    "ActiveExpedition",
+    "GDDungeonTemplate",
+    "GDSession",
+    "GDPlayerContribution",
+    "PlayerChatFirstSeen",
+    "PlayerGameAction",
+    "GDEventTemplate",
+    "GDCompletion",
 ]
 

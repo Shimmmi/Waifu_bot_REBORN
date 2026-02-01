@@ -70,6 +70,12 @@ class MainWaifu(Base):
     experience: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     energy: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     max_energy: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    energy_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    hp_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Characteristics
     strength: Mapped[int] = mapped_column(Integer, default=10, nullable=False)  # СИЛ
@@ -78,6 +84,7 @@ class MainWaifu(Base):
     endurance: Mapped[int] = mapped_column(Integer, default=10, nullable=False)  # ВЫН
     charm: Mapped[int] = mapped_column(Integer, default=10, nullable=False)  # ОБА
     luck: Mapped[int] = mapped_column(Integer, default=10, nullable=False)  # УДЧ
+    stat_points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # Очки характеристик (ОХ)
 
     # Combat stats (calculated from characteristics + equipment)
     max_hp: Mapped[int] = mapped_column(Integer, default=100, nullable=False)

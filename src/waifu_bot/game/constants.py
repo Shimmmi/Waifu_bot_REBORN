@@ -31,9 +31,9 @@ MEDIA_COEFFICIENTS = {
 HP_K_COEFFICIENT = 10  # k_hp for HP calculation
 BASE_HP_PER_LEVEL = 20  # Base HP increase per level
 
-MELEE_DAMAGE_COEFFICIENT = 0.05  # СИЛ multiplier for melee
-RANGED_DAMAGE_COEFFICIENT = 0.05  # ЛОВ multiplier for ranged
-SPELL_DAMAGE_COEFFICIENT = 0.05  # ИНТ multiplier for spells
+MELEE_DAMAGE_COEFFICIENT = 0.02  # СИЛ multiplier for melee
+RANGED_DAMAGE_COEFFICIENT = 0.02  # ЛОВ multiplier for ranged
+SPELL_DAMAGE_COEFFICIENT = 0.02  # ИНТ multiplier for spells
 
 CRIT_CHANCE_AGILITY = 0.004  # 0.4% per ЛОВ point
 CRIT_CHANCE_LUCK = 0.002  # 0.2% per УДЧ point
@@ -43,10 +43,11 @@ CRIT_MULTIPLIER_MAX = 2.0
 DODGE_CHANCE_AGILITY = 0.002  # 0.2% per ЛОВ point
 DODGE_CHANCE_LUCK = 0.001  # 0.1% per УДЧ point
 
-# Energy
+# Energy and HP regen (см. services/energy.apply_regen)
 MAX_ENERGY = 100
-ENERGY_REGEN_OUT_OF_COMBAT = 5  # per minute
-ENERGY_REGEN_IN_COMBAT = 1  # per tick (if enabled)
+ENERGY_REGEN_PER_MIN = 1  # вне боя/данжа
+HP_REGEN_PER_MIN = 5
+ENERGY_REGEN_IN_COMBAT = 1  # per tick (если включено)
 
 # Anti-spam
 MAX_MESSAGES_PER_WINDOW = 3
@@ -74,4 +75,43 @@ GUILD_MIN_LEVEL_REQUIREMENT = 1
 EXP_BASE = 50
 EXP_MULTIPLIER = 2  # exp_to_level = EXP_BASE * level^EXP_MULTIPLIER
 MAX_LEVEL = 50
+
+# --- Group Dungeon (GD) ---
+GD_STAGES_TOTAL = 4  # 3 normal + 1 boss
+GD_MIN_ACTIVE_PLAYERS_24H = 3
+GD_MIN_MESSAGES_PER_MIN = 4
+GD_CHAT_COOLDOWN_MINUTES = 60
+GD_START_USER_COOLDOWN_SECONDS = 2 * 60 * 60  # 2 hours
+GD_ENGAGE_COOLDOWN_MINUTES = 25
+GD_ENGAGE_COOLDOWN_LARGE_CHAT_MINUTES = 40
+GD_LARGE_CHAT_MEMBER_THRESHOLD = 500
+GD_SAVE_INTERVAL_SECONDS = 30
+GD_REGRESSION_INTERVAL_SECONDS = 90
+GD_REGRESSION_HP_PERCENT = 0.012  # 1.2% of stage_base_hp per tick
+GD_LOW_ACTIVITY_MESSAGES_PER_MIN = 2
+GD_LOW_ACTIVITY_WINDOW_SECONDS = 90
+GD_FORCE_COMPLETE_AFTER_MINUTES = 75
+GD_FORCE_COMPLETE_HP_THRESHOLD = 0.05  # if hp > 5% of base after 75 min, force win
+GD_MIN_UNIQUE_CHARS = 5
+GD_DAMAGE_COOLDOWN_SECONDS = 2  # per-user cooldown between damage messages (was 8)
+GD_NEW_PLAYER_PENALTY_MINUTES = 5
+GD_NEW_PLAYER_DAMAGE_MULTIPLIER = 0.7
+GD_EVENT_BUFF_DURATION_SECONDS = 60
+GD_EVENT_BUFF_MULTIPLIER = 1.8
+GD_EVENT_COOLDOWN_AFTER_SECONDS = 15
+GD_BOT_MESSAGE_MIN_INTERVAL_SECONDS = 10
+GD_SUMMARY_AUTO_DELETE_SECONDS = 12
+GD_ALREADY_ACTIVE_DELAY_SECONDS = 10
+GD_BOT_MESSAGE_MIN_INTERVAL_SECONDS = 10
+GD_ELIGIBILITY_DAYS_IN_CHAT = 3
+GD_ELIGIBILITY_GAME_ACTIONS_DAYS = 7
+GD_ELIGIBILITY_MIN_GAME_ACTIONS = 2
+GD_BASE_EXP_REWARD = 80  # base exp per GD completion (split by contribution %)
+GD_BASE_GOLD_REWARD = 200  # base gold per GD completion (split by contribution %)
+
+# Emoji sets for GD damage/events (as strings for in-message check)
+GD_EMOJI_DAMAGE = ("\U0001f525", "\U0001f4a5", "\u26a1", "\U0001f4a3")  # 🔥💥⚡💣
+GD_EMOJI_SHIELD = ("\u26e8", "\u2694")  # 🛡️⚔️ (shield/sword)
+GD_EMOJI_HEAL = ("\U0001f49a", "\u2764", "\u2728")  # 💚❤️✨
+GD_EMOJI_FINAL = ("\U0001f4a5", "\U0001f525")  # 💥🔥 for "final rush"
 

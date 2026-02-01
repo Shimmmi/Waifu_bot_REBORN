@@ -99,6 +99,14 @@ class InventoryItem(Base):
     rarity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
     level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Endless scaling snapshot (Dungeon+ / power)
+    power_rank: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    base_level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    total_level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    plus_level_source: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    base_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("item_bases.id", ondelete="SET NULL"), nullable=True
+    )
     is_legendary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     damage_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
     damage_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -108,6 +116,7 @@ class InventoryItem(Base):
     base_stat: Mapped[str | None] = mapped_column(String(32), nullable=True)
     base_stat_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
     requirements: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    slot_type: Mapped[str | None] = mapped_column(String(32), nullable=True)  # weapon_1h, weapon_2h, costume, ring, amulet, offhand
 
     # Equipment slot (if equipped)
     # 0 = not equipped, 1-6 = equipment slot
@@ -201,6 +210,14 @@ class InventoryAffix(Base):
     is_percent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)  # affix/suffix
     tier: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Diablo-style families (optional; null for legacy)
+    family_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("affix_families.id", ondelete="SET NULL"), nullable=True
+    )
+    affix_tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    exclusive_group: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    level_delta: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    power_rank: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )
