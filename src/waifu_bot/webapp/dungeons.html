@@ -161,6 +161,24 @@
           </div>
         </div>
       </div>
+
+      <!-- Expedition modal -->
+      <div id="expedition-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+          <div class="modal-head">
+            <div>
+              <div class="modal-title" id="expedition-modal-title">Экспедиция</div>
+              <div class="muted tiny" id="expedition-modal-subtitle">—</div>
+            </div>
+            <button class="secondary" onclick="WaifuApp.closeExpeditionModal()">✖</button>
+          </div>
+          <div class="modal-body" id="expedition-modal-body"></div>
+          <div class="modal-footer">
+            <button class="secondary" onclick="WaifuApp.closeExpeditionModal()">Закрыть</button>
+            <button class="primary" style="width:auto;" id="expedition-modal-action" onclick="WaifuApp.startExpedition()">Отправить</button>
+          </div>
+        </div>
+      </div>
     </div>
   </body>
 </html>
