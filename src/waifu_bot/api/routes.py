@@ -20,8 +20,10 @@ from waifu_bot.services.guild import GuildService
 from waifu_bot.services.shop import ShopService
 from waifu_bot.services.skills import SkillService
 from waifu_bot.services.tavern import TavernService
+from waifu_bot.services.expedition import ExpeditionService
 from waifu_bot.services.webhook import process_update
 from waifu_bot.services import sse as sse_service
+from waifu_bot.services.item_art import derive_art_key, derive_image_key, enrich_items_with_image_urls
 from waifu_bot.game.constants import TAVERN_HIRE_COST, TAVERN_SLOTS_PER_DAY
 from waifu_bot.api.inventory_routes import router as inventory_router
 from waifu_bot.api.expedition_routes import router as expedition_router
@@ -380,29 +382,8 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
     prefix = next((a.name for a in (inv.affixes or []) if getattr(a, "kind", None) == "affix"), None)
     suffix = next((a.name for a in (inv.affixes or []) if getattr(a, "kind", None) == "suffix"), None)
     display_name = f"{(prefix + ' ') if prefix else ''}{base_name}{(' ' + suffix) if suffix else ''}".strip()
-
-    def _image_key() -> str:
-        st = (inv.slot_type or "").lower()
-        wt = (inv.weapon_type or "").lower()
-        if "ring" in st:
-            return "ring"
-        if "amulet" in st:
-            return "amulet"
-        if "costume" in st or "armor" in st:
-            return "armor"
-        if "offhand" in st:
-            return "shield"
-        if "weapon" in st:
-            if "axe" in wt:
-                return "weapon_axe"
-            if "sword" in wt:
-                return "weapon_sword"
-            if "bow" in wt:
-                return "weapon_bow"
-            if "staff" in wt or "wand" in wt:
-                return "weapon_staff"
-            return "generic"
-        return "generic"
+    image_key = derive_image_key(inv.slot_type, inv.weapon_type)
+    art_key = derive_art_key(inv.slot_type, inv.weapon_type)
     
     can_equip = None
     requirement_errors = None
@@ -428,7 +409,9 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
         requirements=inv.requirements,
         affixes=affixes,
         slot_type=inv.slot_type,
-        image_key=_image_key(),
+        image_key=image_key,
+        art_key=art_key,
+        image_url=None,
         can_equip=can_equip,
         requirement_errors=requirement_errors,
         equipment_slot=inv.equipment_slot,
@@ -542,6 +525,10 @@ async def get_profile(
                 equipment_payload = [_to_gear_item(inv, main_waifu) for inv in equipped_items]
             except Exception:
                 equipment_payload = []
+            try:
+                await enrich_items_with_image_urls(session, equipment_payload)
+            except Exception:
+                logger.exception("Failed to enrich item images in /profile (player_id=%s)", player_id)
 
             # Рассчитываем бонусы от экипировки для отображения в формате X (A+B)
             total_bonuses = {
@@ -640,6 +627,11 @@ async def get_equipment(
     waifu = player.main_waifu if player else None
     equipped = [_to_gear_item(i, waifu) for i in items if i.equipment_slot]
     inventory = [_to_gear_item(i, waifu) for i in items if not i.equipment_slot]
+    try:
+        await enrich_items_with_image_urls(session, equipped)
+        await enrich_items_with_image_urls(session, inventory)
+    except Exception:
+        logger.exception("Failed to enrich item images in /waifu/equipment (player_id=%s)", player_id)
     return {"equipped": equipped, "inventory": inventory}
 
 
@@ -715,7 +707,12 @@ async def equip_item(
     await session.refresh(inv)
     player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
     waifu = player.main_waifu if player else None
-    return _to_gear_item(inv, waifu)
+    payload = _to_gear_item(inv, waifu)
+    try:
+        await enrich_items_with_image_urls(session, [payload])
+    except Exception:
+        logger.exception("Failed to enrich item image in /waifu/equipment/equip (player_id=%s)", player_id)
+    return payload
 
 
 @router.post("/waifu/equipment/unequip", tags=["equipment"])
@@ -764,6 +761,10 @@ async def get_available_items_for_slot(
         if slot in available_slots:
             can_equip, errors = check_item_requirements(inv, player.main_waifu)
             available_items.append(_to_gear_item(inv, player.main_waifu))
+    try:
+        await enrich_items_with_image_urls(session, available_items)
+    except Exception:
+        logger.exception("Failed to enrich item images in /waifu/equipment/available (player_id=%s)", player_id)
 
     return {"items": available_items, "count": len(available_items), "slot": slot, "slot_name": EQUIPMENT_SLOT_NAMES.get(slot, "Unknown")}
 
@@ -1090,7 +1091,7 @@ async def admin_tavern_refresh(
     try:
         slots = await tavern_service.admin_refresh_today(session, player_id)
     except SQLAlchemyError:
-        slots = []
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="tavern_storage_unavailable")
     out = [
         schemas.TavernHireSlotOut(
             slot=int(s.slot),
@@ -1156,6 +1157,170 @@ async def tavern_squad_remove(
     if result.get("error"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
     return schemas.TavernActionResponse(**result)
+
+
+# --- Expedition endpoints ---
+expedition_service = ExpeditionService()
+
+
+@router.get("/expeditions/slots", response_model=schemas.ExpeditionSlotsResponse, tags=["expeditions"])
+async def expeditions_slots(session: AsyncSession = Depends(get_db)):
+    slots = await expedition_service.get_slots(session)
+    await session.commit()  # сохранить новые слоты дня, созданные в get_slots()
+    day_str = slots[0].day.isoformat() if slots else ""
+    return schemas.ExpeditionSlotsResponse(
+        slots=[
+            schemas.ExpeditionSlotOut(
+                id=s.id,
+                slot=int(s.slot),
+                name=s.name,
+                base_level=int(s.base_level),
+                base_difficulty=int(s.base_difficulty),
+                affixes=list(s.affixes or []),
+                base_gold=int(s.base_gold),
+                base_experience=int(s.base_experience),
+            )
+            for s in slots
+        ],
+        day=day_str,
+    )
+
+
+@router.get("/expeditions/active", response_model=schemas.ExpeditionActiveResponse, tags=["expeditions"])
+async def expeditions_active(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from datetime import datetime, timezone
+    active_list = await expedition_service.get_active(session, player_id)
+    out = []
+    for a in active_list:
+        slot = await session.get(m.ExpeditionSlot, a.expedition_slot_id)
+        name = slot.name if slot else "—"
+        now = datetime.now(tz=timezone.utc)
+        can_claim = now >= a.ends_at
+        seconds_left = max(0, int((a.ends_at - now).total_seconds())) if not can_claim else None
+        out.append(
+            schemas.ExpeditionActiveOut(
+                id=a.id,
+                expedition_slot_id=a.expedition_slot_id,
+                expedition_name=name,
+                started_at=a.started_at.isoformat(),
+                ends_at=a.ends_at.isoformat(),
+                duration_minutes=a.duration_minutes,
+                chance=a.chance,
+                success=a.success,
+                reward_gold=a.reward_gold,
+                reward_experience=a.reward_experience,
+                squad_waifu_ids=list(a.squad_waifu_ids or []),
+                can_claim=can_claim,
+                seconds_left=seconds_left,
+            )
+        )
+    return schemas.ExpeditionActiveResponse(active=out)
+
+
+@router.post("/expeditions/start", tags=["expeditions"])
+async def expeditions_start(
+    payload: schemas.ExpeditionStartRequest,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    result = await expedition_service.start(
+        session,
+        player_id,
+        payload.expedition_slot_id,
+        payload.squad_waifu_ids,
+        payload.duration_minutes,
+    )
+    err = result.get("error")
+    if err:
+        if err == "invalid_duration":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Недопустимая длительность")
+        if err == "squad_size":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"В отряде должно быть от {result.get('min')} до {result.get('max')} вайфу",
+            )
+        if err == "slot_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Слот экспедиции не найден (id={getattr(payload, 'expedition_slot_id', '?')}). Обновите вкладку «Экспедиции» и попробуйте снова.",
+            )
+        if err == "slot_expired":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Слот устарел (новые слоты в 00:00 МСК)")
+        if err == "waifu_not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Вайфу не найдена")
+        if err == "waifu_not_in_squad":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Вайфу должна быть в отряде таверны")
+        if err == "already_started":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Экспедиция в этот слот уже запущена")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
+    return schemas.ExpeditionStartResponse(**result)
+
+
+@router.post("/expeditions/claim", tags=["expeditions"])
+async def expeditions_claim(
+    active_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    result = await expedition_service.claim(session, player_id, active_id)
+    if result.get("error"):
+        err = result["error"]
+        if err == "not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Экспедиция не найдена")
+        if err == "already_claimed":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Награда уже получена")
+        if err == "cancelled":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Экспедиция отменена")
+        if err == "not_finished":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Экспедиция ещё не завершена")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
+    return schemas.ExpeditionClaimResponse(**result)
+
+
+@router.post("/expeditions/cancel", tags=["expeditions"])
+async def expeditions_cancel(
+    active_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    result = await expedition_service.cancel(session, player_id, active_id)
+    if result.get("error"):
+        err = result["error"]
+        if err == "not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Экспедиция не найдена")
+        if err == "already_claimed":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Уже обработано")
+        if err == "already_cancelled":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Уже отменена")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
+    return schemas.ExpeditionCancelResponse(**result)
+
+
+@router.post("/admin/expeditions/refresh", tags=["admin"])
+async def admin_expeditions_refresh(
+    session: AsyncSession = Depends(get_db),
+    _: int = Depends(require_admin),
+):
+    slots = await expedition_service.admin_refresh_slots(session)
+    return schemas.ExpeditionSlotsResponse(
+        slots=[
+            schemas.ExpeditionSlotOut(
+                id=s.id,
+                slot=int(s.slot),
+                name=s.name,
+                base_level=int(s.base_level),
+                base_difficulty=int(s.base_difficulty),
+                affixes=list(s.affixes or []),
+                base_gold=int(s.base_gold),
+                base_experience=int(s.base_experience),
+            )
+            for s in slots
+        ],
+        day=slots[0].day.isoformat() if slots else "",
+    )
 
 
 # --- Dungeon endpoints ---

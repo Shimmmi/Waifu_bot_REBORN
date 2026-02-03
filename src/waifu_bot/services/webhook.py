@@ -16,6 +16,11 @@ _dp = Dispatcher()
 _dp.include_router(bot_router)
 
 
+def get_bot() -> Bot:
+    """Return the bot instance for sending messages (e.g. expedition DM notifications)."""
+    return _bot
+
+
 async def process_update(payload: dict[str, Any]) -> None:
     try:
         update = Update.model_validate(payload)

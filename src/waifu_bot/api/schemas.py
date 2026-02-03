@@ -300,6 +300,9 @@ class GearItemOut(BaseModel):
     affixes: List[AffixOut] = []
     slot_type: Optional[str] = None
     image_key: Optional[str] = None
+    # Tiered item art (WebApp). art_key selects per-type images (e.g. sword_1h vs sword_2h).
+    art_key: Optional[str] = None
+    image_url: Optional[str] = None
     can_equip: Optional[bool] = None  # Для endpoint available - можно ли экипировать
     requirement_errors: Optional[List[str]] = None  # Ошибки требований, если can_equip=False
     equipment_slot: Optional[int] = None  # Номер слота, если предмет экипирован
@@ -326,3 +329,79 @@ class MainWaifuCreateRequest(BaseModel):
 class MainWaifuCreateResponse(BaseModel):
     success: bool = True
     main_waifu: MainWaifuProfile
+
+
+# --- Expeditions ---
+class ExpeditionSlotOut(BaseModel):
+    id: int
+    slot: int
+    name: str
+    base_level: int
+    base_difficulty: int
+    affixes: List[str] = []
+    base_gold: int
+    base_experience: int
+
+
+class ExpeditionSlotsResponse(BaseModel):
+    slots: List[ExpeditionSlotOut]
+    day: str
+
+
+class ExpeditionActiveOut(BaseModel):
+    id: int
+    expedition_slot_id: int
+    expedition_name: str
+    started_at: str
+    ends_at: str
+    duration_minutes: int
+    chance: float
+    success: bool
+    reward_gold: int
+    reward_experience: int
+    squad_waifu_ids: List[int] = []
+    can_claim: bool = False
+    seconds_left: Optional[int] = None
+
+
+class ExpeditionActiveResponse(BaseModel):
+    active: List[ExpeditionActiveOut]
+
+
+class ExpeditionStartRequest(BaseModel):
+    expedition_slot_id: int
+    squad_waifu_ids: List[int]
+    duration_minutes: int
+
+
+class ExpeditionStartResponse(BaseModel):
+    success: bool = True
+    active_id: int
+    expedition_name: str
+    chance: float
+    success: bool
+    reward_gold: int
+    reward_experience: int
+    ends_at: str
+    duration_minutes: int
+    error: Optional[str] = None
+
+
+class ExpeditionClaimResponse(BaseModel):
+    success: bool = True
+    active_id: int
+    success_result: bool
+    gold_gained: int
+    experience_gained: int
+    gold_total: int
+    error: Optional[str] = None
+
+
+class ExpeditionCancelResponse(BaseModel):
+    success: bool = True
+    active_id: int
+    gold_gained: int
+    experience_gained: int
+    gold_total: int
+    error: Optional[str] = None
+

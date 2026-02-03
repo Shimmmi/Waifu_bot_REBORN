@@ -52,7 +52,7 @@ def _render_chain_message(chain: dict) -> str:
     except Exception:
         time_left = 0
     lines = [
-        "⚡️ **ЦЕПОЧКА ЗАДАНИЙ** (60 сек)",
+        "⚡️ **ЦЕПОЧКА ЗАДАНИЙ** (5 мин)",
         f"⏳ Осталось: {time_left} сек",
         f"Текущее задание: {current_task}/3",
         "",
@@ -170,20 +170,42 @@ async def group_message_damage(message: Message) -> None:
         chain = await gd_service.get_engage_chain(chat_id)
         if chain and chain.get("message_id"):
             try:
-                text = _render_chain_message(chain)
                 if advance == "completed":
                     async for session in get_session():
                         await gd_service.apply_engage_chain_effect(session, chat_id)
                         break
-                    text += "\n\n💥 **Цепочка выполнена!** −35% HP монстра."
-                await message.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=chain["message_id"],
-                    text=text,
-                    parse_mode="Markdown",
-                )
-                if advance == "completed":
+                    try:
+                        await message.bot.delete_message(
+                            chat_id=chat_id,
+                            message_id=chain["message_id"],
+                        )
+                    except Exception:
+                        pass
+                    await message.bot.send_message(
+                        chat_id=chat_id,
+                        text="💥 **Цепочка выполнена!** −35% HP монстра. Молодцы!",
+                        parse_mode="Markdown",
+                    )
                     await gd_service.delete_engage_chain(chat_id)
+                else:
+                    text = _render_chain_message(chain)
+                    await message.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=chain["message_id"],
+                        text=text,
+                        parse_mode="Markdown",
+                    )
+                    task_id = chain.get("current_task", 2) - 1
+                    name = (message.from_user.first_name or "Игрок").strip() if message.from_user else "Игрок"
+                    username = (message.from_user.username or "").strip() if message.from_user else ""
+                    who = f"{name} (@{username})" if username else name
+                    tasks = chain.get("tasks", [])
+                    next_task = tasks[chain["current_task"] - 1] if chain["current_task"] <= len(tasks) else None
+                    next_desc = next_task.get("description", "") if next_task else ""
+                    msg_text = f"✅ Задание {task_id} выполнено: {who}."
+                    if next_desc:
+                        msg_text += f"\nСледующее задание: {next_desc}"
+                    await message.bot.send_message(chat_id=chat_id, text=msg_text)
             except Exception as e:
                 logger.warning("Не удалось обновить сообщение цепочки: %s", e)
         return
@@ -213,10 +235,17 @@ async def group_message_damage(message: Message) -> None:
                     + (" ✅" if completed else "")
                 )
                 if completed:
-                    text += "\n\n💥 Эффект: −25% здоровья босса!"
-                    async for session in get_session():
-                        await gd_service.apply_event_effect_and_clear(session, chat_id)
-                        break
+                    trigger_type = state.get("trigger_type") or ""
+                    if trigger_type == "boss_unique":
+                        text += "\n\n💥 Эффект: −25% здоровья босса!"
+                        async for session in get_session():
+                            await gd_service.apply_event_effect_and_clear(session, chat_id)
+                            break
+                    else:
+                        text += "\n\n✅ Событие выполнено!"
+                        async for session in get_session():
+                            await gd_service.clear_event_without_effect(session, chat_id)
+                            break
                 await message.bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=state["message_id"],
@@ -273,7 +302,7 @@ async def group_message_damage(message: Message) -> None:
                             push_gd_log(chat_id, "event", f"Событие: {ev.get('name', 'Событие')}", user_id=player_id)
                         await gd_service.await_throttle_bot_message(chat_id)
                         sent = await _send_event_visual_block(message.bot, chat_id, ev)
-                        if sent and sent.message_id and ev.get("trigger_type") == "boss_unique":
+                        if sent and sent.message_id and ev.get("trigger_type") in ("boss_unique", "hp_50", "hp_10"):
                             await gd_service.set_event_state(chat_id, sent.message_id, ev)
                         await gd_service.set_last_bot_message(chat_id)
                     if result.get("gd_completed") and settings.testing_mode:
@@ -383,27 +412,29 @@ async def _update_chain_timer(bot, chat_id: int) -> None:
     chain = await gd_service.get_engage_chain(chat_id)
     if chain and chain.get("message_id"):
         all_done = all(t.get("completed") for t in chain.get("tasks", []))
+        msg_id = chain["message_id"]
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except Exception:
+            pass
         try:
             if all_done:
                 async for session in get_session():
                     applied = await gd_service.apply_engage_chain_effect(session, chat_id)
                     if applied:
-                        await bot.edit_message_text(
+                        await bot.send_message(
                             chat_id=chat_id,
-                            message_id=chain["message_id"],
-                            text=_render_chain_message(chain) + "\n\n💥 **Цепочка выполнена!** −35% HP монстра.",
+                            text="💥 **Цепочка выполнена!** −35% HP монстра. Молодцы!",
                             parse_mode="Markdown",
                         )
                     break
             else:
-                await bot.edit_message_text(
+                await bot.send_message(
                     chat_id=chat_id,
-                    message_id=chain["message_id"],
-                    text=_render_chain_message(chain) + "\n\n⏱ Время вышло.",
-                    parse_mode="Markdown",
+                    text="⏱ Время вышло. Цепочка не завершена.",
                 )
         except Exception as e:
-            logger.warning("Не удалось обновить финальное сообщение цепочки: %s", e)
+            logger.warning("Не удалось отправить итог цепочки: %s", e)
     await gd_service.delete_engage_chain(chat_id)
 
 
@@ -655,7 +686,7 @@ async def cmd_gd_event(message: Message) -> None:
                 await message.reply("Событие не найдено или нет активной сессии.")
                 return
             sent = await _send_event_visual_block(message.bot, chat_id, ev)
-            if sent and sent.message_id and ev.get("trigger_type") == "boss_unique":
+            if sent and sent.message_id and ev.get("trigger_type") in ("boss_unique", "hp_50", "hp_10"):
                 await gd_service.set_event_state(chat_id, sent.message_id, ev)
             await message.reply("⚡ Событие активировано (см. сообщение выше).")
             break

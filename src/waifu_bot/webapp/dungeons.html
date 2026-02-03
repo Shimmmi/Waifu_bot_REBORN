@@ -61,11 +61,48 @@
 
           <div id="tab-expedition" class="tab-panel" style="display: none;">
             <div id="expedition-error" class="banner" style="display:none;"></div>
-            <div id="expedition-slots" class="dungeon-acts"></div>
-            <div class="card" style="margin-top:16px;">
-              <h3 style="margin:0 0 10px 0;">Активные экспедиции</h3>
-              <div id="expedition-active">
-                <div class="muted">Нет активных экспедиций.</div>
+            <div class="section-head">
+              <div>
+                <div style="font-weight:800;">Активные экспедиции</div>
+                <div class="muted tiny">Завершённые — кнопка «Забрать награду»</div>
+              </div>
+            </div>
+            <div id="expedition-active-list" class="expedition-active-list">
+              <div class="placeholder">Загрузка...</div>
+            </div>
+            <div class="section-head" style="margin-top:16px;">
+              <div>
+                <div style="font-weight:800;">Слоты на сегодня</div>
+                <div class="muted tiny">Обновление в 00:00 МСК · отряд из таверны (1–3 вайфу)</div>
+              </div>
+              <button class="secondary admin-only" id="expedition-admin-refresh" style="display:none;" onclick="WaifuApp.adminRefreshExpeditions()">🔄</button>
+            </div>
+            <div id="expedition-slots-list" class="expedition-slots-grid">
+              <div class="placeholder">Загрузка слотов...</div>
+            </div>
+            <p class="muted tiny" style="margin-top:10px;">Длительность: 15–120 мин (шаг 15). Чем дольше — выше награда и риск. Отмена даёт 50% награды.</p>
+          </div>
+
+          <!-- Expedition start modal -->
+          <div id="expedition-start-modal" class="modal" style="display:none;">
+            <div class="modal-content">
+              <div class="modal-head">
+                <div>
+                  <div class="modal-title" id="expedition-start-title">Экспедиция</div>
+                  <div class="muted tiny" id="expedition-start-subtitle">—</div>
+                </div>
+                <button class="secondary" onclick="WaifuApp.closeExpeditionStartModal()">✖</button>
+              </div>
+              <div class="modal-body">
+                <div class="detail-row"><span class="muted">Отряд (1–3 вайфу из таверны)</span></div>
+                <div id="expedition-squad-pick" class="expedition-squad-pick"></div>
+                <div class="detail-row" style="margin-top:10px;"><span class="muted">Длительность</span></div>
+                <select id="expedition-duration-select" class="form-field"></select>
+                <div id="expedition-preview" class="expedition-preview" style="margin-top:12px;"></div>
+              </div>
+              <div class="modal-footer">
+                <button class="secondary" onclick="WaifuApp.closeExpeditionStartModal()">Отмена</button>
+                <button class="primary" id="expedition-start-confirm" onclick="WaifuApp.submitExpeditionStart()">Отправить</button>
               </div>
             </div>
           </div>
