@@ -20,6 +20,7 @@ from waifu_bot.db.models.dungeon import (
     DropRule,
 )
 from waifu_bot.db.models.endless import PlayerDungeonPlus, ItemBase, AffixFamily, AffixFamilyTier
+from waifu_bot.db.models.art import ItemArt
 from waifu_bot.db.models.guild import Guild, GuildMember, GuildBank
 from waifu_bot.db.models.skill import Skill, WaifuSkill, GuildSkill
 from waifu_bot.db.models.battle import BattleLog
@@ -63,6 +64,7 @@ __all__ = [
     "ItemBase",
     "AffixFamily",
     "AffixFamilyTier",
+    "ItemArt",
     "Guild",
     "GuildMember",
     "GuildBank",
