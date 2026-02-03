@@ -2,6 +2,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.api.deps import get_db, get_player_id, get_redis, require_admin
@@ -1032,7 +1033,10 @@ async def tavern_available(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    slots = await tavern_service.get_available_waifus(session, player_id)
+    try:
+        slots = await tavern_service.get_available_waifus(session, player_id)
+    except SQLAlchemyError:
+        slots = []
     out = []
     for s in slots:
         out.append(
@@ -1108,8 +1112,11 @@ async def tavern_squad(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    squad = await tavern_service.get_squad(session, player_id)
-    return {"squad": [_to_hired_waifu(w) for w in squad]}
+    try:
+        squad = await tavern_service.get_squad(session, player_id)
+        return {"squad": [_to_hired_waifu(w) for w in squad]}
+    except SQLAlchemyError:
+        return {"squad": []}
 
 
 @router.get("/tavern/reserve", tags=["tavern"])
@@ -1117,8 +1124,11 @@ async def tavern_reserve(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    reserve = await tavern_service.get_reserve(session, player_id)
-    return {"reserve": [_to_hired_waifu(w) for w in reserve]}
+    try:
+        reserve = await tavern_service.get_reserve(session, player_id)
+        return {"reserve": [_to_hired_waifu(w) for w in reserve]}
+    except SQLAlchemyError:
+        return {"reserve": []}
 
 
 @router.post("/tavern/squad/add", tags=["tavern"])
