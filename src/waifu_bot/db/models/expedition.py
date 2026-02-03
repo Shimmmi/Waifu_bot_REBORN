@@ -69,6 +69,7 @@ class ActiveExpedition(Base):
     cancelled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     claimed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notification_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     player: Mapped["Player"] = relationship("Player", lazy="joined")
     expedition_slot: Mapped["ExpeditionSlot"] = relationship("ExpeditionSlot", lazy="joined")
