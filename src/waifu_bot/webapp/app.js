@@ -1806,7 +1806,13 @@ function openDungeonDetails(dungeon) {
   const openChatBtn = modal.querySelector(".gd-open-chat");
   if (openChatBtn && dungeon.chat_id) {
     openChatBtn.addEventListener("click", () => {
-      window.open(`https://t.me/c/${String(dungeon.chat_id).replace(/^-100/, "")}`, "_blank");
+      const url = `https://t.me/c/${String(dungeon.chat_id).replace(/^-100/, "")}`;
+      // В WebApp открываем ссылку внутри Telegram (без внешнего браузера); WebApp при этом может свернуться — это поведение клиента
+      if (tg && typeof tg.openTelegramLink === "function") {
+        tg.openTelegramLink(url);
+      } else {
+        window.open(url, "_blank");
+      }
     });
   }
 }
@@ -1850,6 +1856,262 @@ async function updateGdSessionUI() {
   }
 }
 
+const expeditionState = {
+  slots: [],
+  active: [],
+  squad: [],
+  selectedSlot: null,
+  selectedSquadIds: [],
+  durationMinutes: 60,
+};
+
+function showExpeditionError(msg) {
+  const box = document.getElementById("expedition-error");
+  if (!box) return;
+  if (!msg) {
+    box.style.display = "none";
+    box.textContent = "";
+    return;
+  }
+  box.style.display = "";
+  box.textContent = String(msg);
+}
+
+async function loadExpeditionTab() {
+  showExpeditionError("");
+  try {
+    const [slotsRes, activeRes, squadRes] = await Promise.all([
+      apiFetch("/expeditions/slots"),
+      apiFetch("/expeditions/active"),
+      apiFetch("/tavern/squad"),
+    ]);
+    expeditionState.slots = Array.isArray(slotsRes?.slots) ? slotsRes.slots : [];
+    expeditionState.active = Array.isArray(activeRes?.active) ? activeRes.active : [];
+    expeditionState.squad = Array.isArray(squadRes?.squad) ? squadRes.squad : [];
+    renderExpeditionActive();
+    renderExpeditionSlots();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showExpeditionError(detail || "Ошибка загрузки экспедиций");
+  }
+}
+
+function formatExpeditionTime(seconds) {
+  if (seconds == null || seconds <= 0) return "—";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+let expeditionTimerId = null;
+
+function renderExpeditionActive() {
+  const box = document.getElementById("expedition-active-list");
+  if (!box) return;
+  const list = expeditionState.active || [];
+  if (!list.length) {
+    box.innerHTML = `<div class="muted">Нет активных экспедиций.</div>`;
+    if (expeditionTimerId) {
+      clearInterval(expeditionTimerId);
+      expeditionTimerId = null;
+    }
+    return;
+  }
+  box.innerHTML = list
+    .map((a) => {
+      const canClaim = Boolean(a.can_claim);
+      const sec = a.seconds_left != null ? a.seconds_left : 0;
+      const timeStr = canClaim ? "Завершена" : formatExpeditionTime(sec);
+      return `
+        <div class="expedition-active-card" data-id="${a.id}">
+          <div class="expedition-active-head">
+            <strong>${a.expedition_name || "—"}</strong>
+            <span class="tag">${a.duration_minutes} мин</span>
+          </div>
+          <div class="expedition-active-meta">
+            <span>Шанс: <strong>${a.chance ?? "—"}%</strong></span>
+            <span>Награда: 🪙${a.reward_gold ?? 0} · ✨${a.reward_experience ?? 0}</span>
+          </div>
+          <div class="expedition-active-time">${canClaim ? "Готово к получению" : `Осталось: ${timeStr}`}</div>
+          <div class="expedition-active-actions">
+            ${canClaim ? `<button class="primary" onclick="WaifuApp.claimExpedition(${a.id})">Забрать награду</button>` : ""}
+            <button class="secondary" onclick="WaifuApp.cancelExpedition(${a.id})">Отменить (50%)</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+  const hasRunning = list.some((a) => !a.can_claim);
+  if (hasRunning && !expeditionTimerId) {
+    expeditionTimerId = setInterval(() => {
+      if (document.getElementById("tab-expedition")?.style.display !== "none") {
+        loadExpeditionTab().catch(() => {});
+      }
+    }, 5000);
+  } else if (!hasRunning && expeditionTimerId) {
+    clearInterval(expeditionTimerId);
+    expeditionTimerId = null;
+  }
+}
+
+function renderExpeditionSlots() {
+  const box = document.getElementById("expedition-slots-list");
+  if (!box) return;
+  const slots = expeditionState.slots || [];
+  if (!slots.length) {
+    box.innerHTML = `<div class="muted">Нет слотов на сегодня.</div>`;
+    return;
+  }
+  box.innerHTML = slots
+    .map((s) => {
+      const aff = (s.affixes || []).length;
+      return `
+        <div class="expedition-slot-card" data-id="${s.id}">
+          <div class="expedition-slot-name">${s.name || "—"}</div>
+          <div class="expedition-slot-meta">
+            <span>Ур. ${s.base_level ?? "—"}</span>
+            <span>Сложности: ${aff}</span>
+            <span>🪙 ${s.base_gold ?? 0} · ✨ ${s.base_experience ?? 0}</span>
+          </div>
+          <button class="primary" onclick="WaifuApp.openExpeditionStartModal(${s.id})">Отправить отряд</button>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function openExpeditionStartModal(slotId) {
+  const slot = (expeditionState.slots || []).find((s) => Number(s.id) === Number(slotId));
+  if (!slot) return;
+  expeditionState.selectedSlot = slot;
+  expeditionState.selectedSquadIds = [];
+  expeditionState.durationMinutes = 60;
+
+  const m = document.getElementById("expedition-start-modal");
+  if (!m) return;
+  setText("expedition-start-title", slot.name || "Экспедиция");
+  setText("expedition-start-subtitle", `Ур. ${slot.base_level} · до 3 вайфу из отряда таверны`);
+
+  const pick = document.getElementById("expedition-squad-pick");
+  if (pick) {
+    const squad = expeditionState.squad || [];
+    if (!squad.length) {
+      pick.innerHTML = `<div class="muted">Сформируйте отряд в таверне (1–3 вайфу в отряде).</div>`;
+    } else {
+      pick.innerHTML = squad
+        .map(
+          (w) => `
+          <label class="expedition-squad-option">
+            <input type="checkbox" value="${w.id}" data-waifu-id="${w.id}">
+            <span>${w.name || "—"} (lvl ${w.level ?? "—"})</span>
+          </label>
+        `
+        )
+        .join("");
+      pick.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+        cb.addEventListener("change", () => {
+          const checked = Array.from(pick.querySelectorAll("input[type=checkbox]:checked")).map(
+            (c) => Number(c.dataset.waifuId)
+          );
+          if (checked.length > 3) {
+            cb.checked = false;
+            expeditionState.selectedSquadIds = checked.filter((id) => id !== Number(cb.dataset.waifuId));
+          } else {
+            expeditionState.selectedSquadIds = checked;
+          }
+        });
+      });
+    }
+  }
+
+  const durSel = document.getElementById("expedition-duration-select");
+  if (durSel) {
+    const opts = [15, 30, 45, 60, 75, 90, 105, 120];
+    durSel.innerHTML = opts.map((m) => `<option value="${m}" ${m === 60 ? "selected" : ""}>${m} мин</option>`).join("");
+    durSel.onchange = () => {
+      expeditionState.durationMinutes = Number(durSel.value);
+    };
+  }
+
+  const preview = document.getElementById("expedition-preview");
+  if (preview) preview.innerHTML = `<div class="muted tiny">Шанс и награда рассчитываются при отправке.</div>`;
+
+  m.style.display = "grid";
+}
+
+function closeExpeditionStartModal() {
+  const m = document.getElementById("expedition-start-modal");
+  if (m) m.style.display = "none";
+  expeditionState.selectedSlot = null;
+  expeditionState.selectedSquadIds = [];
+}
+
+async function submitExpeditionStart() {
+  const slot = expeditionState.selectedSlot;
+  if (!slot) return;
+  const pick = document.getElementById("expedition-squad-pick");
+  const ids = pick
+    ? Array.from(pick.querySelectorAll("input[type=checkbox]:checked")).map((c) => Number(c.dataset.waifuId))
+    : expeditionState.selectedSquadIds;
+  if (!ids.length || ids.length > 3) {
+    showExpeditionError("Выберите от 1 до 3 вайфу из отряда таверны.");
+    return;
+  }
+  const duration = expeditionState.durationMinutes || 60;
+  try {
+    const res = await apiFetch("/expeditions/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expedition_slot_id: Number(slot.id),
+        squad_waifu_ids: ids,
+        duration_minutes: duration,
+      }),
+    });
+    closeExpeditionStartModal();
+    showExpeditionError("");
+    showDungeonsError(`Экспедиция отправлена. Шанс: ${res.chance}%. ${res.success ? "Успех!" : "Провал."} Завершение: ${res.ends_at || ""}`);
+    await loadExpeditionTab();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showExpeditionError(detail || "Ошибка запуска экспедиции");
+  }
+}
+
+async function claimExpedition(activeId) {
+  try {
+    const res = await apiFetch(`/expeditions/claim?active_id=${activeId}`, { method: "POST" });
+    showDungeonsError(`Награда: 🪙 +${res.gold_gained} · ✨ +${res.experience_gained}`);
+    await loadProfile().catch(() => {});
+    await loadExpeditionTab();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showDungeonsError(detail || "Ошибка получения награды", "danger");
+  }
+}
+
+async function cancelExpedition(activeId) {
+  try {
+    const res = await apiFetch(`/expeditions/cancel?active_id=${activeId}`, { method: "POST" });
+    showDungeonsError(`Отменено. Получено: 🪙 +${res.gold_gained} · ✨ +${res.experience_gained}`);
+    await loadProfile().catch(() => {});
+    await loadExpeditionTab();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showDungeonsError(detail || "Ошибка отмены", "danger");
+  }
+}
+
+async function adminRefreshExpeditions() {
+  try {
+    await apiFetch("/admin/expeditions/refresh", { method: "POST" });
+    await loadExpeditionTab();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showExpeditionError(detail || "Ошибка обновления слотов");
+  }
+}
+
 function showTab(name) {
   const tabs = document.getElementById("dungeon-tabs");
   if (!tabs) return;
@@ -1861,6 +2123,9 @@ function showTab(name) {
     panel.classList.toggle("active", isActive);
     panel.style.display = isActive ? "" : "none";
   });
+  if (name === "expedition") {
+    loadExpeditionTab().catch(() => {});
+  }
   if (name === "group") {
     loadActiveGdDungeons().catch(() => {});
     updateGdSessionUI().catch(() => {});
@@ -2112,13 +2377,47 @@ function itemArtEmoji(item) {
 }
 
 function itemImageUrl(item) {
+  // Prefer server-provided absolute/relative URL (DB-driven mapping).
+  const direct = String(item?.image_url || "").trim();
+  if (direct) return direct;
+
+  const tierRaw = item?.tier != null ? Number(item.tier) : 1;
+  const tier = Number.isFinite(tierRaw) ? Math.min(10, Math.max(1, Math.floor(tierRaw))) : 1;
+
+  // Tiered .webp by art_key (e.g. weapon_sword_2h)
+  const artKey = String(item?.art_key || "").trim();
+  if (artKey) {
+    return `/webapp/assets/items_webp/${encodeURIComponent(artKey)}/t${tier}.webp`;
+  }
+
+  // Legacy svg placeholders by image_key
   const key = String(item?.image_key || "").trim();
   if (!key) return "";
-  // Served by FastAPI StaticFiles mount at /webapp
   return `/webapp/assets/items/${encodeURIComponent(key)}.svg`;
 }
 
 function itemArtHtml(item) {
+  // If we are using tiered webp, add fallback to svg on 404.
+  const tierRaw = item?.tier != null ? Number(item.tier) : 1;
+  const tier = Number.isFinite(tierRaw) ? Math.min(10, Math.max(1, Math.floor(tierRaw))) : 1;
+  const artKey = String(item?.art_key || "").trim();
+  const svgKey = String(item?.image_key || "").trim();
+  const direct = String(item?.image_url || "").trim();
+
+  const webpUrl = direct
+    ? direct
+    : artKey
+      ? `/webapp/assets/items_webp/${encodeURIComponent(artKey)}/t${tier}.webp`
+      : "";
+  const svgUrl = svgKey ? `/webapp/assets/items/${encodeURIComponent(svgKey)}.svg` : "";
+
+  if (webpUrl) {
+    const onErr = svgUrl
+      ? `this.onerror=null;this.src='${svgUrl}';`
+      : `this.onerror=null;this.remove();`;
+    return `<img src="${webpUrl}" alt="" onerror="${onErr}" />`;
+  }
+
   const url = itemImageUrl(item);
   if (url) return `<img src="${url}" alt="" />`;
   return `${itemArtEmoji(item)}`;
@@ -2697,4 +2996,11 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   refreshSoloActive,
   closeRewardModal,
   openInventoryFromReward,
+  loadExpeditionTab,
+  openExpeditionStartModal,
+  closeExpeditionStartModal,
+  submitExpeditionStart,
+  claimExpedition,
+  cancelExpedition,
+  adminRefreshExpeditions,
 });

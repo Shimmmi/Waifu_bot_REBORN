@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,10 +21,7 @@ async def expedition_slots(
     session: AsyncSession = Depends(get_db),
 ):
     day_key = datetime.utcnow().date()
-    try:
-        slots = await service.ensure_daily_slots(session, day_key)
-    except SQLAlchemyError:
-        return {"slots": []}
+    slots = await service.ensure_daily_slots(session, day_key)
     return {
         "slots": [
             {
@@ -48,10 +44,7 @@ async def expedition_active(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    try:
-        active = await service.list_active(session, player_id)
-    except SQLAlchemyError:
-        return {"active": []}
+    active = await service.list_active(session, player_id)
     now = datetime.utcnow()
     return {
         "active": [
@@ -85,8 +78,6 @@ async def expedition_start(
 ):
     try:
         expedition = await service.start_expedition(session, player_id, slot_id, duration_minutes, squad_ids)
-    except SQLAlchemyError:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="expedition_storage_unavailable")
     except ValueError as exc:
         detail = str(exc)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
@@ -108,8 +99,6 @@ async def expedition_cancel(
 ):
     try:
         expedition = await service.cancel_expedition(session, expedition_id, player_id)
-    except SQLAlchemyError:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="expedition_storage_unavailable")
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return {
@@ -128,8 +117,6 @@ async def expedition_claim(
 ):
     try:
         expedition = await service.claim_rewards(session, expedition_id, player_id)
-    except SQLAlchemyError:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="expedition_storage_unavailable")
     except ValueError as exc:
         detail = str(exc)
         code = status.HTTP_400_BAD_REQUEST if detail == "not_ready" else status.HTTP_404_NOT_FOUND
@@ -149,13 +136,10 @@ async def expedition_waifus(
     session: AsyncSession = Depends(get_db),
     limit: Optional[int] = Query(30, ge=1, le=100),
 ):
-    try:
-        result = await session.execute(
-            select(m.HiredWaifu).where(m.HiredWaifu.player_id == player_id).limit(limit)
-        )
-        waifus = result.scalars().all()
-    except SQLAlchemyError:
-        return {"waifus": []}
+    result = await session.execute(
+        select(m.HiredWaifu).where(m.HiredWaifu.player_id == player_id).limit(limit)
+    )
+    waifus = result.scalars().all()
     return {
         "waifus": [
             {
