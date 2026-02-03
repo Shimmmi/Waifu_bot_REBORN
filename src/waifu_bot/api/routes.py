@@ -25,11 +25,13 @@ from waifu_bot.services import sse as sse_service
 from waifu_bot.services.item_art import derive_art_key, derive_image_key, enrich_items_with_image_urls
 from waifu_bot.game.constants import TAVERN_HIRE_COST, TAVERN_SLOTS_PER_DAY
 from waifu_bot.api.inventory_routes import router as inventory_router
+from waifu_bot.api.expedition_routes import router as expedition_router
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 router.include_router(inventory_router)
+router.include_router(expedition_router)
 
 BASE_STATS = {
     "strength": 10,
@@ -1796,4 +1798,3 @@ def _to_skill(s: m.Skill) -> schemas.SkillOut:
         max_level_act_4=s.max_level_act_4,
         max_level_act_5=s.max_level_act_5,
     )
-
