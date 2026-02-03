@@ -39,3 +39,19 @@ class TavernHireSlot(Base):
         CheckConstraint("slot >= 1 AND slot <= 4", name="check_tavern_hire_slot_range"),
     )
 
+
+class TavernState(Base):
+    """Global tavern progression per player."""
+
+    __tablename__ = "tavern_states"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    player_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("players.id"), unique=True)
+
+    level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    experience: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    daily_experience: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_exp_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
