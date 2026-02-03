@@ -9,6 +9,7 @@ from waifu_bot.api.deps import get_db, get_player_id
 from waifu_bot.api import schemas
 from waifu_bot.db import models as m
 from waifu_bot.game.formulas import calculate_shop_price
+from waifu_bot.services.item_art import derive_art_key, derive_image_key, enrich_items_with_image_urls
 
 router = APIRouter()
 
@@ -58,28 +59,8 @@ def _to_inventory_item(inv: m.InventoryItem) -> dict:
     suffix = next((a.name for a in (inv.affixes or []) if getattr(a, "kind", None) == "suffix"), None)
     display_name = f"{(prefix + ' ') if prefix else ''}{base_name}{(' ' + suffix) if suffix else ''}".strip()
 
-    def _image_key() -> str:
-        st = (inv.slot_type or "").lower()
-        wt = (inv.weapon_type or "").lower()
-        if "ring" in st:
-            return "ring"
-        if "amulet" in st:
-            return "amulet"
-        if "costume" in st or "armor" in st:
-            return "armor"
-        if "offhand" in st:
-            return "shield"
-        if "weapon" in st:
-            if "axe" in wt:
-                return "weapon_axe"
-            if "sword" in wt:
-                return "weapon_sword"
-            if "bow" in wt:
-                return "weapon_bow"
-            if "staff" in wt or "wand" in wt:
-                return "weapon_staff"
-            return "generic"
-        return "generic"
+    image_key = derive_image_key(inv.slot_type, inv.weapon_type)
+    art_key = derive_art_key(inv.slot_type, inv.weapon_type)
 
     return {
         "id": inv.id,
@@ -100,7 +81,9 @@ def _to_inventory_item(inv: m.InventoryItem) -> dict:
         "requirements": inv.requirements,
         "affixes": affixes,
         "slot_type": inv.slot_type,
-        "image_key": _image_key(),
+        "image_key": image_key,
+        "art_key": art_key,
+        "image_url": None,
     }
 
 
@@ -125,7 +108,13 @@ async def list_inventory(
 
     res = await session.execute(query.offset(offset).limit(limit))
     items = res.scalars().all()
-    return {"items": [_to_inventory_item(i) for i in items], "count": len(items)}
+    payload = [_to_inventory_item(i) for i in items]
+    try:
+        await enrich_items_with_image_urls(session, payload)
+    except Exception:
+        # Keep inventory endpoint unbreakable
+        pass
+    return {"items": payload, "count": len(items)}
 
 
 @router.post("/inventory/sell", tags=["inventory"])
