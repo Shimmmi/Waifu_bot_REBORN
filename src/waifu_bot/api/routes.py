@@ -2,6 +2,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.api.deps import get_db, get_player_id, get_redis, require_admin
@@ -23,11 +24,13 @@ from waifu_bot.services.webhook import process_update
 from waifu_bot.services import sse as sse_service
 from waifu_bot.game.constants import TAVERN_HIRE_COST, TAVERN_SLOTS_PER_DAY
 from waifu_bot.api.inventory_routes import router as inventory_router
+from waifu_bot.api.expedition_routes import router as expedition_router
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 router.include_router(inventory_router)
+router.include_router(expedition_router)
 
 BASE_STATS = {
     "strength": 10,
@@ -1029,7 +1032,10 @@ async def tavern_available(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    slots = await tavern_service.get_available_waifus(session, player_id)
+    try:
+        slots = await tavern_service.get_available_waifus(session, player_id)
+    except SQLAlchemyError:
+        slots = []
     out = []
     for s in slots:
         out.append(
@@ -1105,8 +1111,11 @@ async def tavern_squad(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    squad = await tavern_service.get_squad(session, player_id)
-    return {"squad": [_to_hired_waifu(w) for w in squad]}
+    try:
+        squad = await tavern_service.get_squad(session, player_id)
+        return {"squad": [_to_hired_waifu(w) for w in squad]}
+    except SQLAlchemyError:
+        return {"squad": []}
 
 
 @router.get("/tavern/reserve", tags=["tavern"])
@@ -1114,8 +1123,11 @@ async def tavern_reserve(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    reserve = await tavern_service.get_reserve(session, player_id)
-    return {"reserve": [_to_hired_waifu(w) for w in reserve]}
+    try:
+        reserve = await tavern_service.get_reserve(session, player_id)
+        return {"reserve": [_to_hired_waifu(w) for w in reserve]}
+    except SQLAlchemyError:
+        return {"reserve": []}
 
 
 @router.post("/tavern/squad/add", tags=["tavern"])
@@ -1631,4 +1643,3 @@ def _to_skill(s: m.Skill) -> schemas.SkillOut:
         max_level_act_4=s.max_level_act_4,
         max_level_act_5=s.max_level_act_5,
     )
-

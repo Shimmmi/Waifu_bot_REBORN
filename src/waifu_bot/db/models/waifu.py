@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Text,
     CheckConstraint,
+    JSON,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -127,7 +128,11 @@ class HiredWaifu(Base):
     level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     experience: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    # Characteristics
+    # Expedition-focused attributes
+    power: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    perks: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+    # Legacy characteristics (not used for expeditions)
     strength: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     agility: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     intelligence: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
@@ -155,4 +160,3 @@ class HiredWaifu(Base):
             name="check_squad_position",
         ),
     )
-
