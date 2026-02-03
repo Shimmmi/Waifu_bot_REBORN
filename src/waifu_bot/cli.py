@@ -23,7 +23,7 @@ def webhook():
 
 
 @app.command()
-def migrate(revision: str = "head"):
+def migrate(revision: str = "heads"):
     """Run Alembic migrations."""
     init_engine()
     cfg = Config("alembic.ini")
@@ -48,4 +48,3 @@ def run(
 
 if __name__ == "__main__":
     app()
-
