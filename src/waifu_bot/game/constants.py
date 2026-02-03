@@ -115,3 +115,26 @@ GD_EMOJI_SHIELD = ("\u26e8", "\u2694")  # 🛡️⚔️ (shield/sword)
 GD_EMOJI_HEAL = ("\U0001f49a", "\u2764", "\u2728")  # 💚❤️✨
 GD_EMOJI_FINAL = ("\U0001f4a5", "\U0001f525")  # 💥🔥 for "final rush"
 
+# --- Expeditions ---
+EXPEDITION_SLOTS_PER_DAY = 3
+EXPEDITION_MIN_SQUAD = 1
+EXPEDITION_MAX_SQUAD = 3
+# Duration minutes → (difficulty_mult, reward_mult). TZ: 15–120 min, step 15.
+EXPEDITION_DURATIONS = (15, 30, 45, 60, 75, 90, 105, 120)
+EXPEDITION_TIME_COEFFS = {
+    15: (0.4, 0.4),
+    30: (0.6, 0.6),
+    45: (0.8, 0.8),
+    60: (1.0, 1.0),
+    75: (1.2, 1.3),
+    90: (1.4, 1.6),
+    105: (1.6, 1.9),
+    120: (1.8, 2.2),
+}
+EXPEDITION_AFFIX_PENALTY_PCT = 15  # each affix -15% chance
+EXPEDITION_CHANCE_CAP_MIN = 5
+EXPEDITION_CHANCE_CAP_MAX = 95
+EXPEDITION_CANCEL_REWARD_PCT = 50  # cancel gives 50% of calculated reward
+EXPEDITION_BASE_GOLD = 100
+EXPEDITION_BASE_EXP = 50
+

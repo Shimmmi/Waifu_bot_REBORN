@@ -69,18 +69,20 @@ REDIS_GD_LAST_MSGS = "gd_last_msg:"  # {chat_id}:{user_id} -> list of last 2 tex
 REDIS_GD_ENGAGE_CHAIN = "gd_engage_chain:"
 REDIS_GD_EVENT_STATE = "gd_event_state:"
 
-ENGAGE_CHAIN_DURATION_SECONDS = 60
+ENGAGE_CHAIN_DURATION_SECONDS = 300  # 5 минут на выполнение цепочки
 ENGAGE_CHAIN_UPDATE_INTERVAL_SECONDS = 5
 ENGAGE_CHAIN_HP_EFFECT_PERCENT = 35  # −35% monster HP on full completion
 GD_EVENT_HP_EFFECT_PERCENT = 25  # −25% boss HP on event completion
 
-# boss_unique: emoji_filter key -> list of acceptable emojis in message
+# emoji_filter key -> list of acceptable emojis in message (для событий boss_unique и отображения в требовании)
 EMOJI_FILTER_TO_EMOJIS: dict[str, list[str]] = {
     "wind": ["✈️", "🌪️", "💨", "🌬️", "🌀"],
     "water": ["💧", "🌊", "🐚", "🐟", "🐙"],
     "sun": ["☀️", "🌞", "🔥", "✨", "🌟"],
-    "mirror": ["🪞", "✨", "💫", "🪞", "👁️"],
+    "mirror": ["🪞", "✨", "💫", "👁️"],
     "fire": ["🔥", "💥", "⚡", "✨"],
+    "shield": ["🛡️", "🔰", "⛑️", "🛡", "🔒"],
+    "heal": ["💚", "❤️", "💗", "✨", "🩹", "💕", "❤", "🧡"],
 }
 
 # Engage chain task pool: (target, content_type, filter_key, description)
@@ -629,7 +631,10 @@ class GroupDungeonService:
         Returns (new_count, completed) or None if no state / no match / already participated.
         """
         state = await self.get_event_state(chat_id)
-        if not state or state.get("trigger_type") != "boss_unique":
+        if not state:
+            return None
+        trigger = state.get("trigger_type") or ""
+        if trigger not in ("boss_unique", "hp_50", "hp_10"):
             return None
         if user_id in (state.get("participants") or []):
             return None
@@ -648,12 +653,23 @@ class GroupDungeonService:
     async def apply_event_effect_and_clear(
         self, session: AsyncSession, chat_id: int
     ) -> bool:
-        """Apply −25% monster HP and clear active_event_id + Redis state. Returns True if applied."""
+        """Apply −25% monster HP and clear active_event_id + Redis state (для boss_unique). Returns True if applied."""
         gd = await self.get_active_session(session, chat_id)
         if not gd:
             return False
         reduction = int(gd.stage_base_hp * GD_EVENT_HP_EFFECT_PERCENT / 100)
         gd.current_monster_hp = max(0, gd.current_monster_hp - reduction)
+        gd.active_event_id = None
+        gd.event_started_at = None
+        await session.commit()
+        await self.clear_event_state(chat_id)
+        return True
+
+    async def clear_event_without_effect(self, session: AsyncSession, chat_id: int) -> bool:
+        """Сбросить активное событие без эффекта по HP (для hp_50/hp_10: Щит, Исцеление и т.д.)."""
+        gd = await self.get_active_session(session, chat_id)
+        if not gd:
+            return False
         gd.active_event_id = None
         gd.event_started_at = None
         await session.commit()
@@ -1060,11 +1076,13 @@ class GroupDungeonService:
         return self._event_info_from_template(template)
 
     def _event_info_from_template(self, template: GDEventTemplate) -> dict[str, Any]:
-        """Build event dict for bot (name, duration, requirement text, template_id, trigger_type)."""
+        """Build event dict for bot (name, duration, requirement text with real emojis, template_id, trigger_type)."""
         name = template.name or "Событие"
         duration = template.duration_seconds or 45
         min_players = template.min_players_required or 1
-        emoji_hint = (template.emoji_filter or "").strip() or "✈️/🌪️/💨"
+        key = (template.emoji_filter or "").strip().lower() or ""
+        emoji_list = EMOJI_FILTER_TO_EMOJIS.get(key, []) if key else []
+        emoji_hint = "/".join(emoji_list[:5]) if emoji_list else (template.emoji_filter or "✈️/🌪️/💨")
         requirement = f"{min_players}+ игроков с {emoji_hint} за {duration} сек"
         return {
             "template_id": template.id,
