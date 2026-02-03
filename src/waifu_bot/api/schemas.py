@@ -155,6 +155,8 @@ class HiredWaifuOut(BaseModel):
     rarity: int
     level: int
     experience: int
+    power: int | None = None
+    perks: list[str] | None = None
     strength: int
     agility: int
     intelligence: int

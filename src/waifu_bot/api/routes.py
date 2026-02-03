@@ -1088,7 +1088,10 @@ async def admin_tavern_refresh(
     session: AsyncSession = Depends(get_db),
 ):
     """Admin-only: reset today's tavern hire slots to full availability."""
-    slots = await tavern_service.admin_refresh_today(session, player_id)
+    try:
+        slots = await tavern_service.admin_refresh_today(session, player_id)
+    except SQLAlchemyError:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="tavern_storage_unavailable")
     out = [
         schemas.TavernHireSlotOut(
             slot=int(s.slot),
@@ -1752,6 +1755,8 @@ def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
         rarity=w.rarity,
         level=w.level,
         experience=w.experience,
+        power=getattr(w, "power", None),
+        perks=getattr(w, "perks", None),
         strength=w.strength,
         agility=w.agility,
         intelligence=w.intelligence,

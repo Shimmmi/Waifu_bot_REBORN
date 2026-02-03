@@ -649,9 +649,8 @@ function renderWaifuCardHtml(w, opts = {}) {
           <div class="tag">—</div>
         </div>
         <div class="tavern-mini-stats">
-          <div class="pill"><span class="muted">СИЛ</span><strong>—</strong></div>
-          <div class="pill"><span class="muted">ЛОВ</span><strong>—</strong></div>
-          <div class="pill"><span class="muted">ИНТ</span><strong>—</strong></div>
+          <div class="pill"><span class="muted">Мощь</span><strong>—</strong></div>
+          <div class="pill"><span class="muted">Перки</span><strong>—</strong></div>
         </div>
       </div>
     `;
@@ -667,6 +666,8 @@ function renderWaifuCardHtml(w, opts = {}) {
   const sub = `lvl ${lvl} · ${rarityLabel(rarity)} · ${className(clsId)} / ${raceName(raceId)}`;
   const extra = String(opts?.extraClass || "").trim();
   const cls = `${"tavern-waifu-card"}${extra ? ` ${extra}` : ""}`;
+  const power = w?.power ?? "—";
+  const perksCount = Array.isArray(w?.perks) ? w.perks.length : 0;
   return `
     <div class="${cls}">
       <div class="tavern-waifu-head">
@@ -680,9 +681,8 @@ function renderWaifuCardHtml(w, opts = {}) {
         <div class="tag">${tag}</div>
       </div>
       <div class="tavern-mini-stats">
-        <div class="pill"><span class="muted">СИЛ</span><strong>${w?.strength ?? "—"}</strong></div>
-        <div class="pill"><span class="muted">ЛОВ</span><strong>${w?.agility ?? "—"}</strong></div>
-        <div class="pill"><span class="muted">ИНТ</span><strong>${w?.intelligence ?? "—"}</strong></div>
+        <div class="pill"><span class="muted">Мощь</span><strong>${power}</strong></div>
+        <div class="pill"><span class="muted">Перки</span><strong>${perksCount}</strong></div>
       </div>
     </div>
   `;
@@ -769,12 +769,8 @@ function openTavernWaifuModal(w, context) {
   body.innerHTML = `
     <div class="detail-row"><span class="muted">Портрет</span><strong>${waifuPortraitEmoji(w)}</strong></div>
     <div class="details-grid" style="margin-top:0;">
-      <div class="detail-row"><span class="muted">СИЛ</span><strong>${w?.strength ?? "—"}</strong></div>
-      <div class="detail-row"><span class="muted">ЛОВ</span><strong>${w?.agility ?? "—"}</strong></div>
-      <div class="detail-row"><span class="muted">ИНТ</span><strong>${w?.intelligence ?? "—"}</strong></div>
-      <div class="detail-row"><span class="muted">ВЫН</span><strong>${w?.endurance ?? "—"}</strong></div>
-      <div class="detail-row"><span class="muted">ОБА</span><strong>${w?.charm ?? "—"}</strong></div>
-      <div class="detail-row"><span class="muted">УДЧ</span><strong>${w?.luck ?? "—"}</strong></div>
+      <div class="detail-row"><span class="muted">Мощь</span><strong>${w?.power ?? "—"}</strong></div>
+      <div class="detail-row"><span class="muted">Перки</span><strong>${Array.isArray(w?.perks) && w.perks.length ? w.perks.join(", ") : "—"}</strong></div>
     </div>
   `;
 
