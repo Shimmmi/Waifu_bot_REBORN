@@ -60,7 +60,14 @@
           </div>
 
           <div id="tab-expedition" class="tab-panel" style="display: none;">
-            <div class="placeholder">Экспедиции скоро будут доступны...</div>
+            <div id="expedition-error" class="banner" style="display:none;"></div>
+            <div id="expedition-slots" class="dungeon-acts"></div>
+            <div class="card" style="margin-top:16px;">
+              <h3 style="margin:0 0 10px 0;">Активные экспедиции</h3>
+              <div id="expedition-active">
+                <div class="muted">Нет активных экспедиций.</div>
+              </div>
+            </div>
           </div>
 
           <div id="tab-group" class="tab-panel" style="display: none;">
@@ -114,6 +121,24 @@
           <div class="modal-footer">
             <button class="secondary" style="width:auto;" onclick="WaifuApp.openInventoryFromReward()">🎒</button>
             <button class="primary" style="width:auto;" onclick="WaifuApp.closeRewardModal()">Ок</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Expedition modal -->
+      <div id="expedition-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+          <div class="modal-head">
+            <div>
+              <div class="modal-title" id="expedition-modal-title">Экспедиция</div>
+              <div class="muted tiny" id="expedition-modal-subtitle">—</div>
+            </div>
+            <button class="secondary" onclick="WaifuApp.closeExpeditionModal()">✖</button>
+          </div>
+          <div class="modal-body" id="expedition-modal-body"></div>
+          <div class="modal-footer">
+            <button class="secondary" onclick="WaifuApp.closeExpeditionModal()">Закрыть</button>
+            <button class="primary" style="width:auto;" id="expedition-modal-action" onclick="WaifuApp.startExpedition()">Отправить</button>
           </div>
         </div>
       </div>

@@ -17,6 +17,7 @@ from waifu_bot.db.models import (
     WaifuRarity,
 )
 from waifu_bot.game.constants import RESERVE_SIZE, SQUAD_SIZE, TAVERN_HIRE_COST, TAVERN_SLOTS_PER_DAY
+from waifu_bot.game.expedition_data import PERKS
 
 try:
     from zoneinfo import ZoneInfo
@@ -209,6 +210,13 @@ class TavernService:
         charm = base_stats + random.randint(-2, 5)
         luck = base_stats + random.randint(-2, 5)
 
+        power_base = {WaifuRarity.COMMON: 40, WaifuRarity.UNCOMMON: 55, WaifuRarity.RARE: 75, WaifuRarity.EPIC: 95, WaifuRarity.LEGENDARY: 120}
+        base_power = power_base.get(rarity, 40)
+        power = base_power + random.randint(0, 10)
+        perk_count = {WaifuRarity.COMMON: 1, WaifuRarity.UNCOMMON: 2, WaifuRarity.RARE: 2, WaifuRarity.EPIC: 3, WaifuRarity.LEGENDARY: 4}
+        max_perks = perk_count.get(rarity, 1)
+        perk_ids = [p.id for p in random.sample(PERKS, k=min(max_perks, len(PERKS)))]
+
         waifu = HiredWaifu(
             player_id=player_id,
             name=f"Waifu_{random.randint(1000, 9999)}",
@@ -216,6 +224,8 @@ class TavernService:
             class_=class_.value,
             rarity=rarity.value,
             level=1,
+            power=power,
+            perks=perk_ids,
             strength=strength,
             agility=agility,
             intelligence=intelligence,

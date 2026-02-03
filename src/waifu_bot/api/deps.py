@@ -1,5 +1,6 @@
 """FastAPI dependencies."""
 from fastapi import Depends, Header, HTTPException, Query, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.core import redis as redis_core
@@ -10,8 +11,11 @@ from waifu_bot.services.auth import validate_init_data
 
 async def get_db() -> AsyncSession:
     """Provide DB session for request lifecycle."""
-    async for session in get_session():
-        yield session
+    try:
+        async for session in get_session():
+            yield session
+    except SQLAlchemyError:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="database_unavailable")
 
 
 def get_redis():
@@ -61,4 +65,3 @@ async def require_admin(player_id: int = Depends(get_player_id)) -> int:
             detail="Admin access required",
         )
     return player_id
-
