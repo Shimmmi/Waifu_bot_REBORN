@@ -36,7 +36,12 @@ def calculate_damage(
     intelligence: int = 0,
     attack_type: str = "melee",
 ) -> int:
-    """Calculate damage based on weapon and stats."""
+    """Calculate damage based on weapon and stats.
+
+    Formula: base_damage + flat_stat_bonus
+    Each point of the primary stat adds COEFFICIENT flat damage (currently 1.0).
+    This matches the profile UI which shows "+N к урону" per stat point.
+    """
     if attack_type == "melee":
         stat_bonus = strength * MELEE_DAMAGE_COEFFICIENT
     elif attack_type == "ranged":
@@ -46,7 +51,7 @@ def calculate_damage(
     else:
         stat_bonus = 0
 
-    return int(base_damage * (1 + stat_bonus))
+    return int(base_damage + stat_bonus)
 
 
 def calculate_message_damage(

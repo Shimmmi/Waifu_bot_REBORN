@@ -9,10 +9,16 @@
     <script defer src="./app.js"></script>
   </head>
   <body onload="WaifuApp.bootstrapPage('caravan');">
-    <header>
-      <div class="topbar">
-        <div class="badge">Текущий акт: <strong>1</strong></div>
-        <div class="badge">Следующая точка: <span class="tag">открывается после финального босса</span></div>
+    <header class="attic">
+      <div class="attic-row" aria-label="Основной чердак">
+        <div class="chip attic-level-chip" title="Уровень и опыт">
+          <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
+          <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
+        </div>
+        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье">🏰&nbsp;<span id="attic-dungeon-label">Нет боя</span></div>
+        <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции">🗺&nbsp;<span id="attic-expedition-label"></span></div>
+        <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
+        <div class="chip" title="Энергия">⚡&nbsp;<span id="badge-energy">—</span></div>
       </div>
     </header>
 

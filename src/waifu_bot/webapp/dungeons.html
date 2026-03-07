@@ -11,34 +11,18 @@
   <body class="page-dungeons" onload="WaifuApp.bootstrapPage('dungeons', WaifuApp.populateDungeonsPage);">
     <div class="screen">
       <header class="attic">
-        <div class="dungeons-topbar" aria-label="Подземелья">
-          <div class="dungeons-meta">
-            <div class="chip">
-              <span aria-hidden="true">👤</span>
-              <span><strong id="waifu-name">—</strong></span>
-            </div>
-            <div class="chip">
-              <span aria-hidden="true">Lv</span>
-              <span><strong id="badge-level">1</strong></span>
-            </div>
-            <div class="chip">
-              <span aria-hidden="true">⚡</span>
-              <span id="badge-energy">—</span>
-            </div>
-            <div class="chip chip-plus" id="badge-plus-chip" title="Сложность">
-              <span aria-hidden="true">➕</span>
-              <select id="badge-plus-select" class="chip-select" onchange="WaifuApp.onPlusLevelChanged(this.value)">
-                <option value="0">0</option>
-              </select>
-            </div>
-            <div class="chip chip-ghost" title="Акт">
-              <span aria-hidden="true">🎬</span>
-              <span>Акт <strong id="badge-act">—</strong></span>
-            </div>
-            <div class="chip admin-only" id="dungeons-admin-buttons" style="display:none;">
-              <button class="secondary" title="Убить монстра" aria-label="Убить монстра" onclick="WaifuApp.adminKillMonster()">💀</button>
-              <button class="secondary" title="Пройти данж" aria-label="Пройти данж" onclick="WaifuApp.adminCompleteDungeon()">🏁</button>
-            </div>
+        <div class="attic-row" aria-label="Основной чердак">
+          <div class="chip attic-level-chip" title="Уровень и опыт">
+            <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
+            <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
+          </div>
+          <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье">🏰&nbsp;<span id="attic-dungeon-label">Нет боя</span></div>
+          <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции">🗺&nbsp;<span id="attic-expedition-label"></span></div>
+          <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
+          <div class="chip" title="Энергия">⚡&nbsp;<span id="badge-energy">—</span></div>
+          <div class="chip admin-only" id="dungeons-admin-buttons" style="display:none;">
+            <button class="secondary" title="Убить монстра" aria-label="Убить монстра" onclick="WaifuApp.adminKillMonster()">💀</button>
+            <button class="secondary" title="Пройти данж" aria-label="Пройти данж" onclick="WaifuApp.adminCompleteDungeon()">🏁</button>
           </div>
         </div>
       </header>
@@ -53,6 +37,12 @@
           </div>
 
           <div id="tab-solo" class="tab-panel active">
+            <div class="solo-controls">
+              <button class="chip chip-plus" id="badge-plus-chip" title="Сложность одиночных подземелий" onclick="WaifuApp.openPlusBottomSheet()" aria-label="Выбрать сложность">
+                <span aria-hidden="true">➕</span>
+                <span id="badge-plus-label">0</span>
+              </button>
+            </div>
             <div id="solo-active" style="display:none;"></div>
             <div class="dungeon-acts" id="solo-dungeons">
               <div class="placeholder">Загрузка подземелий...</div>
@@ -144,6 +134,23 @@
         <a href="./settings.html" data-page="settings" title="Настройки"><span aria-hidden="true">⚙️</span></a>
       </nav>
 
+      <!-- Exit dungeon confirmation modal -->
+      <div id="exit-dungeon-modal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width:320px;">
+          <div class="modal-head">
+            <div class="modal-title">Покинуть подземелье?</div>
+            <button class="secondary" onclick="WaifuApp.closeExitDungeonConfirm()">✖</button>
+          </div>
+          <div class="modal-body">
+            <p style="margin:0;color:var(--text-muted);font-size:14px;">Весь прогресс в текущем подземелье будет потерян. Продолжить?</p>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary" onclick="WaifuApp.closeExitDungeonConfirm()">Отмена</button>
+            <button class="primary" style="background:var(--danger,#ef4444);" onclick="WaifuApp.confirmExitDungeon()">Выйти</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Reward modal (boss completion) -->
       <div id="reward-modal" class="modal" style="display:none;">
         <div class="modal-content">
@@ -159,6 +166,20 @@
             <button class="secondary" style="width:auto;" onclick="WaifuApp.openInventoryFromReward()">🎒</button>
             <button class="primary" style="width:auto;" onclick="WaifuApp.closeRewardModal()">Ок</button>
           </div>
+        </div>
+      </div>
+
+      <!-- Difficulty bottomsheet -->
+      <div id="plus-bottomsheet" class="bottomsheet" style="display:none;" role="dialog" aria-modal="true" aria-label="Выбор сложности">
+        <div class="bottomsheet-backdrop" onclick="WaifuApp.closePlusBottomSheet()"></div>
+        <div class="bottomsheet-panel">
+          <div class="bottomsheet-handle"></div>
+          <div class="bottomsheet-head">
+            <div class="bottomsheet-title">Уровень сложности ➕</div>
+            <button class="secondary" onclick="WaifuApp.closePlusBottomSheet()">✖</button>
+          </div>
+          <p class="muted tiny" style="margin:0 0 12px;">Чем выше уровень — тем сильнее монстры, но лучше награды и шанс редких предметов.</p>
+          <div id="plus-options-list" class="plus-options-list"></div>
         </div>
       </div>
 

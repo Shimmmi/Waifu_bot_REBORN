@@ -1535,12 +1535,16 @@ async def continue_dungeon(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Продолжить битву в подземелье."""
-    result = await dungeon_service.continue_battle(session, player_id)
-    return {
-        "completed": result.get("completed", False),
-        "message": result.get("message", ""),
-    }
+    """Продолжить битву в подземелье (WebApp-кнопка — один удар через combat_service)."""
+    from waifu_bot.game.constants import MediaType as _MT
+    result = await combat_service.process_message_damage(
+        session,
+        player_id,
+        _MT.STICKER,
+        message_text=None,
+        message_length=0,
+    )
+    return result
 
 @router.post("/dungeons/exit", tags=["dungeon"])
 async def exit_dungeon(

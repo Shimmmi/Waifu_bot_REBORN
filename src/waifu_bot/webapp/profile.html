@@ -9,56 +9,111 @@
     <script defer src="./app.js"></script>
   </head>
   <body class="page-profile" onload="WaifuApp.bootstrapPage('profile', WaifuApp.populateProfile);">
-    <header>
-      <div class="profile-topbar" aria-label="Профиль вайфу">
-        <div class="profile-name" id="profile-name">—</div>
-        <div class="profile-meta">
-          <span class="profile-icon" id="profile-class-icon" title="Класс" aria-label="Класс">—</span>
-          <span class="profile-icon" id="profile-race-icon" title="Раса" aria-label="Раса">—</span>
-          <div class="profile-badge profile-level" title="Уровень">
-            <span class="muted tiny">Lv</span>
-            <strong id="profile-level">—</strong>
-          </div>
-          <div class="profile-badge profile-energy" title="Энергия">
-            <span aria-hidden="true">⚡</span>
-            <strong id="profile-energy">—</strong>
-          </div>
+    <header class="attic">
+      <div class="attic-row" aria-label="Основной чердак">
+        <div class="chip attic-level-chip" title="Уровень и опыт">
+          <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
+          <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
         </div>
+        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье">🏰&nbsp;<span id="attic-dungeon-label">Нет боя</span></div>
+        <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции">🗺&nbsp;<span id="attic-expedition-label"></span></div>
+        <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
+        <div class="chip" title="Энергия">⚡&nbsp;<span id="badge-energy">—</span></div>
       </div>
     </header>
 
-    <main class="layout">
+    <main class="layout profile-layout">
       <div class="tabs profile-tabs">
         <button class="tab active" data-tab="profile" onclick="WaifuApp.switchProfileTab('profile')">Профиль</button>
         <button class="tab" data-tab="inventory" onclick="WaifuApp.switchProfileTab('inventory')">Инвентарь</button>
-        <button class="tab" data-tab="info" onclick="WaifuApp.switchProfileTab('info')">Info</button>
+        <button class="tab" data-tab="info" onclick="WaifuApp.switchProfileTab('info')">Подробно</button>
         <button class="tab tab-reset" title="Сбросить вайфу" aria-label="Сбросить вайфу" onclick="WaifuApp.resetMainWaifu()">♻️</button>
       </div>
 
       <section id="tab-profile" class="tab-panel active">
-        <div class="section">
-          <div class="portrait-3x4">👤</div>
-          <div id="profile-stats-strip" class="stat-strip" aria-label="Характеристики"></div>
-          <div class="profile-xp profile-xp-below" aria-label="Опыт">
-            <div class="profile-xp-row">
-              <span class="muted tiny">XP</span>
-              <strong id="profile-xp-text">—</strong>
+        <div class="section profile-hero">
+          <div class="profile-portrait-card">
+            <div class="profile-portrait-frame">
+              <div id="profile-portrait-media" class="profile-portrait-media" aria-label="Портрет основной вайфу">👤</div>
+              <div class="profile-portrait-overlay">
+                <strong id="profile-portrait-name">—</strong>
+                <span id="profile-portrait-race">—</span>
+                <span id="profile-portrait-class">—</span>
+              </div>
             </div>
-            <div class="xp-bar" aria-hidden="true">
-              <div class="xp-bar-fill" id="profile-xp-fill" style="width:0%"></div>
+          </div>
+
+          <div class="profile-summary-column">
+            <div class="profile-stats-list" id="profile-stats-strip" aria-label="Основные характеристики"></div>
+
+            <div class="profile-hero-bars">
+              <div class="profile-resource-card" aria-label="Здоровье">
+                <div class="profile-resource-row">
+                  <span class="muted tiny">HP</span>
+                  <strong id="profile-hp-text">—</strong>
+                </div>
+                <div class="xp-bar" aria-hidden="true">
+                  <div class="xp-bar-fill hp-bar-fill" id="profile-hp-fill" style="width:0%"></div>
+                </div>
+              </div>
+
+              <div class="profile-resource-card profile-xp" aria-label="Опыт">
+                <div class="profile-resource-row">
+                  <span class="muted tiny">EXP</span>
+                  <strong id="profile-xp-text">—</strong>
+                </div>
+                <div class="xp-bar" aria-hidden="true">
+                  <div class="xp-bar-fill" id="profile-xp-fill" style="width:0%"></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
       <section id="tab-inventory" class="tab-panel">
-        <div class="grid-2">
-        <div class="section">
-            <div id="profile-gear" class="slots-grid"></div>
+        <!-- Toggle button -->
+        <button id="profile-view-toggle" class="inv-toggle-btn" onclick="WaifuApp.toggleProfileInventoryMode()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="1" y="1" width="6" height="6" rx="1"/>
+            <rect x="9" y="1" width="6" height="6" rx="1"/>
+            <rect x="1" y="9" width="6" height="6" rx="1"/>
+            <rect x="9" y="9" width="6" height="6" rx="1"/>
+          </svg>
+          <span id="profile-gear-mode-badge">Компактный режим</span>
+        </button>
+
+        <!-- Equipment (JS renders content here) -->
+        <div id="profile-gear" class="profile-gear-layout placeholder">Загрузка экипировки...</div>
+
+        <!-- Bag section -->
+        <div class="inv-bag-wrap">
+          <!-- Filter + sort in one compact row -->
+          <div class="inv-bag-controls">
+            <button class="inv-filter-btn active" id="profile-filter-weapon" onclick="WaifuApp.toggleProfileInventoryFilter('weapon')">⚔ Оружие</button>
+            <button class="inv-filter-btn active" id="profile-filter-armor" onclick="WaifuApp.toggleProfileInventoryFilter('armor')">🛡 Броня</button>
+            <button class="inv-filter-btn active" id="profile-filter-accessory" onclick="WaifuApp.toggleProfileInventoryFilter('accessory')">💍 Акс.</button>
+            <div class="inv-sort-wrap">
+              <select id="profile-sort-select" class="inv-sort-select" onchange="WaifuApp.setProfileInventorySort(this.value)">
+                <option value="level">Ур.</option>
+                <option value="rarity">Ред.</option>
+                <option value="equipability">Надеть</option>
+              </select>
+              <button id="profile-sort-direction" class="inv-sort-dir" onclick="WaifuApp.toggleProfileInventorySortDir()">▼</button>
+            </div>
           </div>
-          <div class="section">
-            <div id="profile-inventory" class="placeholder">Загрузка...</div>
+
+          <!-- Bag grid (JS renders content here) -->
+          <div id="profile-inventory" class="profile-bag-grid placeholder">Загрузка...</div>
+
+          <!-- Pagination + capacity -->
+          <div class="inv-pagination">
+            <button class="secondary" id="profile-page-prev" onclick="WaifuApp.changeProfileInventoryPage(-1)">‹</button>
+            <span class="tag" id="profile-page-status">—</span>
+            <button class="secondary" id="profile-page-next" onclick="WaifuApp.changeProfileInventoryPage(1)">›</button>
+            <span class="tag" id="profile-bag-capacity">—</span>
           </div>
+          <div class="muted tiny inv-bag-summary" id="profile-inventory-summary"></div>
         </div>
       </section>
 
@@ -68,45 +123,27 @@
             <h3>Характеристики</h3>
             <div class="tag" id="profile-stat-points">ОХ: —</div>
           </div>
-          <div id="profile-stats-breakdown" class="details-grid"></div>
-          <div class="details-grid">
-            <div class="detail-row">
-              <span class="muted">Урон ближ.</span>
-              <strong id="profile-dmg-melee">—</strong>
-            </div>
-            <div class="detail-row">
-              <span class="muted">Урон дальн.</span>
-              <strong id="profile-dmg-ranged">—</strong>
-            </div>
-            <div class="detail-row">
-              <span class="muted">Урон маг.</span>
-              <strong id="profile-dmg-magic">—</strong>
-            </div>
-            <div class="detail-row">
-              <span class="muted">Шанс крита</span>
-              <strong id="profile-crit-chance">—</strong>
-            </div>
-            <div class="detail-row">
-              <span class="muted">Шанс уворота</span>
-              <strong id="profile-dodge-chance">—</strong>
-            </div>
-            <div class="detail-row">
-              <span class="muted">Защита</span>
-              <strong id="profile-defense">—</strong>
-            </div>
-            <div class="detail-row">
-              <span class="muted">Скидка у торговцев</span>
-              <strong id="profile-merchant-discount">—</strong>
-            </div>
+          <div id="profile-stats-breakdown" class="profile-stat-accordions"></div>
+        </div>
+
+        <div class="section">
+          <div class="profile-inner-tabs">
+            <button class="tab active" data-info-tab="indicators" onclick="WaifuApp.switchProfileInfoTab('indicators')">Показатели</button>
+            <button class="tab" data-info-tab="statistics" onclick="WaifuApp.switchProfileInfoTab('statistics')">Статистика</button>
           </div>
-          <div class="placeholder">Поля заполнятся, как только API вернёт агрегированные значения.</div>
+
+          <div id="profile-info-indicators" class="profile-info-panel active">
+            <div id="profile-indicators-grid" class="details-grid"></div>
+          </div>
+
+          <div id="profile-info-statistics" class="profile-info-panel">
+            <div id="profile-statistics-grid" class="details-grid"></div>
+          </div>
         </div>
       </section>
-
     </main>
 
-    <!-- Модальное окно для выбора предмета при клике на слот -->
-    <div id="slot-modal" class="modal" style="display:none;">
+    <div id="slot-modal" class="modal" style="display:none;" onclick="if (event.target === this) WaifuApp.closeSlotModal()">
       <div class="modal-content">
         <div class="modal-head">
           <div>
@@ -124,23 +161,39 @@
       </div>
     </div>
 
-    <!-- Модальное окно с деталями предмета -->
-    <div id="item-modal" class="modal" style="display:none;">
+    <div id="item-modal" class="modal" style="display:none;" onclick="if (event.target === this) WaifuApp.closeItemModal()">
       <div class="modal-content" id="item-modal-content">
         <div class="modal-head">
-          <div class="item-modal-head">
-            <div class="item-modal-art" id="item-modal-art" aria-hidden="true">📦</div>
-            <div>
-              <div class="muted tiny" id="item-modal-rarity">—</div>
-              <div class="modal-title" id="item-modal-name">—</div>
-              <div class="muted tiny" id="item-modal-level">—</div>
-            </div>
+          <div class="profile-item-modal-titlebox">
+            <div class="muted tiny" id="item-modal-rarity">—</div>
+            <div class="modal-title" id="item-modal-name">—</div>
           </div>
           <button class="secondary" onclick="WaifuApp.closeItemModal()">✖</button>
         </div>
-        <div class="modal-body" id="item-modal-body"></div>
+        <div class="modal-body">
+          <div class="profile-item-modal-layout">
+            <div class="item-modal-art profile-item-modal-art" id="item-modal-art" aria-hidden="true">📦</div>
+            <div class="profile-item-modal-side">
+              <div class="detail-row">
+                <span class="muted">Уровень</span>
+                <strong id="item-modal-level">—</strong>
+              </div>
+              <div class="detail-row">
+                <span class="muted">Тип</span>
+                <strong id="item-modal-type">—</strong>
+              </div>
+              <div class="detail-row">
+                <span class="muted">Слот</span>
+                <strong id="item-modal-slot">—</strong>
+              </div>
+            </div>
+          </div>
+          <div id="item-modal-body"></div>
+        </div>
         <div class="modal-footer">
+          <button class="secondary danger" id="item-modal-sell" onclick="WaifuApp.toggleItemSellConfirm()" style="display:none;">Продать</button>
           <button class="secondary" id="item-modal-unequip" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
+          <button class="secondary" id="item-modal-replace" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
           <button class="primary" id="item-modal-equip" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Экипировать</button>
           <button class="secondary" onclick="WaifuApp.closeItemModal()">Закрыть</button>
         </div>

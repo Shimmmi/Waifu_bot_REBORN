@@ -10,15 +10,19 @@
   </head>
   <body onload="WaifuApp.bootstrapPage('shop',(p)=>WaifuApp.loadShop(p.act));">
     <header class="attic">
-      <div class="topbar">
-        <div class="badge">Золото: <strong id="badge-gold">—</strong></div>
-        <div class="badge">Магазин</div>
-        <div class="badge">Акт: <strong id="badge-act">—</strong></div>
-        <div class="badge admin-only" id="shop-admin-buttons" style="display:none;">
+      <div class="attic-row" aria-label="Основной чердак">
+        <div class="chip attic-level-chip" title="Уровень и опыт">
+          <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
+          <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
+        </div>
+        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье">🏰&nbsp;<span id="attic-dungeon-label">Нет боя</span></div>
+        <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции">🗺&nbsp;<span id="attic-expedition-label"></span></div>
+        <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
+        <div class="chip" title="Энергия">⚡&nbsp;<span id="badge-energy">—</span></div>
+        <div class="chip admin-only" id="shop-admin-buttons" style="display:none;">
           <button class="secondary" title="Обновить ассортимент" aria-label="Обновить ассортимент" onclick="WaifuApp.refreshShopDebug()">🔄</button>
           <button class="secondary" title="+10000 золота" aria-label="+10000 золота" onclick="WaifuApp.adminAddGold()">💰</button>
         </div>
-        <a class="chip link-chip" href="./profile.html" title="Профиль">👤 Профиль</a>
       </div>
     </header>
 

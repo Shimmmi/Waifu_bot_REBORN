@@ -137,28 +137,174 @@ function raceIcon(raceId) {
   );
 }
 
+const PROFILE_STAT_ORDER = ["strength", "agility", "intelligence", "endurance", "charm", "luck"];
+
+const PROFILE_STAT_LABELS = {
+  strength: "Сила",
+  agility: "Ловкость",
+  intelligence: "Интеллект",
+  endurance: "Выносливость",
+  charm: "Обаяние",
+  luck: "Удача",
+};
+
+const PROFILE_STAT_TOOLTIPS = {
+  strength: "Увеличивает урон ближнего боя, запас HP и силу критических атак.",
+  agility: "Повышает урон дальнего боя, шанс уклонения и шанс критической атаки.",
+  intelligence: "Усиливает магический урон, активные навыки и бонус к получаемому опыту.",
+  endurance: "Даёт больше максимального HP, снижает входящий урон и повышает максимум энергии.",
+  charm: "Улучшает торговлю и снижает стоимость найма и тренировок.",
+  luck: "Повышает шанс критов, шанс добычи предметов и количество золота с монстров.",
+};
+
+function profileStatValue(waifu, statKey) {
+  return safeNumber(waifu?.[statKey], 0);
+}
+
+function profileStatBase(waifu, statKey) {
+  return safeNumber(waifu?.[`base_${statKey}`], 10);
+}
+
+function profileStatEquipmentBonus(waifu, statKey) {
+  return safeNumber(waifu?.[`bonus_${statKey}`], 0);
+}
+
+function profileStatRaceBonus(waifu, statKey) {
+  return safeNumber(WAIFU_RACE_BONUSES?.[Number(waifu?.race)]?.[statKey], 0);
+}
+
+function profileStatClassBonus(waifu, statKey) {
+  return safeNumber(WAIFU_CLASS_BONUSES?.[Number(waifu?.class ?? waifu?.class_)]?.[statKey], 0);
+}
+
+function profileDamageRange(score) {
+  const base = Math.max(0, safeNumber(score, 0));
+  const min = Math.max(0, Math.floor(base * 0.9));
+  const max = Math.max(min, Math.ceil(base * 1.1));
+  return `${min}–${max}`;
+}
+
+function profileFormatPercent(value, digits = 1) {
+  const num = safeNumber(value, 0);
+  const fixed = Number(num.toFixed(digits));
+  return `${fixed}%`;
+}
+
+function getProfileIndicators(waifu, details = null) {
+  const d = details || profileState?.currentDetails || null;
+  const endurance = profileStatValue(waifu, "endurance");
+  const charm = profileStatValue(waifu, "charm");
+  const luck = profileStatValue(waifu, "luck");
+  const intelligence = profileStatValue(waifu, "intelligence");
+
+  const hpMax = safeNumber(d?.hp_max ?? waifu?.max_hp, 0);
+  const melee = safeNumber(d?.melee_damage, 0);
+  const ranged = safeNumber(d?.ranged_damage, 0);
+  const magic = safeNumber(d?.magic_damage, 0);
+  const crit = safeNumber(d?.crit_chance, 0);
+  const dodge = safeNumber(d?.dodge_chance, 0);
+  const merchantDiscount = safeNumber(d?.merchant_discount, 0);
+  const buyMultiplier = Math.max(0.5, 1 - merchantDiscount / 100);
+  const sellMultiplier = Math.min(0.9, 0.5 + merchantDiscount / 125);
+  const expBonus = intelligence * 0.5;
+  const goldBonus = luck * 0.4;
+  const energyMax = safeNumber(waifu?.max_energy, 0);
+  const energyRegenHour = 60;
+  const incomingReduction = Math.min(60, endurance * 0.3);
+
+  return {
+    hpMax,
+    meleeRange: profileDamageRange(melee),
+    rangedRange: profileDamageRange(ranged),
+    magicRange: profileDamageRange(magic),
+    critChance: profileFormatPercent(crit, 2),
+    dodgeChance: profileFormatPercent(dodge, 2),
+    expBonus: profileFormatPercent(expBonus, 1),
+    goldBonus: profileFormatPercent(goldBonus, 1),
+    merchant: `${charm} · покупка ${Math.round(buyMultiplier * 100)}% · продажа ${Math.round(sellMultiplier * 100)}%`,
+    energy: `${energyMax} · реген ${energyRegenHour}/час`,
+    incomingReduction: profileFormatPercent(incomingReduction, 1),
+  };
+}
+
+function profileStatBonusLines(statKey, waifu, details = null) {
+  const total = profileStatValue(waifu, statKey);
+  const indicators = getProfileIndicators(waifu, details);
+  switch (statKey) {
+    case "strength":
+      return [
+        `+${total} к урону ближнего боя`,
+        `+${total * 5} к HP`,
+        `+${total * 2}% к урону критических атак`,
+      ];
+    case "agility":
+      return [
+        `+${total} к урону дальнего боя`,
+        `+${profileFormatPercent(total * 0.2, 1)} к шансу уклонения`,
+        `+${profileFormatPercent(total * 0.4, 1)} к шансу критической атаки`,
+      ];
+    case "intelligence":
+      return [
+        `+${total} к урону магических атак`,
+        `+${total * 2} к урону активных навыков`,
+        `+${profileFormatPercent(total * 0.5, 1)} к получаемому опыту`,
+      ];
+    case "endurance":
+      return [
+        `+${total * 10} к максимальному HP`,
+        `-${profileFormatPercent(total * 0.3, 1)} к получаемому урону`,
+        `+${total} к максимальной энергии`,
+      ];
+    case "charm":
+      return [
+        `+${total} к Торговле`,
+        `-${profileFormatPercent(Math.max(0, (total - 10) * 0.5), 1)} к стоимости найма`,
+        `-${profileFormatPercent(Math.max(0, (total - 10) * 0.35), 1)} к стоимости тренировок`,
+      ];
+    case "luck":
+      return [
+        `+${profileFormatPercent(total * 0.2, 1)} к шансу критической атаки`,
+        `+${profileFormatPercent(total * 0.5, 1)} к шансу выпадения предметов`,
+        `+${profileFormatPercent(total * 0.4, 1)} к золоту с монстров`,
+      ];
+    default:
+      return [indicators.incomingReduction];
+  }
+}
+
+function profileStatSources(waifu, statKey) {
+  const total = profileStatValue(waifu, statKey);
+  const base = 10;
+  const race = profileStatRaceBonus(waifu, statKey);
+  const cls = profileStatClassBonus(waifu, statKey);
+  const equipment = profileStatEquipmentBonus(waifu, statKey);
+  const other = total - base - race - cls - equipment;
+  return { base, race, classBonus: cls, equipment, other, total };
+}
+
 function renderStatsStrip(targetId, waifu) {
   const box = document.getElementById(targetId);
   if (!box || !waifu) return;
-  const items = [
-    { icon: "❤️", label: "HP", value: waifu.current_hp != null && waifu.max_hp != null ? `${waifu.current_hp}/${waifu.max_hp}` : "—" },
-    { ...STAT_META.strength, value: waifu.strength },
-    { ...STAT_META.agility, value: waifu.agility },
-    { ...STAT_META.intelligence, value: waifu.intelligence },
-    { ...STAT_META.endurance, value: waifu.endurance },
-    { ...STAT_META.charm, value: waifu.charm },
-    { ...STAT_META.luck, value: waifu.luck },
-  ];
-  box.innerHTML = items
-    .map((it) => {
-      const value = it.value ?? "—";
-      // Profile tab requirement: icon + value only (no "СИЛ/ЛОВ" text)
-      return `<div class="stat-pill"><span aria-hidden="true">${it.icon}</span><strong>${value}</strong></div>`;
-    })
-    .join("");
+  box.innerHTML = PROFILE_STAT_ORDER.map((statKey) => {
+    const meta = statMeta(statKey);
+    const isOpen = profileState?.activeTooltipStat === statKey;
+    const label = PROFILE_STAT_LABELS[statKey] || meta.short;
+    return `
+      <button class="profile-stat-row ${isOpen ? "active" : ""}" type="button" onclick="WaifuApp.toggleProfileStatTooltip('${statKey}')">
+        <div class="profile-stat-row-main">
+          <span class="profile-stat-row-left">
+            <span class="profile-stat-icon" aria-hidden="true">${meta.icon}</span>
+            <span>${label}</span>
+          </span>
+          <strong>${profileStatValue(waifu, statKey)}</strong>
+        </div>
+        <div class="profile-stat-tooltip">${PROFILE_STAT_TOOLTIPS[statKey] || "Описание характеристики появится позже."}</div>
+      </button>
+    `;
+  }).join("");
 }
 
-function renderStatsBreakdown(targetId, waifu) {
+function renderStatsBreakdown(targetId, waifu, details = null) {
   const box = document.getElementById(targetId);
   if (!box || !waifu) return;
 
@@ -166,67 +312,51 @@ function renderStatsBreakdown(targetId, waifu) {
   const ptsEl = document.getElementById("profile-stat-points");
   if (ptsEl) ptsEl.textContent = `ОХ: ${pts}`;
 
-  const fmtBaseBonusTotal = (base, bonus) => {
-    const b = Number(base);
-    const bn = safeNumber(bonus, 0);
-    if (!Number.isFinite(b)) return "—";
-    const total = b + bn;
-    if (bn === 0) return `${b} <span class="muted tiny">(=${total})</span>`;
-    return `${b} <span class="${bonusClass(bn)}">${bn > 0 ? "+" : ""}${bn}</span> <span class="muted tiny">(=${total})</span>`;
-  };
+  box.innerHTML = PROFILE_STAT_ORDER.map((statKey) => {
+    const meta = statMeta(statKey);
+    const label = PROFILE_STAT_LABELS[statKey] || meta.short;
+    const sources = profileStatSources(waifu, statKey);
+    const bonusLines = profileStatBonusLines(statKey, waifu, details);
+    const isOpen = profileState?.activeAccordion === statKey;
+    const plusDisabled = pts <= 0 ? "disabled" : "";
 
-  const rows = [
-    {
-      label: "HP",
-      value: waifu.current_hp != null && waifu.max_hp != null ? `${waifu.current_hp}/${waifu.max_hp}` : "—",
-    },
-    {
-      label: "СИЛ",
-      value: fmtBaseBonusTotal(waifu.base_strength, waifu.bonus_strength),
-      statKey: "strength",
-    },
-    {
-      label: "ЛОВ",
-      value: fmtBaseBonusTotal(waifu.base_agility, waifu.bonus_agility),
-      statKey: "agility",
-    },
-    {
-      label: "ИНТ",
-      value: fmtBaseBonusTotal(waifu.base_intelligence, waifu.bonus_intelligence),
-      statKey: "intelligence",
-    },
-    {
-      label: "ВЫН",
-      value: fmtBaseBonusTotal(waifu.base_endurance, waifu.bonus_endurance),
-      statKey: "endurance",
-    },
-    {
-      label: "ОБА",
-      value: fmtBaseBonusTotal(waifu.base_charm, waifu.bonus_charm),
-      statKey: "charm",
-    },
-    {
-      label: "УДЧ",
-      value: fmtBaseBonusTotal(waifu.base_luck, waifu.bonus_luck),
-      statKey: "luck",
-    },
-  ];
-
-  box.innerHTML = rows
-    .map((r) => {
-      if (!r.statKey) return `<div class="detail-row"><span class="muted">${r.label}</span><strong>${r.value}</strong></div>`;
-      const dis = pts <= 0 ? "disabled" : "";
-      return `
-        <div class="detail-row">
-          <span class="muted">${r.label}</span>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <strong>${r.value}</strong>
-            <button class="stat-plus-btn" ${dis} title="Потратить 1 ОХ" onclick="WaifuApp.spendStatPoint('${r.statKey}')">+</button>
+    return `
+      <div class="profile-accordion ${isOpen ? "active" : ""}">
+        <button class="profile-accordion-head" type="button" onclick="WaifuApp.toggleProfileStatAccordion('${statKey}')">
+          <span class="profile-accordion-head-left">
+            <span class="profile-stat-icon" aria-hidden="true">${meta.icon}</span>
+            <span>${meta.short} - ${label}</span>
+          </span>
+          <span style="display:inline-flex; align-items:center; gap:10px;">
+            <strong class="profile-accordion-total">${sources.total}</strong>
+            <span class="profile-accordion-arrow">${isOpen ? "▲" : "▼"}</span>
+          </span>
+        </button>
+        <div class="profile-accordion-body">
+          <div class="profile-accordion-section">
+            <div class="muted tiny">Источники</div>
+            <div class="profile-accordion-sources">
+              <div class="profile-accordion-row"><span>База</span><strong>${sources.base}</strong></div>
+              <div class="profile-accordion-row"><span>Раса</span><strong>${sources.race >= 0 ? `+${sources.race}` : sources.race}</strong></div>
+              <div class="profile-accordion-row"><span>Класс</span><strong>${sources.classBonus >= 0 ? `+${sources.classBonus}` : sources.classBonus}</strong></div>
+              <div class="profile-accordion-row"><span>Экипировка</span><strong>${sources.equipment >= 0 ? `+${sources.equipment}` : sources.equipment}</strong></div>
+              <div class="profile-accordion-row"><span>Навыки</span><strong>${sources.other >= 0 ? `+${sources.other}` : sources.other}</strong></div>
+              <div class="profile-accordion-row"><span>Итого</span><strong>${sources.total}</strong></div>
+            </div>
+            <div style="display:flex; justify-content:flex-end; margin-top:2px;">
+              <button class="stat-plus-btn" ${plusDisabled} title="Потратить 1 ОХ" onclick="event.stopPropagation(); WaifuApp.spendStatPoint('${statKey}')">+</button>
+            </div>
+          </div>
+          <div class="profile-accordion-section">
+            <div class="muted tiny">Бонусы от значения</div>
+            <div class="profile-bonus-list">
+              ${bonusLines.map((line) => `<div class="profile-bonus-item">${line}</div>`).join("")}
+            </div>
           </div>
         </div>
-      `;
-    })
-    .join("");
+      </div>
+    `;
+  }).join("");
 }
 
 async function spendStatPoint(statKey) {
@@ -266,21 +396,74 @@ function totalExpForLevel(level) {
   return total;
 }
 
+// ── Attic (ОЧ) renderers ─────────────────────────────────────────────────────
+
+/** Update the active-dungeon chip in the shared ОЧ header. */
+function renderAtticDungeon(active) {
+  const chip = document.getElementById("attic-dungeon-chip");
+  const label = document.getElementById("attic-dungeon-label");
+  if (!chip || !label) return;
+  if (active?.active) {
+    const hpPct = active.monster_max_hp > 0
+      ? Math.round((active.monster_current_hp / active.monster_max_hp) * 100)
+      : 0;
+    label.textContent = `${active.dungeon_name || "Бой"} · ${hpPct}%`;
+    chip.classList.remove("chip-ghost");
+    chip.classList.add("chip-active");
+  } else {
+    label.textContent = "Нет боя";
+    chip.classList.add("chip-ghost");
+    chip.classList.remove("chip-active");
+  }
+}
+
+/** Update the expeditions chip in the shared ОЧ header. */
+function renderAtticExpeditions(expeditions) {
+  const chip = document.getElementById("attic-expedition-chip");
+  const label = document.getElementById("attic-expedition-label");
+  if (!chip || !label) return;
+  const list = Array.isArray(expeditions) ? expeditions : [];
+  const claimable = list.filter((e) => e?.completed);
+  const running = list.filter((e) => e?.active && !e?.completed);
+  if (claimable.length) {
+    label.textContent = `${claimable.length} ★`;
+    chip.classList.remove("chip-ghost");
+    chip.classList.add("chip-active");
+  } else if (running.length) {
+    label.textContent = `${running.length}`;
+    chip.classList.remove("chip-ghost");
+    chip.classList.add("chip-active");
+  } else {
+    label.textContent = "";
+    chip.classList.add("chip-ghost");
+    chip.classList.remove("chip-active");
+  }
+}
+
+/** Fire-and-forget refresh of both dynamic ОЧ chips (dungeon + expeditions). */
+function refreshAtticChips() {
+  apiFetch("/dungeons/active").then(renderAtticDungeon).catch(() => {});
+  apiFetch("/expeditions/active")
+    .then((r) => renderAtticExpeditions(r?.active ?? []))
+    .catch(() => {});
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function populateFromProfile(profile) {
   if (!profile) return;
 
-  // Common "town" header badges
+  // Shared ОЧ badges — populated on every page that has these IDs in its DOM
   if (profile.act != null) setText("badge-act", profile.act);
   if (profile.gold != null) setText("badge-gold", profile.gold);
 
   const w = profile.main_waifu;
   if (w) {
-    if (w.energy != null && w.max_energy != null) setText("badge-energy", `${w.energy}/${w.max_energy}`);
-    if (w.name) setText("waifu-name", w.name);
     if (w.level != null) setText("badge-level", w.level);
     if (w.energy != null && w.max_energy != null) setText("badge-energy", `${w.energy}/${w.max_energy}`);
 
-    // Profile page header (lightweight; full profile UI is handled elsewhere)
+    // Legacy IDs kept for back-compat (silently skipped when not in DOM)
+    if (w.name) setText("waifu-name", w.name);
     if (w.name) setText("profile-name", w.name);
     if (w.level != null) setText("profile-level", w.level);
     if (w.energy != null && w.max_energy != null) setText("profile-energy", `${w.energy}/${w.max_energy}`);
@@ -298,7 +481,7 @@ function populateFromProfile(profile) {
       raceEl.title = raceName(raceId);
     }
 
-    // XP progress bar (total exp model, same curve as backend)
+    // XP progress — profile tab bar + ОЧ mini-bar (attic-xp-fill)
     if (w.level != null && w.experience != null) {
       const lvl = Number(w.level);
       const xp = Number(w.experience);
@@ -310,8 +493,13 @@ function populateFromProfile(profile) {
       setText("profile-xp-text", `${xp} / ${nextTotal}`);
       const fill = document.getElementById("profile-xp-fill");
       if (fill) fill.style.width = `${pct}%`;
+      const atticFill = document.getElementById("attic-xp-fill");
+      if (atticFill) atticFill.style.width = `${pct}%`;
     }
   }
+
+  // Async: update dynamic ОЧ chips on every page load/refresh
+  refreshAtticChips();
 }
 
 function appendEvent(text) {
@@ -404,6 +592,18 @@ const profileState = {
   selectedItem: null,
   equipSlotChoice: null,
   equippedBySlot: {},
+  currentProfile: null,
+  currentDetails: null,
+  inventory: [],
+  viewMode: "expanded",
+  inventoryPage: 1,
+  inventorySort: "equipability",
+  inventorySortDir: "desc",
+  inventoryFilters: { weapon: true, armor: true, accessory: true },
+  activeTooltipStat: null,
+  activeAccordion: null,
+  infoTab: "indicators",
+  sellConfirm: false,
 };
 
 const EQUIPMENT_SLOT_NAMES = {
@@ -423,6 +623,101 @@ const SLOT_TYPE_TO_SLOTS = {
   ring: [4, 5],
   amulet: [6],
 };
+
+const PROFILE_SLOT_LAYOUT = {
+  left: [1, 3, 4],
+  right: [2, 6, 5],
+};
+
+function readProfileInventoryMode() {
+  try {
+    return sessionStorage.getItem("profileInventoryMode") === "compact" ? "compact" : "expanded";
+  } catch {
+    return "expanded";
+  }
+}
+
+function writeProfileInventoryMode(mode) {
+  try {
+    sessionStorage.setItem("profileInventoryMode", mode === "compact" ? "compact" : "expanded");
+  } catch {
+    // ignore unavailable storage
+  }
+}
+
+function getProfileBagCapacity(level) {
+  const lvl = safeNumber(level, 1);
+  if (lvl >= 40) return { pages: 6, cells: 72 };
+  if (lvl >= 30) return { pages: 5, cells: 60 };
+  if (lvl >= 20) return { pages: 4, cells: 48 };
+  if (lvl >= 10) return { pages: 3, cells: 36 };
+  return { pages: 2, cells: 24 };
+}
+
+function getProfileBagPageSize() {
+  return profileState.viewMode === "compact" ? 24 : 12;
+}
+
+function getProfileItemCategory(item) {
+  const slotType = String(item?.slot_type || "").toLowerCase();
+  if (slotType.includes("weapon")) return "weapon";
+  if (slotType.includes("costume") || slotType.includes("armor") || slotType.includes("offhand")) return "armor";
+  if (slotType.includes("ring") || slotType.includes("amulet")) return "accessory";
+  return "accessory";
+}
+
+function getProfileStatBonusTotal(item) {
+  let total = 0;
+  if (item?.base_stat_value != null) total += Math.abs(safeNumber(item.base_stat_value, 0));
+  (item?.affixes || []).forEach((affix) => {
+    total += Math.abs(safeNumber(affix?.value, 0));
+  });
+  return total;
+}
+
+function getProfileEquippedItem(slot) {
+  const direct = profileState.equippedBySlot?.[Number(slot)] || null;
+  if (direct) return direct;
+  const weapon1 = profileState.equippedBySlot?.[1];
+  if (Number(slot) === 2 && weapon1?.slot_type === "weapon_2h") return weapon1;
+  return null;
+}
+
+function isProfileUpgradeItem(item) {
+  const slotType = String(item?.slot_type || "").toLowerCase();
+  const lvl = safeNumber(item?.level, 0);
+  if (!slotType || lvl <= 0) return false;
+  const slots = SLOT_TYPE_TO_SLOTS[slotType] || [];
+  const equippedLevels = slots
+    .map((slot) => safeNumber(getProfileEquippedItem(slot)?.level, 0))
+    .filter((value) => value > 0);
+  if (!equippedLevels.length) return false;
+  if (slotType === "weapon_2h") return lvl > Math.max(...equippedLevels);
+  return lvl > Math.min(...equippedLevels);
+}
+
+function compareProfileInventoryItems(a, b) {
+  const sortKey = profileState.inventorySort || "equipability";
+  const dir = profileState.inventorySortDir === "asc" ? 1 : -1;
+
+  const rarityA = safeNumber(a?.rarity, 1);
+  const rarityB = safeNumber(b?.rarity, 1);
+  const levelA = safeNumber(a?.level, 0);
+  const levelB = safeNumber(b?.level, 0);
+  const equipA = a?.can_equip === false ? 0 : 1;
+  const equipB = b?.can_equip === false ? 0 : 1;
+
+  let result = 0;
+  if (sortKey === "level") result = levelA - levelB || rarityA - rarityB;
+  if (sortKey === "rarity") result = rarityA - rarityB || levelA - levelB;
+  if (sortKey === "equipability") result = equipA - equipB || levelA - levelB || rarityA - rarityB;
+  if (result === 0) {
+    const nameA = String(a?.display_name || a?.name || "").toLowerCase();
+    const nameB = String(b?.display_name || b?.name || "").toLowerCase();
+    result = nameA.localeCompare(nameB, "ru");
+  }
+  return result * dir;
+}
 
 const shopState = {
   act: 1,
@@ -553,10 +848,13 @@ const tavernState = {
 const expeditionState = {
   slots: [],
   active: [],
+  squad: [],
   waifus: [],
   selectedSlot: null,
   selectedDuration: 60,
   selectedWaifus: new Set(),
+  selectedSquadIds: [],
+  durationMinutes: 60,
 };
 
 function showTavernError(message, kind = "info") {
@@ -1062,6 +1360,23 @@ async function renderSoloDungeonsForAct(profile) {
   `;
 }
 
+function buildStageDots(pos, total) {
+  if (!pos || !total) return "";
+  const dots = [];
+  for (let i = 1; i <= total; i++) {
+    const isBoss = i === total;
+    const isDone = i < pos;
+    const isActive = i === pos;
+    let cls = "stage-dot2";
+    if (isBoss) cls += " boss";
+    if (isDone) cls += " done";
+    else if (isActive) cls += " active";
+    const title = isBoss ? (isDone ? "Босс (побеждён)" : isActive ? "Босс (текущий)" : "Босс") : isDone ? `Монстр ${i} (побеждён)` : isActive ? `Монстр ${i} (текущий)` : `Монстр ${i}`;
+    dots.push(`<div class="${cls}" title="${title}"></div>`);
+  }
+  return `<div class="stage-dots" aria-label="Прогресс: ${pos}/${total}">${dots.join("")}</div>`;
+}
+
 function renderSoloActiveProgress(active) {
   const host = document.getElementById("solo-active");
   const list = document.getElementById("solo-dungeons");
@@ -1077,7 +1392,7 @@ function renderSoloActiveProgress(active) {
   const hpCur = safeNumber(active.monster_current_hp, 0);
   const hpMax = Math.max(1, safeNumber(active.monster_max_hp, 1));
   const dealt = safeNumber(active.damage_done, Math.max(0, hpMax - hpCur));
-  const pct = Math.round(clamp01(hpCur / hpMax) * 100);
+  const monPct = Math.round(clamp01(hpCur / hpMax) * 100);
   const log = Array.isArray(active.battle_log) ? active.battle_log.slice(-6) : [];
   const pos = safeNumber(active.monster_position, null);
   const total = safeNumber(active.total_monsters, null);
@@ -1085,60 +1400,73 @@ function renderSoloActiveProgress(active) {
   const lastCrit = active.last_is_crit === true;
   const pl = safeNumber(active.plus_level, 0);
 
+  const waifuHpCur = safeNumber(active.waifu_current_hp, null);
+  const waifuHpMax = Math.max(1, safeNumber(active.waifu_max_hp, 1));
+  const waifuPct = waifuHpCur != null ? Math.round(clamp01(waifuHpCur / waifuHpMax) * 100) : null;
+  const isUnconscious = waifuHpCur === 0;
+
+  // Recovery timer: if API provides recovery_seconds_left use it; otherwise show generic msg
+  const recoverySec = active.recovery_seconds_left != null ? safeNumber(active.recovery_seconds_left, null) : null;
+  const recoveryText = recoverySec != null
+    ? `Восстановление через ~${Math.ceil(recoverySec)} сек`
+    : "Восстановление через пассивную регенерацию";
+
+  const stageDots = buildStageDots(pos, total);
+
+  const unconsciousBanner = isUnconscious ? `
+    <div class="unconscious-banner">
+      <div class="unconscious-icon">💀</div>
+      <div>
+        <div>Без сознания — атаки заблокированы</div>
+        <div class="unconscious-timer">${recoveryText}</div>
+      </div>
+    </div>` : "";
+
+  const waifuHpSection = waifuHpCur != null ? `
+    <div class="detail-row">
+      <span class="muted">HP персонажа</span>
+      <strong style="color:${isUnconscious ? "#f87171" : "inherit"}">${waifuHpCur}/${waifuHpMax}</strong>
+    </div>
+    <div class="bar" aria-label="HP персонажа" style="--bar-color:${isUnconscious ? "#ef4444" : "#10b981"}">
+      <div style="width:${waifuPct}%; background:linear-gradient(90deg, ${isUnconscious ? "#ef4444,#f87171" : "#10b981,#34d399"});"></div>
+    </div>` : "";
+
   host.style.display = "";
   list.style.display = "none";
   host.innerHTML = `
     <div class="solo-active-card">
       <div class="solo-active-head">
         <div class="solo-active-title">🏰 ${active.dungeon_name || "Активное подземелье"}${pl > 0 ? ` <span class="muted">+${pl}</span>` : ""}</div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <div class="muted tiny">Монстр: ${active.monster_name || "—"} · lvl ${active.monster_level ?? "—"}</div>
-          <button class="icon-btn" title="Завершить подземелье" aria-label="Завершить подземелье" onclick="WaifuApp.exitDungeon()">⏹️</button>
+        <button class="icon-btn" title="Покинуть подземелье" aria-label="Покинуть подземелье" onclick="WaifuApp.openExitDungeonConfirm()">✕</button>
+      </div>
+
+      ${stageDots ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">${stageDots}${pos && total ? `<span class="muted tiny">${pos}/${total}</span>` : ""}</div>` : ""}
+
+      ${unconsciousBanner}
+
+      <div>
+        <div class="detail-row" style="margin-bottom:6px;">
+          <span class="muted">🐉 ${active.monster_name || "Монстр"} · lvl ${active.monster_level ?? "—"}</span>
+          <strong>${hpCur}/${hpMax}</strong>
+        </div>
+        <div class="bar" aria-label="HP монстра">
+          <div style="width:${monPct}%;"></div>
         </div>
       </div>
 
+      ${waifuHpSection}
+
       <div class="solo-active-meta">
-        ${
-          pos && total
-            ? `<div class="meta-tag">Прогресс: <strong>${pos}/${total}</strong></div>`
-            : ""
-        }
-        ${
-          lastDmg != null
-            ? `<div class="meta-tag">Последний удар: <strong>${lastDmg}</strong>${lastCrit ? ' <span class="muted">крит</span>' : ""}</div>`
-            : ""
-        }
-      </div>
-
-      <div class="detail-row">
-        <span class="muted">HP монстра</span>
-        <strong>${hpCur}/${hpMax}</strong>
-      </div>
-      <div class="bar" aria-label="HP монстра">
-        <div style="width:${pct}%;"></div>
-      </div>
-      <div class="detail-row">
-        <span class="muted">Нанесено урона</span>
-        <strong>${dealt}</strong>
-      </div>
-
-      <div class="details-grid">
-        <div class="detail-row"><span class="muted">DMG монстра</span><strong>${active.monster_damage ?? "—"}</strong></div>
-        <div class="detail-row"><span class="muted">DEF монстра</span><strong>${active.monster_defense ?? "—"}</strong></div>
-        <div class="detail-row"><span class="muted">HP вайфу</span><strong>${active.waifu_current_hp ?? "—"}/${active.waifu_max_hp ?? "—"}</strong></div>
-        <div class="detail-row"><span class="muted">Энергия</span><strong>${active.waifu_current_energy ?? "—"}/${active.waifu_max_energy ?? "—"}</strong></div>
+        ${lastDmg != null ? `<div class="meta-tag">Последний удар: <strong>${lastDmg}</strong>${lastCrit ? ' <span style="color:#fbbf24">★крит</span>' : ""}</div>` : ""}
+        ${dealt > 0 ? `<div class="meta-tag">Нанесено: <strong>${dealt}</strong></div>` : ""}
       </div>
 
       ${
         log.length
-          ? `<div class="detail-row"><span class="muted">Лог</span><strong>${log.join(" · ")}</strong></div>`
+          ? `<div class="detail-row"><span class="muted">Лог</span><strong style="font-size:12px;">${log.join(" · ")}</strong></div>`
           : ""
       }
 
-      <div class="solo-active-actions">
-        <button class="btn" onclick="WaifuApp.continueActiveDungeon()">⚔️ Продолжить</button>
-        <button class="btn btn-secondary" onclick="WaifuApp.exitDungeon()">🚪 Выйти</button>
-      </div>
     </div>
   `;
 }
@@ -1155,16 +1483,15 @@ function renderSoloActiveFallback(reason) {
         <div class="solo-active-title">🏰 Активное подземелье</div>
         <div style="display:flex; align-items:center; gap:8px;">
           <div class="muted tiny">Прогресс недоступен</div>
-          <button class="icon-btn" title="Завершить подземелье" aria-label="Завершить подземелье" onclick="WaifuApp.exitDungeon()">⏹️</button>
+          <button class="icon-btn" title="Покинуть подземелье" aria-label="Покинуть подземелье" onclick="WaifuApp.openExitDungeonConfirm()">✕</button>
         </div>
       </div>
       <div class="detail-row">
         <span class="muted">Причина</span>
         <strong>${String(reason || "—")}</strong>
       </div>
-      <div class="solo-active-actions">
+      <div style="margin-top:6px;">
         <button class="btn" onclick="WaifuApp.refreshSoloActive()">🔄 Обновить</button>
-        <button class="btn btn-secondary" onclick="WaifuApp.exitDungeon()">🚪 Выйти</button>
       </div>
     </div>
   `;
@@ -1174,6 +1501,7 @@ async function refreshSoloActive() {
   if (!dungeonsFinishBlockedMsg) showDungeonsError("");
   try {
     const active = await apiFetch("/dungeons/active");
+    renderAtticDungeon(active);
     if (active?.active) renderSoloActiveProgress(active);
     else {
       renderSoloActiveProgress({ active: false });
@@ -1244,39 +1572,73 @@ async function populateDungeonsPage(profile) {
   }
 }
 
+let plusBottomSheetUnlocked = false;
+let plusBottomSheetMaxUnlocked = 0;
+
 function initPlusSelect(globalUnlocked, statusById) {
-  const sel = document.getElementById("badge-plus-select");
-  if (!sel) return;
-  // max unlocked across all dungeons
+  plusBottomSheetUnlocked = globalUnlocked;
   let maxUnlocked = 0;
   for (const k of Object.keys(statusById || {})) {
     const u = Number(statusById[k]?.unlocked_plus_level || 0);
     if (u > maxUnlocked) maxUnlocked = u;
   }
-  const opts = [{ v: 0, label: "0" }];
-  if (globalUnlocked) {
-    for (let i = 1; i <= Math.max(1, maxUnlocked); i += 1) opts.push({ v: i, label: `+${i}` });
-  }
-  const cur = Number(selectedPlusLevel || 0);
-  sel.innerHTML = opts.map((o) => `<option value="${o.v}">${o.label}</option>`).join("");
-  sel.value = String(cur);
+  plusBottomSheetMaxUnlocked = maxUnlocked;
+  const cur = Math.min(selectedPlusLevel, maxUnlocked);
+  if (cur !== selectedPlusLevel) selectedPlusLevel = cur;
+  const lbl = document.getElementById("badge-plus-label");
+  if (lbl) lbl.textContent = cur > 0 ? `+${cur}` : "0";
   applyPlusChipStyle(cur, Math.max(1, maxUnlocked));
 }
 
-window.WaifuApp.onPlusLevelChanged = (val) => {
-  selectedPlusLevel = Math.max(0, Number(val || 0));
-  // Update chip coloring
-  const maxUnlocked = (() => {
-    let m = 1;
-    for (const k of Object.keys(dungeonPlusStatusById || {})) {
-      const u = Number(dungeonPlusStatusById[k]?.unlocked_plus_level || 0);
-      if (u > m) m = u;
-    }
-    return m;
-  })();
-  applyPlusChipStyle(selectedPlusLevel, Math.max(1, maxUnlocked));
-  const p = window.__lastProfileForDungeons || null;
-  if (p) renderSoloDungeonsForAct(p).catch?.(() => {});
+const PLUS_LEVEL_DESCS = [
+  "Стандартная сложность. Нет штрафов.",
+  "+1: Монстры +15% HP/урон. Награды +10%.",
+  "+2: Монстры +30% HP/урон. Награды +22%, шанс редкости ↑.",
+  "+3: Монстры +50% HP/урон. Награды +38%, шанс редкости ↑↑.",
+  "+4: Монстры +70% HP/урон. Награды +58%, шанс легендарки ↑.",
+  "+5: Монстры +100% HP/урон. Награды ×2, шанс легендарки ↑↑.",
+];
+
+window.WaifuApp.openPlusBottomSheet = () => {
+  const bs = document.getElementById("plus-bottomsheet");
+  const list = document.getElementById("plus-options-list");
+  if (!bs || !list) return;
+  const max = plusBottomSheetUnlocked ? Math.max(0, plusBottomSheetMaxUnlocked) : 0;
+  list.innerHTML = "";
+  for (let i = 0; i <= Math.max(0, max); i++) {
+    const hue = max > 0 ? Math.round(120 * (1 - i / Math.max(1, max))) : 120;
+    const bgColor = `hsla(${hue},70%,45%,0.22)`;
+    const borderColor = `hsla(${hue},60%,55%,0.50)`;
+    const desc = PLUS_LEVEL_DESCS[i] || `+${i}: повышенная сложность.`;
+    const btn = document.createElement("button");
+    btn.className = "plus-option" + (i === selectedPlusLevel ? " selected" : "");
+    btn.innerHTML = `
+      <div class="plus-option-badge" style="background:${bgColor};border-color:${borderColor};color:#fff;">
+        ${i === 0 ? "0" : `+${i}`}
+      </div>
+      <div class="plus-option-info">
+        <div class="plus-option-label">${i === 0 ? "Обычная" : `Сложность +${i}`}</div>
+        <div class="plus-option-desc">${desc}</div>
+      </div>`;
+    btn.addEventListener("click", () => {
+      selectedPlusLevel = i;
+      const lbl = document.getElementById("badge-plus-label");
+      if (lbl) lbl.textContent = i > 0 ? `+${i}` : "0";
+      applyPlusChipStyle(i, Math.max(1, max));
+      window.WaifuApp.closePlusBottomSheet();
+      const p = window.__lastProfileForDungeons || null;
+      if (p) renderSoloDungeonsForAct(p).catch?.(() => {});
+    });
+    list.appendChild(btn);
+  }
+  bs.style.display = "flex";
+  document.body.style.overflow = "hidden";
+};
+
+window.WaifuApp.closePlusBottomSheet = () => {
+  const bs = document.getElementById("plus-bottomsheet");
+  if (bs) bs.style.display = "none";
+  document.body.style.overflow = "";
 };
 
 function applyPlusChipStyle(plusLevel, maxLevel) {
@@ -1370,6 +1732,24 @@ function itemIconForSlotType(slotType) {
   return "🎁";
 }
 
+function buildRewardItemCard(item) {
+  const rc = rarityClass(item.rarity);
+  const icon = itemIconForSlotType(item.slot_type);
+  return `
+    <div class="reward-item-card ${rc}">
+      <div class="reward-item-top">
+        <div class="reward-item-icon">${icon}</div>
+        <div style="display:grid;gap:2px;min-width:0;">
+          <div class="reward-item-name ${rc}">${item.name || "Предмет"}</div>
+          <div class="muted tiny">lvl ${item.level ?? "—"} · ${rarityLabel(item.rarity)}</div>
+        </div>
+      </div>
+      <div class="reward-kv">
+        <div class="reward-pill"><span class="muted">Слот</span><strong>${slotTypeLabel(item.slot_type)}</strong></div>
+      </div>
+    </div>`;
+}
+
 function openRewardModal(payload) {
   const m = document.getElementById("reward-modal");
   const body = document.getElementById("reward-modal-body");
@@ -1378,41 +1758,75 @@ function openRewardModal(payload) {
 
   if (sub) sub.textContent = "Победа над боссом!";
 
-  const gold = payload.gold_gained ?? "—";
-  const exp = payload.experience_gained ?? "—";
-  const goldTotal = payload.total_gold_gained ?? null;
-  const expTotal = payload.total_experience_gained ?? null;
-  const item = payload.item_dropped || null;
+  // EXP breakdown
+  const expMobs  = payload.exp_from_monsters  ?? payload.experience_gained ?? null;
+  const expBoss  = payload.exp_from_boss       ?? null;
+  const expTotal = payload.total_experience_gained ?? (expMobs != null && expBoss != null ? expMobs + expBoss : expMobs);
 
-  const itemHtml = item
-    ? (() => {
-        const rc = rarityClass(item.rarity);
-        const icon = itemIconForSlotType(item.slot_type);
-        return `
-          <div class="reward-item-card ${rc}">
-            <div class="reward-item-top">
-              <div class="reward-item-icon">${icon}</div>
-              <div style="display:grid; gap:2px;">
-                <div class="reward-item-name ${rc}">${item.name}</div>
-                <div class="muted tiny">lvl ${item.level} · ${rarityLabel(item.rarity)}</div>
-              </div>
-            </div>
-            <div class="reward-kv">
-              <div class="reward-pill"><span class="muted">Tier</span><strong>${item.tier ?? "—"}</strong></div>
-              <div class="reward-pill"><span class="muted">Slot</span><strong>${item.slot_type ?? "—"}</strong></div>
-            </div>
-          </div>
-        `;
-      })()
-    : `<div class="reward-item-card"><div class="muted">🎁 Предмет не выпал</div></div>`;
+  // Gold breakdown
+  const goldMobs  = payload.gold_from_monsters  ?? payload.gold_gained ?? null;
+  const goldBoss  = payload.gold_from_boss       ?? null;
+  const goldTotal = payload.total_gold_gained ?? (goldMobs != null && goldBoss != null ? goldMobs + goldBoss : goldMobs);
+
+  // Items — support both single item_dropped and array items_dropped
+  const itemsRaw = Array.isArray(payload.items_dropped) ? payload.items_dropped
+    : payload.item_dropped ? [payload.item_dropped]
+    : [];
+  const guaranteedItem = payload.guaranteed_item || null;
+  if (guaranteedItem && !itemsRaw.find((i) => i.id === guaranteedItem.id)) {
+    itemsRaw.push({ ...guaranteedItem, _guaranteed: true });
+  }
+
+  // Combat stats
+  const dmgDealt    = payload.total_damage_dealt    ?? payload.damage_done    ?? null;
+  const dmgReceived = payload.total_damage_received ?? payload.damage_received ?? null;
+
+  const fmt = (v) => v != null ? Number(v).toLocaleString() : "—";
+
+  // EXP section
+  const expBreakdown = expMobs != null || expBoss != null ? `
+    <div class="reward-breakdown">
+      ${expMobs != null ? `<div class="reward-breakdown-row"><span class="muted">За монстров</span><span>+${fmt(expMobs)} ✨</span></div>` : ""}
+      ${expBoss != null ? `<div class="reward-breakdown-row"><span class="muted">За босса</span><span>+${fmt(expBoss)} ✨</span></div>` : ""}
+      <div class="reward-breakdown-row total"><span>Итого опыт</span><strong>+${fmt(expTotal)} ✨</strong></div>
+    </div>` : `<div class="reward-pill"><span class="muted">✨ Опыт</span><strong>+${fmt(expTotal)}</strong></div>`;
+
+  // Gold section
+  const goldBreakdown = goldMobs != null || goldBoss != null ? `
+    <div class="reward-breakdown">
+      ${goldMobs != null ? `<div class="reward-breakdown-row"><span class="muted">За монстров</span><span>+${fmt(goldMobs)} 🪙</span></div>` : ""}
+      ${goldBoss != null ? `<div class="reward-breakdown-row"><span class="muted">Бонус за босса</span><span>+${fmt(goldBoss)} 🪙</span></div>` : ""}
+      <div class="reward-breakdown-row total"><span>Итого золото</span><strong>+${fmt(goldTotal)} 🪙</strong></div>
+    </div>` : `<div class="reward-pill"><span class="muted">🪙 Золото</span><strong>+${fmt(goldTotal)}</strong></div>`;
+
+  // Items section
+  const itemsHtml = itemsRaw.length
+    ? `<div class="reward-items-list">
+        ${itemsRaw.map((it) => buildRewardItemCard(it)).join("")}
+       </div>`
+    : `<div class="reward-item-card"><div class="muted tiny">🎁 Предметы не выпали</div></div>`;
+
+  // Combat summary
+  const combatHtml = (dmgDealt != null || dmgReceived != null) ? `
+    <div class="reward-combat-grid">
+      <div class="reward-combat-cell">
+        <div class="reward-combat-val" style="color:#f97316;">${fmt(dmgDealt)}</div>
+        <div class="reward-combat-label">⚔️ Нанесено урона</div>
+      </div>
+      <div class="reward-combat-cell">
+        <div class="reward-combat-val" style="color:#f87171;">${fmt(dmgReceived)}</div>
+        <div class="reward-combat-label">🛡️ Получено урона</div>
+      </div>
+    </div>` : "";
 
   body.innerHTML = `
     <div class="reward-grid">
-      <div class="reward-summary">
-        <div class="reward-pill"><span class="muted">🪙 Золото</span><strong>+${gold}${goldTotal != null ? ` <span class="muted tiny">(итог ${goldTotal})</span>` : ""}</strong></div>
-        <div class="reward-pill"><span class="muted">✨ Опыт</span><strong>+${exp}${expTotal != null ? ` <span class="muted tiny">(итог ${expTotal})</span>` : ""}</strong></div>
-      </div>
-      ${itemHtml}
+      <div class="reward-section-title">✨ Опыт</div>
+      ${expBreakdown}
+      <div class="reward-section-title" style="margin-top:4px;">🪙 Золото</div>
+      ${goldBreakdown}
+      ${itemsRaw.length ? `<div class="reward-section-title" style="margin-top:4px;">🎁 Предметы</div>${itemsHtml}` : itemsHtml}
+      ${combatHtml ? `<div class="reward-section-title" style="margin-top:4px;">📊 Боевая сводка</div>${combatHtml}` : ""}
     </div>
   `;
   m.style.display = "grid";
@@ -1552,6 +1966,21 @@ async function exitDungeon() {
   await loadActiveDungeon();
 }
 
+function openExitDungeonConfirm() {
+  const modal = document.getElementById("exit-dungeon-modal");
+  if (modal) modal.style.display = "grid";
+}
+
+function closeExitDungeonConfirm() {
+  const modal = document.getElementById("exit-dungeon-modal");
+  if (modal) modal.style.display = "none";
+}
+
+async function confirmExitDungeon() {
+  closeExitDungeonConfirm();
+  await exitDungeon();
+}
+
 async function adminExitDungeon() {
   return exitDungeon();
 }
@@ -1612,13 +2041,47 @@ async function loadBattle() {
   return data;
 }
 
+function appendBattleLog(text) {
+  const log = document.getElementById("battle-log-content");
+  if (log) {
+    const div = document.createElement("div");
+    div.className = "muted tiny";
+    div.textContent = text;
+    log.prepend(div);
+  } else {
+    appendEvent(text);
+  }
+}
+
 async function continueBattle() {
-  const res = await apiFetch("/dungeons/continue", { method: "POST" });
-  if (res?.message) appendEvent(res.message);
-  const after = await loadBattle();
-  if (!after?.active) {
-    // Dungeon is completed; return to dungeons screen.
-    window.location.href = "./dungeons.html";
+  const btn = document.getElementById("battle-continue-btn");
+  if (btn) btn.disabled = true;
+  try {
+    const res = await apiFetch("/dungeons/continue", { method: "POST" });
+    if (res?.error === "no_energy") {
+      appendBattleLog("⚡ Недостаточно энергии для атаки.");
+      return;
+    }
+    if (res?.error) {
+      appendBattleLog(`Ошибка: ${res.message || res.error}`);
+      return;
+    }
+    const dmg = res?.damage ?? null;
+    const crit = res?.is_crit;
+    if (dmg != null) {
+      appendBattleLog(crit ? `⚔️ Удар ${dmg} (крит!)` : `⚔️ Удар ${dmg}`);
+    }
+    if (res?.experience_gained) appendBattleLog(`✨ +${res.experience_gained} опыта`);
+    if (res?.dungeon_completed) {
+      window.location.href = "./dungeons.html";
+      return;
+    }
+    const after = await loadBattle();
+    if (!after?.active) {
+      window.location.href = "./dungeons.html";
+    }
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1642,10 +2105,10 @@ function switchShopTab(name) {
 }
 
 function switchProfileTab(name) {
-  document.querySelectorAll(".tabs .tab").forEach((btn) => {
+  document.querySelectorAll(".profile-tabs .tab").forEach((btn) => {
     if (btn.dataset.tab) btn.classList.toggle("active", btn.dataset.tab === name);
   });
-  document.querySelectorAll(".tab-panel").forEach((panel) => {
+  document.querySelectorAll("main .tab-panel").forEach((panel) => {
     if (panel.id?.startsWith("tab-")) panel.classList.toggle("active", panel.id === `tab-${name}`);
   });
 }
@@ -1831,44 +2294,70 @@ function closeGdModal(modal) {
 async function updateGdSessionUI() {
   const chatId = getGdChatIdFromUrl();
   const card = document.getElementById("gd-session-status");
+  const infoBlock = document.querySelector("#tab-group .gd-info");
   if (!card) return;
   if (chatId === null) {
     card.style.display = "none";
+    if (infoBlock) infoBlock.style.display = "";
     return;
   }
   try {
     const data = await apiFetch(`/gd/session/${chatId}`);
     if (!data?.active) {
       card.style.display = "none";
+      if (infoBlock) infoBlock.style.display = "";
       return;
     }
+    // Hide info block while session is active
+    if (infoBlock) infoBlock.style.display = "none";
     card.style.display = "";
+
     const dungeonName = data.dungeon_name || "—";
-    const stage = Math.max(0, Number(data.current_stage) || 0);
+    const stage = Math.max(1, Number(data.current_stage) || 1);
+    const totalStages = Math.max(stage, Number(data.total_stages) || 4);
     const hp = Math.max(0, Number(data.current_monster_hp) || 0);
     const maxHp = Math.max(1, Number(data.stage_base_hp) || 1);
     const monsterName = data.monster_name || "—";
     const pct = Math.min(100, Math.round((hp / maxHp) * 100));
-    const stagesStr = "🟢".repeat(stage - 1) + "🔴" + "⚪".repeat(4 - stage);
-    setText("gd-session-dungeon-name", dungeonName);
-    setText("gd-session-stages", stagesStr);
-    setText("gd-session-monster-name", monsterName);
-    setText("gd-session-hp", `${hp} / ${maxHp}`);
-    const fill = document.getElementById("gd-session-hp-fill");
-    if (fill) fill.style.width = `${pct}%`;
+
+    // Build stage dots
+    const stageDots = buildStageDots(stage, totalStages);
+
+    // Participants
+    const participants = Array.isArray(data.participants) ? data.participants : [];
+    const totalMsgs = participants.reduce((s, p) => s + (Number(p.messages) || 0), 0);
+    const participantsHtml = participants.length
+      ? `<div style="font-size:12px;font-weight:800;color:var(--muted);margin:8px 0 4px;">Участники</div>
+         <div class="gd-participants">
+           ${participants.map((p) => {
+             const msgs = Number(p.messages) || 0;
+             const pct2 = totalMsgs > 0 ? Math.round((msgs / totalMsgs) * 100) : 0;
+             return `<div class="gd-participant-row">
+               <span class="gd-participant-name">${escapeHtml(p.name || p.username || "—")}</span>
+               <span class="gd-participant-contrib">${msgs} сообщ. · ${pct2}%</span>
+             </div>`;
+           }).join("")}
+         </div>`
+      : "";
+
+    card.innerHTML = `
+      <h3 class="gd-session-title">${escapeHtml(dungeonName)}</h3>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0;">
+        ${stageDots}
+        <span class="muted tiny">${stage}/${totalStages}</span>
+      </div>
+      <div class="gd-session-monster">
+        <span>${escapeHtml(monsterName)}</span>
+        <span>${hp.toLocaleString()} / ${maxHp.toLocaleString()}</span>
+      </div>
+      <div class="gd-session-hp-bar"><div class="gd-hp-fill" style="width:${pct}%"></div></div>
+      ${participantsHtml}
+    `;
   } catch {
     card.style.display = "none";
+    if (infoBlock) infoBlock.style.display = "";
   }
 }
-
-const expeditionState = {
-  slots: [],
-  active: [],
-  squad: [],
-  selectedSlot: null,
-  selectedSquadIds: [],
-  durationMinutes: 60,
-};
 
 function showExpeditionError(msg) {
   const box = document.getElementById("expedition-error");
@@ -2487,6 +2976,7 @@ function closeItemModal() {
   const m = document.getElementById("item-modal");
   if (m) m.style.display = "none";
   profileState.selectedItem = null;
+  profileState.sellConfirm = false;
 }
 
 function raceName(id) {
@@ -2649,14 +3139,304 @@ function renderWeaponStatsHtml(item) {
   `;
 }
 
+function renderProfilePortrait(waifu) {
+  setText("profile-portrait-name", waifu?.name || "—");
+  setText("profile-portrait-race", raceName(waifu?.race));
+  setText("profile-portrait-class", className(waifu?.class ?? waifu?.class_));
+
+  const portraitEl = document.getElementById("profile-portrait-media");
+  if (!portraitEl) return;
+  const portraitUrl =
+    String(waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || "").trim();
+  portraitEl.innerHTML = portraitUrl
+    ? `<img src="${escapeHtml(portraitUrl)}" alt="${escapeHtml(String(waifu?.name || "Портрет"))}" />`
+    : escapeHtml(waifuPortraitEmoji(waifu) || "👤");
+}
+
+function renderProfileHeroBars(waifu, details = null) {
+  const d = details || profileState.currentDetails || null;
+  const hpCur = safeNumber(d?.hp_current ?? waifu?.current_hp, 0);
+  const hpMax = Math.max(1, safeNumber(d?.hp_max ?? waifu?.max_hp, 1));
+  setText("profile-hp-text", `${hpCur}/${hpMax}`);
+  const hpFill = document.getElementById("profile-hp-fill");
+  if (hpFill) hpFill.style.width = `${Math.round(clamp01(hpCur / hpMax) * 100)}%`;
+
+  const lvl = safeNumber(waifu?.level, 1);
+  const xp = safeNumber(waifu?.experience, 0);
+  const curTotal = totalExpForLevel(lvl);
+  const nextTotal = totalExpForLevel(lvl + 1);
+  const need = Math.max(1, nextTotal - curTotal);
+  const into = Math.max(0, xp - curTotal);
+  setText("profile-xp-text", `Ур. ${lvl} - ${into}/${need} EXP`);
+  const xpFill = document.getElementById("profile-xp-fill");
+  if (xpFill) xpFill.style.width = `${Math.round(clamp01(into / need) * 100)}%`;
+}
+
+function renderProfileIndicators(waifu, details = null) {
+  const box = document.getElementById("profile-indicators-grid");
+  if (!box || !waifu) return;
+  const d = details || profileState.currentDetails || null;
+  const indicators = getProfileIndicators(waifu, d);
+  const rows = [
+    ["HP максимальное", indicators.hpMax],
+    ["Урон ближний", indicators.meleeRange],
+    ["Урон дальний", indicators.rangedRange],
+    ["Урон магический", indicators.magicRange],
+    ["Шанс крит. атаки", indicators.critChance],
+    ["Шанс уклонения", indicators.dodgeChance],
+    ["Бонус к опыту", indicators.expBonus],
+    ["Бонус к золоту", indicators.goldBonus],
+    ["Торговля", indicators.merchant],
+    ["Энергия", indicators.energy],
+  ];
+  box.innerHTML = rows
+    .map(([label, value]) => `<div class="detail-row"><span class="muted">${label}</span><strong>${value}</strong></div>`)
+    .join("");
+}
+
+function renderProfileStatistics() {
+  const box = document.getElementById("profile-statistics-grid");
+  if (!box) return;
+  const rows = [
+    "Пройдено подземелий",
+    "Убито монстров",
+    "Нанесено урона",
+    "Получено урона",
+    "Найдено предметов",
+    "Заработано золота",
+    "Потрачено золота",
+  ];
+  box.innerHTML = rows
+    .map((label) => `<div class="detail-row"><span class="muted">${label}</span><strong>—</strong></div>`)
+    .join("");
+}
+
+function syncProfileInfoTabs() {
+  document.querySelectorAll(".profile-inner-tabs .tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.infoTab === profileState.infoTab);
+  });
+  document.querySelectorAll(".profile-info-panel").forEach((panel) => {
+    panel.classList.toggle("active", panel.id === `profile-info-${profileState.infoTab}`);
+  });
+}
+
+function switchProfileInfoTab(name) {
+  profileState.infoTab = name === "statistics" ? "statistics" : "indicators";
+  syncProfileInfoTabs();
+}
+
+function toggleProfileStatTooltip(statKey) {
+  profileState.activeTooltipStat = profileState.activeTooltipStat === statKey ? null : statKey;
+  const waifu = profileState.currentProfile?.main_waifu;
+  if (waifu) renderStatsStrip("profile-stats-strip", waifu, profileState.currentDetails);
+}
+
+function toggleProfileStatAccordion(statKey) {
+  profileState.activeAccordion = profileState.activeAccordion === statKey ? null : statKey;
+  const waifu = profileState.currentProfile?.main_waifu;
+  if (waifu) renderStatsBreakdown("profile-stats-breakdown", waifu, profileState.currentDetails);
+}
+
+function renderProfileSlotCard(slot, item) {
+  const name = item ? escapeHtml(String(item?.display_name || item?.name || "Предмет")) : "Пусто";
+  const slotTitle = escapeHtml(EQUIPMENT_SLOT_NAMES[slot] || `Слот ${slot}`);
+  const rarity = item ? rarityClass(item?.rarity) : "rarity-common";
+  const image = itemImageUrl(item);
+  const bonusTotal = getProfileStatBonusTotal(item);
+  const damage =
+    item?.damage_min != null || item?.damage_max != null
+      ? `${safeNumber(item?.damage_min, 0)}-${safeNumber(item?.damage_max, 0)}`
+      : "—";
+  const speed = item?.attack_speed != null ? String(item.attack_speed) : "—";
+
+  return `
+    <button type="button" class="profile-slot-card ${item ? rarity : "empty"}" onclick="WaifuApp.openProfileSlot(${slot})">
+      <div class="profile-slot-media">
+        ${image ? `<img src="${escapeHtml(image)}" alt="" />` : `<span class="profile-slot-fallback">${itemIconForSlotType(item?.slot_type || "")}</span>`}
+      </div>
+      <div class="profile-slot-info">
+        <div class="profile-slot-name">${slotTitle}</div>
+        <div class="profile-slot-title">${name}</div>
+        <div class="profile-slot-line">${escapeHtml(item ? slotTypeLabel(item?.slot_type) : "Пустой слот")}</div>
+        <div class="profile-slot-line">Ур. ${item?.level ?? "—"}${item ? ` · Бонус +${bonusTotal}` : ""}</div>
+        ${
+          item?.slot_type && String(item.slot_type).includes("weapon")
+            ? `<div class="profile-slot-line">Урон ${damage} · Скорость ${speed}</div>`
+            : `<div class="profile-slot-line">${item ? "Нажмите для карточки предмета" : "Нажмите, чтобы выбрать предмет"}</div>`
+        }
+      </div>
+    </button>
+  `;
+}
+
+function renderProfilePaperDoll(waifu) {
+  return `
+    <div class="profile-paperdoll">
+      <div class="profile-paperdoll-body" aria-hidden="true">${escapeHtml(waifuPortraitEmoji(waifu) || "👤")}</div>
+      <div class="profile-paperdoll-caption">
+        <strong>${escapeHtml(String(waifu?.name || "Основная вайфу"))}</strong>
+        <span class="muted tiny">${escapeHtml(className(waifu?.class ?? waifu?.class_))} · ${escapeHtml(raceName(waifu?.race))}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderProfileEquipment() {
+  const gear = document.getElementById("profile-gear");
+  const badge = document.getElementById("profile-gear-mode-badge");
+  const toggle = document.getElementById("profile-view-toggle");
+  const waifu = profileState.currentProfile?.main_waifu;
+  if (!gear || !waifu) return;
+
+  const mode = profileState.viewMode;
+  // Badge is a <span> inside the toggle button — update only it to preserve the SVG icon
+  if (badge) badge.textContent = mode === "compact" ? "Расширенный режим" : "Компактный режим";
+
+  gear.classList.remove("placeholder", "is-expanded");
+  if (mode === "compact") {
+    gear.innerHTML = `<div class="profile-equipment-grid">${[1, 2, 3, 4, 5, 6]
+      .map((slot) => renderProfileSlotCard(slot, getProfileEquippedItem(slot)))
+      .join("")}</div>`;
+    return;
+  }
+
+  gear.classList.add("is-expanded");
+  gear.innerHTML = `
+    <div class="profile-gear-column">${PROFILE_SLOT_LAYOUT.left
+      .map((slot) => renderProfileSlotCard(slot, getProfileEquippedItem(slot)))
+      .join("")}</div>
+    ${renderProfilePaperDoll(waifu)}
+    <div class="profile-gear-column">${PROFILE_SLOT_LAYOUT.right
+      .map((slot) => renderProfileSlotCard(slot, getProfileEquippedItem(slot)))
+      .join("")}</div>
+  `;
+}
+
+function renderProfileInventory() {
+  const box = document.getElementById("profile-inventory");
+  if (!box) return;
+
+  const waifu = profileState.currentProfile?.main_waifu;
+  const allItems = Array.isArray(profileState.inventory) ? profileState.inventory.slice() : [];
+  const capacity = getProfileBagCapacity(waifu?.level);
+  const maxAvailable = Math.min(allItems.length, capacity.cells);
+  const visiblePool = allItems.slice(0, maxAvailable);
+  const filtered = visiblePool
+    .filter((item) => profileState.inventoryFilters[getProfileItemCategory(item)])
+    .sort(compareProfileInventoryItems);
+  const pageSize = getProfileBagPageSize();
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize) || 1);
+  profileState.inventoryPage = Math.max(1, Math.min(profileState.inventoryPage, totalPages));
+  const start = (profileState.inventoryPage - 1) * pageSize;
+  const pageItems = filtered.slice(start, start + pageSize);
+
+  box.classList.remove("placeholder");
+  box.className = `profile-bag-grid mode-${profileState.viewMode}`;
+
+  if (!filtered.length) {
+    box.innerHTML = `<div class="placeholder" style="grid-column:1 / -1;">Нет предметов по выбранным фильтрам.</div>`;
+  } else {
+    const cells = [];
+    pageItems.forEach((item) => {
+      const rarity = rarityClass(item?.rarity);
+      const name = escapeHtml(String(item?.display_name || item?.name || "Предмет"));
+      const iconHtml = itemImageUrl(item) ? `<img src="${escapeHtml(itemImageUrl(item))}" alt="" />` : "📦";
+      const upgrade = isProfileUpgradeItem(item);
+      const locked = item?.can_equip === false;
+      cells.push(`
+        <button type="button" class="item-card ${rarity} ${locked ? "empty" : ""}" title="${name}" onclick="WaifuApp.openItemById(${Number(
+          item?.id || 0
+        )})">
+          <div class="item-icon">${iconHtml}</div>
+          ${upgrade ? `<div class="upgrade-arrow" title="Улучшение относительно экипировки">▲</div>` : ""}
+          <div class="item-level">lvl ${item?.level ?? "?"}</div>
+          <div class="item-name">${name}</div>
+        </button>
+      `);
+    });
+    for (let i = pageItems.length; i < pageSize; i += 1) {
+      cells.push(`<div class="item-card empty" aria-hidden="true"><div class="item-icon">—</div></div>`);
+    }
+    box.innerHTML = cells.join("");
+  }
+
+  setText("profile-bag-capacity", `Ячейки: ${capacity.cells}`);
+  setText(
+    "profile-inventory-summary",
+    `Доступно ${maxAvailable}/${allItems.length} предметов · страница ${profileState.inventoryPage}/${totalPages}`
+  );
+  setText("profile-page-status", `Страница ${profileState.inventoryPage}/${totalPages}`);
+
+  const prevBtn = document.getElementById("profile-page-prev");
+  const nextBtn = document.getElementById("profile-page-next");
+  if (prevBtn) prevBtn.disabled = profileState.inventoryPage <= 1;
+  if (nextBtn) nextBtn.disabled = profileState.inventoryPage >= totalPages;
+
+  document.getElementById("profile-filter-weapon")?.classList.toggle("active", profileState.inventoryFilters.weapon);
+  document.getElementById("profile-filter-armor")?.classList.toggle("active", profileState.inventoryFilters.armor);
+  document.getElementById("profile-filter-accessory")?.classList.toggle("active", profileState.inventoryFilters.accessory);
+  const sortSelect = document.getElementById("profile-sort-select");
+  if (sortSelect) sortSelect.value = profileState.inventorySort;
+  const dirBtn = document.getElementById("profile-sort-direction");
+  if (dirBtn) dirBtn.textContent = profileState.inventorySortDir === "asc" ? "▲" : "▼";
+}
+
+function openProfileSlot(slot) {
+  const item = getProfileEquippedItem(slot);
+  if (item) {
+    openItemModal(item);
+    return;
+  }
+  openSlotModal(slot);
+}
+
+function openItemById(itemId) {
+  const item = (profileState.inventory || []).find((candidate) => Number(candidate?.id) === Number(itemId));
+  if (item) openItemModal(item);
+}
+
+function toggleProfileInventoryMode() {
+  profileState.viewMode = profileState.viewMode === "compact" ? "expanded" : "compact";
+  profileState.inventoryPage = 1;
+  writeProfileInventoryMode(profileState.viewMode);
+  renderProfileEquipment();
+  renderProfileInventory();
+}
+
+function toggleProfileInventoryFilter(category) {
+  if (!Object.prototype.hasOwnProperty.call(profileState.inventoryFilters, category)) return;
+  profileState.inventoryFilters[category] = !profileState.inventoryFilters[category];
+  profileState.inventoryPage = 1;
+  renderProfileInventory();
+}
+
+function setProfileInventorySort(value) {
+  profileState.inventorySort = ["level", "rarity", "equipability"].includes(value) ? value : "equipability";
+  profileState.inventoryPage = 1;
+  renderProfileInventory();
+}
+
+function toggleProfileInventorySortDir() {
+  profileState.inventorySortDir = profileState.inventorySortDir === "asc" ? "desc" : "asc";
+  renderProfileInventory();
+}
+
+function changeProfileInventoryPage(delta) {
+  profileState.inventoryPage = Math.max(1, profileState.inventoryPage + safeNumber(delta, 0));
+  renderProfileInventory();
+}
+
 async function populateProfile(profile) {
   const p = profile || (await loadProfile());
   const w = p?.main_waifu;
   if (!w) {
-    // If no main waifu - push user to generator.
     window.location.href = "./waifu_generator.html";
     return;
   }
+
+  profileState.currentProfile = p;
+  profileState.currentDetails = p?.main_waifu_details || null;
+  profileState.viewMode = readProfileInventoryMode();
 
   setText("profile-name", w.name || "—");
   setText("profile-level", w.level ?? "—");
@@ -2675,120 +3455,27 @@ async function populateProfile(profile) {
     raceEl.title = raceName(raceId);
   }
 
-  renderStatsStrip("profile-stats-strip", w);
-  renderStatsBreakdown("profile-stats-breakdown", w);
+  renderProfilePortrait(w);
+  renderProfileHeroBars(w, profileState.currentDetails);
+  renderStatsStrip("profile-stats-strip", w, profileState.currentDetails);
+  renderStatsBreakdown("profile-stats-breakdown", w, profileState.currentDetails);
+  renderProfileIndicators(w, profileState.currentDetails);
+  renderProfileStatistics();
+  switchProfileInfoTab(profileState.infoTab);
 
-  // Details block (aggregated with equipment)
-  const d = p?.main_waifu_details;
-  if (d) {
-    setText("profile-dmg-melee", d.melee_damage != null ? String(d.melee_damage) : "—");
-    setText("profile-dmg-ranged", d.ranged_damage != null ? String(d.ranged_damage) : "—");
-    setText("profile-dmg-magic", d.magic_damage != null ? String(d.magic_damage) : "—");
-    setText("profile-crit-chance", d.crit_chance != null ? `${d.crit_chance}%` : "—");
-    setText("profile-dodge-chance", d.dodge_chance != null ? `${d.dodge_chance}%` : "—");
-    setText("profile-defense", d.defense != null ? String(d.defense) : "—");
-    setText("profile-merchant-discount", d.merchant_discount != null ? `${d.merchant_discount}%` : "—");
-  }
-
-  // Equipment + inventory
   const eq = await apiFetch(`/waifu/equipment`);
   const equipped = Array.isArray(eq?.equipped) ? eq.equipped : [];
   const inventory = Array.isArray(eq?.inventory) ? eq.inventory : [];
+  profileState.inventory = inventory;
   profileState.equippedBySlot = {};
   equipped.forEach((it) => {
     if (it?.equipment_slot != null) profileState.equippedBySlot[Number(it.equipment_slot)] = it;
   });
+  profileState.inventoryPage = 1;
 
-  const gear = document.getElementById("profile-gear");
-  if (gear) {
-    const slots = [1, 2, 3, 4, 5, 6];
-    gear.innerHTML = "";
-    slots.forEach((slot) => {
-      const item = equipped.find((it) => Number(it.equipment_slot) === slot) || null;
-      const card = document.createElement("div");
-      card.className = "slot-card";
-      const nm = item ? (String(item?.display_name || "").trim() || String(item?.name || "Предмет")) : "Пусто";
-      card.innerHTML = `
-        <div class="gear-item">
-          <strong>${EQUIPMENT_SLOT_NAMES[slot] || `Слот ${slot}`}</strong>
-          <div class="muted">${nm}</div>
-        </div>
-        <div class="muted tiny">${item ? "Нажмите для деталей" : "Нажмите чтобы экипировать"}</div>
-      `;
-      card.onclick = () => {
-        if (item) openItemModal(item);
-        else openSlotModal(slot);
-      };
-      gear.appendChild(card);
-    });
-  }
+  renderProfileEquipment();
+  renderProfileInventory();
 
-  const invBox = document.getElementById("profile-inventory");
-  if (invBox) {
-    invBox.classList.remove("placeholder");
-    if (!inventory.length) {
-      invBox.innerHTML = `<div class="muted">Инвентарь пуст.</div>`;
-    } else {
-      invBox.innerHTML = `<div class="grid-4" id="profile-inventory-grid"></div>`;
-      const grid = document.getElementById("profile-inventory-grid");
-      const equippedLevel = (slot) => {
-        try {
-          return Number(profileState.equippedBySlot?.[Number(slot)]?.level || 0);
-        } catch {
-          return 0;
-        }
-      };
-      const isUpgradeVsEquipped = (it) => {
-        const st = String(it?.slot_type || "").toLowerCase();
-        const lvl = Number(it?.level || 0);
-        if (!st || !Number.isFinite(lvl) || lvl <= 0) return false;
-        const slots = SLOT_TYPE_TO_SLOTS?.[st];
-        if (!Array.isArray(slots) || !slots.length) return false;
-
-        // If nothing is equipped in these slots, don't show "upgrade" arrow.
-        const current = slots.map((s) => equippedLevel(s)).filter((v) => Number.isFinite(v) && v > 0);
-        if (!current.length) return false;
-
-        // weapon_2h occupies both weapon slots, so compare against max of both.
-        if (st === "weapon_2h") {
-          return lvl > Math.max(...current);
-        }
-        // multi-slot items (ring / weapon_1h) can replace the weaker slot => compare against min.
-        if (current.length > 1) {
-          return lvl > Math.min(...current);
-        }
-        return lvl > current[0];
-      };
-      inventory.forEach((it) => {
-        const rarityClass =
-          it?.rarity === 2
-            ? "rarity-uncommon"
-            : it?.rarity === 3
-              ? "rarity-rare"
-              : it?.rarity === 4
-                ? "rarity-epic"
-                : it?.rarity === 5
-                  ? "rarity-legendary"
-                  : "rarity-common";
-        const card = document.createElement("div");
-        card.className = `item-card ${rarityClass}`.trim();
-        const nm = String(it?.display_name || "").trim() || String(it?.name || "Предмет");
-        const iconHtml = itemImageUrl(it) ? `<img src="${itemImageUrl(it)}" alt="" />` : "📦";
-        const upgrade = isUpgradeVsEquipped(it);
-        card.innerHTML = `
-          <div class="item-icon">${iconHtml}</div>
-          ${upgrade ? `<div class="upgrade-arrow" title="Выше ilvl, чем надето">▲</div>` : ""}
-          <div class="item-level">lvl ${it.level ?? "?"}</div>
-          <div class="item-name">${nm}</div>
-        `;
-        card.title = nm;
-        card.onclick = () => openItemModal(it);
-        grid.appendChild(card);
-      });
-    }
-  }
-
-  // Optional deep link: ?tab=inventory|profile|info
   try {
     const tab = new URLSearchParams(window.location.search).get("tab");
     if (tab) switchProfileTab(tab);
@@ -2799,119 +3486,129 @@ async function populateProfile(profile) {
 
 async function openSlotModal(slot) {
   profileState.selectedSlot = slot;
-  const m = document.getElementById("slot-modal");
+  const modal = document.getElementById("slot-modal");
   const body = document.getElementById("slot-modal-body");
-  if (!m || !body) return;
+  if (!modal || !body) return;
 
-  setText("slot-modal-title", `Выберите предмет: ${EQUIPMENT_SLOT_NAMES[slot] || `Слот ${slot}`}`);
-  setText("slot-modal-subtitle", "Доступные предметы");
+  setText("slot-modal-title", `Подходящие предметы: ${EQUIPMENT_SLOT_NAMES[slot] || `Слот ${slot}`}`);
+  setText("slot-modal-subtitle", "Список предметов из сумки, подходящих для данного слота.");
   body.innerHTML = `<div class="placeholder">Загрузка...</div>`;
-  m.style.display = "grid";
+  modal.style.display = "grid";
 
   const data = await apiFetch(`/waifu/equipment/available?slot=${slot}`);
   const items = Array.isArray(data?.items) ? data.items : [];
   if (!items.length) {
-    body.innerHTML = `<div class="muted">Нет подходящих предметов.</div>`;
+    body.innerHTML = `<div class="placeholder">Нет подходящих предметов для этого слота.</div>`;
     return;
   }
 
-  body.innerHTML = "";
-  items.forEach((it) => {
-    const row = document.createElement("div");
-    row.className = "list-item";
-    const can = it.can_equip !== false;
-    const errs = Array.isArray(it.requirement_errors) ? it.requirement_errors : [];
-
-    const baseBonus =
-      it.base_stat && it.base_stat_value != null
-        ? (() => {
-            const m = statMeta(it.base_stat);
-            const cls = bonusClass(it.base_stat_value);
-            return `<span class="${cls}">${m.icon}${formatBonusValue(it.base_stat, it.base_stat_value)}</span>`;
-          })()
-        : "";
-    row.innerHTML = `
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:center;">
-        <div>
-          <strong>${it.name}</strong>
-          <div class="muted tiny">lvl ${it.level ?? "?"} · rarity ${it.rarity ?? "?"}</div>
-          ${baseBonus ? `<div class="tiny" style="margin-top:4px;">${baseBonus}</div>` : ""}
-          ${errs.length ? `<div class="muted tiny">${errs.join(", ")}</div>` : ""}
+  body.innerHTML = items
+    .map((item) => {
+      const canEquip = item?.can_equip !== false;
+      const errs = Array.isArray(item?.requirement_errors) ? item.requirement_errors : [];
+      const name = escapeHtml(String(item?.display_name || item?.name || "Предмет"));
+      const image = itemImageUrl(item);
+      const upgrade = isProfileUpgradeItem(item);
+      return `
+        <div class="list-item ${rarityClass(item?.rarity)}" style="display:grid; gap:10px;">
+          <div style="display:flex; gap:12px; align-items:center;">
+            <div class="item-icon" style="width:54px; height:54px;">${image ? `<img src="${escapeHtml(image)}" alt="" />` : "📦"}</div>
+            <div style="min-width:0; flex:1;">
+              <strong>${name}</strong>
+              <div class="muted tiny">Ур. ${item?.level ?? "—"} · ${escapeHtml(slotTypeLabel(item?.slot_type))}</div>
+              ${upgrade ? `<div class="profile-modal-upgrade tiny">▲ Выше уровня текущей экипировки</div>` : ""}
+              ${errs.length ? `<div class="muted tiny">${errs.map((err) => escapeHtml(String(err))).join("<br/>")}</div>` : ""}
+            </div>
+            <button class="primary" style="width:auto;" ${canEquip ? "" : "disabled"} onclick="WaifuApp.equipItemToProfileSlot(${Number(
+              item?.id || 0
+            )}, ${slot})">Экипировать</button>
+          </div>
         </div>
-        <button class="primary" style="width:auto; padding:10px 12px;" ${can ? "" : "disabled"}>Экипировать</button>
-      </div>
-    `;
-    const btn = row.querySelector("button");
-    if (btn) {
-      btn.onclick = async (ev) => {
-        ev.stopPropagation();
-        await apiFetch(`/waifu/equipment/equip?inventory_item_id=${it.id}&slot=${slot}`, { method: "POST" });
-        closeSlotModal();
-        await bootstrapPage("profile", populateProfile);
-      };
-    }
-    body.appendChild(row);
-  });
+      `;
+    })
+    .join("");
+}
+
+async function equipItemToProfileSlot(itemId, slot) {
+  await apiFetch(`/waifu/equipment/equip?inventory_item_id=${itemId}&slot=${slot}`, { method: "POST" });
+  closeSlotModal();
+  closeItemModal();
+  await bootstrapPage("profile", populateProfile);
+}
+
+function openProfileSlotReplacementFromModal() {
+  const item = profileState.selectedItem;
+  if (!item?.equipment_slot) return;
+  closeItemModal();
+  openSlotModal(Number(item.equipment_slot));
+}
+
+function estimateProfileSellPrice(item) {
+  const charm = safeNumber(profileState.currentProfile?.main_waifu?.charm, 0);
+  const baseValue = 100 * Math.max(1, safeNumber(item?.tier, 1)) * Math.max(1, safeNumber(item?.rarity, 1));
+  const discountPct = Math.max(0, Math.min(50, charm - 10));
+  const multiplier = 0.5 + (discountPct / 50) * 0.4;
+  return Math.floor(baseValue * multiplier);
 }
 
 function openItemModal(item) {
   profileState.selectedItem = item;
   profileState.equipSlotChoice = null;
-  const m = document.getElementById("item-modal");
+  const modal = document.getElementById("item-modal");
   const body = document.getElementById("item-modal-body");
-  if (!m || !body) return;
+  if (!modal || !body) return;
 
   const displayName = String(item?.display_name || "").trim() || composeItemDisplayName(item);
+  const slotTypeRaw = item?.slot_type ? String(item.slot_type) : "";
+  const slotType = slotTypeRaw ? slotTypeLabel(slotTypeRaw) : "—";
+  const slotName =
+    item?.equipment_slot != null
+      ? EQUIPMENT_SLOT_NAMES[Number(item.equipment_slot)] || String(item.equipment_slot)
+      : "Сумка";
+  const errs = Array.isArray(item?.requirement_errors) ? item.requirement_errors : [];
+  const isEquipped = item?.equipment_slot != null;
+  const possibleSlots = !isEquipped && item?.slot_type ? SLOT_TYPE_TO_SLOTS[item.slot_type] || [] : [];
+  const canEquip = !isEquipped && item?.can_equip !== false && possibleSlots.length > 0;
+
   setText("item-modal-name", displayName || "—");
   setText("item-modal-rarity", item?.rarity != null ? rarityLabel(item.rarity) : "—");
   setText("item-modal-level", item?.level != null ? `lvl ${item.level}` : "—");
+  setText("item-modal-type", slotType);
+  setText("item-modal-slot", slotName);
+
   const art = document.getElementById("item-modal-art");
   if (art) art.innerHTML = itemArtHtml(item);
 
   const content = document.getElementById("item-modal-content");
   if (content) {
-    const classes = ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"];
-    classes.forEach((c) => content.classList.remove(c));
+    ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((cls) => {
+      content.classList.remove(cls);
+    });
     content.classList.add(rarityClass(item?.rarity));
   }
 
-  const slotName =
-    item?.equipment_slot != null
-      ? EQUIPMENT_SLOT_NAMES[Number(item.equipment_slot)] || String(item.equipment_slot)
-      : "инвентарь";
-  const slotTypeRaw = item?.slot_type ? String(item.slot_type) : "";
-  const slotType = slotTypeRaw ? slotTypeLabel(slotTypeRaw) : "—";
-  const errs = Array.isArray(item?.requirement_errors) ? item.requirement_errors : [];
-
-  const isEquipped = item?.equipment_slot != null;
-  const possibleSlots = !isEquipped && item?.slot_type ? SLOT_TYPE_TO_SLOTS[item.slot_type] || [] : [];
-  const canEquip = !isEquipped && item?.can_equip !== false && possibleSlots.length > 0;
-
   let slotPickerHtml = "";
   if (!isEquipped && item?.slot_type) {
-    if (!possibleSlots.length) {
-      slotPickerHtml = `<div class="muted tiny">Нельзя определить слот для экипировки (slot_type: ${slotType}).</div>`;
-    } else if (possibleSlots.length === 1) {
-      const s = possibleSlots[0];
-      profileState.equipSlotChoice = s;
-      slotPickerHtml = `<div class="muted tiny">Слот экипировки: <strong>${EQUIPMENT_SLOT_NAMES[s] || `Слот ${s}`}</strong></div>`;
-    } else {
-      // Choose a sensible default: first empty slot; otherwise first available.
-      const empty = possibleSlots.find((s) => !profileState.equippedBySlot?.[s]);
-      profileState.equipSlotChoice = empty ?? possibleSlots[0];
-      const options = possibleSlots
-        .map((s) => {
-          const occ = profileState.equippedBySlot?.[s];
-          const occName = occ ? (String(occ?.display_name || "").trim() || String(occ?.name || "Предмет")) : "";
-          const label = `${EQUIPMENT_SLOT_NAMES[s] || `Слот ${s}`}${occ ? ` (занято: ${occName})` : " (свободно)"}`;
-          const sel = s === profileState.equipSlotChoice ? "selected" : "";
-          return `<option value="${s}" ${sel}>${label}</option>`;
-        })
-        .join("");
+    if (possibleSlots.length === 1) {
+      profileState.equipSlotChoice = possibleSlots[0];
+      slotPickerHtml = `<div class="detail-row"><span class="muted">Слот экипировки</span><strong>${EQUIPMENT_SLOT_NAMES[possibleSlots[0]]}</strong></div>`;
+    } else if (possibleSlots.length > 1) {
+      const emptySlot = possibleSlots.find((slot) => !getProfileEquippedItem(slot));
+      profileState.equipSlotChoice = emptySlot ?? possibleSlots[0];
       slotPickerHtml = `
         <label class="form-field" style="display:block; margin-top:10px;">
-          <div class="muted tiny">Куда экипировать</div>
-          <select id="item-modal-slot-select">${options}</select>
+          <div class="muted tiny">Куда надеть</div>
+          <select id="item-modal-slot-select">
+            ${possibleSlots
+              .map((slot) => {
+                const occupied = getProfileEquippedItem(slot);
+                const text = occupied
+                  ? `${EQUIPMENT_SLOT_NAMES[slot]} (занято: ${escapeHtml(String(occupied?.display_name || occupied?.name || "предмет"))})`
+                  : `${EQUIPMENT_SLOT_NAMES[slot]} (свободно)`;
+                return `<option value="${slot}" ${slot === profileState.equipSlotChoice ? "selected" : ""}>${text}</option>`;
+              })
+              .join("")}
+          </select>
         </label>
       `;
     }
@@ -2919,55 +3616,87 @@ function openItemModal(item) {
 
   const bonusesHtml = renderItemBonusesHtml(item);
   const weaponStatsHtml = renderWeaponStatsHtml(item);
+  const upgrade = !isEquipped && isProfileUpgradeItem(item);
+  const sellConfirmHtml = !isEquipped && profileState.sellConfirm
+    ? `
+      <div class="profile-item-actions">
+        <div class="detail-row"><span class="muted">Цена продажи</span><strong>🪙 ${estimateProfileSellPrice(item)}</strong></div>
+        <button class="primary" onclick="WaifuApp.confirmSellSelectedItem()">Подтвердить продажу</button>
+        <button class="secondary" onclick="WaifuApp.toggleItemSellConfirm()">Отмена</button>
+      </div>
+    `
+    : "";
 
   body.innerHTML = `
-    <div class="detail-row"><span class="muted">Где</span><strong>${slotName}</strong></div>
-    <div class="detail-row"><span class="muted">Слот предмета</span><strong>${slotType}</strong></div>
-    ${slotTypeRaw ? `<div class="muted tiny">(${slotTypeRaw})</div>` : ""}
+    <div class="detail-row"><span class="muted">Редкость</span><strong>${escapeHtml(rarityLabel(item?.rarity))}</strong></div>
     <div class="detail-row"><span class="muted">Tier</span><strong>${item?.tier ?? "—"}</strong></div>
-    <div class="detail-row"><span class="muted">Уровень</span><strong>${item?.level ?? "—"}</strong></div>
+    ${upgrade ? `<div class="profile-modal-upgrade">▲ Предмет выше уровня текущей экипировки</div>` : ""}
     ${weaponStatsHtml}
     ${bonusesHtml}
-    ${errs.length ? `<div class="muted tiny" style="margin-top:10px;">${errs.join("<br/>")}</div>` : ""}
     ${slotPickerHtml}
+    ${errs.length ? `<div class="muted tiny">${errs.map((err) => escapeHtml(String(err))).join("<br/>")}</div>` : ""}
+    ${sellConfirmHtml}
   `;
 
+  const sellBtn = document.getElementById("item-modal-sell");
   const unequipBtn = document.getElementById("item-modal-unequip");
+  const replaceBtn = document.getElementById("item-modal-replace");
   const equipBtn = document.getElementById("item-modal-equip");
-
+  if (sellBtn) sellBtn.style.display = isEquipped ? "none" : "";
   if (unequipBtn) unequipBtn.style.display = isEquipped ? "" : "none";
-  if (equipBtn) equipBtn.style.display = canEquip ? "" : "none";
+  if (replaceBtn) replaceBtn.style.display = isEquipped ? "" : "none";
+  if (equipBtn) {
+    equipBtn.style.display = canEquip ? "" : "none";
+    equipBtn.textContent = "Надеть";
+  }
 
-  const sel = document.getElementById("item-modal-slot-select");
-  if (sel) {
-    sel.addEventListener("change", () => {
-      profileState.equipSlotChoice = Number(sel.value);
+  const select = document.getElementById("item-modal-slot-select");
+  if (select) {
+    select.addEventListener("change", () => {
+      profileState.equipSlotChoice = Number(select.value);
     });
   }
 
-  m.style.display = "grid";
+  modal.style.display = "grid";
+}
+
+function toggleItemSellConfirm() {
+  profileState.sellConfirm = !profileState.sellConfirm;
+  if (profileState.selectedItem) openItemModal(profileState.selectedItem);
+}
+
+async function confirmSellSelectedItem() {
+  const item = profileState.selectedItem;
+  if (!item?.id) return;
+  await apiFetch(`/inventory/sell`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ inventory_item_ids: [item.id] }),
+  });
+  closeItemModal();
+  await bootstrapPage("profile", populateProfile);
 }
 
 async function unequipItemFromModal() {
-  const it = profileState.selectedItem;
-  if (!it?.id) return;
-  await apiFetch(`/waifu/equipment/unequip?inventory_item_id=${it.id}`, { method: "POST" });
+  const item = profileState.selectedItem;
+  if (!item?.id) return;
+  await apiFetch(`/waifu/equipment/unequip?inventory_item_id=${item.id}`, { method: "POST" });
   closeItemModal();
   await bootstrapPage("profile", populateProfile);
 }
 
 async function equipItemFromModal() {
-  const it = profileState.selectedItem;
-  if (!it?.id) return;
-  const slots = SLOT_TYPE_TO_SLOTS[it.slot_type] || [];
+  const item = profileState.selectedItem;
+  if (!item?.id) return;
+  const slots = SLOT_TYPE_TO_SLOTS[item.slot_type] || [];
   if (!slots.length) return;
 
   const chosen = profileState.equipSlotChoice || slots[0];
   try {
-    await apiFetch(`/waifu/equipment/equip?inventory_item_id=${it.id}&slot=${chosen}`, { method: "POST" });
+    await apiFetch(`/waifu/equipment/equip?inventory_item_id=${item.id}&slot=${chosen}`, { method: "POST" });
   } catch (e) {
     const body = document.getElementById("item-modal-body");
-    if (body) body.innerHTML += `<div class="muted" style="margin-top:10px;">Ошибка экипировки: ${String(e?.message || e)}</div>`;
+    if (body) body.innerHTML += `<div class="muted" style="margin-top:10px;">Ошибка экипировки: ${escapeHtml(String(e?.message || e))}</div>`;
     return;
   }
   closeItemModal();
@@ -3109,8 +3838,15 @@ async function initPage(page) {
         if (!w) return;
         // If we're on profile screen, refresh visible stat widgets without refetching inventory/equipment.
         if (window.location.pathname.endsWith("/profile.html")) {
-          renderStatsStrip("profile-stats-strip", w);
-          if (document.getElementById("profile-stats-breakdown")) renderStatsBreakdown("profile-stats-breakdown", w);
+          profileState.currentProfile = { ...(profileState.currentProfile || {}), ...p };
+          profileState.currentDetails = p?.main_waifu_details || profileState.currentDetails || null;
+          renderProfilePortrait(w);
+          renderProfileHeroBars(w, profileState.currentDetails);
+          renderStatsStrip("profile-stats-strip", w, profileState.currentDetails);
+          if (document.getElementById("profile-stats-breakdown")) {
+            renderStatsBreakdown("profile-stats-breakdown", w, profileState.currentDetails);
+          }
+          renderProfileIndicators(w, profileState.currentDetails);
         }
       } catch {
         // ignore periodic refresh failures
@@ -3136,6 +3872,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   initPage,
   bootstrapPage,
   loadProfile,
+  renderAtticDungeon,
+  renderAtticExpeditions,
+  refreshAtticChips,
   loadShop,
   loadTavern,
   switchTavernTab,
@@ -3150,21 +3889,38 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   loadActiveDungeon,
   continueActiveDungeon,
   exitDungeon,
+  openExitDungeonConfirm,
+  closeExitDungeonConfirm,
+  confirmExitDungeon,
   adminExitDungeon,
   loadBattle,
   continueBattle,
   exitBattle,
   switchShopTab,
   switchProfileTab,
+  switchProfileInfoTab,
   showTab,
   loadExpeditionTab,
   closeExpeditionModal,
   startExpedition,
   populateProfile,
+  toggleProfileStatTooltip,
+  toggleProfileStatAccordion,
+  toggleProfileInventoryMode,
+  toggleProfileInventoryFilter,
+  setProfileInventorySort,
+  toggleProfileInventorySortDir,
+  changeProfileInventoryPage,
+  openProfileSlot,
+  openItemById,
   closeSlotModal,
   closeItemModal,
+  equipItemToProfileSlot,
   unequipItemFromModal,
   equipItemFromModal,
+  openProfileSlotReplacementFromModal,
+  toggleItemSellConfirm,
+  confirmSellSelectedItem,
   resetMainWaifu,
   initWaifuGenerator,
   submitWaifuCreation,

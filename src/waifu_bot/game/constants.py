@@ -31,9 +31,9 @@ MEDIA_COEFFICIENTS = {
 HP_K_COEFFICIENT = 10  # k_hp for HP calculation
 BASE_HP_PER_LEVEL = 20  # Base HP increase per level
 
-MELEE_DAMAGE_COEFFICIENT = 0.02  # СИЛ multiplier for melee
-RANGED_DAMAGE_COEFFICIENT = 0.02  # ЛОВ multiplier for ranged
-SPELL_DAMAGE_COEFFICIENT = 0.02  # ИНТ multiplier for spells
+MELEE_DAMAGE_COEFFICIENT = 1.0   # flat +1 damage per СИЛ point
+RANGED_DAMAGE_COEFFICIENT = 1.0  # flat +1 damage per ЛОВ point
+SPELL_DAMAGE_COEFFICIENT = 1.0   # flat +1 damage per ИНТ point
 
 CRIT_CHANCE_AGILITY = 0.004  # 0.4% per ЛОВ point
 CRIT_CHANCE_LUCK = 0.002  # 0.2% per УДЧ point
