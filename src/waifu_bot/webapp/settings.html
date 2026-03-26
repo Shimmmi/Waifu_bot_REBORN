@@ -4,25 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Настройки</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
-  <body onload="WaifuApp.bootstrapPage('settings');">
-    <header class="attic">
-      <div class="attic-row" aria-label="Основной чердак">
-        <div class="chip attic-level-chip" title="Уровень и опыт">
-          <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
-          <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
-        </div>
-        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье">🏰&nbsp;<span id="attic-dungeon-label">Нет боя</span></div>
-        <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции">🗺&nbsp;<span id="attic-expedition-label"></span></div>
-        <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
-        <div class="chip" title="Энергия">⚡&nbsp;<span id="badge-energy">—</span></div>
-      </div>
-    </header>
-
+  <body class="page-settings" onload="WaifuApp.bootstrapPage('settings');">
     <main class="layout">
+      <h1 class="settings-page-title">Настройки</h1>
+      <div class="settings-home-bar">
+        <a href="./index.html" class="settings-home-btn">← Главное меню</a>
+      </div>
       <section class="section">
         <h3>Общие</h3>
         <div class="list">
@@ -37,17 +30,5 @@
         <div class="placeholder">FAQ, ссылка на поддержку, версия клиента.</div>
       </section>
     </main>
-
-    <nav class="nav basement">
-      <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
-      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span aria-hidden="true">🏰</span></a>
-      <a href="./shop.html" data-page="shop" title="Магазин"><span aria-hidden="true">🏪</span></a>
-      <a href="./tavern.html" data-page="tavern" title="Таверна"><span aria-hidden="true">🍻</span></a>
-      <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
-      <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
-      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
-      <a href="./settings.html" data-page="settings" title="Настройки"><span aria-hidden="true">⚙️</span></a>
-    </nav>
   </body>
 </html>
-

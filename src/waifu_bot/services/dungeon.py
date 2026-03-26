@@ -17,12 +17,15 @@ from waifu_bot.db.models import (
     MainWaifu,
     DungeonPool,
     DungeonPoolEntry,
+    MonsterAffix,
     MonsterTemplate,
     DungeonRun,
     DungeonRunMonster,
     PlayerDungeonPlus,
 )
+from waifu_bot.game.constants import CURSED_TAG_WEIGHT_MULTIPLIER
 from waifu_bot.services.energy import apply_regen
+from waifu_bot.services.combat import roll_monster_elite
 
 
 class DungeonService:
@@ -119,6 +122,30 @@ class DungeonService:
                 return obj
         return candidates[-1][0] if candidates else None
 
+    def _normalize_tags(self, raw: object, fallback: str | None = None) -> list[str]:
+        """
+        Normalize JSON tags field into a flat list of strings.
+
+        Supports both legacy {"tags": [...]} format and plain ["tag1", ...] arrays.
+        """
+        tags: list[str] = []
+        if isinstance(raw, list):
+            tags = [str(x).strip() for x in raw if x]
+        elif isinstance(raw, dict):
+            inner = raw.get("tags")  # legacy format from 0006_seed_dungeon_content
+            if isinstance(inner, list):
+                tags = [str(x).strip() for x in inner if x]
+        if not tags and fallback:
+            tags = [str(fallback).strip()]
+        # Deduplicate while preserving order
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for t in tags:
+            if t and t not in seen:
+                seen.add(t)
+                deduped.append(t)
+        return deduped
+
     async def _get_pool_entries(
         self, session: AsyncSession, dungeon: Dungeon
     ) -> list[tuple[DungeonPoolEntry, MonsterTemplate]]:
@@ -139,6 +166,105 @@ class DungeonService:
             .where(DungeonPoolEntry.pool_id == pool.id)
         )
         return list(entries_q.all())
+
+    async def _get_tag_tier_candidates(
+        self,
+        session: AsyncSession,
+        dungeon: Dungeon,
+        *,
+        is_boss: bool,
+        target_diff: int,
+        total_monsters: int,
+    ) -> list[tuple[MonsterTemplate, int]]:
+        """
+        Tag- and tier-based candidate selection for procedural dungeons.
+
+        - Uses Dungeon.tags (or falls back to [location_type]) as biome tags.
+        - Uses Dungeon.tier (or act) to select appropriate monster tiers.
+        - Applies cursed-tag weight multiplier for undead/demon families.
+        """
+        dungeon_tags = self._normalize_tags(
+            getattr(dungeon, "tags", None),
+            getattr(dungeon, "location_type", None),
+        )
+        if not dungeon_tags:
+            return []
+
+        d_tier = int(getattr(dungeon, "tier", 0) or 0)
+        if d_tier <= 0:
+            d_tier = int(getattr(dungeon, "act", 1) or 1)
+
+        # Tier window around dungeon tier
+        tier_min = max(1, d_tier - 1)
+        tier_max = max(tier_min, min(5, d_tier + 1))
+
+        stmt = select(MonsterTemplate).where(
+            MonsterTemplate.tier.between(tier_min, tier_max),
+            MonsterTemplate.act_min <= dungeon.act,
+            MonsterTemplate.act_max >= dungeon.act,
+        )
+        res = await session.execute(stmt)
+        templates: list[MonsterTemplate] = list(res.scalars().all())
+        if not templates:
+            return []
+
+        cursed = "cursed" in dungeon_tags
+        candidates: list[tuple[MonsterTemplate, int]] = []
+
+        for tmpl in templates:
+            # Boss vs normal tier rules
+            if is_boss:
+                if not tmpl.boss_allowed:
+                    continue
+                if int(getattr(tmpl, "tier", 1) or 1) != d_tier + 1:
+                    continue
+            else:
+                tmpl_tier = int(getattr(tmpl, "tier", 1) or 1)
+                if tmpl_tier not in (d_tier, d_tier - 1):
+                    continue
+
+            tmpl_tags = self._normalize_tags(getattr(tmpl, "tags", None))
+            if not tmpl_tags:
+                continue
+
+            if not any(t in dungeon_tags for t in tmpl_tags):
+                continue
+
+            base_diff = max(1, int(getattr(tmpl, "base_difficulty", 1) or 1))
+            closeness = max(1, 10 - min(9, abs(base_diff - int(target_diff or 1))))
+
+            weight = int(getattr(tmpl, "weight", 1) or 1) * closeness
+
+            if cursed:
+                family = (getattr(tmpl, "family", "") or "").lower()
+                if family in ("undead", "demon"):
+                    weight = int(weight * float(CURSED_TAG_WEIGHT_MULTIPLIER))
+
+            if weight <= 0:
+                continue
+
+            candidates.append((tmpl, weight))
+
+        # Fallback: if strict tier rules give no candidates, relax tier bounds once.
+        if not candidates:
+            for tmpl in templates:
+                if is_boss and not tmpl.boss_allowed:
+                    continue
+                tmpl_tags = self._normalize_tags(getattr(tmpl, "tags", None))
+                if not tmpl_tags or not any(t in dungeon_tags for t in tmpl_tags):
+                    continue
+                base_diff = max(1, int(getattr(tmpl, "base_difficulty", 1) or 1))
+                closeness = max(1, 10 - min(9, abs(base_diff - int(target_diff or 1))))
+                weight = int(getattr(tmpl, "weight", 1) or 1) * closeness
+                if cursed:
+                    family = (getattr(tmpl, "family", "") or "").lower()
+                    if family in ("undead", "demon"):
+                        weight = int(weight * float(CURSED_TAG_WEIGHT_MULTIPLIER))
+                if weight <= 0:
+                    continue
+                candidates.append((tmpl, weight))
+
+        return candidates
 
     def _roll_monster_from_template(
         self,
@@ -213,8 +339,8 @@ class DungeonService:
             apply_regen(waifu)
 
         # Unlock rules:
-        # - Can't start dungeons from future acts
-        if pl <= 0 and dungeon.act > player.current_act:
+        # - Can't start dungeons beyond the highest act unlocked (max_act)
+        if pl <= 0 and dungeon.act > player.max_act:
             return {"error": "dungeon_locked_act"}
 
         # - Dungeon #N requires completion of dungeon #N-1 in same act (except #1)
@@ -258,9 +384,18 @@ class DungeonService:
         # Farming is allowed: completed dungeons can be started again.
         # Completion should still gate unlocks for subsequent dungeons.
 
-        # Prefer procedural generation if pool is configured; otherwise fallback to legacy monster list.
+        # Prefer procedural generation using tag/tier system when tags are present.
+        use_tags = False
+        try:
+            raw_tags = getattr(dungeon, "tags", None)
+            use_tags = bool(self._normalize_tags(raw_tags, getattr(dungeon, "location_type", None)))
+        except Exception:
+            use_tags = False
+
+        # Prefer procedural generation if pool is configured or new tag/tier system is available;
+        # otherwise fallback to legacy monster list.
         pool_pairs = await self._get_pool_entries(session, dungeon)
-        if pool_pairs:
+        if pool_pairs or use_tags:
             try:
                 # Create run
                 seed = random.randint(1, 2_000_000_000)
@@ -305,28 +440,37 @@ class DungeonService:
 
                     # Pick template with difficulty bounds + weighted randomness.
                     cand: list[tuple[MonsterTemplate, int]] = []
-                    for entry, tmpl in pool_pairs:
-                        if is_boss:
-                            if entry.exclude_boss:
+                    if use_tags:
+                        cand = await self._get_tag_tier_candidates(
+                            session,
+                            dungeon,
+                            is_boss=is_boss,
+                            target_diff=target_diff,
+                            total_monsters=total,
+                        )
+                    else:
+                        for entry, tmpl in pool_pairs:
+                            if is_boss:
+                                if entry.exclude_boss:
+                                    continue
+                                if not tmpl.boss_allowed:
+                                    continue
+                                if not entry.boss_only and not tmpl.boss_allowed:
+                                    continue
+                            else:
+                                if entry.boss_only:
+                                    continue
+
+                            if entry.min_difficulty is not None and target_diff < int(entry.min_difficulty):
                                 continue
-                            if not tmpl.boss_allowed:
-                                continue
-                            if not entry.boss_only and not tmpl.boss_allowed:
-                                continue
-                        else:
-                            if entry.boss_only:
+                            if entry.max_difficulty is not None and target_diff > int(entry.max_difficulty):
                                 continue
 
-                        if entry.min_difficulty is not None and target_diff < int(entry.min_difficulty):
-                            continue
-                        if entry.max_difficulty is not None and target_diff > int(entry.max_difficulty):
-                            continue
-
-                        w = int(entry.weight or tmpl.weight or 1)
-                        # Bias towards closer base_difficulty
-                        base_diff = max(1, int(tmpl.base_difficulty or 1))
-                        closeness = max(1, 10 - min(9, abs(base_diff - target_diff)))
-                        cand.append((tmpl, w * closeness))
+                            w = int(entry.weight or tmpl.weight or 1)
+                            # Bias towards closer base_difficulty
+                            base_diff = max(1, int(tmpl.base_difficulty or 1))
+                            closeness = max(1, 10 - min(9, abs(base_diff - target_diff)))
+                            cand.append((tmpl, w * closeness))
 
                     tmpl = self._pick_weighted(cand) if cand else None
                     if not tmpl:
@@ -362,6 +506,9 @@ class DungeonService:
                     )
                     monsters.append(m)
                     session.add(m)
+                    await session.flush()  # give m an id before elite roll
+                    waifu_luck = int(waifu.luck) if waifu else 0
+                    await roll_monster_elite(session, m, waifu_luck)
 
                 # Also update legacy progress row for UI compatibility.
                 # Important: keep is_completed=True if it was completed before (so unlocks remain),
@@ -449,6 +596,35 @@ class DungeonService:
                 if not dungeon or not waifu or not cur:
                     return None
 
+                # Load affix names for elite monsters (with type for image UI)
+                applied_affix_names: list[str] = []
+                affixes_for_ui: list[dict] = []
+                is_elite = bool(cur.is_elite)
+                elite_color = cur.elite_color if is_elite else None
+                if is_elite and cur.applied_affix_ids:
+                    try:
+                        affix_rows = (
+                            await session.execute(
+                                select(MonsterAffix).where(MonsterAffix.id.in_(cur.applied_affix_ids))
+                            )
+                        ).scalars().all()
+                        applied_affix_names = [a.name for a in affix_rows]
+                        affixes_for_ui = [{"name": a.name, "type": (a.type or "prefix")} for a in affix_rows]
+                    except Exception:
+                        pass
+
+                # Monster image: load template for family/tier/slug (WebP system)
+                monster_family = (cur.family or "unknown").strip().lower() or "unknown"
+                monster_tier = 1
+                monster_slug = f"m{cur.template_id}" if cur.template_id else "unknown"
+                monster_emoji = cur.emoji or "👾"
+                tmpl = await session.get(MonsterTemplate, cur.template_id) if cur.template_id else None
+                if tmpl:
+                    monster_tier = int(getattr(tmpl, "tier", 1) or 1)
+                    monster_family = ((tmpl.family or "").strip().lower() or monster_family)
+                    monster_emoji = tmpl.emoji or monster_emoji
+
+                affix_count = len(applied_affix_names)
                 return {
                     "dungeon_id": dungeon.id,
                     "dungeon_name": dungeon.name,
@@ -462,6 +638,18 @@ class DungeonService:
                     "monster_type": cur.family or "Обычный",
                     "monster_position": run.current_position,
                     "total_monsters": run.total_monsters,
+                    "is_elite": is_elite,
+                    "elite_color": elite_color,
+                    "applied_affixes": applied_affix_names,
+                    "monster_family": monster_family,
+                    "monster_slug": monster_slug,
+                    "monster_tier": monster_tier,
+                    "monster_emoji": monster_emoji,
+                    "is_boss": bool(cur.is_boss),
+                    "affix_count": affix_count,
+                    "affixes": affixes_for_ui,
+                    "monster_has_image": False,
+                    "monster_image_override": None,
                     "waifu_name": waifu.name,
                     "waifu_level": waifu.level,
                     "waifu_current_hp": waifu.current_hp,
@@ -505,6 +693,15 @@ class DungeonService:
                 "monster_type": "—",
                 "monster_position": progress.current_monster_position,
                 "total_monsters": progress.total_monsters or dungeon.obstacle_count,
+                "monster_family": "unknown",
+                "monster_slug": "unknown",
+                "monster_tier": 1,
+                "monster_emoji": "👾",
+                "is_boss": False,
+                "affix_count": 0,
+                "affixes": [],
+                "monster_has_image": False,
+                "monster_image_override": None,
                 "waifu_name": waifu.name,
                 "waifu_level": waifu.level,
                 "waifu_current_hp": waifu.current_hp,
@@ -517,6 +714,7 @@ class DungeonService:
                 "battle_log": ["Активный данж найден, но текущий монстр не определён."],
             }
 
+        family_legacy = (monster.monster_type or "unknown").strip().lower() or "unknown"
         return {
             "dungeon_id": dungeon.id,
             "dungeon_name": dungeon.name,
@@ -527,6 +725,15 @@ class DungeonService:
             "monster_damage": monster.damage,
             "monster_defense": 0,  # Пока без защиты у монстров
             "monster_type": monster.monster_type or "Обычный",
+            "monster_family": family_legacy,
+            "monster_slug": f"m{monster.id}",
+            "monster_tier": 1,
+            "monster_emoji": "👾",
+            "is_boss": bool(getattr(monster, "is_boss", False)),
+            "affix_count": 0,
+            "affixes": [],
+            "monster_has_image": False,
+            "monster_image_override": None,
             "monster_position": progress.current_monster_position,
             "total_monsters": progress.total_monsters or dungeon.obstacle_count,
             "waifu_name": waifu.name,
@@ -623,27 +830,38 @@ class DungeonService:
 
     async def exit_dungeon(
         self, session: AsyncSession, player_id: int
-    ) -> None:
-        """Exit active dungeon."""
+    ) -> dict:
+        """Exit active dungeon voluntarily.
+
+        Per spec: all accumulated XP and gold for defeated monsters are awarded
+        without any penalty. The current (unfinished) monster is not counted.
+        """
         run = None
+        exp_gained = 0
+        gold_gained = 0
         try:
             run = await self._get_active_run(session, player_id)
         except SQLAlchemyError:
             run = None
+
         if run:
             try:
+                # Award accumulated rewards (already credited incrementally)
+                exp_gained = int(run.total_exp_gained or 0)
+                gold_gained = int(run.total_gold_gained or 0)
                 run.status = "abandoned"
                 run.ended_at = datetime.utcnow()
-                # also clear legacy progress if present (compat)
                 progress = await self._get_active_progress(session, player_id)
                 if progress:
                     progress.is_active = False
                 await session.commit()
-                return
+                return {"success": True, "exp_gained": exp_gained, "gold_gained": gold_gained}
             except SQLAlchemyError:
                 await session.rollback()
+
         progress = await self._get_active_progress(session, player_id)
         if progress:
             progress.is_active = False
             await session.commit()
+        return {"success": True, "exp_gained": exp_gained, "gold_gained": gold_gained}
 

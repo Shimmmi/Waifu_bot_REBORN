@@ -1,6 +1,26 @@
 // Basic Telegram WebApp bootstrap + shared UI helpers + API/SSE wiring
+// Если https://telegram.org/js/telegram-web-app.js не загрузился (сеть, блокировка), не оставляем Telegram.WebApp пустым — initPage вызывает tg.ready().
+(function waifuTelegramWebAppStub() {
+  if (typeof window === "undefined") return;
+  window.Telegram = window.Telegram || {};
+  if (window.Telegram.WebApp && typeof window.Telegram.WebApp.ready === "function") return;
+  window.Telegram.WebApp = {
+    ready() {},
+    expand() {},
+    initData: "",
+    initDataUnsafe: {},
+    colorScheme: "dark",
+    showPopup(opts) {
+      const m = opts && (opts.message || opts.title);
+      if (m) alert(String(m));
+    },
+  };
+})();
 const tg = window.Telegram?.WebApp;
 const API_BASE = "/api";
+/** Синхронно с waifu_bot.game.constants (EXP_BASE, MAX_LEVEL). */
+const PLAYER_EXP_BASE = 16;
+const PLAYER_MAX_LEVEL = 60;
 
 function applyTheme() {
   const scheme = tg?.colorScheme || "dark";
@@ -24,10 +44,28 @@ function getInitData() {
   return fromTelegram || fromQuery || "";
 }
 
+/** Только для локальной отладки: при APP_ENV=dev сервер принимает заголовок X-Player-Id (см. api/deps.py). */
+function getDevPlayerIdFromQuery() {
+  try {
+    const raw = new URLSearchParams(window.location.search).get("devPlayerId");
+    if (raw == null || raw === "") return null;
+    const n = parseInt(String(raw), 10);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n;
+  } catch {
+    return null;
+  }
+}
+
 function authHeaders() {
   const initData = getInitData();
   const headers = {};
-  if (initData) headers["X-Telegram-Init-Data"] = initData;
+  if (initData) {
+    headers["X-Telegram-Init-Data"] = initData;
+  } else {
+    const devPid = getDevPlayerIdFromQuery();
+    if (devPid != null) headers["X-Player-Id"] = String(devPid);
+  }
   return headers;
 }
 
@@ -46,8 +84,25 @@ async function apiFetch(path, options = {}) {
   if (!text) return null;
   try {
     return JSON.parse(text);
-  } catch {
+  } catch (_) {
     return text;
+  }
+}
+
+function showToast(message, type = "success") {
+  const title = type === "error" ? "Ошибка" : "Успех";
+  if (window.Telegram?.WebApp?.showPopup) {
+    window.Telegram.WebApp.showPopup({ title, message: String(message) });
+  } else {
+    const el = document.getElementById("expedition-error") || document.getElementById("dungeons-error");
+    if (el) {
+      el.textContent = message;
+      el.style.display = "block";
+      el.className = "banner " + (type === "error" ? "banner-danger" : "banner-success");
+      setTimeout(() => { el.style.display = "none"; }, 4000);
+    } else {
+      alert(message);
+    }
   }
 }
 
@@ -59,6 +114,95 @@ function setText(id, value) {
 function setHTML(id, value) {
   const el = document.getElementById(id);
   if (el) el.innerHTML = value;
+}
+
+const SECONDARY_STAT_META = {
+  crit_chance_pct: { icon: "💥", short: "Крит" },
+  evade_pct: { icon: "💨", short: "Укл" },
+  dmg_reduce_pct: { icon: "🧱", short: "Сниж. ур." },
+  hp_max_pct: { icon: "❤️", short: "HP %" },
+  exp_bonus_pct: { icon: "📚", short: "Опыт" },
+  gold_bonus_pct: { icon: "🪙", short: "Золото" },
+  media_damage_text_percent: { icon: "✨", short: "Урон от текста" },
+  media_damage_sticker_percent: { icon: "✨", short: "Урон от стикеров" },
+  media_damage_photo_percent: { icon: "✨", short: "Урон от фото" },
+  media_damage_gif_percent: { icon: "✨", short: "Урон от GIF" },
+  media_damage_audio_percent: { icon: "✨", short: "Урон от аудио" },
+  media_damage_voice_percent: { icon: "✨", short: "Урон от голосовых" },
+  media_damage_video_percent: { icon: "✨", short: "Урон от видео" },
+  media_damage_link_percent: { icon: "✨", short: "Урон от ссылок" },
+};
+
+/** Нормализация опечаток в ключах эффектов из БД/импорта для UI. */
+function normalizeEffectKeyUi(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/audioo/g, "audio")
+    .replace(/magii/g, "magic");
+}
+
+/** Имена узлов пассивного дерева (совпадают с passive_skill_nodes.id); fallback до загрузки дерева. */
+const PASSIVE_NODE_DISPLAY_NAMES_RU = {
+  w_bash: "Удар",
+  w_tough: "Закалка",
+  w_cry: "Боевой дух",
+  w_heavy: "Тяжёлый удар",
+  w_iron: "Железная кожа",
+  w_blood: "Кров. ярость",
+  w_berserk: "Берсерк",
+  w_fort: "Крепость",
+  w_last: "Последний рубеж",
+  w_wrath: "Гнев героя",
+  w_imm: "Бессмертный",
+  s_keen: "Острый глаз",
+  s_nimble: "Проворство",
+  s_media: "Чутьё",
+  s_crit_m: "Мастер крита",
+  s_shadow: "Шаг тени",
+  s_exploit: "Уязвимость",
+  s_nth: "Серия смерти",
+  s_ghost: "Призрак",
+  s_amp: "Усил. медиа",
+  s_lethal: "Смерт. удар",
+  s_phantom: "Фантом",
+  m_arcane: "Аркана",
+  m_wisdom: "Мудрость",
+  m_trade: "Торговец",
+  m_media_m: "Медиамаг",
+  m_lore: "Знания",
+  m_bargain: "Сделка",
+  m_surge: "Маг. всплеск",
+  m_cmd: "Командование",
+  m_rune: "Рун. броня",
+  m_trans: "Трансценд.",
+  m_arch: "Архимаг",
+};
+
+const PASSIVE_BRANCH_LABELS_RU = {
+  warrior: "воина",
+  shadow: "тени",
+  sage: "мудреца",
+};
+
+const MONSTER_FAMILY_LABELS_RU = {
+  beast: "зверей",
+  construct: "конструктов",
+  demon: "демонов",
+  dragon: "драконов",
+  elemental: "элементалей",
+  fae: "фей",
+  humanoid: "гуманоидов",
+  slime: "слизней",
+  undead: "нежити",
+};
+
+function passiveNodeDisplayNameRu(nodeId) {
+  const id = String(nodeId || "").trim();
+  if (!id) return "";
+  const live = typeof findPassiveNodeById === "function" ? findPassiveNodeById(id) : null;
+  if (live && live.name) return String(live.name);
+  return PASSIVE_NODE_DISPLAY_NAMES_RU[id] || id;
 }
 
 const STAT_META = {
@@ -76,26 +220,196 @@ const STAT_META = {
   crit_chance_percent: { icon: "🎯", short: "CRIT" },
   merchant_discount_flat: { icon: "🪙", short: "СКИДКА" },
   merchant_discount_percent: { icon: "🪙", short: "СКИДКА" },
-  melee_damage_flat: { icon: "⚔️", short: "DMG" },
-  ranged_damage_flat: { icon: "🏹", short: "DMG" },
-  magic_damage_flat: { icon: "🪄", short: "DMG" },
-  damage_flat: { icon: "⚔️", short: "DMG" },
-  damage_percent: { icon: "⚔️", short: "DMG" },
+  melee_damage_flat: { icon: "⚔️", short: "Урон в ближнем бою" },
+  ranged_damage_flat: { icon: "🏹", short: "Урон в дальнем бою" },
+  magic_damage_flat: { icon: "🪄", short: "Урон магией" },
+  damage_flat: { icon: "⚔️", short: "Доп. урон к оружию" },
+  damage_percent: { icon: "⚔️", short: "Доп. урон к оружию %" },
 };
+
+// Описания перков экспедиций (id из expedition_data.PERKS). Кратко — что даёт в экспедиции.
+const PERK_DESCS = {
+  gas_mask: "Снижает штраф от вони и ядовитого воздуха",
+  diver: "Снижает штраф в затопленных локациях",
+  fireproof: "Снижает штраф в жарких локациях",
+  frostproof: "Снижает штраф в ледяных локациях",
+  navigator: "Снижает штраф в тумане и шторме",
+  desert_walker: "Снижает штраф в пыли и зыбучих песках",
+  gas_filter: "Снижает штраф от ядовитого воздуха",
+  snow_warrior: "Снижает штраф в снежной буре",
+  acid_proof: "Снижает штраф от кислотного дождя",
+  wind_walker: "Снижает штраф в штормовых локациях",
+  elf_slayer: "Бонус против злых эльфов",
+  orc_hunter: "Бонус против орков-берсеркеров",
+  priest: "Бонус против нежити",
+  demon_slayer: "Бонус против демонов",
+  dragonslayer: "Бонус против драконов",
+  goblin_shaker: "Бонус против гоблинов",
+  troll_slayer: "Бонус против троллей",
+  vampire_hunter: "Бонус против вампиров",
+  entomologist: "Бонус против гигантских насекомых",
+  bat_hunter: "Бонус против летучих мышей",
+  mushroom_expert: "Снижает штраф от ядовитых грибов",
+  scout: "Снижает штраф от ловушек",
+  archaeologist: "Снижает штраф от проклятых артефактов",
+  swamp_walker: "Снижает штраф от зыбучих песков",
+  spider_hunter: "Снижает штраф от паутины",
+  chemist: "Снижает штраф от кислотных луж",
+  magic_researcher: "Снижает штраф от магических аномалий",
+  exorcist: "Снижает штраф от призрачных явлений",
+  mountain_engineer: "Снижает штраф от обвалов",
+  anti_magnet: "Снижает штраф от магнитных аномалий",
+  curse_removal: "Снижает штраф от проклятий",
+  anti_mage: "Снижает штраф от зачарований",
+  spatial_mage: "Снижает штраф от искажений",
+  light_protection: "Снижает штраф от ослепления",
+  magic_resistance: "Снижает штраф от паралича",
+  chronomancer: "Снижает штраф от замедления времени",
+  accelerator: "Снижает штраф от ускорения времени",
+  spatial_navigator: "Снижает штраф от искажения пространства",
+  mana_shield: "Снижает штраф от магического истощения",
+  lucky: "Снижает штраф от проклятия удачи",
+  mental_shield: "Снижает штраф от ментальных атак",
+  strong_spirit: "Снижает штраф от навязчивых страхов",
+  mental_clarity: "Снижает штраф от галлюцинаций",
+  sleepless: "Снижает штраф от магического сна",
+  trusting: "Снижает штраф от паранойи",
+  photographic_memory: "Снижает штраф от амнезии",
+  calm: "Снижает штраф от мании преследования",
+  optimist: "Снижает штраф от депрессии",
+  anger_control: "Снижает штраф от агрессии",
+  passionate: "Снижает штраф от апатии",
+};
+
+// Иконки перков для экспедиций (id из expedition_data.PERKS)
+const PERK_ICONS = {
+  gas_mask: "🫓",
+  diver: "🤿",
+  fireproof: "🔥",
+  frostproof: "❄️",
+  navigator: "🧭",
+  desert_walker: "🏜️",
+  gas_filter: "💨",
+  snow_warrior: "⛷️",
+  acid_proof: "🧪",
+  wind_walker: "💨",
+  elf_slayer: "⚔️",
+  orc_hunter: "🪓",
+  priest: "✝️",
+  demon_slayer: "😈",
+  dragonslayer: "🐉",
+  goblin_shaker: "👺",
+  troll_slayer: "👹",
+  vampire_hunter: "🧛",
+  entomologist: "🐛",
+  bat_hunter: "🦇",
+  mushroom_expert: "🍄",
+  scout: "🔍",
+  archaeologist: "📜",
+  swamp_walker: "🐸",
+  spider_hunter: "🕷️",
+  chemist: "⚗️",
+  magic_researcher: "🔮",
+  exorcist: "👻",
+  mountain_engineer: "⛏️",
+  anti_magnet: "🧲",
+  curse_removal: "🛡️",
+  anti_mage: "✨",
+  spatial_mage: "🌀",
+  light_protection: "🕶️",
+  magic_resistance: "💫",
+  chronomancer: "⏱️",
+  accelerator: "⚡",
+  spatial_navigator: "🗺️",
+  mana_shield: "🔵",
+  lucky: "🍀",
+  mental_shield: "🧠",
+  strong_spirit: "💪",
+  mental_clarity: "👁️",
+  sleepless: "🌙",
+  trusting: "🤝",
+  photographic_memory: "📷",
+  calm: "😌",
+  optimist: "😊",
+  anger_control: "😤",
+  passionate: "❤️",
+};
+
+/** Пояснение, как перк связан со сложностью экспедиций (слоты 1–5, сумма аффиксов). */
+const PERK_EXPEDITION_COUNTER_HINT =
+  "В экспедициях перк усиливает шанс отряда, если в выбранном слоте он указан среди требуемых перков (иконки на карточке экспедиции в караване). Чем выше суммарная сложность слота (уровни примерно 1–5), тем заметнее вклад совпадения перков.";
 
 function statMeta(stat) {
   const key = String(stat || "").trim();
-  return STAT_META[key] || { icon: "✨", short: key || "—" };
+  const low = normalizeEffectKeyUi(key);
+  if (SECONDARY_STAT_META[low]) return SECONDARY_STAT_META[low];
+  if (low.startsWith("passive_node_level_add:")) {
+    const nid = key.slice(key.indexOf(":") + 1).trim();
+    const nm = passiveNodeDisplayNameRu(nid);
+    const ic =
+      typeof PASSIVE_NODE_ICONS !== "undefined" && PASSIVE_NODE_ICONS[nid]
+        ? PASSIVE_NODE_ICONS[nid]
+        : "🌿";
+    return { icon: ic, short: `Пассив: ${nm}` };
+  }
+  if (low.startsWith("passive_branch_level_add:")) {
+    const br = key.slice(key.indexOf(":") + 1).trim().toLowerCase();
+    const lbl = PASSIVE_BRANCH_LABELS_RU[br] || br;
+    return { icon: "🌿", short: `Ветка: ${lbl}` };
+  }
+  if (low === "passive_all_nodes_level_add") {
+    return { icon: "✨", short: "Все пассивы" };
+  }
+  if (low.startsWith("damage_vs_monster_type_flat:")) {
+    const fam = key.slice(key.indexOf(":") + 1).trim().toLowerCase();
+    const ru = MONSTER_FAMILY_LABELS_RU[fam] || fam;
+    return { icon: "⚔️", short: `Урон vs ${ru}` };
+  }
+  if (low.startsWith("damage_vs_monster_type_percent:")) {
+    const fam = key.slice(key.indexOf(":") + 1).trim().toLowerCase();
+    const ru = MONSTER_FAMILY_LABELS_RU[fam] || fam;
+    return { icon: "⚔️", short: `Урон % vs ${ru}` };
+  }
+  return STAT_META[low] || STAT_META[key] || { icon: "✨", short: key || "—" };
 }
 
 function formatBonusValue(stat, value) {
+  const sk = String(stat || "").trim();
+  // Вторичные аффиксы: целое значение в сотых долях процента (150 → +1.50%)
+  if (sk.endsWith("_pct")) {
+    const v = safeNumber(value, 0);
+    const sign = v >= 0 ? "+" : "";
+    return `${sign}${(v / 100).toFixed(2)}%`;
+  }
   const v = safeNumber(value, 0);
   const isPercent =
-    String(stat || "").endsWith("_percent") ||
-    String(stat || "").includes("chance_percent") ||
-    String(stat || "").endsWith("_pct");
+    sk.endsWith("_percent") ||
+    sk.includes("chance_percent") ||
+    sk.endsWith("_pct");
   const sign = v >= 0 ? "+" : "";
   return `${sign}${v}${isPercent ? "%" : ""}`;
+}
+
+/** Строка аффикса в модалке: проценты всегда с «+» (напр. +68%). */
+function formatAffixCharacteristicValue(stat, rawValue, isPercentFlag) {
+  const sk = String(stat || "").trim();
+  const skl = sk.toLowerCase();
+  if (sk.endsWith("_pct")) {
+    return formatBonusValue(sk, rawValue);
+  }
+  const isPct =
+    Boolean(isPercentFlag) ||
+    skl.endsWith("_percent") ||
+    sk.includes("chance_percent") ||
+    sk.endsWith("_pct");
+  if (isPct) {
+    const n = safeNumber(rawValue, 0);
+    const sign = n >= 0 ? "+" : "−";
+    const abs = Math.abs(n);
+    const body = Number.isInteger(abs) ? String(abs) : String(abs);
+    return `${sign}${body}%`;
+  }
+  return formatBonusValue(sk, rawValue);
 }
 
 function bonusClass(value) {
@@ -152,7 +466,7 @@ const PROFILE_STAT_TOOLTIPS = {
   strength: "Увеличивает урон ближнего боя, запас HP и силу критических атак.",
   agility: "Повышает урон дальнего боя, шанс уклонения и шанс критической атаки.",
   intelligence: "Усиливает магический урон, активные навыки и бонус к получаемому опыту.",
-  endurance: "Даёт больше максимального HP, снижает входящий урон и повышает максимум энергии.",
+  endurance: "Даёт больше максимального HP и снижает входящий урон.",
   charm: "Улучшает торговлю и снижает стоимость найма и тренировок.",
   luck: "Повышает шанс критов, шанс добычи предметов и количество золота с монстров.",
 };
@@ -165,15 +479,30 @@ function profileStatBase(waifu, statKey) {
   return safeNumber(waifu?.[`base_${statKey}`], 10);
 }
 
+/** Плоский бонус «Трансценд.» (main_stats_flat), входит в bonus_* вместе с экипировкой. */
+function profileStatPassiveMainStatsFlat(waifu) {
+  return safeNumber(waifu?.passive_main_stats_flat, 0);
+}
+
 function profileStatEquipmentBonus(waifu, statKey) {
-  return safeNumber(waifu?.[`bonus_${statKey}`], 0);
+  const combined = safeNumber(waifu?.[`bonus_${statKey}`], 0);
+  const passive = profileStatPassiveMainStatsFlat(waifu);
+  return Math.max(0, combined - passive);
 }
 
 function profileStatRaceBonus(waifu, statKey) {
+  const fromApi = waifu?.race_flat_bonuses;
+  if (fromApi != null && typeof fromApi === "object") {
+    return safeNumber(fromApi[statKey], 0);
+  }
   return safeNumber(WAIFU_RACE_BONUSES?.[Number(waifu?.race)]?.[statKey], 0);
 }
 
 function profileStatClassBonus(waifu, statKey) {
+  const fromApi = waifu?.class_flat_bonuses;
+  if (fromApi != null && typeof fromApi === "object") {
+    return safeNumber(fromApi[statKey], 0);
+  }
   return safeNumber(WAIFU_CLASS_BONUSES?.[Number(waifu?.class ?? waifu?.class_)]?.[statKey], 0);
 }
 
@@ -193,9 +522,11 @@ function profileFormatPercent(value, digits = 1) {
 function getProfileIndicators(waifu, details = null) {
   const d = details || profileState?.currentDetails || null;
   const endurance = profileStatValue(waifu, "endurance");
+  const strength = profileStatValue(waifu, "strength");
   const charm = profileStatValue(waifu, "charm");
   const luck = profileStatValue(waifu, "luck");
   const intelligence = profileStatValue(waifu, "intelligence");
+  const agility = profileStatValue(waifu, "agility");
 
   const hpMax = safeNumber(d?.hp_max ?? waifu?.max_hp, 0);
   const melee = safeNumber(d?.melee_damage, 0);
@@ -203,14 +534,23 @@ function getProfileIndicators(waifu, details = null) {
   const magic = safeNumber(d?.magic_damage, 0);
   const crit = safeNumber(d?.crit_chance, 0);
   const dodge = safeNumber(d?.dodge_chance, 0);
+  // Use server-computed values when available, fallback to client formulas
+  const expBonus = d ? safeNumber(d.exp_bonus, intelligence * 0.1) : intelligence * 0.1;
+  const goldBonus = d ? safeNumber(d.gold_bonus, luck * 0.2) : luck * 0.2;
+  const hireDiscount = d ? safeNumber(d.hire_discount, charm * 0.1) : charm * 0.1;
+  const trainingDiscount = d ? safeNumber(d.training_discount, charm * 0.15) : charm * 0.15;
+  const damageReduction = d ? safeNumber(d.damage_reduction, Math.min(35, endurance * 0.08)) : Math.min(35, endurance * 0.08);
+  // HP regen per hour (in dungeon): HP_max × (1 − e^(−END/100)) %
+  const hpRegenRatePct = hpMax > 0 ? hpMax * (1 - Math.exp(-endurance / 100)) : 0;
+  const hpRegenOutPct = hpRegenRatePct * 5;
   const merchantDiscount = safeNumber(d?.merchant_discount, 0);
-  const buyMultiplier = Math.max(0.5, 1 - merchantDiscount / 100);
-  const sellMultiplier = Math.min(0.9, 0.5 + merchantDiscount / 125);
-  const expBonus = intelligence * 0.5;
-  const goldBonus = luck * 0.4;
-  const energyMax = safeNumber(waifu?.max_energy, 0);
-  const energyRegenHour = 60;
-  const incomingReduction = Math.min(60, endurance * 0.3);
+  // Торговля: покупка 100%/(1 + charm/100), продажа 50% + charm*0.1%
+  const buyPct = merchantDiscount > 0
+    ? Math.max(100, Math.round((1 - merchantDiscount / 100) * 200))
+    : Math.round(200 - charm * 0.1 * 2);
+  const sellPct = merchantDiscount > 0
+    ? Math.min(99, Math.round((0.5 + merchantDiscount / 100 * 0.5) * 100))
+    : Math.round(50 + charm * 0.1 * 0.5);
 
   return {
     hpMax,
@@ -221,87 +561,156 @@ function getProfileIndicators(waifu, details = null) {
     dodgeChance: profileFormatPercent(dodge, 2),
     expBonus: profileFormatPercent(expBonus, 1),
     goldBonus: profileFormatPercent(goldBonus, 1),
-    merchant: `${charm} · покупка ${Math.round(buyMultiplier * 100)}% · продажа ${Math.round(sellMultiplier * 100)}%`,
-    energy: `${energyMax} · реген ${energyRegenHour}/час`,
-    incomingReduction: profileFormatPercent(incomingReduction, 1),
+    damageReduction: profileFormatPercent(damageReduction, 1),
+    hireDiscount: profileFormatPercent(hireDiscount, 1),
+    trainingDiscount: profileFormatPercent(trainingDiscount, 1),
+    merchant: `покупка ${buyPct}% · продажа ${sellPct}%`,
+    hpRegen: `реген ${Math.round(hpRegenOutPct)}/час`,
+    armor: safeNumber(d?.armor, 0),
+    incomingReduction: profileFormatPercent(damageReduction, 1),
   };
 }
 
 function profileStatBonusLines(statKey, waifu, details = null) {
   const total = profileStatValue(waifu, statKey);
-  const indicators = getProfileIndicators(waifu, details);
   switch (statKey) {
     case "strength":
       return [
-        `+${total} к урону ближнего боя`,
-        `+${total * 5} к HP`,
-        `+${total * 2}% к урону критических атак`,
+        `+${(total * 0.5).toFixed(1)} к урону ближнего боя`,
+        `+${total * 2} к HP`,
+        `×${(1.5 + total * 0.005).toFixed(2)} множитель крит. урона`,
       ];
     case "agility":
       return [
-        `+${total} к урону дальнего боя`,
-        `+${profileFormatPercent(total * 0.2, 1)} к шансу уклонения`,
-        `+${profileFormatPercent(total * 0.4, 1)} к шансу критической атаки`,
+        `+${(total * 0.5).toFixed(1)} к урону дальнего боя`,
+        `+${profileFormatPercent(total * 0.1, 1)} к шансу уклонения (потолок 40%)`,
+        `+${profileFormatPercent(total * 0.05, 2)} к шансу крит. атаки`,
       ];
     case "intelligence":
       return [
-        `+${total} к урону магических атак`,
-        `+${total * 2} к урону активных навыков`,
-        `+${profileFormatPercent(total * 0.5, 1)} к получаемому опыту`,
+        `+${(total * 0.5).toFixed(1)} к урону магических атак`,
+        `+${(total * 0.3).toFixed(1)} к урону активных навыков`,
+        `+${profileFormatPercent(total * 0.1, 1)} к получаемому опыту`,
       ];
-    case "endurance":
+    case "endurance": {
+      const maxHp = details?.hp_max ?? (waifu?.max_hp ?? 0);
+      const regenInDungeon = maxHp > 0 ? (maxHp * (1 - Math.exp(-total / 100))).toFixed(0) : "—";
+      const regenOut = maxHp > 0 ? (maxHp * (1 - Math.exp(-total / 100)) * 5).toFixed(0) : "—";
       return [
-        `+${total * 10} к максимальному HP`,
-        `-${profileFormatPercent(total * 0.3, 1)} к получаемому урону`,
-        `+${total} к максимальной энергии`,
+        `+${total * 5} к максимальному HP`,
+        `-${profileFormatPercent(Math.min(35, total * 0.08), 1)} к получаемому урону (потолок 35%)`,
+        `Реген HP: ~${regenInDungeon}/час в бою, ~${regenOut}/час вне боя`,
       ];
-    case "charm":
+    }
+    case "charm": {
+      const deathPenalty = Math.max(0, 50 - total * 0.1);
       return [
-        `+${total} к Торговле`,
-        `-${profileFormatPercent(Math.max(0, (total - 10) * 0.5), 1)} к стоимости найма`,
-        `-${profileFormatPercent(Math.max(0, (total - 10) * 0.35), 1)} к стоимости тренировок`,
+        `Торговля: покупка ~${Math.max(100, Math.round(200 - total * 0.2))}%, продажа ~${Math.min(99, Math.round(50 + total * 0.05))}%`,
+        `-${profileFormatPercent(total * 0.1, 1)} к стоимости найма вайфу`,
+        `-${profileFormatPercent(total * 0.15, 1)} к стоимости тренировок`,
+        `Штраф золота при смерти: ${deathPenalty.toFixed(1)}%`,
       ];
+    }
     case "luck":
       return [
-        `+${profileFormatPercent(total * 0.2, 1)} к шансу критической атаки`,
-        `+${profileFormatPercent(total * 0.5, 1)} к шансу выпадения предметов`,
-        `+${profileFormatPercent(total * 0.4, 1)} к золоту с монстров`,
+        `+${profileFormatPercent(total * 0.1, 1)} к шансу крит. атаки (основной источник)`,
+        `+${profileFormatPercent(total * 0.05, 2)} к шансу выпадения предметов`,
+        `+${profileFormatPercent(total * 0.2, 1)} к золоту с монстров`,
       ];
     default:
-      return [indicators.incomingReduction];
+      return [];
   }
 }
 
 function profileStatSources(waifu, statKey) {
   const total = profileStatValue(waifu, statKey);
-  const base = 10;
+  const base = profileStatBase(waifu, statKey);
   const race = profileStatRaceBonus(waifu, statKey);
   const cls = profileStatClassBonus(waifu, statKey);
+  const passive = profileStatPassiveMainStatsFlat(waifu);
   const equipment = profileStatEquipmentBonus(waifu, statKey);
-  const other = total - base - race - cls - equipment;
+  // «Навыки» = только пассивный плоский бонус; экипировка без дубля с Трансценд.
+  const other = passive;
   return { base, race, classBonus: cls, equipment, other, total };
 }
 
 function renderStatsStrip(targetId, waifu) {
   const box = document.getElementById(targetId);
   if (!box || !waifu) return;
+  const pts = safeNumber(waifu?.stat_points, 0);
   box.innerHTML = PROFILE_STAT_ORDER.map((statKey) => {
     const meta = statMeta(statKey);
-    const isOpen = profileState?.activeTooltipStat === statKey;
     const label = PROFILE_STAT_LABELS[statKey] || meta.short;
+    const plusBtn = pts > 0
+      ? `<button class="stat-plus-btn stat-plus-inline" title="Потратить 1 ОХ на ${label}" onclick="event.stopPropagation(); WaifuApp.spendStatPoint('${statKey}')">+</button>`
+      : "";
     return `
-      <button class="profile-stat-row ${isOpen ? "active" : ""}" type="button" onclick="WaifuApp.toggleProfileStatTooltip('${statKey}')">
+      <button class="profile-stat-row" type="button" onclick="WaifuApp.openProfileStatInfoModal('${statKey}')">
         <div class="profile-stat-row-main">
           <span class="profile-stat-row-left">
             <span class="profile-stat-icon" aria-hidden="true">${meta.icon}</span>
             <span>${label}</span>
           </span>
-          <strong>${profileStatValue(waifu, statKey)}</strong>
+          <span style="display:inline-flex;align-items:center;gap:6px;">
+            <strong>${profileStatValue(waifu, statKey)}</strong>
+            ${plusBtn}
+          </span>
         </div>
-        <div class="profile-stat-tooltip">${PROFILE_STAT_TOOLTIPS[statKey] || "Описание характеристики появится позже."}</div>
       </button>
     `;
   }).join("");
+}
+
+function openProfileStatInfoModal(statKey) {
+  const key = String(statKey || "").trim().toLowerCase();
+  const modal = document.getElementById("profile-stat-info-modal");
+  const titleEl = document.getElementById("profile-stat-info-title");
+  const bodyEl = document.getElementById("profile-stat-info-body");
+  if (!modal || !titleEl || !bodyEl) return;
+  if (!PROFILE_STAT_ORDER.includes(key)) return;
+  const meta = statMeta(key);
+  const label = PROFILE_STAT_LABELS[key] || meta.short;
+  titleEl.innerHTML = `<span class="profile-stat-info-title-icon" aria-hidden="true">${meta.icon}</span><span>${escapeHtml(label)}</span>`;
+  bodyEl.textContent = PROFILE_STAT_TOOLTIPS[key] || "Описание характеристики появится позже.";
+  modal.style.display = "grid";
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function closeProfileStatInfoModal() {
+  const modal = document.getElementById("profile-stat-info-modal");
+  if (modal) {
+    modal.style.display = "none";
+    modal.setAttribute("aria-hidden", "true");
+  }
+}
+
+function renderStatBreakdownDetail(statKey, waifu, details) {
+  const meta = statMeta(statKey);
+  const label = PROFILE_STAT_LABELS[statKey] || meta.short;
+  const sources = profileStatSources(waifu, statKey);
+  const bonusLines = profileStatBonusLines(statKey, waifu, details);
+  return `
+    <div class="profile-stats-breakdown-detail-inner">
+      <div class="profile-breakdown-detail-head">${meta.icon} ${escapeHtml(label)}</div>
+      <div class="profile-accordion-section">
+        <div class="profile-breakdown-detail-caption">Источники</div>
+        <div class="profile-accordion-sources">
+          <div class="profile-accordion-row"><span>База</span><strong>${sources.base}</strong></div>
+          <div class="profile-accordion-row"><span>Раса</span><strong>${sources.race >= 0 ? `+${sources.race}` : sources.race}</strong></div>
+          <div class="profile-accordion-row"><span>Класс</span><strong>${sources.classBonus >= 0 ? `+${sources.classBonus}` : sources.classBonus}</strong></div>
+          <div class="profile-accordion-row"><span>Экипировка</span><strong>${sources.equipment >= 0 ? `+${sources.equipment}` : sources.equipment}</strong></div>
+          <div class="profile-accordion-row"><span>Навыки</span><strong>${sources.other >= 0 ? `+${sources.other}` : sources.other}</strong></div>
+          <div class="profile-accordion-row"><span>Итого</span><strong>${sources.total}</strong></div>
+        </div>
+      </div>
+      <div class="profile-accordion-section">
+        <div class="profile-breakdown-detail-caption">Бонусы от значения</div>
+        <div class="profile-bonus-list">
+          ${bonusLines.map((line) => `<div class="profile-bonus-item">${line}</div>`).join("")}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function renderStatsBreakdown(targetId, waifu, details = null) {
@@ -312,51 +721,40 @@ function renderStatsBreakdown(targetId, waifu, details = null) {
   const ptsEl = document.getElementById("profile-stat-points");
   if (ptsEl) ptsEl.textContent = `ОХ: ${pts}`;
 
-  box.innerHTML = PROFILE_STAT_ORDER.map((statKey) => {
+  const activeKey = profileState?.activeAccordion;
+  const tiles = PROFILE_STAT_ORDER.map((statKey) => {
     const meta = statMeta(statKey);
     const label = PROFILE_STAT_LABELS[statKey] || meta.short;
     const sources = profileStatSources(waifu, statKey);
-    const bonusLines = profileStatBonusLines(statKey, waifu, details);
-    const isOpen = profileState?.activeAccordion === statKey;
-    const plusDisabled = pts <= 0 ? "disabled" : "";
-
+    const isOpen = activeKey === statKey;
+    const plusBtn = pts > 0
+      ? `<button type="button" class="stat-plus-btn stat-plus-tile" title="Потратить 1 ОХ на ${escapeHtml(
+          label
+        )}" onclick="event.stopPropagation(); WaifuApp.spendStatPoint('${statKey}')">+</button>`
+      : "";
     return `
-      <div class="profile-accordion ${isOpen ? "active" : ""}">
-        <button class="profile-accordion-head" type="button" onclick="WaifuApp.toggleProfileStatAccordion('${statKey}')">
-          <span class="profile-accordion-head-left">
-            <span class="profile-stat-icon" aria-hidden="true">${meta.icon}</span>
-            <span>${meta.short} - ${label}</span>
-          </span>
-          <span style="display:inline-flex; align-items:center; gap:10px;">
-            <strong class="profile-accordion-total">${sources.total}</strong>
-            <span class="profile-accordion-arrow">${isOpen ? "▲" : "▼"}</span>
+      <div class="profile-stat-tile ${isOpen ? "active" : ""}" data-stat-key="${statKey}">
+        <button type="button" class="profile-stat-tile-main" onclick="WaifuApp.toggleProfileStatAccordion('${statKey}')">
+          <span class="profile-stat-tile-icon" aria-hidden="true">${meta.icon}</span>
+          <span class="profile-stat-tile-mid">
+            <span class="profile-stat-tile-label">${escapeHtml(label)}</span>
+            <span class="profile-stat-tile-valrow">
+              <strong class="profile-stat-tile-val">${sources.total}</strong>
+              <span class="profile-stat-tile-chev" aria-hidden="true">${isOpen ? "▲" : "▼"}</span>
+            </span>
           </span>
         </button>
-        <div class="profile-accordion-body">
-          <div class="profile-accordion-section">
-            <div class="muted tiny">Источники</div>
-            <div class="profile-accordion-sources">
-              <div class="profile-accordion-row"><span>База</span><strong>${sources.base}</strong></div>
-              <div class="profile-accordion-row"><span>Раса</span><strong>${sources.race >= 0 ? `+${sources.race}` : sources.race}</strong></div>
-              <div class="profile-accordion-row"><span>Класс</span><strong>${sources.classBonus >= 0 ? `+${sources.classBonus}` : sources.classBonus}</strong></div>
-              <div class="profile-accordion-row"><span>Экипировка</span><strong>${sources.equipment >= 0 ? `+${sources.equipment}` : sources.equipment}</strong></div>
-              <div class="profile-accordion-row"><span>Навыки</span><strong>${sources.other >= 0 ? `+${sources.other}` : sources.other}</strong></div>
-              <div class="profile-accordion-row"><span>Итого</span><strong>${sources.total}</strong></div>
-            </div>
-            <div style="display:flex; justify-content:flex-end; margin-top:2px;">
-              <button class="stat-plus-btn" ${plusDisabled} title="Потратить 1 ОХ" onclick="event.stopPropagation(); WaifuApp.spendStatPoint('${statKey}')">+</button>
-            </div>
-          </div>
-          <div class="profile-accordion-section">
-            <div class="muted tiny">Бонусы от значения</div>
-            <div class="profile-bonus-list">
-              ${bonusLines.map((line) => `<div class="profile-bonus-item">${line}</div>`).join("")}
-            </div>
-          </div>
-        </div>
+        ${plusBtn}
       </div>
     `;
   }).join("");
+
+  const detailHtml =
+    activeKey && PROFILE_STAT_ORDER.includes(activeKey)
+      ? `<div class="profile-stats-breakdown-detail">${renderStatBreakdownDetail(activeKey, waifu, details)}</div>`
+      : "";
+
+  box.innerHTML = `<div class="profile-stats-breakdown-grid">${tiles}</div>${detailHtml}`;
 }
 
 async function spendStatPoint(statKey) {
@@ -385,7 +783,7 @@ function clamp01(x) {
 function expForLevel(level) {
   const lvl = Number(level);
   if (!Number.isFinite(lvl) || lvl <= 1) return 0;
-  return Math.floor(50 * Math.pow(lvl, 2));
+  return Math.floor(PLAYER_EXP_BASE * Math.pow(lvl, 2));
 }
 
 function totalExpForLevel(level) {
@@ -398,60 +796,120 @@ function totalExpForLevel(level) {
 
 // ── Attic (ОЧ) renderers ─────────────────────────────────────────────────────
 
-/** Update the active-dungeon chip in the shared ОЧ header. */
+/** Update the active-dungeon chip in the shared ОЧ header. Short format: "Название - N%" or "Название (+N) - N%". */
 function renderAtticDungeon(active) {
   const chip = document.getElementById("attic-dungeon-chip");
   const label = document.getElementById("attic-dungeon-label");
+  const stagesEl = document.getElementById("attic-dungeon-stages");
   if (!chip || !label) return;
   if (active?.active) {
     const hpPct = active.monster_max_hp > 0
       ? Math.round((active.monster_current_hp / active.monster_max_hp) * 100)
       : 0;
-    label.textContent = `${active.dungeon_name || "Бой"} · ${hpPct}%`;
+    const name = active.dungeon_name || "Бой";
+    const pl = Math.max(0, parseInt(active.plus_level, 10) || 0);
+    label.textContent = pl > 0 ? `${name} (+${pl}) - ${hpPct}%` : `${name} - ${hpPct}%`;
     chip.classList.remove("chip-ghost");
     chip.classList.add("chip-active");
+
+    if (stagesEl) {
+      const curStage = Math.max(
+        1,
+        Math.floor(Number(
+          active?.monster_position ??
+          active?.dungeon_stage ??
+          active?.current_stage ??
+          active?.stage ??
+          1
+        ) || 1),
+      );
+      const totalStages = Math.max(
+        1,
+        Math.floor(Number(
+          active?.total_monsters ??
+          active?.total_stages ??
+          active?.total_rooms ??
+          active?.rooms_total ??
+          4
+        ) || 4),
+      );
+      const safeTotal = Math.min(8, totalStages); // avoid ultra-long headers
+      const safeCur = Math.max(1, Math.min(safeTotal, curStage));
+
+      let html = "";
+      for (let i = 1; i <= safeTotal; i += 1) {
+        const state = i < safeCur ? "done" : i === safeCur ? "active" : "pending";
+        html += `<span class="attic-stage-pixel attic-stage-pixel--${state}" aria-hidden="true"></span>`;
+      }
+      stagesEl.innerHTML = html;
+    }
   } else {
     label.textContent = "Нет боя";
     chip.classList.add("chip-ghost");
     chip.classList.remove("chip-active");
+    if (stagesEl) stagesEl.innerHTML = "";
   }
 }
 
-/** Update the expeditions chip in the shared ОЧ header. */
-function renderAtticExpeditions(expeditions) {
-  const chip = document.getElementById("attic-expedition-chip");
-  const label = document.getElementById("attic-expedition-label");
-  if (!chip || !label) return;
-  const list = Array.isArray(expeditions) ? expeditions : [];
-  const claimable = list.filter((e) => e?.completed);
-  const running = list.filter((e) => e?.active && !e?.completed);
-  if (claimable.length) {
-    label.textContent = `${claimable.length} ★`;
-    chip.classList.remove("chip-ghost");
-    chip.classList.add("chip-active");
-  } else if (running.length) {
-    label.textContent = `${running.length}`;
-    chip.classList.remove("chip-ghost");
-    chip.classList.add("chip-active");
-  } else {
-    label.textContent = "";
-    chip.classList.add("chip-ghost");
-    chip.classList.remove("chip-active");
+/** Update the expeditions chip in the shared ОЧ: 3 slot boxes — green (completed), yellow (in progress), transparent (free). */
+function renderAtticExpeditions(slots, activeList) {
+  const container = document.getElementById("attic-expedition-chip");
+  if (!container) return;
+  const list = Array.isArray(activeList) ? activeList : [];
+  const slotsArr = Array.isArray(slots) ? slots.slice(0, 3) : [];
+  const bySlotId = {};
+  list.forEach((e) => {
+    const sid = e?.expedition_slot_id ?? e?.slot_id;
+    if (sid != null) bySlotId[Number(sid)] = e;
+  });
+  const slotStates = slotsArr.length
+    ? slotsArr.map((s) => {
+        const a = bySlotId[Number(s.id)];
+        if (!a) return "free";
+        return a.can_claim ? "completed" : "in_progress";
+      })
+    : ["free", "free", "free"];
+  if (!container.querySelector(".attic-expedition-slots")) {
+    container.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "attic-expedition-slots";
+    wrap.setAttribute("aria-label", "Слоты экспедиций");
+    for (let i = 0; i < 3; i++) {
+      const box = document.createElement("div");
+      box.className = "attic-exp-slot";
+      box.dataset.slotIndex = String(i);
+      wrap.appendChild(box);
+    }
+    container.appendChild(wrap);
   }
+  const boxes = container.querySelectorAll(".attic-exp-slot");
+  const hasAny = slotStates.some((s) => s !== "free");
+  container.classList.toggle("chip-ghost", !hasAny);
+  container.classList.toggle("chip-active", hasAny);
+  slotStates.forEach((state, i) => {
+    const box = boxes[i];
+    if (!box) return;
+    box.className = "attic-exp-slot attic-exp-slot--" + state;
+    box.title = state === "completed" ? "Завершено" : state === "in_progress" ? "В процессе" : "Свободно";
+  });
 }
 
 /** Fire-and-forget refresh of both dynamic ОЧ chips (dungeon + expeditions). */
 function refreshAtticChips() {
   apiFetch("/dungeons/active").then(renderAtticDungeon).catch(() => {});
-  apiFetch("/expeditions/active")
-    .then((r) => renderAtticExpeditions(r?.active ?? []))
-    .catch(() => {});
+  Promise.all([
+    apiFetch("/expeditions/slots").catch(() => ({ slots: [] })),
+    apiFetch("/expeditions/active").catch(() => ({ active: [] })),
+  ]).then(([slotsRes, activeRes]) => {
+    renderAtticExpeditions(slotsRes?.slots ?? [], activeRes?.active ?? []);
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 function populateFromProfile(profile) {
   if (!profile) return;
+  profileState.currentProfile = profile;
 
   // Shared ОЧ badges — populated on every page that has these IDs in its DOM
   if (profile.act != null) setText("badge-act", profile.act);
@@ -460,13 +918,11 @@ function populateFromProfile(profile) {
   const w = profile.main_waifu;
   if (w) {
     if (w.level != null) setText("badge-level", w.level);
-    if (w.energy != null && w.max_energy != null) setText("badge-energy", `${w.energy}/${w.max_energy}`);
 
     // Legacy IDs kept for back-compat (silently skipped when not in DOM)
     if (w.name) setText("waifu-name", w.name);
     if (w.name) setText("profile-name", w.name);
     if (w.level != null) setText("profile-level", w.level);
-    if (w.energy != null && w.max_energy != null) setText("profile-energy", `${w.energy}/${w.max_energy}`);
 
     const clsId = Number(w.class_ ?? w.class);
     const raceId = Number(w.race);
@@ -485,21 +941,29 @@ function populateFromProfile(profile) {
     if (w.level != null && w.experience != null) {
       const lvl = Number(w.level);
       const xp = Number(w.experience);
-      const nextTotal = totalExpForLevel(lvl + 1);
-      const curTotal = totalExpForLevel(lvl);
-      const span = Math.max(1, nextTotal - curTotal);
-      const into = Math.max(0, xp - curTotal);
-      const pct = Math.round(clamp01(into / span) * 100);
-      setText("profile-xp-text", `${xp} / ${nextTotal}`);
       const fill = document.getElementById("profile-xp-fill");
-      if (fill) fill.style.width = `${pct}%`;
       const atticFill = document.getElementById("attic-xp-fill");
-      if (atticFill) atticFill.style.width = `${pct}%`;
+      if (lvl >= PLAYER_MAX_LEVEL) {
+        setText("profile-xp-text", `Ур. ${lvl} · макс.`);
+        if (fill) fill.style.width = "100%";
+        if (atticFill) atticFill.style.width = "100%";
+      } else {
+        const nextTotal = totalExpForLevel(lvl + 1);
+        const curTotal = totalExpForLevel(lvl);
+        const span = Math.max(1, nextTotal - curTotal);
+        const into = Math.max(0, xp - curTotal);
+        const pct = Math.round(clamp01(into / span) * 100);
+        setText("profile-xp-text", `Ур. ${lvl} · ${xp} / ${nextTotal} EXP`);
+        if (fill) fill.style.width = `${pct}%`;
+        if (atticFill) atticFill.style.width = `${pct}%`;
+      }
     }
   }
 
   // Async: update dynamic ОЧ chips on every page load/refresh
   refreshAtticChips();
+
+  if (document.getElementById("shop-gamble-cost")) updateShopGambleCost();
 }
 
 function appendEvent(text) {
@@ -516,7 +980,26 @@ function appendEvent(text) {
 
 let sse;
 let dungeonPlusStatusById = {};
-let selectedPlusLevel = 0;
+/** Выбранная сложность (+N) отдельно для каждого подземелья (id → уровень). */
+let selectedPlusLevelByDungeonId = {};
+
+function getPlusLevelForDungeon(dungeonId) {
+  const id = Number(dungeonId);
+  if (!Number.isFinite(id)) return 0;
+  const raw = Number(selectedPlusLevelByDungeonId[id] ?? 0);
+  const st = dungeonPlusStatusById?.[id];
+  const unlocked = Number(st?.unlocked_plus_level || 0);
+  return Math.max(0, Math.min(raw, unlocked));
+}
+
+function setPlusLevelForDungeon(dungeonId, pl) {
+  const id = Number(dungeonId);
+  if (!Number.isFinite(id)) return;
+  const st = dungeonPlusStatusById?.[id];
+  const unlocked = Number(st?.unlocked_plus_level || 0);
+  const v = Math.max(0, Math.min(Number(pl) || 0, unlocked));
+  selectedPlusLevelByDungeonId[id] = v;
+}
 
 // Ensure global namespace exists before any assignments below (SSE handlers, plus selector, etc.)
 window.WaifuApp = window.WaifuApp || {};
@@ -548,23 +1031,23 @@ function connectSSE() {
 }
 
 const WAIFU_RACES = [
-  { id: 1, name: "Человек" },
-  { id: 2, name: "Эльф" },
-  { id: 3, name: "Зверолюд" },
-  { id: 4, name: "Ангел" },
-  { id: 5, name: "Вампир" },
-  { id: 6, name: "Демон" },
-  { id: 7, name: "Фея" },
+  { id: 1, name: "Человек", icon: "🧑" },
+  { id: 2, name: "Эльф", icon: "🧝" },
+  { id: 3, name: "Зверолюд", icon: "🐾" },
+  { id: 4, name: "Ангел", icon: "😇" },
+  { id: 5, name: "Вампир", icon: "🦇" },
+  { id: 6, name: "Демон", icon: "😈" },
+  { id: 7, name: "Фея", icon: "🧚" },
 ];
 
 const WAIFU_CLASSES = [
-  { id: 1, name: "Рыцарь" },
-  { id: 2, name: "Воин" },
-  { id: 3, name: "Лучник" },
-  { id: 4, name: "Маг" },
-  { id: 5, name: "Ассасин" },
-  { id: 6, name: "Хилер" },
-  { id: 7, name: "Торговец" },
+  { id: 1, name: "Рыцарь", icon: "🛡️" },
+  { id: 2, name: "Воин", icon: "⚔️" },
+  { id: 3, name: "Лучник", icon: "🏹" },
+  { id: 4, name: "Маг", icon: "🔮" },
+  { id: 5, name: "Ассасин", icon: "🗡️" },
+  { id: 6, name: "Хилер", icon: "💚" },
+  { id: 7, name: "Торговец", icon: "💰" },
 ];
 
 const WAIFU_RACE_BONUSES = {
@@ -587,6 +1070,553 @@ const WAIFU_CLASS_BONUSES = {
   7: { charm: 2, luck: 2 },
 };
 
+/** Тексты пассивов расы — ТЗ «Пассивные навыки и расовые бонусы» (числа X,Y,N — из skill_config в БД). */
+const WAIFU_GEN_RACE_PASSIVES = {
+  1: [
+    "«Адаптивность» — каждые 10 уровней (10, 20, 30…) +1 свободное очко характеристики на выбор",
+    "+5% к получаемому EXP с монстров",
+    "+5% к золоту с монстров",
+  ],
+  2: [
+    "«Лесное чутьё» — вклад ЛОВ в шанс крита удваивается (в формуле крита ЛОВ даёт ×2 к своему слагаемому)",
+    "+X% к шансу крит. атаки (базовый расовый бонус, X из БД)",
+    "×2 к коэффициенту крита от ЛОВ",
+    "−5% к максимальному HP",
+  ],
+  3: [
+    "«Хищный инстинкт» — каждое N-е текстовое сообщение в подземелье: урон ×1,5; N = max(3, 10 − ⌊СИЛ/5⌋) (при СИЛ 10 → N=8, при 25 → 5, при СИЛ ≥ 35 → 3)",
+    "+X к урону ближнего боя (плоский бонус, X из БД)",
+    "+Y% к шансу уклонения (Y из БД)",
+    "−5% к цене продажи предметов",
+  ],
+  4: [
+    "«Благодать» — множитель формулы регенерации HP +50% (пассивная регенерация сильнее); бонус ИНТ к EXP дополнительно +X% (X из БД)",
+    "+50% к скорости регенерации HP (множитель к формуле)",
+    "+X% к получаемому EXP (дополнительно к бонусу ИНТ, X из БД)",
+    "−Y% к урону крит. атак (Y из БД)",
+  ],
+  5: [
+    "«Жизнекрада» — X% урона текстовых атак восстанавливает HP; X = (СИЛ + ЛОВ) × K_vampir (K из БД), исцеление после расчёта урона по монстру",
+    "+Y% к шансу крит. атаки (Y из БД)",
+    "−10% к навыку «Торговля»",
+  ],
+  6: [
+    "«Инфернальный пакт» — вклад ИНТ к урону медиа-навыков удваивается: множитель (1 + ИНТ × K_инт × 2)",
+    "+X% к урону активных навыков (медиа), базовый расовый бонус (X из БД)",
+    "×2 к коэффициенту урона навыков от ИНТ",
+    "−15% к навыку «Торговля»",
+  ],
+  7: [
+    "«Торговая магия» — Торговля: T = ОБА × K_оба × 2 (двойной бонус от ОБА)",
+    "×2 к коэффициенту «Торговля» от ОБА",
+    "+X% к цене продажи предметов (X из БД)",
+    "−10% к урону ближнего боя",
+  ],
+};
+
+/** Тексты пассивов класса — то же ТЗ (коэффициенты K_* в skill_config). */
+const WAIFU_GEN_CLASS_PASSIVES = {
+  1: [
+    "«Железная воля» — получаемый урон снижен на X%; X = ВЫН × K_zhv; при HP < 30% бонус удваивается",
+    "−X% к получаемому урону (от ВЫН через K_zhv)",
+    "+Y к максимальному HP (Y из БД)",
+    "−Z% к урону дальнего боя (Z из БД)",
+  ],
+  2: [
+    "«Берсерк» — при HP < 50% урон текстовых атак (ближний бой) +X%; X = СИЛ × K_brs; проверка перед каждой атакой",
+    "+X% к урону ближнего боя при HP < 50% (от СИЛ через K_brs)",
+    "+Y к урону крит. атак (плоский бонус, Y из БД)",
+    "−Z% к урону магических навыков (Z из БД)",
+  ],
+  3: [
+    "«Меткий глаз» — шанс крита от текстовых атак +X%; X = ЛОВ × K_met; каждый 5-й крит — ×2 к крит-урону (счётчик в сессии подземелья)",
+    "+X% к шансу крит. атаки (от ЛОВ через K_met)",
+    "+Y% к урону дальнего боя (Y из БД)",
+    "−Z% к урону ближнего боя (Z из БД)",
+  ],
+  4: [
+    "«Аркана» — урон медиа-навыков +X%; X = ИНТ × K_ark; бонус ИНТ к EXP дополнительно +Y%",
+    "+X% к урону медиа-навыков (от ИНТ через K_ark)",
+    "+Y% к получаемому EXP (дополнительно к стандартному бонусу ИНТ, Y из БД)",
+    "−Z% к урону ближнего боя (Z из БД)",
+  ],
+  5: [
+    "«Тень» — шанс уклонения +X%; X = ЛОВ × K_ten; после уклонения следующее текстовое сообщение-атака +30% урона (флаг сбрасывается после удара)",
+    "+X% к шансу уклонения (от ЛОВ через K_ten)",
+    "+30% к урону следующей атаки после успешного уклонения",
+    "−Y к максимальному HP (штраф, Y из БД)",
+  ],
+  6: [
+    "«Регенерация» — каждые N текстовых сообщений в подземелье +X HP; N = max(2, 8 − ⌊ВЫН/K_n⌋), X = ВЫН × K_reg; параллельно с пассивной регенерацией вне боя",
+    "+X HP каждые N сообщений в подземелье (формулы из БД)",
+    "+Y% к скорости пассивной регенерации HP (Y из БД)",
+    "−Z% к урону ближнего боя (Z из БД)",
+  ],
+  7: [
+    "«Чутьё» — золото с монстров +X%; X = (УДЧ + ОБА) × K_chut; стоимость найма в Таверне −Y%; Y = ОБА × K_hire",
+    "+X% к золоту с монстров (от УДЧ + ОБА через K_chut)",
+    "+Z% к навыку «Торговля» (Z из БД)",
+    "−Y% к стоимости найма вайфу в Таверне (от ОБА через K_hire)",
+    "−W% к урону в бою (W из БД)",
+  ],
+};
+
+/** Состояние мастера создания ОВ (шаг 2, варианты портрета). */
+const waifuGeneratorState = {
+  playerId: null,
+  variants: [],
+  selectedIdx: 0,
+  /** Сколько превью уже сохранено на сервере (0–3). */
+  generationsCount: 0,
+  selectedRaceId: 1,
+  selectedClassId: 1,
+  cosmetics: {
+    hair_color: "brown",
+    eye_colors: ["amber"],
+    hairstyle: "long_straight",
+    eye_shape: "cute",
+    outfit: "robes",
+    accessories: [],
+  },
+};
+
+const WAIFU_GEN_COSMETIC = {
+  hair: [
+    ["blonde", "Блонд"],
+    ["black", "Чёрные"],
+    ["brown", "Каштановые"],
+    ["red", "Рыжие"],
+    ["white", "Белые"],
+    ["silver", "Серебристые"],
+    ["blue", "Синие"],
+    ["pink", "Розовые"],
+    ["green", "Зелёные"],
+  ],
+  eyes: [
+    ["red", "Красный"],
+    ["burgundy", "Бордовый"],
+    ["pink", "Розовый"],
+    ["sky_blue", "Голубой"],
+    ["blue", "Синий"],
+    ["turquoise", "Бирюзовый"],
+    ["aquamarine", "Аквамариновый"],
+    ["green", "Зелёный"],
+    ["emerald", "Изумрудный"],
+    ["lime", "Лаймовый"],
+    ["yellow", "Жёлтый"],
+    ["amber", "Янтарный"],
+    ["gold", "Золотой"],
+    ["orange", "Оранжевый"],
+    ["violet", "Фиолетовый"],
+    ["gray", "Серый"],
+  ],
+  hairstyle: [
+    ["short_bob", "Short Bob (короткое каре)"],
+    ["spiky_short", "Spiky Short (короткие колючие)"],
+    ["pixie", "Pixie (пикси)"],
+    ["shaggy", "Shaggy (лохматые)"],
+    ["medium_straight", "Medium Straight (средние прямые)"],
+    ["medium_wavy", "Medium Wavy (средние волнистые)"],
+    ["medium_straight_bangs", "Medium Straight + чёлка"],
+    ["medium_wavy_2", "Medium Wavy (вар. 2)"],
+    ["messy_medium", "Messy Medium (растрёпанные)"],
+    ["side_pony", "Side Pony (боковой хвост)"],
+    ["twin_tails", "Twin Tails (два хвоста)"],
+    ["long_pony", "Long Pony (длинный хвост)"],
+    ["long_straight", "Long Straight (длинные прямые)"],
+    ["long_curls", "Long Curls (длинные кудри)"],
+    ["twin_tails_alt", "Twin Tails (вар. 2)"],
+    ["side_braid", "Side Braid (боковая коса)"],
+    ["space_buns", "Space Buns (два пучка)"],
+    ["hime_cut", "Hime Cut (химэ-кат)"],
+  ],
+};
+
+const WAIFU_GEN_EYE_SHAPES = [
+  ["bright", "Bright (яркие)"],
+  ["tsundere", "Tsundere (цундере)"],
+  ["cute", "Cute (милые)"],
+  ["melancholy", "Melancholy (меланхолия)"],
+  ["serious", "Serious (серьёзные)"],
+  ["energetic", "Energetic (энергичные)"],
+  ["mystic", "Mystic (мистические)"],
+  ["gentle", "Gentle (нежные)"],
+  ["dormant_sleepy", "Dormant/Sleepy (дремлющие)"],
+  ["shocked", "Shocked (шок)"],
+  ["playful", "Playful (игривые)"],
+  ["cold", "Cold (холодные)"],
+  ["confused", "Confused (растерянные)"],
+  ["determination", "Determination (решимость)"],
+  ["yandere", "Yandere (яндере)"],
+  ["shyness", "Shyness (застенчивость)"],
+  ["confidence", "Confidence (уверенность)"],
+  ["tearful", "Tearful (со слезами)"],
+  ["joyful", "Joyful (радостные)"],
+  ["anger", "Anger (злость)"],
+  ["sleepy", "Sleepy (сонные)"],
+  ["annoyed", "Annoyed (раздражённые)"],
+  ["pouty", "Pouty (надутые)"],
+  ["seductive", "Seductive (соблазнительные)"],
+];
+
+const WAIFU_GEN_OUTFITS = [
+  ["plate_armor", "Доспех"],
+  ["leather_armor", "Кожа"],
+  ["chainmail", "Кольчуга"],
+  ["dress", "Платье"],
+  ["robes", "Мантия"],
+  ["casual", "Casual"],
+  ["swimsuit", "Купальник"],
+  ["bikini", "Бикини"],
+  ["uniform", "Униформа"],
+  ["kimono", "Кимоно"],
+  ["cloak", "Плащ"],
+];
+
+const WAIFU_GEN_ACCS_MULTI = [
+  ["none", "Нет"],
+  ["necklace", "Ожерелье"],
+  ["earrings", "Серьги"],
+  ["makeup_light", "Макияж лёгкий"],
+  ["makeup_bold", "Макияж яркий"],
+  ["scars", "Шрамы"],
+  ["freckles", "Веснушки"],
+  ["glasses", "Очки"],
+  ["eyepatch", "Повязка на глаз"],
+  ["face_paint", "Раскраска"],
+  ["choker", "Чокер"],
+  ["gloves", "Перчатки"],
+  ["hat", "Шляпа"],
+  ["hood", "Капюшон"],
+  ["circlet", "Диадема"],
+  ["hair_ribbon", "Лента"],
+];
+
+function waifuGenGensUsed() {
+  return Math.min(3, Math.max(0, Number(waifuGeneratorState.generationsCount) || 0));
+}
+
+function waifuGenSetGensUsed(n) {
+  waifuGeneratorState.generationsCount = Math.min(3, Math.max(0, Number(n) || 0));
+}
+
+function waifuGenFillSelect(id, pairs) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = pairs
+    .map(([v, l]) => `<option value="${String(v).replace(/"/g, "&quot;")}">${escapeHtml(l)}</option>`)
+    .join("");
+}
+
+function waifuGenSyncHiddenSelects() {
+  const rs = document.getElementById("waifu-race-select");
+  const cs = document.getElementById("waifu-class-select");
+  if (rs) rs.value = String(waifuGeneratorState.selectedRaceId);
+  if (cs) cs.value = String(waifuGeneratorState.selectedClassId);
+}
+
+function waifuGenRefreshPassiveBonuses() {
+  const root = document.getElementById("waifu-passive-modal-body");
+  if (!root) return;
+  const r = waifuGeneratorState.selectedRaceId;
+  const c = waifuGeneratorState.selectedClassId;
+  const raceLines = WAIFU_GEN_RACE_PASSIVES[r] || [];
+  const classLines = WAIFU_GEN_CLASS_PASSIVES[c] || [];
+  const ulRace = raceLines.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+  const ulClass = classLines.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+  root.innerHTML =
+    `<div class="waifu-gen-passive-sub">Раса</div><ul>${ulRace}</ul>` +
+    `<div class="waifu-gen-passive-sub">Класс</div><ul>${ulClass}</ul>`;
+}
+
+function waifuGenBuildRaceClassPickers() {
+  const raceRoot = document.getElementById("waifu-race-pick");
+  const classRoot = document.getElementById("waifu-class-pick");
+  if (raceRoot) {
+    raceRoot.innerHTML = WAIFU_RACES.map(
+      (r) =>
+        `<button type="button" class="waifu-gen-pick-btn${r.id === waifuGeneratorState.selectedRaceId ? " waifu-gen-pick-btn--on" : ""}" data-kind="race" data-id="${r.id}" aria-pressed="${r.id === waifuGeneratorState.selectedRaceId}" aria-label="${escapeHtml(r.name)}">
+        <span class="waifu-gen-pick-ico" aria-hidden="true">${escapeHtml(r.icon || "•")}</span>
+      </button>`
+    ).join("");
+    raceRoot.querySelectorAll('[data-kind="race"]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        waifuGeneratorState.selectedRaceId = Number(btn.getAttribute("data-id"));
+        waifuGenSyncHiddenSelects();
+        waifuGenBuildRaceClassPickers();
+        if (typeof window.__waifuGenRecalc === "function") window.__waifuGenRecalc();
+      });
+    });
+  }
+  if (classRoot) {
+    classRoot.innerHTML = WAIFU_CLASSES.map(
+      (c) =>
+        `<button type="button" class="waifu-gen-pick-btn${c.id === waifuGeneratorState.selectedClassId ? " waifu-gen-pick-btn--on" : ""}" data-kind="class" data-id="${c.id}" aria-pressed="${c.id === waifuGeneratorState.selectedClassId}" aria-label="${escapeHtml(c.name)}">
+        <span class="waifu-gen-pick-ico" aria-hidden="true">${escapeHtml(c.icon || "•")}</span>
+      </button>`
+    ).join("");
+    classRoot.querySelectorAll('[data-kind="class"]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        waifuGeneratorState.selectedClassId = Number(btn.getAttribute("data-id"));
+        waifuGenSyncHiddenSelects();
+        waifuGenBuildRaceClassPickers();
+        if (typeof window.__waifuGenRecalc === "function") window.__waifuGenRecalc();
+      });
+    });
+  }
+}
+
+function waifuGenRenderChipGrid(containerId, pairs, currentVal, mode, onPick) {
+  const root = document.getElementById(containerId);
+  if (!root) return;
+  const curSet =
+    mode === "multi" || mode === "multi2" ? new Set(currentVal || []) : null;
+  root.innerHTML = pairs
+    .map(([v, l]) => {
+      const on =
+        mode === "multi" || mode === "multi2"
+          ? curSet && curSet.has(v)
+          : String(currentVal) === String(v);
+      return `<button type="button" class="waifu-gen-chip${on ? " waifu-gen-chip--on" : ""}" data-val="${String(v).replace(/"/g, "&quot;")}">${escapeHtml(l)}</button>`;
+    })
+    .join("");
+  root.querySelectorAll(".waifu-gen-chip").forEach((btn) => {
+    btn.addEventListener("click", () => onPick(btn.getAttribute("data-val") || ""));
+  });
+}
+
+function waifuGenRefreshHairModal() {
+  const c = waifuGeneratorState.cosmetics;
+  waifuGenRenderChipGrid("waifu-modal-hair-colors", WAIFU_GEN_COSMETIC.hair, c.hair_color, "single", (v) => {
+    waifuGeneratorState.cosmetics.hair_color = v;
+    waifuGenRefreshHairModal();
+  });
+  waifuGenRenderChipGrid("waifu-modal-hair-styles", WAIFU_GEN_COSMETIC.hairstyle, c.hairstyle, "single", (v) => {
+    waifuGeneratorState.cosmetics.hairstyle = v;
+    waifuGenRefreshHairModal();
+  });
+}
+
+function waifuGenRefreshEyesModal() {
+  const c = waifuGeneratorState.cosmetics;
+  let colors = Array.isArray(c.eye_colors) ? c.eye_colors.filter(Boolean) : [];
+  if (colors.length === 0) colors = ["amber"];
+  waifuGenRenderChipGrid("waifu-modal-eye-colors", WAIFU_GEN_COSMETIC.eyes, colors, "multi2", (v) => {
+    let next = [...(Array.isArray(waifuGeneratorState.cosmetics.eye_colors) ? waifuGeneratorState.cosmetics.eye_colors : [])].filter(Boolean);
+    if (next.length === 0) next = ["amber"];
+    const i = next.indexOf(v);
+    if (i >= 0) {
+      if (next.length <= 1) return;
+      next.splice(i, 1);
+    } else if (next.length < 2) {
+      next.push(v);
+    } else {
+      next = [next[1], v];
+    }
+    waifuGeneratorState.cosmetics.eye_colors = next;
+    waifuGenRefreshEyesModal();
+  });
+  waifuGenRenderChipGrid("waifu-modal-eye-shapes", WAIFU_GEN_EYE_SHAPES, c.eye_shape, "single", (v) => {
+    waifuGeneratorState.cosmetics.eye_shape = v;
+    waifuGenRefreshEyesModal();
+  });
+}
+
+function waifuGenRefreshOutfitModal() {
+  const c = waifuGeneratorState.cosmetics;
+  waifuGenRenderChipGrid("waifu-modal-outfits", WAIFU_GEN_OUTFITS, c.outfit, "single", (v) => {
+    waifuGeneratorState.cosmetics.outfit = v;
+    waifuGenRefreshOutfitModal();
+  });
+}
+
+function waifuGenRefreshAccModal() {
+  const c = waifuGeneratorState.cosmetics;
+  let acc = Array.isArray(c.accessories) ? [...c.accessories] : [];
+  waifuGenRenderChipGrid("waifu-modal-accs", WAIFU_GEN_ACCS_MULTI, acc, "multi", (v) => {
+    if (v === "none") {
+      waifuGeneratorState.cosmetics.accessories = [];
+    } else {
+      let next = (waifuGeneratorState.cosmetics.accessories || []).filter((x) => x !== "none");
+      if (next.includes(v)) next = next.filter((x) => x !== v);
+      else if (next.length < 6) next.push(v);
+      waifuGeneratorState.cosmetics.accessories = next;
+    }
+    waifuGenRefreshAccModal();
+  });
+}
+
+function waifuGenOpenModal(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.hidden = false;
+  el.removeAttribute("hidden");
+  if (id === "waifu-modal-hair") waifuGenRefreshHairModal();
+  if (id === "waifu-modal-eyes") waifuGenRefreshEyesModal();
+  if (id === "waifu-modal-outfit") waifuGenRefreshOutfitModal();
+  if (id === "waifu-modal-acc") waifuGenRefreshAccModal();
+  if (id === "waifu-modal-passive") waifuGenRefreshPassiveBonuses();
+}
+
+function waifuGenCloseModal(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.hidden = true;
+  el.setAttribute("hidden", "");
+}
+
+function waifuGenBindCosmeticModalsOnce() {
+  if (window.__waifuGenModalsBound) return;
+  window.__waifuGenModalsBound = true;
+  ["waifu-open-hair", "waifu-open-eyes", "waifu-open-outfit", "waifu-open-acc"].forEach((bid, i) => {
+    const ids = ["waifu-modal-hair", "waifu-modal-eyes", "waifu-modal-outfit", "waifu-modal-acc"];
+    const b = document.getElementById(bid);
+    if (b) b.addEventListener("click", () => waifuGenOpenModal(ids[i]));
+  });
+  const openPassive = document.getElementById("waifu-open-passive");
+  if (openPassive) openPassive.addEventListener("click", () => waifuGenOpenModal("waifu-modal-passive"));
+  document.querySelectorAll("[data-waifu-close-modal]").forEach((btn) => {
+    btn.addEventListener("click", () => waifuGenCloseModal(btn.getAttribute("data-waifu-close-modal") || ""));
+  });
+  ["waifu-modal-hair", "waifu-modal-eyes", "waifu-modal-outfit", "waifu-modal-acc", "waifu-modal-passive"].forEach((mid) => {
+    const m = document.getElementById(mid);
+    if (!m) return;
+    m.addEventListener("click", (ev) => {
+      if (ev.target === m) waifuGenCloseModal(mid);
+    });
+    const panel = m.querySelector(".waifu-gen-modal-panel");
+    if (panel) {
+      panel.addEventListener("click", (ev) => ev.stopPropagation());
+    }
+  });
+}
+
+function waifuGenPortraitRequestBody() {
+  const c = waifuGeneratorState.cosmetics;
+  const acc = (c.accessories || []).filter((x) => x && x !== "none").slice(0, 6);
+  let eyeColors = Array.isArray(c.eye_colors) ? c.eye_colors.filter(Boolean) : [];
+  if (eyeColors.length === 0) eyeColors = ["amber"];
+  eyeColors = eyeColors.slice(0, 2);
+  return {
+    race: waifuGeneratorState.selectedRaceId,
+    class: waifuGeneratorState.selectedClassId,
+    hair_color: c.hair_color,
+    eye_colors: eyeColors,
+    hairstyle: c.hairstyle,
+    eye_shape: c.eye_shape,
+    outfit: c.outfit,
+    accessories: acc.length ? acc : [],
+  };
+}
+
+function waifuGenRefreshHint() {
+  const hint = document.getElementById("waifu-gen-gen-hint");
+  if (!hint) return;
+  const used = waifuGenGensUsed();
+  const left = Math.max(0, 3 - used);
+  hint.textContent =
+    left > 0 ? `Осталось вариантов генерации: ${left} из 3.` : "Лимит генераций исчерпан (3).";
+}
+
+function waifuGenRefreshGenerateButton() {
+  const genBtn = document.getElementById("waifu-generate-btn");
+  if (!genBtn) return;
+  genBtn.disabled = waifuGenGensUsed() >= 3;
+}
+
+function waifuGenApplyPortraitPreview(dataUrl) {
+  const img = document.getElementById("waifu-portrait-preview");
+  const ph = document.getElementById("waifu-portrait-placeholder");
+  if (img) {
+    img.src = dataUrl;
+    img.hidden = false;
+  }
+  if (ph) ph.style.display = "none";
+}
+
+function waifuGenClearPortraitPreview() {
+  const img = document.getElementById("waifu-portrait-preview");
+  const ph = document.getElementById("waifu-portrait-placeholder");
+  if (img) {
+    img.removeAttribute("src");
+    img.hidden = true;
+  }
+  if (ph) ph.style.display = "";
+}
+
+function waifuGenUpdatePortraitFrameCursor() {
+  const frame = document.getElementById("waifu-portrait-frame");
+  if (!frame) return;
+  frame.classList.toggle("waifu-gen-portrait-frame--selectable", waifuGeneratorState.variants.length >= 2);
+  frame.title =
+    waifuGeneratorState.variants.length >= 2 ? "Нажмите, чтобы переключить вариант портрета" : "";
+}
+
+function waifuGenRenderVariants() {
+  const root = document.getElementById("waifu-gen-variants");
+  if (!root) return;
+  const list = waifuGeneratorState.variants;
+  if (!list.length) {
+    root.innerHTML = "";
+    waifuGenUpdatePortraitFrameCursor();
+    return;
+  }
+  root.innerHTML = list
+    .map(
+      (v, i) =>
+        `<button type="button" class="waifu-gen-variant${i === waifuGeneratorState.selectedIdx ? " waifu-gen-variant--selected" : ""}" data-idx="${i}" aria-label="Вариант ${i + 1}">
+        <img src="${escapeHtml(v.dataUrl)}" alt="" />
+      </button>`
+    )
+    .join("");
+  root.querySelectorAll(".waifu-gen-variant").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.getAttribute("data-idx"));
+      if (!Number.isFinite(idx)) return;
+      waifuGeneratorState.selectedIdx = idx;
+      waifuGenRenderVariants();
+      const v = waifuGeneratorState.variants[idx];
+      if (v?.dataUrl) waifuGenApplyPortraitPreview(v.dataUrl);
+    });
+  });
+  waifuGenUpdatePortraitFrameCursor();
+}
+
+async function waifuGenLoadDraftsFromServer() {
+  waifuGeneratorState.variants = [];
+  waifuGeneratorState.selectedIdx = 0;
+  waifuGeneratorState.generationsCount = 0;
+  try {
+    const data = await apiFetch(`/profile/main-waifu/portrait-drafts`);
+    const items = Array.isArray(data?.items) ? data.items : [];
+    waifuGenSetGensUsed(Number(data?.generations_count) || items.length);
+    waifuGeneratorState.variants = items
+      .slice()
+      .sort((a, b) => (Number(a.slot_index) || 0) - (Number(b.slot_index) || 0))
+      .map((it) => {
+        const mime = it.mime || "image/webp";
+        const b64 = it.image_base64;
+        return {
+          b64,
+          dataUrl: `data:${mime};base64,${b64}`,
+          slot_index: Number(it.slot_index),
+        };
+      });
+    if (waifuGeneratorState.variants.length) {
+      waifuGeneratorState.selectedIdx = waifuGeneratorState.variants.length - 1;
+      waifuGenApplyPortraitPreview(waifuGeneratorState.variants[waifuGeneratorState.selectedIdx].dataUrl);
+    } else {
+      waifuGenClearPortraitPreview();
+    }
+    waifuGenRenderVariants();
+  } catch {
+    waifuGenClearPortraitPreview();
+    waifuGenRenderVariants();
+  }
+  waifuGenRefreshHint();
+  waifuGenRefreshGenerateButton();
+}
+
 const profileState = {
   selectedSlot: null,
   selectedItem: null,
@@ -600,10 +1630,8 @@ const profileState = {
   inventorySort: "equipability",
   inventorySortDir: "desc",
   inventoryFilters: { weapon: true, armor: true, accessory: true },
-  activeTooltipStat: null,
   activeAccordion: null,
   infoTab: "indicators",
-  sellConfirm: false,
 };
 
 const EQUIPMENT_SLOT_NAMES = {
@@ -683,6 +1711,18 @@ function getProfileEquippedItem(slot) {
   return null;
 }
 
+/** Слот экипировки по умолчанию (без UI). Для колец — null (выбор отдельным оверлеем). */
+function defaultEquipSlotForItem(item) {
+  const st = String(item?.slot_type || "").trim();
+  if (st === "ring") return null;
+  const slots = SLOT_TYPE_TO_SLOTS[st] || [];
+  if (!slots.length) return null;
+  if (slots.length === 1) return slots[0];
+  const empty = slots.find((s) => !getProfileEquippedItem(s));
+  if (empty != null) return empty;
+  return slots[0];
+}
+
 function isProfileUpgradeItem(item) {
   const slotType = String(item?.slot_type || "").toLowerCase();
   const lvl = safeNumber(item?.level, 0);
@@ -719,13 +1759,70 @@ function compareProfileInventoryItems(a, b) {
   return result * dir;
 }
 
+const SELL_PAGE_SIZE = 9;
+
 const shopState = {
   act: 1,
   offers: [],
   selectedSlot: null,
   selectedOffer: null,
   sellSelected: new Set(),
+  sellItems: [],
+  sellPage: 0,
+  /** Вкладка «Продать»: true — клик по ячейке только выбирает; false — открыть карточку предмета */
+  sellSelectMode: false,
+  sellFilters: { weapon: true, armor: true, accessory: true },
+  sellSort: "equipability",
+  sellSortDir: "desc",
+  /** Активная вкладка магазина: buy | sell | gamble */
+  activeTab: "buy",
+  /** Слот витрины (1–9), который ИИ выделил в реплике «купить» */
+  merchantPickBuySlot: null,
+  /** inventory_items.id предмета, который ИИ выделил в реплике «продать» */
+  merchantPickSellId: null,
+  /** Подсветка совета торговца — только после нажатия на торговца */
+  merchantAdviceUnlocked: false,
+  /** inventory_items.id выбранный для заточки */
+  smithSelectedId: null,
+  /** кэш списка для модалки выбора (сортировка: экип первыми) */
+  smithItems: [],
+  /** страница сетки выбора (по 9 предметов) */
+  smithPickPage: 0,
 };
+
+const SMITH_PICK_PAGE_SIZE = 9;
+
+function resolveShopOfferSlot(offer) {
+  if (!offer) return null;
+  const offers = shopState.offers || [];
+  const idx = offers.indexOf(offer);
+  const fallbackSlot = idx >= 0 ? idx + 1 : null;
+  const s = Number(offer.slot ?? offer.offer_slot ?? offer.shop_slot ?? fallbackSlot);
+  return Number.isFinite(s) ? s : null;
+}
+
+function applyShopMerchantHighlight() {
+  document.querySelectorAll(".shop-item-card.shop-merchant-pick, .shop-sell-card.shop-merchant-pick").forEach((el) => {
+    el.classList.remove("shop-merchant-pick");
+  });
+  if (!shopState.merchantAdviceUnlocked) return;
+  const tab = shopState.activeTab || "buy";
+  if (tab === "buy" && shopState.merchantPickBuySlot != null) {
+    const slot = Number(shopState.merchantPickBuySlot);
+    const el = document.querySelector(`#shop-buy-grid .shop-item-card[data-shop-slot="${slot}"]`);
+    if (el && !el.classList.contains("empty")) el.classList.add("shop-merchant-pick");
+  }
+  if (tab === "sell" && shopState.merchantPickSellId != null) {
+    const id = Number(shopState.merchantPickSellId);
+    const el = document.querySelector(`#shop-sell-grid .shop-sell-card[data-id="${id}"]`);
+    if (el && !el.classList.contains("empty")) el.classList.add("shop-merchant-pick");
+  }
+}
+
+function revealMerchantAdvice() {
+  shopState.merchantAdviceUnlocked = true;
+  applyShopMerchantHighlight();
+}
 
 const ADMIN_USER_ID = 305174198;
 
@@ -746,13 +1843,37 @@ async function loadProfile() {
   return profile;
 }
 
+/** One-time bind: ОЧ chip clicks open dungeons.html with the right tab. */
+function initAtticChipClicks() {
+  if (window.__atticChipClicksBound) return;
+  window.__atticChipClicksBound = true;
+  const dungeonChip = document.getElementById("attic-dungeon-chip");
+  const expeditionChip = document.getElementById("attic-expedition-chip");
+  if (dungeonChip) {
+    dungeonChip.addEventListener("click", () => {
+      window.location.href = "./dungeons.html?tab=solo";
+    });
+    dungeonChip.style.cursor = "pointer";
+  }
+  if (expeditionChip) {
+    expeditionChip.addEventListener("click", () => {
+      window.location.href = "./dungeons.html?tab=expedition";
+    });
+    expeditionChip.style.cursor = "pointer";
+  }
+}
+
 async function bootstrapPage(page, afterLoad) {
   await initPage(page);
   let profile = null;
   try {
     profile = await loadProfile();
   } catch (err) {
-    console.error("Failed to load profile:", err);
+    if (isWebAppUnauthorizedError(err)) {
+      console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
+    } else {
+      console.error("Failed to load profile:", err);
+    }
   }
 
   if (typeof afterLoad === "function") {
@@ -766,10 +1887,105 @@ async function bootstrapPage(page, afterLoad) {
   return profile;
 }
 
+function consumeShopSmithIntent() {
+  let openSmith = false;
+  let smithItemId = null;
+  try {
+    const t = sessionStorage.getItem("waifu_shop_intent_tab");
+    const raw = sessionStorage.getItem("waifu_shop_smith_item_id");
+    sessionStorage.removeItem("waifu_shop_intent_tab");
+    sessionStorage.removeItem("waifu_shop_smith_item_id");
+    openSmith = t === "smith";
+    if (raw != null) {
+      const n = Number(raw);
+      if (Number.isFinite(n) && n > 0) smithItemId = n;
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  return { openSmith, smithItemId };
+}
+
+async function applyShopSmithNavigationIntent(intent) {
+  if (!intent?.openSmith) return;
+  if (typeof window === "undefined" || !String(window.location.pathname || "").endsWith("/shop.html")) {
+    return;
+  }
+  switchShopTab("smith");
+  await loadSmithTab();
+  const sid = intent.smithItemId;
+  if (sid != null && shopState.smithItems.some((x) => x.id === sid)) {
+    shopState.smithSelectedId = sid;
+    updateSmithSelectionUI();
+    await refreshSmithPreview();
+  }
+}
+
 async function loadShop(act) {
+  const shopSmithNavIntent = consumeShopSmithIntent();
   const data = await apiFetch(`/shop/inventory?act=${act}`);
   shopState.act = act;
   shopState.offers = Array.isArray(data?.items) ? data.items : [];
+
+  if (typeof window !== "undefined") {
+    const adminBtns = document.querySelectorAll(".admin-only");
+    adminBtns.forEach((el) => {
+      el.style.display = isAdminUser() ? "" : "none";
+    });
+  }
+
+  // New shop v1.3 layout
+  const newGrid = document.getElementById("shop-buy-grid");
+  if (newGrid) {
+    newGrid.innerHTML = "";
+    newGrid.classList.remove("placeholder");
+    const offers = shopState.offers || [];
+    const bySlot = new Map();
+    offers.forEach((o, idx) => {
+      const slot = Number(o.slot || o.offer_slot || o.shop_slot || idx + 1);
+      if (Number.isFinite(slot)) bySlot.set(slot, { ...o, __slot: slot });
+    });
+    for (let s = 1; s <= 9; s += 1) {
+      const offer = bySlot.get(s) || null;
+      const card = document.createElement("div");
+      const isSold = Boolean(offer?.sold);
+      const rarityClass = rarityClassFromValue(offer?.rarity);
+      card.className = `shop-item-card item-card ${isSold || !offer ? "empty" : ""} ${rarityClass}`.trim();
+      const levelStr = offer && !isSold ? `lvl ${offer.level ?? "?"}` : (isSold ? "Продано" : "—");
+      const priceBottomStr = offer && !isSold && offer?.price != null
+        ? `🪙 ${offer.price}`
+        : (isSold ? "Продано" : "—");
+      const iconHtml = offer ? itemArtHtml(offer) : "🎁";
+      card.dataset.shopSlot = String(s);
+      card.innerHTML = `
+        <div class="item-icon">${iconHtml}</div>
+        <div class="item-level">${levelStr}</div>
+        <div class="item-price">${escapeHtml(String(priceBottomStr))}</div>
+      `;
+      card.onclick = () => {
+        if (!offer || isSold) return;
+        openShopOffer(s);
+        newGrid.querySelectorAll(".shop-item-card").forEach((c) => c.classList.remove("selected"));
+        card.classList.add("selected");
+      };
+      newGrid.appendChild(card);
+    }
+
+    generateMerchantLine(shopState.activeTab || "buy").catch(() => {});
+    const sellBtn = document.getElementById("shop-sell-submit");
+    if (sellBtn) sellBtn.style.display = (shopState.activeTab || "buy") === "sell" ? "" : "none";
+    if (typeof document !== "undefined" && document.body) {
+      document.body.classList.toggle("shop-tab-smith", (shopState.activeTab || "buy") === "smith");
+    }
+    if ((shopState.activeTab || "buy") === "smith") {
+      loadSmithTab().catch(() => {});
+    }
+    if (shopSmithNavIntent.openSmith) {
+      await applyShopSmithNavigationIntent(shopSmithNavIntent);
+    }
+    ensureShopSellToolbar();
+    return data;
+  }
 
   const grid = document.getElementById("shop-items");
   if (!grid) return data;
@@ -809,15 +2025,18 @@ async function loadShop(act) {
     const isEmpty = !offer || isSold;
     card.className = `item-card ${isEmpty ? "empty" : ""} ${rarityClass}`.trim();
     card.dataset.slot = String(slot);
-    const nm = String(offer?.display_name || offer?.name || "").trim() || (isSold ? "Продано" : `Слот ${slot}`);
+    const levelStr = offer && !isSold ? `lvl ${offer.level ?? "?"}` : (isSold ? "Продано" : "—");
+    const priceBottomStr = offer && !isSold && offer?.price != null
+      ? `🪙 ${offer.price}`
+      : (isSold ? "Продано" : "—");
     const iconHtml = offer ? itemArtHtml(offer) : "🎁";
+    card.dataset.shopSlot = String(slot);
     card.innerHTML = `
       <div class="item-icon">${iconHtml}</div>
-      <div class="item-level">${offer && !isSold ? `lvl ${offer.level ?? "?"}` : "—"}</div>
-      ${offer?.price != null && !isSold ? `<div class="item-price">🪙 ${offer.price}</div>` : ""}
-      <div class="item-name">${nm}</div>
+      <div class="item-level">${levelStr}</div>
+      <div class="item-price">${escapeHtml(String(priceBottomStr))}</div>
     `;
-    card.title = offer ? `${nm} (слот ${slot})` : `Пусто (слот ${slot})`;
+    card.title = offer ? `${offer?.display_name || offer?.name || "Предмет"} (слот ${slot})` : `Пусто (слот ${slot})`;
     card.onclick = () => {
       if (!offer || isSold) return;
       openShopOffer(slot);
@@ -831,6 +2050,181 @@ async function loadShop(act) {
   return data;
 }
 
+function rarityClassFromValue(r) {
+  return r === 2
+    ? "rarity-uncommon"
+    : r === 3
+      ? "rarity-rare"
+      : r === 4
+        ? "rarity-epic"
+        : r === 5
+          ? "rarity-legendary"
+          : "rarity-common";
+}
+
+async function refreshMerchantLine() {
+  return generateMerchantLine(shopState.activeTab || "buy");
+}
+
+/** Цена гембы как на бэкенде (game.constants + formulas.calculate_gamble_price). */
+function calculateGamblePriceClient(level) {
+  const GAMBLE_BASE_PRICE = 1000;
+  const GAMBLE_PRICE_PER_LEVEL = 200;
+  const GAMBLE_MAX_PRICE = 10000;
+  const lv = Math.max(1, Number(level) || 1);
+  return Math.min(GAMBLE_BASE_PRICE + lv * GAMBLE_PRICE_PER_LEVEL, GAMBLE_MAX_PRICE);
+}
+
+function updateShopGambleCost() {
+  const el = document.getElementById("shop-gamble-cost");
+  if (!el) return;
+  const w = profileState.currentProfile?.main_waifu;
+  const lvl = Number(w?.level) || 1;
+  const price = calculateGamblePriceClient(lvl);
+  el.textContent = `🪙 ${price.toLocaleString()} золота`;
+}
+
+/**
+ * Подготовка реплики торговца под вкладку: buy / sell / gamble.
+ * Выставляет window.__shopMerchantLine и window.__shopMerchantTab.
+ */
+async function generateMerchantLine(context) {
+  const ctx = context || shopState.activeTab || "buy";
+  window.__shopMerchantTab = ctx;
+  shopState.merchantAdviceUnlocked = false;
+  shopState.merchantPickBuySlot = null;
+  shopState.merchantPickSellId = null;
+
+  try {
+    if (ctx === "buy") {
+      const items = shopState.offers || [];
+      const available = items.filter((o) => !o?.sold);
+      if (!available.length) {
+        window.__shopMerchantLine = "На сегодня товара нет, странник. Загляни позже.";
+        return;
+      }
+      const chosen = available[Math.floor(Math.random() * available.length)];
+      if (!chosen) return;
+
+      const slot = resolveShopOfferSlot(chosen);
+      if (slot != null) shopState.merchantPickBuySlot = slot;
+
+      const fallback = `Странник, присмотрись к <b>${escapeHtml(String(chosen?.display_name || chosen?.name || "товару"))}</b> — отличная вещь для твоего пути.`;
+
+      try {
+        const payload = await apiFetch("/shop/merchant-line", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            context: "buy",
+            name: chosen?.display_name || chosen?.name || "предмет",
+            level: Number(chosen?.level || 1),
+            rarity: rarityLabel(chosen?.rarity || 1),
+            bonuses: typeof getItemBonusesText === "function" ? getItemBonusesText(chosen) : "",
+          }),
+        });
+        const text = String(payload?.text || "").trim();
+        window.__shopMerchantLine = text || fallback;
+        if (!text && payload?.error && typeof console !== "undefined" && console.warn) {
+          console.warn("[shop merchant-line]", payload.error);
+        }
+      } catch (e) {
+        window.__shopMerchantLine = fallback;
+        if (typeof console !== "undefined" && console.warn) console.warn("[shop merchant-line] запрос не удался:", e?.message || e);
+      }
+      return;
+    }
+
+    if (ctx === "sell") {
+      const items = shopState.sellItems || [];
+      if (!items.length) {
+        window.__shopMerchantLine =
+          "Развяжи ремни сумки — покажи, что продаёшь, странник. Золото у меня есть, а терпение — на вес.";
+        return;
+      }
+      const chosen = items[Math.floor(Math.random() * items.length)];
+      if (chosen?.id != null) shopState.merchantPickSellId = Number(chosen.id);
+
+      const fallback = `Дай глянуть на <b>${escapeHtml(String(chosen?.display_name || chosen?.name || "эту штуку"))}</b>, странник — может, сойдёмся в цене.`;
+
+      try {
+        const payload = await apiFetch("/shop/merchant-line", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            context: "sell",
+            name: chosen?.display_name || chosen?.name || "предмет",
+            level: Number(chosen?.level || 1),
+            rarity: rarityLabel(chosen?.rarity || 1),
+            bonuses: typeof getItemBonusesText === "function" ? getItemBonusesText(chosen) : "",
+          }),
+        });
+        const text = String(payload?.text || "").trim();
+        window.__shopMerchantLine = text || fallback;
+        if (!text && payload?.error && typeof console !== "undefined" && console.warn) {
+          console.warn("[shop merchant-line]", payload.error);
+        }
+      } catch (e) {
+        window.__shopMerchantLine = fallback;
+        if (typeof console !== "undefined" && console.warn) console.warn("[shop merchant-line] запрос не удался:", e?.message || e);
+      }
+      return;
+    }
+
+    if (ctx === "gamble") {
+      const fallback =
+        "Испытай удачу, странник! Мистическая гемба голодна по золоту — зато сыплет редкостями не хуже драконьего логова.";
+      try {
+        const payload = await apiFetch("/shop/merchant-line", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            context: "gamble",
+            name: "",
+            level: 1,
+            rarity: "",
+            bonuses: "",
+          }),
+        });
+        const text = String(payload?.text || "").trim();
+        window.__shopMerchantLine = text || fallback;
+        if (!text && payload?.error && typeof console !== "undefined" && console.warn) {
+          console.warn("[shop merchant-line]", payload.error);
+        }
+      } catch (e) {
+        window.__shopMerchantLine = fallback;
+        if (typeof console !== "undefined" && console.warn) console.warn("[shop merchant-line] запрос не удался:", e?.message || e);
+      }
+      return;
+    }
+
+    if (ctx === "smith") {
+      const fallback =
+        "Кузнец затачивает сталь до звона. До +7 — без риска; выше удача решает судьбу клинка. Камень защиты убережёт от поломки.";
+      window.__shopMerchantLine = fallback;
+      try {
+        const payload = await apiFetch("/shop/merchant-line", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            context: "smith",
+            name: "заточка",
+            level: 1,
+            rarity: "",
+            bonuses: "",
+          }),
+        });
+        const text = String(payload?.text || "").trim();
+        if (text) window.__shopMerchantLine = text;
+      } catch {
+        /* keep fallback */
+      }
+    }
+  } finally {
+    applyShopMerchantHighlight();
+  }
+}
+
 async function loadTavern(profile) {
   const p = profile || (await loadProfile().catch(() => null));
   return loadTavernWithProfile(p || { act: 1 });
@@ -842,19 +2236,23 @@ const tavernState = {
   squad: [],
   reserve: [],
   selectedWaifu: null,
-  selectedContext: null, // "reserve" | "squad"
+  pendingHireSlot: null, // 1..4
+  lastHiredResult: null, // result of last successful hire for result modal
 };
 
 const expeditionState = {
   slots: [],
   active: [],
-  squad: [],
-  waifus: [],
-  selectedSlot: null,
-  selectedDuration: 60,
-  selectedWaifus: new Set(),
-  selectedSquadIds: [],
-  durationMinutes: 60,
+  roster: [],
+  refreshAt: null,
+};
+const expeditionUiCache = { activeById: {}, dailyById: {}, _activeRaw: null };
+const expeditionSend = {
+  squadSlots: [null, null, null],
+  pickerSlot: -1,
+  diffVal: 1,
+  durVal: 30,
+  slotId: null,
 };
 
 function showTavernError(message, kind = "info") {
@@ -872,16 +2270,117 @@ function showTavernError(message, kind = "info") {
   else box.classList.remove("danger");
 }
 
+const TAVERN_HEAL_GOLD_PER_HP = 2; // золото за 1 HP; при 0 HP (обморок) ×2
+const TAVERN_POOL_MAX = 10;
+
+function hiredWaifuHp(w) {
+  const max = Number(w?.hpMax ?? w?.max_hp ?? 65);
+  const cur = Number(w?.hpCurrent ?? w?.current_hp ?? max);
+  return { cur, max };
+}
+
+function hiredWaifuImageUrl(w) {
+  const u = w?.imageUrl ?? w?.image_url;
+  return u ? String(u) : "";
+}
+
+/** Статус в пуле наёмниц: экспедиция / обморок (0 HP) / готова. Без «отряд vs запас». */
+function hiredWaifuPoolUiStatus(w) {
+  const expId = w?.expedition_id ?? w?.expeditionId;
+  if (w?.status === "expedition" || (expId != null && Number(expId) > 0)) {
+    return { key: "traveling", label: "В пути" };
+  }
+  const { cur } = hiredWaifuHp(w);
+  if (cur <= 0) {
+    return { key: "fainted", label: "В обмороке" };
+  }
+  return { key: "ready", label: "Готова" };
+}
+
+function sortTavernPool(squad, reserve) {
+  const squadList = (squad || []).slice().sort((a, b) => {
+    const pa = Number(a?.squad_position ?? 999);
+    const pb = Number(b?.squad_position ?? 999);
+    return pa - pb;
+  });
+  const reserveList = (reserve || []).slice().sort((a, b) => Number(a.id) - Number(b.id));
+  return [...squadList, ...reserveList];
+}
+
 function switchTavernTab(name) {
   document.querySelectorAll(".tavern-tabs .tab").forEach((btn) => {
     if (btn.dataset.tab) btn.classList.toggle("active", btn.dataset.tab === name);
   });
-  ["hire", "squad"].forEach((t) => {
+  ["hire", "squad", "heal", "upgrade"].forEach((t) => {
     const panel = document.getElementById(`tab-${t}`);
     if (!panel) return;
     const isActive = t === name;
     panel.classList.toggle("active", isActive);
     panel.style.display = isActive ? "" : "none";
+  });
+  if (name === "heal") renderTavernHealList();
+  if (name === "squad") renderTavernSquad();
+}
+
+function renderTavernHealList() {
+  const container = document.getElementById("tavern-heal-list");
+  if (!container) return;
+  const squad = Array.isArray(tavernState.squad) ? tavernState.squad : [];
+  const reserve = Array.isArray(tavernState.reserve) ? tavernState.reserve : [];
+  const all = [...squad, ...reserve];
+  const wounded = all.filter((w) => {
+    const { cur, max: maxHp } = hiredWaifuHp(w);
+    return cur < maxHp;
+  });
+  if (wounded.length === 0) {
+    container.innerHTML = '<p class="muted" style="font-style:italic;">Нет раненых наёмниц.</p>';
+    container.className = "placeholder muted";
+    return;
+  }
+  container.className = "";
+  container.innerHTML = wounded
+    .map((w) => {
+      const { cur, max: maxHp } = hiredWaifuHp(w);
+      const need = maxHp - cur;
+      const mult = cur === 0 ? 2 : 1;
+      const cost = need * TAVERN_HEAL_GOLD_PER_HP * mult;
+      const pct = maxHp > 0 ? Math.round((cur / maxHp) * 100) : 0;
+      const label = cur === 0 ? "В обмороке" : `HP ${cur}/${maxHp}`;
+      return `
+        <div class="tavern-heal-card" data-waifu-id="${w.id}">
+          <div class="tavern-heal-info">
+            <span class="tavern-waifu-name">${escapeHtml(w.name || "Наёмница")}</span>
+            <span class="tavern-heal-hp">${label}</span>
+            <div class="tavern-hp-bar-wrap"><div class="tavern-hp-bar" style="width:${pct}%"></div></div>
+          </div>
+          <div class="tavern-heal-action">
+            <span class="tavern-heal-cost">🪙 ${cost}</span>
+            <button type="button" class="btn btn-primary tavern-heal-btn" data-waifu-id="${w.id}" data-cost="${cost}">Лечить</button>
+          </div>
+        </div>`;
+    })
+    .join("");
+  container.querySelectorAll(".tavern-heal-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = parseInt(btn.dataset.waifuId, 10);
+      if (!id) return;
+      (async () => {
+        try {
+          const res = await apiFetch(`/tavern/heal?hired_waifu_id=${encodeURIComponent(id)}`, { method: "POST" });
+          if (res && res.success) {
+            showToast("Наёмница вылечена");
+            if (typeof res.gold_total === "number") profileState.gold = res.gold_total;
+            const { squad: s, reserve: r } = await loadTavernWithProfile();
+            tavernState.squad = s || tavernState.squad;
+            tavernState.reserve = r || tavernState.reserve;
+            renderTavernHealList();
+            renderTavernSquad();
+          }
+        } catch (e) {
+          showToast("Ошибка лечения: " + (e?.message || ""), "error");
+        }
+      })();
+    });
   });
 }
 
@@ -898,6 +2397,8 @@ async function loadTavernWithProfile(profile) {
   tavernState.available = available;
   tavernState.squad = Array.isArray(squadRes?.squad) ? squadRes.squad : [];
   tavernState.reserve = Array.isArray(reserveRes?.reserve) ? reserveRes.reserve : [];
+  const perksList = Array.isArray(available?.perks) ? available.perks : [];
+  tavernState.perksMap = Object.fromEntries(perksList.map((x) => [x.id, x.name || x.id]));
 
   renderTavernHire(p, available);
   renderTavernSquad();
@@ -914,20 +2415,23 @@ function renderTavernHire(profile, available) {
 
   const total = Number(available?.total ?? 4);
   const remaining = Number(available?.remaining ?? 0);
-  setText("tavern-count", `${remaining}/${total}`);
-
-  const squadCount = Array.isArray(tavernState.squad) ? tavernState.squad.length : 0;
-  setText("tavern-squad-count", `${squadCount}/6`);
-
   const price = Number(available?.price ?? 10000);
+
+  // SVG scene: update price bubbles and hired state
   for (let i = 1; i <= 4; i += 1) {
-    const slotEl = document.getElementById(`tavern-slot-${i}`);
-    const priceEl = document.getElementById(`tavern-price-${i}`);
-    if (priceEl) priceEl.textContent = `🪙 ${price}`;
     const slotObj = (available?.slots || []).find((s) => Number(s?.slot) === i);
     const isAvail = slotObj ? Boolean(slotObj.available) : false;
+    const priceText = document.getElementById(`price-text-${i - 1}`);
+    if (priceText) priceText.textContent = `🪙 ${price}`;
+    const fig = document.getElementById(`svg-figure-${i}`);
+    if (fig) {
+      fig.classList.toggle("hired", !isAvail);
+      if (isAvail) fig.onclick = () => openTavernConfirmHire(i);
+      else fig.onclick = null;
+    }
+    // Legacy button fallback
+    const slotEl = document.getElementById(`tavern-slot-${i}`);
     if (slotEl) {
-      // Per spec: hired slot disappears
       slotEl.style.display = isAvail ? "" : "none";
       slotEl.disabled = !isAvail;
     }
@@ -975,11 +2479,15 @@ function renderWaifuCardHtml(w, opts = {}) {
   const cls = `${"tavern-waifu-card"}${extra ? ` ${extra}` : ""}`;
   const power = w?.power ?? "—";
   const perksCount = Array.isArray(w?.perks) ? w.perks.length : 0;
+  const portraitUrl = hiredWaifuImageUrl(w);
+  const portraitContent = portraitUrl
+    ? `<img src="${escapeHtml(portraitUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;" />`
+    : waifuPortraitEmoji(w);
   return `
     <div class="${cls}">
       <div class="tavern-waifu-head">
         <div style="display:flex; gap:10px; align-items:center; min-width:0;">
-          <div class="tavern-portrait" aria-hidden="true">${waifuPortraitEmoji(w)}</div>
+          <div class="tavern-portrait" aria-hidden="true">${portraitContent}</div>
           <div style="min-width:0;">
             <div class="tavern-waifu-name">${nm}</div>
             <div class="tavern-waifu-sub">${sub}</div>
@@ -999,67 +2507,249 @@ function renderTavernSquad() {
   const box = document.getElementById("tavern-squad-grid");
   if (!box) return;
 
-  const squadByPos = new Map();
-  (tavernState.squad || []).forEach((w) => {
-    const pos = Number(w?.squad_position);
-    if (Number.isFinite(pos) && pos >= 1 && pos <= 6) squadByPos.set(pos, w);
-  });
+  const roster = sortTavernPool(tavernState.squad, tavernState.reserve);
+  const pool = roster.slice(0, TAVERN_POOL_MAX);
+  const perksMap = tavernState.perksMap || {};
+
+  const countersEl = document.getElementById("tavern-squad-counters");
+  if (countersEl) {
+    let nReady = 0;
+    let nTravel = 0;
+    let nFaint = 0;
+    roster.forEach((w) => {
+      const ui = hiredWaifuPoolUiStatus(w);
+      if (ui.key === "traveling") nTravel += 1;
+      else if (ui.key === "fainted") nFaint += 1;
+      else nReady += 1;
+    });
+    countersEl.textContent = `${nReady} готовы · ${nTravel} в пути · ${nFaint} в обмороке`;
+  }
 
   box.innerHTML = "";
-  for (let pos = 1; pos <= 6; pos += 1) {
-    const w = squadByPos.get(pos) || null;
-    const wrap = document.createElement("div");
-    wrap.innerHTML = renderWaifuCardHtml(w);
-    const card = wrap.firstElementChild;
-    if (card) {
-      card.onclick = () => {
-        if (!w) return;
-        openTavernWaifuModal(w, "squad");
-      };
-      box.appendChild(card);
-    }
-  }
 
-  const reserve = document.getElementById("tavern-reserve");
-  if (!reserve) return;
-  const items = Array.isArray(tavernState.reserve) ? tavernState.reserve : [];
-  if (!items.length) {
-    reserve.innerHTML = `<div class="muted">Запас пуст.</div>`;
-    return;
-  }
-  reserve.innerHTML = "";
-  items.forEach((w) => {
-    const wrap = document.createElement("div");
-    wrap.innerHTML = renderWaifuCardHtml(w, { extraClass: "tavern-reserve-card" });
-    const card = wrap.firstElementChild;
-    if (card) {
-      card.onclick = () => openTavernWaifuModal(w, "reserve");
-      reserve.appendChild(card);
+  for (let i = 0; i < TAVERN_POOL_MAX; i += 1) {
+    const w = pool[i] || null;
+    if (!w) {
+      const empty = document.createElement("div");
+      empty.className = "squad-slot";
+      empty.innerHTML = `<span style="font-size:24px;opacity:.3">＋</span><span style="font-size:11px;">Пустой слот</span>`;
+      empty.onclick = () => {
+        if (roster.length >= TAVERN_POOL_MAX) {
+          showToast("Пул наёмниц заполнен", "error");
+          return;
+        }
+        switchTavernTab("hire");
+      };
+      box.appendChild(empty);
+      continue;
     }
-  });
+
+    const uiSt = hiredWaifuPoolUiStatus(w);
+    const badge =
+      uiSt.key === "traveling"
+        ? "🗺 В пути"
+        : uiSt.key === "fainted"
+          ? "💤 В обмороке"
+          : "✓ Готова";
+
+    const rarity = Number(w?.rarity ?? 1);
+    const rCls = rarityClass(rarity);
+    const clsId = Number(w?.class ?? w?.class_ ?? 0);
+    const raceId = Number(w?.race ?? 0);
+    const nm = escapeHtml(String(w?.name || "Вайфу"));
+    const meta = `${escapeHtml(raceName(raceId))} · ${escapeHtml(className(clsId))} · Ур.${escapeHtml(String(w?.level ?? "—"))} · Мощь ${escapeHtml(String(w?.power ?? "—"))}`;
+    const perkIds = Array.isArray(w.perks) ? w.perks : [];
+    const perkBadges = perkIds.length
+      ? perkIds
+          .map((pid) => `<span class="perk-badge">${escapeHtml(String(perksMap[pid] || pid))}</span>`)
+          .join("")
+      : `<span class="muted tiny" style="opacity:.75;">—</span>`;
+
+    const url = hiredWaifuImageUrl(w);
+    const portraitLayer = url ? `<img class="squad-mtg-bg-img" src="${escapeHtml(url)}" alt="" />` : "";
+    const bgCls = url ? "squad-mtg-bg" : "squad-mtg-bg squad-mtg-bg--placeholder";
+
+    const slot = document.createElement("div");
+    slot.className = "squad-slot occupied";
+    slot.setAttribute("role", "button");
+    slot.tabIndex = 0;
+    slot.innerHTML = `
+      <div class="squad-mtg-card ${rCls}">
+        <div class="${bgCls}" role="img" aria-label="">${portraitLayer}</div>
+        <div class="squad-mtg-scrim-top" aria-hidden="true"></div>
+        <div class="squad-mtg-scrim-bottom" aria-hidden="true"></div>
+        <div class="squad-mtg-slot-mark" aria-hidden="true">${escapeHtml(badge)}</div>
+        <div class="squad-mtg-top">
+          <div class="squad-mtg-name">${nm}</div>
+          <div class="squad-mtg-meta">${meta}</div>
+        </div>
+        <div class="squad-mtg-bottom">
+          <div class="squad-mtg-perks">${perkBadges}</div>
+        </div>
+      </div>`;
+
+    const open = () => openTavernWaifuModal(w);
+    slot.onclick = open;
+    slot.onkeydown = (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        open();
+      }
+    };
+    box.appendChild(slot);
+  }
 }
 
-async function hireFromTavern(slot) {
-  showTavernError("");
+function openTavernConfirmHire(slot) {
   const id = Number(slot || 0);
   if (!Number.isFinite(id) || id < 1 || id > 4) return;
-  const btn = document.getElementById(`tavern-slot-${id}`);
-  if (btn) btn.disabled = true;
+  const available = tavernState.available;
+  const price = Number(available?.price ?? 10000);
+  tavernState.pendingHireSlot = id;
+  const priceEl = document.getElementById("confirm-price");
+  if (priceEl) priceEl.textContent = `🪙 ${price}`;
+  const modal = document.getElementById("modal-confirm-hire");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+  }
+}
+
+function closeTavernConfirmHire() {
+  tavernState.pendingHireSlot = null;
+  const modal = document.getElementById("modal-confirm-hire");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
+}
+
+function setGenOverlay(show, label, detail, pct) {
+  const overlay = document.getElementById("gen-overlay");
+  const labelEl = document.getElementById("gen-stage-label");
+  const detailEl = document.getElementById("gen-stage-detail");
+  const fillEl = document.getElementById("gen-progress-fill");
+  if (overlay) {
+    overlay.classList.toggle("hidden", !show);
+    overlay.style.display = show ? "flex" : "none";
+  }
+  if (labelEl && label != null) labelEl.textContent = label || "";
+  if (detailEl && detail != null) detailEl.textContent = detail || "";
+  if (fillEl && pct != null) fillEl.style.width = String(pct) + "%";
+}
+
+async function confirmTavernHire() {
+  const slot = tavernState.pendingHireSlot;
+  if (!slot) return;
+  closeTavernConfirmHire();
+  showTavernError("");
+  setGenOverlay(true, "Призыв наёмницы...", "Ожидание ответа сервера", 20);
   try {
-    await apiFetch(`/tavern/hire?slot=${encodeURIComponent(id)}`, { method: "POST" });
+    const result = await apiFetch(`/tavern/hire?slot=${encodeURIComponent(slot)}`, { method: "POST" });
+    setGenOverlay(true, "Параметры получены", "Добавление в запас...", 70);
     await loadProfile().catch(() => {});
     await loadTavernWithProfile({ act: tavernState.act }).catch(() => {});
+    setGenOverlay(true, "✦ Наёмница готова ✦", "", 100);
+    await new Promise((r) => setTimeout(r, 400));
+    tavernState.lastHiredResult = result;
+    showTavernHireResultModal(result);
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showTavernError(detail || "Ошибка найма", "danger");
   } finally {
-    if (btn) btn.disabled = false;
+    setGenOverlay(false, "", "", 0);
   }
 }
 
-function openTavernWaifuModal(w, context) {
+function showTavernHireResultModal(result) {
+  const name = result?.waifu_name || "Вайфу";
+  const rarity = Number(result?.waifu_rarity ?? 1);
+  const card = document.getElementById("result-card");
+  const bg = document.getElementById("result-card-bg");
+  const rFrame = ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"];
+  if (card) {
+    rFrame.forEach((c) => card.classList.remove(c));
+    card.classList.add(rarityClass(rarity));
+  }
+  setText("result-name", name);
+  const newWaifu = (tavernState.reserve || []).find((w) => w.id === result?.waifu_id);
+  const raceId = Number(newWaifu?.race ?? 0);
+  const classId = Number(newWaifu?.class ?? newWaifu?.class_ ?? 0);
+  setText("result-meta", `${raceName(raceId)} · ${className(classId)}`);
+  setText(
+    "result-bio",
+    result?.bio || "Новая наёмница присоединилась к вашему отряду. Управляйте ею во вкладке «Отряд».",
+  );
+  const perksEl = document.getElementById("result-perks");
+  const perkIds = Array.isArray(newWaifu?.perks) ? newWaifu.perks : [];
+  const perksMap = tavernState.perksMap || {};
+  if (perksEl) {
+    perksEl.innerHTML = perkIds.length
+      ? perkIds.map((pid) => `<span class="perk-badge">${perksMap[pid] || pid}</span>`).join("")
+      : "<span class=\"muted tiny\" style=\"opacity:.75;\">—</span>";
+  }
+  if (bg) {
+    bg.classList.remove("hire-result-bg--placeholder");
+    const url = result?.image_url;
+    if (url) {
+      bg.style.backgroundImage = `url(${JSON.stringify(String(url))})`;
+    } else {
+      bg.style.backgroundImage = "none";
+      bg.classList.add("hire-result-bg--placeholder");
+    }
+  }
+  const modal = document.getElementById("modal-hire-result");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+  }
+}
+
+function closeTavernHireResult() {
+  const modal = document.getElementById("modal-hire-result");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
+  tavernState.lastHiredResult = null;
+}
+
+function goToSquadTab() {
+  closeTavernHireResult();
+  switchTavernTab("squad");
+}
+
+async function hireFromTavern(slot) {
+  openTavernConfirmHire(slot);
+}
+
+function hiredWaifuExpForLevel(level) {
+  if (level <= 1) return 0;
+  let total = 0;
+  for (let lvl = 2; lvl <= level; lvl++) total += 50 * (lvl * lvl);
+  return total;
+}
+
+function hideTavernPerkTip(root) {
+  const wrap = root || document.getElementById("tavern-waifu-modal-body");
+  const tip = wrap?.querySelector?.("#tavern-perk-tip");
+  if (tip) {
+    tip.hidden = true;
+    tip.classList.remove("tavern-perk-tip--open");
+    tip.style.left = "";
+    tip.style.top = "";
+    tip.style.transform = "";
+  }
+}
+
+function setTavernWaifuModalPageScrollLocked(locked) {
+  if (document.body?.classList?.contains("page-tavern")) {
+    document.body.classList.toggle("tavern-modal-scroll-lock", Boolean(locked));
+  }
+}
+
+function openTavernWaifuModal(w) {
   tavernState.selectedWaifu = w || null;
-  tavernState.selectedContext = context || null;
   const m = document.getElementById("tavern-waifu-modal");
   const body = document.getElementById("tavern-waifu-modal-body");
   if (!m || !body || !w) return;
@@ -1067,46 +2757,225 @@ function openTavernWaifuModal(w, context) {
   const clsId = Number(w?.class ?? w?.class_ ?? w?.["class"]);
   const raceId = Number(w?.race);
   const rarity = Number(w?.rarity ?? 1);
-  setText("tavern-waifu-modal-title", String(w?.name || "Вайфу"));
-  setText(
-    "tavern-waifu-modal-subtitle",
-    `lvl ${w?.level ?? "—"} · ${rarityLabel(rarity)} · ${className(clsId)} / ${raceName(raceId)}`
-  );
+  const rCls = rarityClass(rarity);
+  const nm = String(w?.name || "Вайфу");
+  const perksMap = tavernState.perksMap || {};
+  const perkIds = Array.isArray(w?.perks) ? w.perks : [];
+  const perkCells = perkIds.length
+    ? perkIds
+        .map((pid) => {
+          const p = String(pid);
+          const icon = PERK_ICONS[p] || "✦";
+          const label = String(perksMap[p] || p);
+          return `<button type="button" class="waifu-mtg-perk-cell" data-perk-id="${escapeHtml(p)}" aria-label="${escapeHtml(label)}"><span class="waifu-mtg-perk-ico" aria-hidden="true">${icon}</span></button>`;
+        })
+        .join("")
+    : `<div class="waifu-mtg-no-perks">Нет перков</div>`;
+
+  const imgUrl = hiredWaifuImageUrl(w);
+  const portraitInner = imgUrl
+    ? `<img class="waifu-mtg-art-img" src="${escapeHtml(imgUrl)}" alt="" />`
+    : `<div class="waifu-mtg-art-placeholder" aria-hidden="true">${waifuPortraitEmoji(w)}</div>`;
+
+  const level = Number(w?.level ?? 1);
+  const exp = Number(w?.experience ?? 0);
+  const expCur = hiredWaifuExpForLevel(level);
+  const expNext = hiredWaifuExpForLevel(level + 1);
+  const expInLevel = Math.max(0, exp - expCur);
+  const expNeed = Math.max(1, expNext - expCur);
+  const expPct = Math.min(100, Math.round((expInLevel / expNeed) * 100));
+  const xpBarHtml =
+    level >= 1 && level < 50
+      ? `<div class="waifu-mtg-xp full-bar-row"><div class="full-bar-label"><span>Опыт</span><span>${expInLevel}/${expNeed}</span></div><div class="full-bar"><div class="full-bar-fill" style="width:${expPct}%;background:linear-gradient(90deg,#c8922a,#e8b84b);"></div></div></div>`
+      : level >= 50
+        ? `<div class="waifu-mtg-xp waifu-mtg-xp--max">Макс. уровень</div>`
+        : "";
+
+  const bioText = (w?.bio && String(w.bio).trim()) ? String(w.bio).trim() : "Биография не задана.";
 
   body.innerHTML = `
-    <div class="detail-row"><span class="muted">Портрет</span><strong>${waifuPortraitEmoji(w)}</strong></div>
-    <div class="details-grid" style="margin-top:0;">
-      <div class="detail-row"><span class="muted">Мощь</span><strong>${w?.power ?? "—"}</strong></div>
-      <div class="detail-row"><span class="muted">Перки</span><strong>${Array.isArray(w?.perks) && w.perks.length ? w.perks.join(", ") : "—"}</strong></div>
+    <div class="tavern-waifu-mtg-wrap">
+      <div class="waifu-mtg-flip-scene">
+        <div class="waifu-mtg-flip-inner" id="waifu-mtg-flip-inner">
+          <div class="waifu-mtg-face waifu-mtg-face--front">
+            <div class="waifu-mtg-card ${rCls}">
+              <div class="waifu-mtg-art">
+                ${portraitInner}
+                <div class="waifu-mtg-art-scrim" aria-hidden="true"></div>
+                <header class="waifu-mtg-header-row">
+                  <h2 class="waifu-mtg-name">${escapeHtml(nm)}</h2>
+                  <div class="waifu-mtg-lvl-badge" title="Уровень"><span class="waifu-mtg-lvl-num">${escapeHtml(String(level))}</span></div>
+                </header>
+                <div class="waifu-mtg-lower-overlay">
+                  <div class="waifu-mtg-typebar">
+                    ${escapeHtml(raceName(raceId))} · ${escapeHtml(className(clsId))} · ${escapeHtml(rarityLabel(rarity))} · Мощь ${escapeHtml(String(w?.power ?? "—"))}
+                  </div>
+                  <div class="waifu-mtg-perks-head">
+                    <span class="waifu-mtg-perks-label">Перки</span>
+                    <button type="button" class="waifu-mtg-bio-chip" data-flip-to="back">BIO</button>
+                  </div>
+                  <div class="waifu-mtg-perk-grid">${perkCells}</div>
+                </div>
+                <div class="tavern-perk-tip" id="tavern-perk-tip" role="dialog" aria-modal="true" hidden>
+                  <div class="tavern-perk-tip-name" id="tavern-perk-tip-name"></div>
+                  <div class="tavern-perk-tip-desc" id="tavern-perk-tip-desc"></div>
+                  <div class="tavern-perk-tip-diff" id="tavern-perk-tip-diff"></div>
+                  <button type="button" class="tavern-perk-tip-close tavern-btn-mini">Понятно</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="waifu-mtg-face waifu-mtg-face--back">
+            <div class="waifu-mtg-card ${rCls} waifu-mtg-card--backface">
+              <div class="waifu-mtg-bio-back-head">
+                <span class="waifu-mtg-bio-back-title">${escapeHtml(nm)}</span>
+                <button type="button" class="waifu-mtg-bio-chip" data-flip-to="front">Перки</button>
+              </div>
+              <div class="waifu-mtg-bio-back-text"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      ${xpBarHtml}
     </div>
   `;
 
-  const action = document.getElementById("tavern-waifu-modal-action");
-  if (action) {
-    if (context === "reserve") {
-      action.textContent = "В отряд";
-      action.style.display = "";
-    } else if (context === "squad") {
-      action.textContent = "В запас";
-      action.style.display = "";
-    } else {
-      action.style.display = "none";
-    }
+  const bioBack = body.querySelector(".waifu-mtg-bio-back-text");
+  if (bioBack) bioBack.textContent = bioText;
+
+  const flipInner = body.querySelector("#waifu-mtg-flip-inner");
+  body.querySelectorAll("[data-flip-to]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      hideTavernPerkTip(body);
+      const to = btn.getAttribute("data-flip-to");
+      if (!flipInner) return;
+      if (to === "back") flipInner.classList.add("is-flipped");
+      else flipInner.classList.remove("is-flipped");
+    });
+  });
+
+  const tipEl = body.querySelector("#tavern-perk-tip");
+  const tipName = body.querySelector("#tavern-perk-tip-name");
+  const tipDesc = body.querySelector("#tavern-perk-tip-desc");
+  const tipDiff = body.querySelector("#tavern-perk-tip-diff");
+  const tipClose = body.querySelector(".tavern-perk-tip-close");
+
+  body.querySelectorAll(".waifu-mtg-perk-cell").forEach((cell) => {
+    cell.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const pid = cell.getAttribute("data-perk-id") || "";
+      if (!tipEl || !tipName || !tipDesc || !tipDiff) return;
+      tipName.textContent = String(perksMap[pid] ?? perksMap[String(pid)] ?? pid);
+      tipDesc.textContent = PERK_DESCS[pid] || "Специальное умение для экспедиций.";
+      tipDiff.textContent = PERK_EXPEDITION_COUNTER_HINT;
+      tipEl.hidden = false;
+      tipEl.classList.add("tavern-perk-tip--open");
+    });
+  });
+
+  if (tipClose) {
+    tipClose.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      hideTavernPerkTip(body);
+    });
   }
 
+  const backFace = body.querySelector(".waifu-mtg-face--back");
+  if (backFace && flipInner) {
+    backFace.addEventListener("click", () => {
+      if (!flipInner.classList.contains("is-flipped")) return;
+      hideTavernPerkTip(body);
+      flipInner.classList.remove("is-flipped");
+    });
+  }
+
+  setTavernWaifuModalPageScrollLocked(true);
   m.style.display = "grid";
 }
 
 function closeTavernWaifuModal() {
+  const body = document.getElementById("tavern-waifu-modal-body");
+  hideTavernPerkTip(body);
+  const flip = document.getElementById("waifu-mtg-flip-inner");
+  if (flip) flip.classList.remove("is-flipped");
   const m = document.getElementById("tavern-waifu-modal");
   if (m) m.style.display = "none";
+  setTavernWaifuModalPageScrollLocked(false);
   tavernState.selectedWaifu = null;
-  tavernState.selectedContext = null;
 }
 
 function closeTavernSlotModal() {
+  const body = document.getElementById("tavern-slot-modal-body");
+  if (body) {
+    body.classList.remove("tavern-slot-modal-grid-body");
+    body.innerHTML = "";
+  }
   const m = document.getElementById("tavern-slot-modal");
   if (m) m.style.display = "none";
+}
+
+function openAddToSquadPicker(slotPosition) {
+  const reserve = tavernState.reserve || [];
+  if (reserve.length === 0) {
+    switchTavernTab("hire");
+    return;
+  }
+  tavernState.pendingSquadSlot = slotPosition;
+  renderSquadPickerModal(reserve, slotPosition);
+  const modal = document.getElementById("modal-squad-picker");
+  if (modal) modal.classList.remove("hidden");
+}
+
+function closeSquadPickerModal() {
+  const modal = document.getElementById("modal-squad-picker");
+  if (modal) modal.classList.add("hidden");
+  tavernState.pendingSquadSlot = null;
+}
+
+function renderSquadPickerModal(available, slotPosition) {
+  const listEl = document.getElementById("squad-picker-list");
+  const subEl = document.querySelector("#modal-squad-picker .modal-subtitle");
+  if (subEl) subEl.textContent = `Выберите наёмницу из запаса для слота #${slotPosition}`;
+  if (!listEl) return;
+  const perksMap = tavernState.perksMap || {};
+  listEl.innerHTML = available.map((u) => {
+    const { cur, max: hpMax } = hiredWaifuHp(u);
+    const hpPct = hpMax > 0 ? Math.round((cur / hpMax) * 100) : 100;
+    const statusOk = cur > 0;
+    const clsId = Number(u?.class ?? u?.class_ ?? 0);
+    const perkPips = (u.perks || []).slice(0, 3).map((pid) => `<span class="perk-pip" title="${PERK_DESCS[pid] || ""}">${(perksMap[pid] || pid).toString().split(" ")[0] || "?"}</span>`).join("");
+    return `
+      <div class="squad-picker-card ${statusOk ? "" : "squad-picker-card--weak"}" data-waifu-id="${u.id}" role="button" tabindex="0">
+        <div class="squad-picker-icon">${waifuPortraitEmoji(u)}</div>
+        <div class="squad-picker-info">
+          <div class="squad-picker-name">${String(u?.name || "Вайфу")}</div>
+          <div class="squad-picker-meta">${className(clsId)} · Ур.${u?.level ?? "—"}</div>
+          <div class="squad-picker-bars">
+            <div class="mini-bar" style="width:80px"><div class="mini-bar-fill hp" style="width:${hpPct}%"></div></div>
+          </div>
+        </div>
+        <div class="squad-picker-perks">${perkPips}</div>
+      </div>`;
+  }).join("");
+  listEl.querySelectorAll(".squad-picker-card").forEach((card) => {
+    const waifuId = Number(card.dataset.waifuId);
+    card.addEventListener("click", () => pickForSquad(waifuId));
+  });
+}
+
+async function pickForSquad(waifuId) {
+  const slot = tavernState.pendingSquadSlot;
+  if (!slot || !waifuId) return;
+  try {
+    await apiFetch(`/tavern/squad/add?waifu_id=${encodeURIComponent(waifuId)}&slot=${encodeURIComponent(slot)}`, { method: "POST" });
+    closeSquadPickerModal();
+    await loadTavernWithProfile({ act: tavernState.act }).catch(() => {});
+    renderTavernSquad();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showTavernError(detail || "Ошибка добавления в отряд", "danger");
+  }
 }
 
 function openTavernSlotModal(w) {
@@ -1115,7 +2984,7 @@ function openTavernSlotModal(w) {
   if (!m || !body || !w) return;
 
   const subtitle = document.getElementById("tavern-slot-modal-subtitle");
-  if (subtitle) subtitle.textContent = `Кого ставим: ${w?.name || "—"}`;
+  if (subtitle) subtitle.textContent = `Поставить в слот: ${w?.name || "—"}`;
 
   const squadByPos = new Map();
   (tavernState.squad || []).forEach((x) => {
@@ -1124,70 +2993,98 @@ function openTavernSlotModal(w) {
   });
 
   body.innerHTML = "";
+  body.classList.add("tavern-slot-modal-grid-body");
+
+  const grid = document.createElement("div");
+  grid.className = "tavern-slot-pick-grid";
   for (let pos = 1; pos <= 6; pos += 1) {
     const cur = squadByPos.get(pos) || null;
-    const row = document.createElement("div");
-    row.className = "list-item";
-    row.innerHTML = `
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:center;">
-        <div style="min-width:0;">
-          <strong>Слот #${pos}</strong>
-          <div class="muted tiny">${cur ? `занято: ${cur.name}` : "свободно"}</div>
-        </div>
-        <button class="primary" style="width:auto; padding:10px 12px;">Выбрать</button>
-      </div>
+    const cell = document.createElement("button");
+    cell.type = "button";
+    cell.className = "tavern-slot-pick-cell" + (cur ? " tavern-slot-pick-cell--filled" : " tavern-slot-pick-cell--empty");
+    const url = cur?.image_url ? String(cur.image_url) : "";
+    const portraitHtml = cur
+      ? url
+        ? `<img class="tavern-slot-pick-img" src="${escapeHtml(url)}" alt="" />`
+        : `<span class="tavern-slot-pick-emoji">${waifuPortraitEmoji(cur)}</span>`
+      : `<span class="tavern-slot-pick-plus" aria-hidden="true">＋</span>`;
+    const nameLine = cur ? escapeHtml(String(cur.name || "—")) : "Свободно";
+    const hint = cur
+      ? `<span class="tavern-slot-pick-hint">Заменит слот → в запас</span>`
+      : `<span class="tavern-slot-pick-hint">Пустой слот</span>`;
+    cell.innerHTML = `
+      <span class="tavern-slot-pick-num">#${pos}</span>
+      <div class="tavern-slot-pick-portrait">${portraitHtml}</div>
+      <div class="tavern-slot-pick-name">${nameLine}</div>
+      ${hint}
     `;
-    const btn = row.querySelector("button");
-    if (btn) {
-      btn.onclick = async (ev) => {
-        ev.stopPropagation();
-        try {
-          await apiFetch(`/tavern/squad/add?waifu_id=${encodeURIComponent(w.id)}&slot=${encodeURIComponent(pos)}`, {
-            method: "POST",
-          });
-          closeTavernSlotModal();
-          closeTavernWaifuModal();
-          await loadTavernWithProfile({ act: tavernState.act }).catch(() => {});
-        } catch (e) {
-          const { detail } = parseHttpErrorDetail(e);
-          showTavernError(detail || "Ошибка формирования отряда", "danger");
-          closeTavernSlotModal();
-        }
-      };
-    }
-    body.appendChild(row);
+    cell.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      try {
+        await apiFetch(`/tavern/squad/add?waifu_id=${encodeURIComponent(w.id)}&slot=${encodeURIComponent(pos)}`, {
+          method: "POST",
+        });
+        closeTavernSlotModal();
+        closeTavernWaifuModal();
+        await loadTavernWithProfile({ act: tavernState.act }).catch(() => {});
+      } catch (e) {
+        const { detail } = parseHttpErrorDetail(e);
+        showTavernError(detail || "Ошибка формирования отряда", "danger");
+        closeTavernSlotModal();
+      }
+    });
+    grid.appendChild(cell);
   }
+  body.appendChild(grid);
 
   m.style.display = "grid";
 }
 
-async function tavernWaifuModalAction() {
+async function dismissTavernWaifu() {
   const w = tavernState.selectedWaifu;
-  const ctx = tavernState.selectedContext;
-  if (!w || !w.id) return;
-  if (ctx === "reserve") {
-    openTavernSlotModal(w);
+  if (!w?.id) return;
+  const nm = String(w?.name || "наёмницу").trim() || "наёмницу";
+  const ok = window.confirm(`Уволить «${nm}»? Уровень передастся следующей нанятой наёмнице.`);
+  if (!ok) return;
+  try {
+    const res = await apiFetch(`/tavern/dismiss?waifu_id=${encodeURIComponent(w.id)}`, { method: "POST" });
+    closeTavernWaifuModal();
+    showTavernError(res.hint || "Вайфу уволена. Уровень сохранён для следующей нанятой.");
+    await loadTavernWithProfile({ act: tavernState.act }).catch(() => {});
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showTavernError(detail || "Ошибка увольнения", "danger");
+  }
+}
+
+/** Кнопка 🔄 у вкладок: у игрока — перезагрузка с сервера; у админа — принудительное обновление слотов найма. */
+async function refreshTavernPage() {
+  if (isAdminUser()) {
+    await adminRefreshTavern();
     return;
   }
-  if (ctx === "squad") {
-    try {
-      await apiFetch(`/tavern/squad/remove?waifu_id=${encodeURIComponent(w.id)}`, { method: "POST" });
-      closeTavernWaifuModal();
-      await loadTavernWithProfile({ act: tavernState.act }).catch(() => {});
-    } catch (e) {
-      const { detail } = parseHttpErrorDetail(e);
-      showTavernError(detail || "Ошибка", "danger");
-    }
+  showTavernError("");
+  try {
+    await loadTavernWithProfile({ act: tavernState.act });
+  } catch (e) {
+    showTavernError("Не удалось обновить таверну.", "danger");
   }
 }
 
 async function adminRefreshTavern() {
+  showTavernError("");
   try {
-    await apiFetch(`/admin/tavern/refresh`, { method: "POST" });
+    const response = await apiFetch(`/admin/tavern/refresh`, { method: "POST" });
+    tavernState.available = response;
+    const perksList = Array.isArray(response?.perks) ? response.perks : [];
+    tavernState.perksMap = Object.fromEntries(perksList.map((x) => [x.id, x.name || x.id]));
+    renderTavernHire({ act: tavernState.act }, response);
+    await loadProfile().catch(() => {});
     await loadTavernWithProfile({ act: tavernState.act }).catch(() => {});
+    showTavernError("Слоты найма обновлены.", "info");
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
-    showTavernError(detail || "Admin refresh failed", "danger");
+    showTavernError(detail || "Ошибка обновления слотов", "danger");
   }
 }
 
@@ -1287,50 +3184,118 @@ function parseHttpErrorDetail(err) {
   }
 }
 
+function isWebAppUnauthorizedError(err) {
+  const msg = String(err?.message || "");
+  if (!msg.includes("HTTP 401")) return false;
+  const { detail } = parseHttpErrorDetail(err);
+  const d = (detail || "").toLowerCase();
+  return (
+    d.includes("telegram") ||
+    d.includes("init data") ||
+    d.includes("hash missing") ||
+    d.includes("invalid init") ||
+    d.includes("expired")
+  );
+}
+
+/** Сообщение при открытии WebApp вне Telegram или без валидного initData. */
+function webAppAuthNoticeHtml() {
+  const devBlock = `<details class="webapp-auth-details"><summary>Для разработчиков</summary>
+    <p>При <code>APP_ENV=dev</code> на сервере можно открыть страницу с параметром <code>?devPlayerId=</code><em>id</em> (id игрока в БД) — тогда запросы пойдут с заголовком <code>X-Player-Id</code>. В production это отключено.</p>
+  </details>`;
+  return `<div class="webapp-auth-notice" role="alert">
+    <h3 class="webapp-auth-notice-title">Нужен вход через Telegram</h3>
+    <p>Откройте эту страницу из <strong>мини-приложения бота</strong> в Telegram. В обычном браузере не передаётся подпись <code>initData</code>, поэтому сервер отвечает 401.</p>
+    <p class="muted">Если вы уже внутри Telegram, закройте мини-приложение полностью и откройте снова — иногда устаревает сессия.</p>
+    ${devBlock}
+  </div>`;
+}
+
 function renderSoloDungeonTile(d, waifuLevel) {
+  const did = Number(d?.id);
   const lvlReq = safeInt(d?.level, 1);
   const baseCanEnter = safeInt(waifuLevel, 0) >= lvlReq;
-  const pl = Number(selectedPlusLevel || 0);
-  const st = dungeonPlusStatusById?.[Number(d?.id)];
+  const lockedByAct = Boolean(d?.locked_by_act);
+  const lockedByPrev = Boolean(d?.locked_by_prev);
+  const pl = getPlusLevelForDungeon(did);
+  const st = dungeonPlusStatusById?.[did];
   const unlocked = Number(st?.unlocked_plus_level || 0);
   const isPlusLocked = pl > 0 && pl > unlocked;
-  const canEnter = pl > 0 ? !isPlusLocked : baseCanEnter;
-  const theme = dungeonThemeByNumber(d?.dungeon_number);
-  const mMin = safeInt(d?.obstacle_min, null);
-  const mMax = safeInt(d?.obstacle_max, null);
-  const mFixed = safeInt(d?.obstacle_count, 1);
-  const monstersLabel =
-    mMin != null && mMax != null && mMax >= mMin && (mMin !== mMax)
-      ? `${mMin}–${mMax}`
-      : String(mFixed);
+  const canEnter =
+    !lockedByAct &&
+    !lockedByPrev &&
+    (pl > 0 ? !isPlusLocked : baseCanEnter);
+  const act = safeInt(d?.act, 1);
+  const dungeonNum = safeInt(d?.dungeon_number, 1);
+  const artUrl = `/webapp/assets/dungeons/act-${act}/dungeon-${dungeonNum}.webp`;
   const lockedClass = canEnter ? "" : "locked";
-  const btnText =
+  let lockReason = "";
+  if (!canEnter) {
+    if (lockedByAct) lockReason = "Акт не открыт";
+    else if (lockedByPrev) lockReason = "Сначала пройдите предыдущее";
+    else if (pl > 0 && isPlusLocked) lockReason = `Нужен разблокированный +${pl}`;
+    else if (!baseCanEnter) lockReason = `Требуется ур. ${lvlReq}+`;
+  }
+  const lockHint = lockReason ? ` title="${escapeHtml(lockReason)}"` : "";
+  const plusLabel = pl > 0 ? `+${pl}` : "0";
+  const showPlusBtn = Boolean(plusBottomSheetUnlocked);
+  const maxUn = Math.max(1, unlocked);
+  const hue = Math.round(120 * (1 - Math.min(1, pl / maxUn)));
+  const plusHueStyle = ` style="--plus-hue:${hue}"`;
+  const plusBtn = showPlusBtn
+    ? `<button type="button" class="chip chip-plus solo-dungeon-plus-btn"${plusHueStyle} data-dungeon-id="${did}" title="Сложность этого подземелья" aria-label="Выбрать сложность" onclick="event.stopPropagation(); event.preventDefault(); WaifuApp.openPlusBottomSheet(${did});">
+        <span aria-hidden="true">➕</span>
+        <span class="solo-dungeon-plus-label">${plusLabel}</span>
+      </button>`
+    : "";
+  const nm = escapeHtml(String(d.name || "Подземелье"));
+  const showMinLvl = safeInt(waifuLevel, 0) < lvlReq;
+  const lvlLine = showMinLvl
+    ? `<div class="solo-dungeon-card__meta-line solo-dungeon-card__meta-line--lvl">Мин. ур.: <strong>${lvlReq}</strong></div>`
+    : "";
+  const lineDiff =
     pl > 0
-      ? isPlusLocked
-        ? `🔒 +${pl}`
-        : `⚔️ Старт +${pl}`
-      : baseCanEnter
-        ? "⚔️ Старт"
-        : `🔒 Ур. ${lvlReq}+`;
+      ? `<div class="solo-dungeon-card__meta-line solo-dungeon-card__meta-line--diff">Сложность <strong>+${pl}</strong></div>`
+      : `<div class="solo-dungeon-card__meta-line solo-dungeon-card__meta-line--diff solo-dungeon-card__meta-line--spacer" aria-hidden="true">&nbsp;</div>`;
+  const lockLine =
+    lockReason && !canEnter
+      ? `<div class="solo-dungeon-card__meta-line solo-dungeon-card__meta-line--lock">${escapeHtml(lockReason)}</div>`
+      : `<div class="solo-dungeon-card__meta-line solo-dungeon-card__meta-line--lock solo-dungeon-card__meta-line--spacer" aria-hidden="true">&nbsp;</div>`;
+  const bottomClass =
+    "solo-dungeon-card__bottombar" + (showMinLvl ? "" : " solo-dungeon-card__bottombar--compact");
   return `
-    <div class="dungeon-tile ${lockedClass}">
-      <div class="dungeon-hero" title="${theme.title}">
-        <div class="dungeon-badge">Акт ${d.act} · ${theme.title}</div>
-        <div class="dungeon-emoji" aria-hidden="true">${theme.emoji}</div>
-      </div>
-      <div class="dungeon-body2">
-        <div class="dungeon-name2">${d.name || "Подземелье"}</div>
-        <div class="dungeon-meta2">
-          <div>Тип: <strong>${dungeonTypeLabel(d.dungeon_type)}</strong></div>
-          <div>Мин. ур.: <strong>${lvlReq}</strong></div>
-          <div>Монстров: <strong>${monstersLabel}</strong></div>
-        </div>
-        <div class="dungeon-actions2">
-          <button class="dungeon-start2" ${canEnter ? "" : "disabled"} onclick="WaifuApp.startDungeon(${d.id}, ${pl})">${btnText}</button>
+    <div class="solo-dungeon-card dungeon-tile ${lockedClass}" data-dungeon-id="${did}" data-can-enter="${canEnter ? "1" : "0"}"${lockHint}
+      onclick="WaifuApp.handleSoloDungeonTileClick(event, ${did})">
+      <div class="solo-dungeon-card__frame">
+        <img class="solo-dungeon-card__bg" src="${artUrl}" alt="" loading="lazy" decoding="async" />
+        <div class="solo-dungeon-card__overlay">
+          <div class="solo-dungeon-card__hdr">
+            <h3 class="solo-dungeon-card__title">${nm}</h3>
+            ${plusBtn}
+          </div>
+          <div class="${bottomClass}">
+            ${lvlLine}
+            ${lineDiff}
+            ${lockLine}
+          </div>
         </div>
       </div>
     </div>
   `;
+}
+
+function handleSoloDungeonTileClick(ev, dungeonId) {
+  if (ev?.target?.closest?.(".solo-dungeon-plus-btn")) return;
+  const tile = ev?.currentTarget;
+  if (!tile || !dungeonId) return;
+  const can = tile.getAttribute("data-can-enter") === "1";
+  if (!can) {
+    const t = tile.getAttribute("title");
+    if (t) showDungeonsError(t, "info");
+    return;
+  }
+  const pl = getPlusLevelForDungeon(dungeonId);
+  startDungeon(dungeonId, pl);
 }
 
 async function renderSoloDungeonsForAct(profile) {
@@ -1377,6 +3342,142 @@ function buildStageDots(pos, total) {
   return `<div class="stage-dots" aria-label="Прогресс: ${pos}/${total}">${dots.join("")}</div>`;
 }
 
+// ─── Monster image (WebP) system ─────────────────────────────────────────
+const MONSTER_STATIC_BASE = (typeof window !== "undefined" && window.APP_CONFIG?.staticBase) || "/webapp/assets/monsters";
+
+function buildMonsterImageUrls(family, slug, tier, imageOverride) {
+  if (imageOverride) return [imageOverride, `${MONSTER_STATIC_BASE}/_unknown.webp`];
+  return [
+    `${MONSTER_STATIC_BASE}/${family}/${slug}.webp`,
+    `${MONSTER_STATIC_BASE}/${family}/_family_t${tier}.webp`,
+    `${MONSTER_STATIC_BASE}/${family}/_family.webp`,
+    `${MONSTER_STATIC_BASE}/_unknown.webp`,
+  ];
+}
+
+function loadMonsterImage(family, slug, tier, imageOverride) {
+  const visual = document.getElementById("monster-visual");
+  const img = document.getElementById("monster-img");
+  const placeholder = document.getElementById("monster-placeholder");
+  if (!visual || !img || !placeholder) return;
+
+  const urls = buildMonsterImageUrls(family, slug, tier, imageOverride);
+  img.dataset.fallbackUrls = JSON.stringify(urls);
+  img.dataset.fallbackIndex = "0";
+
+  img.classList.add("fading");
+  placeholder.classList.add("visible");
+
+  visual.dataset.family = family || "";
+  visual.dataset.slug = slug || "";
+  visual.dataset.tier = String(tier || 1);
+
+  img.style.display = "";
+  img.src = urls[0];
+  img.alt = `Монстр ${slug}`;
+}
+
+function onMonsterImageLoad(img) {
+  const placeholder = document.getElementById("monster-placeholder");
+  if (placeholder) placeholder.classList.remove("visible");
+  if (img) img.classList.remove("fading");
+}
+
+function onMonsterImageError(img) {
+  const urls = JSON.parse(img?.dataset?.fallbackUrls || "[]");
+  let index = parseInt(img?.dataset?.fallbackIndex || "0", 10) + 1;
+  if (index < urls.length) {
+    img.dataset.fallbackIndex = String(index);
+    img.src = urls[index];
+  } else {
+    if (img) img.style.display = "none";
+  }
+}
+
+function renderSoloBattleCard(monster, dungeon, waifu) {
+  const card = document.getElementById("solo-active");
+  if (!card) return;
+  const list = document.getElementById("solo-dungeons");
+  if (list) list.style.display = "none";
+  card.style.display = "block";
+
+  setText("solo-dungeon-name", dungeon.name ?? "—");
+  const total = dungeon.total_rooms || 0;
+  const current = dungeon.current_room || 1;
+  const progressDots = Array.from({ length: total }, (_, i) =>
+    i < current - 1 ? "⚫" : i === current - 1 ? "🔴" : "⚪"
+  ).join("");
+  const progressEl = document.getElementById("solo-dungeon-progress");
+  if (progressEl) progressEl.textContent = progressDots;
+
+  const visual = document.getElementById("monster-visual");
+  if (visual) {
+    visual.className = "monster-visual";
+    if (monster.is_boss) visual.classList.add("boss");
+    else if (monster.is_elite) {
+      const glow = monster.affix_count >= 4 ? "elite-red" : monster.affix_count >= 3 ? "elite-gold" : "elite-blue";
+      visual.classList.add(glow);
+    }
+  }
+
+  setText("monster-name-text", (monster.emoji ? monster.emoji + " " : "") + (monster.name ?? "—"));
+  setText("monster-name-level", `Ур. ${monster.level ?? "—"}`);
+
+  const emojiEl = document.getElementById("monster-emoji");
+  if (emojiEl) emojiEl.textContent = monster.emoji ?? "👾";
+  const placeholderLabel = document.getElementById("monster-placeholder-label");
+  if (placeholderLabel) placeholderLabel.textContent = monster.family ?? "";
+
+  const img = document.getElementById("monster-img");
+  if (img) img.classList.add("fading");
+  setTimeout(() => {
+    loadMonsterImage(
+      monster.family || "unknown",
+      monster.slug || "unknown",
+      monster.tier ?? 1,
+      monster.image_override ?? null
+    );
+  }, 150);
+
+  const monsterPct = monster.max_hp > 0 ? Math.max(0, Math.min(100, (monster.current_hp / monster.max_hp) * 100)) : 0;
+  setText("monster-hp-text", `${monster.current_hp} / ${monster.max_hp}`);
+  const hpFill = document.getElementById("monster-hp-fill");
+  if (hpFill) hpFill.style.width = monsterPct + "%";
+
+  const affixesEl = document.getElementById("monster-affixes");
+  if (affixesEl) {
+    if (monster.is_elite && monster.affixes?.length) {
+      const colorClass = monster.affix_count >= 4 ? "red" : monster.affix_count >= 3 ? "gold" : "blue";
+      affixesEl.innerHTML = monster.affixes.map((a) => `<span class="affix-chip ${colorClass}">${a.name}</span>`).join("");
+      affixesEl.style.display = "flex";
+    } else {
+      affixesEl.style.display = "none";
+    }
+  }
+
+  setText("solo-waifu-name", waifu.name ?? "—");
+  setText("solo-waifu-hp-text", `${waifu.current_hp} / ${waifu.max_hp}`);
+  const waifuPct = waifu.max_hp > 0 ? Math.max(0, Math.min(100, (waifu.current_hp / waifu.max_hp) * 100)) : 0;
+  const waifuHpFill = document.getElementById("solo-waifu-hp-fill");
+  if (waifuHpFill) waifuHpFill.style.width = waifuPct + "%";
+
+  const unconsciousBanner = document.getElementById("unconscious-banner");
+  if (unconsciousBanner) unconsciousBanner.style.display = waifu.current_hp <= 0 ? "block" : "none";
+  const unconsciousTimer = document.getElementById("unconscious-timer");
+  if (unconsciousTimer) unconsciousTimer.textContent = "восстановление...";
+
+  const metaEl = document.getElementById("solo-active-meta");
+  if (metaEl) {
+    const lastDmg = typeof window._lastSoloDamage === "number" ? window._lastSoloDamage : null;
+    const lastCrit = window._lastSoloCrit === true;
+    const dealt = typeof window._lastSoloDealt === "number" ? window._lastSoloDealt : null;
+    const parts = [];
+    if (lastDmg != null) parts.push(`<div class="meta-tag">Последний удар: <strong>${lastDmg}</strong>${lastCrit ? " <span style=\"color:#fbbf24\">★крит</span>" : ""}</div>`);
+    if (dealt != null && dealt > 0) parts.push(`<div class="meta-tag">Нанесено: <strong>${dealt}</strong></div>`);
+    metaEl.innerHTML = parts.length ? parts.join("") : "";
+  }
+}
+
 function renderSoloActiveProgress(active) {
   const host = document.getElementById("solo-active");
   const list = document.getElementById("solo-dungeons");
@@ -1385,7 +3486,6 @@ function renderSoloActiveProgress(active) {
   if (!active?.active) {
     host.style.display = "none";
     list.style.display = "";
-    host.innerHTML = "";
     return;
   }
 
@@ -1399,86 +3499,57 @@ function renderSoloActiveProgress(active) {
   const lastDmg = active.last_damage != null ? safeNumber(active.last_damage, null) : null;
   const lastCrit = active.last_is_crit === true;
   const pl = safeNumber(active.plus_level, 0);
+  window._lastSoloDamage = lastDmg;
+  window._lastSoloCrit = lastCrit;
+  window._lastSoloDealt = dealt;
 
-  const waifuHpCur = safeNumber(active.waifu_current_hp, null);
-  const waifuHpMax = Math.max(1, safeNumber(active.waifu_max_hp, 1));
-  const waifuPct = waifuHpCur != null ? Math.round(clamp01(waifuHpCur / waifuHpMax) * 100) : null;
-  const isUnconscious = waifuHpCur === 0;
-
-  // Recovery timer: if API provides recovery_seconds_left use it; otherwise show generic msg
-  const recoverySec = active.recovery_seconds_left != null ? safeNumber(active.recovery_seconds_left, null) : null;
-  const recoveryText = recoverySec != null
-    ? `Восстановление через ~${Math.ceil(recoverySec)} сек`
-    : "Восстановление через пассивную регенерацию";
-
-  const stageDots = buildStageDots(pos, total);
-
-  const unconsciousBanner = isUnconscious ? `
-    <div class="unconscious-banner">
-      <div class="unconscious-icon">💀</div>
-      <div>
-        <div>Без сознания — атаки заблокированы</div>
-        <div class="unconscious-timer">${recoveryText}</div>
-      </div>
-    </div>` : "";
-
-  const waifuHpSection = waifuHpCur != null ? `
-    <div class="detail-row">
-      <span class="muted">HP персонажа</span>
-      <strong style="color:${isUnconscious ? "#f87171" : "inherit"}">${waifuHpCur}/${waifuHpMax}</strong>
-    </div>
-    <div class="bar" aria-label="HP персонажа" style="--bar-color:${isUnconscious ? "#ef4444" : "#10b981"}">
-      <div style="width:${waifuPct}%; background:linear-gradient(90deg, ${isUnconscious ? "#ef4444,#f87171" : "#10b981,#34d399"});"></div>
-    </div>` : "";
-
+  const monster = {
+    name: active.monster_name,
+    level: active.monster_level,
+    current_hp: hpCur,
+    max_hp: hpMax,
+    family: active.monster_family || "unknown",
+    slug: active.monster_slug || "unknown",
+    tier: active.monster_tier ?? 1,
+    has_image: active.monster_has_image === true,
+    image_override: active.monster_image_override || null,
+    emoji: active.monster_emoji || "👾",
+    is_boss: active.is_boss === true,
+    is_elite: active.is_elite === true,
+    affix_count: active.affix_count ?? 0,
+    affixes: Array.isArray(active.affixes) ? active.affixes : [],
+  };
+  const dungeon = {
+    name: active.dungeon_name,
+    total_rooms: total || 0,
+    current_room: pos || 1,
+  };
+  const waifu = {
+    name: active.waifu_name,
+    current_hp: safeNumber(active.waifu_current_hp, 0),
+    max_hp: Math.max(1, safeNumber(active.waifu_max_hp, 1)),
+  };
   host.style.display = "";
   list.style.display = "none";
-  host.innerHTML = `
-    <div class="solo-active-card">
-      <div class="solo-active-head">
-        <div class="solo-active-title">🏰 ${active.dungeon_name || "Активное подземелье"}${pl > 0 ? ` <span class="muted">+${pl}</span>` : ""}</div>
-        <button class="icon-btn" title="Покинуть подземелье" aria-label="Покинуть подземелье" onclick="WaifuApp.openExitDungeonConfirm()">✕</button>
-      </div>
-
-      ${stageDots ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">${stageDots}${pos && total ? `<span class="muted tiny">${pos}/${total}</span>` : ""}</div>` : ""}
-
-      ${unconsciousBanner}
-
-      <div>
-        <div class="detail-row" style="margin-bottom:6px;">
-          <span class="muted">🐉 ${active.monster_name || "Монстр"} · lvl ${active.monster_level ?? "—"}</span>
-          <strong>${hpCur}/${hpMax}</strong>
-        </div>
-        <div class="bar" aria-label="HP монстра">
-          <div style="width:${monPct}%;"></div>
-        </div>
-      </div>
-
-      ${waifuHpSection}
-
-      <div class="solo-active-meta">
-        ${lastDmg != null ? `<div class="meta-tag">Последний удар: <strong>${lastDmg}</strong>${lastCrit ? ' <span style="color:#fbbf24">★крит</span>' : ""}</div>` : ""}
-        ${dealt > 0 ? `<div class="meta-tag">Нанесено: <strong>${dealt}</strong></div>` : ""}
-      </div>
-
-      ${
-        log.length
-          ? `<div class="detail-row"><span class="muted">Лог</span><strong style="font-size:12px;">${log.join(" · ")}</strong></div>`
-          : ""
-      }
-
-    </div>
-  `;
+  const content = document.getElementById("solo-active-content");
+  const fallback = document.getElementById("solo-active-fallback");
+  if (content) content.style.display = "";
+  if (fallback) fallback.style.display = "none";
+  renderSoloBattleCard(monster, dungeon, waifu);
 }
 
 function renderSoloActiveFallback(reason) {
   const host = document.getElementById("solo-active");
   const list = document.getElementById("solo-dungeons");
+  const content = document.getElementById("solo-active-content");
+  const fallback = document.getElementById("solo-active-fallback");
   if (!host || !list) return;
   host.style.display = "";
   list.style.display = "none";
-  host.innerHTML = `
-    <div class="solo-active-card">
+  if (content) content.style.display = "none";
+  if (fallback) {
+    fallback.style.display = "block";
+    fallback.innerHTML = `
       <div class="solo-active-head">
         <div class="solo-active-title">🏰 Активное подземелье</div>
         <div style="display:flex; align-items:center; gap:8px;">
@@ -1488,13 +3559,13 @@ function renderSoloActiveFallback(reason) {
       </div>
       <div class="detail-row">
         <span class="muted">Причина</span>
-        <strong>${String(reason || "—")}</strong>
+        <strong>${String(reason || "—").replace(/</g, "&lt;")}</strong>
       </div>
       <div style="margin-top:6px;">
         <button class="btn" onclick="WaifuApp.refreshSoloActive()">🔄 Обновить</button>
       </div>
-    </div>
-  `;
+    `;
+  }
 }
 
 async function refreshSoloActive() {
@@ -1535,6 +3606,14 @@ async function populateDungeonsPage(profile) {
   // Page-scoped SSE handler: refresh progress, show reward modal on completion.
   let refreshTimer;
   window.WaifuApp.onSseEvent = (evt) => {
+    if (evt && evt.type === "gd") {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        loadActiveGdDungeons().catch?.(() => {});
+        updateGdSessionUI().catch?.(() => {});
+      }, 150);
+      return;
+    }
     if (!evt || evt.type !== "battle") return;
     // Debounced refresh of active progress
     clearTimeout(refreshTimer);
@@ -1570,48 +3649,58 @@ async function populateDungeonsPage(profile) {
     renderSoloActiveProgress({ active: false });
     showDungeonsError(`Не удалось проверить активный данж: ${detail || "ошибка"}`);
   }
+
+  // Open tab from URL (e.g. from ОЧ chip click)
+  const tabParam = new URLSearchParams(window.location.search).get("tab");
+  if (tabParam === "solo" || tabParam === "expedition" || tabParam === "group") {
+    showTab(tabParam);
+  }
 }
 
 let plusBottomSheetUnlocked = false;
-let plusBottomSheetMaxUnlocked = 0;
 
 function initPlusSelect(globalUnlocked, statusById) {
   plusBottomSheetUnlocked = globalUnlocked;
-  let maxUnlocked = 0;
-  for (const k of Object.keys(statusById || {})) {
-    const u = Number(statusById[k]?.unlocked_plus_level || 0);
-    if (u > maxUnlocked) maxUnlocked = u;
+  for (const idStr of Object.keys(selectedPlusLevelByDungeonId)) {
+    const id = Number(idStr);
+    if (!Number.isFinite(id)) continue;
+    const u = Number(statusById?.[id]?.unlocked_plus_level || 0);
+    const raw = Number(selectedPlusLevelByDungeonId[id] ?? 0);
+    if (raw > u) selectedPlusLevelByDungeonId[id] = u;
   }
-  plusBottomSheetMaxUnlocked = maxUnlocked;
-  const cur = Math.min(selectedPlusLevel, maxUnlocked);
-  if (cur !== selectedPlusLevel) selectedPlusLevel = cur;
-  const lbl = document.getElementById("badge-plus-label");
-  if (lbl) lbl.textContent = cur > 0 ? `+${cur}` : "0";
-  applyPlusChipStyle(cur, Math.max(1, maxUnlocked));
 }
 
-const PLUS_LEVEL_DESCS = [
-  "Стандартная сложность. Нет штрафов.",
-  "+1: Монстры +15% HP/урон. Награды +10%.",
-  "+2: Монстры +30% HP/урон. Награды +22%, шанс редкости ↑.",
-  "+3: Монстры +50% HP/урон. Награды +38%, шанс редкости ↑↑.",
-  "+4: Монстры +70% HP/урон. Награды +58%, шанс легендарки ↑.",
-  "+5: Монстры +100% HP/урон. Награды ×2, шанс легендарки ↑↑.",
-];
+function getDifficultyDescription(n) {
+  const lvl = Number(n || 0);
+  if (lvl === 0) return "Базовая сложность.";
+  const hpDmg = Math.round(lvl * 20);
+  const reward = (1 + lvl * 0.15 + Math.log1p(lvl) * 0.10).toFixed(2);
+  const rarityLabels = ["обычная", "необычная", "редкая", "эпическая", "легендарная"];
+  const rarity = rarityLabels[Math.min(Math.floor(lvl / 2), 4)];
+  const elite = Math.min(40, lvl * 2);
+  return `+${hpDmg}% HP/урон. Награды x${reward}. Предмет +${lvl} ур. Редкость: ${rarity}. Элиты +${elite}%.`;
+}
 
-window.WaifuApp.openPlusBottomSheet = () => {
+window.WaifuApp.openPlusBottomSheet = (dungeonId) => {
+  const did = Number(dungeonId);
+  if (!Number.isFinite(did)) return;
   const bs = document.getElementById("plus-bottomsheet");
   const list = document.getElementById("plus-options-list");
   if (!bs || !list) return;
-  const max = plusBottomSheetUnlocked ? Math.max(0, plusBottomSheetMaxUnlocked) : 0;
+  const max = plusBottomSheetUnlocked ? Math.max(0, Number(dungeonPlusStatusById[did]?.unlocked_plus_level || 0)) : 0;
+  const current = getPlusLevelForDungeon(did);
   list.innerHTML = "";
+  const titleEl = bs.querySelector(".bottomsheet-title");
+  if (titleEl) {
+    titleEl.textContent = max > 0 ? "Сложность ➕ (это подземелье)" : "Сложность ➕";
+  }
   for (let i = 0; i <= Math.max(0, max); i++) {
     const hue = max > 0 ? Math.round(120 * (1 - i / Math.max(1, max))) : 120;
     const bgColor = `hsla(${hue},70%,45%,0.22)`;
     const borderColor = `hsla(${hue},60%,55%,0.50)`;
-    const desc = PLUS_LEVEL_DESCS[i] || `+${i}: повышенная сложность.`;
+    const desc = getDifficultyDescription(i);
     const btn = document.createElement("button");
-    btn.className = "plus-option" + (i === selectedPlusLevel ? " selected" : "");
+    btn.className = "plus-option" + (i === current ? " selected" : "");
     btn.innerHTML = `
       <div class="plus-option-badge" style="background:${bgColor};border-color:${borderColor};color:#fff;">
         ${i === 0 ? "0" : `+${i}`}
@@ -1621,16 +3710,14 @@ window.WaifuApp.openPlusBottomSheet = () => {
         <div class="plus-option-desc">${desc}</div>
       </div>`;
     btn.addEventListener("click", () => {
-      selectedPlusLevel = i;
-      const lbl = document.getElementById("badge-plus-label");
-      if (lbl) lbl.textContent = i > 0 ? `+${i}` : "0";
-      applyPlusChipStyle(i, Math.max(1, max));
+      setPlusLevelForDungeon(did, i);
       window.WaifuApp.closePlusBottomSheet();
       const p = window.__lastProfileForDungeons || null;
       if (p) renderSoloDungeonsForAct(p).catch?.(() => {});
     });
     list.appendChild(btn);
   }
+  bs.dataset.plusDungeonId = String(did);
   bs.style.display = "flex";
   document.body.style.overflow = "hidden";
 };
@@ -1640,16 +3727,6 @@ window.WaifuApp.closePlusBottomSheet = () => {
   if (bs) bs.style.display = "none";
   document.body.style.overflow = "";
 };
-
-function applyPlusChipStyle(plusLevel, maxLevel) {
-  const chip = document.getElementById("badge-plus-chip");
-  if (!chip) return;
-  const pl = Math.max(0, Number(plusLevel || 0));
-  const max = Math.max(1, Number(maxLevel || 1));
-  const t = Math.max(0, Math.min(1, pl / max)); // 0..1
-  const hue = Math.round(120 * (1 - t)); // green(120) -> red(0)
-  chip.style.setProperty("--plus-hue", String(hue));
-}
 
 function rarityLabel(r) {
   const v = Number(r);
@@ -1735,19 +3812,27 @@ function itemIconForSlotType(slotType) {
 function buildRewardItemCard(item) {
   const rc = rarityClass(item.rarity);
   const icon = itemIconForSlotType(item.slot_type);
+  const invId = item.inventory_item_id ?? item.id ?? null;
   return `
-    <div class="reward-item-card ${rc}">
+    <div class="reward-item-card ${rc}" id="reward-item-card-${invId}">
       <div class="reward-item-top">
         <div class="reward-item-icon">${icon}</div>
-        <div style="display:grid;gap:2px;min-width:0;">
-          <div class="reward-item-name ${rc}">${item.name || "Предмет"}</div>
-          <div class="muted tiny">lvl ${item.level ?? "—"} · ${rarityLabel(item.rarity)}</div>
+        <div style="display:grid;gap:2px;min-width:0;flex:1;">
+          <div class="reward-item-name ${rc}">${item.display_name || item.name || "Предмет"}</div>
+          <div class="muted tiny">lvl ${item.level ?? "—"} · ${rarityLabel(item.rarity)} · ${slotTypeLabel(item.slot_type)}</div>
         </div>
-      </div>
-      <div class="reward-kv">
-        <div class="reward-pill"><span class="muted">Слот</span><strong>${slotTypeLabel(item.slot_type)}</strong></div>
+        ${invId ? `<button type="button" class="secondary" style="flex-shrink:0;font-size:12px;padding:4px 10px;" onclick="event.stopPropagation();WaifuApp.viewRewardItem(${invId})">Подробнее</button>` : ""}
       </div>
     </div>`;
+}
+
+async function viewRewardItem(inventoryItemId) {
+  try {
+    const item = await apiFetch(`/inventory/${inventoryItemId}`);
+    openItemModal(item);
+  } catch (e) {
+    showToast("Не удалось загрузить предмет: " + (e?.message || e), "error");
+  }
 }
 
 function openRewardModal(payload) {
@@ -1758,83 +3843,53 @@ function openRewardModal(payload) {
 
   if (sub) sub.textContent = "Победа над боссом!";
 
-  // EXP breakdown
-  const expMobs  = payload.exp_from_monsters  ?? payload.experience_gained ?? null;
-  const expBoss  = payload.exp_from_boss       ?? null;
-  const expTotal = payload.total_experience_gained ?? (expMobs != null && expBoss != null ? expMobs + expBoss : expMobs);
+  const expMobs = payload.exp_from_monsters ?? payload.experience_gained ?? null;
+  const expBoss = payload.exp_from_boss ?? null;
+  const expTotal =
+    payload.total_experience_gained ??
+    (expMobs != null && expBoss != null ? expMobs + expBoss : expMobs ?? expBoss);
 
-  // Gold breakdown
-  const goldMobs  = payload.gold_from_monsters  ?? payload.gold_gained ?? null;
-  const goldBoss  = payload.gold_from_boss       ?? null;
-  const goldTotal = payload.total_gold_gained ?? (goldMobs != null && goldBoss != null ? goldMobs + goldBoss : goldMobs);
+  const goldMobs = payload.gold_from_monsters ?? payload.gold_gained ?? null;
+  const goldBoss = payload.gold_from_boss ?? null;
+  const goldTotal =
+    payload.total_gold_gained ??
+    (goldMobs != null && goldBoss != null ? goldMobs + goldBoss : goldMobs ?? goldBoss);
 
-  // Items — support both single item_dropped and array items_dropped
-  const itemsRaw = Array.isArray(payload.items_dropped) ? payload.items_dropped
-    : payload.item_dropped ? [payload.item_dropped]
-    : [];
+  const itemsRaw = Array.isArray(payload.items_dropped)
+    ? payload.items_dropped
+    : payload.item_dropped
+      ? [payload.item_dropped]
+      : [];
   const guaranteedItem = payload.guaranteed_item || null;
-  if (guaranteedItem && !itemsRaw.find((i) => i.id === guaranteedItem.id)) {
-    itemsRaw.push({ ...guaranteedItem, _guaranteed: true });
+  if (guaranteedItem) {
+    const gId = guaranteedItem.inventory_item_id ?? guaranteedItem.id;
+    const has = itemsRaw.some((i) => (i.inventory_item_id ?? i.id) === gId);
+    if (!has) itemsRaw.push({ ...guaranteedItem, _guaranteed: true });
   }
 
-  // Combat stats
-  const dmgDealt    = payload.total_damage_dealt    ?? payload.damage_done    ?? null;
-  const dmgReceived = payload.total_damage_received ?? payload.damage_received ?? null;
+  const fmt = (v) => (v != null ? Number(v).toLocaleString() : "—");
 
-  const fmt = (v) => v != null ? Number(v).toLocaleString() : "—";
+  const totalsBlock = `
+    <div class="reward-totals-panel">
+      <div class="reward-total-row"><span class="muted">Опыт</span><strong>+${fmt(expTotal)} ✨</strong></div>
+      <div class="reward-total-row"><span class="muted">Золото</span><strong>+${fmt(goldTotal)} 🪙</strong></div>
+    </div>`;
 
-  // EXP section
-  const expBreakdown = expMobs != null || expBoss != null ? `
-    <div class="reward-breakdown">
-      ${expMobs != null ? `<div class="reward-breakdown-row"><span class="muted">За монстров</span><span>+${fmt(expMobs)} ✨</span></div>` : ""}
-      ${expBoss != null ? `<div class="reward-breakdown-row"><span class="muted">За босса</span><span>+${fmt(expBoss)} ✨</span></div>` : ""}
-      <div class="reward-breakdown-row total"><span>Итого опыт</span><strong>+${fmt(expTotal)} ✨</strong></div>
-    </div>` : `<div class="reward-pill"><span class="muted">✨ Опыт</span><strong>+${fmt(expTotal)}</strong></div>`;
-
-  // Gold section
-  const goldBreakdown = goldMobs != null || goldBoss != null ? `
-    <div class="reward-breakdown">
-      ${goldMobs != null ? `<div class="reward-breakdown-row"><span class="muted">За монстров</span><span>+${fmt(goldMobs)} 🪙</span></div>` : ""}
-      ${goldBoss != null ? `<div class="reward-breakdown-row"><span class="muted">Бонус за босса</span><span>+${fmt(goldBoss)} 🪙</span></div>` : ""}
-      <div class="reward-breakdown-row total"><span>Итого золото</span><strong>+${fmt(goldTotal)} 🪙</strong></div>
-    </div>` : `<div class="reward-pill"><span class="muted">🪙 Золото</span><strong>+${fmt(goldTotal)}</strong></div>`;
-
-  // Items section
   const itemsHtml = itemsRaw.length
-    ? `<div class="reward-items-list">
+    ? `<div class="reward-section-title reward-section-title--items">Предметы</div>
+       <div class="reward-items-list">
         ${itemsRaw.map((it) => buildRewardItemCard(it)).join("")}
        </div>`
-    : `<div class="reward-item-card"><div class="muted tiny">🎁 Предметы не выпали</div></div>`;
-
-  // Combat summary
-  const combatHtml = (dmgDealt != null || dmgReceived != null) ? `
-    <div class="reward-combat-grid">
-      <div class="reward-combat-cell">
-        <div class="reward-combat-val" style="color:#f97316;">${fmt(dmgDealt)}</div>
-        <div class="reward-combat-label">⚔️ Нанесено урона</div>
-      </div>
-      <div class="reward-combat-cell">
-        <div class="reward-combat-val" style="color:#f87171;">${fmt(dmgReceived)}</div>
-        <div class="reward-combat-label">🛡️ Получено урона</div>
-      </div>
-    </div>` : "";
+    : `<div class="reward-section-title reward-section-title--items">Предметы</div>
+       <div class="reward-item-card"><div class="muted tiny">Ничего не выпало</div></div>`;
 
   body.innerHTML = `
-    <div class="reward-grid">
-      <div class="reward-section-title">✨ Опыт</div>
-      ${expBreakdown}
-      <div class="reward-section-title" style="margin-top:4px;">🪙 Золото</div>
-      ${goldBreakdown}
-      ${itemsRaw.length ? `<div class="reward-section-title" style="margin-top:4px;">🎁 Предметы</div>${itemsHtml}` : itemsHtml}
-      ${combatHtml ? `<div class="reward-section-title" style="margin-top:4px;">📊 Боевая сводка</div>${combatHtml}` : ""}
+    <div class="reward-grid reward-grid--compact">
+      ${totalsBlock}
+      ${itemsHtml}
     </div>
   `;
   m.style.display = "grid";
-}
-
-function openInventoryFromReward() {
-  // Jump straight to profile inventory; profile page will read ?tab=
-  window.location.href = "./profile.html?tab=inventory";
 }
 
 async function closeRewardModal() {
@@ -1958,12 +4013,15 @@ function continueActiveDungeon() {
 }
 
 async function exitDungeon() {
-  await apiFetch("/dungeons/exit", { method: "POST" });
-  // refresh dungeons screen solo tab if present
+  const result = await apiFetch("/dungeons/exit", { method: "POST" });
   const profile = await loadProfile().catch(() => null);
   if (profile) await renderSoloDungeonsForAct(profile);
   renderSoloActiveProgress({ active: false });
   await loadActiveDungeon();
+  // Show a brief summary if rewards were accumulated
+  if (result?.exp_gained > 0 || result?.gold_gained > 0) {
+    appendEvent(`🚪 Покинули подземелье · +${result.exp_gained ?? 0} EXP · +${result.gold_gained ?? 0} 🪙`);
+  }
 }
 
 function openExitDungeonConfirm() {
@@ -2014,8 +4072,6 @@ async function loadBattle() {
   const enemyHpMax = Math.max(1, safeNumber(data.monster_max_hp, 1));
   const waifuHp = safeNumber(data.waifu_current_hp, 0);
   const waifuHpMax = Math.max(1, safeNumber(data.waifu_max_hp, 1));
-  const waifuEnergy = safeNumber(data.waifu_current_energy, 0);
-  const waifuEnergyMax = Math.max(1, safeNumber(data.waifu_max_energy, 1));
 
   const enemyFill = document.getElementById("enemy-hp-fill");
   if (enemyFill) enemyFill.style.width = `${Math.round(clamp01(enemyHp / enemyHpMax) * 100)}%`;
@@ -2024,10 +4080,6 @@ async function loadBattle() {
   const waifuFill = document.getElementById("waifu-hp-fill");
   if (waifuFill) waifuFill.style.width = `${Math.round(clamp01(waifuHp / waifuHpMax) * 100)}%`;
   setText("waifu-hp-text", `HP: ${waifuHp}/${waifuHpMax}`);
-
-  const energyFill = document.getElementById("waifu-energy-fill");
-  if (energyFill) energyFill.style.width = `${Math.round(clamp01(waifuEnergy / waifuEnergyMax) * 100)}%`;
-  setText("waifu-energy-text", `Энергия: ${waifuEnergy}/${waifuEnergyMax}`);
 
   const logs = Array.isArray(data.battle_log) ? data.battle_log : [];
   const logHtml = logs.length
@@ -2058,22 +4110,35 @@ async function continueBattle() {
   if (btn) btn.disabled = true;
   try {
     const res = await apiFetch("/dungeons/continue", { method: "POST" });
-    if (res?.error === "no_energy") {
-      appendBattleLog("⚡ Недостаточно энергии для атаки.");
-      return;
-    }
     if (res?.error) {
       appendBattleLog(`Ошибка: ${res.message || res.error}`);
       return;
     }
+    if (res?.elite_spawn) {
+      const es = res.elite_spawn;
+      const color = es.elite_color || "blue";
+      const affixNames = (es.applied_affixes || []).map(a => a.name || a).join(" ");
+      appendBattleLog(`⚠️ Элитный монстр! ${affixNames ? `[${affixNames}]` : ""} (${color})`);
+    }
     const dmg = res?.damage ?? null;
     const crit = res?.is_crit;
-    if (dmg != null) {
+    const dodged = res?.monster_dodged === true;
+    if (dodged) {
+      appendBattleLog("🛡️ Монстр уклонился!");
+    } else if (dmg != null) {
       appendBattleLog(crit ? `⚔️ Удар ${dmg} (крит!)` : `⚔️ Удар ${dmg}`);
     }
-    if (res?.experience_gained) appendBattleLog(`✨ +${res.experience_gained} опыта`);
+    if (res?.experience_gained) appendBattleLog(`✨ +${res.experience_gained} EXP`);
+    if (res?.gold_gained) appendBattleLog(`🪙 +${res.gold_gained} золото`);
+    // Death: waifu left dungeon at 1 HP
+    if (res?.waifu_died) {
+      const penalty = res.gold_penalty_pct ?? 50;
+      appendBattleLog(`💀 Вайфу погибла! Штраф к золоту: −${penalty}%. XP сохранён.`);
+      setTimeout(() => { window.location.href = "./dungeons.html"; }, 1800);
+      return;
+    }
     if (res?.dungeon_completed) {
-      window.location.href = "./dungeons.html";
+      openRewardModal(res);
       return;
     }
     const after = await loadBattle();
@@ -2091,16 +4156,396 @@ async function exitBattle() {
 }
 
 function switchShopTab(name) {
-  document.querySelectorAll(".tabs .tab").forEach((btn) => {
+  shopState.merchantAdviceUnlocked = false;
+  shopState.activeTab = name;
+  if (typeof document !== "undefined" && document.body) {
+    document.body.classList.toggle("shop-tab-smith", name === "smith");
+  }
+
+  document.querySelectorAll(".tabs .tab, .shop-btab").forEach((btn) => {
     if (btn.dataset.tab) btn.classList.toggle("active", btn.dataset.tab === name);
   });
   document.querySelectorAll(".tab-panel").forEach((panel) => {
-    if (panel.id?.startsWith("tab-")) panel.classList.toggle("active", panel.id === `tab-${name}`);
+    if (panel.id?.startsWith("tab-")) {
+      const active = panel.id === `tab-${name}`;
+      panel.classList.toggle("active", active);
+      panel.style.display = active ? "" : "none";
+    }
   });
 
-  // Lazy load sell inventory when entering sell tab on shop page.
-  if (window.location.pathname.endsWith("/shop.html") && name === "sell") {
-    loadSellInventory().catch(console.error);
+  if (window.location.pathname.endsWith("/shop.html")) {
+    const sellBtn = document.getElementById("shop-sell-submit");
+    if (sellBtn) sellBtn.style.display = name === "sell" ? "" : "none";
+    if (name === "sell") {
+      loadSellInventory()
+        .then(() => {
+          syncShopSellToolbarUI();
+          return generateMerchantLine("sell").catch(() => {});
+        })
+        .catch(console.error);
+    } else if (name === "smith") {
+      loadSmithTab().catch(console.error);
+      generateMerchantLine("smith").catch(() => {});
+    } else {
+      generateMerchantLine(name).catch(() => {});
+    }
+    if (name === "gamble") updateShopGambleCost();
+  }
+}
+
+function sortSmithInventoryItems(items) {
+  return [...(items || [])].sort((a, b) => {
+    const ea = a.equipment_slot != null ? 1 : 0;
+    const eb = b.equipment_slot != null ? 1 : 0;
+    if (eb !== ea) return eb - ea;
+    return (b.level || 0) - (a.level || 0);
+  });
+}
+
+/** Какие строки превью заточки показывать в зависимости от типа предмета. */
+function smithEnchantPreviewStatFlags(item) {
+  const st = String(item?.slot_type || "").toLowerCase();
+  const isWeapon = st.includes("weapon");
+  const isAccessory = st.includes("ring") || st.includes("amulet");
+  return {
+    showDamage: isWeapon,
+    showArmor: !isWeapon && !isAccessory,
+    showSecondary: isAccessory || (!isWeapon && !isAccessory),
+  };
+}
+
+function mainStatShortFromItem(item) {
+  const a = String(item?.attack_type || "").toLowerCase();
+  if (a === "melee") return "СИЛ";
+  if (a === "ranged") return "ЛОВ";
+  if (a === "magic") return "ИНТ";
+  return null;
+}
+
+function buildItemModalMetaLine(item) {
+  const tierStr = item?.tier != null ? `T${item.tier}` : "—";
+  const lvlStr = item?.level != null ? `ур. ${item.level}` : "—";
+  const st = String(item?.slot_type || "").toLowerCase();
+  if (st.includes("weapon")) {
+    const wt = item?.weapon_type ? weaponTypeLabel(item.weapon_type) : null;
+    const typePart = wt ? `${wt} ${st.includes("2h") ? "(2H)" : "(1H)"}` : slotTypeLabel(item.slot_type);
+    const ms = mainStatShortFromItem(item);
+    return [typePart, ms, tierStr, lvlStr].filter(Boolean).join(" · ");
+  }
+  const typePart = slotTypeLabel(item.slot_type);
+  const ms = mainStatShortFromItem(item);
+  return [typePart, ms, tierStr, lvlStr].filter(Boolean).join(" · ");
+}
+
+function updateSmithMetaFromProfile(pr) {
+  if (!pr) return;
+  const stEl = document.getElementById("shop-smith-stones");
+  const gEl = document.getElementById("shop-smith-gold-hint");
+  if (stEl) stEl.textContent = String(pr.protection_stones ?? 0);
+  if (gEl) gEl.textContent = String(pr.gold ?? "—");
+}
+
+function updateSmithSelectionUI() {
+  const id = shopState.smithSelectedId;
+  const items = shopState.smithItems || [];
+  const it = id ? items.find((x) => x.id === id) : null;
+  const wrap = document.getElementById("shop-smith-icon-wrap");
+  const lbl = document.getElementById("shop-smith-selected-label");
+  const btn = document.getElementById("shop-smith-enchant-btn");
+  if (wrap) {
+    wrap.innerHTML = it ? itemArtHtml(it) : '<span class="muted">—</span>';
+  }
+  if (lbl) {
+    if (it) {
+      lbl.innerHTML = composeItemDisplayName(it);
+      lbl.classList.remove("muted");
+    } else {
+      lbl.textContent = "выбор предмета";
+      lbl.classList.add("muted");
+    }
+  }
+  if (btn && !it) btn.disabled = true;
+}
+
+function syncSmithProtectionStoneCheckbox(targetLevel) {
+  const stoneRow = document.getElementById("shop-smith-stone-row");
+  const stoneCb = document.getElementById("shop-smith-use-stone");
+  if (!stoneCb) return;
+  const t = Number(targetLevel);
+  if (!Number.isFinite(t) || t < 8) {
+    stoneCb.checked = false;
+    if (stoneRow) stoneRow.style.display = "none";
+  } else if (stoneRow) {
+    stoneRow.style.display = "";
+  }
+}
+
+function renderSmithPickPage() {
+  const grid = document.getElementById("shop-smith-pick-grid");
+  const nav = document.getElementById("shop-smith-pick-nav");
+  if (!grid) return;
+  const items = shopState.smithItems || [];
+  const n = items.length;
+  if (!n) {
+    grid.innerHTML = '<div class="muted tiny">Инвентарь пуст.</div>';
+    if (nav) nav.innerHTML = "";
+    return;
+  }
+  const pages = Math.max(1, Math.ceil(n / SMITH_PICK_PAGE_SIZE));
+  if (shopState.smithPickPage > pages - 1) shopState.smithPickPage = pages - 1;
+  const page = shopState.smithPickPage;
+  const start = page * SMITH_PICK_PAGE_SIZE;
+  const slice = items.slice(start, start + SMITH_PICK_PAGE_SIZE);
+  grid.innerHTML = slice
+    .map((it) => {
+      const cls = rarityClassFromValue(it.rarity);
+      const equipped = it.equipment_slot != null;
+      const sel = shopState.smithSelectedId === it.id ? " shop-smith-pick-card--selected" : "";
+      const lv = it.total_level != null ? safeNumber(it.total_level, 1) : safeNumber(it.level, 1);
+      const lvLine = equipped
+        ? `<div class="shop-smith-pick-lv muted tiny">t${safeNumber(it.tier, 1)} · ${lv}</div>`
+        : "";
+      return `<button type="button" class="shop-smith-pick-card ${cls}${sel}" data-id="${it.id}" onclick="WaifuApp.pickSmithItem(${it.id})">
+        ${equipped ? '<span class="shop-smith-pick-equipped" title="Экипировано">⚔</span>' : ""}
+        <div class="shop-smith-pick-card-top">
+          <div class="shop-smith-pick-icon">${itemArtHtml(it)}</div>
+          ${lvLine}
+        </div>
+        <div class="shop-smith-pick-name tiny">${composeItemDisplayName(it)}</div>
+      </button>`;
+    })
+    .join("");
+  if (nav) {
+    const prevDis = page <= 0 ? " disabled" : "";
+    const nextDis = page >= pages - 1 ? " disabled" : "";
+    nav.innerHTML = `<div class="shop-smith-pick-nav-inner">
+      <button type="button" class="shop-smith-pick-nav-btn secondary"${prevDis} onclick="WaifuApp.smithPickPrev()">‹</button>
+      <span class="shop-smith-pick-nav-label muted tiny">${page + 1} / ${pages}</span>
+      <button type="button" class="shop-smith-pick-nav-btn secondary"${nextDis} onclick="WaifuApp.smithPickNext()">›</button>
+    </div>`;
+  }
+}
+
+function smithPickPrev() {
+  if (shopState.smithPickPage > 0) {
+    shopState.smithPickPage -= 1;
+    renderSmithPickPage();
+  }
+}
+
+function smithPickNext() {
+  const items = shopState.smithItems || [];
+  const pages = Math.max(1, Math.ceil(items.length / SMITH_PICK_PAGE_SIZE));
+  if (shopState.smithPickPage < pages - 1) {
+    shopState.smithPickPage += 1;
+    renderSmithPickPage();
+  }
+}
+
+async function openSmithPickModal() {
+  try {
+    const data = await apiFetch("/inventory?limit=100&offset=0");
+    const items = Array.isArray(data?.items) ? data.items : [];
+    shopState.smithItems = sortSmithInventoryItems(items);
+    if (
+      shopState.smithSelectedId != null &&
+      !shopState.smithItems.some((x) => x.id === shopState.smithSelectedId)
+    ) {
+      shopState.smithSelectedId = null;
+    }
+    shopState.smithPickPage = 0;
+    renderSmithPickPage();
+    const m = document.getElementById("shop-smith-pick-modal");
+    if (m) m.style.display = "grid";
+  } catch (e) {
+    console.error(e);
+    showToast("Не удалось загрузить инвентарь", "error");
+  }
+}
+
+function closeSmithPickModal() {
+  const m = document.getElementById("shop-smith-pick-modal");
+  if (m) m.style.display = "none";
+}
+
+function pickSmithItem(id) {
+  shopState.smithSelectedId = Number(id);
+  closeSmithPickModal();
+  updateSmithSelectionUI();
+  refreshSmithPreview().catch(console.error);
+}
+
+async function loadSmithTab() {
+  const pr = await loadProfile().catch(() => null);
+  updateSmithMetaFromProfile(pr);
+
+  const data = await apiFetch("/inventory?limit=100&offset=0");
+  const items = Array.isArray(data?.items) ? data.items : [];
+  shopState.smithItems = sortSmithInventoryItems(items);
+  if (
+    shopState.smithSelectedId != null &&
+    !shopState.smithItems.some((x) => x.id === shopState.smithSelectedId)
+  ) {
+    shopState.smithSelectedId = null;
+  }
+  updateSmithSelectionUI();
+  await refreshSmithPreview();
+}
+
+async function refreshSmithPreview() {
+  const box = document.getElementById("shop-smith-preview");
+  if (!box) return;
+  const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
+  if (!id) {
+    box.innerHTML = `<div class="muted tiny">Выберите предмет из инвентаря.</div>`;
+    const btn = document.getElementById("shop-smith-enchant-btn");
+    if (btn) btn.disabled = true;
+    const st = document.getElementById("shop-smith-stone-row");
+    if (st) st.style.display = "none";
+    syncSmithProtectionStoneCheckbox(0);
+    return;
+  }
+  try {
+    const prev = await apiFetch(`/inventory/${id}/enchant-preview`);
+    if (prev?.error) {
+      box.innerHTML = `<div class="muted tiny">Нет данных.</div>`;
+      syncSmithProtectionStoneCheckbox(0);
+      return;
+    }
+    const cur = Number(prev.current_level ?? 0);
+    const tgt = Number(prev.target_level ?? cur + 1);
+    const ch = prev.chance;
+    const cost = prev.enchant_cost_gold ?? "—";
+    const tp = prev.target_params || {};
+    const item = shopState.smithItems?.find((x) => x.id === id) || {};
+    const flags = smithEnchantPreviewStatFlags(item);
+
+    const dm1 =
+      tp.damage_min != null && tp.damage_max != null
+        ? `${tp.damage_min}–${tp.damage_max}`
+        : "—";
+    const ar1 = tp.armor != null ? String(tp.armor) : "—";
+    const sec1 = Number(tp.secondary ?? 0);
+    const secStr = (x) => (x > 0 ? `+${(x * 100).toFixed(2)}%` : "—");
+
+    const chanceLine =
+      ch == null
+        ? `<div class="muted tiny">✅ Гарантированный успех</div>`
+        : `<div class="shop-smith-risk">⚠️ Шанс успеха: <strong>${Math.round(Number(ch) * 100)}%</strong></div>
+           <div class="muted tiny">${escapeHtml(String(prev.on_fail_hint || ""))}</div>`;
+
+    const stoneRow = document.getElementById("shop-smith-stone-row");
+    if (stoneRow) stoneRow.style.display = tgt >= 8 ? "" : "none";
+    syncSmithProtectionStoneCheckbox(tgt);
+
+    const statRows = [];
+    if (flags.showDamage && dm1 !== "—") {
+      statRows.push(
+        `<div><span class="muted">Урон:</span> <strong>${escapeHtml(dm1)}</strong></div>`
+      );
+    }
+    if (flags.showArmor && ar1 !== "—") {
+      statRows.push(`<div><span class="muted">Броня:</span> <strong>${escapeHtml(ar1)}</strong></div>`);
+    }
+    if (flags.showSecondary && sec1 > 0) {
+      statRows.push(
+        `<div><span class="muted">Вторичка:</span> <strong>${escapeHtml(secStr(sec1))}</strong></div>`
+      );
+    }
+
+    box.innerHTML = `
+      <div class="shop-smith-block">
+        <div class="muted tiny">Текущий уровень: <strong>+${cur}</strong> → цель: <strong>+${tgt}</strong></div>
+        <div class="muted tiny" style="margin-top:6px;">Стоимость: <strong>🪙 ${escapeHtml(String(cost))}</strong></div>
+        ${chanceLine}
+        ${
+          statRows.length
+            ? `<div style="margin-top:8px;font-size:12px;line-height:1.45;">${statRows.join("")}</div>`
+            : ""
+        }
+      </div>`;
+    const btn = document.getElementById("shop-smith-enchant-btn");
+    if (btn) btn.disabled = cur >= 10;
+  } catch (e) {
+    console.error(e);
+    box.innerHTML = `<div class="muted tiny">Ошибка превью.</div>`;
+    syncSmithProtectionStoneCheckbox(0);
+  }
+}
+
+async function smithTryEnchant() {
+  const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
+  if (!id) return;
+  const useStone = Boolean(document.getElementById("shop-smith-use-stone")?.checked);
+  const btn = document.getElementById("shop-smith-enchant-btn");
+  if (btn) btn.disabled = true;
+  try {
+    const res = await apiFetch(`/inventory/${id}/enchant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ use_protection_stone: useStone }),
+    });
+    if (res?.error) {
+      showToast(String(res.error));
+      return;
+    }
+    const ok = res?.success;
+    const nl = res?.new_level;
+    const br = res?.broken;
+    const removed = Boolean(res?.removed);
+    if (removed) {
+      showToast("Предмет уничтожен при заточке", "error");
+      shopState.smithSelectedId = null;
+      shopState.smithItems = (shopState.smithItems || []).filter((x) => x.id !== id);
+      const pr = await loadProfile().catch(() => null);
+      updateSmithMetaFromProfile(pr);
+      updateSmithSelectionUI();
+      return;
+    }
+    if (br) {
+      showToast("Предмет сломан…", "error");
+    } else if (!ok) {
+      showToast(`Неудача. Новый уровень: +${nl}`, "error");
+    }
+    if (res?.stone_used) {
+      const stoneCb = document.getElementById("shop-smith-use-stone");
+      if (stoneCb) stoneCb.checked = false;
+    }
+    const pr = await loadProfile().catch(() => null);
+    updateSmithMetaFromProfile(pr);
+    const it = shopState.smithItems?.find((x) => x.id === id);
+    if (it && nl != null) {
+      it.enchant_level = nl;
+      if (br) it.is_broken = true;
+    }
+    updateSmithSelectionUI();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    const d = String(detail || "");
+    if (d.includes("stone_not_needed")) {
+      const stoneCb = document.getElementById("shop-smith-use-stone");
+      if (stoneCb) stoneCb.checked = false;
+    }
+    showToast(detail || e?.message || "Ошибка заточки", "error");
+  } finally {
+    if (btn) btn.disabled = false;
+    await refreshSmithPreview().catch(() => {});
+  }
+}
+
+async function buyProtectionStoneShop() {
+  try {
+    const res = await apiFetch("/shop/buy-protection-stone", { method: "POST" });
+    if (!res?.success) {
+      showToast("Не удалось купить камень", "error");
+      return;
+    }
+    showToast(`Камень защиты +1 · осталось 🪙 ${res.gold_remaining}`);
+    await loadProfile().catch(() => {});
+    await loadSmithTab().catch(console.error);
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Недостаточно золота", "error");
   }
 }
 
@@ -2155,7 +4600,7 @@ function renderGdDungeonsList(container, dungeons) {
       <div class="empty-state">
         <div class="empty-icon">🏰</div>
         <h3>Нет активных подземелий</h3>
-        <p>Присоединяйтесь к групповому чату и запустите подземелье командой /gd_start</p>
+        <p>Присоединяйтесь к групповому чату и запишитесь в поход командой /gd_join</p>
       </div>`;
     return;
   }
@@ -2165,15 +4610,42 @@ function renderGdDungeonsList(container, dungeons) {
   });
 }
 
+function gdV1WaveLabelRu(wave) {
+  const m = {
+    trash: "обычные враги",
+    boss: "босс",
+    done: "завершено",
+    pending_init: "ожидание боя",
+  };
+  if (wave == null || wave === "") return "—";
+  return m[wave] || String(wave);
+}
+
+/** Короткая метка на карточке: для active — номер сбора действий (collecting_for_round). */
+function gdV1StageBadge(dungeon) {
+  if (!dungeon.v1) {
+    return `${dungeon.stage || 1}/4`;
+  }
+  if (dungeon.cycle_status === "registration") {
+    return "регистрация";
+  }
+  const m = Number(dungeon.collecting_for_round);
+  return Number.isFinite(m) && m > 0 ? `сбор №${m}` : "поход";
+}
+
 function createGdDungeonCard(dungeon) {
   const hpBarWidth = `${Math.max(0, Math.min(100, dungeon.hp_percent || 0))}%`;
   const card = document.createElement("div");
   card.className = "dungeon-card gd-dungeon-card";
   card.dataset.dungeonId = dungeon.id;
+  const stageRight = dungeon.v1 ? gdV1StageBadge(dungeon) : `${dungeon.stage || 1}/4`;
+  const roundsStat = dungeon.v1
+    ? `🎯 раундов с вкладом: ${Number(dungeon.contrib_rounds || 0).toLocaleString()}`
+    : `Этап ${dungeon.joined_at_stage || 1}`;
   card.innerHTML = `
     <div class="dungeon-header">
       <span class="dungeon-name">${escapeHtml(dungeon.dungeon_name || "—")}</span>
-      <span class="dungeon-stage">${dungeon.stage || 1}/4</span>
+      <span class="dungeon-stage">${escapeHtml(stageRight)}</span>
     </div>
     <div class="dungeon-monster">
       <span class="monster-name">${escapeHtml(dungeon.monster_name || "—")}</span>
@@ -2183,8 +4655,8 @@ function createGdDungeonCard(dungeon) {
       <div class="hp-text">${Number(dungeon.hp_current || 0).toLocaleString()} / ${Number(dungeon.hp_max || 0).toLocaleString()}</div>
     </div>
     <div class="dungeon-stats">
-      <span class="stat">⚔️ ${Number(dungeon.total_damage || 0).toLocaleString()} урона</span>
-      <span class="stat">👥 Этап ${dungeon.joined_at_stage || 1}</span>
+      <span class="stat">⚔️ ${Number(dungeon.total_damage || 0).toLocaleString()} (текст+навыки)</span>
+      <span class="stat">👥 ${escapeHtml(roundsStat)}</span>
     </div>`;
   card.addEventListener("click", () => openDungeonDetails(dungeon));
   return card;
@@ -2209,13 +4681,41 @@ function renderDungeonDetails(dungeon) {
   const effects = dungeon.active_effects?.length
     ? dungeon.active_effects.map((e) => `<div class="effect-badge">${escapeHtml(e.name || "")} (+${e.value || 0}%)</div>`).join("")
     : '<div class="no-effects">Нет активных эффектов</div>';
+  const lastRec = Number(dungeon.stage) || 0;
+  const collecting = Number(dungeon.collecting_for_round) || 1;
+  const deadlineStr = dungeon.round_deadline_at
+    ? new Date(dungeon.round_deadline_at).toLocaleString()
+    : "—";
+  const stageSection = dungeon.v1
+    ? `<div class="details-section">
+        <h3>Поход GD v1</h3>
+        <p class="muted tiny">${escapeHtml(
+          dungeon.cycle_status === "registration" ? "Регистрация открыта" : "Поход идёт"
+        )} · на карточке: ${escapeHtml(gdV1StageBadge(dungeon))}</p>
+        ${
+          dungeon.cycle_status === "active"
+            ? `<p class="muted tiny">Последний записанный в журнале раунд: <strong>${lastRec}</strong></p>
+        <p class="muted tiny">Сбор действий в чате на раунд: <strong>${collecting}</strong></p>
+        <p class="muted tiny">Волна: ${escapeHtml(gdV1WaveLabelRu(dungeon.wave))}</p>
+        <p class="muted tiny">Дедлайн сбора раунда: ${escapeHtml(deadlineStr)}</p>`
+            : ""
+        }
+      </div>`
+    : `<div class="details-section">
+        <h3>Текущий этап</h3>
+        <div class="stage-progress">${renderStageProgress(dungeon.stage || 1)}</div>
+      </div>`;
+  const effectsSection =
+    dungeon.v1 && (!dungeon.active_effects || dungeon.active_effects.length === 0)
+      ? ""
+      : `<div class="details-section">
+        <h3>Активные эффекты</h3>
+        <div class="effects-list">${effects}</div>
+      </div>`;
   return `
     <div class="dungeon-details">
       <h2>${escapeHtml(dungeon.dungeon_name || "—")}</h2>
-      <div class="details-section">
-        <h3>Текущий этап</h3>
-        <div class="stage-progress">${renderStageProgress(dungeon.stage || 1)}</div>
-      </div>
+      ${stageSection}
       <div class="details-section">
         <h3>Противник</h3>
         <div class="monster-details">
@@ -2226,7 +4726,7 @@ function renderDungeonDetails(dungeon) {
             </div>
             <div class="hp-stats">
               <span>${Number(dungeon.hp_current || 0).toLocaleString()} / ${Number(dungeon.hp_max || 0).toLocaleString()} HP</span>
-              <span>${100 - (dungeon.hp_percent || 0)}% осталось</span>
+              <span>~${Math.round(Number(dungeon.hp_percent) || 0)}% здоровья</span>
             </div>
           </div>
         </div>
@@ -2235,12 +4735,16 @@ function renderDungeonDetails(dungeon) {
         <h3>Ваш вклад</h3>
         <div class="contribution-stats">
           <div class="stat-row">
-            <span>⚔️ Нанесено урона:</span>
+            <span>⚔️ Условный урон (текст + навыки):</span>
             <span>${Number(dungeon.total_damage || 0).toLocaleString()}</span>
           </div>
           <div class="stat-row">
-            <span>👥 Присоединились на этапе:</span>
-            <span>${dungeon.joined_at_stage || 1}/4</span>
+            <span>${dungeon.v1 ? "🎯 Раундов с вашим вкладом:" : "👥 Присоединились на этапе:"}</span>
+            <span>${
+              dungeon.v1
+                ? `${Number(dungeon.contrib_rounds || 0).toLocaleString()}`
+                : `${dungeon.joined_at_stage || 1}/4`
+            }</span>
           </div>
           <div class="stat-row">
             <span>⏱️ Время в подземелье:</span>
@@ -2248,14 +4752,56 @@ function renderDungeonDetails(dungeon) {
           </div>
         </div>
       </div>
-      <div class="details-section">
-        <h3>Активные эффекты</h3>
-        <div class="effects-list">${effects}</div>
-      </div>
+      ${effectsSection}
+      ${
+        dungeon.v1 && dungeon.id
+          ? `<div class="details-section gd-battle-log-wrap">
+        <h3>Полный лог боя</h3>
+        <p class="muted tiny">Действия отряда и монстров по инициативе (если ИИ дал короткий текст — детали здесь).</p>
+        <div class="gd-battle-log-status muted">Загрузка…</div>
+        <div class="gd-battle-log-body" style="display:none" aria-live="polite"></div>
+      </div>`
+          : ""
+      }
       <div class="modal-actions">
         <button type="button" class="btn-primary gd-open-chat" data-chat-id="${dungeon.chat_id || ""}">Перейти в чат</button>
       </div>
     </div>`;
+}
+
+async function loadGdBattleLog(modalEl, cycleId) {
+  const status = modalEl.querySelector(".gd-battle-log-status");
+  const body = modalEl.querySelector(".gd-battle-log-body");
+  if (!status || !body) return;
+  try {
+    const data = await apiFetch(`/gd/cycles/${cycleId}/battle-log`);
+    const rounds = Array.isArray(data?.rounds) ? data.rounds : [];
+    if (rounds.length === 0) {
+      status.textContent = "В журнале пока нет завершённых раундов.";
+      return;
+    }
+    const maxRn = Math.max(...rounds.map((r) => Number(r.round_number) || 0));
+    status.style.display = "none";
+    body.style.display = "block";
+    body.innerHTML = rounds
+      .map((r) => {
+        const rn = Number(r.round_number) || 0;
+        const outcome = escapeHtml(r.round_outcome || "—");
+        const narr = (r.ai_narrative || "").trim();
+        const narrHtml = narr ? escapeHtml(narr) : "—";
+        const lines = Array.isArray(r.lines) ? r.lines : [];
+        const linesHtml =
+          lines.length > 0
+            ? `<ul class="gd-battle-log-lines">${lines.map((l) => `<li>${escapeHtml(l)}</li>`).join("")}</ul>`
+            : '<p class="muted tiny">Нет строк журнала для этого раунда.</p>';
+        const openAttr = rn === maxRn ? " open" : "";
+        return `<details class="gd-battle-round"${openAttr}><summary>Раунд ${rn} · ${outcome}</summary><p class="gd-battle-narrative"><span class="muted tiny">ИИ:</span> ${narrHtml}</p>${linesHtml}</details>`;
+      })
+      .join("");
+  } catch (e) {
+    console.error("loadGdBattleLog", e);
+    status.textContent = "Не удалось загрузить лог боя.";
+  }
 }
 
 function openDungeonDetails(dungeon) {
@@ -2272,6 +4818,9 @@ function openDungeonDetails(dungeon) {
   });
   modal.querySelector(".modal-close").addEventListener("click", () => closeGdModal(modal));
   const openChatBtn = modal.querySelector(".gd-open-chat");
+  if (dungeon.v1 && dungeon.id) {
+    loadGdBattleLog(modal, dungeon.id);
+  }
   if (openChatBtn && dungeon.chat_id) {
     openChatBtn.addEventListener("click", () => {
       const url = `https://t.me/c/${String(dungeon.chat_id).replace(/^-100/, "")}`;
@@ -2302,64 +4851,63 @@ async function updateGdSessionUI() {
     return;
   }
   try {
-    const data = await apiFetch(`/gd/session/${chatId}`);
-    if (!data?.active) {
-      card.style.display = "none";
-      if (infoBlock) infoBlock.style.display = "";
+    const v1 = await apiFetch(`/gd/cycle/${chatId}`).catch(() => ({ v1: false }));
+    if (v1 && v1.v1) {
+      if (infoBlock) infoBlock.style.display = "none";
+      card.style.display = "";
+      const st = v1.status === "registration" ? "Регистрация" : "Поход идёт";
+      const closes = v1.registration_closes
+        ? new Date(v1.registration_closes).toLocaleString()
+        : "—";
+      const title = escapeHtml(v1.dungeon_name || "Групповой поход GD v1");
+      const lastR = Number(v1.current_round) || 0;
+      const coll = Number(v1.collecting_for_round) || 1;
+      const deadline =
+        v1.round_deadline_at && v1.status === "active"
+          ? new Date(v1.round_deadline_at).toLocaleString()
+          : null;
+      const hpPct = Math.max(0, Math.min(100, Number(v1.hp_percent) || 0));
+      const waveLine =
+        v1.status === "active"
+          ? `<div class="muted tiny">Волна: ${escapeHtml(gdV1WaveLabelRu(v1.wave))}</div>`
+          : "";
+      const deadlineLine =
+        deadline != null
+          ? `<div class="muted tiny">Дедлайн сбора раунда: ${escapeHtml(deadline)}</div>`
+          : "";
+      const hpBlock =
+        v1.status === "active"
+          ? `<div class="gd-session-monster" style="margin-top:8px;">
+          <span id="gd-session-monster-name">${escapeHtml(v1.monster_name || "—")}</span>
+          <span id="gd-session-hp">${Number(v1.hp_current || 0).toLocaleString()} / ${Number(v1.hp_max || 0).toLocaleString()}</span>
+        </div>
+        <div class="gd-session-hp-bar"><div id="gd-session-hp-fill" class="gd-hp-fill" style="width:${hpPct}%"></div></div>`
+          : "";
+      card.innerHTML = `
+        <h3 class="gd-session-title" id="gd-session-dungeon-name">${title}</h3>
+        <div class="muted tiny" style="margin:6px 0;">${escapeHtml(st)}</div>
+        <div class="muted tiny">Регистрация до: ${escapeHtml(closes)}</div>
+        ${
+          v1.status === "active"
+            ? `<div class="muted tiny" style="margin-top:6px;">В журнале записан раунд: <strong>${lastR}</strong> · сбор на раунд: <strong>${coll}</strong></div>
+        ${waveLine}
+        ${deadlineLine}
+        ${hpBlock}`
+            : ""
+        }
+        <p class="muted tiny" style="margin-top:8px;">Команда в чате: <code>/gd_join</code>. Сообщения в чат попадают в буфер текущего раунда; закрытие по таймеру (~30 мин) или админ-команде.</p>
+      `;
       return;
     }
-    // Hide info block while session is active
-    if (infoBlock) infoBlock.style.display = "none";
-    card.style.display = "";
-
-    const dungeonName = data.dungeon_name || "—";
-    const stage = Math.max(1, Number(data.current_stage) || 1);
-    const totalStages = Math.max(stage, Number(data.total_stages) || 4);
-    const hp = Math.max(0, Number(data.current_monster_hp) || 0);
-    const maxHp = Math.max(1, Number(data.stage_base_hp) || 1);
-    const monsterName = data.monster_name || "—";
-    const pct = Math.min(100, Math.round((hp / maxHp) * 100));
-
-    // Build stage dots
-    const stageDots = buildStageDots(stage, totalStages);
-
-    // Participants
-    const participants = Array.isArray(data.participants) ? data.participants : [];
-    const totalMsgs = participants.reduce((s, p) => s + (Number(p.messages) || 0), 0);
-    const participantsHtml = participants.length
-      ? `<div style="font-size:12px;font-weight:800;color:var(--muted);margin:8px 0 4px;">Участники</div>
-         <div class="gd-participants">
-           ${participants.map((p) => {
-             const msgs = Number(p.messages) || 0;
-             const pct2 = totalMsgs > 0 ? Math.round((msgs / totalMsgs) * 100) : 0;
-             return `<div class="gd-participant-row">
-               <span class="gd-participant-name">${escapeHtml(p.name || p.username || "—")}</span>
-               <span class="gd-participant-contrib">${msgs} сообщ. · ${pct2}%</span>
-             </div>`;
-           }).join("")}
-         </div>`
-      : "";
-
-    card.innerHTML = `
-      <h3 class="gd-session-title">${escapeHtml(dungeonName)}</h3>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0;">
-        ${stageDots}
-        <span class="muted tiny">${stage}/${totalStages}</span>
-      </div>
-      <div class="gd-session-monster">
-        <span>${escapeHtml(monsterName)}</span>
-        <span>${hp.toLocaleString()} / ${maxHp.toLocaleString()}</span>
-      </div>
-      <div class="gd-session-hp-bar"><div class="gd-hp-fill" style="width:${pct}%"></div></div>
-      ${participantsHtml}
-    `;
+    card.style.display = "none";
+    if (infoBlock) infoBlock.style.display = "";
   } catch {
     card.style.display = "none";
     if (infoBlock) infoBlock.style.display = "";
   }
 }
 
-function showExpeditionError(msg) {
+function showExpeditionError(msg, tone = "danger") {
   const box = document.getElementById("expedition-error");
   if (!box) return;
   if (!msg) {
@@ -2367,23 +4915,36 @@ function showExpeditionError(msg) {
     box.textContent = "";
     return;
   }
-  box.style.display = "";
+  box.classList.remove("success", "warning", "danger");
+  if (tone) box.classList.add(tone);
   box.textContent = String(msg);
+  box.style.display = "block";
 }
 
 async function loadExpeditionTab() {
   showExpeditionError("");
   try {
-    const [slotsRes, activeRes, squadRes] = await Promise.all([
-      apiFetch("/expeditions/slots"),
+    const [slotsRes, activeRes, rosterRes] = await Promise.all([
+      apiFetch("/expeditions/daily-slots").catch(() => apiFetch("/expeditions/slots")),
       apiFetch("/expeditions/active"),
-      apiFetch("/tavern/squad"),
+      apiFetch("/expeditions/roster").catch(() => ({ waifus: [] })),
     ]);
     expeditionState.slots = Array.isArray(slotsRes?.slots) ? slotsRes.slots : [];
     expeditionState.active = Array.isArray(activeRes?.active) ? activeRes.active : [];
-    expeditionState.squad = Array.isArray(squadRes?.squad) ? squadRes.squad : [];
-    renderExpeditionActive();
-    renderExpeditionSlots();
+    expeditionState.roster = Array.isArray(rosterRes?.waifus) ? rosterRes.waifus : [];
+    expeditionState.refreshAt = slotsRes?.refresh_at || null;
+    expeditionUiCache.activeById = {};
+    expeditionUiCache.dailyById = {};
+    (expeditionState.active || []).forEach((a) => {
+      expeditionUiCache.activeById[a.id] = a;
+    });
+    (expeditionState.slots || []).forEach((s) => {
+      expeditionUiCache.dailyById[s.id] = s;
+    });
+    renderExpeditionGrids();
+    updateExpeditionRefreshLabel();
+    wireExpeditionTabTimers();
+    refreshAtticChips();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showExpeditionError(detail || "Ошибка загрузки экспедиций");
@@ -2397,174 +4958,412 @@ function formatExpeditionTime(seconds) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-let expeditionTimerId = null;
+function biomeBg(tag) {
+  const t = String(tag || "")
+    .toLowerCase()
+    .trim();
+  const map = {
+    cave: "linear-gradient(135deg,#1a0d2e,#0d0819)",
+    forest: "linear-gradient(135deg,#0d2e1a,#081908)",
+    ruins: "linear-gradient(135deg,#2e1a0d,#190d08)",
+    swamp: "linear-gradient(135deg,#0d2e12,#081208)",
+    temple: "linear-gradient(135deg,#1a0d2e,#0d0819)",
+    dark_temple: "linear-gradient(135deg,#1a0d2e,#12081a)",
+    fortress: "linear-gradient(135deg,#2e1a0d,#120804)",
+    crypt: "linear-gradient(135deg,#0d0d12,#050508)",
+    desert: "linear-gradient(135deg,#2e220d,#190f04)",
+    volcano: "linear-gradient(135deg,#2e0d0d,#190808)",
+    abyss: "linear-gradient(135deg,#0d0518,#020008)",
+    sky: "linear-gradient(135deg,#0d1a2e,#081018)",
+    sea_depth: "linear-gradient(135deg,#0d1e2e,#081318)",
+    tundra: "linear-gradient(135deg,#1a252e,#0d1418)",
+  };
+  return map[t] || "linear-gradient(135deg,#1a1008,#0d0808)";
+}
 
-function renderExpeditionActive() {
-  const box = document.getElementById("expedition-active-list");
-  if (!box) return;
-  const list = expeditionState.active || [];
-  if (!list.length) {
-    box.innerHTML = `<div class="muted">Нет активных экспедиций.</div>`;
-    if (expeditionTimerId) {
-      clearInterval(expeditionTimerId);
-      expeditionTimerId = null;
-    }
-    return;
-  }
-  box.innerHTML = list
-    .map((a) => {
-      const canClaim = Boolean(a.can_claim);
-      const sec = a.seconds_left != null ? a.seconds_left : 0;
-      const timeStr = canClaim ? "Завершена" : formatExpeditionTime(sec);
-      return `
-        <div class="expedition-active-card" data-id="${a.id}">
-          <div class="expedition-active-head">
-            <strong>${a.expedition_name || "—"}</strong>
-            <span class="tag">${a.duration_minutes} мин</span>
-          </div>
-          <div class="expedition-active-meta">
-            <span>Шанс: <strong>${a.chance ?? "—"}%</strong></span>
-            <span>Награда: 🪙${a.reward_gold ?? 0} · ✨${a.reward_experience ?? 0}</span>
-          </div>
-          <div class="expedition-active-time">${canClaim ? "Готово к получению" : `Осталось: ${timeStr}`}</div>
-          <div class="expedition-active-actions">
-            ${canClaim ? `<button class="primary" onclick="WaifuApp.claimExpedition(${a.id})">Забрать награду</button>` : ""}
-            <button class="secondary" onclick="WaifuApp.cancelExpedition(${a.id})">Отменить (50%)</button>
-          </div>
-        </div>
-      `;
+function expeditionAffixChipsHtml(affixes, affixLevel, withLevelOnFirst) {
+  const roman =
+    affixLevel >= 1 && affixLevel <= 5 ? ["I", "II", "III", "IV", "V"][affixLevel - 1] : "";
+  return (affixes || [])
+    .map((a, i) => {
+      const cat = String(a.category || "enemy")
+        .toLowerCase()
+        .replace(/[^a-z]/g, "") || "enemy";
+      const label =
+        withLevelOnFirst && roman && i === 0
+          ? `${a.icon || "✦"} ${a.name} ${roman}`
+          : `${a.icon || "✦"} ${a.name}`;
+      return `<span class="exp-aff-chip exp-cat-${cat}">${label}</span>`;
     })
     .join("");
-  const hasRunning = list.some((a) => !a.can_claim);
+}
+
+function renderExpeditionGrids() {
+  const activeSection = document.getElementById("exp-active-section");
+  const activeGrid = document.getElementById("exp-active-grid");
+  const dailyGrid = document.getElementById("exp-daily-grid");
+  if (!activeGrid || !dailyGrid) return;
+
+  const actives = expeditionState.active || [];
+  if (activeSection) {
+    if (actives.length) {
+      activeSection.style.display = "";
+      activeGrid.innerHTML = actives
+        .map((a) => {
+          const name = escapeHtml(a.base_location || a.expedition_name || "—");
+          const affixIcos = (a.affixes || [])
+            .slice(0, 4)
+            .map((x) => `<div class="exp-affix-ico">${x.icon || "✦"}</div>`)
+            .join("");
+          const prog = a.progress_pct != null ? Math.min(100, Number(a.progress_pct)) : 0;
+          const sec = a.seconds_left != null ? a.seconds_left : 0;
+          const timeStr = a.can_claim ? "—" : formatExpeditionTime(sec);
+          const emoji = a.biome_emoji || "🗺";
+          const bg = biomeBg(a.biome_tag);
+          return `<div class="exp-card-item exp-is-active" data-exp-kind="active" data-exp-id="${a.id}">
+            <div class="exp-card-img" style="background:${bg}">
+              <div class="exp-card-emoji">${emoji}</div>
+              <div class="exp-card-affix-icons">${affixIcos}</div>
+              <div class="exp-card-name">${name}</div>
+            </div>
+            <div class="exp-card-progbar"><div class="exp-card-progfill" style="width:${prog}%"></div></div>
+            <div class="exp-card-foot"><span class="exp-foot-active">● В пути</span><span class="exp-foot-timer">${timeStr}</span></div>
+          </div>`;
+        })
+        .join("");
+    } else {
+      activeSection.style.display = "none";
+      activeGrid.innerHTML = "";
+    }
+  }
+
+  const slots = expeditionState.slots || [];
+  if (!slots.length) {
+    dailyGrid.innerHTML = '<div class="placeholder muted tiny">Нет доступных экспедиций</div>';
+  } else {
+    dailyGrid.innerHTML = slots
+      .map((s) => {
+        const used = Boolean(s.is_used);
+        const name = escapeHtml(s.base_location || s.name || "—");
+        const affixIcos = (s.affixes || [])
+          .slice(0, 4)
+          .map((x) => `<div class="exp-affix-ico">${x.icon || "✦"}</div>`)
+          .join("");
+        const emoji = s.biome_emoji || "🗺";
+        const bg = biomeBg(s.biome_tag);
+        const cls = used ? " exp-card-used" : "";
+        const foot = used
+          ? `<div class="exp-card-foot"><span class="exp-foot-muted">● Отправлена</span></div>`
+          : `<div class="exp-card-foot"><span class="exp-foot-ready">● Доступна</span></div>`;
+        return `<div class="exp-card-item${cls}" data-exp-kind="daily" data-exp-id="${s.id}" data-exp-used="${used ? "1" : "0"}">
+            <div class="exp-card-img" style="background:${bg}">
+              <div class="exp-card-emoji">${emoji}</div>
+              <div class="exp-card-affix-icons">${affixIcos}</div>
+              <div class="exp-card-name">${name}</div>
+            </div>
+            ${foot}
+          </div>`;
+      })
+      .join("");
+  }
+
+  document.querySelectorAll("#exp-active-grid [data-exp-kind], #exp-daily-grid [data-exp-kind]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const kind = el.getAttribute("data-exp-kind");
+      const id = Number(el.getAttribute("data-exp-id"));
+      if (kind === "daily" && el.getAttribute("data-exp-used") === "1") return;
+      expOpenCard(kind, id);
+    });
+  });
+}
+
+let expeditionTimerId = null;
+let expActiveModalTimer = null;
+
+function wireExpeditionTabTimers() {
+  const hasRunning = (expeditionState.active || []).some((a) => !a.can_claim);
   if (hasRunning && !expeditionTimerId) {
     expeditionTimerId = setInterval(() => {
       if (document.getElementById("tab-expedition")?.style.display !== "none") {
         loadExpeditionTab().catch(() => {});
       }
-    }, 5000);
+    }, 15000);
   } else if (!hasRunning && expeditionTimerId) {
     clearInterval(expeditionTimerId);
     expeditionTimerId = null;
   }
 }
 
-function renderExpeditionSlots() {
-  const box = document.getElementById("expedition-slots-list");
-  if (!box) return;
-  const slots = expeditionState.slots || [];
-  if (!slots.length) {
-    box.innerHTML = `<div class="muted">Нет слотов на сегодня.</div>`;
+function updateExpeditionRefreshLabel() {
+  const el = document.getElementById("exp-daily-refresh-label");
+  if (!el || !expeditionState.refreshAt) {
+    if (el) el.textContent = "Обновляются в 00:00 МСК";
     return;
   }
-  box.innerHTML = slots
-    .map((s) => {
-      const aff = (s.affixes || []).length;
-      return `
-        <div class="expedition-slot-card" data-id="${s.id}">
-          <div class="expedition-slot-name">${s.name || "—"}</div>
-          <div class="expedition-slot-meta">
-            <span>Ур. ${s.base_level ?? "—"}</span>
-            <span>Сложности: ${aff}</span>
-            <span>🪙 ${s.base_gold ?? 0} · ✨ ${s.base_experience ?? 0}</span>
-          </div>
-          <button class="primary" onclick="WaifuApp.openExpeditionStartModal(${s.id})">Отправить отряд</button>
-        </div>
-      `;
-    })
-    .join("");
+  const end = new Date(expeditionState.refreshAt).getTime();
+  const fmt = () => {
+    const sec = Math.max(0, Math.floor((end - Date.now()) / 1000));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    el.textContent = `Обновляются в 00:00 МСК — осталось ${h}ч ${m}м`;
+  };
+  fmt();
 }
 
-function openExpeditionStartModal(slotId) {
-  const slot = (expeditionState.slots || []).find((s) => Number(s.id) === Number(slotId));
-  if (!slot) return;
-  expeditionState.selectedSlot = slot;
-  expeditionState.selectedSquadIds = [];
-  expeditionState.durationMinutes = 60;
+function expG(id) {
+  return document.getElementById(id);
+}
 
-  const m = document.getElementById("expedition-start-modal");
-  if (!m) return;
-  setText("expedition-start-title", slot.name || "Экспедиция");
-  setText("expedition-start-subtitle", `Ур. ${slot.base_level} · до 3 вайфу из отряда таверны`);
-
-  const pick = document.getElementById("expedition-squad-pick");
-  if (pick) {
-    const squad = expeditionState.squad || [];
-    if (!squad.length) {
-      pick.innerHTML = `<div class="muted">Сформируйте отряд в таверне (1–3 вайфу в отряде).</div>`;
-    } else {
-      pick.innerHTML = squad
-        .map(
-          (w) => `
-          <label class="expedition-squad-option">
-            <input type="checkbox" value="${w.id}" data-waifu-id="${w.id}">
-            <span>${w.name || "—"} (lvl ${w.level ?? "—"})</span>
-          </label>
-        `
-        )
-        .join("");
-      pick.querySelectorAll("input[type=checkbox]").forEach((cb) => {
-        cb.addEventListener("change", () => {
-          const checked = Array.from(pick.querySelectorAll("input[type=checkbox]:checked")).map(
-            (c) => Number(c.dataset.waifuId)
-          );
-          if (checked.length > 3) {
-            cb.checked = false;
-            expeditionState.selectedSquadIds = checked.filter((id) => id !== Number(cb.dataset.waifuId));
-          } else {
-            expeditionState.selectedSquadIds = checked;
-          }
-        });
-      });
-    }
+function expOpenOverlay(id) {
+  const el = expG(id);
+  if (el) {
+    el.style.display = "flex";
+    el.classList.add("exp-open");
   }
+}
 
-  const durSel = document.getElementById("expedition-duration-select");
-  if (durSel) {
-    const opts = [15, 30, 45, 60, 75, 90, 105, 120];
-    durSel.innerHTML = opts.map((m) => `<option value="${m}" ${m === 60 ? "selected" : ""}>${m} мин</option>`).join("");
-    durSel.onchange = () => {
-      expeditionState.durationMinutes = Number(durSel.value);
+function expCloseOverlay(id) {
+  const el = expG(id);
+  if (el) {
+    el.style.display = "none";
+    el.classList.remove("exp-open");
+  }
+}
+
+function expOpenCard(kind, id) {
+  if (kind === "active") {
+    const raw = expeditionUiCache.activeById[id];
+    if (raw) openActiveExpModal(raw);
+  } else {
+    const slot = expeditionUiCache.dailyById[id];
+    if (slot) openSendExpModal(slot);
+  }
+}
+
+function openActiveExpModal(raw) {
+  expeditionUiCache._activeRaw = raw;
+  expG("eam-title").textContent = raw.base_location || raw.expedition_name || "—";
+  const affHtml = expeditionAffixChipsHtml(raw.affixes || [], raw.affix_level, true);
+  expG("eam-affixes").innerHTML = affHtml;
+  const bg = biomeBg(raw.biome_tag);
+  const img = expG("eam-img");
+  const emo = expG("eam-emoji");
+  if (img) img.style.background = bg;
+  if (emo) emo.textContent = raw.biome_emoji || "🗺";
+
+  tickActiveModal();
+  if (expActiveModalTimer) clearInterval(expActiveModalTimer);
+  expActiveModalTimer = setInterval(tickActiveModal, 1000);
+
+  const squad = raw.squad_snapshot || [];
+  expG("eam-squad").innerHTML = squad.map(expeditionActiveUnitRow).join("");
+
+  window._activeExpId = raw.id;
+  const claimBtn = expG("eam-claim-btn");
+  const abortBtn = expG("eam-abort-btn");
+  if (claimBtn) {
+    claimBtn.onclick = () => {
+      closeActiveExpModal();
+      openExpeditionResult(raw.id);
     };
   }
-
-  const preview = document.getElementById("expedition-preview");
-  if (preview) preview.innerHTML = `<div class="muted tiny">Шанс и награда рассчитываются при отправке.</div>`;
-
-  m.style.display = "grid";
+  if (claimBtn && abortBtn) {
+    const canClaim = Boolean(raw.can_claim);
+    claimBtn.style.display = canClaim ? "block" : "none";
+    abortBtn.style.display = canClaim ? "none" : "";
+  }
+  expOpenOverlay("exp-active-modal");
 }
 
-function closeExpeditionStartModal() {
-  const m = document.getElementById("expedition-start-modal");
-  if (m) m.style.display = "none";
-  expeditionState.selectedSlot = null;
-  expeditionState.selectedSquadIds = [];
+function expeditionActiveUnitRow(u) {
+  const pct = u.hp_max > 0 ? Math.round((u.hp_current / u.hp_max) * 100) : 0;
+  const color = pct > 50 ? "#4ade80" : pct > 25 ? "#fbbf24" : "#f87171";
+  const sub = [u.unit_class, u.race].filter(Boolean).join(" · ");
+  const warn = pct <= 25 ? '<span style="color:#f87171;font-size:9px"> ⚠ Лечение</span>' : "";
+  return `<div class="exp-unit-row">
+    <div class="exp-unit-ico">${u.icon || "⚔️"}</div>
+    <div class="exp-unit-inf">
+      <div class="exp-unit-name">${escapeHtml(u.name || "—")}</div>
+      <div class="exp-unit-sub">${escapeHtml(sub)}${warn}</div>
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <div style="font-size:10px;color:${color};font-weight:700;margin-bottom:3px">${u.hp_current}/${u.hp_max}</div>
+      <div class="exp-unit-hpbar"><div class="exp-unit-hpfill" style="width:${pct}%;background:${color}"></div></div>
+    </div>
+  </div>`;
+}
+
+function tickActiveModal() {
+  const raw = expeditionUiCache._activeRaw;
+  if (!raw) return;
+  const endMs = new Date(raw.ends_at).getTime();
+  const sec = Math.max(0, Math.floor((endMs - Date.now()) / 1000));
+  const canClaim = Date.now() >= endMs;
+  const tEl = expG("eam-timer");
+  if (tEl) tEl.textContent = canClaim ? "Готово" : formatExpeditionTime(sec);
+  const prog = raw.progress_pct != null ? Math.min(100, Number(raw.progress_pct)) : 0;
+  const pTxt = expG("eam-prog-txt");
+  const pFill = expG("eam-prog-fill");
+  if (pTxt) pTxt.textContent = prog + "%";
+  if (pFill) pFill.style.width = prog + "%";
+  const ev = expG("eam-events");
+  if (ev) ev.textContent = `${raw.events_done ?? 0} / ${raw.events_total ?? 0}`;
+  const claimBtn = expG("eam-claim-btn");
+  const abortBtn = expG("eam-abort-btn");
+  if (claimBtn && abortBtn) {
+    claimBtn.style.display = canClaim ? "block" : "none";
+    abortBtn.style.display = canClaim ? "none" : "";
+  }
+}
+
+function closeActiveExpModal() {
+  if (expActiveModalTimer) {
+    clearInterval(expActiveModalTimer);
+    expActiveModalTimer = null;
+  }
+  expeditionUiCache._activeRaw = null;
+  expCloseOverlay("exp-active-modal");
+}
+
+function openSendExpModal(slot) {
+  expeditionSend.slotId = slot.id;
+  expeditionSend.diffVal = 1;
+  expeditionSend.durVal = 30;
+  expeditionSend.squadSlots = [null, null, null];
+  expG("esm-title").textContent = slot.base_location || slot.name || "—";
+  expG("esm-affixes").innerHTML = expeditionAffixChipsHtml(slot.affixes || [], null, false);
+  const bg = biomeBg(slot.biome_tag);
+  const img = expG("esm-img");
+  const emo = expG("esm-emoji");
+  if (img) img.style.background = bg;
+  if (emo) emo.textContent = slot.biome_emoji || "🗺";
+
+  expG("esm-diff-row").querySelectorAll(".exp-opt-btn").forEach((b, i) => b.classList.toggle("active", i === 0));
+  expG("esm-dur-row").querySelectorAll(".exp-opt-btn").forEach((b, i) => b.classList.toggle("active", i === 0));
+  renderExpeditionSquadSlots();
+  expOpenOverlay("exp-send-modal");
+}
+
+function closeSendExpModal() {
+  expCloseOverlay("exp-send-modal");
+}
+
+function expSelDiff(val, btn) {
+  expeditionSend.diffVal = val;
+  expG("esm-diff-row").querySelectorAll(".exp-opt-btn").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+}
+
+function expSelDur(val, btn) {
+  expeditionSend.durVal = val;
+  expG("esm-dur-row").querySelectorAll(".exp-opt-btn").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+}
+
+function getAvailableUnits() {
+  return expeditionState.roster || [];
+}
+
+function renderExpeditionSquadSlots() {
+  for (let i = 0; i < 3; i++) {
+    const slot = expG("exp-sl-" + i);
+    const unit = expeditionSend.squadSlots[i];
+    if (!slot) continue;
+    if (unit) {
+      slot.className = "exp-squad-slot exp-slot-filled";
+      const hpC = unit.hp_current ?? unit.current_hp ?? 0;
+      const hpM = unit.hp_max ?? unit.max_hp ?? 1;
+      slot.innerHTML = `<div class="exp-squad-ico">${unit.icon || "⚔️"}</div>
+        <div class="exp-squad-name">${escapeHtml(unit.name || "")}</div>
+        <div class="exp-squad-hp">${hpC}/${hpM}</div>`;
+    } else {
+      slot.className = "exp-squad-slot";
+      slot.innerHTML = '<span class="exp-squad-empty">+ Добавить</span>';
+    }
+    slot.onclick = () => expOpenPicker(i);
+  }
+  const btn = expG("exp-send-btn");
+  if (btn) btn.disabled = expeditionSend.squadSlots.every((s) => !s);
+}
+
+function expOpenPicker(slotIdx) {
+  expeditionSend.pickerSlot = slotIdx;
+  const takenIds = new Set(
+    expeditionSend.squadSlots
+      .map((u, i) => (i !== slotIdx && u ? u.id : null))
+      .filter(Boolean)
+  );
+  const units = getAvailableUnits();
+  const list = expG("exp-unit-list");
+  if (!list) return;
+  list.innerHTML =
+    units
+      .map((u) => {
+        const inExp = u.expedition_id != null;
+        const inSquad = takenIds.has(u.id);
+        const disabled = inExp || inSquad;
+        const hpM = u.hp_max ?? u.max_hp ?? 1;
+        const hpC = u.current_hp ?? u.hp_current ?? hpM;
+        const pct = hpM > 0 ? Math.round((hpC / hpM) * 100) : 0;
+        const hpColor = pct > 50 ? "#4ade80" : pct > 25 ? "#fbbf24" : "#f87171";
+        const cid = Number(u.class ?? u.class_);
+        const rid = Number(u.race);
+        const cls = WAIFU_CLASSES.find((c) => c.id === cid);
+        const race = WAIFU_RACES.find((r) => r.id === rid);
+        const note = inExp ? "🔒 В экспедиции" : `${cls?.name || "—"} · ${race?.name || "—"}`;
+        const clickAttr = disabled ? "" : ` onclick="WaifuApp.expPickUnit(${u.id})"`;
+        return `<div class="exp-ul-item${disabled ? " exp-ul-dis" : ""}"${clickAttr}>
+          <div class="exp-unit-ico">${u.icon || "⚔️"}</div>
+          <div class="exp-unit-inf">
+            <div class="exp-unit-name">${escapeHtml(u.name || "")}</div>
+            <div class="exp-unit-sub">${note}</div>
+          </div>
+          <div class="exp-unit-hpbar">
+            <div class="exp-unit-hpfill" style="width:${pct}%;background:${hpColor}"></div>
+          </div>
+        </div>`;
+      })
+      .join("") || '<div class="placeholder muted tiny">Нет доступных наёмниц</div>';
+
+  closeSendExpModal();
+  expOpenOverlay("exp-picker-overlay");
+}
+
+function expPickUnit(id) {
+  const units = getAvailableUnits();
+  const unit = units.find((u) => u.id === id);
+  if (!unit || unit.expedition_id) return;
+  expeditionSend.squadSlots[expeditionSend.pickerSlot] = unit;
+  expClosePicker();
+  expOpenOverlay("exp-send-modal");
+  renderExpeditionSquadSlots();
+}
+
+function expClosePicker() {
+  expCloseOverlay("exp-picker-overlay");
 }
 
 async function submitExpeditionStart() {
-  const slot = expeditionState.selectedSlot;
-  if (!slot) return;
-  const pick = document.getElementById("expedition-squad-pick");
-  const ids = pick
-    ? Array.from(pick.querySelectorAll("input[type=checkbox]:checked")).map((c) => Number(c.dataset.waifuId))
-    : expeditionState.selectedSquadIds;
-  if (!ids.length || ids.length > 3) {
-    showExpeditionError("Выберите от 1 до 3 вайфу из отряда таверны.");
+  const unitIds = expeditionSend.squadSlots.filter(Boolean).map((u) => u.id);
+  if (!unitIds.length || !expeditionSend.slotId) {
+    showExpeditionError("Выберите отряд и слот.");
     return;
   }
-  const duration = expeditionState.durationMinutes || 60;
   try {
-    const res = await apiFetch("/expeditions/start", {
+    await apiFetch("/expeditions/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        expedition_slot_id: Number(slot.id),
-        squad_waifu_ids: ids,
-        duration_minutes: duration,
+        slot_id: expeditionSend.slotId,
+        unit_ids: unitIds,
+        difficulty_level: expeditionSend.diffVal,
+        duration_minutes: expeditionSend.durVal,
       }),
     });
-    closeExpeditionStartModal();
+    closeSendExpModal();
+    expClosePicker();
     showExpeditionError("");
-    showDungeonsError(`Экспедиция отправлена. Шанс: ${res.chance}%. ${res.success ? "Успех!" : "Провал."} Завершение: ${res.ends_at || ""}`);
+    showDungeonsError("Экспедиция отправлена.");
     await loadExpeditionTab();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -2572,16 +5371,157 @@ async function submitExpeditionStart() {
   }
 }
 
+async function abortExpedition(activeId) {
+  if (!activeId) return;
+  try {
+    await apiFetch(`/expeditions/${activeId}/abort`, { method: "POST" });
+    showToast?.("Экспедиция завершена (≈50% награды)", "success");
+    closeActiveExpModal();
+    await loadProfile().catch(() => {});
+    await loadExpeditionTab();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast?.(detail || e?.message || "Ошибка", "error");
+  }
+}
 async function claimExpedition(activeId) {
   try {
     const res = await apiFetch(`/expeditions/claim?active_id=${activeId}`, { method: "POST" });
-    showDungeonsError(`Награда: 🪙 +${res.gold_gained} · ✨ +${res.experience_gained}`);
+    let msg = `Награда: 🪙 +${res.gold_gained} · ✨ +${res.experience_gained}`;
+    if (res.event_text) {
+      msg += "\n\n" + res.event_text;
+    }
+    showDungeonsError(msg);
     await loadProfile().catch(() => {});
     await loadExpeditionTab();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showDungeonsError(detail || "Ошибка получения награды", "danger");
   }
+}
+
+async function openExpeditionResult(expeditionId) {
+  const modal = document.getElementById("expedition-result-modal");
+  const loading = document.getElementById("exp-result-loading");
+  const content = document.getElementById("exp-result-content");
+  const fill = document.getElementById("exp-result-loading-fill");
+  const sub = document.getElementById("exp-result-loading-sub");
+  if (!modal || !loading || !content) return;
+
+  modal.style.display = "flex";
+  modal.style.alignItems = "flex-end";
+  modal.style.justifyContent = "center";
+  loading.style.display = "flex";
+  content.style.display = "none";
+  if (fill) fill.style.width = "0%";
+
+  const loadingSteps = [
+    [10, "Отряд возвращается в таверну..."],
+    [30, "Считаем потери и трофеи..."],
+    [55, "Начисляем опыт наёмницам..."],
+    [75, "Рассказчик пишет историю..."],
+    [90, "Почти готово..."],
+  ];
+  let stepIdx = 0;
+  const progressInterval = setInterval(() => {
+    if (stepIdx < loadingSteps.length && fill && sub) {
+      const [pct, text] = loadingSteps[stepIdx++];
+      fill.style.width = pct + "%";
+      sub.textContent = text;
+    }
+  }, 600);
+
+  try {
+    const result = await apiFetch(`/expeditions/${expeditionId}/claim`, { method: "POST" });
+    clearInterval(progressInterval);
+    if (fill) fill.style.width = "100%";
+    if (sub) sub.textContent = "Готово!";
+    await new Promise((r) => setTimeout(r, 400));
+    fillExpeditionResult(result);
+    loading.style.display = "none";
+    content.style.display = "block";
+  } catch (e) {
+    clearInterval(progressInterval);
+    modal.style.display = "none";
+    showToast("Ошибка получения наград: " + (e?.message || e), "error");
+  }
+}
+
+function fillExpeditionResult(result) {
+  const OUTCOME_CONFIG = {
+    success: { icon: "✅", title: "Успешно завершена!", color: "#4ade80", mult: "×1.0" },
+    partial_success: { icon: "⚠️", title: "Завершена с потерями", color: "#facc15", mult: "×0.7" },
+    failure: { icon: "❌", title: "Провал", color: "#f87171", mult: "×0.4" },
+  };
+  const cfg = OUTCOME_CONFIG[result.outcome] || OUTCOME_CONFIG.partial_success;
+
+  const outcomeEl = document.getElementById("exp-result-outcome");
+  if (outcomeEl) {
+    outcomeEl.innerHTML = `
+      <div class="exp-result-outcome-icon">${cfg.icon}</div>
+      <div class="exp-result-outcome-title" style="color:${cfg.color}">${escapeHtml(result.expedition_name || "Экспедиция")}</div>
+      <div class="exp-result-outcome-sub">${cfg.title}</div>`;
+  }
+  const narrativeEl = document.getElementById("exp-result-narrative");
+  if (narrativeEl) narrativeEl.textContent = result.ai_narrative || "Отряд вернулся из экспедиции.";
+
+  const rewardsEl = document.getElementById("exp-result-rewards");
+  if (rewardsEl) {
+    rewardsEl.innerHTML = `
+      <div class="exp-result-reward-box">
+        <div class="exp-result-reward-label">Золото</div>
+        <div class="exp-result-reward-value">🪙 ${result.gold_earned ?? 0}</div>
+        <div class="exp-result-reward-mult">${cfg.mult}</div>
+      </div>
+      <div class="exp-result-reward-box">
+        <div class="exp-result-reward-label">Опыт наёмниц</div>
+        <div class="exp-result-reward-value">✨ ${result.exp_earned ?? 0}</div>
+        <div class="exp-result-reward-mult">${cfg.mult}</div>
+      </div>`;
+  }
+
+  const squadEl = document.getElementById("exp-result-squad");
+  if (squadEl && Array.isArray(result.squad_state)) {
+    squadEl.innerHTML = result.squad_state
+      .map((u) => {
+        const hpPct = u.hp_max ? Math.round((u.hp_current / u.hp_max) * 100) : 100;
+        const needsHeal = u.hp_current < u.hp_max;
+        return `
+          <div class="exp-result-unit">
+            <div class="exp-result-unit-icon">${u.class_icon || "⚔️"}</div>
+            <div class="exp-result-unit-info">
+              <div class="exp-result-unit-name">${escapeHtml(u.name || "—")}</div>
+              <div class="exp-result-unit-stats">
+                ❤ ${u.hp_current}/${u.hp_max}
+                ${needsHeal ? ' · <span style="color:#f87171">Нужно лечение</span>' : " · ✓ Здорова"}
+                ${u.leveled_up ? ' · <span style="color:#4ade80">⭐ Новый уровень!</span>' : ""}
+              </div>
+            </div>
+            <div class="exp-result-unit-bar">
+              <div class="exp-result-unit-bar-fill" style="width:${hpPct}%"></div>
+            </div>
+          </div>`;
+      })
+      .join("");
+  }
+
+  const itemsWrap = document.getElementById("exp-result-items-wrap");
+  const itemsEl = document.getElementById("exp-result-items");
+  if (result.items_earned?.length > 0 && itemsWrap && itemsEl) {
+    itemsEl.innerHTML = result.items_earned
+      .map((item) => `<div class="exp-result-item">${item.emoji || "🎁"} ${escapeHtml(item.name || "—")}</div>`)
+      .join("");
+    itemsWrap.style.display = "block";
+  } else if (itemsWrap) {
+    itemsWrap.style.display = "none";
+  }
+}
+
+function closeExpeditionResult() {
+  const modal = document.getElementById("expedition-result-modal");
+  if (modal) modal.style.display = "none";
+  loadExpeditionTab?.();
+  loadProfile?.catch(() => {});
 }
 
 async function cancelExpedition(activeId) {
@@ -2597,12 +5537,22 @@ async function cancelExpedition(activeId) {
 }
 
 async function adminRefreshExpeditions() {
+  const btn = document.getElementById("expedition-admin-refresh");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⏳";
+  }
   try {
     await apiFetch("/admin/expeditions/refresh", { method: "POST" });
     await loadExpeditionTab();
   } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showExpeditionError(detail || "Ошибка обновления слотов");
+    const msg = (e && e.message) || parseHttpErrorDetail(e).detail || "Ошибка обновления слотов";
+    showToast("Ошибка обновления: " + msg, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "🔄";
+    }
   }
 }
 
@@ -2629,7 +5579,7 @@ function showTab(name) {
         loadActiveGdDungeons().catch(() => {});
         updateGdSessionUI().catch(() => {});
       }
-    }, 5000);
+    }, 15000);
   } else {
     if (gdSessionRefreshTimer) {
       clearInterval(gdSessionRefreshTimer);
@@ -2638,193 +5588,15 @@ function showTab(name) {
   }
 }
 
-function showExpeditionError(message, tone = "danger") {
-  const box = document.getElementById("expedition-error");
-  if (!box) return;
-  if (!message) {
-    box.style.display = "none";
-    box.textContent = "";
-    return;
-  }
-  box.classList.remove("success", "warning", "danger");
-  box.classList.add(tone);
-  box.textContent = message;
-  box.style.display = "block";
-}
-
-async function loadExpeditionTab() {
-  showExpeditionError("");
-  const [slots, active] = await Promise.all([apiFetch("/expeditions/slots"), apiFetch("/expeditions/active")]);
-  expeditionState.slots = Array.isArray(slots?.slots) ? slots.slots : [];
-  expeditionState.active = Array.isArray(active?.active) ? active.active : [];
-  renderExpeditionSlots();
-  renderExpeditionActive();
-}
-
-function renderExpeditionSlots() {
-  const wrap = document.getElementById("expedition-slots");
-  if (!wrap) return;
-  if (!expeditionState.slots.length) {
-    wrap.innerHTML = `<div class="placeholder">Экспедиций пока нет.</div>`;
-    return;
-  }
-  wrap.innerHTML = "";
-  expeditionState.slots.forEach((slot) => {
-    const affixes = Array.isArray(slot.affixes) ? slot.affixes : [];
-    const card = document.createElement("div");
-    card.className = "card";
-    card.style.marginBottom = "12px";
-    card.innerHTML = `
-      <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
-        <div style="min-width:0;">
-          <div style="font-weight:800;">${slot.name || "Экспедиция"}</div>
-          <div class="muted tiny">Уровень: ${slot.base_level ?? "—"} · Сложность: ${slot.base_difficulty ?? "—"}</div>
-          <div class="muted tiny">Сложности: ${affixes.length ? affixes.join(", ") : "—"}</div>
-          <div class="muted tiny">Базовые награды: 🪙 ${slot.base_gold ?? 0} · ✨ ${slot.base_experience ?? 0}</div>
-        </div>
-        <button class="primary" style="width:auto;">Выбрать</button>
-      </div>
-    `;
-    const btn = card.querySelector("button");
-    if (btn) {
-      btn.onclick = () => openExpeditionModal(slot);
-    }
-    wrap.appendChild(card);
-  });
-}
-
-function renderExpeditionActive() {
-  const wrap = document.getElementById("expedition-active");
-  if (!wrap) return;
-  if (!expeditionState.active.length) {
-    wrap.innerHTML = `<div class="muted">Нет активных экспедиций.</div>`;
-    return;
-  }
-  wrap.innerHTML = "";
-  expeditionState.active.forEach((run) => {
-    const mins = Math.ceil((run.remaining_seconds || 0) / 60);
-    const card = document.createElement("div");
-    card.className = "list-item";
-    card.innerHTML = `
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:center;">
-        <div>
-          <strong>${run.dungeon_name || "Экспедиция"}</strong>
-          <div class="muted tiny">Осталось: ${mins} мин · Шанс: ${run.chance ?? "—"}%</div>
-        </div>
-        <div class="tag">${run.cancelled ? "отменена" : run.claimed ? "завершена" : "в пути"}</div>
-      </div>
-    `;
-    wrap.appendChild(card);
-  });
-}
-
-async function openExpeditionModal(slot) {
-  expeditionState.selectedSlot = slot;
-  expeditionState.selectedDuration = 60;
-  expeditionState.selectedWaifus = new Set();
-  const modal = document.getElementById("expedition-modal");
-  const body = document.getElementById("expedition-modal-body");
-  if (!modal || !body) return;
-  setText("expedition-modal-title", slot?.name || "Экспедиция");
-  setText("expedition-modal-subtitle", `Сложность: ${slot?.base_difficulty ?? "—"}`);
-
-  let waifuPayload = { waifus: [] };
-  try {
-    waifuPayload = await apiFetch("/expeditions/waifus");
-  } catch (e) {
-    showExpeditionError("Не удалось загрузить список вайфу.");
-  }
-  expeditionState.waifus = Array.isArray(waifuPayload?.waifus) ? waifuPayload.waifus : [];
-
-  const durationOptions = [15, 30, 45, 60, 75, 90, 105, 120]
-    .map((m) => `<option value="${m}">${m} мин</option>`)
-    .join("");
-
-  const waifuRows = expeditionState.waifus
-    .map(
-      (w) => `
-      <label class="list-item" style="cursor:pointer;">
-        <div style="display:flex; gap:10px; align-items:center; width:100%;">
-          <input type="checkbox" data-waifu-id="${w.id}" />
-          <div style="min-width:0;">
-            <strong>${w.name}</strong>
-            <div class="muted tiny">Мощь: ${w.power ?? "—"} · Перки: ${Array.isArray(w.perks) ? w.perks.length : 0}</div>
-          </div>
-        </div>
-      </label>
-    `
-    )
-    .join("");
-
-  body.innerHTML = `
-    <div class="detail-row"><span class="muted">Длительность</span>
-      <select id="expedition-duration" class="chip-select">${durationOptions}</select>
-    </div>
-    <div style="margin-top:10px; font-weight:700;">Отряд (1–3)</div>
-    <div id="expedition-waifu-list">${waifuRows || `<div class="muted">Нет доступных вайфу.</div>`}</div>
-  `;
-
-  const durationSelect = document.getElementById("expedition-duration");
-  if (durationSelect) {
-    durationSelect.value = String(expeditionState.selectedDuration);
-    durationSelect.onchange = (e) => {
-      expeditionState.selectedDuration = Number(e.target.value || 60);
-    };
-  }
-  const checkboxes = body.querySelectorAll("input[type='checkbox'][data-waifu-id]");
-  checkboxes.forEach((box) => {
-    box.addEventListener("change", () => {
-      const id = Number(box.getAttribute("data-waifu-id"));
-      if (!id) return;
-      if (box.checked) {
-        expeditionState.selectedWaifus.add(id);
-      } else {
-        expeditionState.selectedWaifus.delete(id);
-      }
-      if (expeditionState.selectedWaifus.size > 3) {
-        box.checked = false;
-        expeditionState.selectedWaifus.delete(id);
-      }
-    });
-  });
-
-  modal.style.display = "grid";
-}
-
-function closeExpeditionModal() {
-  const modal = document.getElementById("expedition-modal");
-  if (modal) modal.style.display = "none";
-}
-
-async function startExpedition() {
-  const slot = expeditionState.selectedSlot;
-  if (!slot) return;
-  const waifuIds = Array.from(expeditionState.selectedWaifus);
-  if (waifuIds.length < 1) {
-    showExpeditionError("Выберите хотя бы одну вайфу.");
-    return;
-  }
-  try {
-    await apiFetch(
-      `/expeditions/start?slot_id=${encodeURIComponent(slot.id)}&duration_minutes=${encodeURIComponent(expeditionState.selectedDuration)}&squad_ids=${waifuIds
-        .map(encodeURIComponent)
-        .join("&squad_ids=")}`,
-      { method: "POST" }
-    );
-    closeExpeditionModal();
-    await loadExpeditionTab();
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showExpeditionError(detail || "Не удалось отправить экспедицию.");
-  }
-}
-
 function closeShopModal() {
   const m = document.getElementById("shop-modal");
-  if (m) m.style.display = "none";
+  if (m) {
+    m.classList.remove("shop-modal--open");
+    m.style.display = "none";
+  }
   shopState.selectedSlot = null;
   shopState.selectedOffer = null;
-  const grid = document.getElementById("shop-items");
+  const grid = document.getElementById("shop-items") || document.getElementById("shop-buy-grid");
   if (grid) grid.querySelectorAll(".item-card").forEach((c) => c.classList.remove("selected"));
 }
 
@@ -2839,29 +5611,124 @@ function openShopOffer(slot) {
   const m = document.getElementById("shop-modal");
   if (!m) return;
 
-  const nm = String(offer?.display_name || offer?.name || "").trim() || `Слот ${slot}`;
-  setText("shop-modal-name", nm);
-  setText("shop-modal-rarity", offer?.rarity != null ? rarityLabel(offer.rarity) : "—");
-  setText("shop-modal-level", offer?.level != null ? `lvl ${offer.level}` : "—");
-  setText("shop-modal-price", offer?.price != null ? String(offer.price) : "—");
+  const contentEl = document.getElementById("shop-offer-modal-content");
+  const nameEl = document.getElementById("shop-offer-modal-name");
+  const subEl = document.getElementById("shop-offer-modal-subline");
+  const rpill = document.getElementById("shop-offer-modal-rpill");
+  const upHint = document.getElementById("shop-offer-modal-upgrade-hint");
+  const art = document.getElementById("shop-offer-modal-art");
+  const body = document.getElementById("shop-offer-modal-body");
+  const buyBtn = document.getElementById("shop-modal-buy");
 
-  const body = document.getElementById("shop-modal-body");
+  if (!offer) {
+    if (nameEl) nameEl.textContent = `Слот ${slot}`;
+    if (subEl) subEl.textContent = "";
+    if (rpill) {
+      rpill.textContent = "—";
+      rpill.className = "item-modal-v2-rpill";
+    }
+    if (upHint) {
+      upHint.style.display = "none";
+      upHint.textContent = "";
+      upHint.setAttribute("aria-hidden", "true");
+    }
+    if (art) art.innerHTML = "—";
+    if (body) body.innerHTML = `<div class="muted tiny" style="padding:8px 0;">Пустой слот.</div>`;
+    const reqSec = document.getElementById("shop-offer-modal-req-section");
+    const reqFoot = document.getElementById("shop-offer-modal-requirements");
+    if (reqFoot) reqFoot.innerHTML = "";
+    if (reqSec) reqSec.style.display = "none";
+    const descEl = document.getElementById("shop-offer-modal-desc");
+    if (descEl) {
+      descEl.style.display = "none";
+      descEl.innerHTML = "";
+    }
+    if (buyBtn) {
+      buyBtn.disabled = true;
+      buyBtn.textContent = "—";
+    }
+    if (contentEl) {
+      ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) => contentEl.classList.remove(c));
+      contentEl.classList.add("rarity-common");
+    }
+    m.classList.add("shop-modal--open");
+    m.style.display = "grid";
+    return;
+  }
+
+  const nm = String(offer?.display_name || offer?.name || "").trim() || `Слот ${slot}`;
+  if (nameEl) {
+    nameEl.innerHTML = composeItemTitlePlain(offer) || escapeHtml(nm);
+    const en = safeNumber(offer?.enchant_level, 0);
+    const br = Boolean(offer?.is_broken);
+    nameEl.classList.toggle("item-modal-v2-title--enchant-high", en > 7 && !br);
+  }
+  if (subEl) subEl.textContent = buildItemModalMetaLine(offer);
+  if (rpill) {
+    rpill.textContent = rarityLabel(offer?.rarity);
+    rpill.className = `item-modal-v2-rpill ${rarityPillModifierClass(offer?.rarity)}`.trim();
+  }
+  if (upHint) {
+    upHint.style.display = "none";
+    upHint.textContent = "";
+    upHint.setAttribute("aria-hidden", "true");
+  }
+  if (art) art.innerHTML = itemArtHtml(offer);
+
+  if (contentEl) {
+    ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) => contentEl.classList.remove(c));
+    contentEl.classList.add(offer?.rarity != null ? rarityClass(offer.rarity) : "rarity-common");
+  }
+
+  const combinedBonusesHtml = renderCombinedBonusesHtml(offer);
+  const weaponStatsHtml = renderWeaponStatsHtml(offer);
+  let charHtml = renderItemModalV2CharacteristicsHtml(offer);
+  if (!charHtml) {
+    const statsInner = [weaponStatsHtml, combinedBonusesHtml].filter(Boolean).join("");
+    charHtml = statsInner
+      ? `<div class="item-mtg-stats-merged">${statsInner}</div>`
+      : `<div class="muted tiny" style="padding:6px 0;">Нет характеристик для отображения.</div>`;
+  }
+
   if (body) {
-    if (!offer) {
-      body.innerHTML = `<div class="muted">Пустой слот.</div>`;
-    } else if (offer?.sold) {
-      body.innerHTML = `<div class="muted">Этот предмет уже продан.</div>`;
+    if (offer?.sold) {
+      body.innerHTML = `<div class="muted tiny" style="padding:8px 0;">Этот предмет уже продан.</div>`;
     } else {
-      const parts = [];
-      if (offer?.tier != null) parts.push(`<div><span class="muted">Tier</span> <strong>${offer.tier}</strong></div>`);
-      parts.push(renderWeaponStatsHtml(offer));
-      parts.push(renderItemBonusesHtml(offer));
-      body.innerHTML = parts.filter(Boolean).join("") || `<div class="muted">Нет деталей предмета.</div>`;
+      body.innerHTML = charHtml;
     }
   }
 
-  const buyBtn = document.getElementById("shop-modal-buy");
-  if (buyBtn) buyBtn.disabled = !offer || Boolean(offer?.sold) || offer?.price == null;
+  const mw = profileState.currentProfile?.main_waifu || null;
+  const reqFoot = document.getElementById("shop-offer-modal-requirements");
+  const reqSec = document.getElementById("shop-offer-modal-req-section");
+  const pillsHtml = buildItemModalRequirementsPillsHtml(offer, mw);
+  if (reqFoot) reqFoot.innerHTML = pillsHtml;
+  if (reqSec) reqSec.style.display = pillsHtml && !offer?.sold ? "" : "none";
+
+  const descEl = document.getElementById("shop-offer-modal-desc");
+  const descText = String(offer?.description || "").trim();
+  if (descEl) {
+    if (descText && !offer?.sold) {
+      descEl.style.display = "";
+      descEl.textContent = `"${descText}"`;
+    } else {
+      descEl.style.display = "none";
+      descEl.innerHTML = "";
+    }
+  }
+
+  if (buyBtn) {
+    buyBtn.disabled = Boolean(offer?.sold) || offer?.price == null;
+    if (offer?.sold) {
+      buyBtn.textContent = "Продано";
+    } else if (offer?.price != null) {
+      buyBtn.textContent = `Купить ${offer.price} 🪙`;
+    } else {
+      buyBtn.textContent = "Купить";
+    }
+  }
+
+  m.classList.add("shop-modal--open");
   m.style.display = "grid";
 }
 
@@ -2871,8 +5738,8 @@ async function confirmBuy() {
   try {
     await apiFetch(`/shop/buy?act=${act}&slot=${shopState.selectedSlot}`, { method: "POST" });
   } catch (e) {
-    const body = document.getElementById("shop-modal-body");
-    if (body) body.innerHTML = `<div class="muted">Ошибка покупки: ${String(e?.message || e)}</div>`;
+    const body = document.getElementById("shop-offer-modal-body");
+    if (body) body.innerHTML = `<div class="muted tiny" style="padding:8px 0;">Ошибка покупки: ${escapeHtml(String(e?.message || e))}</div>`;
     return;
   }
   await loadProfile().catch(console.error);
@@ -2882,8 +5749,22 @@ async function confirmBuy() {
 
 async function refreshShopDebug() {
   const act = shopState.act || 1;
-  await apiFetch(`/shop/refresh?act=${act}`, { method: "GET" });
-  await loadShop(act);
+  try {
+    await apiFetch(`/shop/refresh?act=${act}`, { method: "GET" });
+    await loadShop(act);
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    const msg = detail || e?.message || "Ошибка обновления";
+    showToast(
+      msg.includes("sql_programming_error")
+        ? "Ошибка БД (схема): выполните alembic upgrade на сервере."
+        : msg.includes("database_unavailable")
+          ? "База данных недоступна или обрыв соединения."
+          : msg,
+      "error"
+    );
+    console.warn("refreshShopDebug:", e);
+  }
 }
 
 async function adminAddGold() {
@@ -2895,45 +5776,208 @@ async function adminAddGold() {
   }
 }
 
+let shopSellToolbarBound = false;
+
+function getSellFilteredSortedItems() {
+  const items = shopState.sellItems || [];
+  return items
+    .filter((item) => shopState.sellFilters[getProfileItemCategory(item)])
+    .sort(compareSellItems);
+}
+
+function compareSellItems(a, b) {
+  const sortKey = shopState.sellSort || "equipability";
+  const dir = shopState.sellSortDir === "asc" ? 1 : -1;
+  const rarityA = safeNumber(a?.rarity, 1);
+  const rarityB = safeNumber(b?.rarity, 1);
+  const levelA = safeNumber(a?.level, 0);
+  const levelB = safeNumber(b?.level, 0);
+  const equipA = a?.can_equip === false ? 0 : 1;
+  const equipB = b?.can_equip === false ? 0 : 1;
+  let result = 0;
+  if (sortKey === "level") result = levelA - levelB || rarityA - rarityB;
+  if (sortKey === "rarity") result = rarityA - rarityB || levelA - levelB;
+  if (sortKey === "equipability") result = equipA - equipB || levelA - levelB || rarityA - rarityB;
+  if (result === 0) {
+    const nameA = String(a?.display_name || a?.name || "").toLowerCase();
+    const nameB = String(b?.display_name || b?.name || "").toLowerCase();
+    result = nameA.localeCompare(nameB, "ru");
+  }
+  return result * dir;
+}
+
+function ensureShopSellToolbar() {
+  if (shopSellToolbarBound || typeof document === "undefined") return;
+  const cb = document.getElementById("shop-sell-select-mode");
+  if (!cb) return;
+  shopSellToolbarBound = true;
+  cb.addEventListener("change", (e) => {
+    shopState.sellSelectMode = Boolean(e.target?.checked);
+  });
+}
+
+function syncShopSellToolbarUI() {
+  const cb = document.getElementById("shop-sell-select-mode");
+  if (cb) cb.checked = Boolean(shopState.sellSelectMode);
+  document.getElementById("shop-sell-filter-weapon")?.classList.toggle("active", shopState.sellFilters.weapon);
+  document.getElementById("shop-sell-filter-armor")?.classList.toggle("active", shopState.sellFilters.armor);
+  document.getElementById("shop-sell-filter-accessory")?.classList.toggle("active", shopState.sellFilters.accessory);
+  const sortSelect = document.getElementById("shop-sell-sort-select");
+  if (sortSelect) sortSelect.value = shopState.sellSort || "equipability";
+  const dirBtn = document.getElementById("shop-sell-sort-dir");
+  if (dirBtn) dirBtn.textContent = shopState.sellSortDir === "asc" ? "▲" : "▼";
+}
+
+function toggleShopSellFilter(category) {
+  if (!Object.prototype.hasOwnProperty.call(shopState.sellFilters, category)) return;
+  shopState.sellFilters[category] = !shopState.sellFilters[category];
+  shopState.sellPage = 0;
+  renderSellPage();
+  renderSellPagination();
+  syncShopSellToolbarUI();
+}
+
+function setShopSellSort(value) {
+  shopState.sellSort = ["level", "rarity", "equipability"].includes(value) ? value : "equipability";
+  shopState.sellPage = 0;
+  renderSellPage();
+  renderSellPagination();
+  syncShopSellToolbarUI();
+}
+
+function toggleShopSellSortDir() {
+  shopState.sellSortDir = shopState.sellSortDir === "asc" ? "desc" : "asc";
+  shopState.sellPage = 0;
+  renderSellPage();
+  renderSellPagination();
+  syncShopSellToolbarUI();
+}
+
 async function loadSellInventory() {
-  const box = document.getElementById("sell-inventory");
+  const box = document.getElementById("shop-sell-grid") || document.getElementById("sell-inventory");
   if (!box) return;
 
   const data = await apiFetch(`/inventory?equipped=false&limit=100&offset=0`);
   const items = Array.isArray(data?.items) ? data.items : [];
+  shopState.sellItems = items;
+  shopState.sellPage = 0;
   shopState.sellSelected = new Set();
+
+  ensureShopSellToolbar();
+  renderSellPage();
+  renderSellPagination();
+  updateSellResultHint();
+  syncShopSellToolbarUI();
+}
+
+function renderSellPage() {
+  const box = document.getElementById("shop-sell-grid");
+  if (!box) return;
+
+  const filtered = getSellFilteredSortedItems();
+  const totalPages = Math.max(1, Math.ceil(filtered.length / SELL_PAGE_SIZE) || 1);
+  const page = Math.max(0, Math.min(shopState.sellPage, totalPages - 1));
+  shopState.sellPage = page;
+  const start = page * SELL_PAGE_SIZE;
+  const pageItems = filtered.slice(start, start + SELL_PAGE_SIZE);
 
   box.classList.remove("placeholder");
   box.innerHTML = "";
-  items.forEach((it) => {
-    const card = document.createElement("div");
-    card.className = "item-card";
-    card.dataset.id = String(it.id);
-    const nm = String(it?.display_name || "").trim() || String(it?.name || "Предмет");
-    const iconHtml = itemImageUrl(it) ? `<img src="${itemImageUrl(it)}" alt="" />` : "📦";
-    card.innerHTML = `
-      <div class="item-icon">${iconHtml}</div>
-      <div class="item-level">lvl ${it.level ?? "?"}</div>
-      <div class="item-name">${nm}</div>
-    `;
-    card.title = `${nm} (id ${it.id})`;
-    card.onclick = () => {
-      const id = it.id;
-      if (shopState.sellSelected.has(id)) {
-        shopState.sellSelected.delete(id);
-        card.classList.remove("selected");
-      } else {
-        shopState.sellSelected.add(id);
-        card.classList.add("selected");
-      }
-      const hint = document.getElementById("sell-result");
-      if (hint) hint.textContent = `Выбрано: ${shopState.sellSelected.size}`;
-    };
-    box.appendChild(card);
-  });
 
+  if (!filtered.length) {
+    box.innerHTML = `<div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0;">Нет предметов по выбранным фильтрам.</div>`;
+    applyShopMerchantHighlight();
+    return;
+  }
+
+  for (let i = 0; i < SELL_PAGE_SIZE; i += 1) {
+    const it = pageItems[i];
+    const card = document.createElement("div");
+    if (it) {
+      card.className = "shop-sell-card item-card " + (rarityClassFromValue(it.rarity) || "");
+      card.dataset.id = String(it.id);
+      if (shopState.sellSelected.has(it.id)) card.classList.add("selected");
+      const nm = String(it?.display_name || "").trim() || String(it?.name || "Предмет");
+      const iconHtml = itemArtHtml(it);
+      const priceBottomStr = it?.sell_price != null
+        ? `🪙 ${Number(it.sell_price).toLocaleString()}`
+        : "—";
+      card.innerHTML = `
+        <div class="item-icon">${iconHtml}</div>
+        <div class="item-level">lvl ${it.level ?? "?"}</div>
+        <div class="item-price">${escapeHtml(String(priceBottomStr))}</div>
+      `;
+      card.title = `${nm} (id ${it.id})`;
+      card.onclick = () => {
+        if (shopState.sellSelectMode) {
+          if (shopState.sellSelected.has(it.id)) {
+            shopState.sellSelected.delete(it.id);
+            card.classList.remove("selected");
+          } else {
+            shopState.sellSelected.add(it.id);
+            card.classList.add("selected");
+          }
+          updateSellResultHint();
+        } else {
+          openItemModal(it);
+        }
+      };
+    } else {
+      card.className = "shop-sell-card item-card empty";
+      card.innerHTML = `<div class="item-icon">—</div><div class="item-level">—</div><div class="item-price">—</div>`;
+      card.onclick = () => {};
+    }
+    box.appendChild(card);
+  }
+  applyShopMerchantHighlight();
+}
+
+function renderSellPagination() {
+  const wrap = document.getElementById("shop-sell-pagination");
+  if (!wrap) return;
+
+  const filtered = getSellFilteredSortedItems();
+  if (!filtered.length) {
+    wrap.innerHTML = "";
+    wrap.style.display = "none";
+    return;
+  }
+  const totalPages = Math.max(1, Math.ceil(filtered.length / SELL_PAGE_SIZE));
+  const page = shopState.sellPage;
+
+  if (totalPages <= 1) {
+    wrap.innerHTML = "";
+    wrap.style.display = "none";
+    return;
+  }
+
+  wrap.style.display = "flex";
+  wrap.innerHTML = `
+    <button type="button" class="shop-pagination-btn" ${page <= 0 ? "disabled" : ""} data-page="prev" aria-label="Назад">‹</button>
+    <span class="shop-pagination-info">Стр. ${page + 1} из ${totalPages}</span>
+    <button type="button" class="shop-pagination-btn" ${page >= totalPages - 1 ? "disabled" : ""} data-page="next" aria-label="Вперёд">›</button>
+  `;
+
+  wrap.querySelectorAll(".shop-pagination-btn").forEach((btn) => {
+    if (btn.disabled) return;
+    btn.addEventListener("click", () => {
+      const dir = btn.dataset.page;
+      if (dir === "prev" && shopState.sellPage > 0) {
+        shopState.sellPage -= 1;
+        renderSellPage();
+        renderSellPagination();
+      } else if (dir === "next" && shopState.sellPage < totalPages - 1) {
+        shopState.sellPage += 1;
+        renderSellPage();
+        renderSellPagination();
+      }
+    });
+  });
+}
+
+function updateSellResultHint() {
   const hint = document.getElementById("sell-result");
-  if (hint) hint.textContent = `Выбрано: 0`;
+  if (hint) hint.textContent = `Выбрано: ${(shopState.sellSelected || new Set()).size}`;
 }
 
 async function sellSelected() {
@@ -2955,15 +5999,99 @@ async function sellSelected() {
   if (hint) hint.textContent = `Продано: ${ids.length} · +${res?.gold_received ?? "?"} золота`;
   await loadProfile().catch(console.error);
   await loadSellInventory().catch(console.error);
+  updateSellResultHint();
+  await generateMerchantLine("sell").catch(() => {});
+}
+
+function openShopGambleResultModal(item, pricePaid, goldRemaining) {
+  const m = document.getElementById("shop-gamble-result-modal");
+  if (!m || !item) return;
+
+  const nm = String(item.display_name || item.name || "Предмет").trim() || "Предмет";
+  setText("shop-gamble-result-name", nm);
+  setText("shop-gamble-result-rarity", item.rarity != null ? rarityLabel(item.rarity) : "—");
+  setText("shop-gamble-result-level", item.level != null ? `lvl ${item.level}` : "—");
+
+  const art = document.getElementById("shop-gamble-result-art");
+  if (art) art.innerHTML = itemArtHtml(item);
+
+  const body = document.getElementById("shop-gamble-result-body");
+  if (body) {
+    const parts = [];
+    if (item?.tier != null) parts.push(`<div><span class="muted">Tier</span> <strong>${item.tier}</strong></div>`);
+    parts.push(renderWeaponStatsHtml(item));
+    parts.push(renderCombinedBonusesHtml(item));
+    body.innerHTML = parts.filter(Boolean).join("") || `<div class="muted">Нет деталей предмета.</div>`;
+  }
+
+  setText("shop-gamble-result-paid", pricePaid != null ? String(pricePaid) : "—");
+  setText("shop-gamble-result-gold", goldRemaining != null ? String(goldRemaining) : "—");
+
+  const contentEl = document.getElementById("shop-gamble-result-content");
+  if (contentEl) {
+    ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) =>
+      contentEl.classList.remove(c)
+    );
+    contentEl.classList.add(item?.rarity != null ? rarityClass(item.rarity) : "rarity-common");
+  }
+
+  m.classList.add("shop-modal--open");
+  m.style.display = "grid";
+}
+
+function closeShopGambleResultModal() {
+  const m = document.getElementById("shop-gamble-result-modal");
+  if (m) {
+    m.classList.remove("shop-modal--open");
+    m.style.display = "none";
+  }
 }
 
 async function gambleShop() {
   const act = shopState.act || 1;
-  const res = await apiFetch(`/shop/gamble?act=${act}`, { method: "POST" });
-  const out = document.getElementById("shop-gamble-result");
-  if (out) out.textContent = res?.item?.name || res?.name || "Готово";
+  const btn = document.getElementById("shop-gamble-btn");
+  if (btn) btn.disabled = true;
+  try {
+    const res = await apiFetch(`/shop/gamble?act=${act}`, { method: "POST" });
+    if (res?.error === "insufficient_gold") {
+      const req = res?.required != null ? String(res.required) : "?";
+      const have = res?.have != null ? String(res.have) : "?";
+      showToast(`Недостаточно золота. Нужно ${req}, у вас ${have}.`, "error");
+      return;
+    }
+    if (res?.error === "not_found") {
+      showToast("Сначала создайте вайфу.", "error");
+      return;
+    }
+    if (res?.error) {
+      showToast(String(res.error), "error");
+      return;
+    }
+    let item = res?.item;
+    const iid = res?.inventory_item_id;
+    if (res?.success && !item && iid != null) {
+      try {
+        item = await apiFetch(`/inventory/${encodeURIComponent(String(iid))}`);
+      } catch (_) {
+        /* ниже — тост если совсем нет данных */
+      }
+    }
+    if (res?.success && item) {
+      openShopGambleResultModal(item, res.price_paid, res.gold_remaining);
+    } else if (res?.success) {
+      showToast("Предмет добавлен в инвентарь. Откройте профиль / магазин «Продать», чтобы увидеть его.", "success");
+    } else {
+      showToast("Не удалось получить предмет. Попробуйте ещё раз.", "error");
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || String(e?.message || e), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
   await loadProfile().catch(console.error);
   await loadShop(act).catch(console.error);
+  updateShopGambleCost();
 }
 
 function closeSlotModal() {
@@ -2972,11 +6100,87 @@ function closeSlotModal() {
   profileState.selectedSlot = null;
 }
 
+function closeItemSellConfirmOverlay() {
+  const ov = document.getElementById("item-modal-sell-overlay");
+  if (!ov) return;
+  ov.style.display = "none";
+  ov.setAttribute("aria-hidden", "true");
+}
+
+function openItemSellConfirmOverlay() {
+  const item = profileState.selectedItem;
+  if (!item?.id || item.equipment_slot != null) return;
+  const ov = document.getElementById("item-modal-sell-overlay");
+  if (!ov) return;
+  const nmEl = document.getElementById("item-modal-sell-item-name");
+  if (nmEl) nmEl.innerHTML = composeItemTitlePlain(item) || escapeHtml(String(item?.name || "—"));
+  const gEl = document.getElementById("item-modal-sell-gold");
+  if (gEl) gEl.textContent = String(estimateProfileSellPrice(item));
+  ov.style.display = "flex";
+  ov.setAttribute("aria-hidden", "false");
+}
+
+function closeItemEquipRingOverlay() {
+  const ov = document.getElementById("item-modal-equip-ring-overlay");
+  if (!ov) return;
+  ov.style.display = "none";
+  ov.setAttribute("aria-hidden", "true");
+}
+
+function openItemEquipRingOverlay() {
+  const item = profileState.selectedItem;
+  if (!item?.id || item.slot_type !== "ring") return;
+  const ov = document.getElementById("item-modal-equip-ring-overlay");
+  if (!ov) return;
+  const hint = document.getElementById("item-modal-equip-ring-hint");
+  if (hint) hint.textContent = composeItemTitlePlain(item) || escapeHtml(String(item?.name || "—"));
+  const ringLabel = (slotNum) => {
+    const occ = getProfileEquippedItem(slotNum);
+    const base = EQUIPMENT_SLOT_NAMES[slotNum] || `Слот ${slotNum}`;
+    if (!occ) return `${base} (свободно)`;
+    const on = escapeHtml(String(occ.display_name || occ.name || "предмет").trim());
+    return `${base} (занято: ${on})`;
+  };
+  const b4 = document.getElementById("item-modal-equip-ring-btn-4");
+  const b5 = document.getElementById("item-modal-equip-ring-btn-5");
+  if (b4) b4.textContent = ringLabel(4);
+  if (b5) b5.textContent = ringLabel(5);
+  ov.style.display = "flex";
+  ov.setAttribute("aria-hidden", "false");
+}
+
 function closeItemModal() {
   const m = document.getElementById("item-modal");
   if (m) m.style.display = "none";
+  closeItemSellConfirmOverlay();
+  closeItemEquipRingOverlay();
   profileState.selectedItem = null;
-  profileState.sellConfirm = false;
+  const reqEl = document.getElementById("item-modal-requirements");
+  if (reqEl) reqEl.innerHTML = "";
+  const reqSec = document.getElementById("item-modal-req-section");
+  if (reqSec) reqSec.style.display = "none";
+  const ench = document.getElementById("item-modal-ench");
+  if (ench) ench.innerHTML = "";
+  const desc = document.getElementById("item-modal-desc");
+  if (desc) {
+    desc.innerHTML = "";
+    desc.style.display = "none";
+  }
+  const sub = document.getElementById("item-modal-subline");
+  if (sub) sub.textContent = "";
+  const rp = document.getElementById("item-modal-rpill");
+  if (rp) {
+    rp.textContent = "—";
+    rp.className = "item-modal-v2-rpill";
+  }
+  const upHint = document.getElementById("item-modal-upgrade-hint");
+  if (upHint) {
+    upHint.style.display = "none";
+    upHint.textContent = "";
+    upHint.removeAttribute("title");
+    upHint.removeAttribute("aria-label");
+    upHint.setAttribute("aria-hidden", "true");
+  }
 }
 
 function raceName(id) {
@@ -3022,16 +6226,27 @@ function renderItemBonusesHtml(item) {
 
   const aff = Array.isArray(item.affixes) ? item.affixes : [];
   aff.forEach((a) => {
-    const m = statMeta(a.stat);
+    const sk = String(a.stat || "").trim();
+    const m = statMeta(sk);
     const cls = bonusClass(a.value);
-    const v = a?.is_percent ? `${safeNumber(a.value, 0)}%` : formatBonusValue(a.stat, a.value);
+    const lbl = String(a.description || "").trim() || m.short;
+    const v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
     lines.push(
-      `<div><span aria-hidden="true">${m.icon}</span> <span class="muted">${m.short}</span> <strong><span class="${cls}">${v}</span></strong></div>`
+      `<div><span aria-hidden="true">${m.icon}</span> <span class="muted">${escapeHtml(lbl)}</span> <strong><span class="${cls}">${escapeHtml(v)}</span></strong></div>`
     );
   });
 
   if (!lines.length) return "";
-  return `<div class="muted tiny" style="margin-top:10px;">Бонусы</div><div class="affixes">${lines.join("")}</div>`;
+  return `<div class="affixes">${lines.join("")}</div>`;
+}
+
+/** Вторичный бонус + стат/аффиксы — компактный блок карты предмета */
+function renderCombinedBonusesHtml(item) {
+  const secondary = renderSecondaryBonusHtml(item);
+  const bonuses = renderItemBonusesHtml(item);
+  const parts = [secondary, bonuses].filter(Boolean);
+  if (!parts.length) return "";
+  return `<div class="item-mtg-cluster">${parts.join("")}</div>`;
 }
 
 function itemArtEmoji(item) {
@@ -3040,8 +6255,9 @@ function itemArtEmoji(item) {
   if (st.includes("ring")) return "💍";
   if (st.includes("amulet")) return "📿";
   if (st.includes("costume")) return "🧥";
-  if (st.includes("offhand")) return "🛡️";
+  if (st.includes("offhand")) return wt.includes("orb") ? "🔮" : "🛡️";
   if (st.includes("weapon")) {
+    if (wt.includes("orb")) return "🔮";
     if (wt.includes("bow")) return "🏹";
     if (wt.includes("staff") || wt.includes("wand")) return "🪄";
     if (wt.includes("dagger")) return "🗡️";
@@ -3099,58 +6315,435 @@ function itemArtHtml(item) {
   return `${itemArtEmoji(item)}`;
 }
 
+/** Магазин отдаёт name/display_name уже с префиксом и суффиксом; повторная сборка даёт дубли. */
+function itemNameAlreadyIncludesAffixRollup(item) {
+  const nm = String(item?.name || "").trim();
+  const dn = String(item?.display_name || "").trim();
+  if (!nm || nm !== dn) return false;
+  const aff = Array.isArray(item?.affixes) ? item.affixes : [];
+  return aff.some((a) => {
+    const k = String(a?.kind || "");
+    return k === "affix" || k === "suffix";
+  });
+}
+
 function composeItemDisplayName(item) {
+  const en = safeNumber(item?.enchant_level, 0);
+  const enHtml =
+    en > 0 && !item?.is_broken ? ` <span class="enchant-badge">+${en}</span>` : "";
+  const brk = item?.is_broken ? ` <span class="broken-badge">💔 Сломан</span>` : "";
+  if (itemNameAlreadyIncludesAffixRollup(item)) {
+    const full = String(item.display_name || item.name || "Предмет");
+    return `${escapeHtml(full)}${enHtml}${brk}`.trim();
+  }
   const base = String(item?.name || "Предмет");
   const aff = Array.isArray(item?.affixes) ? item.affixes : [];
   const prefix = aff.find((a) => String(a?.kind || "") === "affix")?.name;
   const suffix = aff.find((a) => String(a?.kind || "") === "suffix")?.name;
   const p = prefix ? `${prefix} ` : "";
   const s = suffix ? ` ${suffix}` : "";
-  return `${p}${base}${s}`.trim();
+  return `${p}${base}${s}${enHtml}${brk}`.trim();
+}
+
+/** Название для шапки модалки v2: префикс/база/суффикс без +заточки (она в блоке «Заточка»). */
+function composeItemTitlePlain(item) {
+  const brk = item?.is_broken ? " 💔" : "";
+  if (itemNameAlreadyIncludesAffixRollup(item)) {
+    const full = String(item.display_name || item.name || "Предмет");
+    return `${escapeHtml(full)}${brk}`.trim();
+  }
+  const base = String(item?.name || "Предмет");
+  const aff = Array.isArray(item?.affixes) ? item.affixes : [];
+  const prefix = aff.find((a) => String(a?.kind || "") === "affix")?.name;
+  const suffix = aff.find((a) => String(a?.kind || "") === "suffix")?.name;
+  const p = prefix ? `${escapeHtml(String(prefix))} ` : "";
+  const s = suffix ? ` ${escapeHtml(String(suffix))}` : "";
+  return `${p}${escapeHtml(base)}${s}${brk}`.trim();
+}
+
+const ITEM_MODAL_ENCHANT_PIP_MAX = 10;
+
+const _ITEM_MODAL_V2_ICO = [
+  ["⚔️", "item-modal-v2-ico-re"],
+  ["💙", "item-modal-v2-ico-te"],
+  ["💜", "item-modal-v2-ico-pu"],
+  ["✨", "item-modal-v2-ico-go"],
+  ["💚", "item-modal-v2-ico-gr"],
+];
+
+function itemModalV2NextIcon() {
+  const i = itemModalV2NextIcon._i;
+  itemModalV2NextIcon._i = i + 1;
+  return _ITEM_MODAL_V2_ICO[i % _ITEM_MODAL_V2_ICO.length];
+}
+itemModalV2NextIcon._i = 0;
+
+function itemModalV2StatRow(name, valHtml, valCls, secHtml) {
+  const [emoji, icl] = itemModalV2NextIcon();
+  const sec = secHtml ? `<div class="item-modal-v2-ssec">${secHtml}</div>` : "";
+  const vc = valCls ? ` ${valCls}` : "";
+  return `<div class="item-modal-v2-srow">
+    <div class="item-modal-v2-srow-l">
+      <div class="item-modal-v2-sico ${icl}" aria-hidden="true">${emoji}</div>
+      <div><div class="item-modal-v2-sname">${escapeHtml(name)}</div>${sec}</div>
+    </div>
+    <span class="item-modal-v2-sval${vc}">${valHtml}</span>
+  </div>`;
+}
+
+function rarityPillModifierClass(r) {
+  const v = Number(r);
+  if (v === 5) return "item-modal-v2-rpill--legendary";
+  if (v === 4) return "item-modal-v2-rpill--epic";
+  if (v === 3) return "item-modal-v2-rpill--rare";
+  if (v === 2) return "item-modal-v2-rpill--uncommon";
+  return "";
+}
+
+function buildItemModalEnchantRowHtml(item) {
+  const br = Boolean(item?.is_broken);
+  const en = safeNumber(item?.enchant_level, 0);
+  const mx = ITEM_MODAL_ENCHANT_PIP_MAX;
+  const pips = Array.from({ length: mx }, (_, i) => {
+    const f = i < en;
+    const mxf = f && en >= mx;
+    const cls = mxf ? " item-modal-v2-pip--mx" : f ? " item-modal-v2-pip--f" : "";
+    return `<div class="item-modal-v2-pip${cls}" aria-hidden="true"></div>`;
+  }).join("");
+  if (br) {
+    return `<span class="item-modal-v2-ench-val item-modal-v2-ench-val--muted" title="Сломан">—</span><div class="item-modal-v2-pips">${pips}</div>`;
+  }
+  const valCell =
+    en > 0
+      ? `<span class="item-modal-v2-ench-val">+${en}</span>`
+      : `<span class="item-modal-v2-ench-val item-modal-v2-ench-val--empty" aria-hidden="true"></span>`;
+  return `${valCell}<div class="item-modal-v2-pips">${pips}</div>`;
+}
+
+function renderItemModalV2CharacteristicsHtml(item) {
+  if (!item) return "";
+  itemModalV2NextIcon._i = 0;
+  const rows = [];
+
+  const armorEff =
+    item?.armor_effective != null
+      ? safeNumber(item.armor_effective, safeNumber(item?.armor_base, 0))
+      : safeNumber(item?.armor_base, 0);
+  const dmgMinE = item?.damage_min_effective != null ? Number(item.damage_min_effective) : Number(item?.damage_min ?? NaN);
+  const dmgMaxE = item?.damage_max_effective != null ? Number(item.damage_max_effective) : Number(item?.damage_max ?? NaN);
+  const speed = item?.attack_speed != null ? Number(item.attack_speed) : null;
+  const st = String(item?.slot_type || "").toLowerCase();
+  const isWeapon = st.includes("weapon");
+  const isAccessory = st.includes("ring") || st.includes("amulet");
+
+  if (!isWeapon && !isAccessory && armorEff > 0) {
+    rows.push(
+      itemModalV2StatRow("Броня", escapeHtml(String(armorEff)), "item-modal-v2-sv-te", null)
+    );
+  }
+  if (isWeapon && Number.isFinite(dmgMinE) && Number.isFinite(dmgMaxE)) {
+    rows.push(
+      itemModalV2StatRow("Урон", escapeHtml(`${dmgMinE}–${dmgMaxE}`), "item-modal-v2-sv-re", null)
+    );
+  }
+  if (isWeapon && speed != null) {
+    rows.push(
+      itemModalV2StatRow("Скорость атаки", escapeHtml(String(speed)), "item-modal-v2-sv-go", null)
+    );
+  }
+
+  if (item.base_stat && item.base_stat_value != null) {
+    const m = statMeta(item.base_stat);
+    const v = formatBonusValue(item.base_stat, item.base_stat_value);
+    const cls =
+      String(item.base_stat).includes("strength") || String(item.base_stat).includes("damage")
+        ? "item-modal-v2-sv-re"
+        : "item-modal-v2-sv-pu";
+    rows.push(itemModalV2StatRow(m.short, escapeHtml(v), cls, null));
+  }
+
+  const t = String(item?.secondary_bonus_type || "").trim();
+  const v0 = Number(item?.secondary_bonus_value ?? 0);
+  const vEff =
+    item?.secondary_bonus_effective != null ? Number(item.secondary_bonus_effective) : v0;
+  if (t && Number.isFinite(vEff) && vEff > 0) {
+    const label = secondaryBonusTitleRu(t);
+    const valDisp = formatSecondaryBonusValueDisplay(t, vEff);
+    rows.push(
+      itemModalV2StatRow(
+        label,
+        escapeHtml(valDisp),
+        "item-modal-v2-sv-go",
+        secondaryBonusModalSubtitle(t)
+      )
+    );
+  }
+
+  const aff = Array.isArray(item.affixes) ? item.affixes : [];
+  aff.forEach((a) => {
+    const sk = String(a.stat || "").trim();
+    const skl = sk.toLowerCase();
+    const m = statMeta(sk);
+    const label = String(a.description || "").trim() || m.short;
+    let v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
+    if (
+      skl.startsWith("passive_node_level_add:") ||
+      skl.startsWith("passive_branch_level_add:") ||
+      skl === "passive_all_nodes_level_add"
+    ) {
+      v = `${v} ур.`;
+    }
+    rows.push(itemModalV2StatRow(label, escapeHtml(v), "item-modal-v2-sv-pu", null));
+  });
+
+  return rows.join("");
+}
+
+function goShopSmithEnchant(inventoryItemId) {
+  const id = Number(inventoryItemId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  const onShop =
+    typeof window !== "undefined" && String(window.location.pathname || "").endsWith("/shop.html");
+  if (onShop) {
+    closeItemModal();
+    void (async () => {
+      switchShopTab("smith");
+      await loadSmithTab();
+      if (shopState.smithItems.some((x) => x.id === id)) {
+        shopState.smithSelectedId = id;
+        updateSmithSelectionUI();
+        await refreshSmithPreview();
+      } else {
+        showToast("Предмет не найден в инвентаре", "error");
+      }
+    })();
+    return;
+  }
+  try {
+    sessionStorage.setItem("waifu_shop_intent_tab", "smith");
+    sessionStorage.setItem("waifu_shop_smith_item_id", String(id));
+  } catch (e) {
+    /* ignore */
+  }
+  window.location.href = "./shop.html";
+}
+
+function goShopSmithEnchantFromModal() {
+  const it = profileState.selectedItem;
+  if (!it?.id) return;
+  goShopSmithEnchant(it.id);
 }
 
 function renderWeaponStatsHtml(item) {
-  const hasDmg = item?.damage_min != null || item?.damage_max != null;
-  const hasSpeed = item?.attack_speed != null;
-  const hasType = item?.attack_type != null || item?.weapon_type != null;
-  if (!hasDmg && !hasSpeed && !hasType) return "";
+  const armorEff =
+    item?.armor_effective != null
+      ? safeNumber(item.armor_effective, safeNumber(item?.armor_base, 0))
+      : safeNumber(item?.armor_base, 0);
 
   const dmgMin = item?.damage_min != null ? Number(item.damage_min) : null;
   const dmgMax = item?.damage_max != null ? Number(item.damage_max) : null;
+  const dmgMinE = item?.damage_min_effective != null ? Number(item.damage_min_effective) : dmgMin;
+  const dmgMaxE = item?.damage_max_effective != null ? Number(item.damage_max_effective) : dmgMax;
   const dmg =
-    dmgMin != null && dmgMax != null
-      ? `${dmgMin}–${dmgMax}`
-      : dmgMin != null
-        ? `${dmgMin}+`
-        : dmgMax != null
-          ? `0–${dmgMax}`
-          : "—";
+    dmgMinE != null && dmgMaxE != null
+      ? `${dmgMinE}–${dmgMaxE}`
+      : dmgMinE != null
+        ? `${dmgMinE}+`
+        : dmgMaxE != null
+          ? `0–${dmgMaxE}`
+          : null;
 
   const speed = item?.attack_speed != null ? Number(item.attack_speed) : null;
-  const at = item?.attack_type ? attackTypeLabel(item.attack_type) : "—";
-  const wt = item?.weapon_type ? weaponTypeLabel(item.weapon_type) : "—";
 
-  return `
-    <div class="muted tiny" style="margin-top:10px;">Параметры</div>
-    <div class="detail-row"><span class="muted">Урон</span><strong>${dmg}</strong></div>
-    <div class="detail-row"><span class="muted">Скорость атаки</span><strong>${speed != null ? `${speed} (мин. символов)` : "—"}</strong></div>
-    <div class="detail-row"><span class="muted">Тип атаки</span><strong>${at}</strong></div>
-    <div class="detail-row"><span class="muted">Тип оружия</span><strong>${wt}</strong></div>
-  `;
+  const st = String(item?.slot_type || "").toLowerCase();
+  const isWeapon = st.includes("weapon");
+  const isAccessory = st.includes("ring") || st.includes("amulet");
+  const hasArmor = !isWeapon && !isAccessory && armorEff > 0;
+  const hasDmg = isWeapon && dmg != null;
+
+  const rows = [];
+  if (hasArmor) {
+    rows.push(
+      `<div class="item-mtg-field"><span class="muted">Броня</span><strong>${escapeHtml(String(armorEff))}</strong></div>`
+    );
+  }
+  if (hasDmg) rows.push(`<div class="item-mtg-field"><span class="muted">Урон</span><strong>${dmg}</strong></div>`);
+  if (isWeapon && speed != null) {
+    rows.push(`<div class="item-mtg-field"><span class="muted">Скорость атаки</span><strong>${speed}</strong></div>`);
+  }
+
+  if (rows.length === 0) return "";
+  return `<div class="item-mtg-cluster">${rows.join("")}</div>`;
+}
+
+const SECONDARY_LABELS = {
+  crit_chance_pct: "Шанс крита",
+  evade_pct: "Уклонение",
+  dmg_reduce_pct: "Снижение урона",
+  hp_max_pct: "Бонус HP",
+  exp_bonus_pct: "Бонус к опыту",
+  gold_bonus_pct: "Бонус к золоту",
+  media_damage_text_percent: "Урон от текста",
+  media_damage_sticker_percent: "Урон от стикеров",
+  media_damage_photo_percent: "Урон от фото",
+  media_damage_gif_percent: "Урон от GIF",
+  media_damage_audio_percent: "Урон от аудио",
+  media_damage_voice_percent: "Урон от голосовых",
+  media_damage_video_percent: "Урон от видео",
+  media_damage_link_percent: "Урон от ссылок",
+};
+
+function secondaryBonusUsesFractionDisplay(t) {
+  const k = normalizeEffectKeyUi(t);
+  if (!k || k.includes(":")) return false;
+  return Object.prototype.hasOwnProperty.call(SECONDARY_LABELS, k);
+}
+
+function formatSecondaryBonusValueDisplay(t, vEff) {
+  const typ = String(t || "").trim();
+  const low = normalizeEffectKeyUi(typ);
+  if (secondaryBonusUsesFractionDisplay(typ)) {
+    return `+${(safeNumber(vEff, 0) * 100).toFixed(1)}%`;
+  }
+  if (
+    low.startsWith("passive_node_level_add:") ||
+    low.startsWith("passive_branch_level_add:") ||
+    low === "passive_all_nodes_level_add"
+  ) {
+    const n = Math.round(safeNumber(vEff, 0));
+    const sign = n >= 0 ? "+" : "";
+    return `${sign}${n} ур.`;
+  }
+  if (low.startsWith("damage_vs_monster_type_percent:")) {
+    const n = safeNumber(vEff, 0);
+    const sign = n >= 0 ? "+" : "";
+    return `${sign}${n.toFixed(1)}%`;
+  }
+  if (low.startsWith("damage_vs_monster_type_flat:")) {
+    const n = safeNumber(vEff, 0);
+    const sign = n >= 0 ? "+" : "";
+    return `${sign}${Math.round(n)}`;
+  }
+  const v = safeNumber(vEff, 0);
+  const sign = v >= 0 ? "+" : "";
+  return `${sign}${v}`;
+}
+
+function secondaryBonusTitleRu(t) {
+  const typ = String(t || "").trim();
+  const low = normalizeEffectKeyUi(typ);
+  if (low.startsWith("passive_node_level_add:")) {
+    const nid = typ.slice(typ.indexOf(":") + 1).trim();
+    const nm = passiveNodeDisplayNameRu(nid);
+    return `Пассив «${nm}»`;
+  }
+  if (low.startsWith("passive_branch_level_add:")) {
+    const br = typ.slice(typ.indexOf(":") + 1).trim().toLowerCase();
+    const lbl = PASSIVE_BRANCH_LABELS_RU[br] || br;
+    return `Пассивы ветки (${lbl})`;
+  }
+  if (low === "passive_all_nodes_level_add") {
+    return "Все пассивные навыки";
+  }
+  if (low.startsWith("damage_vs_monster_type_flat:")) {
+    const fam = typ.slice(typ.indexOf(":") + 1).trim().toLowerCase();
+    const ru = MONSTER_FAMILY_LABELS_RU[fam] || fam;
+    return `Урон по ${ru}`;
+  }
+  if (low.startsWith("damage_vs_monster_type_percent:")) {
+    const fam = typ.slice(typ.indexOf(":") + 1).trim().toLowerCase();
+    const ru = MONSTER_FAMILY_LABELS_RU[fam] || fam;
+    return `Урон % по ${ru}`;
+  }
+  return SECONDARY_LABELS[low] || typ;
+}
+
+function secondaryBonusModalSubtitle(t) {
+  const low = String(t || "").toLowerCase();
+  if (low.startsWith("passive_node_level_add:")) return "К уровню узла на дереве пассивов";
+  if (low.startsWith("passive_branch_level_add:") || low === "passive_all_nodes_level_add") {
+    return "Легендарный тип бонуса";
+  }
+  if (secondaryBonusUsesFractionDisplay(t)) return "Вторичный бонус";
+  return "Доп. свойство";
+}
+
+function renderSecondaryBonusHtml(item) {
+  const t = String(item?.secondary_bonus_type || "").trim();
+  const v0 = Number(item?.secondary_bonus_value ?? 0);
+  const v =
+    item?.secondary_bonus_effective != null ? Number(item.secondary_bonus_effective) : v0;
+  if (!t || !Number.isFinite(v) || v <= 0) return "";
+  const label = secondaryBonusTitleRu(t);
+  const inner = formatSecondaryBonusValueDisplay(t, v);
+  return `<div class="item-mtg-field"><span class="muted">${escapeHtml(label)}</span><strong>${escapeHtml(inner)}</strong></div>`;
+}
+
+/** Краткое текстовое описание бонусов предмета для промпта ИИ торговца */
+function getItemBonusesText(item) {
+  if (!item) return "";
+  const parts = [];
+  if (item.base_stat && item.base_stat_value != null) {
+    const m = statMeta(item.base_stat);
+    const v = formatBonusValue(item.base_stat, item.base_stat_value);
+    parts.push(`${m.short} ${v}`);
+  }
+  const aff = Array.isArray(item.affixes) ? item.affixes : [];
+  aff.forEach((a) => {
+    const sk = String(a.stat || "").trim();
+    const m = statMeta(sk);
+    const lbl = String(a.description || "").trim() || m.short;
+    const v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
+    parts.push(`${lbl} ${v}`);
+  });
+  const armor = safeNumber(item?.armor_base, 0);
+  if (armor > 0) parts.push(`броня ${armor}`);
+  if (item?.damage_min != null || item?.damage_max != null) {
+    const dmin = item.damage_min != null ? Number(item.damage_min) : 0;
+    const dmax = item.damage_max != null ? Number(item.damage_max) : dmin;
+    parts.push(`урон ${dmin}–${dmax}`);
+  }
+  const st = String(item?.secondary_bonus_type || "").trim();
+  const sv = Number(item?.secondary_bonus_value ?? 0);
+  if (st && Number.isFinite(sv) && sv > 0) {
+    const label = secondaryBonusTitleRu(st);
+    const val = formatSecondaryBonusValueDisplay(st, sv);
+    parts.push(`${label} ${val}`);
+  }
+  return parts.join(", ");
 }
 
 function renderProfilePortrait(waifu) {
   setText("profile-portrait-name", waifu?.name || "—");
-  setText("profile-portrait-race", raceName(waifu?.race));
-  setText("profile-portrait-class", className(waifu?.class ?? waifu?.class_));
+  const metaEl = document.getElementById("profile-mtg-meta");
+  if (metaEl) {
+    metaEl.textContent = `${raceName(waifu?.race)} · ${className(waifu?.class ?? waifu?.class_)}`;
+  }
 
-  const portraitEl = document.getElementById("profile-portrait-media");
-  if (!portraitEl) return;
-  const portraitUrl =
-    String(waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || "").trim();
-  portraitEl.innerHTML = portraitUrl
-    ? `<img src="${escapeHtml(portraitUrl)}" alt="${escapeHtml(String(waifu?.name || "Портрет"))}" />`
-    : escapeHtml(waifuPortraitEmoji(waifu) || "👤");
+  const portraitUrl = String(
+    waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
+  ).trim();
+  const bg = document.getElementById("profile-mtg-bg");
+  const fallback = document.getElementById("profile-mtg-fallback");
+  if (bg) {
+    if (portraitUrl) {
+      bg.style.backgroundImage = `url(${JSON.stringify(portraitUrl)})`;
+      bg.classList.remove("profile-mtg-bg--empty");
+    } else {
+      bg.style.backgroundImage = "none";
+      bg.classList.add("profile-mtg-bg--empty");
+    }
+  }
+  if (fallback) {
+    fallback.textContent = portraitUrl ? "" : waifuPortraitEmoji(waifu) || "👤";
+  }
+
+  const legacyPortrait = document.getElementById("profile-portrait-media");
+  if (legacyPortrait) {
+    legacyPortrait.innerHTML = portraitUrl
+      ? `<img src="${escapeHtml(portraitUrl)}" alt="${escapeHtml(String(waifu?.name || "Портрет"))}" />`
+      : escapeHtml(waifuPortraitEmoji(waifu) || "👤");
+  }
 }
 
 function renderProfileHeroBars(waifu, details = null) {
@@ -3163,13 +6756,19 @@ function renderProfileHeroBars(waifu, details = null) {
 
   const lvl = safeNumber(waifu?.level, 1);
   const xp = safeNumber(waifu?.experience, 0);
-  const curTotal = totalExpForLevel(lvl);
-  const nextTotal = totalExpForLevel(lvl + 1);
-  const need = Math.max(1, nextTotal - curTotal);
-  const into = Math.max(0, xp - curTotal);
-  setText("profile-xp-text", `Ур. ${lvl} - ${into}/${need} EXP`);
   const xpFill = document.getElementById("profile-xp-fill");
-  if (xpFill) xpFill.style.width = `${Math.round(clamp01(into / need) * 100)}%`;
+  if (lvl >= PLAYER_MAX_LEVEL) {
+    setText("profile-xp-text", `Ур. ${lvl} · макс.`);
+    if (xpFill) xpFill.style.width = "100%";
+  } else {
+    const curTotal = totalExpForLevel(lvl);
+    const nextTotal = totalExpForLevel(lvl + 1);
+    const xpPct = curTotal > 0 && nextTotal > curTotal
+      ? Math.round(clamp01((xp - curTotal) / (nextTotal - curTotal)) * 100)
+      : Math.round(clamp01(xp / nextTotal) * 100);
+    setText("profile-xp-text", `Ур. ${lvl} · ${xp} / ${nextTotal} EXP`);
+    if (xpFill) xpFill.style.width = `${Math.max(0, xpPct)}%`;
+  }
 }
 
 function renderProfileIndicators(waifu, details = null) {
@@ -3177,38 +6776,77 @@ function renderProfileIndicators(waifu, details = null) {
   if (!box || !waifu) return;
   const d = details || profileState.currentDetails || null;
   const indicators = getProfileIndicators(waifu, d);
+  const charm = profileStatValue(waifu, "charm");
+  const merchantDiscount = safeNumber(d?.merchant_discount, 0);
+  const buyPct = merchantDiscount > 0
+    ? Math.max(100, Math.round((1 - merchantDiscount / 100) * 200))
+    : Math.round(200 - charm * 0.1 * 2);
+  const sellPct = merchantDiscount > 0
+    ? Math.min(99, Math.round((0.5 + merchantDiscount / 100 * 0.5) * 100))
+    : Math.round(50 + charm * 0.1 * 0.5);
+
   const rows = [
-    ["HP максимальное", indicators.hpMax],
+    ["HP макс.", indicators.hpMax],
+    ["Броня", indicators.armor],
+    ["Сниж. ур. (ВЫН)", indicators.damageReduction],
     ["Урон ближний", indicators.meleeRange],
     ["Урон дальний", indicators.rangedRange],
-    ["Урон магический", indicators.magicRange],
-    ["Шанс крит. атаки", indicators.critChance],
-    ["Шанс уклонения", indicators.dodgeChance],
-    ["Бонус к опыту", indicators.expBonus],
-    ["Бонус к золоту", indicators.goldBonus],
-    ["Торговля", indicators.merchant],
-    ["Энергия", indicators.energy],
+    ["Урон магич.", indicators.magicRange],
+    ["Крит", indicators.critChance],
+    ["Уклонение", indicators.dodgeChance],
+    ["Бонус EXP", indicators.expBonus],
+    ["Бонус золота", indicators.goldBonus],
+    ["Скидка найма", indicators.hireDiscount],
+    ["Скидка трен.", indicators.trainingDiscount],
+    ["Реген HP", indicators.hpRegen],
   ];
-  box.innerHTML = rows
-    .map(([label, value]) => `<div class="detail-row"><span class="muted">${label}</span><strong>${value}</strong></div>`)
+
+  const cells = rows
+    .map(
+      ([label, value]) =>
+        `<div class="profile-detail-cell"><span class="profile-detail-label">${escapeHtml(label)}</span><strong class="profile-detail-value">${escapeHtml(
+          String(value)
+        )}</strong></div>`
+    )
     .join("");
+
+  const merchantCell = `<div class="profile-detail-cell profile-detail-cell--merchant">
+    <span class="profile-detail-label">Торговля</span>
+    <div class="profile-detail-value-stack">
+      <span class="profile-detail-value">покупка ${buyPct}%</span>
+      <span class="profile-detail-value">продажа ${sellPct}%</span>
+    </div>
+  </div>`;
+
+  box.innerHTML = `${cells}${merchantCell}`;
 }
 
-function renderProfileStatistics() {
+async function renderProfileStatistics() {
   const box = document.getElementById("profile-statistics-grid");
   if (!box) return;
-  const rows = [
-    "Пройдено подземелий",
-    "Убито монстров",
-    "Нанесено урона",
-    "Получено урона",
-    "Найдено предметов",
-    "Заработано золота",
-    "Потрачено золота",
-  ];
-  box.innerHTML = rows
-    .map((label) => `<div class="detail-row"><span class="muted">${label}</span><strong>—</strong></div>`)
-    .join("");
+  box.innerHTML = `<div class="profile-detail-cell profile-detail-cell--full"><span class="profile-detail-label">Загрузка…</span></div>`;
+  try {
+    const stats = await apiFetch("/waifu/statistics");
+    const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("ru-RU"));
+    const rows = [
+      ["Подземелий", fmt(stats.dungeons_completed)],
+      ["Монстров", fmt(stats.monsters_killed)],
+      ["Урона нанесено", fmt(stats.damage_dealt)],
+      ["Урона (HP)", fmt(stats.hp_lost)],
+      ["Золота", fmt(stats.gold_earned)],
+      ["Опыта", fmt(stats.exp_earned)],
+    ];
+    box.innerHTML = rows
+      .map(
+        ([label, value]) =>
+          `<div class="profile-detail-cell"><span class="profile-detail-label">${escapeHtml(label)}</span><strong class="profile-detail-value">${escapeHtml(
+            String(value)
+          )}</strong></div>`
+      )
+      .join("");
+  } catch (e) {
+    box.innerHTML = `<div class="profile-detail-cell profile-detail-cell--full"><span class="profile-detail-label">Ошибка загрузки</span></div>`;
+  }
 }
 
 function syncProfileInfoTabs() {
@@ -3220,15 +6858,70 @@ function syncProfileInfoTabs() {
   });
 }
 
-function switchProfileInfoTab(name) {
-  profileState.infoTab = name === "statistics" ? "statistics" : "indicators";
-  syncProfileInfoTabs();
+function profileFormatFlatBonusBlock(title, bonusMap) {
+  const lines = [];
+  for (const statKey of PROFILE_STAT_ORDER) {
+    const v = safeNumber(bonusMap?.[statKey], 0);
+    if (v !== 0) {
+      const meta = statMeta(statKey);
+      const label = PROFILE_STAT_LABELS[statKey] || meta.short;
+      lines.push(`${label}: ${v >= 0 ? "+" : ""}${v}`);
+    }
+  }
+  const inner =
+    lines.length > 0
+      ? lines.map((l) => `<div class="profile-bonus-item">${escapeHtml(l)}</div>`).join("")
+      : `<div class="muted tiny">Без бонусов к характеристикам</div>`;
+  return `<div class="profile-raceclass-block"><div class="profile-breakdown-detail-caption">${escapeHtml(
+    title
+  )}</div>${inner}</div>`;
 }
 
-function toggleProfileStatTooltip(statKey) {
-  profileState.activeTooltipStat = profileState.activeTooltipStat === statKey ? null : statKey;
+function renderProfileRaceClassPanel() {
+  const root = document.getElementById("profile-raceclass-content");
+  if (!root) return;
   const waifu = profileState.currentProfile?.main_waifu;
-  if (waifu) renderStatsStrip("profile-stats-strip", waifu, profileState.currentDetails);
+  if (!waifu) {
+    root.innerHTML = "";
+    return;
+  }
+  const raceId = Number(waifu.race);
+  const clsId = Number(waifu.class ?? waifu.class_);
+  const raceMap =
+    waifu.race_flat_bonuses != null && typeof waifu.race_flat_bonuses === "object"
+      ? waifu.race_flat_bonuses
+      : WAIFU_RACE_BONUSES[raceId] || {};
+  const classMap =
+    waifu.class_flat_bonuses != null && typeof waifu.class_flat_bonuses === "object"
+      ? waifu.class_flat_bonuses
+      : WAIFU_CLASS_BONUSES[clsId] || {};
+
+  const raceLines = (WAIFU_GEN_RACE_PASSIVES[raceId] || [])
+    .map((t) => `<li>${escapeHtml(t)}</li>`)
+    .join("");
+  const classLines = (WAIFU_GEN_CLASS_PASSIVES[clsId] || [])
+    .map((t) => `<li>${escapeHtml(t)}</li>`)
+    .join("");
+
+  root.innerHTML =
+    `<div class="profile-raceclass-flat">` +
+    `${profileFormatFlatBonusBlock(`Раса: ${raceName(raceId)}`, raceMap)}` +
+    `${profileFormatFlatBonusBlock(`Класс: ${className(clsId)}`, classMap)}` +
+    `</div>` +
+    `<div class="profile-breakdown-detail-caption" style="margin-top:12px">Особенности (ТЗ)</div>` +
+    `<div class="profile-raceclass-passive">` +
+    `<div class="waifu-gen-passive-sub">Раса</div><ul>${raceLines || `<li class="muted tiny">—</li>`}</ul>` +
+    `<div class="waifu-gen-passive-sub">Класс</div><ul>${classLines || `<li class="muted tiny">—</li>`}</ul>` +
+    `</div>`;
+}
+
+function switchProfileInfoTab(name) {
+  if (name === "statistics") profileState.infoTab = "statistics";
+  else if (name === "raceclass") profileState.infoTab = "raceclass";
+  else profileState.infoTab = "indicators";
+  syncProfileInfoTabs();
+  if (profileState.infoTab === "statistics") renderProfileStatistics().catch(() => {});
+  else if (profileState.infoTab === "raceclass") renderProfileRaceClassPanel();
 }
 
 function toggleProfileStatAccordion(statKey) {
@@ -3238,33 +6931,20 @@ function toggleProfileStatAccordion(statKey) {
 }
 
 function renderProfileSlotCard(slot, item) {
-  const name = item ? escapeHtml(String(item?.display_name || item?.name || "Предмет")) : "Пусто";
-  const slotTitle = escapeHtml(EQUIPMENT_SLOT_NAMES[slot] || `Слот ${slot}`);
   const rarity = item ? rarityClass(item?.rarity) : "rarity-common";
   const image = itemImageUrl(item);
-  const bonusTotal = getProfileStatBonusTotal(item);
-  const damage =
-    item?.damage_min != null || item?.damage_max != null
-      ? `${safeNumber(item?.damage_min, 0)}-${safeNumber(item?.damage_max, 0)}`
-      : "—";
-  const speed = item?.attack_speed != null ? String(item.attack_speed) : "—";
+  const lvl = item?.level ?? "—";
+  const slotName = EQUIPMENT_SLOT_NAMES[slot] || `Слот ${slot}`;
+  const titleText = item
+    ? String(item?.display_name || item?.name || "Предмет")
+    : `Пусто · ${slotName}`;
 
   return `
-    <button type="button" class="profile-slot-card ${item ? rarity : "empty"}" onclick="WaifuApp.openProfileSlot(${slot})">
+    <button type="button" class="profile-slot-card profile-slot-card--mini ${item ? rarity : "empty"}" title="${escapeHtml(titleText)}" aria-label="${escapeHtml(slotName)}" onclick="WaifuApp.openProfileSlot(${slot})">
       <div class="profile-slot-media">
         ${image ? `<img src="${escapeHtml(image)}" alt="" />` : `<span class="profile-slot-fallback">${itemIconForSlotType(item?.slot_type || "")}</span>`}
       </div>
-      <div class="profile-slot-info">
-        <div class="profile-slot-name">${slotTitle}</div>
-        <div class="profile-slot-title">${name}</div>
-        <div class="profile-slot-line">${escapeHtml(item ? slotTypeLabel(item?.slot_type) : "Пустой слот")}</div>
-        <div class="profile-slot-line">Ур. ${item?.level ?? "—"}${item ? ` · Бонус +${bonusTotal}` : ""}</div>
-        ${
-          item?.slot_type && String(item.slot_type).includes("weapon")
-            ? `<div class="profile-slot-line">Урон ${damage} · Скорость ${speed}</div>`
-            : `<div class="profile-slot-line">${item ? "Нажмите для карточки предмета" : "Нажмите, чтобы выбрать предмет"}</div>`
-        }
-      </div>
+      <div class="profile-slot-mini-level">Ур. ${lvl}</div>
     </button>
   `;
 }
@@ -3344,12 +7024,12 @@ function renderProfileInventory() {
       const upgrade = isProfileUpgradeItem(item);
       const locked = item?.can_equip === false;
       cells.push(`
-        <button type="button" class="item-card ${rarity} ${locked ? "empty" : ""}" title="${name}" onclick="WaifuApp.openItemById(${Number(
+        <button type="button" class="item-card profile-inv-item ${rarity} ${locked ? "empty" : ""}" title="${name}" onclick="WaifuApp.openItemById(${Number(
           item?.id || 0
         )})">
           <div class="item-icon">${iconHtml}</div>
           ${upgrade ? `<div class="upgrade-arrow" title="Улучшение относительно экипировки">▲</div>` : ""}
-          <div class="item-level">lvl ${item?.level ?? "?"}</div>
+          <div class="item-level">Ур. ${item?.level ?? "?"}</div>
           <div class="item-name">${name}</div>
         </button>
       `);
@@ -3429,10 +7109,18 @@ function changeProfileInventoryPage(delta) {
 async function populateProfile(profile) {
   const p = profile || (await loadProfile());
   const w = p?.main_waifu;
-  if (!w) {
-    window.location.href = "./waifu_generator.html";
+  const mainEl = document.querySelector("main.profile-layout");
+  const missEl = document.getElementById("profile-missing-waifu");
+  const hasMw = Boolean(w && (w.id != null || w.level != null));
+
+  if (!hasMw) {
+    mainEl?.classList.add("profile-layout--no-mw");
+    if (missEl) missEl.hidden = false;
     return;
   }
+
+  mainEl?.classList.remove("profile-layout--no-mw");
+  if (missEl) missEl.hidden = true;
 
   profileState.currentProfile = p;
   profileState.currentDetails = p?.main_waifu_details || null;
@@ -3440,7 +7128,6 @@ async function populateProfile(profile) {
 
   setText("profile-name", w.name || "—");
   setText("profile-level", w.level ?? "—");
-  setText("profile-energy", w.energy != null && w.max_energy != null ? `${w.energy}/${w.max_energy}` : "—");
 
   const clsId = Number(w.class_ ?? w.class);
   const raceId = Number(w.race);
@@ -3457,7 +7144,7 @@ async function populateProfile(profile) {
 
   renderProfilePortrait(w);
   renderProfileHeroBars(w, profileState.currentDetails);
-  renderStatsStrip("profile-stats-strip", w, profileState.currentDetails);
+  renderStatsStrip("profile-stats-strip", w);
   renderStatsBreakdown("profile-stats-breakdown", w, profileState.currentDetails);
   renderProfileIndicators(w, profileState.currentDetails);
   renderProfileStatistics();
@@ -3484,14 +7171,112 @@ async function populateProfile(profile) {
   }
 }
 
+function averageWeaponDamageForCompare(item) {
+  if (!item) return null;
+  const a =
+    item.damage_min_effective != null
+      ? Number(item.damage_min_effective)
+      : item.damage_min != null
+        ? Number(item.damage_min)
+        : null;
+  const b =
+    item.damage_max_effective != null
+      ? Number(item.damage_max_effective)
+      : item.damage_max != null
+        ? Number(item.damage_max)
+        : null;
+  if (a == null && b == null) return null;
+  if (a != null && b != null) return (a + b) / 2;
+  return a ?? b;
+}
+
+function slotCompareChip(label, delta, opts = {}) {
+  const isFloat = Boolean(opts.isFloat);
+  const isPercent = Boolean(opts.isPercent);
+  if (!Number.isFinite(delta) || delta === 0) return "";
+  const up = delta > 0;
+  const cls = up ? "slot-compare-chip slot-compare-chip--up" : "slot-compare-chip slot-compare-chip--down";
+  const abs = Math.abs(delta);
+  let numStr;
+  if (isPercent) numStr = `${abs.toFixed(1)}%`;
+  else if (isFloat) numStr = abs >= 10 ? abs.toFixed(0) : abs.toFixed(1);
+  else numStr = String(Math.round(abs));
+  const arrow = up ? "▲" : "▼";
+  const sign = up ? "+" : "−";
+  return `<span class="${cls}">${arrow}${sign}${numStr} ${escapeHtml(label)}</span>`;
+}
+
+function buildSlotReplaceCompareHtml(candidate, equipped) {
+  if (!candidate) return "";
+  if (!equipped) {
+    return `<span class="slot-replace-compare muted tiny">Слот пуст — предмет будет надет впервые.</span>`;
+  }
+
+  const chips = [];
+  const bc = candidate.base_stat ? String(candidate.base_stat) : "";
+  const be = equipped.base_stat ? String(equipped.base_stat) : "";
+  const vc = safeNumber(candidate.base_stat_value, 0);
+  const ve = safeNumber(equipped.base_stat_value, 0);
+  if (bc && be && bc === be) {
+    const d = vc - ve;
+    if (d !== 0) chips.push(slotCompareChip(statMeta(bc).short, d));
+  } else if ((bc || be) && bc !== be) {
+    if (be && ve !== 0) {
+      chips.push(
+        `<span class="slot-compare-chip slot-compare-chip--down">▼${escapeHtml(formatBonusValue(be, ve))} ${escapeHtml(statMeta(be).short)}</span>`
+      );
+    }
+    if (bc && vc !== 0) {
+      chips.push(
+        `<span class="slot-compare-chip slot-compare-chip--up">▲${escapeHtml(formatBonusValue(bc, vc))} ${escapeHtml(statMeta(bc).short)}</span>`
+      );
+    }
+  }
+
+  const avgC = averageWeaponDamageForCompare(candidate);
+  const avgE = averageWeaponDamageForCompare(equipped);
+  if (avgC != null && avgE != null) {
+    const d = avgC - avgE;
+    if (Math.abs(d) >= 0.05) chips.push(slotCompareChip("Урон", d, { isFloat: true }));
+  }
+
+  const spC = candidate.attack_speed != null ? Number(candidate.attack_speed) : null;
+  const spE = equipped.attack_speed != null ? Number(equipped.attack_speed) : null;
+  if (spC != null && spE != null) {
+    const d = spC - spE;
+    if (Math.abs(d) >= 0.01) chips.push(slotCompareChip("Скор. атк.", d, { isFloat: true }));
+  }
+
+  const arC = safeNumber(candidate.armor_effective ?? candidate.armor_base, 0);
+  const arE = safeNumber(equipped.armor_effective ?? equipped.armor_base, 0);
+  if (arC > 0 || arE > 0) {
+    const d = arC - arE;
+    if (d !== 0) chips.push(slotCompareChip("Броня", d));
+  }
+
+  const stC = String(candidate.secondary_bonus_type || "").trim();
+  const stE = String(equipped.secondary_bonus_type || "").trim();
+  const svC = Number(candidate.secondary_bonus_effective ?? candidate.secondary_bonus_value ?? 0);
+  const svE = Number(equipped.secondary_bonus_effective ?? equipped.secondary_bonus_value ?? 0);
+  if (stC && stE && stC === stE) {
+    const d = (svC - svE) * 100;
+    if (Math.abs(d) >= 0.05) chips.push(slotCompareChip(SECONDARY_LABELS[stC] || stC, d, { isPercent: true }));
+  }
+
+  if (!chips.length) {
+    return `<span class="slot-replace-compare muted tiny">По основным параметрам без заметных отличий</span>`;
+  }
+  return `<span class="slot-replace-compare">${chips.join(" ")}</span>`;
+}
+
 async function openSlotModal(slot) {
   profileState.selectedSlot = slot;
   const modal = document.getElementById("slot-modal");
   const body = document.getElementById("slot-modal-body");
   if (!modal || !body) return;
 
-  setText("slot-modal-title", `Подходящие предметы: ${EQUIPMENT_SLOT_NAMES[slot] || `Слот ${slot}`}`);
-  setText("slot-modal-subtitle", "Список предметов из сумки, подходящих для данного слота.");
+  setText("slot-modal-title", `Замена: ${EQUIPMENT_SLOT_NAMES[slot] || `Слот ${slot}`}`);
+  setText("slot-modal-subtitle", "Нажмите на предмет, чтобы экипировать его в этот слот.");
   body.innerHTML = `<div class="placeholder">Загрузка...</div>`;
   modal.style.display = "grid";
 
@@ -3502,31 +7287,33 @@ async function openSlotModal(slot) {
     return;
   }
 
-  body.innerHTML = items
+  const equipped = getProfileEquippedItem(slot);
+
+  body.innerHTML = `<div class="slot-replace-list">${items
     .map((item) => {
       const canEquip = item?.can_equip !== false;
       const errs = Array.isArray(item?.requirement_errors) ? item.requirement_errors : [];
       const name = escapeHtml(String(item?.display_name || item?.name || "Предмет"));
-      const image = itemImageUrl(item);
-      const upgrade = isProfileUpgradeItem(item);
+      const rc = rarityClass(item?.rarity);
+      const iid = Number(item?.id || 0);
+      const compareHtml = buildSlotReplaceCompareHtml(item, equipped);
+      const art = itemArtHtml(item);
+      const meta = `Ур. ${item?.level ?? "—"} · ${escapeHtml(slotTypeLabel(item?.slot_type))} · T${item?.tier ?? "—"}`;
+      const disabledAttr = canEquip ? "" : " disabled";
+      const rowCls = `slot-replace-row ${rc}${canEquip ? "" : " slot-replace-row--disabled"}`;
       return `
-        <div class="list-item ${rarityClass(item?.rarity)}" style="display:grid; gap:10px;">
-          <div style="display:flex; gap:12px; align-items:center;">
-            <div class="item-icon" style="width:54px; height:54px;">${image ? `<img src="${escapeHtml(image)}" alt="" />` : "📦"}</div>
-            <div style="min-width:0; flex:1;">
-              <strong>${name}</strong>
-              <div class="muted tiny">Ур. ${item?.level ?? "—"} · ${escapeHtml(slotTypeLabel(item?.slot_type))}</div>
-              ${upgrade ? `<div class="profile-modal-upgrade tiny">▲ Выше уровня текущей экипировки</div>` : ""}
-              ${errs.length ? `<div class="muted tiny">${errs.map((err) => escapeHtml(String(err))).join("<br/>")}</div>` : ""}
-            </div>
-            <button class="primary" style="width:auto;" ${canEquip ? "" : "disabled"} onclick="WaifuApp.equipItemToProfileSlot(${Number(
-              item?.id || 0
-            )}, ${slot})">Экипировать</button>
-          </div>
-        </div>
+        <button type="button" class="${rowCls}"${disabledAttr} onclick="WaifuApp.equipItemToProfileSlot(${iid}, ${Number(slot)})">
+          <span class="slot-replace-portrait" aria-hidden="true">${art}</span>
+          <span class="slot-replace-main">
+            <span class="slot-replace-name">${name}</span>
+            <span class="slot-replace-meta muted tiny">${meta}</span>
+            ${compareHtml}
+            ${errs.length ? `<span class="slot-replace-err muted tiny">${errs.map((err) => escapeHtml(String(err))).join("<br/>")}</span>` : ""}
+          </span>
+        </button>
       `;
     })
-    .join("");
+    .join("")}</div>`;
 }
 
 async function equipItemToProfileSlot(itemId, slot) {
@@ -3534,6 +7321,7 @@ async function equipItemToProfileSlot(itemId, slot) {
   closeSlotModal();
   closeItemModal();
   await bootstrapPage("profile", populateProfile);
+  switchProfileTab("inventory");
 }
 
 function openProfileSlotReplacementFromModal() {
@@ -3551,33 +7339,107 @@ function estimateProfileSellPrice(item) {
   return Math.floor(baseValue * multiplier);
 }
 
+/** Требования v2: пилюли «Ур.» / «ВЫН» и т.д.; без текущих статов ОВ; fail — красная рамка. */
+function buildItemModalRequirementsPillsHtml(item, waifu) {
+  const req = item?.requirements && typeof item.requirements === "object" ? item.requirements : {};
+  const w = waifu || {};
+  const hasWaifu = Boolean(w && (w.level != null || w.id != null));
+  const entries = [];
+
+  const pushPill = (lbl, val, ok) => {
+    entries.push({ lbl, val, ok });
+  };
+
+  if (Boolean(item?.is_broken)) {
+    pushPill("Сост.", "Сломан", false);
+  }
+
+  const lvlNeed = safeNumber(req.level, 0);
+  if (lvlNeed > 0) {
+    const have = safeNumber(w.level, 0);
+    const ok = !hasWaifu || have >= lvlNeed;
+    pushPill("Ур.", String(lvlNeed), ok);
+  }
+
+  const statBits = [
+    ["strength", "СИЛ", "strength"],
+    ["agility", "ЛОВ", "agility"],
+    ["intelligence", "ИНТ", "intelligence"],
+    ["endurance", "ВЫН", "endurance"],
+  ];
+  statBits.forEach(([rk, abbrev, wk]) => {
+    const need = safeNumber(req[rk], 0);
+    if (need <= 0) return;
+    const have = safeNumber(w[wk], 0);
+    const ok = !hasWaifu || have >= need;
+    pushPill(abbrev, String(need), ok);
+  });
+
+  if (req.waifu_race != null && req.waifu_race !== "") {
+    const need = Number(req.waifu_race);
+    const have = w.race != null ? Number(w.race) : NaN;
+    const ok = !hasWaifu || (Number.isFinite(have) && have === need);
+    pushPill("Раса", raceName(need), ok);
+  }
+  if (req.waifu_class != null && req.waifu_class !== "") {
+    const need = Number(req.waifu_class);
+    const wc = w.class != null ? w.class : w.class_;
+    const have = wc != null ? Number(wc) : NaN;
+    const ok = !hasWaifu || (Number.isFinite(have) && have === need);
+    pushPill("Класс", className(need), ok);
+  }
+
+  if (!entries.length) return "";
+
+  return entries
+    .map(
+      (e) =>
+        `<div class="item-modal-v2-rpil${e.ok ? "" : " item-modal-v2-rpil--fail"}"><span class="item-modal-v2-rpil-lbl">${escapeHtml(
+          e.lbl
+        )}</span><span class="item-modal-v2-rpil-val">${escapeHtml(e.val)}</span></div>`
+    )
+    .join("");
+}
+
 function openItemModal(item) {
   profileState.selectedItem = item;
   profileState.equipSlotChoice = null;
+  closeItemSellConfirmOverlay();
+  closeItemEquipRingOverlay();
   const modal = document.getElementById("item-modal");
   const body = document.getElementById("item-modal-body");
   if (!modal || !body) return;
 
-  const displayName = String(item?.display_name || "").trim() || composeItemDisplayName(item);
-  const slotTypeRaw = item?.slot_type ? String(item.slot_type) : "";
-  const slotType = slotTypeRaw ? slotTypeLabel(slotTypeRaw) : "—";
-  const slotName =
-    item?.equipment_slot != null
-      ? EQUIPMENT_SLOT_NAMES[Number(item.equipment_slot)] || String(item.equipment_slot)
-      : "Сумка";
-  const errs = Array.isArray(item?.requirement_errors) ? item.requirement_errors : [];
   const isEquipped = item?.equipment_slot != null;
   const possibleSlots = !isEquipped && item?.slot_type ? SLOT_TYPE_TO_SLOTS[item.slot_type] || [] : [];
   const canEquip = !isEquipped && item?.can_equip !== false && possibleSlots.length > 0;
+  const hasInvId = item?.id != null;
+  const canSmith = Boolean(hasInvId && !item?.is_broken);
 
-  setText("item-modal-name", displayName || "—");
-  setText("item-modal-rarity", item?.rarity != null ? rarityLabel(item.rarity) : "—");
-  setText("item-modal-level", item?.level != null ? `lvl ${item.level}` : "—");
-  setText("item-modal-type", slotType);
-  setText("item-modal-slot", slotName);
+  const nameEl = document.getElementById("item-modal-name");
+  if (nameEl) {
+    nameEl.innerHTML = composeItemTitlePlain(item) || "—";
+    const en = safeNumber(item?.enchant_level, 0);
+    const br = Boolean(item?.is_broken);
+    nameEl.classList.toggle("item-modal-v2-title--enchant-high", en > 7 && !br);
+  }
+
+  const subEl = document.getElementById("item-modal-subline");
+  if (subEl) {
+    subEl.textContent = buildItemModalMetaLine(item);
+  }
+
+  const rpill = document.getElementById("item-modal-rpill");
+  if (rpill) {
+    rpill.textContent = rarityLabel(item?.rarity);
+    rpill.className = `item-modal-v2-rpill ${rarityPillModifierClass(item?.rarity)}`.trim();
+  }
 
   const art = document.getElementById("item-modal-art");
   if (art) art.innerHTML = itemArtHtml(item);
+
+  const enchRow = document.getElementById("item-modal-ench");
+  if (enchRow) enchRow.innerHTML = buildItemModalEnchantRowHtml(item);
 
   const content = document.getElementById("item-modal-content");
   if (content) {
@@ -3587,61 +7449,60 @@ function openItemModal(item) {
     content.classList.add(rarityClass(item?.rarity));
   }
 
-  let slotPickerHtml = "";
-  if (!isEquipped && item?.slot_type) {
-    if (possibleSlots.length === 1) {
-      profileState.equipSlotChoice = possibleSlots[0];
-      slotPickerHtml = `<div class="detail-row"><span class="muted">Слот экипировки</span><strong>${EQUIPMENT_SLOT_NAMES[possibleSlots[0]]}</strong></div>`;
-    } else if (possibleSlots.length > 1) {
-      const emptySlot = possibleSlots.find((slot) => !getProfileEquippedItem(slot));
-      profileState.equipSlotChoice = emptySlot ?? possibleSlots[0];
-      slotPickerHtml = `
-        <label class="form-field" style="display:block; margin-top:10px;">
-          <div class="muted tiny">Куда надеть</div>
-          <select id="item-modal-slot-select">
-            ${possibleSlots
-              .map((slot) => {
-                const occupied = getProfileEquippedItem(slot);
-                const text = occupied
-                  ? `${EQUIPMENT_SLOT_NAMES[slot]} (занято: ${escapeHtml(String(occupied?.display_name || occupied?.name || "предмет"))})`
-                  : `${EQUIPMENT_SLOT_NAMES[slot]} (свободно)`;
-                return `<option value="${slot}" ${slot === profileState.equipSlotChoice ? "selected" : ""}>${text}</option>`;
-              })
-              .join("")}
-          </select>
-        </label>
-      `;
+  const combinedBonusesHtml = renderCombinedBonusesHtml(item);
+  const weaponStatsHtml = renderWeaponStatsHtml(item);
+  const upgrade = !isEquipped && isProfileUpgradeItem(item);
+  const upHintEl = document.getElementById("item-modal-upgrade-hint");
+  if (upHintEl) {
+    if (upgrade) {
+      upHintEl.textContent = "▲";
+      upHintEl.style.display = "inline-flex";
+      upHintEl.setAttribute("title", "Предмет выше уровня текущей экипировки");
+      upHintEl.setAttribute("aria-label", "Предмет выше уровня текущей экипировки");
+      upHintEl.removeAttribute("aria-hidden");
+    } else {
+      upHintEl.textContent = "";
+      upHintEl.style.display = "none";
+      upHintEl.removeAttribute("title");
+      upHintEl.removeAttribute("aria-label");
+      upHintEl.setAttribute("aria-hidden", "true");
+    }
+  }
+  let charHtml = renderItemModalV2CharacteristicsHtml(item);
+  if (!charHtml) {
+    const statsInner = [weaponStatsHtml, combinedBonusesHtml].filter(Boolean).join("");
+    charHtml = statsInner
+      ? `<div class="item-mtg-stats-merged">${statsInner}</div>`
+      : `<div class="muted tiny" style="padding:6px 0;">Нет характеристик для отображения.</div>`;
+  }
+
+  body.innerHTML = charHtml;
+
+  const descEl = document.getElementById("item-modal-desc");
+  const descText = String(item?.description || "").trim();
+  if (descEl) {
+    if (descText) {
+      descEl.style.display = "";
+      descEl.textContent = `"${descText}"`;
+    } else {
+      descEl.style.display = "none";
+      descEl.innerHTML = "";
     }
   }
 
-  const bonusesHtml = renderItemBonusesHtml(item);
-  const weaponStatsHtml = renderWeaponStatsHtml(item);
-  const upgrade = !isEquipped && isProfileUpgradeItem(item);
-  const sellConfirmHtml = !isEquipped && profileState.sellConfirm
-    ? `
-      <div class="profile-item-actions">
-        <div class="detail-row"><span class="muted">Цена продажи</span><strong>🪙 ${estimateProfileSellPrice(item)}</strong></div>
-        <button class="primary" onclick="WaifuApp.confirmSellSelectedItem()">Подтвердить продажу</button>
-        <button class="secondary" onclick="WaifuApp.toggleItemSellConfirm()">Отмена</button>
-      </div>
-    `
-    : "";
-
-  body.innerHTML = `
-    <div class="detail-row"><span class="muted">Редкость</span><strong>${escapeHtml(rarityLabel(item?.rarity))}</strong></div>
-    <div class="detail-row"><span class="muted">Tier</span><strong>${item?.tier ?? "—"}</strong></div>
-    ${upgrade ? `<div class="profile-modal-upgrade">▲ Предмет выше уровня текущей экипировки</div>` : ""}
-    ${weaponStatsHtml}
-    ${bonusesHtml}
-    ${slotPickerHtml}
-    ${errs.length ? `<div class="muted tiny">${errs.map((err) => escapeHtml(String(err))).join("<br/>")}</div>` : ""}
-    ${sellConfirmHtml}
-  `;
+  const reqFoot = document.getElementById("item-modal-requirements");
+  const reqSec = document.getElementById("item-modal-req-section");
+  const pillsHtml = buildItemModalRequirementsPillsHtml(item, profileState.currentProfile?.main_waifu || null);
+  if (reqFoot) reqFoot.innerHTML = pillsHtml;
+  if (reqSec) reqSec.style.display = pillsHtml ? "" : "none";
 
   const sellBtn = document.getElementById("item-modal-sell");
+  const enchBtn = document.getElementById("item-modal-enchant");
   const unequipBtn = document.getElementById("item-modal-unequip");
   const replaceBtn = document.getElementById("item-modal-replace");
   const equipBtn = document.getElementById("item-modal-equip");
+  const actionsRow = document.getElementById("item-modal-actions-row");
+
   if (sellBtn) sellBtn.style.display = isEquipped ? "none" : "";
   if (unequipBtn) unequipBtn.style.display = isEquipped ? "" : "none";
   if (replaceBtn) replaceBtn.style.display = isEquipped ? "" : "none";
@@ -3649,32 +7510,55 @@ function openItemModal(item) {
     equipBtn.style.display = canEquip ? "" : "none";
     equipBtn.textContent = "Надеть";
   }
+  if (enchBtn) {
+    const showEnch = canSmith;
+    enchBtn.style.display = showEnch ? "" : "none";
+    enchBtn.disabled = false;
+  }
 
-  const select = document.getElementById("item-modal-slot-select");
-  if (select) {
-    select.addEventListener("change", () => {
-      profileState.equipSlotChoice = Number(select.value);
-    });
+  let visibleFooter = 0;
+  if (sellBtn && sellBtn.style.display !== "none") visibleFooter += 1;
+  if (enchBtn && enchBtn.style.display !== "none") visibleFooter += 1;
+  if (unequipBtn && unequipBtn.style.display !== "none") visibleFooter += 1;
+  if (replaceBtn && replaceBtn.style.display !== "none") visibleFooter += 1;
+  if (equipBtn && equipBtn.style.display !== "none") visibleFooter += 1;
+  if (actionsRow) {
+    actionsRow.setAttribute("data-cols", visibleFooter <= 2 ? "2" : "3");
   }
 
   modal.style.display = "grid";
 }
 
-function toggleItemSellConfirm() {
-  profileState.sellConfirm = !profileState.sellConfirm;
-  if (profileState.selectedItem) openItemModal(profileState.selectedItem);
+async function refreshAfterInventoryModalAction() {
+  const path = typeof window !== "undefined" ? window.location.pathname || "" : "";
+  if (/dungeons\.html$/.test(path)) {
+    const p = await loadProfile();
+    await populateDungeonsPage(p);
+    return;
+  }
+  if (/shop\.html$/.test(path)) {
+    const p = await loadProfile();
+    const act = shopState.act || p?.act || 1;
+    await loadShop(act).catch(console.error);
+    if (shopState.activeTab === "sell") {
+      await loadSellInventory().catch(console.error);
+    }
+    return;
+  }
+  await bootstrapPage("profile", populateProfile);
 }
 
 async function confirmSellSelectedItem() {
   const item = profileState.selectedItem;
   if (!item?.id) return;
+  closeItemSellConfirmOverlay();
   await apiFetch(`/inventory/sell`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ inventory_item_ids: [item.id] }),
   });
   closeItemModal();
-  await bootstrapPage("profile", populateProfile);
+  await refreshAfterInventoryModalAction();
 }
 
 async function unequipItemFromModal() {
@@ -3682,7 +7566,7 @@ async function unequipItemFromModal() {
   if (!item?.id) return;
   await apiFetch(`/waifu/equipment/unequip?inventory_item_id=${item.id}`, { method: "POST" });
   closeItemModal();
-  await bootstrapPage("profile", populateProfile);
+  await refreshAfterInventoryModalAction();
 }
 
 async function equipItemFromModal() {
@@ -3691,7 +7575,11 @@ async function equipItemFromModal() {
   const slots = SLOT_TYPE_TO_SLOTS[item.slot_type] || [];
   if (!slots.length) return;
 
-  const chosen = profileState.equipSlotChoice || slots[0];
+  if (item.slot_type === "ring") {
+    openItemEquipRingOverlay();
+    return;
+  }
+  const chosen = defaultEquipSlotForItem(item) ?? slots[0];
   try {
     await apiFetch(`/waifu/equipment/equip?inventory_item_id=${item.id}&slot=${chosen}`, { method: "POST" });
   } catch (e) {
@@ -3700,31 +7588,151 @@ async function equipItemFromModal() {
     return;
   }
   closeItemModal();
-  await bootstrapPage("profile", populateProfile);
+  await refreshAfterInventoryModalAction();
+}
+
+async function confirmEquipToRingSlot(slot) {
+  const item = profileState.selectedItem;
+  if (!item?.id || item.slot_type !== "ring") return;
+  const s = Number(slot);
+  if (s !== 4 && s !== 5) return;
+  try {
+    await apiFetch(`/waifu/equipment/equip?inventory_item_id=${item.id}&slot=${s}`, { method: "POST" });
+  } catch (e) {
+    const body = document.getElementById("item-modal-body");
+    if (body) body.innerHTML += `<div class="muted" style="margin-top:10px;">Ошибка экипировки: ${escapeHtml(String(e?.message || e))}</div>`;
+    closeItemEquipRingOverlay();
+    return;
+  }
+  closeItemEquipRingOverlay();
+  closeItemModal();
+  await refreshAfterInventoryModalAction();
 }
 
 async function resetMainWaifu() {
-  await apiFetch(`/profile/main-waifu`, { method: "DELETE" });
+  if (
+    !confirm(
+      "Полный сброс прогресса: золото, акт, инвентарь, найм, данжи, экспедиции, пассивы, гильдия и ОВ. Продолжить?"
+    )
+  ) {
+    return;
+  }
+  await apiFetch(`/admin/player/reset-new-game`, { method: "POST" });
   window.location.href = "./waifu_generator.html";
 }
 
-function initWaifuGenerator() {
+/** Стартовый экран index.html: «Новая игра» / «Продолжить» по наличию ОВ. */
+function initTitleScreen(profile) {
+  const btn = document.getElementById("title-primary-btn");
+  const authEl = document.getElementById("title-screen-auth");
+  const modal = document.getElementById("title-info-modal");
+  const infoBtn = document.getElementById("title-info-btn");
+  const infoClose = document.getElementById("title-info-close");
+
+  if (infoBtn && modal) {
+    infoBtn.addEventListener("click", () => {
+      modal.hidden = false;
+    });
+  }
+  if (infoClose && modal) {
+    infoClose.addEventListener("click", () => {
+      modal.hidden = true;
+    });
+  }
+  if (modal) {
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) modal.hidden = true;
+    });
+  }
+
+  if (!btn) return;
+
+  const stub = profile && typeof profile.player_id === "undefined";
+  if (stub && authEl) {
+    authEl.style.display = "block";
+    authEl.innerHTML = getWebAppAuthNoticeHtml();
+    btn.textContent = "Вход недоступен";
+    btn.disabled = true;
+    btn.onclick = null;
+    return;
+  }
+
+  if (authEl) authEl.style.display = "none";
+
+  const w = profile?.main_waifu;
+  if (w && (w.id != null || w.level != null)) {
+    btn.textContent = "Продолжить";
+    btn.disabled = false;
+    btn.onclick = () => {
+      window.location.href = "./profile.html";
+    };
+    return;
+  }
+
+  btn.textContent = "Новая игра";
+  btn.disabled = false;
+  btn.onclick = () => {
+    window.location.href = "./waifu_generator.html";
+  };
+}
+
+async function adminLevelUpWaifu() {
+  try {
+    const data = await apiFetch("/admin/waifu/levelup", { method: "POST" });
+    await loadProfile();
+    showToast(`Уровень повышен до ${data.new_level}`);
+  } catch (e) {
+    showToast("Ошибка: " + (e?.message || e), "error");
+  }
+}
+
+async function adminClearAllItems() {
+  if (!confirm("Удалить ВСЕ предметы? (экипировка + инвентарь)")) return;
+  try {
+    await apiFetch("/admin/items/clear", { method: "POST" });
+    await loadProfile();
+    showToast("Все предметы удалены");
+  } catch (e) {
+    showToast("Ошибка: " + (e?.message || e), "error");
+  }
+}
+
+async function initWaifuGenerator(profile) {
+  const mw = profile?.main_waifu;
+  if (mw && (mw.id != null || mw.level != null)) {
+    window.location.href = "./profile.html";
+    return;
+  }
+
+  waifuGeneratorState.playerId = profile?.player_id != null ? profile.player_id : null;
+  waifuGeneratorState.variants = [];
+  waifuGeneratorState.selectedIdx = 0;
+  waifuGeneratorState.generationsCount = 0;
+
   const nameInput = document.getElementById("waifu-name-input");
   const classSel = document.getElementById("waifu-class-select");
   const raceSel = document.getElementById("waifu-race-select");
   const statsBox = document.getElementById("waifu-stats");
   const summary = document.getElementById("waifu-summary");
-  const btn = document.getElementById("waifu-create-btn");
+  const nextBtn = document.getElementById("waifu-next-btn");
 
-  if (!nameInput || !classSel || !raceSel || !statsBox || !btn) return;
+  if (!nameInput || !classSel || !raceSel || !statsBox || !nextBtn) return;
 
   classSel.innerHTML = WAIFU_CLASSES.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
   raceSel.innerHTML = WAIFU_RACES.map((r) => `<option value="${r.id}">${r.name}</option>`).join("");
 
+  const raceIds = new Set(WAIFU_RACES.map((r) => r.id));
+  const classIds = new Set(WAIFU_CLASSES.map((c) => c.id));
+  if (!raceIds.has(waifuGeneratorState.selectedRaceId)) waifuGeneratorState.selectedRaceId = WAIFU_RACES[0].id;
+  if (!classIds.has(waifuGeneratorState.selectedClassId)) waifuGeneratorState.selectedClassId = WAIFU_CLASSES[0].id;
+  waifuGenSyncHiddenSelects();
+  waifuGenBuildRaceClassPickers();
+  waifuGenBindCosmeticModalsOnce();
+
   const recalc = () => {
     const name = nameInput.value.trim();
-    const race = Number(raceSel.value);
-    const cls = Number(classSel.value);
+    const race = waifuGeneratorState.selectedRaceId;
+    const cls = waifuGeneratorState.selectedClassId;
     const base = { strength: 10, agility: 10, intelligence: 10, endurance: 10, charm: 10, luck: 10 };
     const rb = WAIFU_RACE_BONUSES[race] || {};
     const cb = WAIFU_CLASS_BONUSES[cls] || {};
@@ -3744,28 +7752,144 @@ function initWaifuGenerator() {
       .map(([k, v]) => `<div class="stat-card"><span class="muted">${k}</span><strong>${v}</strong></div>`)
       .join("");
 
-    btn.disabled = !name;
+    nextBtn.disabled = !name;
+    waifuGenRefreshPassiveBonuses();
   };
 
+  window.__waifuGenRecalc = recalc;
   nameInput.addEventListener("input", recalc);
-  classSel.addEventListener("change", recalc);
-  raceSel.addEventListener("change", recalc);
   recalc();
+
+  const frame = document.getElementById("waifu-portrait-frame");
+  if (frame && !frame.dataset.waifuCycleBound) {
+    frame.dataset.waifuCycleBound = "1";
+    frame.addEventListener("click", () => {
+      if (waifuGeneratorState.variants.length < 2) return;
+      const n = waifuGeneratorState.variants.length;
+      waifuGeneratorState.selectedIdx = (waifuGeneratorState.selectedIdx + 1) % n;
+      waifuGenRenderVariants();
+      const v = waifuGeneratorState.variants[waifuGeneratorState.selectedIdx];
+      if (v?.dataUrl) waifuGenApplyPortraitPreview(v.dataUrl);
+    });
+  }
+
+  await waifuGenLoadDraftsFromServer();
+}
+
+function waifuGenTogglePanelHidden(el, hidden) {
+  if (!el) return;
+  el.hidden = hidden;
+  if (hidden) el.setAttribute("hidden", "");
+  else el.removeAttribute("hidden");
+}
+
+function waifuGenGoStep2() {
+  const nameInput = document.getElementById("waifu-name-input");
+  const err1 = document.getElementById("waifu-step1-error");
+  const name = nameInput?.value?.trim() || "";
+  if (!name) {
+    if (err1) err1.textContent = "Введите имя.";
+    return;
+  }
+  if (err1) err1.textContent = "";
+
+  const s1 = document.getElementById("waifu-step-1");
+  const s2 = document.getElementById("waifu-step-2");
+  const st1 = document.getElementById("waifu-gen-sticky-step1");
+  const st2 = document.getElementById("waifu-gen-sticky-step2");
+
+  waifuGenTogglePanelHidden(s1, true);
+  waifuGenTogglePanelHidden(s2, false);
+  waifuGenTogglePanelHidden(st1, true);
+  waifuGenTogglePanelHidden(st2, false);
+
+  waifuGenRefreshHint();
+  waifuGenRefreshGenerateButton();
+}
+
+function waifuGenGoStep1() {
+  const s1 = document.getElementById("waifu-step-1");
+  const s2 = document.getElementById("waifu-step-2");
+  const st1 = document.getElementById("waifu-gen-sticky-step1");
+  const st2 = document.getElementById("waifu-gen-sticky-step2");
+  const errP = document.getElementById("waifu-gen-portrait-err");
+  waifuGenTogglePanelHidden(s1, false);
+  waifuGenTogglePanelHidden(s2, true);
+  waifuGenTogglePanelHidden(st1, false);
+  waifuGenTogglePanelHidden(st2, true);
+  if (errP) errP.textContent = "";
+}
+
+async function waifuGenPreviewPortrait() {
+  const errP = document.getElementById("waifu-gen-portrait-err");
+  const genBtn = document.getElementById("waifu-generate-btn");
+  if (waifuGenGensUsed() >= 3) {
+    if (errP) errP.textContent = "Достигнут лимит трёх генераций.";
+    return;
+  }
+
+  if (errP) errP.textContent = "";
+  if (genBtn) genBtn.disabled = true;
+
+  const body = waifuGenPortraitRequestBody();
+
+  try {
+    const data = await apiFetch(`/profile/main-waifu/preview-portrait`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const b64 = data?.image_base64;
+    const mime = data?.mime || "image/webp";
+    if (!b64) throw new Error("Пустой ответ изображения");
+
+    const slotIdx = Number(data?.slot_index);
+    const gens = Number(data?.generations_count);
+    if (Number.isFinite(gens) && gens > 0) waifuGenSetGensUsed(gens);
+    else waifuGenSetGensUsed(waifuGenGensUsed() + 1);
+
+    const dataUrl = `data:${mime};base64,${b64}`;
+    waifuGeneratorState.variants.push({
+      b64,
+      dataUrl,
+      slot_index: Number.isFinite(slotIdx) ? slotIdx : waifuGeneratorState.variants.length,
+    });
+    waifuGeneratorState.selectedIdx = waifuGeneratorState.variants.length - 1;
+    waifuGenApplyPortraitPreview(dataUrl);
+    waifuGenRenderVariants();
+    waifuGenRefreshHint();
+    waifuGenRefreshGenerateButton();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    const lim = (detail || "").includes("portrait_preview_limit");
+    if (errP) {
+      errP.textContent = lim
+        ? "Лимит трёх генераций. Обновите страницу или создайте персонажа с уже выбранным портретом."
+        : detail || String(e?.message || e);
+    }
+    if (lim) waifuGenSetGensUsed(3);
+    waifuGenRefreshGenerateButton();
+    waifuGenRefreshHint();
+  }
 }
 
 async function submitWaifuCreation() {
   const nameInput = document.getElementById("waifu-name-input");
-  const classSel = document.getElementById("waifu-class-select");
-  const raceSel = document.getElementById("waifu-race-select");
   const errBox = document.getElementById("waifu-create-error");
   const btn = document.getElementById("waifu-create-btn");
-  if (!nameInput || !classSel || !raceSel) return;
+  if (!nameInput) return;
 
   const payload = {
     name: nameInput.value.trim(),
-    race: Number(raceSel.value),
-    class: Number(classSel.value),
+    race: waifuGeneratorState.selectedRaceId,
+    class: waifuGeneratorState.selectedClassId,
   };
+  const sel = waifuGeneratorState.variants[waifuGeneratorState.selectedIdx];
+  if (sel && Number.isFinite(Number(sel.slot_index)) && sel.slot_index >= 0 && sel.slot_index <= 2) {
+    payload.selected_slot = Number(sel.slot_index);
+  } else if (sel?.b64) {
+    payload.portrait_base64 = sel.b64;
+  }
 
   if (btn) btn.disabled = true;
   if (errBox) errBox.textContent = "";
@@ -3819,7 +7943,10 @@ async function initPage(page) {
     tg.expand();
   }
   setActiveNav(page);
-  connectSSE();
+  if (page !== "index") {
+    connectSSE();
+  }
+  initAtticChipClicks();
 
   // Reveal admin-only controls for the admin Telegram ID.
   if (isAdminUser()) {
@@ -3842,7 +7969,7 @@ async function initPage(page) {
           profileState.currentDetails = p?.main_waifu_details || profileState.currentDetails || null;
           renderProfilePortrait(w);
           renderProfileHeroBars(w, profileState.currentDetails);
-          renderStatsStrip("profile-stats-strip", w, profileState.currentDetails);
+          renderStatsStrip("profile-stats-strip", w);
           if (document.getElementById("profile-stats-breakdown")) {
             renderStatsBreakdown("profile-stats-breakdown", w, profileState.currentDetails);
           }
@@ -3867,10 +7994,813 @@ async function adminCompleteDungeon() {
   await refreshSoloActive().catch(() => {});
 }
 
+async function adminRestoreHpEnergy() {
+  await apiFetch(`/admin/waifu/restore`, { method: "POST" });
+  await loadProfile().catch(() => {});
+}
+
+// ---- Caravan page ----
+
+const ACT_META = [
+  { act: 1, short: "Акт I", name: "Акт I — Начало пути", emoji: "🌿", desc: "Первые шаги. Леса и пещеры вокруг стартового города.", levelRange: "1–9" },
+  { act: 2, short: "Акт II", name: "Акт II — Глубины", emoji: "⛏️", desc: "Шахты и подземные твердыни. Опасность возрастает.", levelRange: "11–19" },
+  { act: 3, short: "Акт III", name: "Акт III — Руины", emoji: "🏛️", desc: "Древние руины, проклятые земли, элитные враги.", levelRange: "21–29" },
+  { act: 4, short: "Акт IV", name: "Акт IV — Бездна", emoji: "🌋", desc: "Вулканические земли, демоны, огненные боссы.", levelRange: "31–39" },
+  { act: 5, short: "Акт V", name: "Акт V — Финал", emoji: "🏰", desc: "Цитадель финального зла. Финальное испытание.", levelRange: "41–60" },
+];
+
+let caravanPendingAct = null;
+let caravanTravelInProgress = false;
+let caravanDriverTipInProgress = false;
+
+/** Иконка точки на карте каравана (см. static/caravan/README.md). */
+function caravanPinImageUrls(act) {
+  const a = Math.max(1, Math.min(5, safeInt(act, 1)));
+  return [`/static/caravan/act-${a}/map-pin.webp`, `/static/caravan/pin_act${a}.webp`];
+}
+
+/** Подбор картинки по цепочке URL (onerror → следующий). */
+function attachCaravanImage(el, urls, onGiveUp) {
+  if (!el) {
+    onGiveUp?.();
+    return;
+  }
+  let i = 0;
+  function next() {
+    if (i >= urls.length) {
+      el.style.display = "none";
+      onGiveUp?.();
+      return;
+    }
+    const url = urls[i];
+    i += 1;
+    el.onerror = () => next();
+    el.onload = () => {
+      el.style.display = "";
+    };
+    el.src = url;
+  }
+  next();
+}
+
+/** Фон и погонщик зависят от текущего акта (см. static/caravan/README.md). */
+function applyCaravanStageImages(currentAct) {
+  const a = Math.max(1, Math.min(5, safeInt(currentAct, 1)));
+  const bgImg = document.getElementById("caravan-bg-img");
+  const driverImg = document.getElementById("caravan-driver-img");
+  const wrap = document.getElementById("caravan-driver-wrap");
+
+  const bgUrls = [
+    `/static/caravan/act-${a}/caravan.background.webp`,
+    `/static/caravan/bg_act${a}.webp`,
+    `/static/caravan/caravan.background.webp`,
+  ];
+  const driverUrls = [
+    `/static/caravan/act-${a}/driver.webp`,
+    `/static/caravan/driver_act${a}.webp`,
+    `/static/caravan/caravan.driver.webp`,
+  ];
+
+  if (wrap) wrap.classList.remove("driver-fallback");
+
+  if (bgImg) {
+    bgImg.style.display = "";
+    attachCaravanImage(bgImg, bgUrls, null);
+  }
+
+  if (driverImg && wrap) {
+    driverImg.style.display = "";
+    attachCaravanImage(driverImg, driverUrls, () => {
+      wrap.classList.add("driver-fallback");
+    });
+  }
+}
+
+function openCaravanTipModal(text) {
+  const modal = document.getElementById("caravan-tip-modal");
+  const body = document.getElementById("caravan-tip-body");
+  if (body) body.textContent = text != null ? String(text) : "—";
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+  }
+}
+
+function closeCaravanTipModal() {
+  const modal = document.getElementById("caravan-tip-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
+}
+
+async function requestCaravanDriverTip() {
+  if (caravanDriverTipInProgress) return;
+  caravanDriverTipInProgress = true;
+  openCaravanTipModal("Загрузка…");
+  try {
+    const res = await apiFetch("/player/caravan-driver-tip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const text = res?.text != null ? String(res.text).trim() : "";
+    if (text) {
+      openCaravanTipModal(text);
+    } else {
+      openCaravanTipModal(res?.error || "Не удалось получить совет.");
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    openCaravanTipModal(detail || "Ошибка сети.");
+  } finally {
+    caravanDriverTipInProgress = false;
+  }
+}
+
+async function populateCaravanPage(profile) {
+  const p = profile || (await loadProfile());
+  const currentAct = safeInt(p?.act, 1);
+  const maxAct = safeInt(p?.max_act, currentAct);
+
+  const pinsLayer = document.getElementById("caravan-pins-layer");
+  if (!pinsLayer) return;
+
+  const rawCosts = p?.caravan_travel_costs;
+  const costs =
+    Array.isArray(rawCosts) && rawCosts.length >= 5
+      ? rawCosts.map((x) => safeInt(x, 0))
+      : [50, 200, 500, 1200, 2500];
+
+  pinsLayer.innerHTML = ACT_META.map(({ act, short, emoji, levelRange }) => {
+    const unlocked = act <= maxAct;
+    const isCurrent = act === currentAct;
+    const cost = costs[act - 1] ?? 0;
+    const goldLine = isCurrent ? "Здесь" : unlocked ? `🪙 ${cost}` : "🔒";
+    const icoInner = `<img class="caravan-pin-img" alt="" src="" /><span class="caravan-pin-emoji" aria-hidden="true">${emoji}</span>`;
+    const icoBlock =
+      unlocked && !isCurrent
+        ? `<button type="button" class="caravan-pin-ico-btn caravan-pin-hit" data-act-pin="${act}" onclick="WaifuApp.travelToAct(${act})" aria-label="Поехать: ${escapeHtml(short)}">${icoInner}</button>`
+        : `<div class="caravan-pin-ico-wrap caravan-pin-ico-wrap--static" data-act-pin="${act}" aria-hidden="true">${icoInner}</div>`;
+    return `
+      <div class="caravan-pin caravan-pin--${act} ${unlocked ? "" : "locked"} ${isCurrent ? "current" : ""}" role="group" aria-label="${escapeHtml(short)}">
+        <div class="caravan-pin-gold">${goldLine}</div>
+        ${icoBlock}
+        <div class="caravan-pin-title" title="Ур. ${escapeHtml(levelRange)}">${escapeHtml(short)}</div>
+      </div>`;
+  }).join("");
+
+  ACT_META.forEach(({ act }) => {
+    const wrap = pinsLayer.querySelector(`[data-act-pin="${act}"]`);
+    const img = wrap?.querySelector?.(".caravan-pin-img");
+    if (!img || !wrap) return;
+    wrap.classList.remove("pin-fallback");
+    img.style.display = "";
+    attachCaravanImage(img, caravanPinImageUrls(act), () => {
+      wrap.classList.add("pin-fallback");
+    });
+  });
+
+  const dbtn = document.getElementById("caravan-driver-btn");
+  if (dbtn) {
+    dbtn.onclick = () => {
+      requestCaravanDriverTip();
+    };
+  }
+
+  applyCaravanStageImages(currentAct);
+}
+
+/** Сразу сменить акт (без модалки). */
+async function travelToAct(act) {
+  const target = safeInt(act, 0);
+  if (!target || target < 1 || target > 5) return;
+  if (caravanTravelInProgress) return;
+
+  const errBox = document.getElementById("caravan-error");
+  caravanTravelInProgress = true;
+  document.querySelectorAll(".caravan-pin-ico-btn.caravan-pin-hit").forEach((b) => {
+    b.disabled = true;
+  });
+
+  try {
+    if (errBox) {
+      errBox.style.display = "none";
+      errBox.textContent = "";
+    }
+    await apiFetch(`/player/act?act=${encodeURIComponent(target)}`, { method: "POST" });
+    const p = await loadProfile();
+    await populateCaravanPage(p);
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    if (errBox) {
+      errBox.textContent = detail || "Ошибка перемещения";
+      errBox.style.display = "";
+    }
+  } finally {
+    caravanTravelInProgress = false;
+    document.querySelectorAll(".caravan-pin-ico-btn.caravan-pin-hit").forEach((b) => {
+      b.disabled = false;
+    });
+  }
+}
+
+function openCaravanModal(act) {
+  travelToAct(act);
+}
+
+function closeCaravanModal() {
+  const modal = document.getElementById("caravan-travel-modal");
+  if (modal) modal.style.display = "none";
+  caravanPendingAct = null;
+}
+
+async function confirmTravelToAct() {
+  if (!caravanPendingAct) return;
+  const act = caravanPendingAct;
+  caravanPendingAct = null;
+  await travelToAct(act);
+}
+
+let passiveTreeCache = null;
+let passiveActiveBranch = "warrior";
+/** Вкладка зала: ветка дерева или «hidden» — скрытые навыки. */
+let trainingHallTab = "warrior";
+let passiveTreeListenersBound = false;
+const PASSIVE_SKILL_PLACEHOLDER = "./assets/passive-skill-placeholder.svg";
+
+/** Иконки узлов пассивного дерева (совпадают с id в БД). */
+const PASSIVE_NODE_ICONS = {
+  w_bash: "⚔️",
+  w_tough: "🛡️",
+  w_cry: "🔥",
+  w_heavy: "💥",
+  w_iron: "🧱",
+  w_blood: "🩸",
+  w_berserk: "😤",
+  w_fort: "🏰",
+  w_last: "⚡",
+  w_wrath: "👑",
+  w_imm: "♾️",
+  s_keen: "🎯",
+  s_nimble: "💨",
+  s_media: "📸",
+  s_crit_m: "💎",
+  s_shadow: "🌑",
+  s_exploit: "🔓",
+  s_nth: "🔁",
+  s_ghost: "👻",
+  s_amp: "📣",
+  s_lethal: "☠️",
+  s_phantom: "🌫️",
+  m_arcane: "🔮",
+  m_wisdom: "📖",
+  m_trade: "💰",
+  m_media_m: "🎬",
+  m_lore: "📜",
+  m_bargain: "🤝",
+  m_surge: "✨",
+  m_cmd: "🎖️",
+  m_rune: "🛡️",
+  m_trans: "🌟",
+  m_arch: "👁️",
+};
+
+function getPassiveNodeIcon(node) {
+  const id = node && node.id;
+  if (id && PASSIVE_NODE_ICONS[id]) return PASSIVE_NODE_ICONS[id];
+  const b = node && node.branch;
+  if (b === "warrior") return "⚔️";
+  if (b === "shadow") return "🗡️";
+  return "✨";
+}
+
+function findPassiveNodeById(nodeId) {
+  if (!passiveTreeCache || !passiveTreeCache.branches) return null;
+  for (const b of ["warrior", "shadow", "sage"]) {
+    const arr = passiveTreeCache.branches[b];
+    if (!Array.isArray(arr)) continue;
+    const n = arr.find((x) => x.id === nodeId);
+    if (n) return n;
+  }
+  return null;
+}
+
+async function learnPassiveNode(nodeId, triggerEl) {
+  const btn = triggerEl;
+  if (btn) btn.disabled = true;
+  try {
+    const out = await apiFetch("/skills/passive/learn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ node_id: nodeId }),
+    });
+    if (!out || !out.ok) {
+      let msg = (out && out.error) || "Ошибка";
+      if (out && out.error === "insufficient_gold") msg = `Нужно ${out.required} 🪙`;
+      showToast(msg, "error");
+      return;
+    }
+    closePassiveSkillModal();
+    await loadPassiveSkillTree();
+    if (typeof refreshAtticChips === "function") refreshAtticChips();
+  } catch (e) {
+    console.error(e);
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось прокачать узел.", "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function openPassiveSkillModal(nodeId) {
+  const node = findPassiveNodeById(nodeId);
+  if (!node) return;
+  const m = document.getElementById("passive-skill-modal");
+  const title = document.getElementById("passive-modal-title");
+  const iconEl = document.getElementById("passive-modal-icon");
+  const body = document.getElementById("passive-modal-body");
+  if (!m || !title || !body) return;
+  m.classList.add("passive-skill-modal--dota");
+  const panel = m.querySelector(".passive-skill-modal-panel");
+  if (panel) panel.classList.add("passive-skill-modal-panel--dota");
+  if (iconEl) iconEl.textContent = getPassiveNodeIcon(node);
+  title.textContent = node.name;
+  const cur = Number(node.current_level) || 0;
+  const max = Number(node.max_level) || 1;
+  const eq = Number(node.equipment_level_bonus) || 0;
+  const effLv =
+    (Number(node.effective_level) > 0 ? Number(node.effective_level) : 0) || cur + eq;
+  const brReq =
+    node.branch_points_req > 0
+      ? `<p class="muted passive-modal-req">Уровень ОВ ≥ ${node.waifu_level_req}, в ветке ≥ ${node.branch_points_req} оч.</p>`
+      : `<p class="muted passive-modal-req">Уровень ОВ ≥ ${node.waifu_level_req}</p>`;
+  const learnBlock =
+    node.can_learn
+      ? `<div class="passive-modal-learn-wrap"><button type="button" class="btn passive-modal-learn-btn" data-passive-modal-learn="${passiveEscHtml(
+          node.id,
+        )}">Прокачать · 🪙&nbsp;${passiveEscHtml(String(node.cost_gold || 0))}</button></div>`
+      : "";
+  const ico = getPassiveNodeIcon(node);
+  const levelRow = `<div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Уровень (очки)</span><span class="passive-modal-stat-v">${cur} / ${max}</span></div>`;
+  const equipHint =
+    eq > 0
+      ? `<div class="passive-modal-stat-row"><span class="passive-modal-stat-k">От предметов</span><span class="passive-modal-stat-v passive-modal-stat-v--equip">+${eq} к уровню</span></div>`
+      : "";
+  let curBonusRaw =
+    effLv >= 1 && node.effective_effect_value != null && node.effective_effect_value !== undefined
+      ? formatPassiveEffectValue(node.effect_type, node.effective_effect_value)
+      : null;
+  if (
+    curBonusRaw == null &&
+    cur >= 1 &&
+    node.current_effect_value != null &&
+    node.current_effect_value !== undefined
+  ) {
+    curBonusRaw = formatPassiveEffectValue(node.effect_type, node.current_effect_value);
+  }
+  if (curBonusRaw == null) curBonusRaw = "—";
+  let nextVal = node.next_effective_effect_value;
+  if (
+    (nextVal == null || nextVal === undefined || nextVal === "") &&
+    effLv >= 1 &&
+    cur < max
+  ) {
+    nextVal = passiveExtrapolateEffectValue(node.effect_values, effLv + 1, node.effect_type);
+  }
+  const nextBonusRaw =
+    nextVal != null && nextVal !== undefined && nextVal !== ""
+      ? formatPassiveEffectValue(node.effect_type, nextVal)
+      : "—";
+  const curBonusRow = `<div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Текущий бонус</span><span class="passive-modal-stat-v">${passiveEscHtml(
+    curBonusRaw,
+  )}</span></div>`;
+  const nextBonusRow = `<div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Бонус на сл. уровне</span><span class="passive-modal-stat-v">${passiveEscHtml(
+    nextBonusRaw,
+  )}</span></div>`;
+  body.innerHTML = `
+    <div class="passive-modal-dota">
+      <div class="passive-modal-dota-top">
+        <div class="passive-modal-dota-icon-wrap" aria-hidden="true">
+          <img class="passive-modal-dota-placeholder" src="${PASSIVE_SKILL_PLACEHOLDER}" alt="" />
+          <span class="passive-modal-dota-emoji">${ico}</span>
+        </div>
+        <div class="passive-modal-dota-info">
+          <p class="passive-modal-dota-tags"><span class="passive-tag passive-tag--type">Пассивный</span></p>
+          <p class="passive-modal-dota-desc">${passiveEscHtml(node.description || "—")}</p>
+        </div>
+      </div>
+      ${brReq}
+      <div class="passive-modal-dota-stats">
+        ${levelRow}
+        ${equipHint}
+        ${curBonusRow}
+        ${nextBonusRow}
+      </div>
+      ${learnBlock}
+    </div>
+  `;
+  const learnBtn = body.querySelector("[data-passive-modal-learn]");
+  if (learnBtn) {
+    learnBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      learnPassiveNode(node.id, learnBtn);
+    });
+  }
+  m.classList.toggle("passive-skill-modal--equip-bonus", eq > 0 || effLv > cur);
+  m.style.display = "grid";
+}
+
+function closePassiveSkillModal() {
+  const m = document.getElementById("passive-skill-modal");
+  if (m) {
+    m.style.display = "none";
+    m.classList.remove("passive-skill-modal--equip-bonus");
+    m.classList.remove("passive-skill-modal--dota");
+    const panel = m.querySelector(".passive-skill-modal-panel");
+    if (panel) panel.classList.remove("passive-skill-modal-panel--dota");
+  }
+}
+
+function passiveEscHtml(v) {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Локальная экстраполяция effect_values (как extrapolate_passive_effect_value на бэкенде),
+ * если в ответе API нет next_effective_effect_value.
+ */
+function passiveExtrapolateEffectValue(effectValues, level, effectType) {
+  if (level < 1) return null;
+  const raw = Array.isArray(effectValues) ? effectValues : [];
+  const vals = raw.map((x) => Number(x)).filter((x) => Number.isFinite(x));
+  if (!vals.length) return null;
+  const et = String(effectType || "");
+  const n = vals.length;
+  const capped = new Set(["instakill_chance", "revive_chance", "survive_chance", "full_evade_chance"]);
+  if (capped.has(et)) {
+    const idx = Math.min(level, n) - 1;
+    return idx >= 0 ? vals[idx] : null;
+  }
+  if (level <= n) return vals[level - 1];
+  if (n === 1) return vals[0];
+  const vPrev = vals[n - 2];
+  const vLast = vals[n - 1];
+  const step = vLast - vPrev;
+  const over = level - n;
+  const out = vLast + step * over;
+  if (et === "trade_flat" || et === "nth_hit_crit") {
+    if (et === "nth_hit_crit") return Math.max(1, Math.round(out));
+    return Math.round(out);
+  }
+  return out;
+}
+
+/** Форматирование одного значения эффекта (для тултипа и шкалы уровней). */
+function formatPassiveEffectValue(effectType, raw) {
+  if (raw == null || raw === undefined) return "—";
+  if (effectType === "trade_flat" || effectType === "nth_hit_crit") return String(raw);
+  const n = Number(raw);
+  if (Number.isNaN(n)) return String(raw);
+  return `+${Math.round(n * 100)}%`;
+}
+
+function passiveNodeStateClass(node) {
+  const cur = Number(node.current_level) || 0;
+  const max = Number(node.max_level) || 1;
+  if (node.is_locked && cur === 0) return "passive-skill-cell--locked";
+  if (cur >= max) return "passive-skill-cell--maxed";
+  if (cur > 0) return "passive-skill-cell--partial";
+  return "passive-skill-cell--available";
+}
+
+function passiveBranchPointsInCache(branch) {
+  if (!passiveTreeCache || !passiveTreeCache.branches) return 0;
+  const arr = passiveTreeCache.branches[branch];
+  if (!Array.isArray(arr)) return 0;
+  return arr.reduce((s, n) => s + (Number(n.current_level) || 0), 0);
+}
+
+function updatePassiveResetButtonLabel() {
+  const btn = document.getElementById("passive-reset-branch");
+  if (!btn || !passiveTreeCache) return;
+  const pts = passiveBranchPointsInCache(passiveActiveBranch);
+  const per = Number(passiveTreeCache.reset_cost_per_point) || 500;
+  const cost = Math.round(pts * per);
+  btn.textContent =
+    pts > 0 ? `Сбросить ветку (~${cost} 🪙)` : "Сбросить очки текущей ветки";
+}
+
+/** Одна ячейка дерева: картинка-заглушка, эффективный уровень одной цифрой, оверлей +/стоимость. */
+function renderPassiveNodeCard(node) {
+  const esc = passiveEscHtml;
+  const cur = Number(node.current_level) || 0;
+  const max = Number(node.max_level) || 1;
+  const eq = Number(node.equipment_level_bonus) || 0;
+  const effLvRaw = Number(node.effective_level);
+  const displayEffLv =
+    (Number.isFinite(effLvRaw) && effLvRaw > 0 ? effLvRaw : 0) || cur + eq;
+  const hasEquipLift = eq > 0 || displayEffLv > cur;
+  const st = `${passiveNodeStateClass(node)}${hasEquipLift ? " passive-skill-cell--equip-bonus" : ""}`;
+  const ico = getPassiveNodeIcon(node);
+  const reqHint =
+    node.is_locked && cur === 0
+      ? `ур.${node.waifu_level_req}, в ветке ≥${node.branch_points_req} оч.`
+      : "";
+  const titleAttr = (reqHint ? `${node.name} — ${reqHint}` : node.name)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;");
+  const upgradeOverlay = node.can_learn
+    ? `<button type="button" class="passive-cell-upgrade" data-passive-learn="${esc(
+        node.id,
+      )}" aria-label="Прокачать за ${esc(String(node.cost_gold || 0))} золота">
+        <span class="passive-cell-upgrade-plus" aria-hidden="true">+</span>
+        <span class="passive-cell-upgrade-cost">🪙&nbsp;${esc(String(node.cost_gold || 0))}</span>
+      </button>`
+    : "";
+  return `<div class="passive-skill-cell ${st}" data-node-id="${esc(node.id)}" role="button" tabindex="0" title="${titleAttr}">
+    <div class="passive-skill-cell-inner">
+      <div class="passive-skill-cell-art">
+        <img class="passive-skill-cell-img" src="${PASSIVE_SKILL_PLACEHOLDER}" alt="" decoding="async" />
+        <span class="passive-skill-cell-emoji" aria-hidden="true">${ico}</span>
+        ${node.is_locked && cur === 0 ? `<span class="passive-skill-cell-lock" aria-hidden="true">🔒</span>` : ""}
+        ${upgradeOverlay}
+      </div>
+      <div class="passive-skill-cell-title">${esc(node.name)}</div>
+      <div class="passive-skill-cell-levels" aria-label="Эффективный уровень ${displayEffLv}, очки ${cur} из ${max}${
+        hasEquipLift ? ", есть бонус от предметов" : ""
+      }">
+        <span class="passive-skill-cell-lv-single${
+          displayEffLv === 0 ? " passive-skill-cell-lv-single--zero" : ""
+        }${hasEquipLift && displayEffLv > 0 ? " passive-skill-cell-lv-single--equip" : ""}">${esc(
+          String(displayEffLv),
+        )}</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderPassiveEmptyCell() {
+  return `<div class="passive-skill-cell passive-skill-cell--empty" aria-hidden="true">
+    <div class="passive-skill-cell-inner">
+      <div class="passive-skill-cell-art passive-skill-cell-art--empty"></div>
+      <div class="passive-skill-cell-levels passive-skill-cell-levels--empty" aria-hidden="true"></div>
+    </div>
+  </div>`;
+}
+
+function renderPassiveTree() {
+  const root = document.getElementById("passive-tree-root");
+  if (!root || !passiveTreeCache) return;
+  const branches = passiveTreeCache.branches || {};
+  const nodes = Array.isArray(branches[passiveActiveBranch]) ? branches[passiveActiveBranch] : [];
+  const byTier = new Map();
+  nodes.forEach((n) => {
+    const t = Number(n.tier) || 1;
+    if (!byTier.has(t)) byTier.set(t, []);
+    byTier.get(t).push(n);
+  });
+  let html = `<div class="passive-tree-panel">`;
+  for (let tier = 1; tier <= 4; tier++) {
+    const rowSorted = (byTier.get(tier) || []).sort(
+      (a, b) => (Number(a.position) || 0) - (Number(b.position) || 0),
+    );
+    const slots = [];
+    for (let i = 0; i < 3; i++) slots.push(rowSorted[i] || null);
+    const first = slots.find((n) => n != null);
+    const lbl = first ? `Ур. ${first.waifu_level_req}` : `Тир ${tier}`;
+    const reqBadge =
+      first && first.branch_points_req > 0 ? `нужно ≥${first.branch_points_req} оч. в этой ветке` : "";
+    html += `<div class="passive-tier-band" data-tier="${tier}">`;
+    html += `<div class="passive-tier-head"><span class="passive-tier-badge">${passiveEscHtml(
+      lbl,
+    )}</span>`;
+    html += reqBadge
+      ? `<span class="passive-tier-sub">${passiveEscHtml(reqBadge)}</span>`
+      : `<span class="passive-tier-sub passive-tier-sub--empty"></span>`;
+    html += `</div>`;
+    html += `<div class="passive-tier-nodes passive-tier-nodes--fixed">`;
+    slots.forEach((node) => {
+      html += node ? renderPassiveNodeCard(node) : renderPassiveEmptyCell();
+    });
+    html += `</div></div>`;
+  }
+  html += `</div>`;
+  root.innerHTML = html;
+  root.classList.remove("placeholder");
+  root.querySelectorAll("[data-passive-learn]").forEach((btn) => {
+    btn.addEventListener("click", onPassiveLearnClick);
+  });
+  root.querySelectorAll(".passive-skill-cell[data-node-id]").forEach((el) => {
+    el.addEventListener("click", (ev) => {
+      if (ev.target.closest("[data-stop-modal]") || ev.target.closest("[data-passive-learn]")) return;
+      const id = el.getAttribute("data-node-id");
+      if (id) openPassiveSkillModal(id);
+    });
+    el.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      if (ev.target.closest("[data-passive-learn]")) return;
+      ev.preventDefault();
+      const id = el.getAttribute("data-node-id");
+      if (id) openPassiveSkillModal(id);
+    });
+  });
+  updatePassiveResetButtonLabel();
+}
+
+async function onPassiveLearnClick(ev) {
+  ev.stopPropagation();
+  const id = ev.currentTarget && ev.currentTarget.getAttribute("data-passive-learn");
+  if (!id) return;
+  await learnPassiveNode(id, ev.currentTarget);
+}
+
+function applyTrainingHallTabUI() {
+  const passiveView = document.getElementById("training-passive-view");
+  const hiddenView = document.getElementById("training-hidden-view");
+  document.querySelectorAll(".passive-tab[data-training-tab]").forEach((t) => {
+    const tab = t.getAttribute("data-training-tab");
+    const active = tab === trainingHallTab;
+    t.classList.toggle("active", active);
+    t.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (passiveView && hiddenView) {
+    const showHidden = trainingHallTab === "hidden";
+    passiveView.hidden = showHidden;
+    hiddenView.hidden = !showHidden;
+  }
+}
+
+function bindPassiveTreeListenersOnce() {
+  if (passiveTreeListenersBound) return;
+  passiveTreeListenersBound = true;
+  const closeM = document.getElementById("passive-modal-close");
+  if (closeM) closeM.addEventListener("click", closePassiveSkillModal);
+  document.querySelectorAll(".passive-tab[data-training-tab]").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const key = tab.getAttribute("data-training-tab");
+      if (!key) return;
+      trainingHallTab = key;
+      if (key === "hidden") {
+        applyTrainingHallTabUI();
+        return;
+      }
+      passiveActiveBranch = key;
+      renderPassiveTree();
+      updatePassiveResetButtonLabel();
+      applyTrainingHallTabUI();
+    });
+  });
+  applyTrainingHallTabUI();
+  const resetBtn = document.getElementById("passive-reset-branch");
+  if (resetBtn) {
+    resetBtn.addEventListener("click", async () => {
+      const pts = passiveBranchPointsInCache(passiveActiveBranch);
+      if (pts <= 0) {
+        showToast("В этой ветке нет вложенных очков.", "error");
+        return;
+      }
+      const per = passiveTreeCache ? Number(passiveTreeCache.reset_cost_per_point) || 500 : 500;
+      const cost = Math.round(pts * per);
+      const branchRu =
+        passiveActiveBranch === "warrior"
+          ? "Воин"
+          : passiveActiveBranch === "shadow"
+            ? "Тень"
+            : "Мудрец";
+      if (!window.confirm(`Сбросить ветку «${branchRu}»? Примерно ${cost} 🪙.`)) return;
+      resetBtn.disabled = true;
+      try {
+        const out = await apiFetch(`/skills/passive/reset/${encodeURIComponent(passiveActiveBranch)}`, {
+          method: "POST",
+        });
+        if (!out || !out.ok) {
+          let msg = (out && out.error) || "Ошибка";
+          if (out && out.error === "insufficient_gold")
+            msg = `Нужно ${out.required} 🪙 (есть ${out.have})`;
+          showToast(msg, "error");
+          return;
+        }
+        await loadPassiveSkillTree();
+        if (typeof refreshAtticChips === "function") refreshAtticChips();
+      } catch (e) {
+        console.error(e);
+        const { detail } = parseHttpErrorDetail(e);
+        showToast(detail || "Не удалось сбросить ветку.", "error");
+      } finally {
+        resetBtn.disabled = false;
+      }
+    });
+  }
+}
+
+async function loadPassiveSkillTree() {
+  const root = document.getElementById("passive-tree-root");
+  bindPassiveTreeListenersOnce();
+  try {
+    const data = await apiFetch("/skills/passive/tree");
+    passiveTreeCache = data;
+    setText("passive-free-pts", data.skill_points);
+    const bp = data.branch_points || {};
+    setText("passive-branch-pts", `${bp.warrior ?? 0} / ${bp.shadow ?? 0} / ${bp.sage ?? 0}`);
+    renderPassiveTree();
+  } catch (e) {
+    if (isWebAppUnauthorizedError(e)) {
+      console.warn("Дерево навыков: нет авторизации Telegram WebApp.");
+    } else {
+      console.error(e);
+    }
+    if (root) {
+      root.classList.remove("placeholder");
+      if (isWebAppUnauthorizedError(e)) {
+        root.innerHTML = webAppAuthNoticeHtml();
+      } else {
+        const { detail } = parseHttpErrorDetail(e);
+        root.innerHTML = `<div class="webapp-auth-notice webapp-auth-notice--error" role="alert"><p>${passiveEscHtml(
+          detail || "Не удалось загрузить дерево навыков.",
+        )}</p></div>`;
+      }
+    }
+  }
+}
+
+async function populateTrainingHall() {
+  await loadPassiveSkillTree();
+  const root = document.getElementById("hidden-skills-root");
+  if (!root) return;
+  try {
+    const data = await apiFetch("/skills/hidden");
+    const skills = (Array.isArray(data?.skills) ? data.skills : []).filter((s) => Boolean(s.revealed));
+    if (!skills.length) {
+      root.textContent = "Нет открытых скрытых навыков.";
+      root.classList.remove("placeholder");
+      return;
+    }
+    const byCat = new Map();
+    skills.forEach((s) => {
+      const c = s.category || "Прочее";
+      if (!byCat.has(c)) byCat.set(c, []);
+      byCat.get(c).push(s);
+    });
+    const esc = (v) =>
+      String(v ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    let html = "";
+    for (const [cat, list] of byCat) {
+      html += `<div class="hidden-skills-cat">${esc(cat)}</div>`;
+      list.forEach((s) => {
+        const lv = Number(s.level) || 0;
+        const cnt = Number(s.counter) || 0;
+        const next = s.next_threshold != null ? Number(s.next_threshold) : null;
+        let pct = 0;
+        if (next && next > 0) {
+          pct = Math.min(100, Math.round((cnt / next) * 100));
+        }
+        const hint = s.description || "";
+        html += `<div class="hidden-skill-card">
+          <div class="hidden-skill-card-top"><span>${esc(s.icon || "✨")}</span>
+            <span class="hidden-skill-card-title">${esc(s.name)}</span></div>
+          <div class="hidden-skill-meta">${esc(hint)}</div>
+          <div class="hidden-skill-meta">Ур. ${lv} / ${s.max_level || 5} · ${cnt}${
+            next != null ? ` / ${next}` : ""
+          }</div>
+          <div class="hidden-skill-bar"><div class="hidden-skill-bar-fill" style="width:${pct}%"></div></div>
+        </div>`;
+      });
+    }
+    root.classList.remove("placeholder");
+    root.innerHTML = html;
+  } catch (e) {
+    if (isWebAppUnauthorizedError(e)) {
+      console.warn("Скрытые навыки: нет авторизации Telegram WebApp.");
+    } else {
+      console.error(e);
+    }
+    root.classList.remove("placeholder");
+    if (isWebAppUnauthorizedError(e)) {
+      root.innerHTML = `<div class="webapp-auth-notice webapp-auth-notice--compact" role="alert"><p>Раздел недоступен без авторизации Telegram (см. блок выше).</p></div>`;
+    } else {
+      const { detail } = parseHttpErrorDetail(e);
+      root.textContent = detail || "Не удалось загрузить скрытые навыки.";
+    }
+  }
+}
+
 // Expose helpers globally for inline usage (merge, don't clobber handlers assigned earlier)
 window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   initPage,
   bootstrapPage,
+  populateTrainingHall,
+  loadPassiveSkillTree,
+  closePassiveSkillModal,
   loadProfile,
   renderAtticDungeon,
   renderAtticExpeditions,
@@ -3879,17 +8809,29 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   loadTavern,
   switchTavernTab,
   hireFromTavern,
+  openTavernConfirmHire,
+  closeTavernConfirmHire,
+  confirmTavernHire,
+  closeTavernHireResult,
+  goToSquadTab,
   openTavernWaifuModal,
   closeTavernWaifuModal,
-  tavernWaifuModalAction,
+  dismissTavernWaifu,
   closeTavernSlotModal,
+  openAddToSquadPicker,
+  closeSquadPickerModal,
+  pickForSquad,
   adminRefreshTavern,
+  refreshTavernPage,
   loadDungeons,
+  handleSoloDungeonTileClick,
   startDungeon,
   loadActiveDungeon,
   continueActiveDungeon,
   exitDungeon,
   openExitDungeonConfirm,
+  onMonsterImageLoad,
+  onMonsterImageError,
   closeExitDungeonConfirm,
   confirmExitDungeon,
   adminExitDungeon,
@@ -3897,14 +8839,21 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   continueBattle,
   exitBattle,
   switchShopTab,
+  loadSmithTab,
+  smithTryEnchant,
+  openSmithPickModal,
+  closeSmithPickModal,
+  pickSmithItem,
+  smithPickPrev,
+  smithPickNext,
+  buyProtectionStoneShop,
   switchProfileTab,
   switchProfileInfoTab,
   showTab,
   loadExpeditionTab,
-  closeExpeditionModal,
-  startExpedition,
   populateProfile,
-  toggleProfileStatTooltip,
+  openProfileStatInfoModal,
+  closeProfileStatInfoModal,
   toggleProfileStatAccordion,
   toggleProfileInventoryMode,
   toggleProfileInventoryFilter,
@@ -3919,19 +8868,38 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   unequipItemFromModal,
   equipItemFromModal,
   openProfileSlotReplacementFromModal,
-  toggleItemSellConfirm,
+  openItemSellConfirmOverlay,
+  closeItemSellConfirmOverlay,
+  closeItemEquipRingOverlay,
+  confirmEquipToRingSlot,
   confirmSellSelectedItem,
+  goShopSmithEnchant,
+  goShopSmithEnchantFromModal,
   resetMainWaifu,
+  adminLevelUpWaifu,
+  adminClearAllItems,
+  showToast,
   initWaifuGenerator,
+  initTitleScreen,
+  waifuGenGoStep1,
+  waifuGenGoStep2,
+  waifuGenPreviewPortrait,
   submitWaifuCreation,
   closeShopModal,
   confirmBuy,
   refreshShopDebug,
+  refreshMerchantLine,
+  revealMerchantAdvice,
   adminAddGold,
   adminKillMonster,
   adminCompleteDungeon,
+  adminRestoreHpEnergy,
   sellSelected,
+  toggleShopSellFilter,
+  setShopSellSort,
+  toggleShopSellSortDir,
   gambleShop,
+  closeShopGambleResultModal,
   loadSkills,
   searchGuilds,
   apiFetch,
@@ -3940,12 +8908,27 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   populateDungeonsPage,
   refreshSoloActive,
   closeRewardModal,
-  openInventoryFromReward,
+  viewRewardItem,
   loadExpeditionTab,
-  openExpeditionStartModal,
-  closeExpeditionStartModal,
   submitExpeditionStart,
+  expSelDiff,
+  expSelDur,
+  expPickUnit,
+  expClosePicker,
+  closeActiveExpModal,
+  closeSendExpModal,
+  abortExpedition,
+  getAvailableUnits,
   claimExpedition,
+  openExpeditionResult,
+  closeExpeditionResult,
   cancelExpedition,
   adminRefreshExpeditions,
+  populateCaravanPage,
+  travelToAct,
+  openCaravanModal,
+  closeCaravanModal,
+  confirmTravelToAct,
+  requestCaravanDriverTip,
+  closeCaravanTipModal,
 });

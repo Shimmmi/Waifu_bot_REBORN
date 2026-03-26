@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>Инвентарь</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Exo+2:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg:         #0d0f14;
+      --surface:    #151820;
+      --surface2:   #1c2030;
+      --border:     #2a2f42;
+      --border2:    #353c55;
+      --text:       #e8eaf0;
+      --muted:      #7a82a0;
+      --accent:     #c8a96e;
+      --accent2:    #e8c97e;
+      --green:      #4ade80;
+      --red:        #f87171;
+
+      /* Rarity colours */
+      --common:     #8a9bb5;
+      --uncommon:   #4ade80;
+      --rare:       #60a5fa;
+      --epic:       #c084fc;
+      --legendary:  #fb923c;
+
+      --slot-h: 58px;
+      --bag-cell: calc((100vw - 24px) / 6);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100dvh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Exo 2', sans-serif;
+      font-size: 12px;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    /* ── Layout ─────────────────────────────────── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      padding: 6px 6px 4px;
+      gap: 5px;
+    }
+
+    /* ── Toggle button ───────────────────────────── */
+    #toggle-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      color: var(--accent);
+      font-family: 'Exo 2', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+      flex-shrink: 0;
+      height: 24px;
+    }
+    #toggle-btn:active { background: var(--border); }
+    #toggle-btn svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+    /* ── Equipment container ─────────────────────── */
+    #equip-container {
+      flex-shrink: 0;
+      transition: all .25s ease;
+    }
+
+    /* EXPANDED: model + 3 slots each side */
+    #equip-expanded {
+      display: flex;
+      align-items: stretch;
+      gap: 4px;
+      height: calc(var(--slot-h) * 3 + 8px);
+    }
+    .slots-col {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 0 0 auto;
+      width: calc((100vw - 12px - 8px - 8px) / 4);
+    }
+    #model-wrap {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      min-width: 0;
+    }
+    #model-wrap::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at 50% 30%, rgba(200,169,110,.08) 0%, transparent 70%);
+    }
+    .model-sprite {
+      font-size: 52px;
+      line-height: 1;
+      filter: drop-shadow(0 0 12px rgba(200,169,110,.35));
+      animation: float 3s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%,100% { transform: translateY(0); }
+      50%      { transform: translateY(-4px); }
+    }
+
+    /* COMPACT: just 3×2 grid */
+    #equip-compact {
+      display: none;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(2, auto);
+      gap: 4px;
+    }
+
+    /* ── Slot card ───────────────────────────────── */
+    .slot {
+      background: var(--surface);
+      border-radius: 6px;
+      border: 1.5px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 5px;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      height: var(--slot-h);
+      overflow: hidden;
+      position: relative;
+    }
+    .slot:active { background: var(--surface2); }
+    .slot.rarity-common    { border-color: var(--common); }
+    .slot.rarity-uncommon  { border-color: var(--uncommon); }
+    .slot.rarity-rare      { border-color: var(--rare); }
+    .slot.rarity-epic      { border-color: var(--epic); }
+    .slot.rarity-legendary { border-color: var(--legendary); }
+    .slot.empty { border-style: dashed; border-color: var(--border); }
+
+    .slot-icon {
+      width: 28px; height: 28px;
+      border-radius: 4px;
+      background: var(--surface2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .slot.empty .slot-icon { opacity: .3; }
+
+    .slot-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .slot-name {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.2;
+    }
+    .slot.empty .slot-name { color: var(--muted); font-weight: 400; }
+    .slot-type { font-size: 9px; color: var(--muted); line-height: 1; }
+    .slot-stats {
+      font-size: 9px;
+      color: var(--accent);
+      font-weight: 600;
+      line-height: 1.2;
+    }
+    .slot-lvl {
+      position: absolute;
+      top: 3px; right: 4px;
+      font-size: 8px;
+      color: var(--muted);
+    }
+
+    /* compact mode: slot = square */
+    body.compact .slot {
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 52px;
+      padding: 4px;
+      gap: 2px;
+    }
+    body.compact .slot-icon { width: 24px; height: 24px; font-size: 14px; }
+    body.compact .slot-info { display: none; }
+    body.compact .slot-lvl { font-size: 7px; top: 2px; right: 3px; }
+    body.compact .slot-name-compact {
+      display: block !important;
+      font-size: 8px;
+      color: var(--muted);
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+    .slot-name-compact { display: none; }
+
+    /* ── Bag container ───────────────────────────── */
+    #bag-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      gap: 4px;
+    }
+
+    /* filter + sort bar */
+    #bag-controls {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .filter-btn {
+      flex: 1;
+      height: 24px;
+      border-radius: 5px;
+      border: 1px solid var(--border2);
+      background: var(--surface2);
+      color: var(--muted);
+      font-family: 'Exo 2', sans-serif;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .filter-btn.active {
+      background: var(--surface);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .filter-btn:active { opacity: .7; }
+
+    #sort-wrap {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      flex-shrink: 0;
+    }
+    #sort-select {
+      height: 24px;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 5px;
+      color: var(--text);
+      font-family: 'Exo 2', sans-serif;
+      font-size: 9px;
+      padding: 0 4px;
+      cursor: pointer;
+    }
+    #sort-dir {
+      width: 24px; height: 24px;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 5px;
+      color: var(--accent);
+      font-size: 11px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: background .15s;
+      flex-shrink: 0;
+    }
+    #sort-dir:active { background: var(--border); }
+
+    /* bag grid */
+    #bag-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 3px;
+      align-content: start;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .bag-cell {
+      aspect-ratio: 1;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 5px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      position: relative;
+      transition: border-color .15s, transform .1s;
+      overflow: hidden;
+    }
+    .bag-cell:active { transform: scale(.93); }
+    .bag-cell.empty { opacity: .25; cursor: default; }
+    .bag-cell:active.empty { transform: none; }
+
+    .bag-cell.rarity-common    { border-color: var(--common); }
+    .bag-cell.rarity-uncommon  { border-color: var(--uncommon); }
+    .bag-cell.rarity-rare      { border-color: var(--rare); }
+    .bag-cell.rarity-epic      { border-color: var(--epic); }
+    .bag-cell.rarity-legendary { border-color: var(--legendary); }
+
+    .bag-cell .cell-icon { font-size: 20px; line-height: 1; }
+    .bag-cell .cell-lvl {
+      position: absolute;
+      bottom: 1px; left: 2px;
+      font-size: 8px; color: var(--muted);
+      font-weight: 600; line-height: 1;
+    }
+    .bag-cell .cell-upgrade {
+      position: absolute;
+      top: 1px; right: 2px;
+      font-size: 9px; color: var(--green);
+      line-height: 1; font-weight: 700;
+    }
+
+    /* ── Modal overlay ───────────────────────────── */
+    #modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.75);
+      backdrop-filter: blur(3px);
+      z-index: 100;
+      align-items: flex-end;
+      justify-content: center;
+    }
+    #modal-overlay.open { display: flex; animation: fadeIn .15s ease; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    #modal-card {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 14px 14px 0 0;
+      width: 100%;
+      max-width: 420px;
+      padding: 14px;
+      animation: slideUp .2s ease;
+      position: relative;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(30px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+
+    .modal-rarity-bar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      border-radius: 14px 14px 0 0;
+    }
+    .modal-rarity-bar.rarity-common    { background: var(--common); }
+    .modal-rarity-bar.rarity-uncommon  { background: var(--uncommon); }
+    .modal-rarity-bar.rarity-rare      { background: var(--rare); }
+    .modal-rarity-bar.rarity-epic      { background: var(--epic); }
+    .modal-rarity-bar.rarity-legendary { background: linear-gradient(90deg, var(--legendary), var(--accent2)); }
+
+    .modal-close {
+      position: absolute;
+      top: 10px; right: 10px;
+      width: 24px; height: 24px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      color: var(--muted);
+      font-size: 12px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+    }
+    .modal-close:active { opacity: .6; }
+
+    .modal-title {
+      font-family: 'Cinzel', serif;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--accent2);
+      margin-bottom: 10px;
+      padding-right: 30px;
+    }
+
+    .modal-body {
+      display: flex;
+      gap: 10px;
+    }
+
+    .modal-left {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .modal-item-icon {
+      width: 72px; height: 72px;
+      background: var(--surface2);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 40px;
+      border: 1.5px solid var(--border2);
+      position: relative;
+    }
+    .modal-item-type {
+      text-align: center;
+      font-size: 9px;
+      color: var(--muted);
+      background: var(--surface2);
+      border-radius: 4px;
+      padding: 2px 4px;
+    }
+    .modal-action-btns {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .btn-action {
+      height: 26px;
+      border-radius: 5px;
+      border: 1px solid var(--border2);
+      background: var(--surface2);
+      color: var(--text);
+      font-family: 'Exo 2', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+      white-space: nowrap;
+      padding: 0 8px;
+    }
+    .btn-action:hover { background: var(--border); }
+    .btn-action.primary { background: var(--accent); color: #0d0f14; border-color: var(--accent); }
+    .btn-action.danger  { border-color: var(--red); color: var(--red); }
+
+    .modal-right {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .modal-lvl-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-lvl { font-size: 10px; color: var(--muted); }
+    .modal-lvl strong { color: var(--accent); }
+    .rarity-badge {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 3px;
+    }
+    .rarity-badge.rarity-common    { background: rgba(138,155,181,.2); color: var(--common); }
+    .rarity-badge.rarity-uncommon  { background: rgba(74,222,128,.15); color: var(--uncommon); }
+    .rarity-badge.rarity-rare      { background: rgba(96,165,250,.15); color: var(--rare); }
+    .rarity-badge.rarity-epic      { background: rgba(192,132,252,.15); color: var(--epic); }
+    .rarity-badge.rarity-legendary { background: rgba(251,146,60,.15); color: var(--legendary); }
+
+    .modal-stats {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+    }
+    .stat-label { color: var(--muted); }
+    .stat-val   { color: var(--text); font-weight: 600; }
+    .stat-val.bonus { color: var(--green); }
+
+    /* ── Bottom nav ──────────────────────────────── */
+    #bottom-nav {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      height: 44px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      flex-shrink: 0;
+    }
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px;
+      flex: 1;
+      padding: 4px 0;
+      cursor: pointer;
+      opacity: .45;
+      transition: opacity .15s;
+      text-decoration: none;
+      color: inherit;
+    }
+    .nav-item.active { opacity: 1; }
+    .nav-item .nav-icon { font-size: 18px; line-height: 1; }
+    .nav-item .nav-label { font-size: 7px; color: var(--muted); letter-spacing: .03em; }
+    .nav-item.active .nav-label { color: var(--accent); }
+
+    /* compact mode overrides */
+    body.compact #equip-expanded { display: none; }
+    body.compact #equip-compact  { display: grid; }
+    body.compact #bag-grid { grid-template-columns: repeat(6, 1fr); }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Toggle -->
+  <button id="toggle-btn" onclick="toggleMode()">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+      <rect x="1" y="1" width="6" height="6" rx="1"/>
+      <rect x="9" y="1" width="6" height="6" rx="1"/>
+      <rect x="1" y="9" width="6" height="6" rx="1"/>
+      <rect x="9" y="9" width="6" height="6" rx="1"/>
+    </svg>
+    <span id="toggle-label">Компактный режим</span>
+  </button>
+
+  <!-- Equipment container -->
+  <div id="equip-container">
+
+    <!-- EXPANDED MODE -->
+    <div id="equip-expanded">
+      <div class="slots-col" id="col-left"></div>
+      <div id="model-wrap">
+        <div class="model-sprite">🧝‍♀️</div>
+      </div>
+      <div class="slots-col" id="col-right"></div>
+    </div>
+
+    <!-- COMPACT MODE -->
+    <div id="equip-compact" id="compact-grid"></div>
+
+  </div>
+
+  <!-- Bag -->
+  <div id="bag-container">
+    <div id="bag-controls">
+      <button class="filter-btn active" data-filter="weapon"  onclick="toggleFilter(this)">⚔ Оружие</button>
+      <button class="filter-btn active" data-filter="armor"   onclick="toggleFilter(this)">🛡 Броня</button>
+      <button class="filter-btn active" data-filter="acc"     onclick="toggleFilter(this)">💍 Акс.</button>
+      <div id="sort-wrap">
+        <select id="sort-select" onchange="sortBag()">
+          <option value="level">Ур.</option>
+          <option value="rarity">Ред.</option>
+          <option value="equip">Надеть</option>
+        </select>
+        <div id="sort-dir" onclick="toggleSortDir()">▲</div>
+      </div>
+    </div>
+    <div id="bag-grid"></div>
+  </div>
+
+  <!-- Bottom nav -->
+  <nav id="bottom-nav">
+    <a class="nav-item" href="#"><span class="nav-icon">👤</span><span class="nav-label">Профиль</span></a>
+    <a class="nav-item" href="#"><span class="nav-icon">🏰</span><span class="nav-label">Подзем.</span></a>
+    <a class="nav-item" href="#"><span class="nav-icon">🏪</span><span class="nav-label">Магазин</span></a>
+    <a class="nav-item active" href="#"><span class="nav-icon">🎒</span><span class="nav-label">Инвентарь</span></a>
+    <a class="nav-item" href="#"><span class="nav-icon">🍻</span><span class="nav-label">Таверна</span></a>
+    <a class="nav-item" href="#"><span class="nav-icon">🏛️</span><span class="nav-label">Гильдия</span></a>
+    <a class="nav-item" href="#"><span class="nav-icon">💪</span><span class="nav-label">Зал</span></a>
+  </nav>
+
+</div>
+
+<!-- Modal -->
+<div id="modal-overlay" onclick="closeModal(event)">
+  <div id="modal-card">
+    <div class="modal-rarity-bar" id="modal-rarity-bar"></div>
+    <button class="modal-close" onclick="closeModalDirect()">✕</button>
+    <div class="modal-title" id="modal-title">—</div>
+    <div class="modal-body">
+      <div class="modal-left">
+        <div class="modal-item-icon" id="modal-icon">—</div>
+        <div class="modal-item-type" id="modal-type">—</div>
+        <div class="modal-action-btns" id="modal-btns"></div>
+      </div>
+      <div class="modal-right">
+        <div class="modal-lvl-row">
+          <span class="modal-lvl">Уровень: <strong id="modal-lvl">—</strong></span>
+          <span class="rarity-badge" id="modal-rarity-badge">—</span>
+        </div>
+        <div class="modal-stats" id="modal-stats"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Data ─────────────────────────────────────────
+const RARITIES = ['common','uncommon','rare','epic','legendary'];
+const RARITY_NAMES = { common:'Обычный', uncommon:'Необычный', rare:'Редкий', epic:'Эпический', legendary:'Легендарный' };
+
+const equippedItems = [
+  { slot:'Оружие 1',  icon:'⚔️',  name:'Клинок теней',   type:'Одноручный меч',  lvl:12, rarity:'rare',      dmg:'18–24', spd:4, bonus:'+4СИЛ', category:'weapon' },
+  { slot:'Броня',     icon:'🛡️',  name:'Мантия ночи',    type:'Лёгкая броня',    lvl:11, rarity:'uncommon',  armor:8,           bonus:'+2ВЫН', category:'armor'  },
+  { slot:'Кольцо 1',  icon:'💍',  name:'Кольцо удачи',   type:'Кольцо',          lvl:10, rarity:'uncommon',  bonus:'+3УДЧ',     category:'acc'    },
+  { slot:'Оружие 2',  icon:'🗡️',  name:'Кинжал хаоса',  type:'Кинжал (оффхенд)',lvl:12, rarity:'epic',       dmg:'12–16', spd:6, bonus:'+2ЛОВ', category:'weapon' },
+  { slot:'Амулет',    icon:'📿',  name:'Амулет мага',    type:'Амулет',          lvl: 9, rarity:'rare',       bonus:'+5ИНТ',     category:'acc'    },
+  { slot:'Кольцо 2',  icon:'⭕',  name:'—',              type:'Кольцо',          lvl: 0, rarity:'empty',                         bonus:'',          category:'acc'    },
+];
+
+const bagRaw = [
+  { icon:'🪓', name:'Топор',         type:'Двуручный',   lvl:14, rarity:'rare',      dmg:'28–36', spd:2, bonus:'+6СИЛ', category:'weapon', canEquip:true  },
+  { icon:'🏹', name:'Лук теней',     type:'Лук',         lvl: 8, rarity:'uncommon',  dmg:'10–14', spd:5, bonus:'+4ЛОВ', category:'weapon', canEquip:true  },
+  { icon:'🔮', name:'Посох бури',    type:'Посох',        lvl:15, rarity:'epic',       dmg:'20–30', spd:3, bonus:'+8ИНТ', category:'weapon', canEquip:false },
+  { icon:'👗', name:'Кожаная броня', type:'Средняя броня',lvl:10, rarity:'common',    armor:5,           bonus:'+1ВЫН', category:'armor',  canEquip:true  },
+  { icon:'🧥', name:'Плащ ветра',    type:'Лёгкая броня', lvl:13, rarity:'rare',      armor:7,           bonus:'+3ЛОВ', category:'armor',  canEquip:true  },
+  { icon:'💎', name:'Диадема',       type:'Амулет',       lvl:16, rarity:'legendary', bonus:'+5ВСЕ',      category:'acc',   canEquip:true  },
+  { icon:'🔴', name:'Руби-кольцо',   type:'Кольцо',       lvl: 7, rarity:'common',    bonus:'+1УДЧ',      category:'acc',   canEquip:true  },
+  { icon:'🟣', name:'Аметист',       type:'Кольцо',       lvl:11, rarity:'uncommon',  bonus:'+2ОБА',      category:'acc',   canEquip:true  },
+  { icon:'🗡️', name:'Кинжал',       type:'Кинжал',       lvl: 6, rarity:'common',    dmg:'8–11', spd:7, bonus:'+1ЛОВ',  category:'weapon', canEquip:true  },
+  { icon:'🌿', name:'Зелье силы',    type:'Расходуемое',  lvl: 1, rarity:'common',    bonus:'+10СИЛ',     category:'acc',   canEquip:false },
+  { icon:'⚡', name:'Талисман',      type:'Амулет',       lvl: 9, rarity:'uncommon',  bonus:'+3ИНТ',      category:'acc',   canEquip:true  },
+  { icon:'🛡', name:'Щит',           type:'Щит (оффхенд)',lvl:12, rarity:'rare',      armor:12,          bonus:'+4ВЫН',  category:'armor',  canEquip:true  },
+];
+
+// ── State ─────────────────────────────────────────
+let compact = false;
+let sortAsc = true;
+let activeFilters = new Set(['weapon','armor','acc']);
+let bagItems = [...bagRaw];
+
+// ── Build equipment slots ──────────────────────────
+function buildEquip() {
+  const left  = equippedItems.slice(0,3);
+  const right = equippedItems.slice(3,6);
+
+  document.getElementById('col-left').innerHTML  = left.map(slotHTML).join('');
+  document.getElementById('col-right').innerHTML = right.map(slotHTML).join('');
+
+  const compact_grid = document.getElementById('equip-compact');
+  compact_grid.innerHTML = equippedItems.map(s => slotHTML(s, true)).join('');
+}
+
+function slotHTML(s, mini=false) {
+  const empty = s.rarity === 'empty';
+  const rarClass = empty ? 'empty' : `rarity-${s.rarity}`;
+  if (mini) {
+    return `<div class="slot ${rarClass}" onclick="${empty ? '' : `openEquipModal(${equippedItems.indexOf(s)})`}">
+      <div class="slot-icon">${s.icon}</div>
+      ${!empty ? `<div class="slot-lvl">${s.lvl}</div>` : ''}
+      <span class="slot-name-compact">${s.slot}</span>
+    </div>`;
+  }
+  return `<div class="slot ${rarClass}" onclick="${empty ? `openBagFiltered('${s.category}')` : `openEquipModal(${equippedItems.indexOf(s)})`}">
+    <div class="slot-icon">${s.icon}</div>
+    <div class="slot-info">
+      <div class="slot-name">${empty ? s.slot : s.name}</div>
+      <div class="slot-type">${s.type}</div>
+      ${!empty ? `<div class="slot-stats">${s.dmg ? `⚔ ${s.dmg} · ⚡${s.spd} · ` : (s.armor ? `🛡 ${s.armor} · ` : '')}${s.bonus}</div>` : ''}
+    </div>
+    ${!empty ? `<div class="slot-lvl">${s.lvl}</div>` : ''}
+  </div>`;
+}
+
+// ── Build bag grid ─────────────────────────────────
+function buildBag() {
+  const grid = document.getElementById('bag-grid');
+  const rows = compact ? 4 : 2;
+  const maxCells = 6 * rows;
+
+  let filtered = bagItems.filter(i => activeFilters.has(i.category));
+  filtered = sortItems(filtered);
+
+  // figure out upgrade threshold per category (compare to equipped)
+  const equippedLvlByCategory = {};
+  equippedItems.forEach(e => {
+    if (e.rarity !== 'empty') {
+      equippedLvlByCategory[e.category] = Math.max(equippedLvlByCategory[e.category]||0, e.lvl);
+    }
+  });
+
+  let html = '';
+  for (let i = 0; i < maxCells; i++) {
+    const item = filtered[i];
+    if (!item) {
+      html += `<div class="bag-cell empty"><div class="cell-icon" style="font-size:14px;opacity:.3">·</div></div>`;
+    } else {
+      const upgr = equippedLvlByCategory[item.category] !== undefined && item.lvl > equippedLvlByCategory[item.category];
+      html += `<div class="bag-cell rarity-${item.rarity}" onclick="openBagModal(${bagRaw.indexOf(item)})">
+        <div class="cell-icon">${item.icon}</div>
+        <div class="cell-lvl">${item.lvl}</div>
+        ${upgr ? `<div class="cell-upgrade">▲</div>` : ''}
+      </div>`;
+    }
+  }
+  grid.innerHTML = html;
+}
+
+function sortItems(arr) {
+  const key = document.getElementById('sort-select').value;
+  return [...arr].sort((a,b) => {
+    let va, vb;
+    if (key === 'level')  { va = a.lvl; vb = b.lvl; }
+    else if (key === 'rarity') { va = RARITIES.indexOf(a.rarity); vb = RARITIES.indexOf(b.rarity); }
+    else { va = a.canEquip ? 1 : 0; vb = b.canEquip ? 1 : 0; }
+    return sortAsc ? vb - va : va - vb;
+  });
+}
+
+// ── Toggle compact/expanded ────────────────────────
+function toggleMode() {
+  compact = !compact;
+  document.body.classList.toggle('compact', compact);
+  document.getElementById('toggle-label').textContent = compact ? 'Полный режим' : 'Компактный режим';
+  buildBag();
+}
+
+// ── Filter ────────────────────────────────────────
+function toggleFilter(btn) {
+  const f = btn.dataset.filter;
+  if (activeFilters.has(f)) {
+    if (activeFilters.size === 1) return; // keep at least one
+    activeFilters.delete(f);
+    btn.classList.remove('active');
+  } else {
+    activeFilters.add(f);
+    btn.classList.add('active');
+  }
+  buildBag();
+}
+
+// ── Sort ──────────────────────────────────────────
+function sortBag() { buildBag(); }
+function toggleSortDir() {
+  sortAsc = !sortAsc;
+  document.getElementById('sort-dir').textContent = sortAsc ? '▲' : '▼';
+  buildBag();
+}
+
+// ── Modals ────────────────────────────────────────
+function openEquipModal(idx) {
+  const s = equippedItems[idx];
+  setModal(s, [
+    `<button class="btn-action danger" onclick="closeModalDirect()">Снять</button>`,
+    `<button class="btn-action"        onclick="closeModalDirect()">Заменить</button>`,
+  ]);
+}
+
+function openBagModal(idx) {
+  const s = bagRaw[idx];
+  const equippedLvl = equippedItems.find(e => e.category === s.category && e.rarity !== 'empty')?.lvl || 0;
+  const upgrade = s.lvl > equippedLvl;
+  setModal(s, [
+    s.canEquip ? `<button class="btn-action primary" onclick="closeModalDirect()">Надеть${upgrade?' ▲':''}</button>` : '',
+    `<button class="btn-action danger" onclick="closeModalDirect()">Продать</button>`,
+  ]);
+}
+
+function openBagFiltered(cat) {
+  activeFilters = new Set([cat]);
+  document.querySelectorAll('.filter-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.filter === cat);
+  });
+  buildBag();
+}
+
+function setModal(item, buttons) {
+  document.getElementById('modal-title').textContent   = item.name;
+  document.getElementById('modal-icon').textContent    = item.icon;
+  document.getElementById('modal-type').textContent    = item.type;
+  document.getElementById('modal-lvl').textContent     = item.lvl || '—';
+  document.getElementById('modal-btns').innerHTML      = buttons.join('');
+
+  const rb = document.getElementById('modal-rarity-badge');
+  const bar = document.getElementById('modal-rarity-bar');
+  const rc = `rarity-${item.rarity}`;
+  rb.className = `rarity-badge ${rc}`;
+  rb.textContent = RARITY_NAMES[item.rarity] || item.rarity;
+  bar.className = `modal-rarity-bar ${rc}`;
+
+  let stats = '';
+  if (item.dmg)   stats += `<div class="stat-row"><span class="stat-label">Урон</span><span class="stat-val">${item.dmg}</span></div>`;
+  if (item.spd)   stats += `<div class="stat-row"><span class="stat-label">Скорость</span><span class="stat-val">${item.spd}</span></div>`;
+  if (item.armor) stats += `<div class="stat-row"><span class="stat-label">Броня</span><span class="stat-val">${item.armor}</span></div>`;
+  if (item.bonus) stats += `<div class="stat-row"><span class="stat-label">Бонусы</span><span class="stat-val bonus">${item.bonus}</span></div>`;
+  document.getElementById('modal-stats').innerHTML = stats;
+
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeModal(e) {
+  if (e.target === document.getElementById('modal-overlay')) closeModalDirect();
+}
+function closeModalDirect() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+// ── Init ──────────────────────────────────────────
+buildEquip();
+buildBag();
+</script>
+</body>
+</html>

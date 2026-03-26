@@ -20,7 +20,8 @@ class Player(Base):
     language_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     # Game state
-    current_act: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # 1-5
+    current_act: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # 1-5, player's chosen act
+    max_act: Mapped[int] = mapped_column(Integer, default=1, nullable=False)       # 1-5, highest act unlocked
     gold: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_active: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False

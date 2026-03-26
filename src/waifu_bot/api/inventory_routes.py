@@ -117,6 +117,30 @@ async def list_inventory(
     return {"items": payload, "count": len(items)}
 
 
+@router.get("/inventory/{item_id}", tags=["inventory"])
+async def get_inventory_item(
+    item_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Get a single inventory item by id (must belong to the requesting player)."""
+    query = (
+        select(m.InventoryItem)
+        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+        .where(m.InventoryItem.id == item_id, m.InventoryItem.player_id == player_id)
+    )
+    result = await session.execute(query)
+    inv = result.scalar_one_or_none()
+    if not inv:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item_not_found")
+    payload = _to_inventory_item(inv)
+    try:
+        await enrich_items_with_image_urls(session, [payload])
+    except Exception:
+        pass
+    return payload
+
+
 @router.post("/inventory/sell", tags=["inventory"])
 async def sell_inventory_items(
     payload: schemas.InventorySellRequest,

@@ -1,7 +1,12 @@
 """Database models."""
 from waifu_bot.db.models.player import Player
+from waifu_bot.db.models.hidden_skill import HiddenSkillDefinition, PlayerHiddenSkill
+from waifu_bot.db.models.passive_skill import PassiveSkillNode, PlayerPassiveSkill
+from waifu_bot.db.models.game_config import GameConfig
 from waifu_bot.db.models.waifu import (
     MainWaifu,
+    MainWaifuPortraitDraft,
+    MainWaifuPortraitVariant,
     HiredWaifu,
     WaifuRace,
     WaifuClass,
@@ -12,6 +17,7 @@ from waifu_bot.db.models.dungeon import (
     Dungeon,
     DungeonProgress,
     Monster,
+    MonsterAffix,
     MonsterTemplate,
     DungeonPool,
     DungeonPoolEntry,
@@ -25,7 +31,7 @@ from waifu_bot.db.models.guild import Guild, GuildMember, GuildBank
 from waifu_bot.db.models.skill import Skill, WaifuSkill, GuildSkill
 from waifu_bot.db.models.battle import BattleLog
 from waifu_bot.db.models.tavern import TavernHireSlot, TavernState
-from waifu_bot.db.models.expedition import ExpeditionSlot, ActiveExpedition
+from waifu_bot.db.models.expedition import ExpeditionAffix, ExpeditionSlot, ActiveExpedition
 from waifu_bot.db.models.group_dungeon import (
     GDDungeonTemplate,
     GDSession,
@@ -35,10 +41,26 @@ from waifu_bot.db.models.group_dungeon import (
     GDEventTemplate,
     GDCompletion,
 )
+from waifu_bot.db.models.gd_cycle import (
+    GDClassSkill,
+    GDCycle,
+    GDRegistration,
+    GDRound,
+    GDActiveEffect,
+    GDSkillCooldown,
+    GDRewardRow,
+)
 
 __all__ = [
     "Player",
+    "HiddenSkillDefinition",
+    "PlayerHiddenSkill",
+    "PassiveSkillNode",
+    "PlayerPassiveSkill",
+    "GameConfig",
     "MainWaifu",
+    "MainWaifuPortraitDraft",
+    "MainWaifuPortraitVariant",
     "HiredWaifu",
     "WaifuRace",
     "WaifuClass",
@@ -54,6 +76,7 @@ __all__ = [
     "Dungeon",
     "DungeonProgress",
     "Monster",
+    "MonsterAffix",
     "MonsterTemplate",
     "DungeonPool",
     "DungeonPoolEntry",
@@ -74,6 +97,7 @@ __all__ = [
     "BattleLog",
     "TavernHireSlot",
     "TavernState",
+    "ExpeditionAffix",
     "ExpeditionSlot",
     "ActiveExpedition",
     "GDDungeonTemplate",
@@ -83,4 +107,11 @@ __all__ = [
     "PlayerGameAction",
     "GDEventTemplate",
     "GDCompletion",
+    "GDClassSkill",
+    "GDCycle",
+    "GDRegistration",
+    "GDRound",
+    "GDActiveEffect",
+    "GDSkillCooldown",
+    "GDRewardRow",
 ]

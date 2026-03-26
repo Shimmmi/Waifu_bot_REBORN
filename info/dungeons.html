@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Подземелья</title>
+    <link rel="stylesheet" href="/webapp/styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script defer src="/webapp/app.js"></script>
+    <style>
+      /* ─── Monster Visual Block ─────────────────────────────────────── */
+      .monster-visual {
+        position: relative;
+        width: 100%;
+        border-radius: 12px;
+        overflow: hidden;
+        background: var(--monster-bg, linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%));
+        margin-bottom: 8px;
+        /* default height; JS overrides to 280px for bosses */
+        height: 200px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: box-shadow 0.3s ease;
+      }
+
+      /* Elite glow variants */
+      .monster-visual.elite-blue   { box-shadow: 0 0 0 2px #3b82f6, 0 0 18px 2px rgba(59,130,246,0.35); }
+      .monster-visual.elite-gold   { box-shadow: 0 0 0 2px #f59e0b, 0 0 18px 2px rgba(245,158,11,0.40); }
+      .monster-visual.elite-red    { box-shadow: 0 0 0 2px #ef4444, 0 0 18px 2px rgba(239,68,68,0.45); }
+      .monster-visual.boss         { box-shadow: 0 0 0 2px #f59e0b, 0 0 24px 4px rgba(245,158,11,0.50); height: 240px; }
+
+      /* Monster image */
+      .monster-img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        object-position: center bottom;
+        opacity: 1;
+        transition: opacity 0.3s ease;
+        display: block;
+      }
+      .monster-img.fading { opacity: 0; }
+
+      /* Emoji placeholder shown while image loads / on error fallback chain */
+      .monster-placeholder {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        font-size: 56px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+      }
+      .monster-placeholder.visible { opacity: 1; }
+      .monster-placeholder-label {
+        font-size: 12px;
+        color: rgba(255,255,255,0.4);
+        letter-spacing: 0.05em;
+      }
+
+      /* Name overlay at bottom of image */
+      .monster-name-overlay {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: linear-gradient(transparent, rgba(0,0,0,0.82));
+        padding: 24px 12px 10px;
+        display: flex;
+        align-items: flex-end;
+        gap: 6px;
+      }
+      .monster-name-text {
+        flex: 1;
+        font-size: 15px;
+        font-weight: 700;
+        color: #fff;
+        line-height: 1.2;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+      }
+      .monster-name-level {
+        font-size: 12px;
+        color: rgba(255,255,255,0.65);
+        white-space: nowrap;
+      }
+
+      /* Affix chips row */
+      .monster-affixes {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-bottom: 6px;
+      }
+      .affix-chip {
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: 20px;
+        font-weight: 600;
+        line-height: 1.6;
+      }
+      .affix-chip.blue   { background: rgba(59,130,246,0.18); color: #93c5fd; border: 1px solid rgba(59,130,246,0.3); }
+      .affix-chip.gold   { background: rgba(245,158,11,0.18); color: #fcd34d; border: 1px solid rgba(245,158,11,0.3); }
+      .affix-chip.red    { background: rgba(239,68,68,0.18);  color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+
+      /* Per-family gradient backgrounds (used as placeholder bg) */
+      .monster-visual[data-family="undead"]    { --monster-bg: linear-gradient(135deg,#1a0d2e,#0d0819); }
+      .monster-visual[data-family="beast"]     { --monster-bg: linear-gradient(135deg,#1a2e0d,#0d1908); }
+      .monster-visual[data-family="humanoid"]  { --monster-bg: linear-gradient(135deg,#2e1a0d,#190d08); }
+      .monster-visual[data-family="demon"]     { --monster-bg: linear-gradient(135deg,#2e0d0d,#190808); }
+      .monster-visual[data-family="elemental"] { --monster-bg: linear-gradient(135deg,#0d1e2e,#081319); }
+      .monster-visual[data-family="construct"] { --monster-bg: linear-gradient(135deg,#1e1e1e,#0d0d0d); }
+      .monster-visual[data-family="slime"]     { --monster-bg: linear-gradient(135deg,#0d2e1a,#081908); }
+      .monster-visual[data-family="dragon"]    { --monster-bg: linear-gradient(135deg,#2e1a00,#190d00); }
+      .monster-visual[data-family="fae"]       { --monster-bg: linear-gradient(135deg,#1a0d2e,#2e0d1a); }
+    </style>
+  </head>
+  <body class="page-dungeons" onload="WaifuApp.bootstrapPage('dungeons', WaifuApp.populateDungeonsPage);">
+    <div class="screen">
+      <header class="attic">
+        <div class="attic-row" aria-label="Основной чердак">
+          <div class="chip attic-level-chip" title="Уровень и опыт">
+            <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
+            <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
+          </div>
+          <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье">🏰&nbsp;<span id="attic-dungeon-label">Нет боя</span></div>
+          <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции">🗺&nbsp;<span id="attic-expedition-label"></span></div>
+          <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
+          <div class="chip" title="Энергия">⚡&nbsp;<span id="badge-energy">—</span></div>
+        </div>
+      </header>
+
+      <main>
+        <div id="dungeon-list-section">
+          <div id="dungeons-error" class="banner" style="display:none;"></div>
+          <div class="tabs" id="dungeon-tabs">
+            <button class="tab active" data-tab="solo" onclick="WaifuApp.showTab('solo')">Одиночные</button>
+            <button class="tab" data-tab="expedition" onclick="WaifuApp.showTab('expedition')">Экспедиции</button>
+            <button class="tab" data-tab="group" onclick="WaifuApp.showTab('group')">Групповые</button>
+          </div>
+
+          <!-- ── SOLO TAB ─────────────────────────────────────────────── -->
+          <div id="tab-solo" class="tab-panel active">
+            <div class="solo-controls">
+              <button class="chip chip-plus" id="badge-plus-chip"
+                      title="Сложность одиночных подземелий"
+                      onclick="WaifuApp.openPlusBottomSheet()"
+                      aria-label="Выбрать сложность">
+                <span aria-hidden="true">➕</span>
+                <span id="badge-plus-label">0</span>
+              </button>
+              <div class="chip admin-only" id="dungeons-admin-buttons" style="display:none;">
+                <button class="secondary" title="Убить монстра"  onclick="WaifuApp.adminKillMonster()">💀</button>
+                <button class="secondary" title="Пройти данж"    onclick="WaifuApp.adminCompleteDungeon()">🏁</button>
+                <button class="secondary" title="Восстановить HP и энергию"
+                        onclick="WaifuApp.adminRestoreHpEnergy()" style="color:#22c55e;">➕</button>
+              </div>
+            </div>
+
+            <!--
+              #solo-active — карточка активного боя.
+              Заполняется через WaifuApp.renderSoloBattleCard(monsterData, dungeonData).
+
+              monsterData ожидаемые поля от API:
+                name          string   — отображаемое имя монстра
+                level         int
+                current_hp    int
+                max_hp        int
+                family        string   — undead / beast / demon / … (для URL и data-атрибута)
+                slug          string   — URL-безопасный идентификатор (skeleton_warrior)
+                tier          int      — 1–5 (для fallback-URL _family_t{tier}.webp)
+                has_image     bool     — загружено ли индивидуальное изображение
+                image_override string|null — прямой URL для уникальных боссов
+                emoji         string   — эмодзи семейства (заглушка пока грузится картинка)
+                is_boss       bool
+                is_elite      bool
+                affix_count   int      — 0 = обычный, 1-2 = синий, 3 = золотой, 4 = красный
+                affixes       array    — [{name, type}] список аффиксов
+
+              dungeonData ожидаемые поля:
+                name          string   — название подземелья
+                total_rooms   int      — всего комнат включая босса
+                current_room  int      — номер текущей комнаты (1-based)
+            -->
+            <div id="solo-active" style="display:none;">
+
+              <!-- Заголовок подземелья + прогресс -->
+              <div class="solo-dungeon-header">
+                <span id="solo-dungeon-name" class="solo-dungeon-title">—</span>
+                <span id="solo-dungeon-progress" class="solo-dungeon-progress" aria-label="Прогресс комнат"></span>
+              </div>
+
+              <!--
+                .monster-visual:
+                  data-family  — семейство для CSS-переменной фона и JS URL
+                  data-slug    — slug монстра
+                  data-tier    — тир монстра
+                  data-fallback-index — счётчик fallback (0=slug,1=family_tier,2=family,3=unknown)
+
+                Классы .elite-blue/.elite-gold/.elite-red/.boss добавляются через JS.
+              -->
+              <div class="monster-visual"
+                   id="monster-visual"
+                   data-family=""
+                   data-slug=""
+                   data-tier="1"
+                   data-fallback-index="0"
+                   role="img"
+                   aria-label="Изображение монстра">
+
+                <!-- Эмодзи-заглушка (видна пока грузится изображение или на fallback) -->
+                <div class="monster-placeholder" id="monster-placeholder">
+                  <span id="monster-emoji" aria-hidden="true">👾</span>
+                  <span class="monster-placeholder-label" id="monster-placeholder-label"></span>
+                </div>
+
+                <!-- Основное изображение -->
+                <img id="monster-img"
+                     class="monster-img"
+                     src=""
+                     alt=""
+                     width="400"
+                     height="400"
+                     loading="eager"
+                     decoding="async"
+                     onload="WaifuApp.onMonsterImageLoad(this)"
+                     onerror="WaifuApp.onMonsterImageError(this)" />
+
+                <!-- Оверлей с именем монстра -->
+                <div class="monster-name-overlay">
+                  <span class="monster-name-text" id="monster-name-text">—</span>
+                  <span class="monster-name-level" id="monster-name-level"></span>
+                </div>
+              </div>
+
+              <!-- HP-бар монстра -->
+              <div class="hp-bar-wrap" aria-label="HP монстра">
+                <div class="hp-bar-labels">
+                  <span class="hp-bar-label-name">❤️ Монстр</span>
+                  <span id="monster-hp-text" class="hp-bar-label-value">—</span>
+                </div>
+                <div class="hp-bar">
+                  <div id="monster-hp-fill" class="hp-fill hp-fill-monster" style="width:100%"></div>
+                </div>
+              </div>
+
+              <!-- Аффиксы монстра (скрыты если монстр обычный) -->
+              <div id="monster-affixes" class="monster-affixes" style="display:none;" aria-label="Аффиксы монстра"></div>
+
+              <!-- HP-бар ОВ + статус -->
+              <div class="hp-bar-wrap" aria-label="HP персонажа">
+                <div class="hp-bar-labels">
+                  <span class="hp-bar-label-name">🌸 <span id="solo-waifu-name">—</span></span>
+                  <span id="solo-waifu-hp-text" class="hp-bar-label-value">—</span>
+                </div>
+                <div class="hp-bar">
+                  <div id="solo-waifu-hp-fill" class="hp-fill hp-fill-waifu" style="width:100%"></div>
+                </div>
+              </div>
+
+              <!-- Баннер «Без сознания» (скрыт по умолчанию) -->
+              <div id="unconscious-banner" class="banner banner-danger" style="display:none;" role="alert">
+                😵 Без сознания — <span id="unconscious-timer">восстановление...</span>
+              </div>
+
+              <!-- Кнопка досрочного выхода — всегда видна во время боя -->
+              <button class="secondary solo-exit-btn"
+                      onclick="WaifuApp.openExitDungeonConfirm()"
+                      aria-label="Покинуть подземелье">
+                🏳️ Покинуть подземелье
+              </button>
+
+            </div>
+            <!-- / #solo-active -->
+
+            <div class="dungeon-acts" id="solo-dungeons">
+              <div class="placeholder">Загрузка подземелий...</div>
+            </div>
+          </div>
+          <!-- / #tab-solo -->
+
+          <!-- ── EXPEDITION TAB ───────────────────────────────────────── -->
+          <div id="tab-expedition" class="tab-panel" style="display: none;">
+            <div id="expedition-error" class="banner" style="display:none;"></div>
+            <div class="section-head">
+              <div>
+                <div style="font-weight:800;">Активные экспедиции</div>
+                <div class="muted tiny">Завершённые — кнопка «Забрать награду»</div>
+              </div>
+            </div>
+            <div id="expedition-active-list" class="expedition-active-list">
+              <div class="placeholder">Загрузка...</div>
+            </div>
+            <div class="section-head" style="margin-top:16px;">
+              <div>
+                <div style="font-weight:800;">Слоты на сегодня</div>
+                <div class="muted tiny">Обновление в 00:00 МСК · отряд из таверны (1–3 вайфу)</div>
+              </div>
+              <button class="secondary admin-only" id="expedition-admin-refresh"
+                      style="display:none;" onclick="WaifuApp.adminRefreshExpeditions()">🔄</button>
+            </div>
+            <div id="expedition-slots-list" class="expedition-slots-grid">
+              <div class="placeholder">Загрузка слотов...</div>
+            </div>
+            <p class="muted tiny" style="margin-top:10px;">
+              Длительность: 15–120 мин (шаг 15). Чем дольше — выше награда и риск. Отмена даёт 50% награды.
+            </p>
+          </div>
+
+          <!-- Expedition start modal -->
+          <div id="expedition-start-modal" class="modal" style="display:none;">
+            <div class="modal-content">
+              <div class="modal-head">
+                <div>
+                  <div class="modal-title" id="expedition-start-title">Экспедиция</div>
+                  <div class="muted tiny" id="expedition-start-subtitle">—</div>
+                </div>
+                <button class="secondary" onclick="WaifuApp.closeExpeditionStartModal()">✖</button>
+              </div>
+              <div class="modal-body">
+                <div class="detail-row"><span class="muted">Отряд (1–3 вайфу из таверны)</span></div>
+                <div id="expedition-squad-pick" class="expedition-squad-pick"></div>
+                <div class="detail-row" style="margin-top:10px;"><span class="muted">Длительность</span></div>
+                <select id="expedition-duration-select" class="form-field"></select>
+                <div id="expedition-preview" class="expedition-preview" style="margin-top:12px;"></div>
+              </div>
+              <div class="modal-footer">
+                <button class="secondary" onclick="WaifuApp.closeExpeditionStartModal()">Отмена</button>
+                <button class="primary" id="expedition-start-confirm"
+                        onclick="WaifuApp.submitExpeditionStart()">Отправить</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── GROUP TAB ────────────────────────────────────────────── -->
+          <div id="tab-group" class="tab-panel" style="display: none;">
+            <div id="gd-dungeons-list" class="dungeons-gd-list"></div>
+            <div id="gd-session-status" class="gd-session-card card" style="display:none;">
+              <h3 class="gd-session-title" id="gd-session-dungeon-name">—</h3>
+              <div class="gd-session-stages" id="gd-session-stages">🔴⚪⚪⚪</div>
+              <div class="gd-session-monster">
+                <span id="gd-session-monster-name">—</span>
+                <span id="gd-session-hp">0 / 0</span>
+              </div>
+              <div class="gd-session-hp-bar">
+                <div id="gd-session-hp-fill" class="gd-hp-fill" style="width:0%"></div>
+              </div>
+            </div>
+            <div class="gd-info card">
+              <h3 class="gd-info-title">🏰 Групповые подземелья</h3>
+              <p>Общая сессия для всего чата: 4 этапа (3 монстра + босс). Прогресс идёт от сообщений в чате.</p>
+              <ul class="gd-info-list">
+                <li>Нет поражения: подземелье всегда завершается победой.</li>
+                <li>Награды приходят в личные сообщения бота пропорционально вкладу.</li>
+                <li>Тематические подземелья: Воздушная крепость, Глубинный риф, Пустыня забвения и др.</li>
+              </ul>
+              <p class="gd-info-how">
+                <strong>Как запустить:</strong> в групповом чате напишите <code>/gd_start</code>.
+              </p>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ── BOTTOM NAV ─────────────────────────────────────────────────── -->
+      <nav class="nav basement">
+        <a href="./profile.html"       data-page="profile"   title="Профиль"><span aria-hidden="true">👤</span></a>
+        <a href="./dungeons.html"      data-page="dungeons"  title="Подземелья"><span aria-hidden="true">🏰</span></a>
+        <a href="./shop.html"          data-page="shop"      title="Магазин"><span aria-hidden="true">🏪</span></a>
+        <a href="./tavern.html"        data-page="tavern"    title="Таверна"><span aria-hidden="true">🍻</span></a>
+        <a href="./caravan.html"       data-page="caravan"   title="Караван"><span aria-hidden="true">🐫</span></a>
+        <a href="./guild_hall.html"    data-page="guild"     title="Гильдия"><span aria-hidden="true">🏛️</span></a>
+        <a href="./training_hall.html" data-page="training"  title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
+        <a href="./settings.html"      data-page="settings"  title="Настройки"><span aria-hidden="true">⚙️</span></a>
+      </nav>
+
+      <!-- ── MODALS ─────────────────────────────────────────────────────── -->
+
+      <!-- Exit dungeon confirmation -->
+      <div id="exit-dungeon-modal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width:320px;">
+          <div class="modal-head">
+            <div class="modal-title">Покинуть подземелье?</div>
+            <button class="secondary" onclick="WaifuApp.closeExitDungeonConfirm()">✖</button>
+          </div>
+          <div class="modal-body">
+            <p style="margin:0;color:var(--text-muted);font-size:14px;">
+              Весь накопленный опыт и золото за побеждённых монстров будут начислены без штрафа.
+              Текущий монстр не засчитывается.
+            </p>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary" onclick="WaifuApp.closeExitDungeonConfirm()">Отмена</button>
+            <button class="primary" style="background:var(--danger,#ef4444);"
+                    onclick="WaifuApp.confirmExitDungeon()">Выйти</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reward modal -->
+      <div id="reward-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+          <div class="modal-head">
+            <div>
+              <div class="modal-title">Награда</div>
+              <div class="muted tiny" id="reward-modal-subtitle">—</div>
+            </div>
+            <button class="secondary" onclick="WaifuApp.closeRewardModal()">✖</button>
+          </div>
+          <div class="modal-body" id="reward-modal-body"></div>
+          <div class="modal-footer">
+            <button class="secondary" style="width:auto;"
+                    onclick="WaifuApp.openInventoryFromReward()">🎒</button>
+            <button class="primary" style="width:auto;"
+                    onclick="WaifuApp.closeRewardModal()">Ок</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Difficulty bottomsheet -->
+      <div id="plus-bottomsheet" class="bottomsheet" style="display:none;"
+           role="dialog" aria-modal="true" aria-label="Выбор сложности">
+        <div class="bottomsheet-backdrop" onclick="WaifuApp.closePlusBottomSheet()"></div>
+        <div class="bottomsheet-panel">
+          <div class="bottomsheet-handle"></div>
+          <div class="bottomsheet-head">
+            <div class="bottomsheet-title">Уровень сложности ➕</div>
+            <button class="secondary" onclick="WaifuApp.closePlusBottomSheet()">✖</button>
+          </div>
+          <p class="muted tiny" style="margin:0 0 12px;">
+            Чем выше уровень — тем сильнее монстры, но лучше награды и шанс редких предметов.
+          </p>
+          <div id="plus-options-list" class="plus-options-list"></div>
+        </div>
+      </div>
+
+      <!-- Expedition modal -->
+      <div id="expedition-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+          <div class="modal-head">
+            <div>
+              <div class="modal-title" id="expedition-modal-title">Экспедиция</div>
+              <div class="muted tiny" id="expedition-modal-subtitle">—</div>
+            </div>
+            <button class="secondary" onclick="WaifuApp.closeExpeditionModal()">✖</button>
+          </div>
+          <div class="modal-body" id="expedition-modal-body"></div>
+          <div class="modal-footer">
+            <button class="secondary" onclick="WaifuApp.closeExpeditionModal()">Закрыть</button>
+            <button class="primary" style="width:auto;" id="expedition-modal-action"
+                    onclick="WaifuApp.startExpedition()">Отправить</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- / .screen -->
+
+    <!--
+    ═══════════════════════════════════════════════════════════════════════════
+    JS — Monster image system
+    Добавить в /webapp/app.js (или в отдельный monster-image.js, подключить до app.js)
+
+    КОНСТАНТА BASE_URL берётся из конфига приложения (window.APP_CONFIG.staticBase).
+    ═══════════════════════════════════════════════════════════════════════════
+
+    // ─── Monster image helpers ─────────────────────────────────────────────
+    const MONSTER_STATIC_BASE = window.APP_CONFIG?.staticBase ?? '/static/monsters';
+
+    /**
+     * Строит упорядоченный массив URL для fallback-цепочки.
+     * @param {string} family  — undead, beast, …
+     * @param {string} slug    — skeleton_warrior
+     * @param {number} tier    — 1–5
+     * @param {string|null} imageOverride — прямой URL для уникальных боссов
+     * @returns {string[]}
+     */
+    function buildMonsterImageUrls(family, slug, tier, imageOverride) {
+      if (imageOverride) return [imageOverride, `${MONSTER_STATIC_BASE}/_unknown.webp`];
+      return [
+        `${MONSTER_STATIC_BASE}/${family}/${slug}.webp`,
+        `${MONSTER_STATIC_BASE}/${family}/_family_t${tier}.webp`,
+        `${MONSTER_STATIC_BASE}/${family}/_family.webp`,
+        `${MONSTER_STATIC_BASE}/_unknown.webp`,
+      ];
+    }
+
+    /**
+     * Инициирует загрузку изображения монстра в элемент img#monster-img.
+     * Показывает эмодзи-заглушку пока изображение грузится.
+     */
+    WaifuApp.loadMonsterImage = function(family, slug, tier, imageOverride) {
+      const visual      = document.getElementById('monster-visual');
+      const img         = document.getElementById('monster-img');
+      const placeholder = document.getElementById('monster-placeholder');
+
+      const urls = buildMonsterImageUrls(family, slug, tier, imageOverride);
+
+      // Сохраняем массив и сбрасываем счётчик
+      img.dataset.fallbackUrls  = JSON.stringify(urls);
+      img.dataset.fallbackIndex = '0';
+
+      // Показываем заглушку, скрываем изображение
+      img.classList.add('fading');
+      placeholder.classList.add('visible');
+
+      // Обновляем data-атрибуты контейнера для CSS-фона
+      visual.dataset.family = family;
+      visual.dataset.slug   = slug;
+      visual.dataset.tier   = tier;
+
+      // Запускаем загрузку
+      img.src = urls[0];
+      img.alt = `Монстр ${slug}`;
+    };
+
+    /** Вызывается onload — скрываем заглушку, показываем изображение. */
+    WaifuApp.onMonsterImageLoad = function(img) {
+      const placeholder = document.getElementById('monster-placeholder');
+      placeholder.classList.remove('visible');
+      img.classList.remove('fading');
+    };
+
+    /** Вызывается onerror — переходим к следующему fallback URL. */
+    WaifuApp.onMonsterImageError = function(img) {
+      const urls  = JSON.parse(img.dataset.fallbackUrls  || '[]');
+      let   index = parseInt(img.dataset.fallbackIndex   || '0', 10) + 1;
+
+      if (index < urls.length) {
+        img.dataset.fallbackIndex = String(index);
+        img.src = urls[index];
+      } else {
+        // Все fallback исчерпаны — оставляем заглушку видимой
+        img.style.display = 'none';
+      }
+    };
+
+    /**
+     * Главная функция рендера карточки боя.
+     * Вызывается при получении данных о текущем монстре от API.
+     *
+     * @param {Object} monster   — данные монстра (см. комментарий в HTML)
+     * @param {Object} dungeon   — данные подземелья
+     * @param {Object} waifu     — данные ОВ {name, current_hp, max_hp}
+     */
+    WaifuApp.renderSoloBattleCard = function(monster, dungeon, waifu) {
+      const card = document.getElementById('solo-active');
+      card.style.display = 'block';
+      document.getElementById('solo-dungeons').style.display = 'none';
+
+      // Прогресс комнат
+      document.getElementById('solo-dungeon-name').textContent = dungeon.name ?? '—';
+      const progress = Array.from({length: dungeon.total_rooms}, (_, i) =>
+        i < dungeon.current_room - 1 ? '⚫' : i === dungeon.current_room - 1 ? '🔴' : '⚪'
+      ).join('');
+      document.getElementById('solo-dungeon-progress').textContent = progress;
+
+      // Классы elite/boss на .monster-visual
+      const visual = document.getElementById('monster-visual');
+      visual.className = 'monster-visual';
+      if (monster.is_boss) {
+        visual.classList.add('boss');
+      } else if (monster.is_elite) {
+        const glowClass = monster.affix_count >= 4 ? 'elite-red'
+                        : monster.affix_count >= 3 ? 'elite-gold' : 'elite-blue';
+        visual.classList.add(glowClass);
+      }
+
+      // Имя и уровень в оверлее
+      document.getElementById('monster-name-text').textContent =
+        (monster.emoji ? monster.emoji + ' ' : '') + monster.name;
+      document.getElementById('monster-name-level').textContent = `Ур. ${monster.level}`;
+
+      // Эмодзи для placeholder
+      document.getElementById('monster-emoji').textContent = monster.emoji ?? '👾';
+      document.getElementById('monster-placeholder-label').textContent =
+        monster.family ?? '';
+
+      // Fade-анимация смены монстра
+      const img = document.getElementById('monster-img');
+      img.classList.add('fading');
+      setTimeout(() => {
+        WaifuApp.loadMonsterImage(
+          monster.family, monster.slug, monster.tier, monster.image_override ?? null
+        );
+      }, 150);
+
+      // HP монстра
+      const monsterPct = monster.max_hp > 0
+        ? Math.max(0, Math.min(100, (monster.current_hp / monster.max_hp) * 100))
+        : 0;
+      document.getElementById('monster-hp-text').textContent =
+        `${monster.current_hp} / ${monster.max_hp}`;
+      document.getElementById('monster-hp-fill').style.width = monsterPct + '%';
+
+      // Аффиксы
+      const affixesEl = document.getElementById('monster-affixes');
+      if (monster.is_elite && monster.affixes?.length) {
+        const colorClass = monster.affix_count >= 4 ? 'red'
+                         : monster.affix_count >= 3 ? 'gold' : 'blue';
+        affixesEl.innerHTML = monster.affixes
+          .map(a => `<span class="affix-chip ${colorClass}">${a.name}</span>`)
+          .join('');
+        affixesEl.style.display = 'flex';
+      } else {
+        affixesEl.style.display = 'none';
+      }
+
+      // HP ОВ
+      const waifuPct = waifu.max_hp > 0
+        ? Math.max(0, Math.min(100, (waifu.current_hp / waifu.max_hp) * 100))
+        : 0;
+      document.getElementById('solo-waifu-name').textContent = waifu.name ?? '—';
+      document.getElementById('solo-waifu-hp-text').textContent =
+        `${waifu.current_hp} / ${waifu.max_hp}`;
+      document.getElementById('solo-waifu-hp-fill').style.width = waifuPct + '%';
+
+      // Баннер «Без сознания»
+      const banner = document.getElementById('unconscious-banner');
+      banner.style.display = waifu.current_hp <= 0 ? 'block' : 'none';
+    };
+    // ─── End monster image system ──────────────────────────────────────────
+    -->
+
+  </body>
+</html>

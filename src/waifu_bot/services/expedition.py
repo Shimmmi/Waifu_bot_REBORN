@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from waifu_bot.db.models import ActiveExpedition, ExpeditionSlot, HiredWaifu, Player
+from waifu_bot.game.expedition_data import AFFIX_BY_ID, AFFIXES
 from waifu_bot.game.constants import (
     EXPEDITION_AFFIX_PENALTY_PCT,
     EXPEDITION_BASE_EXP,
@@ -64,27 +65,60 @@ def _squad_power(waifus: list[HiredWaifu]) -> float:
     return total
 
 
+def _squad_perk_ids(waifus: list[HiredWaifu]) -> set[str]:
+    """Собрать все id перков отряда (для проверки контраффиксов)."""
+    out: set[str] = set()
+    for w in waifus:
+        for pid in w.perks or []:
+            if isinstance(pid, str):
+                out.add(pid)
+            else:
+                out.add(str(pid))
+    return out
+
+
+def _effective_affix_penalty(
+    slot: ExpeditionSlot,
+    squad_waifus: list[HiredWaifu],
+) -> int:
+    """
+    Суммарный штраф за аффиксы слота; перки наёмных вайфу снимают штраф за контраффикс.
+    """
+    affix_ids = slot.affixes or []
+    perk_ids = _squad_perk_ids(squad_waifus)
+    total = 0
+    for aid in affix_ids:
+        affix = AFFIX_BY_ID.get(aid if isinstance(aid, str) else str(aid))
+        if not affix:
+            total += EXPEDITION_AFFIX_PENALTY_PCT
+            continue
+        # Есть ли у отряда перк, который контрит этот аффикс?
+        counter_perk_id = getattr(affix, "counter", None)
+        if counter_perk_id and counter_perk_id in perk_ids:
+            continue  # штраф снят
+        total += getattr(affix, "penalty", EXPEDITION_AFFIX_PENALTY_PCT) or EXPEDITION_AFFIX_PENALTY_PCT
+    return total
+
+
 def _chance_and_rewards(
     slot: ExpeditionSlot,
     duration_minutes: int,
     squad_power: float,
+    squad_waifus: list[HiredWaifu],
 ) -> tuple[float, int, int]:
     """
     Рассчитывает шанс успеха и награды (золото, опыт).
-    Возвращает (chance_pct, reward_gold, reward_exp).
+    Перки наёмных вайфу снижают штраф за аффиксы (контраффиксы).
     """
     coeffs = EXPEDITION_TIME_COEFFS.get(duration_minutes, (1.0, 1.0))
     diff_coeff, reward_coeff = coeffs
     base_diff = max(1, int(slot.base_difficulty or 100))
-    base_level = max(1, int(slot.base_level or 1))
-    affixes = slot.affixes or []
-    n_affixes = len(affixes)
+    affix_penalty = _effective_affix_penalty(slot, squad_waifus)
 
     # Базовый шанс = (мощь / (сложность × коэффициент времени)) × 100
     effective_diff = base_diff * diff_coeff
     base_chance = (squad_power / effective_diff) * 100.0 if effective_diff else 0.0
-    chance = base_chance - n_affixes * EXPEDITION_AFFIX_PENALTY_PCT
-    # Временной риск: × (1.2 - 0.2 × diff_coeff)
+    chance = base_chance - affix_penalty
     chance = chance * (1.2 - 0.2 * diff_coeff)
     chance = max(EXPEDITION_CHANCE_CAP_MIN, min(EXPEDITION_CHANCE_CAP_MAX, chance))
 
@@ -171,7 +205,9 @@ class ExpeditionService:
             return {"error": "already_started"}
 
         power = _squad_power(squad)
-        chance_pct, reward_gold, reward_exp = _chance_and_rewards(slot, duration_minutes, power)
+        chance_pct, reward_gold, reward_exp = _chance_and_rewards(
+            slot, duration_minutes, power, squad
+        )
         success = random.random() * 100.0 < chance_pct
 
         now = datetime.now(tz=timezone.utc)
@@ -207,8 +243,10 @@ class ExpeditionService:
     async def claim(
         self, session: AsyncSession, player_id: int, active_id: int
     ) -> dict:
-        """Забрать награду по завершённой экспедиции (ends_at уже прошло)."""
-        active = await session.get(ActiveExpedition, active_id)
+        """Забрать награду по завершённой экспедиции (ends_at уже прошло). ИИ-событие при наличии OpenRouter."""
+        active = await session.get(
+            ActiveExpedition, active_id, options=[selectinload(ActiveExpedition.expedition_slot)]
+        )
         if not active or active.player_id != player_id:
             return {"error": "not_found"}
         if active.claimed:
@@ -239,6 +277,27 @@ class ExpeditionService:
                 if w and w.player_id == player_id:
                     w.experience = (w.experience or 0) + per_waifu
 
+        # ИИ-генерация описания события (OpenRouter)
+        slot = active.expedition_slot
+        expedition_name = slot.name if slot else "Экспедиция"
+        squad_names: list[str] = []
+        for wid in squad_ids:
+            w = await session.get(HiredWaifu, wid)
+            if w and w.player_id == player_id:
+                squad_names.append(w.name or "Вайфу")
+        from waifu_bot.services.expedition_events_ai import generate_expedition_event
+
+        event_text = await generate_expedition_event(
+            expedition_name=expedition_name,
+            success=active.success,
+            duration_minutes=active.duration_minutes,
+            squad_names=squad_names,
+            reward_gold=gold,
+            reward_experience=exp,
+        )
+        if event_text:
+            active.event_text = event_text
+
         await session.commit()
         return {
             "success": True,
@@ -247,6 +306,7 @@ class ExpeditionService:
             "gold_gained": gold,
             "experience_gained": exp,
             "gold_total": player.gold,
+            "event_text": getattr(active, "event_text", None) or event_text,
         }
 
     async def cancel(
@@ -320,15 +380,22 @@ class ExpeditionService:
         )
         existing = (await session.execute(stmt)).scalars().all()
         have = {int(s.slot) for s in existing}
+        # Один слот в день — испытание (trial): выше сложность и награда
+        trial_slot = random.randint(1, EXPEDITION_SLOTS_PER_DAY) if EXPEDITION_SLOTS_PER_DAY else 1
+        affix_list = list(AFFIXES)
         for slot_num in range(1, EXPEDITION_SLOTS_PER_DAY + 1):
             if slot_num in have:
                 continue
             n_affixes = random.randint(0, 3)
-            affixes = [f"affix_{random.randint(1, 20)}" for _ in range(n_affixes)]
-            base_level = random.randint(1, 15)
-            base_diff = 80 + base_level * 5 + n_affixes * 10
-            base_gold = EXPEDITION_BASE_GOLD + base_level * 10 + random.randint(0, 50)
-            base_exp = EXPEDITION_BASE_EXP + base_level * 5 + random.randint(0, 30)
+            affixes = (
+                [a.id for a in random.sample(affix_list, min(n_affixes, len(affix_list)))]
+                if affix_list else []
+            )
+            is_trial = slot_num == trial_slot
+            base_level = random.randint(1, 15) + (5 if is_trial else 0)
+            base_diff = 80 + base_level * 5 + n_affixes * 10 + (30 if is_trial else 0)
+            base_gold = EXPEDITION_BASE_GOLD + base_level * 10 + random.randint(0, 50) + (80 if is_trial else 0)
+            base_exp = EXPEDITION_BASE_EXP + base_level * 5 + random.randint(0, 30) + (40 if is_trial else 0)
             session.add(
                 ExpeditionSlot(
                     day=day,
@@ -339,6 +406,7 @@ class ExpeditionService:
                     affixes=affixes,
                     base_gold=base_gold,
                     base_experience=base_exp,
+                    trial=is_trial,
                 )
             )
         await session.flush()

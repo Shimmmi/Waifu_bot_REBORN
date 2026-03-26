@@ -52,6 +52,8 @@ class TavernState(Base):
     experience: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     daily_experience: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_exp_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Уровень последней уволенной вайфу — передаётся следующей нанятой при переполненном резерве (ТЗ)
+    last_dismissed_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)

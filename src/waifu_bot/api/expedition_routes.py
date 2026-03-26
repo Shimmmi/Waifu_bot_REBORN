@@ -44,7 +44,7 @@ async def expedition_active(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    active = await service.list_active(session, player_id)
+    active = await service.get_active(session, player_id)
     now = datetime.utcnow()
     return {
         "active": [

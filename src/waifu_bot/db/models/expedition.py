@@ -14,6 +14,7 @@ from sqlalchemy import (
     Integer,
     JSON,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -39,6 +40,9 @@ class ExpeditionSlot(Base):
 
     base_gold: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     base_experience: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Испытание: повышенная сложность и награда
+    trial: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
@@ -70,6 +74,9 @@ class ActiveExpedition(Base):
     claimed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notification_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # ИИ-сгенерированное описание исхода экспедиции (OpenRouter)
+    event_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     player: Mapped["Player"] = relationship("Player", lazy="joined")
     expedition_slot: Mapped["ExpeditionSlot"] = relationship("ExpeditionSlot", lazy="joined")

@@ -156,7 +156,7 @@ async def main():
             "base_gold": 1500,
             "monsters": [
                 {
-                    "name": "Скелет-Воин",
+                    "name": "Скелет-воин-2",
                     "level": 5,
                     "max_hp": 120,
                     "damage": 18,
@@ -263,7 +263,7 @@ async def main():
             "base_gold": 3000,
             "monsters": [
                 {
-                    "name": "Скелет-Лучник",
+                    "name": "Скелет-лучник-3",
                     "level": 9,
                     "max_hp": 180,
                     "damage": 22,

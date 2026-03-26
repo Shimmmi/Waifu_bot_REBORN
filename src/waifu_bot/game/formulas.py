@@ -1,32 +1,79 @@
 """Game formulas and calculations."""
+import math
 import random
 
 from waifu_bot.game.constants import (
     BASE_HP_PER_LEVEL,
     BASE_SKILL_DAMAGE,
     CRIT_CHANCE_AGILITY,
+    CRIT_CHANCE_CAP,
     CRIT_CHANCE_LUCK,
+    CRIT_MULTIPLIER_BASE,
     CRIT_MULTIPLIER_MAX,
     CRIT_MULTIPLIER_MIN,
+    CRIT_MULTIPLIER_PER_STR,
     DODGE_CHANCE_AGILITY,
+    DODGE_CHANCE_CAP,
     DODGE_CHANCE_LUCK,
     EXP_BASE,
     EXP_MULTIPLIER,
     HP_K_COEFFICIENT,
+    HP_REGEN_END_DIVISOR,
+    HP_REGEN_OUT_OF_COMBAT_MULT,
+    INT_EXP_BONUS_COEFF,
+    INT_SKILL_DAMAGE_COEFF,
+    MAX_ENERGY,
+    END_DAMAGE_REDUCTION_COEFF,
+    END_DAMAGE_REDUCTION_CAP,
+    END_ENERGY_COEFF,
+    LCK_GOLD_COEFF,
+    LCK_ITEM_DROP_COEFF,
     MAX_LEVEL,
     MELEE_DAMAGE_COEFFICIENT,
     MEDIA_COEFFICIENTS,
     RANGED_DAMAGE_COEFFICIENT,
     SPELL_DAMAGE_COEFFICIENT,
+    STR_HP_COEFFICIENT,
     MediaType,
 )
 
 
-def calculate_max_hp(level: int, endurance: int) -> int:
-    """Calculate maximum HP: base_hp(level) + ВЫН * k_hp."""
+def calculate_max_hp(level: int, endurance: int, strength: int = 0) -> int:
+    """Calculate maximum HP.
+
+    Formula: BASE_HP_PER_LEVEL × level + ВЫН × 5 + СИЛ × 2
+    """
     base_hp = BASE_HP_PER_LEVEL * level
     endurance_bonus = endurance * HP_K_COEFFICIENT
-    return int(base_hp + endurance_bonus)
+    strength_bonus = strength * STR_HP_COEFFICIENT
+    return int(base_hp + endurance_bonus + strength_bonus)
+
+
+def calculate_max_energy(endurance: int) -> int:
+    """Calculate maximum energy: MAX_ENERGY + ВЫН × END_ENERGY_COEFF."""
+    return int(MAX_ENERGY + endurance * END_ENERGY_COEFF)
+
+
+def calculate_damage_reduction(endurance: int) -> float:
+    """Calculate incoming damage reduction from ВЫН. Capped at END_DAMAGE_REDUCTION_CAP."""
+    return min(endurance * END_DAMAGE_REDUCTION_COEFF, END_DAMAGE_REDUCTION_CAP)
+
+
+def calculate_crit_multiplier(strength: int) -> float:
+    """Crit multiplier = 1.5 + СИЛ × 0.005."""
+    return CRIT_MULTIPLIER_BASE + strength * CRIT_MULTIPLIER_PER_STR
+
+
+def calculate_hp_regen_rate(max_hp: int, endurance: int, in_combat: bool = True) -> float:
+    """Calculate HP regeneration per hour.
+
+    Formula: HP_max × (1 − e^(−END/100)) [per hour]
+    Outside dungeon: × HP_REGEN_OUT_OF_COMBAT_MULT (×5)
+    """
+    base_rate = max_hp * (1.0 - math.exp(-endurance / HP_REGEN_END_DIVISOR))
+    if not in_combat:
+        base_rate *= HP_REGEN_OUT_OF_COMBAT_MULT
+    return base_rate
 
 
 def calculate_damage(
@@ -89,9 +136,9 @@ def calculate_message_damage(
 
 
 def calculate_crit_chance(agility: int, luck: int) -> float:
-    """Calculate critical hit chance: ЛОВ*0.4% + УДЧ*0.2%."""
+    """Calculate critical hit chance: УДЧ×0.1% (primary) + ЛОВ×0.05% (secondary). Cap 50%."""
     chance = (agility * CRIT_CHANCE_AGILITY) + (luck * CRIT_CHANCE_LUCK)
-    return min(chance, 0.95)  # Cap at 95%
+    return min(chance, CRIT_CHANCE_CAP)
 
 
 def roll_crit(agility: int, luck: int) -> bool:
@@ -100,15 +147,17 @@ def roll_crit(agility: int, luck: int) -> bool:
     return random.random() < chance
 
 
-def get_crit_multiplier() -> float:
-    """Get random crit multiplier between 1.5x and 2.0x."""
-    return random.uniform(CRIT_MULTIPLIER_MIN, CRIT_MULTIPLIER_MAX)
+def get_crit_multiplier(strength: int = 0) -> float:
+    """Get crit multiplier: 1.5 + СИЛ×0.005, randomised up to CRIT_MULTIPLIER_MAX."""
+    base = calculate_crit_multiplier(strength)
+    upper = max(base, CRIT_MULTIPLIER_MAX)
+    return random.uniform(base, upper)
 
 
-def calculate_dodge_chance(agility: int, luck: int) -> float:
-    """Calculate dodge chance: ЛОВ*0.2% + УДЧ*0.1%."""
+def calculate_dodge_chance(agility: int, luck: int = 0) -> float:
+    """Calculate dodge chance: ЛОВ×0.1%. Cap 40%."""
     chance = (agility * DODGE_CHANCE_AGILITY) + (luck * DODGE_CHANCE_LUCK)
-    return min(chance, 0.90)  # Cap at 90%
+    return min(chance, DODGE_CHANCE_CAP)
 
 
 def roll_dodge(agility: int, luck: int) -> bool:

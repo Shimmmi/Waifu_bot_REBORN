@@ -1,0 +1,29 @@
+sequenceDiagram
+    participant User as Игрок
+    participant Bot as Telegram Bot
+    participant WebApp as WebApp UI
+    participant API as Backend API
+    participant DB as PostgreSQL
+    participant Worker as Background Worker
+
+    User->>Bot: Нажимает кнопку "Таверна"
+    Bot->>WebApp: Открывает вебапп
+    User->>WebApp: Взаимодействует с UI
+    WebApp->>API: GET /api/expeditions
+    API->>DB: Запрос экспедиций
+    DB-->>API: Данные экспедиций
+    API-->>WebApp: JSON ответ
+    WebApp-->>User: Отображает экспедиции
+    
+    User->>WebApp: Выбирает отряд и длительность
+    WebApp->>API: POST /api/expeditions/start
+    API->>DB: Создаёт запись в active_expeditions
+    DB-->>API: ID экспедиции
+    API-->>WebApp: Успех
+    WebApp-->>User: Показывает таймер
+    
+    Worker->>DB: Проверяет завершённые экспедиции
+    DB-->>Worker: Список завершённых
+    Worker->>API: Обновляет статус
+    Worker->>Bot: Отправляет уведомление в ЛС
+    Bot-->>User: "✅ Экспедиция завершена!"

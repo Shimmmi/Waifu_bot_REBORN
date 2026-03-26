@@ -16,6 +16,8 @@ from waifu_bot.db.models import (
     MainWaifu,
     InventoryItem,
     Monster,
+    MonsterAffix,
+    MonsterTemplate,
     Player,
     DungeonRun,
     DungeonRunMonster,
@@ -35,6 +37,176 @@ from waifu_bot.game.constants import MAX_LEVEL
 from waifu_bot.services.energy import apply_regen
 from waifu_bot.services import sse as sse_service
 from waifu_bot.services.item_service import ItemService
+
+
+async def roll_monster_elite(
+    session: AsyncSession,
+    run_monster: DungeonRunMonster,
+    luck: int,
+) -> dict | None:
+    """Roll elite status for a run monster and apply stat/name modifiers in-place.
+
+    Sentinel pattern:
+      applied_affix_ids is None  → not yet rolled (legacy / first-hit fallback)
+      applied_affix_ids == []    → rolled, not elite
+      applied_affix_ids == [...]  → elite with these affix IDs
+
+    Returns info dict if elite, None otherwise. Caller must commit the session.
+    """
+    if run_monster.applied_affix_ids is not None:
+        return None  # already rolled
+
+    elite_chance_base = 0.06
+    max_affixes_cap = 4
+    if run_monster.template_id:
+        tmpl = await session.get(MonsterTemplate, run_monster.template_id)
+        if tmpl:
+            elite_chance_base = float(getattr(tmpl, "elite_chance", 0.06) or 0.06)
+            max_affixes_cap = int(getattr(tmpl, "max_affixes", 4) or 4)
+
+    effective_chance = elite_chance_base * (1.0 + max(0, int(luck or 0)) / 500.0)
+
+    if random.random() >= effective_chance:
+        run_monster.applied_affix_ids = []
+        return None
+
+    # Became elite — roll number of affixes
+    r = random.random()
+    if r < 0.60:
+        n_affixes, elite_color = 1, "blue"
+    elif r < 0.88:
+        n_affixes, elite_color = 2, "blue"
+    elif r < 0.98:
+        n_affixes, elite_color = 3, "gold"
+    else:
+        n_affixes, elite_color = 4, "red"
+
+    n_affixes = min(n_affixes, max_affixes_cap)
+
+    affix_q = await session.execute(select(MonsterAffix))
+    all_affixes: list[MonsterAffix] = list(affix_q.scalars().all())
+
+    monster_family: str = run_monster.family or ""
+    eligible: list[MonsterAffix] = []
+    for a in all_affixes:
+        allowed: list | None = a.allowed_families
+        forbidden: list | None = a.forbidden_families
+        if allowed and monster_family not in allowed:
+            continue
+        if forbidden and monster_family in forbidden:
+            continue
+        eligible.append(a)
+
+    chosen: list[MonsterAffix] = _pick_monster_affixes(eligible, n_affixes)
+    if not chosen:
+        run_monster.applied_affix_ids = []
+        return None
+
+    # Apply stat multipliers
+    level_bonus = 0
+    hp_mult = 1.0
+    dmg_mult = 1.0
+    gold_mult = 1.0
+    exp_mult = 1.0
+    for a in chosen:
+        level_bonus += int(a.level_add or 0)
+        if a.hp_mult:
+            hp_mult *= float(a.hp_mult)
+        if a.dmg_mult:
+            dmg_mult *= float(a.dmg_mult)
+        if a.gold_mult:
+            gold_mult *= float(a.gold_mult)
+        if a.exp_mult:
+            exp_mult *= float(a.exp_mult)
+
+    run_monster.level = int(run_monster.level or 1) + level_bonus
+    new_max_hp = max(1, int(round(int(run_monster.max_hp or 1) * hp_mult)))
+    run_monster.max_hp = new_max_hp
+    run_monster.current_hp = new_max_hp
+    run_monster.damage = max(1, int(round(int(run_monster.damage or 1) * dmg_mult)))
+    run_monster.gold_reward = max(0, int(round(int(run_monster.gold_reward or 0) * gold_mult)))
+    run_monster.exp_reward = max(0, int(round(int(run_monster.exp_reward or 0) * exp_mult)))
+
+    # Build name: [prefixes] base_name[-suffixes]
+    prefixes = [a.name for a in chosen if a.type == "prefix"]
+    suffixes = [a.name for a in chosen if a.type == "suffix"]
+    base_name = run_monster.name or ""
+    boss_prefix = ""
+    if base_name.startswith("Босс: "):
+        boss_prefix = "Босс: "
+        base_name = base_name[6:]
+    new_name = (" ".join(prefixes + [base_name])).strip() if prefixes else base_name
+    if suffixes:
+        new_name += "".join(suffixes)
+    run_monster.name = boss_prefix + new_name
+
+    run_monster.is_elite = True
+    run_monster.elite_color = elite_color
+    run_monster.applied_affix_ids = [a.id for a in chosen]
+
+    return {
+        "is_elite": True,
+        "elite_color": elite_color,
+        "elite_name": run_monster.name,
+        "applied_affixes": [
+            {
+                "id": a.id,
+                "name": a.name,
+                "type": a.type,
+                "category": a.category,
+                "behavior_flag": a.behavior_flag,
+                "behavior_params": a.behavior_params,
+            }
+            for a in chosen
+        ],
+        "level_bonus": level_bonus,
+        "monster_max_hp": run_monster.max_hp,
+    }
+
+
+def _pick_monster_affixes(eligible: list, n: int) -> list:
+    """Pick up to n affixes from the eligible pool respecting all compatibility rules.
+
+    Rules enforced:
+    - Max 1 behavioral suffix (category="behavior", type="suffix")
+    - Only one affix per affix_group (prevents duplicate tiers of same group)
+    - Incompatible pairs are never assigned together
+    """
+    pool = list(eligible)
+    random.shuffle(pool)
+
+    chosen: list = []
+    chosen_groups: set[str] = set()
+    behavioral_suffix_count = 0
+
+    for a in pool:
+        if len(chosen) >= n:
+            break
+
+        # One entry per group (avoids two tiers of hp_bulk, etc.)
+        if a.affix_group in chosen_groups:
+            continue
+
+        # Max 1 behavioral suffix
+        is_behavioral_suffix = a.type == "suffix" and a.category == "behavior"
+        if is_behavioral_suffix and behavioral_suffix_count >= 1:
+            continue
+
+        # This affix must not be incompatible with anything already chosen
+        my_incompatible: list[str] = a.incompatible_with or []
+        if any(g in chosen_groups for g in my_incompatible):
+            continue
+
+        # None of the already-chosen affixes may list this group in their incompatible_with
+        if any(a.affix_group in (other.incompatible_with or []) for other in chosen):
+            continue
+
+        chosen.append(a)
+        chosen_groups.add(a.affix_group)
+        if is_behavioral_suffix:
+            behavioral_suffix_count += 1
+
+    return chosen
 
 
 class CombatService:
@@ -96,10 +268,16 @@ class CombatService:
         # Run-based current monster
         run_monster = None
         monster = None
+        elite_spawn_info: dict | None = None
         if run:
             run_monster = await self._get_current_run_monster(session, run)
             if not run_monster:
                 return {"error": "no_monster"}
+
+            # On first encounter, roll elite chance (lazy — not pre-programmed at dungeon start)
+            elite_spawn_info = await self._roll_elite_for_monster(
+                session, run_monster, eff_luck
+            )
         else:
             monster = await self._get_current_monster(session, progress)
             if not monster:
@@ -212,6 +390,29 @@ class CombatService:
         if is_crit:
             damage = int(damage * get_crit_multiplier())
 
+        # Apply monster affix modifiers: defense_add (damage reduction) and evade_add (dodge)
+        monster_defense_pct = 0
+        monster_evade_pct = 0
+        monster_dodged = False
+        if run_monster is not None and run_monster.applied_affix_ids:
+            try:
+                affix_rows = (
+                    await session.execute(
+                        select(MonsterAffix).where(MonsterAffix.id.in_(run_monster.applied_affix_ids))
+                    )
+                ).scalars().all()
+                for affix in affix_rows:
+                    monster_defense_pct += float(affix.defense_add or 0)
+                    monster_evade_pct += float(affix.evade_add or 0)
+            except Exception:
+                pass
+
+        if monster_evade_pct > 0 and random.random() < (monster_evade_pct / 100.0):
+            monster_dodged = True
+            damage = 0
+        elif monster_defense_pct > 0:
+            damage = max(1, int(damage * (1.0 - monster_defense_pct / 100.0)))
+
         # Apply damage
         if run and run_monster:
             monster_hp_before = run_monster.current_hp
@@ -234,6 +435,7 @@ class CombatService:
             event_data={
                 "damage": damage,
                 "is_crit": is_crit,
+                "monster_dodged": monster_dodged,
                 "media_type": media_type.value,
                 "message_length": msg_len,
                 "attack_type": attack_type,
@@ -294,6 +496,9 @@ class CombatService:
                 result = await self._handle_run_monster_defeated(session, run, run_monster, waifu)
             else:
                 result = await self._handle_monster_defeated(session, progress, waifu, monster)
+            # Propagate elite spawn info if the elite was rolled and immediately defeated
+            if elite_spawn_info and isinstance(result, dict) and "elite_spawn" not in result:
+                result["elite_spawn"] = elite_spawn_info
             await self._publish_battle_event(player_id, result)
             return result
 
@@ -305,6 +510,7 @@ class CombatService:
         result = {
             "damage": damage,
             "is_crit": is_crit,
+            "monster_dodged": monster_dodged,
             "media_type": media_type.value,
             "message_length": msg_len,
             "attack_type": attack_type,
@@ -315,16 +521,21 @@ class CombatService:
             "energy_spent": energy_cost,
             "energy_left": waifu.energy,
         }
+        # If the monster just became elite on this very hit, attach the spawn info
+        # so the frontend / bot can announce it
+        if elite_spawn_info:
+            result["elite_spawn"] = elite_spawn_info
+            result["monster_name"] = run_monster.name if run_monster else None
         await self._publish_battle_event(player_id, result)
         return result
 
-    def _apply_levelups(self, waifu: MainWaifu) -> bool:
+    async def _apply_levelups(self, session: AsyncSession, waifu: MainWaifu) -> bool:
         """Apply level-ups based on total experience curve.
 
         On level gain:
         - grant 1 stat point per level gained (stat_points)
         - restore HP and energy to 100%
-        - recalc max_hp (base, from level+endurance)
+        - recalc max_hp including equipment bonuses
         """
         if not waifu:
             return False
@@ -344,17 +555,15 @@ class CombatService:
             except Exception:
                 pass
 
-            # Recalc max HP from base formula and restore HP
+            # Recalc max HP including equipment bonuses, then fully restore HP on level-up
             try:
-                from waifu_bot.game.formulas import calculate_max_hp
-
-                waifu.max_hp = int(calculate_max_hp(int(waifu.level), int(getattr(waifu, "endurance", 10) or 10)))
+                from waifu_bot.services.waifu_hp import compute_effective_max_hp
+                player_id = int(waifu.player_id)
+                new_max = await compute_effective_max_hp(session, player_id, waifu)
+                waifu.max_hp = new_max
+                waifu.current_hp = new_max
             except Exception:
-                pass
-            try:
                 waifu.current_hp = int(getattr(waifu, "max_hp", 100) or 100)
-            except Exception:
-                waifu.current_hp = 100
 
             # Restore energy
             waifu.energy = int(getattr(waifu, "max_energy", 100) or 100)
@@ -367,6 +576,18 @@ class CombatService:
             except Exception:
                 pass
         return changed
+
+    async def _roll_elite_for_monster(
+        self,
+        session: AsyncSession,
+        run_monster: DungeonRunMonster,
+        luck: int,
+    ) -> dict | None:
+        """Lazy fallback for legacy monsters that were created before eager elite roll.
+
+        Delegates to module-level roll_monster_elite().
+        """
+        return await roll_monster_elite(session, run_monster, luck)
 
     async def _get_effective_combat_profile(self, session: AsyncSession, player_id: int, waifu: MainWaifu) -> dict:
         """
@@ -582,7 +803,7 @@ class CombatService:
         """Handle monster defeat and advance to next or complete dungeon."""
         # Award experience
         waifu.experience += monster.experience_reward
-        self._apply_levelups(waifu)
+        await self._apply_levelups(session, waifu)
 
         # Basic monster retaliation + extra energy drain after victory (baseline)
         # Later: scale by monster type/difficulty and waifu defense/skills.
@@ -602,15 +823,24 @@ class CombatService:
             gold_gain = per_monster
             player.gold += gold_gain
 
-        # If waifu died from retaliation, end dungeon run (fail)
+        # If waifu died from retaliation → fail run, apply gold penalty, leave at 1 HP
         if waifu.current_hp <= 0:
             progress.is_active = False
+            from waifu_bot.game.constants import CHM_DEATH_GOLD_PENALTY_BASE, CHM_DEATH_GOLD_PENALTY_COEFF
+            charm = int(getattr(waifu, "charm", 10) or 10)
+            penalty = max(0.0, CHM_DEATH_GOLD_PENALTY_BASE - charm * CHM_DEATH_GOLD_PENALTY_COEFF)
+            penalized_gold = max(0, int(gold_gain * (1.0 - penalty)))
+            if player:
+                player.gold = max(0, (player.gold or 0) - gold_gain + penalized_gold)
+            waifu.current_hp = 1
             await session.commit()
             return {
                 "monster_defeated": True,
                 "dungeon_failed": True,
+                "waifu_died": True,
                 "experience_gained": monster.experience_reward,
-                "gold_gained": gold_gain,
+                "gold_gained": penalized_gold,
+                "gold_penalty_pct": round(penalty * 100, 1),
                 "damage_taken": dmg_taken,
                 "energy_spent_victory": victory_energy_cost,
             }
@@ -620,9 +850,8 @@ class CombatService:
             progress.is_completed = True
             progress.is_active = False
 
-            # Award rewards
-            # Item drop on completion (legacy flow):
-            # Previously was TODO, which made early dungeons appear to "never drop items".
+            # Guaranteed completion drop: always award one item on dungeon finish.
+            # Rarity rolled from DropRule weights; item level based on dungeon level.
             drop_item_payload = None
             try:
                 if dungeon:
@@ -630,47 +859,52 @@ class CombatService:
                         select(DropRule).where(DropRule.act == dungeon.act, DropRule.boss_only == True)  # noqa: E712
                     )
                     rule = rule_q.scalar_one_or_none()
-                    if rule and random.random() < float(getattr(rule, "chance", 0.0) or 0.0):
-                        weights = getattr(rule, "rarity_weights", None) or {}
-                        opts = []
-                        for k, w in (weights.items() if isinstance(weights, dict) else []):
-                            try:
-                                rk = int(k)
-                                ww = int(w)
-                            except Exception:
-                                continue
-                            if ww > 0:
-                                opts.append((rk, ww))
-                        if not opts:
-                            opts = [(1, 70), (2, 25), (3, 5)]
-                        total_w = sum(w for _, w in opts)
-                        roll = random.randint(1, total_w)
-                        acc = 0
-                        rarity = 1
-                        for r, w in opts:
-                            acc += w
-                            if roll <= acc:
-                                rarity = r
-                                break
+                    weights = getattr(rule, "rarity_weights", None) or {} if rule else {}
+                    opts = []
+                    for k, w in (weights.items() if isinstance(weights, dict) else []):
+                        try:
+                            rk = int(k)
+                            ww = int(w)
+                        except Exception:
+                            continue
+                        if ww > 0:
+                            opts.append((rk, ww))
+                    if not opts:
+                        opts = [(1, 70), (2, 25), (3, 5)]
+                    total_w = sum(w for _, w in opts)
+                    roll = random.randint(1, total_w)
+                    acc = 0
+                    rarity = 1
+                    for r, w in opts:
+                        acc += w
+                        if roll <= acc:
+                            rarity = r
+                            break
 
-                        item_level = max(1, min(int(waifu.level) + random.randint(0, 2), 60))
-                        inv = await self.item_service.generate_inventory_item(
-                            session=session,
-                            player_id=waifu.player_id,
-                            act=int(dungeon.act),
-                            rarity=rarity,
-                            level=item_level,
-                            is_shop=False,
-                        )
-                        await session.flush()
-                        drop_item_payload = {
-                            "inventory_item_id": inv.id,
-                            "name": inv.item.name if getattr(inv, "item", None) else "Предмет",
-                            "rarity": int(inv.rarity or rarity),
-                            "level": int(inv.level or item_level),
-                            "tier": int(inv.tier or 1),
-                            "slot_type": getattr(inv, "slot_type", None),
-                        }
+                    dungeon_base_level = max(1, int(dungeon.level or 1))
+                    item_level = max(1, min(dungeon_base_level + random.randint(0, 4), 60))
+                    inv = await self.item_service.generate_inventory_item(
+                        session=session,
+                        player_id=waifu.player_id,
+                        act=int(dungeon.act),
+                        rarity=rarity,
+                        level=item_level,
+                        is_shop=False,
+                    )
+                    await session.flush()
+                    item_display_name = (
+                        getattr(inv, "_display_name", None)
+                        or (inv.item.name if getattr(inv, "item", None) else None)
+                        or "Предмет"
+                    )
+                    drop_item_payload = {
+                        "inventory_item_id": inv.id,
+                        "name": item_display_name,
+                        "rarity": int(inv.rarity or rarity),
+                        "level": int(inv.level or item_level),
+                        "tier": int(inv.tier or 1),
+                        "slot_type": getattr(inv, "slot_type", None),
+                    }
             except Exception:
                 # Never break completion due to drop failures
                 drop_item_payload = None
@@ -716,7 +950,7 @@ class CombatService:
         gold_gain = int(run_monster.gold_reward or 0)
 
         waifu.experience += exp_gain
-        self._apply_levelups(waifu)
+        await self._apply_levelups(session, waifu)
         player = await session.get(Player, waifu.player_id)
         if player:
             player.gold += gold_gain
@@ -743,18 +977,32 @@ class CombatService:
         )
         progress = prog_q.scalar_one_or_none()
 
-        # If waifu died -> fail run
+        # If waifu died → fail run; apply gold penalty per ОБА, leave waifu at 1 HP
         if waifu.current_hp <= 0:
             run.status = "failed"
             run.ended_at = datetime.utcnow()
             if progress:
                 progress.is_active = False
+
+            # Gold penalty on death: base -50%, reduced by charm×0.1%
+            from waifu_bot.game.constants import CHM_DEATH_GOLD_PENALTY_BASE, CHM_DEATH_GOLD_PENALTY_COEFF
+            charm = int(getattr(waifu, "charm", 10) or 10)
+            penalty = max(0.0, CHM_DEATH_GOLD_PENALTY_BASE - charm * CHM_DEATH_GOLD_PENALTY_COEFF)
+            penalized_gold = max(0, int(gold_gain * (1.0 - penalty)))
+            # XP is already credited above; fix gold to penalized amount
+            if player:
+                player.gold = max(0, (player.gold or 0) - gold_gain + penalized_gold)
+            # Leave waifu at 1 HP (not 0)
+            waifu.current_hp = 1
+
             await session.commit()
             return {
                 "monster_defeated": True,
                 "dungeon_failed": True,
+                "waifu_died": True,
                 "experience_gained": exp_gain,
-                "gold_gained": gold_gain,
+                "gold_gained": penalized_gold,
+                "gold_penalty_pct": round(penalty * 100, 1),
                 "damage_taken": dmg_taken,
                 "energy_spent_victory": victory_energy_cost,
             }
@@ -770,9 +1018,11 @@ class CombatService:
             dungeon = await session.get(Dungeon, run.dungeon_id)
             pl = int(getattr(run, "plus_level", 0) or 0)
 
-            # Progression: unlock next act after 5th dungeon (base only)
-            if pl <= 0 and player and dungeon and dungeon.dungeon_number >= 5 and player.current_act == dungeon.act:
-                player.current_act = min(5, int(player.current_act) + 1)
+            # Progression: unlock next act after 5th dungeon (base only).
+            # Updates max_act (highest act unlocked) — current_act stays unchanged
+            # until the player explicitly travels via caravan.html.
+            if pl <= 0 and player and dungeon and dungeon.dungeon_number >= 5 and player.max_act == dungeon.act:
+                player.max_act = min(5, int(player.max_act) + 1)
 
             # Dungeon+ progression:
             # - Completing Act5#5 (base) unlocks +1 for ALL dungeons (acts 1-5).
@@ -819,16 +1069,18 @@ class CombatService:
                 # Don't break combat flow on older DBs / missing tables.
                 pass
 
-            # Boss drop: item goes directly to inventory
+            # Guaranteed completion drop: always award one item on dungeon finish.
+            # Rarity is rolled from DropRule weights (default: 70% common / 25% uncommon / 5% rare).
+            # Item level is based on the dungeon's base level (not waifu level) so loot
+            # matches the content being played regardless of player progression.
             drop_item_payload = None
-            if dungeon and bool(run_monster.is_boss):
-                rule_q = await session.execute(
-                    select(DropRule).where(DropRule.act == dungeon.act, DropRule.boss_only == True)  # noqa: E712
-                )
-                rule = rule_q.scalar_one_or_none()
-                if rule and random.random() < float(getattr(rule, "chance", 0.0) or 0.0):
-                    weights = getattr(rule, "rarity_weights", None) or {}
-                    # keys may be strings
+            if dungeon:
+                try:
+                    rule_q = await session.execute(
+                        select(DropRule).where(DropRule.act == dungeon.act, DropRule.boss_only == True)  # noqa: E712
+                    )
+                    rule = rule_q.scalar_one_or_none()
+                    weights = getattr(rule, "rarity_weights", None) or {} if rule else {}
                     opts = []
                     for k, w in (weights.items() if isinstance(weights, dict) else []):
                         try:
@@ -850,8 +1102,10 @@ class CombatService:
                             rarity = r
                             break
 
-                    # Item level near waifu level but bounded by act cap inside generator
-                    item_level = max(1, min(int(waifu.level) + random.randint(0, 2), 60))
+                    # Item level is based on dungeon level (±4 range) so items
+                    # always match the content difficulty, not the waifu's current level.
+                    dungeon_base_level = max(1, int(dungeon.level or 1))
+                    item_level = max(1, min(dungeon_base_level + random.randint(0, 4), 60))
                     inv = await self.item_service.generate_inventory_item(
                         session=session,
                         player_id=run.player_id,
@@ -860,16 +1114,22 @@ class CombatService:
                         level=item_level,
                         is_shop=False,
                     )
-                    # Ensure relationship loaded
                     await session.flush()
+                    item_display_name = (
+                        getattr(inv, "_display_name", None)
+                        or (inv.item.name if getattr(inv, "item", None) else None)
+                        or "Предмет"
+                    )
                     drop_item_payload = {
                         "inventory_item_id": inv.id,
-                        "name": inv.item.name if getattr(inv, "item", None) else "Предмет",
+                        "name": item_display_name,
                         "rarity": int(inv.rarity or rarity),
                         "level": int(inv.level or item_level),
                         "tier": int(inv.tier or 1),
                         "slot_type": getattr(inv, "slot_type", None),
                     }
+                except Exception:
+                    drop_item_payload = None
 
             await session.commit()
             return {

@@ -4,7 +4,808 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Профиль вайфу</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
+    <style>
+      /* Палитра как у магазина / таверны */
+      body.page-profile .profile-missing-waifu {
+        text-align: center;
+        padding: 28px 16px 20px;
+        border-radius: 14px;
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        background: rgba(255, 255, 255, 0.04);
+        margin-bottom: 16px;
+      }
+      body.page-profile .profile-missing-waifu-title {
+        margin: 0 0 10px;
+        font-family: "Cinzel", serif;
+        font-size: 1.1rem;
+        color: var(--amber-glow);
+      }
+      body.page-profile .profile-missing-waifu-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-width: 280px;
+        margin: 18px auto 0;
+      }
+      body.page-profile .profile-missing-waifu-btn {
+        display: block;
+        padding: 12px 16px;
+        border-radius: 12px;
+        text-align: center;
+        text-decoration: none;
+        font-weight: 700;
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        color: var(--cream);
+        background: rgba(255, 255, 255, 0.06);
+      }
+      body.page-profile .profile-missing-waifu-btn.primary {
+        background: linear-gradient(180deg, rgba(200, 146, 42, 0.35), rgba(160, 110, 30, 0.45));
+        color: #fff8ee;
+      }
+      body.page-profile main.profile-layout.profile-layout--no-mw .profile-tabs,
+      body.page-profile main.profile-layout.profile-layout--no-mw .tab-panel {
+        display: none !important;
+      }
+      body.page-profile {
+        --ink: #0d0a08;
+        --surface: #1a1410;
+        --amber: #c8922a;
+        --amber-glow: #e8b84b;
+        --ash: #8a7a6a;
+        --cream: #e8dcc8;
+        background: var(--ink);
+        color: var(--cream);
+        padding-bottom: 120px;
+      }
+
+      body.page-profile .layout.profile-layout {
+        max-width: none;
+        width: 100%;
+        margin: 0 auto;
+        padding: 10px 10px 24px;
+      }
+
+      body.page-profile .attic {
+        background: rgba(13, 10, 8, 0.95) !important;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.2) !important;
+        padding: 7px 10px !important;
+        backdrop-filter: blur(8px);
+      }
+      body.page-profile .attic-row {
+        display: flex;
+        gap: 5px;
+        align-items: center;
+        flex-wrap: nowrap;
+        overflow: hidden;
+        padding: 2px 0;
+      }
+      body.page-profile .attic-row .chip {
+        flex: 0 0 auto;
+        min-width: 0;
+        padding: 3px 9px;
+        font-size: 11px;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid rgba(200, 146, 42, 0.2) !important;
+        color: var(--cream) !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      body.page-profile .attic-row .chip b,
+      body.page-profile .attic-row .chip strong {
+        color: var(--amber-glow) !important;
+      }
+      body.page-profile .chip-ghost {
+        background: rgba(255, 255, 255, 0.06) !important;
+      }
+      body.page-profile .attic-level-chip {
+        flex: 1.2 1 0;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 3px;
+        white-space: normal;
+      }
+      body.page-profile .attic-xp-fill {
+        background: linear-gradient(90deg, rgba(200, 146, 42, 0.9), rgba(232, 184, 75, 0.9)) !important;
+      }
+      body.page-profile #attic-dungeon-chip {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        max-width: 38%;
+      }
+      body.page-profile #attic-dungeon-label {
+        display: block;
+        font-size: 10px;
+        line-height: 1.2;
+        color: var(--cream) !important;
+      }
+      body.page-profile .attic-dungeon-stages {
+        display: flex;
+        gap: 2px;
+        margin-top: 2px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      body.page-profile .attic-dungeon-stages:empty {
+        display: none;
+      }
+      body.page-profile .attic-stage-pixel {
+        width: 6px;
+        height: 6px;
+        border-radius: 1px;
+        background: rgba(200, 146, 42, 0.18);
+        border: 1px solid rgba(200, 146, 42, 0.2);
+        box-sizing: border-box;
+      }
+      body.page-profile .attic-stage-pixel--done {
+        background: rgba(232, 184, 75, 0.65);
+        border-color: rgba(232, 184, 75, 0.75);
+      }
+      body.page-profile .attic-stage-pixel--active {
+        background: rgba(200, 146, 42, 0.95);
+        border-color: rgba(200, 146, 42, 0.95);
+        box-shadow: 0 0 6px rgba(200, 146, 42, 0.3);
+      }
+      body.page-profile #attic-expedition-chip {
+        flex: 0 1 auto;
+        min-width: 48px;
+        max-width: 22%;
+        justify-content: center;
+      }
+
+      /* Вкладки страницы — один ряд, компактно */
+      body.page-profile .profile-tabs {
+        flex-wrap: nowrap;
+        gap: 4px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.15);
+        padding-bottom: 8px;
+        margin-bottom: 12px;
+      }
+      body.page-profile .profile-tabs::-webkit-scrollbar {
+        display: none;
+      }
+      body.page-profile .profile-tabs .tab {
+        flex: 0 0 auto;
+        padding: 5px 8px;
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.18) !important;
+        background: rgba(26, 20, 14, 0.85);
+        color: var(--ash) !important;
+        opacity: 1;
+        border-bottom-width: 1px !important;
+        white-space: nowrap;
+      }
+      body.page-profile .profile-tabs .tab-reset,
+      body.page-profile .profile-tabs .tab-levelup,
+      body.page-profile .profile-tabs .tab-clearitems {
+        flex: 0 0 auto;
+        padding: 5px 8px;
+        min-width: 32px;
+        font-size: 14px;
+        line-height: 1;
+      }
+      body.page-profile .profile-tabs .tab:hover {
+        color: var(--cream) !important;
+      }
+      body.page-profile .profile-tabs .tab.active {
+        background: rgba(200, 146, 42, 0.15);
+        border-color: rgba(200, 146, 42, 0.4) !important;
+        color: var(--amber-glow) !important;
+      }
+
+      /* Внутренние вкладки «Подробно» */
+      body.page-profile .profile-inner-tabs .tab {
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.18);
+        background: rgba(26, 20, 14, 0.75);
+        color: var(--ash);
+        opacity: 1;
+        border-bottom-width: 1px;
+      }
+      body.page-profile .profile-inner-tabs .tab.active {
+        color: var(--amber-glow);
+        border-color: rgba(200, 146, 42, 0.45);
+        background: rgba(200, 146, 42, 0.12);
+      }
+
+      /* Секции на остальных вкладках */
+      body.page-profile .section {
+        background: rgba(26, 20, 16, 0.55);
+        border: 1px solid rgba(200, 146, 42, 0.12);
+      }
+      body.page-profile .section-head h3 {
+        color: var(--cream);
+      }
+      body.page-profile .muted {
+        color: var(--ash) !important;
+      }
+
+      /* --- MTG-карточка основной вайфу (2:3) --- */
+      body.page-profile .profile-mtg-stage {
+        position: relative;
+        border-radius: 16px;
+        overflow: hidden;
+        margin-bottom: 4px;
+      }
+      body.page-profile .profile-mtg-stage-bg {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(150deg, #2a1a08 0%, #15100a 55%, #0d0908 100%);
+        pointer-events: none;
+      }
+      body.page-profile .profile-mtg-stage-bg-img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        opacity: 0.22;
+        pointer-events: none;
+      }
+      body.page-profile .profile-mtg-wrap {
+        position: relative;
+        display: flex;
+        justify-content: center;
+        padding: 14px 10px 18px;
+      }
+      body.page-profile .profile-mtg-card {
+        position: relative;
+        width: 100%;
+        max-width: 300px;
+        aspect-ratio: 2 / 3;
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow:
+          0 16px 48px rgba(0, 0, 0, 0.6),
+          inset 0 0 0 1px rgba(0, 0, 0, 0.55);
+        border: 2px solid rgba(200, 146, 42, 0.55);
+      }
+      body.page-profile .profile-mtg-bg {
+        position: absolute;
+        inset: 0;
+        background-color: #120e0a;
+        background-size: cover;
+        background-position: center top;
+        background-repeat: no-repeat;
+      }
+      body.page-profile .profile-mtg-bg--empty {
+        background-image: none !important;
+      }
+      body.page-profile .profile-mtg-fallback {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        font-size: clamp(52px, 22vw, 96px);
+        line-height: 1;
+        text-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+        pointer-events: none;
+      }
+      body.page-profile .profile-mtg-bg:not(.profile-mtg-bg--empty) .profile-mtg-fallback {
+        display: none;
+      }
+      body.page-profile .profile-mtg-vignette {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 1;
+        background: linear-gradient(
+            180deg,
+            rgba(0, 0, 0, 0.88) 0%,
+            rgba(0, 0, 0, 0.25) 26%,
+            rgba(0, 0, 0, 0.08) 45%,
+            rgba(0, 0, 0, 0.55) 72%,
+            rgba(0, 0, 0, 0.92) 100%
+          ),
+          radial-gradient(ellipse 120% 70% at 50% 100%, rgba(0, 0, 0, 0.75), transparent 55%);
+      }
+      body.page-profile .profile-mtg-top {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        z-index: 2;
+        padding: 12px 12px 8px;
+        display: grid;
+        gap: 3px;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95);
+      }
+      body.page-profile .profile-mtg-name,
+      body.page-profile #profile-portrait-name {
+        margin: 0;
+        font-family: "Cinzel", serif;
+        font-size: 1.1rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: var(--cream);
+        line-height: 1.15;
+      }
+      body.page-profile .profile-mtg-meta {
+        font-size: 11px;
+        font-weight: 600;
+        color: rgba(232, 220, 200, 0.9);
+        letter-spacing: 0.02em;
+      }
+      body.page-profile .profile-mtg-hp-row {
+        display: grid;
+        gap: 4px;
+        margin-top: 4px;
+        max-width: 100%;
+      }
+      body.page-profile #profile-hp-text {
+        font-size: 10px;
+        font-weight: 700;
+        color: rgba(254, 243, 232, 0.95);
+      }
+      body.page-profile .profile-mtg-bar {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(200, 146, 42, 0.28);
+        overflow: hidden;
+      }
+      body.page-profile .profile-mtg-bar-fill {
+        height: 100%;
+        border-radius: inherit;
+        transition: width 0.25s ease;
+      }
+      body.page-profile .profile-mtg-bar--xp .profile-mtg-bar-fill {
+        background: linear-gradient(90deg, rgba(200, 146, 42, 0.95), rgba(232, 184, 75, 0.95));
+      }
+      body.page-profile .profile-mtg-bottom {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 2;
+        padding: 10px 10px 10px;
+        display: grid;
+        gap: 8px;
+      }
+      body.page-profile .profile-stats-list--mtg {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5px;
+      }
+      body.page-profile .profile-stats-list--mtg .profile-stat-row {
+        border-radius: 7px;
+        border: 1px solid rgba(200, 146, 42, 0.22);
+        background: rgba(10, 8, 6, 0.58);
+        backdrop-filter: blur(6px);
+        padding: 5px 7px;
+      }
+      body.page-profile .profile-stats-list--mtg .profile-stat-row:hover {
+        border-color: rgba(232, 184, 75, 0.45);
+      }
+      body.page-profile .profile-stats-list--mtg .profile-stat-row-main {
+        font-size: 10px;
+      }
+      body.page-profile .profile-stats-list--mtg .profile-stat-icon {
+        width: 18px;
+        height: 18px;
+        font-size: 11px;
+      }
+      /* Текст основных характеристик на карточке — явно светлый (в т.ч. под темой TG) */
+      body.page-profile .profile-stats-list--mtg .profile-stat-row {
+        color: rgba(248, 245, 240, 0.98) !important;
+      }
+      body.page-profile .profile-stats-list--mtg .profile-stat-row-main,
+      body.page-profile .profile-stats-list--mtg .profile-stat-row-left {
+        color: rgba(248, 245, 240, 0.98) !important;
+      }
+      body.page-profile .profile-stats-list--mtg .profile-stat-row strong {
+        color: var(--amber-glow) !important;
+      }
+
+      /* «Подробно»: сетка 2×3 по основным статам */
+      body.page-profile .profile-stats-breakdown-root {
+        margin-top: 8px;
+      }
+      body.page-profile .profile-stats-breakdown-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+      }
+      body.page-profile .profile-stat-tile {
+        display: flex;
+        align-items: stretch;
+        gap: 2px;
+        border: 1px solid rgba(200, 146, 42, 0.28);
+        border-radius: 8px;
+        background: rgba(10, 8, 6, 0.45);
+        min-width: 0;
+      }
+      body.page-profile .profile-stat-tile.active {
+        border-color: rgba(232, 184, 75, 0.55);
+        background: rgba(200, 146, 42, 0.1);
+        box-shadow: 0 0 0 1px rgba(232, 184, 75, 0.12);
+      }
+      body.page-profile .profile-stat-tile-main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 7px;
+        border: none;
+        background: transparent;
+        color: rgba(248, 245, 240, 0.96) !important;
+        cursor: pointer;
+        text-align: left;
+        font-family: inherit;
+      }
+      body.page-profile .profile-stat-tile-icon {
+        font-size: 14px;
+        line-height: 1;
+        flex-shrink: 0;
+      }
+      body.page-profile .profile-stat-tile-mid {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      body.page-profile .profile-stat-tile-label {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: rgba(232, 220, 200, 0.88) !important;
+        line-height: 1.15;
+      }
+      body.page-profile .profile-stat-tile-valrow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 4px;
+      }
+      body.page-profile .profile-stat-tile-val {
+        font-size: 12px;
+        font-weight: 800;
+        color: var(--amber-glow) !important;
+      }
+      body.page-profile .profile-stat-tile-chev {
+        font-size: 8px;
+        color: rgba(200, 146, 42, 0.75);
+        flex-shrink: 0;
+      }
+      body.page-profile .stat-plus-tile {
+        align-self: center;
+        margin-right: 4px;
+        flex-shrink: 0;
+        width: 24px;
+        height: 24px;
+        font-size: 14px;
+        border-radius: 6px;
+        border-color: rgba(200, 146, 42, 0.35) !important;
+        background: rgba(200, 146, 42, 0.12) !important;
+        color: var(--amber-glow) !important;
+      }
+      body.page-profile .profile-stats-breakdown-detail {
+        margin-top: 8px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(200, 146, 42, 0.22);
+        background: rgba(8, 6, 5, 0.55);
+      }
+      body.page-profile .profile-breakdown-detail-head {
+        font-size: 12px;
+        font-weight: 800;
+        color: var(--cream);
+        margin-bottom: 8px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.15);
+      }
+      body.page-profile .profile-breakdown-detail-caption {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: rgba(200, 146, 42, 0.75) !important;
+        margin-bottom: 4px;
+      }
+      body.page-profile .profile-stats-breakdown-detail .profile-accordion-row {
+        color: rgba(232, 220, 200, 0.9);
+        font-size: 11px;
+      }
+      body.page-profile .profile-stats-breakdown-detail .profile-accordion-row strong {
+        color: var(--amber-glow) !important;
+      }
+      body.page-profile .profile-stats-breakdown-detail .profile-bonus-item {
+        color: rgba(232, 220, 200, 0.88);
+        font-size: 11px;
+      }
+
+      body.page-profile .profile-raceclass-root {
+        margin-top: 8px;
+      }
+      body.page-profile .profile-raceclass-flat {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      body.page-profile .profile-raceclass-block {
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(200, 146, 42, 0.22);
+        background: rgba(8, 6, 5, 0.55);
+      }
+      body.page-profile .profile-raceclass-passive ul {
+        margin: 4px 0 8px 16px;
+        padding: 0;
+        font-size: 10px;
+        line-height: 1.35;
+        color: rgba(232, 220, 200, 0.88);
+      }
+      body.page-profile .profile-raceclass-passive .waifu-gen-passive-sub {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: rgba(200, 146, 42, 0.75);
+        margin-top: 6px;
+      }
+
+      /* Показатели / статистика — единый блок из полупрозрачных ячеек */
+      body.page-profile .profile-detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+        margin-top: 8px;
+      }
+      body.page-profile .profile-detail-cell {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 2px;
+        padding: 4px 6px;
+        min-height: 0;
+        border-radius: 6px;
+        border: 1px solid rgba(200, 146, 42, 0.22);
+        background: rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(4px);
+      }
+      body.page-profile .profile-detail-cell--full {
+        grid-column: 1 / -1;
+      }
+      body.page-profile .profile-detail-label {
+        font-size: 9px;
+        font-weight: 600;
+        line-height: 1.2;
+        color: rgba(232, 220, 200, 0.72) !important;
+      }
+      body.page-profile .profile-detail-value {
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1.25;
+        color: var(--amber-glow) !important;
+        word-break: break-word;
+      }
+      body.page-profile .profile-detail-cell--merchant .profile-detail-value-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      body.page-profile .profile-detail-cell--merchant .profile-detail-value {
+        font-size: 10px;
+        font-weight: 700;
+      }
+      body.page-profile .profile-detail-cell strong.profile-detail-value {
+        font-weight: 800;
+      }
+
+      /* Показатели (Подробно): плотнее сетка 2×N */
+      body.page-profile #profile-indicators-grid.profile-detail-grid {
+        gap: 3px;
+        margin-top: 4px;
+      }
+      body.page-profile #profile-indicators-grid .profile-detail-cell {
+        padding: 3px 5px;
+      }
+      body.page-profile #profile-indicators-grid .profile-detail-label {
+        font-size: 8.5px;
+      }
+      body.page-profile #profile-indicators-grid .profile-detail-value {
+        font-size: 10.5px;
+      }
+
+      /* Мини-модалка описания характеристики (вкладка Профиль) */
+      body.page-profile .profile-stat-info-modal {
+        background: rgba(5, 4, 3, 0.72);
+        backdrop-filter: blur(6px);
+        z-index: 6;
+      }
+      body.page-profile .profile-stat-info-panel {
+        width: min(300px, 92vw);
+        max-height: 72vh;
+        overflow-y: auto;
+        padding: 14px 16px 16px;
+        border-radius: 14px;
+        border: 1px solid rgba(200, 146, 42, 0.38);
+        background: linear-gradient(165deg, rgba(22, 18, 14, 0.98), rgba(8, 6, 4, 0.99));
+        color: rgba(232, 220, 200, 0.95);
+        box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
+        -webkit-overflow-scrolling: touch;
+      }
+      body.page-profile .profile-stat-info-head {
+        margin: 0 0 8px 0;
+      }
+      body.page-profile #profile-stat-info-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 16px;
+        font-weight: 800;
+        color: #e8b84b;
+        margin: 0;
+        line-height: 1.25;
+      }
+      body.page-profile .profile-stat-info-title-icon {
+        font-size: 20px;
+        line-height: 1;
+      }
+      body.page-profile #profile-stat-info-body {
+        font-size: 13px;
+        line-height: 1.45;
+        color: rgba(248, 245, 240, 0.92);
+        margin: 0;
+      }
+
+      /* Инвентарь: мини-слоты экипировки */
+      body.page-profile #tab-inventory .profile-slot-card--mini {
+        display: flex;
+        flex-direction: column;
+        grid-template-columns: 1fr !important;
+        min-height: 0;
+        padding: 0;
+        border-width: 2px;
+        background: rgba(10, 8, 6, 0.65);
+      }
+      body.page-profile #tab-inventory .profile-slot-card--mini .profile-slot-media {
+        flex: 1;
+        min-height: 52px;
+        padding: 6px;
+        border-right: none !important;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.18);
+        background: rgba(0, 0, 0, 0.2);
+      }
+      body.page-profile #tab-inventory .profile-slot-card--mini .profile-slot-media img {
+        width: 40px;
+        height: 40px;
+      }
+      body.page-profile #tab-inventory .profile-slot-card--mini .profile-slot-fallback {
+        font-size: 26px;
+      }
+      body.page-profile #tab-inventory .profile-slot-card--mini .profile-slot-mini-level {
+        text-align: center;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        padding: 4px 4px 5px;
+        color: var(--cream) !important;
+        background: rgba(0, 0, 0, 0.45);
+      }
+      body.page-profile #tab-inventory .profile-slot-card--mini.empty .profile-slot-mini-level {
+        color: var(--ash) !important;
+      }
+      body.page-profile #tab-inventory .profile-paperdoll-caption .muted {
+        color: rgba(232, 220, 200, 0.65) !important;
+      }
+      body.page-profile #tab-inventory .profile-paperdoll-caption strong {
+        color: var(--cream);
+      }
+
+      /* Кнопка режима + фильтры сумки */
+      body.page-profile #tab-inventory .inv-toggle-btn {
+        background: rgba(26, 20, 16, 0.9) !important;
+        border: 1px solid rgba(200, 146, 42, 0.28) !important;
+        color: var(--amber-glow) !important;
+        font-size: 9px;
+      }
+      body.page-profile #tab-inventory .inv-filter-btn {
+        background: rgba(26, 20, 16, 0.75) !important;
+        border-color: rgba(200, 146, 42, 0.2) !important;
+        color: rgba(232, 220, 200, 0.75) !important;
+      }
+      body.page-profile #tab-inventory .inv-filter-btn.active {
+        background: rgba(200, 146, 42, 0.14) !important;
+        border-color: rgba(200, 146, 42, 0.45) !important;
+        color: var(--amber-glow) !important;
+      }
+      body.page-profile #tab-inventory .inv-sort-select,
+      body.page-profile #tab-inventory .inv-sort-dir {
+        background: rgba(26, 20, 16, 0.85) !important;
+        border-color: rgba(200, 146, 42, 0.22) !important;
+        color: var(--cream) !important;
+      }
+      body.page-profile #tab-inventory .inv-sort-dir {
+        color: var(--amber-glow) !important;
+      }
+
+      /* Ячейки предметов в сумке */
+      body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item {
+        background: rgba(22, 18, 14, 0.95) !important;
+        border-width: 2px;
+        padding: 3px 3px 2px;
+        min-height: 58px;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+      }
+      body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item .item-icon {
+        width: 34px !important;
+        height: 34px !important;
+        font-size: 18px !important;
+        background: rgba(0, 0, 0, 0.35) !important;
+        border-color: rgba(200, 146, 42, 0.2) !important;
+        color: var(--cream) !important;
+      }
+      body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item .item-level {
+        background: rgba(0, 0, 0, 0.65) !important;
+        color: var(--amber-glow) !important;
+        font-size: 8px !important;
+        padding: 1px 4px !important;
+        top: 3px;
+        right: 3px;
+      }
+      body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item .item-name {
+        background: rgba(0, 0, 0, 0.72) !important;
+        color: rgba(248, 245, 240, 0.95) !important;
+        font-size: 7.5px !important;
+        font-weight: 700;
+        bottom: 2px;
+        left: 2px;
+        right: 2px;
+        padding: 2px 3px !important;
+        line-height: 1.15;
+        white-space: normal !important;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      body.page-profile #tab-inventory .profile-bag-grid.mode-compact .item-card.profile-inv-item {
+        min-height: 50px;
+      }
+      body.page-profile #tab-inventory .profile-bag-grid.mode-compact .item-card.profile-inv-item .item-icon {
+        width: 28px !important;
+        height: 28px !important;
+        font-size: 16px !important;
+      }
+      body.page-profile #tab-inventory .inv-bag-summary,
+      body.page-profile #tab-inventory .inv-pagination .tag {
+        color: rgba(232, 220, 200, 0.75) !important;
+      }
+      body.page-profile .section-head .tag {
+        color: var(--amber-glow) !important;
+        border-color: rgba(200, 146, 42, 0.35);
+        background: rgba(200, 146, 42, 0.08);
+        font-size: 10px;
+      }
+
+      body.page-profile .profile-mtg-xp-block {
+        display: grid;
+        gap: 4px;
+        padding-top: 2px;
+        border-top: 1px solid rgba(200, 146, 42, 0.15);
+      }
+      body.page-profile #profile-xp-text {
+        font-size: 9px;
+        font-weight: 600;
+        color: rgba(232, 220, 200, 0.88);
+      }
+    </style>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
@@ -15,58 +816,74 @@
           <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
           <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
         </div>
-        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье">🏰&nbsp;<span id="attic-dungeon-label">Нет боя</span></div>
-        <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции">🗺&nbsp;<span id="attic-expedition-label"></span></div>
+        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)">
+          <span id="attic-dungeon-label">Нет боя</span>
+          <span id="attic-dungeon-stages" class="attic-dungeon-stages" aria-hidden="true"></span>
+        </div>
+        <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
         <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
-        <div class="chip" title="Энергия">⚡&nbsp;<span id="badge-energy">—</span></div>
       </div>
     </header>
 
     <main class="layout profile-layout">
+      <div id="profile-missing-waifu" class="profile-missing-waifu section" hidden>
+        <h3 class="profile-missing-waifu-title">Нет основной вайфу</h3>
+        <p class="muted">Создайте персонажа через главный экран или перейдите сразу к генератору.</p>
+        <div class="profile-missing-waifu-actions">
+          <a class="primary profile-missing-waifu-btn" href="./index.html">На главный экран</a>
+          <a class="profile-missing-waifu-btn" href="./waifu_generator.html">Создать персонажа</a>
+        </div>
+      </div>
       <div class="tabs profile-tabs">
         <button class="tab active" data-tab="profile" onclick="WaifuApp.switchProfileTab('profile')">Профиль</button>
         <button class="tab" data-tab="inventory" onclick="WaifuApp.switchProfileTab('inventory')">Инвентарь</button>
         <button class="tab" data-tab="info" onclick="WaifuApp.switchProfileTab('info')">Подробно</button>
-        <button class="tab tab-reset" title="Сбросить вайфу" aria-label="Сбросить вайфу" onclick="WaifuApp.resetMainWaifu()">♻️</button>
+        <button class="tab tab-reset admin-only" title="Сбросить вайфу" aria-label="Сбросить вайфу" onclick="WaifuApp.resetMainWaifu()">♻️</button>
+        <button class="tab tab-levelup admin-only" title="Повысить уровень +1" aria-label="Повысить уровень ОВ на 1" onclick="WaifuApp.adminLevelUpWaifu()">⬆️</button>
+        <button class="tab tab-clearitems admin-only" title="Удалить все предметы" aria-label="Удалить все предметы" onclick="WaifuApp.adminClearAllItems()">🗑️</button>
       </div>
 
       <section id="tab-profile" class="tab-panel active">
-        <div class="section profile-hero">
-          <div class="profile-portrait-card">
-            <div class="profile-portrait-frame">
-              <div id="profile-portrait-media" class="profile-portrait-media" aria-label="Портрет основной вайфу">👤</div>
-              <div class="profile-portrait-overlay">
-                <strong id="profile-portrait-name">—</strong>
-                <span id="profile-portrait-race">—</span>
-                <span id="profile-portrait-class">—</span>
+        <div class="profile-mtg-stage">
+          <div class="profile-mtg-stage-bg" aria-hidden="true"></div>
+          <img
+            class="profile-mtg-stage-bg-img"
+            src="/static/profile/background.webp"
+            alt=""
+            onerror="this.style.display='none'"
+          />
+          <div class="profile-mtg-wrap">
+            <article class="profile-mtg-card" aria-label="Основная вайфу">
+              <div class="profile-mtg-bg" id="profile-mtg-bg" aria-hidden="true">
+                <span class="profile-mtg-fallback" id="profile-mtg-fallback" aria-hidden="true"></span>
               </div>
-            </div>
-          </div>
+              <div class="profile-mtg-vignette" aria-hidden="true"></div>
 
-          <div class="profile-summary-column">
-            <div class="profile-stats-list" id="profile-stats-strip" aria-label="Основные характеристики"></div>
-
-            <div class="profile-hero-bars">
-              <div class="profile-resource-card" aria-label="Здоровье">
-                <div class="profile-resource-row">
-                  <span class="muted tiny">HP</span>
-                  <strong id="profile-hp-text">—</strong>
-                </div>
-                <div class="xp-bar" aria-hidden="true">
-                  <div class="xp-bar-fill hp-bar-fill" id="profile-hp-fill" style="width:0%"></div>
-                </div>
-              </div>
-
-              <div class="profile-resource-card profile-xp" aria-label="Опыт">
-                <div class="profile-resource-row">
-                  <span class="muted tiny">EXP</span>
-                  <strong id="profile-xp-text">—</strong>
-                </div>
-                <div class="xp-bar" aria-hidden="true">
-                  <div class="xp-bar-fill" id="profile-xp-fill" style="width:0%"></div>
+              <div class="profile-mtg-top">
+                <strong id="profile-portrait-name" class="profile-mtg-name">—</strong>
+                <div class="profile-mtg-meta" id="profile-mtg-meta">—</div>
+                <div class="profile-mtg-hp-row" aria-label="Здоровье">
+                  <span id="profile-hp-text">—</span>
+                  <div class="profile-mtg-bar profile-mtg-bar--hp">
+                    <div class="profile-mtg-bar-fill hp-bar-fill" id="profile-hp-fill" style="width:0%"></div>
+                  </div>
                 </div>
               </div>
-            </div>
+
+              <div class="profile-mtg-bottom">
+                <div
+                  class="profile-stats-list profile-stats-list--mtg"
+                  id="profile-stats-strip"
+                  aria-label="Основные характеристики"
+                ></div>
+                <div class="profile-mtg-xp-block" aria-label="Опыт">
+                  <div id="profile-xp-text">—</div>
+                  <div class="profile-mtg-bar profile-mtg-bar--xp">
+                    <div class="profile-mtg-bar-fill" id="profile-xp-fill" style="width:0%"></div>
+                  </div>
+                </div>
+              </div>
+            </article>
           </div>
         </div>
       </section>
@@ -123,79 +940,177 @@
             <h3>Характеристики</h3>
             <div class="tag" id="profile-stat-points">ОХ: —</div>
           </div>
-          <div id="profile-stats-breakdown" class="profile-stat-accordions"></div>
+          <div id="profile-stats-breakdown" class="profile-stats-breakdown-root"></div>
         </div>
 
         <div class="section">
           <div class="profile-inner-tabs">
             <button class="tab active" data-info-tab="indicators" onclick="WaifuApp.switchProfileInfoTab('indicators')">Показатели</button>
             <button class="tab" data-info-tab="statistics" onclick="WaifuApp.switchProfileInfoTab('statistics')">Статистика</button>
+            <button class="tab" data-info-tab="raceclass" onclick="WaifuApp.switchProfileInfoTab('raceclass')">Раса / класс</button>
           </div>
 
           <div id="profile-info-indicators" class="profile-info-panel active">
-            <div id="profile-indicators-grid" class="details-grid"></div>
+            <div id="profile-indicators-grid" class="details-grid profile-detail-grid"></div>
           </div>
 
           <div id="profile-info-statistics" class="profile-info-panel">
-            <div id="profile-statistics-grid" class="details-grid"></div>
+            <div id="profile-statistics-grid" class="details-grid profile-detail-grid"></div>
+          </div>
+
+          <div id="profile-info-raceclass" class="profile-info-panel">
+            <div id="profile-raceclass-content" class="profile-raceclass-root"></div>
           </div>
         </div>
       </section>
     </main>
 
-    <div id="slot-modal" class="modal" style="display:none;" onclick="if (event.target === this) WaifuApp.closeSlotModal()">
-      <div class="modal-content">
-        <div class="modal-head">
+    <div
+      id="profile-stat-info-modal"
+      class="modal profile-stat-info-modal"
+      style="display:none;"
+      onclick="WaifuApp.closeProfileStatInfoModal()"
+      aria-hidden="true"
+    >
+      <div class="profile-stat-info-panel" role="dialog" aria-modal="true" aria-labelledby="profile-stat-info-title">
+        <div class="profile-stat-info-head">
+          <div class="modal-title profile-stat-info-title" id="profile-stat-info-title"></div>
+        </div>
+        <div class="profile-stat-info-body" id="profile-stat-info-body"></div>
+      </div>
+    </div>
+
+    <div id="slot-modal" class="modal slot-modal-root" style="display:none;" onclick="if (event.target === this) WaifuApp.closeSlotModal()">
+      <div class="modal-content slot-modal-panel" onclick="event.stopPropagation()">
+        <div class="modal-head slot-modal-head">
           <div>
             <div class="modal-title" id="slot-modal-title">Выберите предмет</div>
             <div class="muted tiny" id="slot-modal-subtitle">—</div>
           </div>
-          <button class="secondary" onclick="WaifuApp.closeSlotModal()">✖</button>
+          <button type="button" class="secondary slot-modal-close" onclick="WaifuApp.closeSlotModal()" aria-label="Закрыть">✖</button>
         </div>
-        <div class="modal-body" id="slot-modal-body">
+        <div class="modal-body slot-modal-body" id="slot-modal-body">
           <div class="placeholder">Загрузка...</div>
-        </div>
-        <div class="modal-footer">
-          <button class="secondary" onclick="WaifuApp.closeSlotModal()">Отмена</button>
         </div>
       </div>
     </div>
 
-    <div id="item-modal" class="modal" style="display:none;" onclick="if (event.target === this) WaifuApp.closeItemModal()">
-      <div class="modal-content" id="item-modal-content">
-        <div class="modal-head">
-          <div class="profile-item-modal-titlebox">
-            <div class="muted tiny" id="item-modal-rarity">—</div>
-            <div class="modal-title" id="item-modal-name">—</div>
+    <div id="item-modal" class="modal item-modal-root item-modal-v2-wrap item-modal-v2-host" style="display:none;" onclick="if (event.target === this) WaifuApp.closeItemModal()">
+      <div class="item-modal-v2-shell">
+      <div id="item-modal-content" class="item-modal-v2-card" role="dialog" aria-modal="true" aria-labelledby="item-modal-name" onclick="event.stopPropagation()">
+        <header class="item-modal-v2-hdr">
+          <div class="item-modal-v2-hdr-l">
+            <button type="button" class="item-modal-v2-hdr-x" aria-label="Закрыть" onclick="WaifuApp.closeItemModal()">✕</button>
+            <span class="item-modal-v2-hdr-t">Детали предмета</span>
           </div>
-          <button class="secondary" onclick="WaifuApp.closeItemModal()">✖</button>
-        </div>
-        <div class="modal-body">
-          <div class="profile-item-modal-layout">
-            <div class="item-modal-art profile-item-modal-art" id="item-modal-art" aria-hidden="true">📦</div>
-            <div class="profile-item-modal-side">
-              <div class="detail-row">
-                <span class="muted">Уровень</span>
-                <strong id="item-modal-level">—</strong>
+        </header>
+        <div class="item-modal-v2-scroll">
+          <div class="item-modal-v2-title-block">
+            <div class="item-modal-v2-title" id="item-modal-name">—</div>
+            <div class="item-modal-v2-sub">
+              <div class="item-modal-v2-sub-spacer" aria-hidden="true"></div>
+              <div class="item-modal-v2-sub-main">
+                <span class="item-modal-v2-sub-lbl" id="item-modal-subline"></span>
+                <span class="item-modal-v2-dot" aria-hidden="true"></span>
+                <span class="item-modal-v2-rpill" id="item-modal-rpill">—</span>
               </div>
-              <div class="detail-row">
-                <span class="muted">Тип</span>
-                <strong id="item-modal-type">—</strong>
-              </div>
-              <div class="detail-row">
-                <span class="muted">Слот</span>
-                <strong id="item-modal-slot">—</strong>
+              <div class="item-modal-v2-sub-tail">
+                <span
+                  class="item-modal-v2-upgrade"
+                  id="item-modal-upgrade-hint"
+                  style="display: none"
+                  aria-hidden="true"
+                ></span>
               </div>
             </div>
           </div>
-          <div id="item-modal-body"></div>
+          <div class="item-modal-v2-art-wrap">
+            <div class="item-modal-v2-art" aria-hidden="true">
+              <div class="item-modal-v2-ring item-modal-v2-ring--outer"></div>
+              <div class="item-modal-v2-ring item-modal-v2-ring--inner"></div>
+              <div class="item-modal-v2-glow"></div>
+              <div class="item-modal-v2-frame" id="item-modal-art-frame">
+                <div class="item-modal-v2-art-inner" id="item-modal-art">📦</div>
+              </div>
+            </div>
+          </div>
+          <div class="item-modal-v2-ench" id="item-modal-ench"></div>
+          <div class="item-modal-v2-spanel">
+            <div class="item-modal-v2-spanel-hd"><span aria-hidden="true">✦</span> Характеристики</div>
+            <div id="item-modal-body"></div>
+          </div>
+          <div class="item-modal-v2-req" id="item-modal-req-section" style="display:none;">
+            <div class="item-modal-v2-req-hd">Требования</div>
+            <div class="item-modal-v2-req-pills" id="item-modal-requirements" aria-live="polite"></div>
+          </div>
+          <div class="item-modal-v2-desc" id="item-modal-desc" style="display:none;"></div>
+          <div class="item-modal-v2-scroll-pad" aria-hidden="true"></div>
         </div>
-        <div class="modal-footer">
-          <button class="secondary danger" id="item-modal-sell" onclick="WaifuApp.toggleItemSellConfirm()" style="display:none;">Продать</button>
-          <button class="secondary" id="item-modal-unequip" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
-          <button class="secondary" id="item-modal-replace" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
-          <button class="primary" id="item-modal-equip" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Экипировать</button>
-          <button class="secondary" onclick="WaifuApp.closeItemModal()">Закрыть</button>
+        <footer class="item-modal-v2-footer">
+          <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
+            <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
+            <button class="item-modal-v2-btn item-modal-v2-btn--ench" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;">Заточить</button>
+            <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
+            <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
+            <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip" type="button" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Надеть</button>
+          </div>
+        </footer>
+      </div>
+      </div>
+      <div
+        id="item-modal-sell-overlay"
+        class="item-modal-sell-overlay"
+        style="display: none"
+        role="dialog"
+        aria-modal="true"
+        aria-hidden="true"
+        aria-labelledby="item-modal-sell-title"
+        onclick="if (event.target === this) WaifuApp.closeItemSellConfirmOverlay()"
+      >
+        <div class="item-modal-sell-panel" onclick="event.stopPropagation()">
+          <div class="item-modal-sell-title" id="item-modal-sell-title">Продать предмет?</div>
+          <div class="item-modal-sell-name muted tiny" id="item-modal-sell-item-name">—</div>
+          <div class="item-modal-sell-price-line">Вы получите <strong>🪙 <span id="item-modal-sell-gold">—</span></strong></div>
+          <div class="item-modal-sell-actions">
+            <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemSellConfirmOverlay()">Отмена</button>
+            <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" onclick="WaifuApp.confirmSellSelectedItem()">Продать</button>
+          </div>
+        </div>
+      </div>
+      <div
+        id="item-modal-equip-ring-overlay"
+        class="item-modal-sell-overlay"
+        style="display: none"
+        role="dialog"
+        aria-modal="true"
+        aria-hidden="true"
+        aria-labelledby="item-modal-equip-ring-title"
+        onclick="if (event.target === this) WaifuApp.closeItemEquipRingOverlay()"
+      >
+        <div class="item-modal-sell-panel" onclick="event.stopPropagation()">
+          <div class="item-modal-sell-title" id="item-modal-equip-ring-title">Куда надеть кольцо?</div>
+          <div class="item-modal-sell-name muted tiny" id="item-modal-equip-ring-hint">Выберите слот</div>
+          <div class="item-modal-equip-ring-btns" style="display: grid; gap: 8px; margin-bottom: 10px">
+            <button
+              type="button"
+              class="item-modal-v2-btn item-modal-v2-btn--equip"
+              id="item-modal-equip-ring-btn-4"
+              onclick="WaifuApp.confirmEquipToRingSlot(4)"
+            >
+              Кольцо 1
+            </button>
+            <button
+              type="button"
+              class="item-modal-v2-btn item-modal-v2-btn--equip"
+              id="item-modal-equip-ring-btn-5"
+              onclick="WaifuApp.confirmEquipToRingSlot(5)"
+            >
+              Кольцо 2
+            </button>
+          </div>
+          <div class="item-modal-sell-actions">
+            <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemEquipRingOverlay()">Отмена</button>
+          </div>
         </div>
       </div>
     </div>
@@ -208,7 +1123,7 @@
       <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
       <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
       <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
-      <a href="./settings.html" data-page="settings" title="Настройки"><span aria-hidden="true">⚙️</span></a>
+      <a href="./index.html" data-page="menu" title="Главное меню"><span aria-hidden="true">🏠</span></a>
     </nav>
   </body>
 </html>

@@ -7,6 +7,899 @@
     <link rel="stylesheet" href="./styles.css" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
+    <style>
+      .page-tavern {
+        --ink: #0d0a08;
+        --parchment: #1a1410;
+        --amber: #c8922a;
+        --amber-glow: #e8b84b;
+        --ember: #d45a1a;
+        --smoke: #2e2520;
+        --ash: #8a7a6a;
+        --cream: #e8dcc8;
+        /* Общий шрифт как в styles.css (Inter) */
+        --font-title: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+        --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      body.page-tavern {
+        background: var(--ink);
+        color: var(--cream);
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+        margin: 0;
+        padding-bottom: 0;
+      }
+      /* ОЧ — как в магазине: тёмная плашка, янтарь, без «синего» текста от темы TG */
+      .page-tavern .attic {
+        background: rgba(13, 10, 8, 0.95) !important;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.2) !important;
+        padding: 7px 10px !important;
+        z-index: 50;
+        flex-shrink: 0;
+        backdrop-filter: blur(8px);
+      }
+      .page-tavern .attic-row {
+        display: flex;
+        gap: 5px;
+        align-items: center;
+        flex-wrap: nowrap;
+        overflow: hidden;
+        padding: 2px 0;
+      }
+      .page-tavern .attic-row .chip {
+        flex: 0 0 auto;
+        min-width: 0;
+        padding: 3px 9px;
+        font-size: 11px;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid rgba(200, 146, 42, 0.2) !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--cream) !important;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--font-body);
+      }
+      .page-tavern .attic-row .chip b,
+      .page-tavern .attic-row .chip strong {
+        color: var(--amber-glow) !important;
+        font-weight: 700;
+      }
+      .page-tavern .chip-ghost {
+        background: rgba(255, 255, 255, 0.06) !important;
+        border-style: solid !important;
+      }
+      .page-tavern .attic-level-chip {
+        flex: 1.2 1 0;
+        border-radius: 20px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 3px;
+        white-space: normal;
+      }
+      .page-tavern .attic-level-top {
+        color: var(--cream) !important;
+        font-size: 11px;
+      }
+      .page-tavern .attic-xp-fill {
+        background: linear-gradient(90deg, rgba(200, 146, 42, 0.9), rgba(232, 184, 75, 0.9)) !important;
+      }
+      .page-tavern #attic-dungeon-chip {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        max-width: 38%;
+      }
+      .page-tavern #attic-dungeon-label {
+        display: block;
+        color: var(--cream) !important;
+        line-height: 1.2;
+        font-size: 10px;
+      }
+      .page-tavern .attic-dungeon-stages {
+        display: flex;
+        gap: 2px;
+        margin-top: 2px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .page-tavern .attic-dungeon-stages:empty {
+        display: none;
+      }
+      .page-tavern .attic-stage-pixel {
+        width: 6px;
+        height: 6px;
+        border-radius: 1px;
+        background: rgba(200, 146, 42, 0.18);
+        border: 1px solid rgba(200, 146, 42, 0.2);
+        box-sizing: border-box;
+      }
+      .page-tavern .attic-stage-pixel--done {
+        background: rgba(232, 184, 75, 0.65);
+        border-color: rgba(232, 184, 75, 0.75);
+      }
+      .page-tavern .attic-stage-pixel--active {
+        background: rgba(200, 146, 42, 0.95);
+        border-color: rgba(200, 146, 42, 0.95);
+        box-shadow: 0 0 6px rgba(200, 146, 42, 0.3);
+      }
+      .page-tavern #attic-expedition-chip {
+        flex: 0 1 auto;
+        min-width: 48px;
+        max-width: 22%;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.06) !important;
+        border-color: rgba(200, 146, 42, 0.2) !important;
+      }
+      /* Вкладки + обновление — один ряд */
+      .page-tavern .tavern-tabs-wrap {
+        flex-shrink: 0;
+        background: rgba(13, 10, 8, 0.97);
+        border-bottom: 1px solid rgba(200, 146, 42, 0.15);
+        padding: 5px 8px;
+        z-index: 40;
+      }
+      .page-tavern .tavern-tabs {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: stretch;
+        gap: 4px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        margin: 0;
+        grid-template-columns: unset !important;
+      }
+      .page-tavern .tavern-tabs::-webkit-scrollbar {
+        display: none;
+      }
+      .page-tavern .tavern-tabs .tab {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 6px 4px;
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        border-radius: 9px;
+        border: 1px solid rgba(200, 146, 42, 0.18);
+        background: rgba(26, 20, 14, 0.85);
+        color: var(--ash) !important;
+        font-family: var(--font-title);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        box-shadow: none;
+        transform: none;
+      }
+      .page-tavern .tavern-tabs .tab.active {
+        background: rgba(200, 146, 42, 0.15);
+        border-color: rgba(200, 146, 42, 0.4);
+        color: var(--amber-glow) !important;
+        box-shadow: none;
+        transform: none;
+      }
+      .page-tavern .tavern-tab-refresh {
+        flex: 0 0 34px;
+        width: 34px;
+        min-width: 34px;
+        padding: 0;
+        border-radius: 9px;
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        background: rgba(200, 146, 42, 0.1);
+        color: var(--amber-glow) !important;
+        font-size: 15px;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.15s, border-color 0.15s;
+      }
+      .page-tavern .tavern-tab-refresh:hover {
+        background: rgba(200, 146, 42, 0.2);
+        border-color: rgba(232, 184, 75, 0.5);
+      }
+      .page-tavern .tavern-tab-refresh:active {
+        transform: scale(0.96);
+      }
+      /* Фон страницы под вкладками */
+      .page-tavern .tavern-root-stage {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: auto;
+      }
+      .page-tavern .tavern-root-bg {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        background: linear-gradient(150deg, #2a1a08 0%, #15100a 55%, #0d0908 100%);
+        pointer-events: none;
+      }
+      .page-tavern .tavern-root-bg-img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        opacity: 0.48;
+        z-index: 1;
+        pointer-events: none;
+      }
+      .page-tavern .tavern-root-main.layout {
+        position: relative;
+        z-index: 2;
+        flex: 1;
+        min-height: 0;
+        background: transparent;
+      }
+      .page-tavern .nav.basement {
+        flex-shrink: 0;
+        background: rgba(13, 10, 8, 0.99);
+        border-top: 1px solid rgba(200, 146, 42, 0.12);
+      }
+      .page-tavern .nav.basement a {
+        color: var(--ash);
+      }
+      .page-tavern .tavern-scene-wrap::before {
+        content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+        width: 280px; height: 120px; background: radial-gradient(ellipse, rgba(200,146,42,0.18) 0%, transparent 70%); pointer-events: none; z-index: 0;
+      }
+      .page-tavern .tavern-svg-scene { display: block; width: 100%; max-width: 480px; margin: 0 auto; position: relative; z-index: 1; }
+      .page-tavern .figure-btn { cursor: pointer; transition: opacity .2s; }
+      .page-tavern .figure-btn:hover .hood-body { fill: #4a3a28; }
+      .page-tavern .figure-btn.hired .hood-body { fill: #1a1410; opacity: .3; }
+      .page-tavern .figure-btn.hired .price-bubble { display: none; }
+      .page-tavern .figure-btn.hired { pointer-events: none; }
+      .page-tavern .price-bubble-bg { fill: rgba(13,10,8,0.88); stroke: #c8922a; stroke-width: 1; }
+      .page-tavern .price-text { fill: #e8b84b; font-family: var(--font-body); font-size: 11px; font-weight: 600; }
+      @keyframes flicker { 0%,100% { opacity: 1; transform: scaleY(1); } 25% { opacity: .7; transform: scaleY(.88); } 50% { opacity: .9; transform: scaleY(1.04); } 75% { opacity: .75; transform: scaleY(.92); } }
+      .page-tavern .candle-flame { animation: flicker 1.8s ease-in-out infinite; transform-origin: center bottom; }
+      .page-tavern .candle-flame-2 { animation: flicker 2.3s ease-in-out infinite .4s; transform-origin: center bottom; }
+      .page-tavern .candle-flame-3 { animation: flicker 1.5s ease-in-out infinite .9s; transform-origin: center bottom; }
+      @keyframes smoke-rise { 0% { opacity: 0; transform: translateY(0) scaleX(1); } 30% { opacity: .35; } 100% { opacity: 0; transform: translateY(-22px) scaleX(1.8); } }
+      .page-tavern .smoke-wisp { animation: smoke-rise 3s ease-out infinite; transform-origin: center; }
+      .page-tavern .smoke-wisp-2 { animation: smoke-rise 3s ease-out infinite 1s; }
+      .page-tavern .smoke-wisp-3 { animation: smoke-rise 3s ease-out infinite 2s; }
+      .page-tavern .hire-hint { text-align: center; color: var(--ash); font-style: italic; font-size: 14px; padding: 8px 16px 16px; }
+      .page-tavern .section-head h3 { font-family: var(--font-title); font-size: 13px; letter-spacing: .1em; color: var(--amber-glow); }
+      .page-tavern .section-subhead { font-size: 12px; color: var(--ash); margin-top: 2px; }
+      .page-tavern .squad-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; min-width: 0; }
+      .page-tavern .squad-grid > * { min-width: 0; }
+      .page-tavern .squad-slot { border: 1px dashed rgba(200,146,42,0.25); border-radius: 12px; min-height: 110px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(26,20,16,0.6); color: var(--ash); font-size: 13px; gap: 4px; cursor: pointer; transition: border-color .2s, background .2s, box-shadow .2s, transform .15s; }
+      .page-tavern .squad-slot:hover:not(.occupied) { border-color: rgba(200,146,42,0.5); background: rgba(46,37,32,0.8); }
+      .page-tavern .squad-slot.occupied { border: none; background: transparent; padding: 0; align-items: stretch; justify-content: stretch; min-height: 0; }
+      .page-tavern .squad-slot.occupied:hover { filter: brightness(1.04); }
+      .page-tavern .unit-portrait { width: 44px; height: 44px; border-radius: 8px; background: var(--smoke); border: 1px solid rgba(200,146,42,0.3); overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+      .page-tavern .unit-name { font-family: var(--font-title); font-size: 11px; color: var(--cream); letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .page-tavern .unit-class { font-size: 11px; color: var(--ash); margin-top: 1px; }
+      .page-tavern .unit-level { font-size: 10px; background: rgba(200,146,42,0.15); color: var(--amber-glow); border-radius: 4px; padding: 1px 5px; display: inline-block; margin-top: 2px; }
+      .page-tavern .unit-perks-mini { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 5px; }
+      .page-tavern .perk-pip { font-size: 10px; padding: 1px 5px; border-radius: 10px; background: rgba(200,146,42,0.12); border: 1px solid rgba(200,146,42,0.2); color: var(--amber); }
+      .page-tavern .reserve-list { display: flex; flex-direction: column; gap: 8px; }
+      .page-tavern .reserve-card { background: rgba(26,20,16,0.7); border: 1px solid rgba(200,146,42,0.15); border-radius: 10px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; transition: border-color .2s, background .2s; }
+      .page-tavern .reserve-card:hover { border-color: rgba(200,146,42,0.35); background: rgba(46,37,32,0.9); }
+      .page-tavern .reserve-name { font-family: var(--font-title); font-size: 12px; color: var(--cream); }
+      .page-tavern .reserve-meta { font-size: 11px; color: var(--ash); margin-top: 2px; }
+      .page-tavern .tavern-modal-sheet { background: var(--parchment); border: 1px solid rgba(200,146,42,0.25); border-bottom: none; border-radius: 20px 20px 0 0; width: 100%; max-width: 480px; padding: 20px 20px 32px; max-height: 90vh; overflow-y: auto; position: relative; }
+      .page-tavern .modal-handle { width: 36px; height: 4px; background: rgba(200,146,42,0.3); border-radius: 2px; margin: 0 auto 16px; }
+      .page-tavern .hire-confirm-body { text-align: center; padding: 8px 0 16px; }
+      .page-tavern .hire-confirm-icon { font-size: 48px; margin-bottom: 12px; display: block; }
+      .page-tavern .hire-confirm-text { font-size: 15px; color: var(--cream); line-height: 1.5; margin-bottom: 4px; }
+      .page-tavern .hire-confirm-price { font-size: 20px; color: var(--amber-glow); font-weight: 600; margin: 8px 0; }
+      .page-tavern .hire-confirm-note { font-size: 13px; color: var(--ash); font-style: italic; }
+      .page-tavern .btn-row { display: flex; gap: 10px; margin-top: 16px; }
+      .page-tavern .tavern-btn { flex: 1; padding: 12px; border: none; border-radius: 10px; font-family: var(--font-title); font-size: 13px; letter-spacing: .06em; cursor: pointer; transition: opacity .2s, transform .1s; }
+      .page-tavern .tavern-btn-primary { background: linear-gradient(135deg, #c8922a, #e8b84b); color: var(--ink); }
+      .page-tavern .tavern-btn-secondary { background: rgba(255,255,255,0.06); border: 1px solid rgba(200,146,42,0.25); color: var(--ash); }
+      .page-tavern .gen-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(5,3,2,0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 32px; }
+      .page-tavern .gen-orb { width: 80px; height: 80px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #e8b84b, #c8922a 50%, #6b3a10); box-shadow: 0 0 40px rgba(200,146,42,0.6), 0 0 80px rgba(200,146,42,0.2); animation: orb-pulse 2s ease-in-out infinite; }
+      @keyframes orb-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.12); box-shadow: 0 0 60px rgba(232,184,75,0.8), 0 0 100px rgba(200,146,42,0.3); } }
+      .page-tavern .gen-rune-ring { position: absolute; width: 120px; height: 120px; border: 1px solid rgba(200,146,42,0.3); border-radius: 50%; animation: spin-slow 8s linear infinite; }
+      @keyframes spin-slow { to { transform: rotate(360deg); } }
+      .page-tavern .gen-stage-label { font-family: var(--font-title); font-size: 14px; letter-spacing: .1em; color: var(--amber-glow); text-align: center; min-height: 20px; }
+      .page-tavern .gen-stage-detail { font-size: 13px; color: var(--ash); font-style: italic; text-align: center; }
+      .page-tavern .gen-progress-bar { width: 200px; height: 3px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; }
+      .page-tavern .gen-progress-fill { height: 100%; background: var(--amber); border-radius: 2px; transition: width .6s ease; }
+      .page-tavern .gen-rune { position: absolute; font-size: 16px; color: rgba(200,146,42,0.4); animation: rune-float 4s ease-in-out infinite; pointer-events: none; }
+      @keyframes rune-float { 0%,100% { transform: translateY(0) rotate(0deg); opacity: .3; } 50% { transform: translateY(-15px) rotate(180deg); opacity: .7; } }
+      /* Карточка результата найма: MTG-style, фон 2:3 на всю карточку */
+      .page-tavern .hire-result-modal-sheet { padding: 52px 16px 24px; display: flex; flex-direction: column; align-items: center; }
+      .page-tavern .hire-result-close { position: absolute; top: 12px; right: 14px; z-index: 20; }
+      .page-tavern .hire-result-card {
+        position: relative; width: 100%; max-width: 300px; aspect-ratio: 2 / 3; border-radius: 14px; overflow: hidden;
+        border: 3px solid rgba(255,255,255,0.28); box-shadow: 0 12px 40px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(0,0,0,0.35);
+      }
+      .page-tavern .hire-result-card.rarity-common { border-color: rgba(255,255,255,0.35); }
+      .page-tavern .hire-result-card.rarity-uncommon { border-color: rgba(74, 222, 128, 0.75); }
+      .page-tavern .hire-result-card.rarity-rare { border-color: rgba(96, 165, 250, 0.85); }
+      .page-tavern .hire-result-card.rarity-epic { border-color: rgba(192, 132, 252, 0.9); }
+      .page-tavern .hire-result-card.rarity-legendary { border-color: rgba(251, 191, 36, 0.95); box-shadow: 0 12px 48px rgba(251, 191, 36, 0.15), 0 12px 40px rgba(0,0,0,0.55); }
+      .page-tavern .hire-result-bg {
+        position: absolute; inset: 0; background-size: cover; background-position: center top; background-repeat: no-repeat;
+        background-color: #1a1410;
+      }
+      .page-tavern .hire-result-bg.hire-result-bg--placeholder {
+        background-image: radial-gradient(ellipse at 50% 35%, rgba(200,146,42,0.2), transparent 55%), linear-gradient(165deg, #2e2520, #0d0a08);
+      }
+      .page-tavern .hire-result-bg.hire-result-bg--placeholder::after {
+        content: '✨'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        font-size: 56px; opacity: 0.35; pointer-events: none;
+      }
+      .page-tavern .hire-result-scrim-top {
+        position: absolute; top: 0; left: 0; right: 0; height: 42%; pointer-events: none;
+        background: linear-gradient(180deg, rgba(5,3,2,0.92) 0%, rgba(5,3,2,0.55) 45%, transparent 100%);
+      }
+      .page-tavern .hire-result-scrim-bottom {
+        position: absolute; bottom: 0; left: 0; right: 0; height: 52%; pointer-events: none;
+        background: linear-gradient(0deg, rgba(5,3,2,0.96) 0%, rgba(5,3,2,0.7) 40%, transparent 100%);
+      }
+      .page-tavern .hire-result-top {
+        position: absolute; top: 0; left: 0; right: 0; z-index: 2; padding: 14px 14px 10px; text-align: center;
+      }
+      .page-tavern .hire-result-name {
+        font-family: var(--font-title); font-size: 20px; color: var(--cream); letter-spacing: .08em; text-shadow: 0 2px 8px rgba(0,0,0,0.85);
+      }
+      .page-tavern .hire-result-meta {
+        font-size: 12px; color: var(--amber-glow); margin-top: 4px; letter-spacing: .04em; text-shadow: 0 1px 6px rgba(0,0,0,0.9);
+      }
+      .page-tavern .hire-result-bottom {
+        position: absolute; bottom: 0; left: 0; right: 0; z-index: 2; padding: 12px 12px 14px; text-align: center;
+      }
+      .page-tavern .hire-result-perks { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-bottom: 8px; }
+      .page-tavern .hire-result-perks .perk-badge {
+        font-size: 10px; padding: 3px 8px; border-radius: 999px;
+        background: rgba(13,10,8,0.65); border: 1px solid rgba(200,146,42,0.45); color: var(--amber-glow);
+        backdrop-filter: blur(4px);
+      }
+      .page-tavern .hire-result-bio {
+        font-size: 11px; line-height: 1.45; color: var(--cream); font-style: italic; opacity: 0.92;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.95); max-height: 5.8em; overflow: hidden;
+        display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+      }
+      /* Отряд: те же MTG-карточки (фон 2:3), компактнее под сетку 2×3 */
+      .page-tavern .squad-mtg-card {
+        position: relative; width: 100%; aspect-ratio: 2 / 3; border-radius: 12px; overflow: hidden;
+        border: 3px solid rgba(255,255,255,0.28); box-shadow: 0 8px 28px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(0,0,0,0.35);
+      }
+      .page-tavern .squad-mtg-card.rarity-common { border-color: rgba(255,255,255,0.35); }
+      .page-tavern .squad-mtg-card.rarity-uncommon { border-color: rgba(74, 222, 128, 0.75); }
+      .page-tavern .squad-mtg-card.rarity-rare { border-color: rgba(96, 165, 250, 0.85); }
+      .page-tavern .squad-mtg-card.rarity-epic { border-color: rgba(192, 132, 252, 0.9); }
+      .page-tavern .squad-mtg-card.rarity-legendary { border-color: rgba(251, 191, 36, 0.95); box-shadow: 0 8px 32px rgba(251, 191, 36, 0.12), 0 8px 28px rgba(0,0,0,0.5); }
+      .page-tavern .squad-mtg-bg {
+        position: absolute; inset: 0; background-color: #1a1410;
+        overflow: hidden;
+      }
+      .page-tavern .squad-mtg-bg .squad-mtg-bg-img {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        object-fit: cover; object-position: center top;
+        pointer-events: none;
+      }
+      .page-tavern .squad-mtg-bg.squad-mtg-bg--placeholder {
+        background-image: radial-gradient(ellipse at 50% 35%, rgba(200,146,42,0.18), transparent 55%), linear-gradient(165deg, #2e2520, #0d0a08);
+      }
+      .page-tavern .squad-mtg-bg.squad-mtg-bg--placeholder::after {
+        content: '✨'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        font-size: 40px; opacity: 0.3; pointer-events: none;
+      }
+      .page-tavern .squad-mtg-scrim-top {
+        position: absolute; top: 0; left: 0; right: 0; height: 38%; pointer-events: none;
+        background: linear-gradient(180deg, rgba(5,3,2,0.9) 0%, rgba(5,3,2,0.45) 50%, transparent 100%);
+      }
+      .page-tavern .squad-mtg-scrim-bottom {
+        position: absolute; bottom: 0; left: 0; right: 0; height: 55%; pointer-events: none;
+        background: linear-gradient(0deg, rgba(5,3,2,0.95) 0%, rgba(5,3,2,0.65) 38%, transparent 100%);
+      }
+      .page-tavern .squad-mtg-slot-mark {
+        position: absolute; top: 6px; right: 6px; z-index: 3; font-size: 9px; font-weight: 700; letter-spacing: .06em;
+        color: var(--amber-glow); background: rgba(13,10,8,0.75); border: 1px solid rgba(200,146,42,0.4);
+        padding: 2px 6px; border-radius: 999px; text-shadow: none;
+      }
+      .page-tavern .squad-mtg-top {
+        position: absolute; top: 0; left: 0; right: 0; z-index: 2; padding: 22px 8px 8px; text-align: center;
+      }
+      .page-tavern .squad-mtg-name {
+        font-family: var(--font-title); font-size: 13px; color: var(--cream); letter-spacing: .06em; line-height: 1.2;
+        text-shadow: 0 2px 6px rgba(0,0,0,0.9); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .page-tavern .squad-mtg-meta {
+        font-size: 9px; color: var(--amber-glow); margin-top: 3px; letter-spacing: .03em; line-height: 1.25;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.95); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+      }
+      .page-tavern .squad-mtg-bottom {
+        position: absolute; bottom: 0; left: 0; right: 0; z-index: 2; padding: 6px 8px 8px; text-align: center;
+      }
+      .page-tavern .squad-mtg-perks { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; margin-bottom: 0; }
+      .page-tavern .squad-mtg-perks .perk-badge {
+        font-size: 8px; padding: 2px 6px; border-radius: 999px;
+        background: rgba(13,10,8,0.7); border: 1px solid rgba(200,146,42,0.45); color: var(--amber-glow);
+        max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      /* Рамка карточки пула — только редкость (.rarity-* на .squad-mtg-card) */
+      body.page-tavern.tavern-modal-scroll-lock .tavern-root-stage {
+        overflow: hidden !important;
+      }
+      .page-tavern #tavern-waifu-modal.modal {
+        z-index: 120;
+      }
+      /* Совместимость: старые классы в других местах страницы */
+      .page-tavern .result-bio { font-size: 12px; line-height: 1.45; color: var(--ash); font-style: italic; margin-bottom: 8px; border-left: 2px solid rgba(200,146,42,0.3); padding-left: 8px; }
+      .page-tavern .result-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+      .page-tavern .result-stat { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 6px 8px; }
+      .page-tavern .result-stat-label { font-size: 10px; color: var(--ash); text-transform: uppercase; letter-spacing: .06em; }
+      .page-tavern .result-stat-value { font-size: 16px; color: var(--cream); font-weight: 600; margin-top: 1px; }
+      .page-tavern .perk-badge { font-size: 11px; padding: 3px 8px; border-radius: 12px; background: rgba(200,146,42,0.12); border: 1px solid rgba(200,146,42,0.25); color: var(--amber-glow); }
+      .page-tavern .waifu-detail-portrait { width: 100%; height: 160px; background: var(--smoke); border-radius: 12px; overflow: hidden; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; font-size: 48px; background: linear-gradient(135deg, #2e2520, #1a1410); flex-shrink: 0; }
+      .page-tavern .waifu-detail-portrait img { width: 100%; height: 100%; object-fit: contain; object-position: center; }
+      .page-tavern .perks-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+      .page-tavern .perk-row { background: rgba(200,146,42,0.06); border: 1px solid rgba(200,146,42,0.15); border-radius: 10px; padding: 8px 10px; }
+      .page-tavern .perk-row-name { font-size: 13px; color: var(--amber-glow); font-weight: 600; }
+      .page-tavern .perk-row-desc { font-size: 12px; color: var(--ash); margin-top: 3px; font-style: italic; }
+      .page-tavern .full-bar-row { margin: 6px 0; }
+      .page-tavern .full-bar-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--ash); margin-bottom: 3px; }
+      .page-tavern .full-bar { height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; }
+      .page-tavern .full-bar-fill { height: 100%; border-radius: 3px; }
+      .page-tavern .full-bar-fill.hp { background: linear-gradient(90deg, #c0392b, #e05555); }
+      .page-tavern .full-bar-fill.energy { background: linear-gradient(90deg, #2255c0, #5595e0); }
+      .page-tavern .dismiss-btn { background: rgba(192,57,43,0.12); border: 1px solid rgba(192,57,43,0.3); color: #e07070; border-radius: 8px; padding: 8px 14px; font-family: var(--font-body); font-size: 13px; cursor: pointer; width: 100%; margin-top: 12px; }
+      .page-tavern .dismiss-btn:hover { background: rgba(192,57,43,0.22); }
+      .page-tavern .basement a[data-page="tavern"], .page-tavern .basement a:hover { color: var(--amber-glow); background: rgba(200,146,42,0.08); }
+      .page-tavern .hidden { display: none !important; }
+      .page-tavern .squad-picker-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(200,146,42,0.2); border-radius: 10px; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+      .page-tavern .squad-picker-card:hover { background: rgba(200,146,42,0.08); border-color: rgba(200,146,42,0.4); }
+      .page-tavern .squad-picker-card--weak { opacity: 0.55; }
+      .page-tavern .squad-picker-icon { font-size: 28px; width: 36px; text-align: center; flex-shrink: 0; }
+      .page-tavern .squad-picker-info { flex: 1; min-width: 0; }
+      .page-tavern .squad-picker-name { font-size: 13px; font-weight: 600; color: var(--cream); }
+      .page-tavern .squad-picker-meta { font-size: 11px; color: var(--ash); margin-top: 1px; }
+      .page-tavern .squad-picker-bars { display: flex; gap: 4px; margin-top: 4px; }
+      .page-tavern .squad-picker-bars .mini-bar { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+      .page-tavern .squad-picker-bars .mini-bar-fill.hp { background: linear-gradient(90deg, #c0392b, #e05555); }
+      .page-tavern .squad-picker-bars .mini-bar-fill.energy { background: linear-gradient(90deg, #2255c0, #5595e0); }
+      .page-tavern .squad-picker-perks { display: flex; flex-wrap: wrap; gap: 3px; justify-content: flex-end; max-width: 80px; }
+
+      /* Модалка наёмницы: MTG-стиль */
+      .page-tavern .tavern-waifu-mtg-modal-sheet {
+        width: min(380px, 94vw);
+        max-height: none;
+        overflow: visible;
+        position: relative;
+        padding-top: 16px;
+      }
+      .page-tavern .tavern-waifu-mtg-footer {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .page-tavern .tavern-waifu-mtg-footer .secondary.tavern-footer-btn {
+        flex: 1;
+        min-width: 0;
+        width: auto;
+        color: var(--cream);
+        border-color: rgba(200, 146, 42, 0.35);
+        background: rgba(200, 146, 42, 0.08);
+      }
+      .page-tavern .tavern-waifu-mtg-footer .primary.tavern-footer-btn-primary {
+        flex: 1;
+        min-width: 0;
+        width: auto;
+        color: #1a0f08;
+        border-color: rgba(200, 146, 42, 0.55);
+        background: linear-gradient(135deg, #c8922a, #e8b84b);
+      }
+      .page-tavern .tavern-waifu-mtg-footer.tavern-waifu-mtg-footer--actions {
+        flex-wrap: nowrap;
+      }
+      .page-tavern .tavern-waifu-mtg-footer.tavern-waifu-mtg-footer--actions .tavern-footer-btn,
+      .page-tavern .tavern-waifu-mtg-footer.tavern-waifu-mtg-footer--actions #tavern-waifu-modal-dismiss {
+        flex: 1 1 0;
+        min-width: 0;
+      }
+      .page-tavern #tavern-waifu-modal-dismiss {
+        color: #f0a8a8;
+        border-color: rgba(212, 90, 26, 0.45);
+        background: rgba(212, 90, 26, 0.12);
+      }
+      .page-tavern .tavern-waifu-mtg-modal-body-outer {
+        overflow-x: hidden;
+        overflow-y: visible;
+      }
+      .page-tavern #tavern-waifu-modal .tavern-waifu-mtg-modal-body-outer.modal-body {
+        overflow-y: visible !important;
+        max-height: none !important;
+      }
+      .page-tavern .tavern-waifu-mtg-wrap {
+        position: relative;
+        width: 100%;
+      }
+      .page-tavern .tavern-perk-tip {
+        position: absolute;
+        z-index: 30;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: min(272px, 86%);
+        max-height: 78%;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: rgba(13, 10, 8, 0.94);
+        border: 1px solid rgba(200, 146, 42, 0.55);
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+        text-align: left;
+      }
+      .page-tavern .tavern-perk-tip[hidden] { display: none !important; }
+      .page-tavern .tavern-perk-tip-name {
+        font-family: var(--font-title);
+        font-size: 13px;
+        color: var(--amber-glow);
+        letter-spacing: 0.06em;
+        margin-bottom: 6px;
+      }
+      .page-tavern .tavern-perk-tip-desc {
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--cream);
+        margin-bottom: 8px;
+      }
+      .page-tavern .tavern-perk-tip-diff {
+        font-size: 11px;
+        line-height: 1.4;
+        color: rgba(232, 220, 200, 0.88);
+        font-style: italic;
+        margin-bottom: 10px;
+        padding-top: 6px;
+        border-top: 1px solid rgba(200, 146, 42, 0.2);
+      }
+      .page-tavern .tavern-btn-mini {
+        width: 100%;
+        padding: 8px;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.4);
+        background: rgba(200, 146, 42, 0.15);
+        color: var(--amber-glow);
+        font-family: var(--font-title);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        cursor: pointer;
+      }
+      .page-tavern .waifu-mtg-flip-scene {
+        perspective: 1000px;
+        width: 100%;
+        max-width: 300px;
+        margin: 0 auto;
+      }
+      .page-tavern .waifu-mtg-flip-inner {
+        position: relative;
+        transform-style: preserve-3d;
+        transition: transform 0.55s cubic-bezier(0.4, 0.2, 0.2, 1);
+        width: 100%;
+      }
+      .page-tavern .waifu-mtg-flip-inner.is-flipped {
+        transform: rotateY(180deg);
+      }
+      .page-tavern .waifu-mtg-face {
+        backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
+      }
+      .page-tavern .waifu-mtg-face--back {
+        position: absolute;
+        inset: 0;
+        transform: rotateY(180deg);
+        cursor: pointer;
+      }
+      .page-tavern .waifu-mtg-card {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 2 / 3;
+        border-radius: 14px;
+        overflow: hidden;
+        border: 4px solid rgba(255, 255, 255, 0.35);
+        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+        background: #120d0a;
+      }
+      .page-tavern .waifu-mtg-card.rarity-common { border-color: rgba(255, 255, 255, 0.4); }
+      .page-tavern .waifu-mtg-card.rarity-uncommon { border-color: rgba(74, 222, 128, 0.8); }
+      .page-tavern .waifu-mtg-card.rarity-rare { border-color: rgba(96, 165, 250, 0.88); }
+      .page-tavern .waifu-mtg-card.rarity-epic { border-color: rgba(192, 132, 252, 0.92); }
+      .page-tavern .waifu-mtg-card.rarity-legendary {
+        border-color: rgba(251, 191, 36, 0.95);
+        box-shadow: 0 10px 40px rgba(251, 191, 36, 0.12), 0 10px 32px rgba(0, 0, 0, 0.5);
+      }
+      .page-tavern .waifu-mtg-card--backface {
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        aspect-ratio: unset;
+        display: flex;
+        flex-direction: column;
+        padding: 10px 12px;
+        box-sizing: border-box;
+      }
+      .page-tavern .waifu-mtg-art {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        background: #1a1410;
+      }
+      .page-tavern .waifu-mtg-lower-overlay {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 4;
+        padding: 6px 8px 8px;
+        background: linear-gradient(180deg, transparent 0%, rgba(5, 3, 2, 0.45) 18%, rgba(5, 3, 2, 0.82) 100%);
+        backdrop-filter: blur(5px);
+        -webkit-backdrop-filter: blur(5px);
+        border-top: 1px solid rgba(200, 146, 42, 0.22);
+      }
+      .page-tavern .waifu-mtg-art-img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center top;
+      }
+      .page-tavern .waifu-mtg-art-placeholder {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 56px;
+        opacity: 0.4;
+        background: linear-gradient(165deg, #2e2520, #0d0a08);
+      }
+      .page-tavern .waifu-mtg-art-scrim {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 1;
+        background: linear-gradient(180deg, rgba(5, 3, 2, 0.72) 0%, transparent 32%, transparent 58%, rgba(5, 3, 2, 0.25) 100%);
+      }
+      .page-tavern .waifu-mtg-header-row {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 3;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px 10px 8px;
+      }
+      .page-tavern .waifu-mtg-name {
+        margin: 0;
+        font-family: var(--font-title);
+        font-size: 17px;
+        line-height: 1.15;
+        color: var(--cream);
+        letter-spacing: 0.06em;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+        flex: 1;
+        min-width: 0;
+      }
+      .page-tavern .waifu-mtg-lvl-badge {
+        flex-shrink: 0;
+        padding: 4px 10px;
+        border-radius: 8px;
+        border: 2px solid rgba(200, 146, 42, 0.65);
+        background: rgba(13, 10, 8, 0.82);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+      }
+      .page-tavern .waifu-mtg-lvl-num {
+        font-family: var(--font-title);
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--amber-glow);
+        letter-spacing: 0.04em;
+      }
+      .page-tavern .waifu-mtg-lower-overlay .waifu-mtg-typebar {
+        padding: 2px 2px 6px;
+        font-size: 10px;
+        line-height: 1.3;
+        color: rgba(245, 236, 220, 0.98);
+        text-align: center;
+        border: none;
+        background: transparent;
+      }
+      .page-tavern .waifu-mtg-perks-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        padding: 0 0 4px;
+        background: transparent;
+      }
+      .page-tavern .waifu-mtg-perks-label {
+        font-family: var(--font-title);
+        font-size: 9px;
+        letter-spacing: 0.12em;
+        color: var(--amber-glow);
+      }
+      .page-tavern .waifu-mtg-bio-chip {
+        flex-shrink: 0;
+        padding: 3px 8px;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.5);
+        background: rgba(20, 14, 10, 0.45);
+        color: var(--cream);
+        font-family: var(--font-title);
+        font-size: 8px;
+        letter-spacing: 0.14em;
+        cursor: pointer;
+      }
+      .page-tavern .waifu-mtg-bio-chip:active { transform: scale(0.97); }
+      .page-tavern .waifu-mtg-lower-overlay .waifu-mtg-perk-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 4px;
+        padding: 0;
+        background: transparent;
+      }
+      .page-tavern .waifu-mtg-perk-cell {
+        aspect-ratio: 1;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.4);
+        background: rgba(18, 12, 8, 0.55);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition: border-color 0.15s, background 0.15s;
+      }
+      .page-tavern .waifu-mtg-perk-cell:hover {
+        border-color: rgba(232, 184, 75, 0.65);
+        background: rgba(46, 37, 32, 0.95);
+      }
+      .page-tavern .waifu-mtg-perk-ico {
+        font-size: 18px;
+        line-height: 1;
+      }
+      .page-tavern .waifu-mtg-no-perks {
+        grid-column: 1 / -1;
+        text-align: center;
+        font-size: 10px;
+        color: rgba(232, 220, 200, 0.8);
+        font-style: italic;
+        padding: 4px 0 2px;
+      }
+      .page-tavern .waifu-mtg-bio-back-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.25);
+      }
+      .page-tavern .waifu-mtg-bio-back-title {
+        font-family: var(--font-title);
+        font-size: 14px;
+        color: var(--amber-glow);
+        letter-spacing: 0.06em;
+      }
+      .page-tavern .waifu-mtg-bio-back-text {
+        flex: 1;
+        overflow-y: auto;
+        font-size: 13px;
+        line-height: 1.5;
+        color: rgba(232, 220, 200, 0.95);
+        font-style: italic;
+        min-height: 0;
+      }
+      .page-tavern .waifu-mtg-xp {
+        margin-top: 8px;
+      }
+      .page-tavern .waifu-mtg-xp .full-bar-label {
+        color: rgba(232, 220, 200, 0.92);
+      }
+      .page-tavern .waifu-mtg-xp .full-bar-label span {
+        color: inherit;
+      }
+      .page-tavern .waifu-mtg-xp--max {
+        text-align: center;
+        font-size: 12px;
+        color: var(--amber-glow);
+        font-family: var(--font-title);
+        letter-spacing: 0.08em;
+        margin-top: 12px;
+      }
+
+      /* Выбор слота отряда: сетка 6 ячеек */
+      .page-tavern .tavern-slot-modal-grid-body {
+        padding: 0 2px;
+      }
+      .page-tavern .tavern-slot-pick-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .page-tavern .tavern-slot-pick-cell {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 4px;
+        padding: 8px 6px 10px;
+        border-radius: 12px;
+        border: 2px dashed rgba(200, 146, 42, 0.28);
+        background: rgba(26, 20, 16, 0.65);
+        cursor: pointer;
+        color: rgba(232, 220, 200, 0.95);
+        font-family: var(--font-body);
+        transition: border-color 0.15s, background 0.15s;
+      }
+      .page-tavern .tavern-slot-pick-cell--filled {
+        border-style: solid;
+        border-color: rgba(200, 146, 42, 0.4);
+      }
+      .page-tavern .tavern-slot-pick-cell:hover {
+        border-color: rgba(232, 184, 75, 0.55);
+        background: rgba(46, 37, 32, 0.88);
+      }
+      .page-tavern .tavern-slot-pick-num {
+        position: absolute;
+        top: 4px;
+        right: 6px;
+        font-size: 9px;
+        font-weight: 700;
+        color: var(--amber-glow);
+        opacity: 0.9;
+      }
+      .page-tavern .tavern-slot-pick-portrait {
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+        overflow: hidden;
+        background: rgba(5, 3, 2, 0.6);
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .page-tavern .tavern-slot-pick-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center top;
+      }
+      .page-tavern .tavern-slot-pick-emoji { font-size: 22px; }
+      .page-tavern .tavern-slot-pick-plus { font-size: 22px; opacity: 0.35; color: var(--amber-glow); }
+      .page-tavern .tavern-slot-pick-name {
+        font-family: var(--font-title);
+        font-size: 11px;
+        color: var(--cream);
+        line-height: 1.2;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .page-tavern .tavern-slot-pick-hint {
+        font-size: 9px;
+        line-height: 1.25;
+        color: rgba(232, 184, 75, 0.85);
+        font-style: italic;
+      }
+    </style>
   </head>
   <body class="page-tavern" onload="WaifuApp.bootstrapPage('tavern',(p)=>WaifuApp.loadTavern(p));">
     <header class="attic">
@@ -15,96 +908,214 @@
           <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
           <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
         </div>
-        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье">🏰&nbsp;<span id="attic-dungeon-label">Нет боя</span></div>
-        <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции">🗺&nbsp;<span id="attic-expedition-label"></span></div>
-        <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
-        <div class="chip" title="Энергия">⚡&nbsp;<span id="badge-energy">—</span></div>
-        <div class="chip admin-only" id="tavern-admin-buttons" style="display:none;">
-          <button class="secondary" title="Обновить слоты найма" aria-label="Обновить слоты найма" onclick="WaifuApp.adminRefreshTavern()">🔄</button>
+        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)">
+          <span id="attic-dungeon-label">Нет боя</span>
+          <span id="attic-dungeon-stages" class="attic-dungeon-stages" aria-hidden="true"></span>
         </div>
+        <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
+        <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
       </div>
     </header>
 
-    <main class="layout">
-      <div class="tabs tavern-tabs">
-        <button class="tab active" data-tab="hire" onclick="WaifuApp.switchTavernTab('hire')">Найм</button>
-        <button class="tab" data-tab="squad" onclick="WaifuApp.switchTavernTab('squad')">Отряд</button>
+    <div class="tavern-tabs-wrap">
+      <div class="tavern-tabs">
+        <button type="button" class="tab active" data-tab="hire" onclick="WaifuApp.switchTavernTab('hire')">⚔ Найм</button>
+        <button type="button" class="tab" data-tab="squad" onclick="WaifuApp.switchTavernTab('squad')">🛡 Отряд</button>
+        <button type="button" class="tab" data-tab="heal" onclick="WaifuApp.switchTavernTab('heal')">💊 Леч.</button>
+        <button type="button" class="tab" data-tab="upgrade" onclick="WaifuApp.switchTavernTab('upgrade')">⬆ LVL</button>
+        <button type="button" class="tavern-tab-refresh" title="Обновить данные таверны" aria-label="Обновить" onclick="WaifuApp.refreshTavernPage()">🔄</button>
       </div>
+    </div>
 
+    <div class="tavern-root-stage">
+      <div class="tavern-root-bg" aria-hidden="true"></div>
+      <img class="tavern-root-bg-img" src="/static/tavern/tavern.background.webp" alt="" onerror="this.style.display='none'" />
+    <main class="layout tavern-root-main">
       <div id="tab-hire" class="tab-panel active">
-        <section class="section">
-          <div id="tavern-scene" class="tavern-scene act-1">
-            <div class="tavern-stage">
-              <div class="tavern-table" aria-hidden="true"></div>
-              <div class="tavern-figures" aria-label="Слоты найма">
-                <button class="tavern-figure" id="tavern-slot-1" data-slot="1" onclick="WaifuApp.hireFromTavern(1)">
-                  <div class="tavern-price" id="tavern-price-1">🪙 —</div>
-                  <div class="tavern-hood" aria-hidden="true"></div>
-                </button>
-                <button class="tavern-figure" id="tavern-slot-2" data-slot="2" onclick="WaifuApp.hireFromTavern(2)">
-                  <div class="tavern-price" id="tavern-price-2">🪙 —</div>
-                  <div class="tavern-hood" aria-hidden="true"></div>
-                </button>
-                <button class="tavern-figure" id="tavern-slot-3" data-slot="3" onclick="WaifuApp.hireFromTavern(3)">
-                  <div class="tavern-price" id="tavern-price-3">🪙 —</div>
-                  <div class="tavern-hood" aria-hidden="true"></div>
-                </button>
-                <button class="tavern-figure" id="tavern-slot-4" data-slot="4" onclick="WaifuApp.hireFromTavern(4)">
-                  <div class="tavern-price" id="tavern-price-4">🪙 —</div>
-                  <div class="tavern-hood" aria-hidden="true"></div>
-                </button>
-              </div>
-            </div>
-            <div class="tavern-hint muted tiny">
-              Нажмите на фигуру, чтобы нанять случайную вайфу. Обновление слотов — 1 раз в день (00:00 МСК).
-            </div>
-            <div id="tavern-hire-error" class="banner" style="display:none;"></div>
-          </div>
-        </section>
+        <div class="tavern-scene-wrap">
+          <svg class="tavern-svg-scene" viewBox="0 0 360 280" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="floorGrad" cx="50%" cy="100%" r="70%"><stop offset="0%" stop-color="#2e2018"/><stop offset="100%" stop-color="#0d0a08"/></radialGradient>
+              <radialGradient id="tableGrad" cx="50%" cy="30%" r="70%"><stop offset="0%" stop-color="#5a3a18"/><stop offset="100%" stop-color="#2e1c0a"/></radialGradient>
+              <radialGradient id="glowAmber" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#e8b84b" stop-opacity="0.35"/><stop offset="100%" stop-color="#e8b84b" stop-opacity="0"/></radialGradient>
+              <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.7"/></filter>
+            </defs>
+            <rect width="360" height="280" fill="url(#floorGrad)"/>
+            <line x1="0" y1="200" x2="360" y2="200" stroke="#1e1408" stroke-width="1" opacity=".5"/>
+            <line x1="0" y1="220" x2="360" y2="220" stroke="#1e1408" stroke-width="1" opacity=".5"/>
+            <line x1="0" y1="240" x2="360" y2="240" stroke="#1e1408" stroke-width="1" opacity=".5"/>
+            <ellipse cx="180" cy="185" rx="130" ry="30" fill="url(#glowAmber)"/>
+            <ellipse cx="180" cy="178" rx="150" ry="22" fill="url(#tableGrad)" filter="url(#shadow)"/>
+            <ellipse cx="180" cy="175" rx="148" ry="20" fill="none" stroke="#8a5a20" stroke-width="1" opacity=".5"/>
+            <rect x="160" y="192" width="40" height="50" rx="4" fill="#1e1008"/>
+            <rect x="150" y="234" width="60" height="10" rx="3" fill="#1e1008"/>
+            <rect x="60" y="158" width="8" height="22" rx="2" fill="#e8dcc8" opacity=".9"/>
+            <ellipse cx="64" cy="158" rx="4" ry="2" fill="#d4c8b0"/>
+            <g class="candle-flame" transform="translate(64,156)"><ellipse cx="0" cy="-5" rx="3" ry="6" fill="#f5a623" opacity=".9"/><ellipse cx="0" cy="-7" rx="1.5" ry="3" fill="#ffe066"/></g>
+            <g class="smoke-wisp" transform="translate(64,148)"><ellipse cx="0" cy="0" rx="1.5" ry="3" fill="#888" opacity=".2"/></g>
+            <rect x="148" y="155" width="8" height="22" rx="2" fill="#e8dcc8" opacity=".9"/>
+            <ellipse cx="152" cy="155" rx="4" ry="2" fill="#d4c8b0"/>
+            <g class="candle-flame-2" transform="translate(152,153)"><ellipse cx="0" cy="-5" rx="3.5" ry="7" fill="#f5a623" opacity=".9"/><ellipse cx="0" cy="-7" rx="1.8" ry="3.5" fill="#ffe066"/></g>
+            <g class="smoke-wisp-2" transform="translate(152,144)"><ellipse cx="0" cy="0" rx="1.5" ry="3" fill="#888" opacity=".2"/></g>
+            <rect x="205" y="155" width="8" height="22" rx="2" fill="#e8dcc8" opacity=".9"/>
+            <ellipse cx="209" cy="155" rx="4" ry="2" fill="#d4c8b0"/>
+            <g class="candle-flame" transform="translate(209,153)"><ellipse cx="0" cy="-5" rx="3" ry="6" fill="#f5a623" opacity=".9"/><ellipse cx="0" cy="-7" rx="1.5" ry="3" fill="#ffe066"/></g>
+            <g class="smoke-wisp-3" transform="translate(209,144)"><ellipse cx="0" cy="0" rx="1.5" ry="3" fill="#888" opacity=".2"/></g>
+            <rect x="291" y="158" width="8" height="22" rx="2" fill="#e8dcc8" opacity=".9"/>
+            <ellipse cx="295" cy="158" rx="4" ry="2" fill="#d4c8b0"/>
+            <g class="candle-flame-3" transform="translate(295,156)"><ellipse cx="0" cy="-5" rx="3" ry="6" fill="#f5a623" opacity=".9"/><ellipse cx="0" cy="-7" rx="1.5" ry="3" fill="#ffe066"/></g>
+            <rect x="88" y="165" width="14" height="12" rx="2" fill="#5a3a18" opacity=".8"/>
+            <rect x="90" y="163" width="10" height="4" rx="1" fill="#8a6030" opacity=".8"/>
+            <rect x="258" y="165" width="14" height="12" rx="2" fill="#5a3a18" opacity=".8"/>
+            <rect x="260" y="163" width="10" height="4" rx="1" fill="#8a6030" opacity=".8"/>
+            <g class="figure-btn" id="svg-figure-1" data-slot="1" role="button" aria-label="Нанять (слот 1)">
+                <ellipse cx="55" cy="160" rx="26" ry="32" fill="#3a2a1a" class="hood-body"/>
+                <path d="M29 180 Q55 200 81 180 L78 210 Q55 225 32 210 Z" fill="#2e2010" class="hood-body"/>
+                <ellipse cx="55" cy="132" rx="18" ry="16" fill="#3a2a1a" class="hood-body"/>
+                <path d="M37 132 Q55 115 73 132 Q73 148 55 150 Q37 148 37 132Z" fill="#2e2010" class="hood-body"/>
+                <ellipse cx="55" cy="136" rx="11" ry="10" fill="#120c06"/>
+                <ellipse cx="51" cy="135" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+                <ellipse cx="59" cy="135" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+                <path d="M29 162 Q18 172 22 182" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+                <path d="M81 162 Q92 172 88 182" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+                <g class="price-bubble"><rect x="28" y="100" width="54" height="22" rx="6" class="price-bubble-bg"/><polygon points="52,122 58,122 55,128" fill="#c8922a"/><text x="55" y="115" text-anchor="middle" class="price-text" id="price-text-0">🪙 —</text></g>
+              </g>
+            <g class="figure-btn" id="svg-figure-2" data-slot="2" role="button" aria-label="Нанять (слот 2)">
+                <ellipse cx="120" cy="155" rx="24" ry="30" fill="#3a2a1a" class="hood-body"/>
+                <path d="M96 173 Q120 193 144 173 L141 202 Q120 216 99 202 Z" fill="#2e2010" class="hood-body"/>
+                <ellipse cx="120" cy="129" rx="17" ry="15" fill="#3a2a1a" class="hood-body"/>
+                <path d="M103 129 Q120 113 137 129 Q137 144 120 146 Q103 144 103 129Z" fill="#2e2010" class="hood-body"/>
+                <ellipse cx="120" cy="133" rx="10" ry="9" fill="#120c06"/>
+                <ellipse cx="116" cy="132" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+                <ellipse cx="124" cy="132" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+                <path d="M96 158 Q86 167 89 176" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+                <path d="M144 158 Q154 167 151 176" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+                <g class="price-bubble"><rect x="94" y="96" width="54" height="22" rx="6" class="price-bubble-bg"/><polygon points="118,118 124,118 121,124" fill="#c8922a"/><text x="121" y="111" text-anchor="middle" class="price-text" id="price-text-1">🪙 —</text></g>
+              </g>
+            <g class="figure-btn" id="svg-figure-3" data-slot="3" role="button" aria-label="Нанять (слот 3)">
+                <ellipse cx="240" cy="155" rx="24" ry="30" fill="#3a2a1a" class="hood-body"/>
+                <path d="M216 173 Q240 193 264 173 L261 202 Q240 216 219 202 Z" fill="#2e2010" class="hood-body"/>
+                <ellipse cx="240" cy="129" rx="17" ry="15" fill="#3a2a1a" class="hood-body"/>
+                <path d="M223 129 Q240 113 257 129 Q257 144 240 146 Q223 144 223 129Z" fill="#2e2010" class="hood-body"/>
+                <ellipse cx="240" cy="133" rx="10" ry="9" fill="#120c06"/>
+                <ellipse cx="236" cy="132" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+                <ellipse cx="244" cy="132" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+                <path d="M216 158 Q206 167 209 176" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+                <path d="M264 158 Q274 167 271 176" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+                <g class="price-bubble"><rect x="214" y="96" width="54" height="22" rx="6" class="price-bubble-bg"/><polygon points="238,118 244,118 241,124" fill="#c8922a"/><text x="241" y="111" text-anchor="middle" class="price-text" id="price-text-2">🪙 —</text></g>
+              </g>
+            <g class="figure-btn" id="svg-figure-4" data-slot="4" role="button" aria-label="Нанять (слот 4)">
+                <ellipse cx="305" cy="160" rx="26" ry="32" fill="#3a2a1a" class="hood-body"/>
+                <path d="M279 180 Q305 200 331 180 L328 210 Q305 225 282 210 Z" fill="#2e2010" class="hood-body"/>
+                <ellipse cx="305" cy="132" rx="18" ry="16" fill="#3a2a1a" class="hood-body"/>
+                <path d="M287 132 Q305 115 323 132 Q323 148 305 150 Q287 148 287 132Z" fill="#2e2010" class="hood-body"/>
+                <ellipse cx="305" cy="136" rx="11" ry="10" fill="#120c06"/>
+                <ellipse cx="301" cy="135" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+                <ellipse cx="309" cy="135" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+                <path d="M279 162 Q268 172 272 182" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+                <path d="M331 162 Q342 172 338 182" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+                <g class="price-bubble"><rect x="279" y="100" width="54" height="22" rx="6" class="price-bubble-bg"/><polygon points="303,122 309,122 306,128" fill="#c8922a"/><text x="306" y="115" text-anchor="middle" class="price-text" id="price-text-3">🪙 —</text></g>
+              </g>
+          </svg>
+        </div>
+        <p class="hire-hint">Нажмите на фигуру, чтобы снять капюшон и нанять наёмницу · Слоты обновляются в 00:00 МСК</p>
+        <div id="tavern-hire-error" class="banner" style="display:none;"></div>
       </div>
 
       <div id="tab-squad" class="tab-panel" style="display:none;">
         <section class="section">
-          <div class="section-head">
-            <div>
-              <div style="font-weight:800;">Отряд</div>
-              <div class="muted tiny">6 слотов · нажмите портрет для деталей</div>
-            </div>
-          </div>
-
-          <div id="tavern-squad-grid" class="tavern-squad-grid">
+          <div id="tavern-squad-counters" class="tavern-squad-counters muted" style="font-size:13px;font-weight:700;margin-bottom:8px;">—</div>
+          <div class="squad-grid tavern-squad-grid tavern-pool-grid" id="tavern-squad-grid">
             <div class="placeholder">Загрузка отряда...</div>
-          </div>
-
-          <div class="muted tiny" style="margin-top:12px;">Запас</div>
-          <div id="tavern-reserve" class="tavern-reserve">
-            <div class="placeholder">Загрузка запаса...</div>
           </div>
         </section>
       </div>
-    </main>
 
-    <!-- Waifu details modal -->
-    <div id="tavern-waifu-modal" class="modal" style="display:none;">
-      <div class="modal-content">
-        <div class="modal-head">
-          <div>
-            <div class="modal-title" id="tavern-waifu-modal-title">—</div>
-            <div class="muted tiny" id="tavern-waifu-modal-subtitle">—</div>
-          </div>
-          <button class="secondary" onclick="WaifuApp.closeTavernWaifuModal()">✖</button>
+      <div id="tab-heal" class="tab-panel" style="display:none;">
+        <section class="section">
+          <div class="section-head"><h3>Лечение наёмниц</h3></div>
+          <div id="tavern-heal-list" class="placeholder muted" style="font-style:italic;">Раненые наёмницы появятся здесь. Стоимость ×2 при 0 HP.</div>
+        </section>
+      </div>
+
+      <div id="tab-upgrade" class="tab-panel" style="display:none;">
+        <section class="section">
+          <div class="section-head"><h3>Прокачка наёмниц</h3></div>
+          <div id="tavern-upgrade-list" class="placeholder muted" style="font-style:italic;">Стоимость растёт с уровнем. Выберите наёмницу из запаса или отряда.</div>
+        </section>
+      </div>
+    </main>
+    </div>
+
+    <!-- Подтверждение найма (боттомшит) -->
+    <div id="modal-confirm-hire" class="modal hidden" style="display:none; align-items: flex-end; justify-content: center;" role="dialog" aria-modal="true">
+      <div class="tavern-modal-sheet">
+        <div class="modal-handle"></div>
+        <button class="secondary" style="position:absolute;top:16px;right:16px;" onclick="WaifuApp.closeTavernConfirmHire()">✕</button>
+        <div class="hire-confirm-body">
+          <span class="hire-confirm-icon">🪄</span>
+          <div class="hire-confirm-text">Снять капюшон и нанять наёмницу?</div>
+          <div class="hire-confirm-price" id="confirm-price">🪙 —</div>
+          <div class="hire-confirm-note">Параметры и перки определяются случайно</div>
         </div>
-        <div class="modal-body" id="tavern-waifu-modal-body"></div>
-        <div class="modal-footer">
-          <button class="secondary" onclick="WaifuApp.closeTavernWaifuModal()">Закрыть</button>
-          <button class="primary" style="width:auto; display:none;" id="tavern-waifu-modal-action" onclick="WaifuApp.tavernWaifuModalAction()">—</button>
+        <div class="btn-row">
+          <button class="tavern-btn tavern-btn-secondary" onclick="WaifuApp.closeTavernConfirmHire()">Отмена</button>
+          <button class="tavern-btn tavern-btn-primary" id="btn-confirm-hire" onclick="WaifuApp.confirmTavernHire()">Нанять</button>
         </div>
       </div>
     </div>
 
-    <!-- Choose squad slot modal -->
+    <!-- Оверлей генерации -->
+    <div id="gen-overlay" class="gen-overlay hidden" style="display:none;" role="status" aria-live="polite">
+      <span class="gen-rune" style="top:12%;left:8%;">ᚠ</span>
+      <span class="gen-rune" style="top:18%;right:10%;animation-delay:.8s">ᚢ</span>
+      <span class="gen-rune" style="top:70%;left:12%;animation-delay:1.6s">ᚦ</span>
+      <span class="gen-rune" style="top:75%;right:8%;animation-delay:.4s">ᚨ</span>
+      <div style="position:relative;display:flex;align-items:center;justify-content:center;width:120px;height:120px;">
+        <div class="gen-rune-ring"></div>
+        <div class="gen-orb"></div>
+      </div>
+      <div class="gen-stage-label" id="gen-stage-label">Призыв наёмницы...</div>
+      <div class="gen-stage-detail" id="gen-stage-detail">Ожидание ответа сервера</div>
+      <div class="gen-progress-bar">
+        <div class="gen-progress-fill" id="gen-progress-fill" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Результат найма -->
+    <div id="modal-hire-result" class="modal hidden" style="display:none;" role="dialog" aria-modal="true">
+      <div class="tavern-modal-sheet hire-result-modal-sheet">
+        <button type="button" class="secondary hire-result-close" onclick="WaifuApp.closeTavernHireResult()" aria-label="Закрыть">✕</button>
+        <div class="hire-result-card rarity-common" id="result-card">
+          <div class="hire-result-bg hire-result-bg--placeholder" id="result-card-bg" role="img" aria-label="Портрет наёмницы"></div>
+          <div class="hire-result-scrim-top" aria-hidden="true"></div>
+          <div class="hire-result-scrim-bottom" aria-hidden="true"></div>
+          <div class="hire-result-top">
+            <div class="hire-result-name" id="result-name">—</div>
+            <div class="hire-result-meta" id="result-meta">—</div>
+          </div>
+          <div class="hire-result-bottom">
+            <div class="hire-result-perks" id="result-perks"></div>
+            <div class="hire-result-bio" id="result-bio">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Детали наёмницы -->
+    <div id="tavern-waifu-modal" class="modal" style="display:none;">
+      <div class="modal-content tavern-modal-sheet tavern-waifu-mtg-modal-sheet">
+        <div class="modal-handle"></div>
+        <div class="modal-body tavern-waifu-mtg-modal-body-outer" id="tavern-waifu-modal-body"></div>
+        <div class="modal-footer tavern-waifu-mtg-footer tavern-waifu-mtg-footer--actions">
+          <button type="button" class="secondary tavern-footer-btn" onclick="WaifuApp.closeTavernWaifuModal()">Закрыть</button>
+          <button type="button" class="secondary tavern-footer-btn" id="tavern-waifu-modal-dismiss" onclick="WaifuApp.dismissTavernWaifu()" title="Уволить наёмницу. Уровень передастся следующей нанятой.">Уволить</button>
+        </div>
+      </div>
+    </div>
+
     <div id="tavern-slot-modal" class="modal" style="display:none;">
-      <div class="modal-content">
+      <div class="modal-content tavern-modal-sheet">
         <div class="modal-head">
           <div>
             <div class="modal-title">Выберите слот отряда</div>
@@ -120,16 +1131,25 @@
       </div>
     </div>
 
+    <div id="modal-squad-picker" class="modal hidden" role="dialog" aria-labelledby="squad-picker-title">
+      <div class="modal-content tavern-modal-sheet modal-sheet">
+        <div class="modal-handle"></div>
+        <button class="modal-close" type="button" onclick="WaifuApp.closeSquadPickerModal()" aria-label="Закрыть">✕</button>
+        <div class="modal-title" id="squad-picker-title">Добавить в отряд</div>
+        <div class="modal-subtitle" style="font-size:12px;color:var(--ash);margin-top:4px;">Выберите наёмницу из запаса для слота</div>
+        <div id="squad-picker-list" style="display:flex;flex-direction:column;gap:8px;margin-top:12px;"></div>
+      </div>
+    </div>
+
     <nav class="nav basement">
-      <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
-      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span aria-hidden="true">🏰</span></a>
-      <a href="./shop.html" data-page="shop" title="Магазин"><span aria-hidden="true">🏪</span></a>
-      <a href="./tavern.html" data-page="tavern" title="Таверна"><span aria-hidden="true">🍻</span></a>
-      <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
-      <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
-      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
-      <a href="./settings.html" data-page="settings" title="Настройки"><span aria-hidden="true">⚙️</span></a>
+      <a href="./profile.html" data-page="profile" title="Профиль"><span>👤</span></a>
+      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span>🏰</span></a>
+      <a href="./shop.html" data-page="shop" title="Магазин"><span>🏪</span></a>
+      <a href="./tavern.html" data-page="tavern" title="Таверна"><span>🍻</span></a>
+      <a href="./caravan.html" data-page="caravan" title="Караван"><span>🐫</span></a>
+      <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span>🏛️</span></a>
+      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span>💪</span></a>
+      <a href="./index.html" data-page="menu" title="Главное меню"><span aria-hidden="true">🏠</span></a>
     </nav>
   </body>
 </html>
-

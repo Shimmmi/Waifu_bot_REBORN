@@ -12,6 +12,7 @@ from waifu_bot.db.models import (
     HiredWaifu,
     Player,
     TavernHireSlot,
+    TavernState,
     WaifuClass,
     WaifuRace,
     WaifuRarity,
@@ -61,11 +62,9 @@ class TavernService:
                 "have": player.gold,
             }
 
-        # Check reserve space
+        # Check reserve space (ТЗ: при переполненном резерве — сначала уволить, тогда новая вайфу примет уровень уволенной)
         reserve_count = await self._get_reserve_count(session, player_id)
         if reserve_count >= RESERVE_SIZE:
-            # Check if we can transfer level from dismissed waifu
-            # For now, just return error
             return {"error": "reserve_full"}
 
         # Consume a daily hire slot
@@ -179,11 +178,54 @@ class TavernService:
 
         return {"success": True, "waifu_id": waifu_id}
 
+    async def dismiss_waifu(
+        self, session: AsyncSession, player_id: int, waifu_id: int
+    ) -> dict:
+        """
+        Уволить вайфу из запаса (удалить навсегда).
+        Уровень уволенной сохраняется в TavernState; следующая нанятая вайфу получит его (ТЗ).
+        """
+        waifu = await session.get(HiredWaifu, waifu_id)
+        if not waifu or waifu.player_id != player_id:
+            return {"error": "waifu_not_found"}
+        if waifu.squad_position is not None:
+            return {"error": "waifu_in_squad", "hint": "Сначала снимите вайфу с отряда в запас."}
+
+        level_to_transfer = max(1, int(waifu.level or 1))
+        state = await self._get_or_create_tavern_state(session, player_id)
+        state.last_dismissed_level = level_to_transfer
+
+        await session.delete(waifu)
+        await session.commit()
+        return {
+            "success": True,
+            "waifu_id": waifu_id,
+            "level_saved": level_to_transfer,
+            "hint": "Следующая нанятая в таверне вайфу получит этот уровень.",
+        }
+
+    async def _get_or_create_tavern_state(
+        self, session: AsyncSession, player_id: int
+    ) -> TavernState:
+        stmt = select(TavernState).where(TavernState.player_id == player_id)
+        state = (await session.execute(stmt)).scalar_one_or_none()
+        if not state:
+            state = TavernState(player_id=player_id)
+            session.add(state)
+            await session.flush()
+        return state
+
     async def _generate_waifu(
         self, session: AsyncSession, player_id: int
     ) -> HiredWaifu:
-        """Generate a random hired waifu."""
+        """Generate a random hired waifu. Level = 1 or last_dismissed_level (ТЗ)."""
         import random
+
+        start_level = 1
+        state = await self._get_or_create_tavern_state(session, player_id)
+        if getattr(state, "last_dismissed_level", None) is not None:
+            start_level = max(1, int(state.last_dismissed_level))
+            state.last_dismissed_level = None  # один раз передаём уровень
 
         # Roll rarity (weights: Common 50%, Uncommon 30%, Rare 15%, Epic 5%)
         rarity_roll = random.random()
@@ -212,7 +254,7 @@ class TavernService:
 
         power_base = {WaifuRarity.COMMON: 40, WaifuRarity.UNCOMMON: 55, WaifuRarity.RARE: 75, WaifuRarity.EPIC: 95, WaifuRarity.LEGENDARY: 120}
         base_power = power_base.get(rarity, 40)
-        power = base_power + random.randint(0, 10)
+        power = base_power + random.randint(0, 10) + (start_level - 1) * 2  # slight power scaling by level
         perk_count = {WaifuRarity.COMMON: 1, WaifuRarity.UNCOMMON: 2, WaifuRarity.RARE: 2, WaifuRarity.EPIC: 3, WaifuRarity.LEGENDARY: 4}
         max_perks = perk_count.get(rarity, 1)
         perk_ids = [p.id for p in random.sample(PERKS, k=min(max_perks, len(PERKS)))]
@@ -223,7 +265,7 @@ class TavernService:
             race=race.value,
             class_=class_.value,
             rarity=rarity.value,
-            level=1,
+            level=start_level,
             power=power,
             perks=perk_ids,
             strength=strength,

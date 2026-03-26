@@ -42,6 +42,9 @@ class Dungeon(Base):
 
     # Requirements / params
     level: Mapped[int] = mapped_column(Integer, nullable=False)  # min level
+    # Biome/tag-based system
+    tags: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # ["cave","fortress",...]
+    tier: Mapped[int] = mapped_column(Integer, nullable=False, default=1)  # 1-5, usually == act
     location_type: Mapped[str] = mapped_column(
         String(32), default="dungeon", nullable=False
     )  # cave/forest/ruins/etc
@@ -143,7 +146,9 @@ class MonsterTemplate(Base):
     emoji: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     family: Mapped[str | None] = mapped_column(String(32), nullable=True)  # undead/beast/demon/...
-    tags: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # {"tags": ["cave","fire"], ...}
+    tags: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # ["cave","forest","cursed",...]
+
+    tier: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # 1-5
 
     act_min: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     act_max: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
@@ -168,6 +173,10 @@ class MonsterTemplate(Base):
     boss_hp_mult: Mapped[float] = mapped_column(Float(), default=2.5, nullable=False)
     boss_dmg_mult: Mapped[float] = mapped_column(Float(), default=1.8, nullable=False)
     boss_reward_mult: Mapped[float] = mapped_column(Float(), default=2.0, nullable=False)
+
+    # Elite spawn system
+    elite_chance: Mapped[float] = mapped_column(Float(), default=0.06, nullable=False)
+    max_affixes: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
@@ -272,7 +281,51 @@ class DungeonRunMonster(Base):
     exp_reward: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     gold_reward: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    # Elite state
+    is_elite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    elite_color: Mapped[str | None] = mapped_column(String(16), nullable=True)   # blue / gold / red
+    applied_affix_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)  # list of monster_affixes.id
+
     run: Mapped["DungeonRun"] = relationship("DungeonRun", back_populates="monsters")
+
+
+class MonsterAffix(Base):
+    """Master definition of a single affix tier for elite monsters."""
+
+    __tablename__ = "monster_affixes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    affix_group: Mapped[str] = mapped_column(String(64), nullable=False)
+    tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    type: Mapped[str] = mapped_column(String(16), nullable=False)      # prefix / suffix
+    category: Mapped[str] = mapped_column(String(32), nullable=False)  # stat / behavior / reward / debuff
+    level_add: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Stat modifiers
+    hp_mult: Mapped[float | None] = mapped_column(Float(), nullable=True)
+    dmg_mult: Mapped[float | None] = mapped_column(Float(), nullable=True)
+    defense_add: Mapped[int | None] = mapped_column(Integer, nullable=True)   # % incoming damage reduction
+    evade_add: Mapped[int | None] = mapped_column(Integer, nullable=True)     # % evasion chance
+
+    # Reward modifiers
+    gold_mult: Mapped[float | None] = mapped_column(Float(), nullable=True)
+    exp_mult: Mapped[float | None] = mapped_column(Float(), nullable=True)
+    drop_chance_mult: Mapped[float | None] = mapped_column(Float(), nullable=True)
+    drop_rarity_bonus: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Behavioral parameters
+    behavior_flag: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # e.g. BERSERK / REGEN / REFLECT / SPLIT / UNDYING / MEDIA_BLOCK /
+    #      MEDIA_IMMUNE / TEXT_IMMUNE / CURSE / ANTI_CRIT / MISER / BUFF_NEXT / STONE_SKIN
+    behavior_params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Compatibility rules (stored as JSON arrays of affix_group strings)
+    incompatible_with: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    allowed_families: Mapped[list | None] = mapped_column(JSON, nullable=True)   # null = all
+    forbidden_families: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    max_per_monster: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
 
 class DropRule(Base):

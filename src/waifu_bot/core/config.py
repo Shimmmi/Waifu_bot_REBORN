@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     postgres_dsn: str = Field(..., alias="POSTGRES_DSN")
     redis_url: str = Field(..., alias="REDIS_URL")
 
+    # OpenRouter (AI narrative for expedition events; optional)
+    openrouter_api_key: str | None = Field(None, alias="OPENROUTER_API_KEY")
+    openrouter_model: str = Field("openai/gpt-4o-mini", alias="OPENROUTER_MODEL")
+
     # networking
     host: str = Field("0.0.0.0", alias="HOST")
     port: int = Field(8000, alias="PORT")

@@ -1,7 +1,7 @@
 """Pydantic schemas for API responses/requests."""
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 
 class ItemOut(BaseModel):
@@ -60,6 +60,8 @@ class TavernActionResponse(BaseModel):
     waifu_rarity: Optional[int] = None
     gold_remaining: Optional[int] = None
     slot: Optional[int] = None
+    bio: Optional[str] = None
+    image_url: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -75,6 +77,7 @@ class TavernAvailableResponse(BaseModel):
     remaining: int
     total: int
     price: int
+    perks: Optional[List["ExpeditionPerkOut"]] = None  # для UI таверны, чтобы не вызывать /expeditions/perks
 
 
 class TavernListResponse(BaseModel):
@@ -135,6 +138,83 @@ class GuildActionResponse(BaseModel):
     item_id: Optional[int] = None
 
 
+class HiddenSkillOut(BaseModel):
+    id: str
+    name: str
+    icon: Optional[str] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+    unlock_hint: Optional[str] = None
+    counter_type: str
+    level: int
+    counter: int
+    next_threshold: Optional[int] = None
+    max_level: int = 5
+    revealed: bool
+
+
+class HiddenSkillsResponse(BaseModel):
+    skills: List[HiddenSkillOut]
+
+
+class PassiveSkillNodeOut(BaseModel):
+    id: str
+    branch: str
+    tier: int
+    position: int
+    name: str
+    max_level: int
+    current_level: int
+    waifu_level_req: int
+    branch_points_req: int
+    effect_type: str
+    effect_values: list[float | int] = []
+    current_effect_value: float | int | None = None
+    equipment_level_bonus: int = 0
+    effective_level: int = 0
+    effective_effect_value: float | int | None = None
+    next_effective_effect_value: float | int | None = None
+    max_effect_label: str
+    cost_gold: int = 0
+    description: str | None = None
+    can_learn: bool = False
+    is_locked: bool = False
+
+
+class PassiveSkillTreeResponse(BaseModel):
+    branches: dict[str, list[PassiveSkillNodeOut]]
+    skill_points: int
+    branch_points: dict[str, int]
+    waifu_level: int
+    gold: int
+    reset_cost_per_point: float = 500.0
+
+
+class PassiveLearnRequest(BaseModel):
+    node_id: str
+
+
+class PassiveLearnResponse(BaseModel):
+    ok: bool
+    error: Optional[str] = None
+    new_level: Optional[int] = None
+    skill_points_left: Optional[int] = None
+    gold_remaining: Optional[int] = None
+    required: Optional[int] = None
+    have: Optional[int] = None
+
+
+class PassiveResetResponse(BaseModel):
+    ok: bool
+    error: Optional[str] = None
+    points_refunded: Optional[int] = None
+    gold_spent: Optional[int] = None
+    skill_points: Optional[int] = None
+    gold_remaining: Optional[int] = None
+    required: Optional[int] = None
+    have: Optional[int] = None
+
+
 class SkillsListResponse(BaseModel):
     skills: List["SkillOut"]
 
@@ -148,6 +228,8 @@ class SkillUpgradeResponse(BaseModel):
 
 
 class HiredWaifuOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int
     name: str
     race: int
@@ -157,6 +239,7 @@ class HiredWaifuOut(BaseModel):
     experience: int
     power: int | None = None
     perks: list[str] | None = None
+    bio: Optional[str] = None
     strength: int
     agility: int
     intelligence: int
@@ -164,9 +247,22 @@ class HiredWaifuOut(BaseModel):
     charm: int
     luck: int
     squad_position: Optional[int] = None
+    expedition_id: Optional[int] = None
+    in_squad: bool = False
+    status: Literal["expedition", "wounded", "squad", "ready"] = "ready"
+    image_url: Optional[str] = None  # data URL портрета (cursor_plan_7)
+    current_hp: int = 65
+    max_hp: int = 65
 
-    class Config:
-        populate_by_name = True
+    @model_serializer(mode="wrap")
+    def _serialize_hired_waifu(self, handler):
+        data = handler(self)
+        out = dict(data)
+        out["hpCurrent"] = data.get("current_hp")
+        out["hpMax"] = data.get("max_hp")
+        out["imageUrl"] = data.get("image_url")
+        out["inSquad"] = data.get("in_squad")
+        return out
 
 
 class DungeonOut(BaseModel):
@@ -176,6 +272,8 @@ class DungeonOut(BaseModel):
     dungeon_number: int
     dungeon_type: int
     level: int  # min level
+    tier: int | None = None
+    tags: list[str] | None = None
     location_type: str | None = None
     difficulty: int | None = None
     obstacle_count: int
@@ -183,6 +281,9 @@ class DungeonOut(BaseModel):
     obstacle_max: int | None = None
     base_experience: int | None = None
     base_gold: int | None = None
+    # Блокировки для отображения в UI (заполняются при запросе с player_id)
+    locked_by_act: bool = False  # акт ещё не открыт (max_act < act)
+    locked_by_prev: bool = False  # не пройдено предыдущее подземелье в акте
 
 
 class DungeonPlusStatusOut(BaseModel):
@@ -229,8 +330,6 @@ class MainWaifuProfile(BaseModel):
     class_: int = Field(alias="class")
     level: int
     experience: int
-    energy: int
-    max_energy: int
     strength: int
     agility: int
     intelligence: int
@@ -254,6 +353,12 @@ class MainWaifuProfile(BaseModel):
     bonus_endurance: Optional[int] = None
     bonus_charm: Optional[int] = None
     bonus_luck: Optional[int] = None
+    # Плоский бонус пассива «Трансценд.» (main_stats_flat), уже включён в strength…luck и bonus_*.
+    passive_main_stats_flat: int = 0
+    # Плоские бонусы расы/класса к СИЛ/ЛОВ/… (источник правды с бэкенда для UI).
+    race_flat_bonuses: dict[str, int] = Field(default_factory=dict)
+    class_flat_bonuses: dict[str, int] = Field(default_factory=dict)
+    portrait_url: Optional[str] = None
 
     class Config:
         populate_by_name = True
@@ -262,6 +367,7 @@ class MainWaifuProfile(BaseModel):
 class MainWaifuDetails(BaseModel):
     hp_current: int
     hp_max: int
+    armor: int = 0
     melee_damage: int
     ranged_damage: int
     magic_damage: int
@@ -278,6 +384,8 @@ class AffixOut(BaseModel):
     # Optional UI helpers (do not break older clients)
     kind: Optional[str] = None  # affix / suffix
     is_percent: Optional[bool] = None
+    # Подпись для строки характеристик (не сырой effect_key)
+    description: Optional[str] = None
 
 
 class GearItemOut(BaseModel):
@@ -295,6 +403,18 @@ class GearItemOut(BaseModel):
     weapon_type: Optional[str] = None
     base_stat: Optional[str] = None
     base_stat_value: Optional[int] = None
+    armor_base: Optional[int] = None
+    secondary_bonus_type: Optional[str] = None
+    secondary_bonus_value: Optional[float] = None
+    damage_min_effective: Optional[int] = None
+    damage_max_effective: Optional[int] = None
+    armor_effective: Optional[int] = None
+    secondary_bonus_effective: Optional[float] = None
+    enchant_level: int = 0
+    enchant_dmg_step: int = 0
+    enchant_arm_step: int = 0
+    enchant_sec_step: float = 0.0
+    is_broken: bool = False
     is_legendary: bool = False
     requirements: Optional[dict] = None
     affixes: List[AffixOut] = []
@@ -310,20 +430,191 @@ class GearItemOut(BaseModel):
 
 class ProfileResponse(BaseModel):
     player_id: int
-    act: int
+    act: int        # current_act — the act the player is currently in
+    max_act: int = 1  # highest act unlocked (used for caravan travel options)
     gold: int
+    skill_points: int = 0
+    protection_stones: int = 0
+    caravan_travel_costs: List[int] = []  # длина 5: стоимость переезда в акт 1..5
     main_waifu: Optional[MainWaifuProfile] = None
     main_waifu_details: Optional[MainWaifuDetails] = None
     equipment: List[GearItemOut] = []
+
+
+MainWaifuHairColor = Literal[
+    "blonde",
+    "black",
+    "brown",
+    "red",
+    "white",
+    "silver",
+    "blue",
+    "pink",
+    "green",
+]
+MainWaifuEyeColor = Literal[
+    "red",
+    "burgundy",
+    "pink",
+    "sky_blue",
+    "blue",
+    "turquoise",
+    "aquamarine",
+    "green",
+    "emerald",
+    "lime",
+    "yellow",
+    "amber",
+    "gold",
+    "orange",
+    "violet",
+    "gray",
+]
+MainWaifuHairstyle = Literal[
+    "short_bob",
+    "spiky_short",
+    "pixie",
+    "shaggy",
+    "medium_straight",
+    "medium_wavy",
+    "medium_straight_bangs",
+    "medium_wavy_2",
+    "messy_medium",
+    "side_pony",
+    "twin_tails",
+    "long_pony",
+    "long_straight",
+    "long_curls",
+    "twin_tails_alt",
+    "side_braid",
+    "space_buns",
+    "hime_cut",
+]
+MainWaifuEyeShape = Literal[
+    "bright",
+    "tsundere",
+    "cute",
+    "melancholy",
+    "serious",
+    "energetic",
+    "mystic",
+    "gentle",
+    "dormant_sleepy",
+    "shocked",
+    "playful",
+    "cold",
+    "confused",
+    "determination",
+    "yandere",
+    "shyness",
+    "confidence",
+    "tearful",
+    "joyful",
+    "anger",
+    "sleepy",
+    "annoyed",
+    "pouty",
+    "seductive",
+]
+MainWaifuOutfit = Literal[
+    "plate_armor",
+    "leather_armor",
+    "chainmail",
+    "dress",
+    "robes",
+    "casual",
+    "swimsuit",
+    "bikini",
+    "uniform",
+    "kimono",
+    "cloak",
+]
+_MAIN_WAIFU_ACCESSORY_KEYS = frozenset(
+    {
+        "none",
+        "necklace",
+        "earrings",
+        "makeup_light",
+        "makeup_bold",
+        "scars",
+        "freckles",
+        "glasses",
+        "eyepatch",
+        "face_paint",
+        "choker",
+        "gloves",
+        "hat",
+        "hood",
+        "circlet",
+        "hair_ribbon",
+    }
+)
+
+
+class MainWaifuPortraitPreviewRequest(BaseModel):
+    race: int
+    class_: int = Field(alias="class")
+    hair_color: MainWaifuHairColor
+    eye_colors: List[MainWaifuEyeColor] = Field(..., min_length=1, max_length=2)
+    hairstyle: MainWaifuHairstyle
+    eye_shape: MainWaifuEyeShape
+    outfit: MainWaifuOutfit
+    accessories: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("accessories")
+    @classmethod
+    def _accessories_whitelist(cls, v: List[str]) -> List[str]:
+        if len(v) > 6:
+            raise ValueError("accessories_max_6")
+        for x in v:
+            if str(x) not in _MAIN_WAIFU_ACCESSORY_KEYS:
+                raise ValueError("accessories_invalid_key")
+        return [str(x) for x in v]
+
+
+class MainWaifuPortraitPreviewResponse(BaseModel):
+    image_base64: str
+    mime: str = "image/webp"
+    slot_index: int
+    generations_count: int
+
+
+class MainWaifuPortraitDraftItem(BaseModel):
+    slot_index: int
+    image_base64: str
+    mime: str = "image/webp"
+
+
+class MainWaifuPortraitDraftsResponse(BaseModel):
+    items: List[MainWaifuPortraitDraftItem]
+    generations_count: int
 
 
 class MainWaifuCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     race: int
     class_: int = Field(alias="class")
+    portrait_base64: Optional[str] = None
+    selected_slot: Optional[int] = Field(None, ge=0, le=2)
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="after")
+    def _limit_portrait_size(self):
+        raw = self.portrait_base64
+        if not raw:
+            return self
+        try:
+            import base64
+
+            dec = base64.b64decode(raw, validate=True)
+        except Exception:
+            raise ValueError("portrait_base64_invalid")
+        if len(dec) > 4 * 1024 * 1024:
+            raise ValueError("portrait_too_large")
+        return self
 
 
 class MainWaifuCreateResponse(BaseModel):
@@ -331,26 +622,108 @@ class MainWaifuCreateResponse(BaseModel):
     main_waifu: MainWaifuProfile
 
 
-# --- Expeditions ---
+# --- Expeditions (перки и аффиксы для наёмных вайфу и испытаний) ---
+class ExpeditionPerkOut(BaseModel):
+    id: str
+    name: str
+    counters: List[str] = []
+    category: str
+
+
+class ExpeditionLegacyAffixOut(BaseModel):
+    """Старые строковые аффиксы из expedition_data.AFFIXES (не путать с БД expedition_affixes)."""
+
+    id: str
+    name: str
+    penalty: int
+    counter: str
+    category: str
+
+
+class ExpeditionAffixOut(BaseModel):
+    """Аффикс слота для UI (чипы по категории)."""
+    id: int
+    name: str
+    type: str  # prefix | suffix
+    category: str  # elemental, enemy, hazard, cursed, blessed
+    description_hint: Optional[str] = None
+    icon: Optional[str] = None
+
+
 class ExpeditionSlotOut(BaseModel):
     id: int
     slot: int
     name: str
     base_level: int
     base_difficulty: int
-    affixes: List[str] = []
+    difficulty: Optional[int] = None  # 1=лёгкая, 3=средняя, 5=тяжёлая (из аффиксов или по слоту)
+    label: Optional[str] = None  # "Лёгкая" | "Средняя" | "Тяжёлая"
+    required_perks: List[str] = []  # id перков, полезных для этого слота (контраффиксы)
+    affixes: List[ExpeditionAffixOut] = []  # ТЗ v1.1: чипы аффиксов (если нет — пусто)
+    base_location: Optional[str] = None  # «Пещера», «Руины» — для отображения
+    biome_tag: Optional[str] = None  # cave, forest, ruins… — для CSS фона карточки
+    biome_emoji: Optional[str] = None
+    paired_perks: List[str] = []  # то же что required_perks, для совместимости с планом
     base_gold: int
     base_experience: int
+    trial: bool = False
+    is_used: bool = False
+
+
+class ExpeditionPreviewRequest(BaseModel):
+    expedition_slot_id: int
+    squad_waifu_ids: List[int] = []
+    duration_minutes: Optional[int] = 60  # ТЗ v1.1: влияет на шанс и награды
+    # альтернативные имена для совместимости с планом
+    slot_id: Optional[int] = None
+    unit_ids: Optional[List[int]] = None
+
+
+class ExpeditionPreviewUnitOut(BaseModel):
+    unit_id: int
+    name: str
+    p_individual: float
+    p_level: float
+    p_perks: float
+    matched_perks: List[str] = []
+
+
+class ExpeditionPreviewOut(BaseModel):
+    chance: float
+    chance_pct: float
+    label: str
+    squad_size: int
+    units: List[ExpeditionPreviewUnitOut] = []
+    # ТЗ v1.1: длительность
+    duration_damage_mult: Optional[float] = None
+    duration_reward_mult: Optional[float] = None
+    events_count: Optional[int] = None
+    exp_per_unit: Optional[int] = None  # опыт на одну наёмницу при успехе
+    # для обратной совместимости
+    success_chance: Optional[float] = None
+    success_label: Optional[str] = None
+    matched_perks: Optional[List[str]] = None
 
 
 class ExpeditionSlotsResponse(BaseModel):
     slots: List[ExpeditionSlotOut]
     day: str
+    refresh_at: Optional[str] = None  # ISO UTC — следующее обновление слотов (полночь МСК)
+
+
+class ExpeditionSquadUnitOut(BaseModel):
+    id: int
+    name: str
+    icon: Optional[str] = None
+    unit_class: Optional[str] = None
+    race: Optional[str] = None
+    hp_current: int = 0
+    hp_max: int = 1
 
 
 class ExpeditionActiveOut(BaseModel):
     id: int
-    expedition_slot_id: int
+    expedition_slot_id: Optional[int] = None  # None если слот обнулён (админ refresh)
     expedition_name: str
     started_at: str
     ends_at: str
@@ -362,6 +735,17 @@ class ExpeditionActiveOut(BaseModel):
     squad_waifu_ids: List[int] = []
     can_claim: bool = False
     seconds_left: Optional[int] = None
+    outcome: Optional[str] = None  # ТЗ v1.1: после завершения
+    # UI v2: тики v1.3, отряд, аффиксы
+    base_location: Optional[str] = None
+    biome_tag: Optional[str] = None
+    biome_emoji: Optional[str] = None
+    affixes: List[ExpeditionAffixOut] = []
+    affix_level: Optional[int] = None
+    events_done: Optional[int] = None
+    events_total: Optional[int] = None
+    progress_pct: Optional[int] = None
+    squad_snapshot: List[ExpeditionSquadUnitOut] = []
 
 
 class ExpeditionActiveResponse(BaseModel):
@@ -369,9 +753,27 @@ class ExpeditionActiveResponse(BaseModel):
 
 
 class ExpeditionStartRequest(BaseModel):
-    expedition_slot_id: int
-    squad_waifu_ids: List[int]
-    duration_minutes: int
+    """Слот + difficulty_level + v13 duration ИЛИ конструктор (affix_template_id + affix_level + display_base_location)."""
+    expedition_slot_id: Optional[int] = None
+    squad_waifu_ids: List[int] = Field(default_factory=list)
+    duration_minutes: int = 60
+    affix_template_id: Optional[int] = None
+    affix_level: Optional[int] = None  # 1..5 (I–V) — конструктор
+    difficulty_level: Optional[int] = None  # 1..5 — ежедневный слот + v13
+    display_base_location: Optional[str] = None
+    display_biome_tag: Optional[str] = None
+    slot_id: Optional[int] = None
+    unit_ids: Optional[List[int]] = None
+
+    model_config = {"populate_by_name": True}
+
+    @model_validator(mode="after")
+    def _merge_aliases(self):
+        if self.expedition_slot_id is None and self.slot_id is not None:
+            object.__setattr__(self, "expedition_slot_id", self.slot_id)
+        if not self.squad_waifu_ids and self.unit_ids:
+            object.__setattr__(self, "squad_waifu_ids", list(self.unit_ids))
+        return self
 
 
 class ExpeditionStartResponse(BaseModel):
@@ -384,6 +786,9 @@ class ExpeditionStartResponse(BaseModel):
     reward_experience: int
     ends_at: str
     duration_minutes: int
+    affix_icon: Optional[str] = None
+    affix_level_roman: Optional[str] = None
+    events_total: Optional[int] = None
     error: Optional[str] = None
 
 
@@ -391,9 +796,11 @@ class ExpeditionClaimResponse(BaseModel):
     success: bool = True
     active_id: int
     success_result: bool
+    outcome: Optional[str] = None  # success | partial_success | failure (ТЗ v1.1)
     gold_gained: int
     experience_gained: int
     gold_total: int
+    event_text: Optional[str] = None  # ИИ-описание исхода (OpenRouter)
     error: Optional[str] = None
 
 

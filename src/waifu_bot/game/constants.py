@@ -28,20 +28,46 @@ MEDIA_COEFFICIENTS = {
 }
 
 # Combat formulas constants
-HP_K_COEFFICIENT = 10  # k_hp for HP calculation
-BASE_HP_PER_LEVEL = 20  # Base HP increase per level
+HP_K_COEFFICIENT = 5         # k_hp for HP from ВЫН: ВЫН × 5
+STR_HP_COEFFICIENT = 2       # HP from СИЛ: СИЛ × 2
+BASE_HP_PER_LEVEL = 20       # Base HP increase per level
 
-MELEE_DAMAGE_COEFFICIENT = 1.0   # flat +1 damage per СИЛ point
-RANGED_DAMAGE_COEFFICIENT = 1.0  # flat +1 damage per ЛОВ point
-SPELL_DAMAGE_COEFFICIENT = 1.0   # flat +1 damage per ИНТ point
+MELEE_DAMAGE_COEFFICIENT = 0.5    # flat damage per СИЛ point (СИЛ × 0.5)
+RANGED_DAMAGE_COEFFICIENT = 0.5   # flat damage per ЛОВ point (ЛОВ × 0.5)
+SPELL_DAMAGE_COEFFICIENT = 0.5    # flat damage per ИНТ point (ИНТ × 0.5)
 
-CRIT_CHANCE_AGILITY = 0.004  # 0.4% per ЛОВ point
-CRIT_CHANCE_LUCK = 0.002  # 0.2% per УДЧ point
+INT_SKILL_DAMAGE_COEFF = 0.3      # flat bonus to active skill damage per ИНТ
+INT_EXP_BONUS_COEFF = 0.001       # bonus EXP gained per ИНТ (0.1%/point)
+
+END_ENERGY_COEFF = 0.5            # max energy bonus per ВЫН (ВЫН × 0.5)
+END_DAMAGE_REDUCTION_COEFF = 0.0008  # incoming damage reduction per ВЫН (0.08%/point)
+END_DAMAGE_REDUCTION_CAP = 0.35   # damage reduction cap: 35%
+
+# HP regeneration: HP_max × (1 − e^(−END/HP_REGEN_DIVISOR)) per hour
+HP_REGEN_END_DIVISOR = 100        # divisor in regen exponent formula
+HP_REGEN_OUT_OF_COMBAT_MULT = 5   # outside-dungeon regen multiplier
+
+CRIT_CHANCE_AGILITY = 0.0005  # 0.05% per ЛОВ point (secondary crit source)
+CRIT_CHANCE_LUCK = 0.001      # 0.1% per УДЧ point (primary crit source)
+CRIT_CHANCE_CAP = 0.50        # max crit chance: 50%
+CRIT_MULTIPLIER_BASE = 1.5    # base crit multiplier
+CRIT_MULTIPLIER_PER_STR = 0.005  # crit multiplier per СИЛ point
 CRIT_MULTIPLIER_MIN = 1.5
 CRIT_MULTIPLIER_MAX = 2.0
 
-DODGE_CHANCE_AGILITY = 0.002  # 0.2% per ЛОВ point
-DODGE_CHANCE_LUCK = 0.001  # 0.1% per УДЧ point
+DODGE_CHANCE_AGILITY = 0.001  # 0.1% per ЛОВ point
+DODGE_CHANCE_LUCK = 0.0       # УДЧ does not contribute to dodge
+DODGE_CHANCE_CAP = 0.40       # max dodge chance: 40%
+
+# Charm (ОБА) coefficients
+CHM_HIRE_DISCOUNT_COEFF = 0.001     # hire discount per ОБА (0.1%/point)
+CHM_TRAINING_DISCOUNT_COEFF = 0.0015  # training hall discount per ОБА (0.15%/point)
+CHM_DEATH_GOLD_PENALTY_BASE = 0.50  # base gold penalty on death: 50%
+CHM_DEATH_GOLD_PENALTY_COEFF = 0.001  # penalty reduction per ОБА (0.1%/point)
+
+# Luck (УДЧ) coefficients
+LCK_ITEM_DROP_COEFF = 0.0005   # item drop chance bonus per УДЧ (0.05%/point)
+LCK_GOLD_COEFF = 0.002         # gold from monsters bonus per УДЧ (0.2%/point)
 
 # Energy and HP regen (см. services/energy.apply_regen)
 MAX_ENERGY = 100
@@ -75,6 +101,10 @@ GUILD_MIN_LEVEL_REQUIREMENT = 1
 EXP_BASE = 50
 EXP_MULTIPLIER = 2  # exp_to_level = EXP_BASE * level^EXP_MULTIPLIER
 MAX_LEVEL = 50
+
+# --- Dungeon monster system ---
+# Weight multiplier for undead/demon monsters when dungeon has `cursed` tag.
+CURSED_TAG_WEIGHT_MULTIPLIER = 1.5
 
 # --- Group Dungeon (GD) ---
 GD_STAGES_TOTAL = 4  # 3 normal + 1 boss
