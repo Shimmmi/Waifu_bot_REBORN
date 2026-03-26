@@ -1210,53 +1210,54 @@ const WAIFU_GEN_COSMETIC = {
     ["violet", "Фиолетовый"],
     ["gray", "Серый"],
   ],
+  /** Ключи — для API/промпта; подписи — RU (англ. — отдельно при i18n). */
   hairstyle: [
-    ["short_bob", "Short Bob (короткое каре)"],
-    ["spiky_short", "Spiky Short (короткие колючие)"],
-    ["pixie", "Pixie (пикси)"],
-    ["shaggy", "Shaggy (лохматые)"],
-    ["medium_straight", "Medium Straight (средние прямые)"],
-    ["medium_wavy", "Medium Wavy (средние волнистые)"],
-    ["medium_straight_bangs", "Medium Straight + чёлка"],
-    ["medium_wavy_2", "Medium Wavy (вар. 2)"],
-    ["messy_medium", "Messy Medium (растрёпанные)"],
-    ["side_pony", "Side Pony (боковой хвост)"],
-    ["twin_tails", "Twin Tails (два хвоста)"],
-    ["long_pony", "Long Pony (длинный хвост)"],
-    ["long_straight", "Long Straight (длинные прямые)"],
-    ["long_curls", "Long Curls (длинные кудри)"],
-    ["twin_tails_alt", "Twin Tails (вар. 2)"],
-    ["side_braid", "Side Braid (боковая коса)"],
-    ["space_buns", "Space Buns (два пучка)"],
-    ["hime_cut", "Hime Cut (химэ-кат)"],
+    ["short_bob", "Короткое каре"],
+    ["spiky_short", "Короткие колючие"],
+    ["pixie", "Пикси"],
+    ["shaggy", "Лохматые"],
+    ["medium_straight", "Средние прямые"],
+    ["medium_wavy", "Средние волнистые"],
+    ["medium_straight_bangs", "Средние прямые с чёлкой"],
+    ["medium_wavy_2", "Средние волнистые (вар. 2)"],
+    ["messy_medium", "Средние растрёпанные"],
+    ["side_pony", "Боковой хвост"],
+    ["twin_tails", "Два хвоста"],
+    ["long_pony", "Длинный хвост"],
+    ["long_straight", "Длинные прямые"],
+    ["long_curls", "Длинные кудри"],
+    ["twin_tails_alt", "Два хвоста (вар. 2)"],
+    ["side_braid", "Боковая коса"],
+    ["space_buns", "Два пучка"],
+    ["hime_cut", "Химэ-кат"],
   ],
 };
 
 const WAIFU_GEN_EYE_SHAPES = [
-  ["bright", "Bright (яркие)"],
-  ["tsundere", "Tsundere (цундере)"],
-  ["cute", "Cute (милые)"],
-  ["melancholy", "Melancholy (меланхолия)"],
-  ["serious", "Serious (серьёзные)"],
-  ["energetic", "Energetic (энергичные)"],
-  ["mystic", "Mystic (мистические)"],
-  ["gentle", "Gentle (нежные)"],
-  ["dormant_sleepy", "Dormant/Sleepy (дремлющие)"],
-  ["shocked", "Shocked (шок)"],
-  ["playful", "Playful (игривые)"],
-  ["cold", "Cold (холодные)"],
-  ["confused", "Confused (растерянные)"],
-  ["determination", "Determination (решимость)"],
-  ["yandere", "Yandere (яндере)"],
-  ["shyness", "Shyness (застенчивость)"],
-  ["confidence", "Confidence (уверенность)"],
-  ["tearful", "Tearful (со слезами)"],
-  ["joyful", "Joyful (радостные)"],
-  ["anger", "Anger (злость)"],
-  ["sleepy", "Sleepy (сонные)"],
-  ["annoyed", "Annoyed (раздражённые)"],
-  ["pouty", "Pouty (надутые)"],
-  ["seductive", "Seductive (соблазнительные)"],
+  ["bright", "Яркие"],
+  ["tsundere", "Цундере"],
+  ["cute", "Милые"],
+  ["melancholy", "Меланхолия"],
+  ["serious", "Серьёзные"],
+  ["energetic", "Энергичные"],
+  ["mystic", "Мистические"],
+  ["gentle", "Нежные"],
+  ["dormant_sleepy", "Сонные/дремлющие"],
+  ["shocked", "Шок"],
+  ["playful", "Игривые"],
+  ["cold", "Холодные"],
+  ["confused", "Растерянные"],
+  ["determination", "Решимость"],
+  ["yandere", "Яндере"],
+  ["shyness", "Застенчивость"],
+  ["confidence", "Уверенность"],
+  ["tearful", "Со слезами"],
+  ["joyful", "Радостные"],
+  ["anger", "Злость"],
+  ["sleepy", "Сонные"],
+  ["annoyed", "Раздражённые"],
+  ["pouty", "Надутые"],
+  ["seductive", "Соблазнительные"],
 ];
 
 const WAIFU_GEN_OUTFITS = [
@@ -1496,15 +1497,19 @@ function waifuGenPortraitRequestBody() {
   const acc = (c.accessories || []).filter((x) => x && x !== "none").slice(0, 6);
   let eyeColors = Array.isArray(c.eye_colors) ? c.eye_colors.filter(Boolean) : [];
   if (eyeColors.length === 0) eyeColors = ["amber"];
-  eyeColors = eyeColors.slice(0, 2);
+  eyeColors = eyeColors
+    .slice(0, 2)
+    .map((x) => (x != null && typeof x === "object" ? String(x?.value ?? "") : String(x)))
+    .filter(Boolean);
+  if (eyeColors.length === 0) eyeColors = ["amber"];
   return {
     race: waifuGeneratorState.selectedRaceId,
     class: waifuGeneratorState.selectedClassId,
-    hair_color: c.hair_color,
+    hair_color: String(c.hair_color ?? "brown"),
     eye_colors: eyeColors,
-    hairstyle: c.hairstyle,
-    eye_shape: c.eye_shape,
-    outfit: c.outfit,
+    hairstyle: String(c.hairstyle ?? "long_straight"),
+    eye_shape: String(c.eye_shape ?? "cute"),
+    outfit: String(c.outfit ?? "robes"),
     accessories: acc.length ? acc : [],
   };
 }
@@ -3169,6 +3174,32 @@ function showDungeonsError(message, kind = "info") {
   else box.classList.remove("danger");
 }
 
+/** FastAPI/Pydantic: detail может быть строкой, массивом {loc,msg,type} или объектом — не использовать String(arr). */
+function formatApiErrorDetail(detail) {
+  if (detail == null) return "";
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((e) => {
+        if (e && typeof e === "object") {
+          const loc = Array.isArray(e.loc) ? e.loc.filter((x) => x !== "body").join(" → ") : "";
+          const msg = e.msg != null ? String(e.msg) : JSON.stringify(e);
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return String(e);
+      })
+      .join("; ");
+  }
+  if (typeof detail === "object") {
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return String(detail);
+    }
+  }
+  return String(detail);
+}
+
 function parseHttpErrorDetail(err) {
   const msg = String(err?.message || err || "");
   // "HTTP 400: {json}" -> try to parse json and extract detail
@@ -3177,7 +3208,7 @@ function parseHttpErrorDetail(err) {
   const tail = msg.slice(idx + 1).trim();
   try {
     const obj = JSON.parse(tail);
-    const detail = obj?.detail != null ? String(obj.detail) : tail;
+    const detail = obj?.detail != null ? formatApiErrorDetail(obj.detail) : tail;
     return { raw: msg, detail };
   } catch {
     return { raw: msg, detail: tail || msg };

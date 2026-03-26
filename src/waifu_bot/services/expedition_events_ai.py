@@ -866,8 +866,15 @@ async def generate_main_waifu_portrait(
     model = settings.openrouter_model_image
     race_en = _MAIN_WAIFU_RACE_VISUAL_EN.get(int(race_id), "human girl")
     class_en = _MAIN_WAIFU_CLASS_VISUAL_EN.get(int(class_id), "female adventurer")
-    hair = _MAIN_WAIFU_HAIR_EN.get(hair_color, "brown hair")
-    ec_raw = [str(x) for x in (eye_colors or []) if x]
+    hair = _MAIN_WAIFU_HAIR_EN.get(str(hair_color), "brown hair")
+    ec_raw: list[str] = []
+    for x in eye_colors or []:
+        if x is None:
+            continue
+        s = str(x).strip()
+        if s:
+            ec_raw.append(s)
+    ec_raw = ec_raw[:2]
     if len(ec_raw) >= 2:
         e1 = _MAIN_WAIFU_EYES_EN.get(ec_raw[0], "brown eyes")
         e2 = _MAIN_WAIFU_EYES_EN.get(ec_raw[1], "brown eyes")
@@ -876,9 +883,9 @@ async def generate_main_waifu_portrait(
         eyes = _MAIN_WAIFU_EYES_EN.get(ec_raw[0], "brown eyes")
     else:
         eyes = "brown eyes"
-    hstyle = _MAIN_WAIFU_HAIRSTYLE_EN.get(hairstyle, "long hair")
-    eye_sh = _MAIN_WAIFU_EYE_SHAPE_EN.get(eye_shape, "expressive eyes")
-    outf = _MAIN_WAIFU_OUTFIT_EN.get(outfit, "fantasy outfit")
+    hstyle = _MAIN_WAIFU_HAIRSTYLE_EN.get(str(hairstyle), "long hair")
+    eye_sh = _MAIN_WAIFU_EYE_SHAPE_EN.get(str(eye_shape), "expressive eyes")
+    outf = _MAIN_WAIFU_OUTFIT_EN.get(str(outfit), "fantasy outfit")
     acc_parts: list[str] = []
     if isinstance(accessories, list):
         for key in accessories:
@@ -893,7 +900,13 @@ async def generate_main_waifu_portrait(
         + ", fantasy RPG heroine, upper body, detailed face, soft lighting, "
         "high quality illustration, 1girl, safe for work"
     )
-    logger.info("[MAIN OV IMAGE] model=%s race=%s class=%s", model, race_id, class_id)
+    logger.info(
+        "[MAIN OV IMAGE] model=%s race=%s class=%s prompt_preview=%s",
+        model,
+        race_id,
+        class_id,
+        (prompt[:420] + "…") if len(prompt) > 420 else prompt,
+    )
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
