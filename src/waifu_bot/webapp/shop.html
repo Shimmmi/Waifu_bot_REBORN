@@ -1241,7 +1241,7 @@
           });
         }
         if (window.WaifuApp && typeof WaifuApp.bootstrapPage === "function") {
-          WaifuApp.bootstrapPage("shop", (p) => WaifuApp.loadShop(p?.act ?? 1));
+          WaifuApp.bootstrapPage("shop", WaifuApp.shopPageBootstrap);
         }
       });
       return { switchTab, hideDialog, onMerchantTap };

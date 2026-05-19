@@ -1935,6 +1935,31 @@ async function applyShopSmithNavigationIntent(intent) {
   }
 }
 
+async function shopPageBootstrap(profile, merchantMeta) {
+  void merchantMeta;
+  const p = profile || profileState.currentProfile || { act: 1 };
+  const act = safeInt(p?.act ?? shopState.act, 1);
+  shopState.act = act;
+  shopState.activeTab = shopState.activeTab || "buy";
+
+  applyShopStageImages(act);
+
+  const errBox = document.getElementById("shop-profile-error");
+  if (errBox) {
+    if (!p?.main_waifu) {
+      errBox.textContent = "Сначала создайте вайфу.";
+      errBox.style.display = "";
+    } else {
+      errBox.style.display = "none";
+      errBox.textContent = "";
+    }
+  }
+
+  await loadShop(act);
+  updateShopGambleCost();
+  return p;
+}
+
 async function loadShop(act) {
   applyShopStageImages(act);
   const shopSmithNavIntent = consumeShopSmithIntent();
@@ -9359,6 +9384,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   renderAtticDungeon,
   renderAtticExpeditions,
   refreshAtticChips,
+  shopPageBootstrap,
   loadShop,
   loadTavern,
   switchTavernTab,
