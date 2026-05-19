@@ -123,6 +123,7 @@ class DungeonProgress(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     total_monsters: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_damage_dealt: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    current_monster_messages: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Relationships
     player: Mapped["Player"] = relationship("Player", back_populates="dungeon_progresses")
@@ -149,6 +150,9 @@ class MonsterTemplate(Base):
     tags: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # ["cave","forest","cursed",...]
 
     tier: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # 1-5
+    slug: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True, index=True)  # URL-safe id for images
+    has_image: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    image_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     act_min: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     act_max: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
@@ -173,6 +177,10 @@ class MonsterTemplate(Base):
     boss_hp_mult: Mapped[float] = mapped_column(Float(), default=2.5, nullable=False)
     boss_dmg_mult: Mapped[float] = mapped_column(Float(), default=1.8, nullable=False)
     boss_reward_mult: Mapped[float] = mapped_column(Float(), default=2.0, nullable=False)
+
+    monster_ability_template_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("monster_ability_templates.id"), nullable=True
+    )
 
     # Elite spawn system
     elite_chance: Mapped[float] = mapped_column(Float(), default=0.06, nullable=False)
@@ -249,6 +257,9 @@ class DungeonRun(Base):
     energy_spent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     waifu_hp_lost: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    # Solo run: debuffs on main waifu from monster abilities (DoT, shock, weakness); JSON list
+    active_waifu_debuffs: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -281,12 +292,41 @@ class DungeonRunMonster(Base):
     exp_reward: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     gold_reward: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    stat_profile: Mapped[str | None] = mapped_column(String(16), nullable=True)  # tank / balanced / glass
+
     # Elite state
     is_elite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     elite_color: Mapped[str | None] = mapped_column(String(16), nullable=True)   # blue / gold / red
     applied_affix_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)  # list of monster_affixes.id
+    messages_on_monster: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # JSON: curse_player_dmg_mult, undying_used, berserk_active, split_spawned, etc.
+    elite_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    media_messages_on_monster: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_split_clone: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    story_boss_definition_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("story_boss_definitions.id"), nullable=True
+    )
 
     run: Mapped["DungeonRun"] = relationship("DungeonRun", back_populates="monsters")
+
+
+class MonsterAbilityTemplate(Base):
+    """Template for a normal monster special ability (not elite affix)."""
+
+    __tablename__ = "monster_ability_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trigger: Mapped[str] = mapped_column(String(32), nullable=False)  # first_player_hit / on_spawn / ...
+    target: Mapped[str] = mapped_column(String(32), nullable=False, default="main_waifu")
+    effect_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
 
 
 class MonsterAffix(Base):

@@ -1,0 +1,284 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0b09;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;color:#e5e2e1;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:0}
+
+.phone{width:390px;background:#131313;position:relative;min-height:100vh}
+
+/* demo bar */
+.dbar{display:flex;gap:6px;justify-content:center;padding:10px 12px;background:#0e0d0c;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:wrap}
+.db{font-size:10px;font-weight:700;padding:4px 12px;border-radius:8px;border:1px solid rgba(200,146,42,.2);background:none;color:#6a5a4a;cursor:pointer;letter-spacing:.06em;text-transform:uppercase;transition:all .15s}
+.db.on{background:rgba(200,146,42,.18);border-color:rgba(200,146,42,.5);color:#e8b84b}
+
+/* header */
+.hdr{background:rgba(13,11,9,.88);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid rgba(255,215,0,.07);padding:0 14px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:20}
+.hdr-l{display:flex;align-items:center;gap:10px}
+.hdr-x{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.07);border:none;color:#ffd700;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.hdr-x:hover{background:rgba(255,255,255,.12)}
+.hdr-t{font-size:11px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:#ffd700}
+.hdr-i{color:#ffd700;font-size:18px;opacity:.6;cursor:pointer}
+
+/* scroll body */
+.body{padding:20px 14px 120px;overflow-y:auto}
+
+/* item name */
+.ititle-wrap{text-align:center;margin-bottom:20px}
+.ititle{font-size:22px;font-weight:800;letter-spacing:-.01em;line-height:1.2;margin-bottom:8px}
+.isub{display:flex;align-items:center;justify-content:center;gap:7px}
+.isub-lbl{font-size:10px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:#999077}
+.dot{width:3px;height:3px;border-radius:50%;background:#ffd700;flex-shrink:0}
+.rpill{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;padding:2px 10px;border-radius:20px}
+.r-legendary{background:rgba(255,215,0,.14);color:#ffd700;border:1px solid rgba(255,215,0,.38)}
+.r-epic{background:rgba(192,132,252,.14);color:#c4b5fd;border:1px solid rgba(192,132,252,.38)}
+.r-rare{background:rgba(96,165,250,.14);color:#93c5fd;border:1px solid rgba(96,165,250,.38)}
+.r-uncommon{background:rgba(74,222,128,.14);color:#86efac;border:1px solid rgba(74,222,128,.38)}
+.r-common{background:rgba(180,180,180,.1);color:#b0b0b0;border:1px solid rgba(180,180,180,.2)}
+
+/* art */
+.art-wrap{display:flex;justify-content:center;margin-bottom:22px}
+.art{position:relative;width:180px;height:180px;display:flex;align-items:center;justify-content:center}
+.ring1{position:absolute;inset:0;border:2px solid rgba(255,215,0,.12);border-radius:50%}
+.ring2{position:absolute;inset:14px;border:1px solid rgba(255,215,0,.06);border-radius:50%}
+.glow-bg{position:absolute;width:90px;height:90px;border-radius:50%;filter:blur(36px)}
+@keyframes pulse-r{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:.9;transform:scale(1.05)}}
+.ring1{animation:pulse-r 2.8s ease-in-out infinite}
+.art-frame{position:relative;z-index:2;width:132px;height:132px;border-radius:14px;background:#2a2a28;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.art-emoji{font-size:58px;line-height:1}
+
+/* bento */
+.bento{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}
+.bc{background:rgba(53,53,52,.55);border:1px solid rgba(255,255,255,.05);border-radius:12px;padding:12px 8px;text-align:center}
+.bc.acc{border-color:rgba(255,215,0,.2);background:rgba(255,215,0,.05)}
+.bc-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:#999077;margin-bottom:4px}
+.bc.acc .bc-lbl{color:rgba(255,215,0,.65)}
+.bc-val{font-size:13px;font-weight:800;color:#e5e2e1}
+.bc.acc .bc-val{color:#ffd700}
+
+/* enchant row */
+.ench-row{display:flex;align-items:center;justify-content:space-between;background:rgba(53,53,52,.5);border:1px solid rgba(255,255,255,.05);border-radius:12px;padding:10px 14px;margin-bottom:14px}
+.ench-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.13em;color:#999077;margin-bottom:4px}
+.ench-val{font-size:14px;font-weight:800;color:#fcd34d}
+.ench-sub{font-size:11px;font-weight:400;color:#999077}
+.pips{display:flex;gap:4px;align-items:center}
+.pip{width:18px;height:5px;border-radius:3px;background:rgba(255,255,255,.08)}
+.pip.f{background:#fcd34d}
+.pip.mx{background:#4ade80}
+
+/* stats panel */
+.spanel{background:rgba(53,53,52,.5);border:1px solid rgba(255,255,255,.05);border-radius:14px;padding:14px;margin-bottom:14px}
+.spanel-hd{display:flex;align-items:center;gap:7px;font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:#999077;margin-bottom:14px}
+.srow{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.srow:last-child{border-bottom:none}
+.srow-l{display:flex;align-items:center;gap:10px}
+.sico{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.ico-pu{background:rgba(212,187,255,.1)} .ico-go{background:rgba(255,215,0,.1)}
+.ico-te{background:rgba(117,209,255,.1)} .ico-gr{background:rgba(74,222,128,.1)}
+.ico-re{background:rgba(248,113,113,.1)}
+.sname{font-size:13px;font-weight:500;color:#e5e2e1}
+.ssec{font-size:10px;color:rgba(74,222,128,.7);margin-top:2px}
+.sval{font-size:14px;font-weight:800}
+.sv-pu{color:#d4bbff} .sv-go{color:#ffd700} .sv-te{color:#75d1ff}
+.sv-gr{color:#4ade80} .sv-re{color:#f87171}
+
+/* req */
+.req-sec{margin-bottom:18px}
+.req-hd{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#999077;margin-bottom:10px}
+.req-pills{display:flex;gap:8px;flex-wrap:wrap}
+.rpil{display:flex;align-items:center;gap:6px;background:#1c1b1b;border:1px solid rgba(255,255,255,.06);border-radius:20px;padding:5px 14px}
+.rpil-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#999077}
+.rpil-val{font-size:12px;font-weight:700;color:#e5e2e1}
+
+/* description */
+.idesc{font-size:12px;line-height:1.7;color:#999077;font-style:italic;padding:12px 14px;background:rgba(53,53,52,.3);border-left:2px solid rgba(255,215,0,.3);border-radius:0 8px 8px 0;margin-bottom:18px}
+
+/* footer */
+.footer{position:sticky;bottom:0;padding:14px 14px 22px;background:linear-gradient(to top,#131313 60%,transparent)}
+.agrid{display:grid;gap:8px}
+.agrid-3{grid-template-columns:1fr 1fr 1fr}
+.agrid-2{grid-template-columns:1fr 2fr}
+.btn{padding:14px 8px;border-radius:12px;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border:none;cursor:pointer;transition:all .15s;text-align:center}
+.btn:active{transform:scale(.97)}
+.btn-sell{background:#1c1b1b;color:#999077;border:1px solid rgba(255,255,255,.08)}
+.btn-sell:hover{background:#222120}
+.btn-ench{background:rgba(212,187,255,.1);color:#d4bbff;border:1px solid rgba(212,187,255,.2)}
+.btn-ench:hover{background:rgba(212,187,255,.18)}
+.btn-equip{background:linear-gradient(135deg,#ffd700,#e9c400);color:#2a2200;font-weight:900;box-shadow:0 6px 20px rgba(255,215,0,.22)}
+.btn-equip:hover{filter:brightness(1.08)}
+</style>
+
+<div class="phone">
+  <!-- DEMO SWITCHER -->
+  <div class="dbar">
+    <button class="db on" onclick="show('amulet',this)">Амулет</button>
+    <button class="db" onclick="show('sword',this)">Меч</button>
+    <button class="db" onclick="show('armor',this)">Броня</button>
+    <button class="db" onclick="show('ring',this)">Кольцо</button>
+  </div>
+
+  <!-- HEADER -->
+  <header class="hdr">
+    <div class="hdr-l">
+      <button class="hdr-x">✕</button>
+      <span class="hdr-t">Детали предмета</span>
+    </div>
+    <span class="hdr-i">ℹ</span>
+  </header>
+
+  <!-- CONTENT -->
+  <div class="body" id="body"></div>
+</div>
+
+<script>
+const D={
+  amulet:{name:'Амулет Вечной Радости',sub:'Амулет',rar:'legendary',rru:'Легендарный',em:'📿',
+    glowC:'rgba(255,215,0,.22)',glowF:'rgba(255,215,0,.35)',frameB:'rgba(255,215,0,.28)',
+    tier:10,lvl:49,ench:7,enchMax:10,
+    bento:[{l:'Тип',v:'Аксессуар'},{l:'Тир',v:'10',a:1},{l:'Уровень',v:'49'}],
+    stats:[
+      {ico:'💜',ic:'ico-pu',n:'ИНТ',v:'+5',vc:'sv-pu'},
+      {ico:'💙',ic:'ico-te',n:'ЛОВ',v:'+5',vc:'sv-te'},
+      {ico:'✨',ic:'ico-go',n:'Бонус опыта',v:'+7.5%',vc:'sv-go',sec:'Вторичный бонус · заточка +0.5%/ур'},
+    ],
+    reqs:[{l:'Ур.',v:'45'},{l:'ИНТ',v:'40'}],
+    desc:'"Говорят, создан в эпоху первых богов. Его сияние не угасает даже во тьме бездны."',
+    acts:['sell','enchant','equip'],
+  },
+  sword:{name:'Катана «Тень»',sub:'Одноручное · Ближний бой',rar:'epic',rru:'Эпическая',em:'🗡️',
+    glowC:'rgba(192,132,252,.2)',glowF:'rgba(192,132,252,.3)',frameB:'rgba(192,132,252,.25)',
+    tier:7,lvl:35,ench:10,enchMax:10,
+    bento:[{l:'Тип',v:'Оружие'},{l:'Тир',v:'7',a:1},{l:'Уровень',v:'35'}],
+    stats:[
+      {ico:'⚔️',ic:'ico-re',n:'Урон',v:'14–21',vc:'sv-re'},
+      {ico:'⚡',ic:'ico-go',n:'Скорость атаки',v:'3 симв.',vc:'sv-go'},
+      {ico:'🎯',ic:'ico-pu',n:'ЛОВ',v:'+3',vc:'sv-pu',sec:'Крит +21%'},
+    ],
+    reqs:[{l:'Ур.',v:'31'},{l:'ЛОВ',v:'30'}],
+    desc:'"Выкована из сплава теней и стали. Удар почти неслышим — как шёпот смерти."',
+    acts:['sell','enchant','equip'],
+  },
+  armor:{name:'Адамантовые латы',sub:'Тяжёлая броня',rar:'rare',rru:'Редкая',em:'🛡️',
+    glowC:'rgba(96,165,250,.18)',glowF:'rgba(96,165,250,.28)',frameB:'rgba(96,165,250,.22)',
+    tier:6,lvl:28,ench:3,enchMax:10,
+    bento:[{l:'Тип',v:'Броня'},{l:'Тир',v:'6',a:1},{l:'Уровень',v:'28'}],
+    stats:[
+      {ico:'🛡',ic:'ico-te',n:'Броня',v:'62',vc:'sv-te'},
+      {ico:'💚',ic:'ico-gr',n:'ВЫН',v:'+4',vc:'sv-gr'},
+      {ico:'🔻',ic:'ico-te',n:'Снижение урона',v:'-5.4%',vc:'sv-te',sec:'Заточка +0.4%/ур · сейчас +1.2%'},
+    ],
+    reqs:[{l:'Ур.',v:'26'},{l:'ВЫН',v:'35'}],
+    desc:'"Адамант добыт в горных рудниках пятого акта. Прочнее этого металла нет ничего."',
+    acts:['sell','enchant','equip'],
+  },
+  ring:{name:'Кольцо чемпиона',sub:'Кольцо',rar:'uncommon',rru:'Необычное',em:'💍',
+    glowC:'rgba(74,222,128,.16)',glowF:'rgba(74,222,128,.26)',frameB:'rgba(74,222,128,.22)',
+    tier:6,lvl:28,ench:0,enchMax:10,
+    bento:[{l:'Тип',v:'Аксессуар'},{l:'Тир',v:'6',a:1},{l:'Уровень',v:'28'}],
+    stats:[
+      {ico:'💪',ic:'ico-re',n:'СИЛ',v:'+3',vc:'sv-re'},
+      {ico:'💜',ic:'ico-pu',n:'ВЫН',v:'+3',vc:'sv-pu'},
+      {ico:'🔻',ic:'ico-te',n:'Снижение урона',v:'-1.8%',vc:'sv-te',sec:'Кольцо СИЛ · базовый вторичный бонус'},
+    ],
+    reqs:[{l:'Ур.',v:'26'}],
+    desc:'"Выдаётся победителям городского турнира. Давно уже не новое, но мощь не потеряло."',
+    acts:['sell','equip'],
+  },
+};
+
+function show(key,btn){
+  document.querySelectorAll('.db').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  const it=D[key];
+  const b=document.getElementById('body');
+
+  // pips
+  const pips=Array.from({length:it.enchMax},(_,i)=>{
+    const f=i<it.ench,mx=f&&it.ench===it.enchMax;
+    return `<div class="pip${f?(mx?' mx':' f'):''}"></div>`;
+  }).join('');
+
+  // enchant label
+  const ev=it.ench>0
+    ?`<span style="color:#fcd34d;font-size:14px;font-weight:800">+${it.ench}</span> <span class="ench-sub">заточка</span>`
+    :`<span class="ench-sub">Не заточен</span>`;
+
+  // bento
+  const bento=it.bento.map(c=>`<div class="bc${c.a?' acc':''}"><div class="bc-lbl">${c.l}</div><div class="bc-val">${c.v}</div></div>`).join('');
+
+  // stats
+  const stats=it.stats.map(s=>`
+    <div class="srow">
+      <div class="srow-l">
+        <div class="sico ${s.ic}">${s.ico}</div>
+        <div><div class="sname">${s.n}</div>${s.sec?`<div class="ssec">${s.sec}</div>`:''}</div>
+      </div>
+      <span class="sval ${s.vc}">${s.v}</span>
+    </div>`).join('');
+
+  // reqs
+  const reqs=it.reqs.map(r=>`<div class="rpil"><span class="rpil-lbl">${r.l}</span><span class="rpil-val">${r.v}</span></div>`).join('');
+
+  // actions
+  const am={
+    sell:   `<button class="btn btn-sell">Продать</button>`,
+    enchant:`<button class="btn btn-ench">⚒ Заточить</button>`,
+    equip:  `<button class="btn btn-equip">Надеть</button>`,
+  };
+  const acts=it.acts.map(a=>am[a]).join('');
+  const gc=it.acts.length===2?'agrid agrid-2':'agrid agrid-3';
+
+  // title glow color per rarity
+  const titleShadow={
+    legendary:'0 0 18px rgba(255,215,0,.45)',
+    epic:'0 0 16px rgba(192,132,252,.4)',
+    rare:'0 0 14px rgba(96,165,250,.35)',
+    uncommon:'0 0 12px rgba(74,222,128,.3)',
+    common:'none',
+  }[it.rar];
+
+  b.innerHTML=`
+    <div class="ititle-wrap">
+      <div class="ititle" style="filter:drop-shadow(${titleShadow})">${it.name}</div>
+      <div class="isub">
+        <span class="isub-lbl">${it.sub}</span>
+        <div class="dot"></div>
+        <span class="rpill r-${it.rar}">${it.rru}</span>
+      </div>
+    </div>
+
+    <div class="art-wrap">
+      <div class="art">
+        <div class="ring1" style="border-color:${it.glowC}"></div>
+        <div class="ring2" style="border-color:${it.glowC.replace(',.',',.03')}"></div>
+        <div class="glow-bg" style="background:${it.glowC}"></div>
+        <div class="art-frame" style="border:1px solid ${it.frameB};filter:drop-shadow(0 0 14px ${it.glowC})">
+          <span class="art-emoji">${it.em}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="bento">${bento}</div>
+
+    <div class="ench-row">
+      <div><div class="ench-lbl">Заточка</div><div>${ev}</div></div>
+      <div class="pips">${pips}</div>
+    </div>
+
+    <div class="spanel">
+      <div class="spanel-hd"><span>✦</span> Характеристики</div>
+      ${stats}
+    </div>
+
+    <div class="req-sec">
+      <div class="req-hd">Требования</div>
+      <div class="req-pills">${reqs}</div>
+    </div>
+
+    <div class="idesc">${it.desc}</div>
+
+    <div class="footer">
+      <div class="${gc}">${acts}</div>
+    </div>`;
+}
+
+show('amulet',document.querySelector('.db'));
+</script>

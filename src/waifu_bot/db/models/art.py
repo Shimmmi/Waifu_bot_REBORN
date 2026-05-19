@@ -19,11 +19,11 @@ class ItemArt(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
-    # Example: weapon_sword_1h, weapon_sword_2h, armor, ring, amulet, shield, generic
-    art_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    # e.g. weapon_sword_1h/foo or legacy flat weapon_sword_1h
+    art_key: Mapped[str] = mapped_column(String(191), nullable=False)
     tier: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    # Path relative to /webapp/assets/, e.g. "items_webp/weapon_sword_1h/t1.webp"
+    # Path relative to static/game (URL /static/game/...), often "items_webp/..." in DB
     relative_path: Mapped[str] = mapped_column(String(255), nullable=False)
     mime: Mapped[str] = mapped_column(String(64), nullable=False, server_default=text("'image/webp'"))
 

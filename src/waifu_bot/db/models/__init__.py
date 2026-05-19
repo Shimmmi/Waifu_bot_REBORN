@@ -7,16 +7,20 @@ from waifu_bot.db.models.waifu import (
     MainWaifu,
     MainWaifuPortraitDraft,
     MainWaifuPortraitVariant,
+    MainWaifuPaperdollVariant,
     HiredWaifu,
     WaifuRace,
     WaifuClass,
     WaifuRarity,
 )
 from waifu_bot.db.models.item import Item, InventoryItem, ItemRarity, ItemType, ItemTemplate, Affix, InventoryAffix, ShopOffer
+from waifu_bot.db.models.story_boss import PlayerStoryBossFirstKill, StoryBossDefinition
+from waifu_bot.db.models.story_seen import PlayerDungeonStorySeen
 from waifu_bot.db.models.dungeon import (
     Dungeon,
     DungeonProgress,
     Monster,
+    MonsterAbilityTemplate,
     MonsterAffix,
     MonsterTemplate,
     DungeonPool,
@@ -28,14 +32,26 @@ from waifu_bot.db.models.dungeon import (
 from waifu_bot.db.models.endless import PlayerDungeonPlus, ItemBase, AffixFamily, AffixFamilyTier
 from waifu_bot.db.models.art import ItemArt
 from waifu_bot.db.models.guild import Guild, GuildMember, GuildBank
-from waifu_bot.db.models.skill import Skill, WaifuSkill, GuildSkill
+from waifu_bot.db.models.guild_extended import (
+    GuildLevelThreshold,
+    GuildSkillDefinition,
+    GuildSkillLevelRow,
+    GuildRaidTemplate,
+    GuildRaid,
+    GuildRaidParticipant,
+    GuildWar,
+    GuildGxpBankDaily,
+    GuildWarScoreBankDaily,
+    GuildWarStatus,
+    GuildRaidStatus,
+    GuildWarRowStatus,
+)
+from waifu_bot.db.models.skill import Skill, WaifuSkill
 from waifu_bot.db.models.battle import BattleLog
 from waifu_bot.db.models.tavern import TavernHireSlot, TavernState
 from waifu_bot.db.models.expedition import ExpeditionAffix, ExpeditionSlot, ActiveExpedition
 from waifu_bot.db.models.group_dungeon import (
     GDDungeonTemplate,
-    GDSession,
-    GDPlayerContribution,
     PlayerChatFirstSeen,
     PlayerGameAction,
     GDEventTemplate,
@@ -61,6 +77,7 @@ __all__ = [
     "MainWaifu",
     "MainWaifuPortraitDraft",
     "MainWaifuPortraitVariant",
+    "MainWaifuPaperdollVariant",
     "HiredWaifu",
     "WaifuRace",
     "WaifuClass",
@@ -76,6 +93,7 @@ __all__ = [
     "Dungeon",
     "DungeonProgress",
     "Monster",
+    "MonsterAbilityTemplate",
     "MonsterAffix",
     "MonsterTemplate",
     "DungeonPool",
@@ -83,6 +101,9 @@ __all__ = [
     "DungeonRun",
     "DungeonRunMonster",
     "DropRule",
+    "StoryBossDefinition",
+    "PlayerStoryBossFirstKill",
+    "PlayerDungeonStorySeen",
     "PlayerDungeonPlus",
     "ItemBase",
     "AffixFamily",
@@ -91,9 +112,20 @@ __all__ = [
     "Guild",
     "GuildMember",
     "GuildBank",
+    "GuildLevelThreshold",
+    "GuildSkillDefinition",
+    "GuildSkillLevelRow",
+    "GuildRaidTemplate",
+    "GuildRaid",
+    "GuildRaidParticipant",
+    "GuildWar",
+    "GuildGxpBankDaily",
+    "GuildWarScoreBankDaily",
+    "GuildWarStatus",
+    "GuildRaidStatus",
+    "GuildWarRowStatus",
     "Skill",
     "WaifuSkill",
-    "GuildSkill",
     "BattleLog",
     "TavernHireSlot",
     "TavernState",
@@ -101,8 +133,6 @@ __all__ = [
     "ExpeditionSlot",
     "ActiveExpedition",
     "GDDungeonTemplate",
-    "GDSession",
-    "GDPlayerContribution",
     "PlayerChatFirstSeen",
     "PlayerGameAction",
     "GDEventTemplate",

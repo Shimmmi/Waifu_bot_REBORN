@@ -103,6 +103,11 @@ class MainWaifu(Base):
         back_populates="main_waifu",
         cascade="all, delete-orphan",
     )
+    paperdoll_variants: Mapped[list["MainWaifuPaperdollVariant"]] = relationship(
+        "MainWaifuPaperdollVariant",
+        back_populates="main_waifu",
+        cascade="all, delete-orphan",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
@@ -117,6 +122,15 @@ class MainWaifu(Base):
     image_generated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    # JRPG-style paperdoll for inventory (from portrait via OPENROUTER_MODEL_IMAGE)
+    paperdoll_image_data: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    paperdoll_image_mime: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    paperdoll_generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    bio: Mapped[str | None] = mapped_column(Text(), nullable=True)
 
     __table_args__ = (
         CheckConstraint("level >= 1 AND level <= 60", name="check_level_range"),
@@ -168,6 +182,24 @@ class MainWaifuPortraitVariant(Base):
     main_waifu: Mapped["MainWaifu"] = relationship("MainWaifu", back_populates="portrait_variants")
 
 
+class MainWaifuPaperdollVariant(Base):
+    """Каждая успешная генерация paperdoll (история; текущее изображение дублируется в main_waifus)."""
+
+    __tablename__ = "main_waifu_paperdoll_variants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    main_waifu_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("main_waifus.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    image_data: Mapped[str] = mapped_column(Text(), nullable=False)
+    image_mime: Mapped[str] = mapped_column(String(32), nullable=False, default="image/png")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+    main_waifu: Mapped["MainWaifu"] = relationship("MainWaifu", back_populates="paperdoll_variants")
+
+
 class HiredWaifu(Base):
     """Hired waifu (from tavern)."""
 
@@ -188,6 +220,8 @@ class HiredWaifu(Base):
     exp_current: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # Очки улучшения перка при лвлапе (ТЗ v1.1)
     perk_upgrade_points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Уровни перков: {perk_id: level} (0 = не открыт, 1+ = текущий уровень)
+    perk_levels: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
     # HP (экспедиции, лечение в таверне, реген со временем)
     max_hp: Mapped[int] = mapped_column(Integer, default=65, nullable=False)
@@ -208,14 +242,6 @@ class HiredWaifu(Base):
     image_generated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-
-    # Legacy characteristics (not used for expeditions)
-    strength: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
-    agility: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
-    intelligence: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
-    endurance: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
-    charm: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
-    luck: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
 
     # Squad position (0 = reserve, 1-6 = squad slot)
     squad_position: Mapped[int | None] = mapped_column(Integer, nullable=True)

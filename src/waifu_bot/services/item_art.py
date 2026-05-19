@@ -1,18 +1,32 @@
 """Tiered item art (webp) helpers.
 
-The WebApp serves assets from /webapp/assets via FastAPI StaticFiles mount.
+Assets live under repo `static/game/` and are served at `/static/game/...`.
 We keep a DB registry to map (art_key, tier) -> relative_path so the asset
-layout can change without code changes.
+layout can change without code changes. Legacy DB paths may use `items_webp/...`.
+
+`art_key` is usually ``category/name_slug`` (one slash): filesystem path under
+``items/webp/``; slug comes from the item template base name (no affixes).
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any, Iterable
 
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
+
+GAME_STATIC_PREFIX = "/static/game"
+
+
+def game_asset_public_url(relative_path: str) -> str:
+    """Map stored relative_path (DB or default) to public URL under /static/game/."""
+    rel = (relative_path or "").strip().lstrip("/")
+    if rel.startswith("items_webp/"):
+        rel = "items/webp/" + rel[len("items_webp/") :]
+    return f"{GAME_STATIC_PREFIX}/{rel}"
 
 
 def normalize_tier(tier: Any) -> int:
@@ -27,7 +41,66 @@ def normalize_tier(tier: Any) -> int:
     return t
 
 
-def derive_image_key(slot_type: str | None, weapon_type: str | None) -> str:
+def _display_name_implies_staff_wand(display_name: str | None) -> bool:
+    """RU/EN hints when weapon_type in DB is missing or wrong (e.g. жезл → generic art)."""
+    if not display_name:
+        return False
+    n = display_name.casefold()
+    needles = (
+        "жезл",
+        "посох",
+        "скипетр",
+        "staff",
+        "wand",
+        "rod",
+        "scepter",
+        "sceptre",
+        "crystal rod",
+    )
+    return any(x in n for x in needles)
+
+
+def _weapon_category_from_display_name(display_name: str | None) -> str | None:
+    """When ``weapon_type`` is only ``two_hand`` / ``one_hand`` etc., infer art category from name."""
+    if not display_name:
+        return None
+    n = display_name.casefold()
+    if _display_name_implies_staff_wand(display_name) and "bow" not in n and "axe" not in n:
+        return "weapon_staff"
+    if any(x in n for x in ("арбалет", "crossbow")):
+        return "weapon_bow"
+    if "лук" in n or " bow" in n or n.startswith("bow"):
+        return "weapon_bow"
+    if any(
+        x in n
+        for x in (
+            "пика",
+            "копь",
+            "spear",
+            "pike",
+            "lance",
+            "глеф",
+            "алебард",
+            "halberd",
+            "trident",
+            "трезуб",
+        )
+    ):
+        return "weapon_sword"
+    if any(x in n for x in ("топор", "axe", "секир")):
+        return "weapon_axe"
+    if any(x in n for x in ("меч", "sword", "сабл", "клинок", "ятаган", "скимитар", "rapier", "катана")):
+        return "weapon_sword"
+    if any(x in n for x in ("кинжал", "dagger", "knife", "кортик")):
+        return "generic"
+    return None
+
+
+def derive_image_key(
+    slot_type: str | None,
+    weapon_type: str | None,
+    display_name: str | None = None,
+) -> str:
     """Legacy base image key (svg placeholders)."""
     st = (slot_type or "").lower()
     wt = (weapon_type or "").lower()
@@ -38,8 +111,13 @@ def derive_image_key(slot_type: str | None, weapon_type: str | None) -> str:
     if "costume" in st or "armor" in st:
         return "armor"
     if "offhand" in st:
+        if wt == "orb":
+            return "orb"
         return "shield"
     if "weapon" in st:
+        inferred = _weapon_category_from_display_name(display_name)
+        if inferred:
+            return inferred
         if "axe" in wt:
             return "weapon_axe"
         if "sword" in wt:
@@ -54,10 +132,14 @@ def derive_image_key(slot_type: str | None, weapon_type: str | None) -> str:
     return "generic"
 
 
-def derive_art_key(slot_type: str | None, weapon_type: str | None) -> str:
+def derive_art_key(
+    slot_type: str | None,
+    weapon_type: str | None,
+    display_name: str | None = None,
+) -> str:
     """Tiered art key (webp): includes handedness where it matters."""
     st = (slot_type or "").lower()
-    base = derive_image_key(slot_type, weapon_type)
+    base = derive_image_key(slot_type, weapon_type, display_name)
 
     # Distinguish 1h/2h for swords/axes (as per planned art packs).
     if base in ("weapon_sword", "weapon_axe"):
@@ -69,6 +151,84 @@ def derive_art_key(slot_type: str | None, weapon_type: str | None) -> str:
         return base
 
     return base
+
+
+# Russian (and common Cyrillic letters) → latin, for stable directory slugs.
+_CYR_TO_LATIN: dict[str, str] = {
+    "а": "a",
+    "б": "b",
+    "в": "v",
+    "г": "g",
+    "д": "d",
+    "е": "e",
+    "ё": "e",
+    "ж": "zh",
+    "з": "z",
+    "и": "i",
+    "й": "y",
+    "к": "k",
+    "л": "l",
+    "м": "m",
+    "н": "n",
+    "о": "o",
+    "п": "p",
+    "р": "r",
+    "с": "s",
+    "т": "t",
+    "у": "u",
+    "ф": "f",
+    "х": "h",
+    "ц": "ts",
+    "ч": "ch",
+    "ш": "sh",
+    "щ": "sch",
+    "ъ": "",
+    "ы": "y",
+    "ь": "",
+    "э": "e",
+    "ю": "yu",
+    "я": "ya",
+    "і": "i",
+    "ї": "yi",
+    "є": "ye",
+    "ґ": "g",
+}
+
+
+def slugify_item_base_name(name: str | None, *, max_len: int = 48) -> str:
+    """ASCII slug from template base name (affix-free). Empty → ``base``."""
+    raw = (name or "").strip().lower()
+    if not raw:
+        return "base"
+    parts: list[str] = []
+    for ch in raw:
+        if ch.isascii() and ch.isalnum():
+            parts.append(ch)
+        elif ch in _CYR_TO_LATIN:
+            parts.append(_CYR_TO_LATIN[ch])
+        else:
+            parts.append("_")
+    merged = "".join(parts)
+    merged = re.sub(r"[^a-z0-9]+", "_", merged)
+    merged = re.sub(r"_+", "_", merged).strip("_")
+    if not merged:
+        return "base"
+    if len(merged) > max_len:
+        merged = merged[:max_len].rstrip("_")
+    return merged or "base"
+
+
+def derive_item_art_key(
+    slot_type: str | None,
+    weapon_type: str | None,
+    base_name: str | None,
+    *,
+    display_name: str | None = None,
+) -> str:
+    """Full tiered art key: ``derive_art_key(...) / slugify(base_name)``."""
+    cat = derive_art_key(slot_type, weapon_type, display_name)
+    slug = slugify_item_base_name(base_name)
+    return f"{cat}/{slug}"
 
 
 def default_relative_path(art_key: str, tier: int) -> str:
@@ -124,7 +284,7 @@ async def enrich_items_with_image_urls(session: AsyncSession, items: list[Any]) 
             continue
         t = normalize_tier(_get_field(it, "tier"))
         rel = art_map.get((k, t)) or default_relative_path(k, t)
-        _set_field(it, "image_url", f"/webapp/assets/{rel.lstrip('/')}")
+        _set_field(it, "image_url", game_asset_public_url(rel))
 
     return items
 

@@ -3,8 +3,6 @@ from datetime import datetime
 from enum import IntEnum
 
 from sqlalchemy import (
-    BigInteger,
-    Boolean,
     DateTime,
     ForeignKey,
     Integer,
@@ -87,32 +85,5 @@ class WaifuSkill(Base):
 
     __table_args__ = (
         CheckConstraint("level >= 1", name="check_waifu_skill_level"),
-    )
-
-
-class GuildSkill(Base):
-    """Guild skill (learned by guild)."""
-
-    __tablename__ = "guild_skills"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    guild_id: Mapped[int] = mapped_column(Integer, ForeignKey("guilds.id"))
-    skill_id: Mapped[int] = mapped_column(Integer, ForeignKey("skills.id"))
-
-    level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-
-    # Relationships
-    guild: Mapped["Guild"] = relationship("Guild", back_populates="skills")
-    skill: Mapped["Skill"] = relationship("Skill")
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
-    )
-
-    __table_args__ = (
-        CheckConstraint("level >= 1", name="check_guild_skill_level"),
     )
 

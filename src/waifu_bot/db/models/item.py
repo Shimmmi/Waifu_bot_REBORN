@@ -6,6 +6,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     JSON,
@@ -27,6 +28,7 @@ class ItemRarity(IntEnum):
     RARE = 3
     EPIC = 4
     LEGENDARY = 5
+    RAID = 6
 
 
 class ItemType(IntEnum):
@@ -121,6 +123,13 @@ class InventoryItem(Base):
     # Equipment slot (if equipped)
     # 0 = not equipped, 1-6 = equipment slot
     equipment_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Enchanting (+1..+10): steps computed once at creation; level changes on enchant attempts
+    enchant_level: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    enchant_dmg_step: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    enchant_arm_step: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    enchant_sec_step: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    is_broken: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships
     player: Mapped["Player"] = relationship("Player", back_populates="inventory_items")

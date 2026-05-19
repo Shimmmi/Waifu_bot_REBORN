@@ -9,6 +9,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
 from waifu_bot.db import models as m
+from waifu_bot.game.passive_affix_ilvl import passive_node_level_add_allowed
 from waifu_bot.services.enchanting import apply_enchant_steps_to_inventory_item
 
 
@@ -251,6 +252,42 @@ class ItemService:
             9: "провидца",
             10: "вселенной",
         },
+        "s_sec_magic_find_pct": {
+            1: "находки",
+            2: "добычи",
+            3: "охоты",
+            4: "сокровищ",
+            5: "артефактов",
+            6: "легенд",
+            7: "мифов",
+            8: "редкости",
+            9: "эпоса",
+            10: "мифического фарма",
+        },
+        "s_sell_high": {
+            1: "скупщика",
+            2: "выкупа",
+            3: "ломбарда",
+            4: "торга",
+            5: "прибыли",
+            6: "расчёта",
+            7: "рынка",
+            8: "базара",
+            9: "лотка",
+            10: "империи скупки",
+        },
+        "s_tavern_favor": {
+            1: "таверны",
+            2: "кружки",
+            3: "трактира",
+            4: "постоя",
+            5: "ночлега",
+            6: "очага",
+            7: "застолья",
+            8: "кубка",
+            9: "хмеля",
+            10: "вечного пира",
+        },
     }
 
     _PASSIVE_LEVEL_ADD_PREFIX: dict[tuple[int, int], str] = {
@@ -284,6 +321,7 @@ class ItemService:
             "hp_max_pct",
             "exp_bonus_pct",
             "gold_bonus_pct",
+            "magic_find_pct",
         }
     )
 
@@ -330,6 +368,27 @@ class ItemService:
             (5, 6): "Фартовый",
             (7, 8): "Счастливый",
             (9, 10): "Золотой",
+        },
+        "magic_find_pct": {
+            (1, 2): "Искательный",
+            (3, 4): "Коллекционный",
+            (5, 6): "Реликтовый",
+            (7, 8): "Мифический",
+            (9, 10): "Сокровищный",
+        },
+        "sell_price_bonus_percent": {
+            (1, 2): "Выгодный",
+            (3, 4): "Скупочный",
+            (5, 6): "Перекупский",
+            (7, 8): "Расчётливый",
+            (9, 10): "Золотой",
+        },
+        "tavern_discount_percent": {
+            (1, 2): "Гостеприимный",
+            (3, 4): "Трактирный",
+            (5, 6): "Постоялый",
+            (7, 8): "Кружечный",
+            (9, 10): "Ночующий",
         },
         "media_damage_text_percent": {
             (1, 2): "Болтливый",
@@ -1294,8 +1353,11 @@ class ItemService:
                 continue
             if not self._weapon_damage_effect_matches_item(ek, slot_t, atk_t, wpn_t):
                 continue
-            if self._family_allows_base(fam, base):
-                pairs.append((fam, tier_row))
+            if not self._family_allows_base(fam, base):
+                continue
+            if not passive_node_level_add_allowed(ek, int(target_total_level)):
+                continue
+            pairs.append((fam, tier_row))
         return pairs
 
     async def _generate_inventory_item_diablo(

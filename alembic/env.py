@@ -1,4 +1,13 @@
 """Alembic environment configuration."""
+from pathlib import Path
+import sys
+
+# Project uses src layout: ensure waifu_bot is importable when running from repo root
+_repo_root = Path(__file__).resolve().parent.parent
+_src = _repo_root / "src"
+if _src.exists() and str(_src) not in sys.path:
+    sys.path.insert(0, str(_src))
+
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -26,11 +35,8 @@ from waifu_bot.db.models import (  # noqa: F401
     GuildBank,
     Skill,
     WaifuSkill,
-    GuildSkill,
     BattleLog,
     GDDungeonTemplate,
-    GDSession,
-    GDPlayerContribution,
     PlayerChatFirstSeen,
     PlayerGameAction,
     GDEventTemplate,

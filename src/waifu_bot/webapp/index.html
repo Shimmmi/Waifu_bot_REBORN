@@ -3,101 +3,65 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Waifu Town</title>
-    <!-- Entry point: open profile by default (index is kept for backward links) -->
-    <meta http-equiv="refresh" content="0; url=./profile.html" />
+    <title>Waifu REBORN</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+      .title-screen-load-fail-title {
+        font-weight: 700;
+        margin: 0 0 8px;
+      }
+      .title-screen-load-fail-msg {
+        margin: 0 0 6px;
+        word-break: break-word;
+      }
+    </style>
+    <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
-    <script>
-      // Hard redirect (Telegram WebApp sometimes ignores meta-refresh)
-      try {
-        window.location.replace("./profile.html");
-      } catch (e) {}
-    </script>
   </head>
-  <body onload="void 0;">
-    <header>
-      <div class="topbar">
-        <div class="badge">Акт: <strong id="badge-act">—</strong></div>
-        <div class="badge">Золото: <strong id="badge-gold">—</strong></div>
-        <div class="badge">Энергия: <strong id="badge-energy">—</strong></div>
-        <div class="badge">Данж: <strong>нет</strong></div>
-      </div>
-    </header>
+  <body class="page-title-screen" onload="WaifuApp.bootstrapPage('index', WaifuApp.initTitleScreen);">
+    <div class="title-screen-bg" aria-hidden="true"></div>
+    <div class="title-screen-scrim" aria-hidden="true"></div>
 
-    <main class="layout">
+    <main class="title-screen-main">
+      <div class="title-screen-logo-wrap">
+        <img
+          class="title-screen-logo"
+          src="/static/game/ui/title/title.webp"
+          alt="Waifu REBORN"
+          width="240"
+          height="53"
+          decoding="async"
+          onerror="this.style.display='none';var n=this.nextElementSibling;if(n)n.classList.add('title-screen-fallback--show');"
+        />
+        <h1 class="title-screen-fallback">Waifu REBORN</h1>
+      </div>
+
       <noscript>
-        <div class="banner">Перейти в профиль: <a href="./profile.html">profile.html</a></div>
+        <p class="title-screen-noscript muted">Включите JavaScript или откройте <a href="./profile.html">profile.html</a>.</p>
       </noscript>
-      <div class="banner">
-        Добро пожаловать в город. Выберите здание, чтобы перейти к соответствующему экрану.
-      </div>
 
-      <section class="cards" style="margin-top: 16px">
-        <a class="card" href="./shop.html">
-          <h3>Магазин</h3>
-          <p>Ассортимент 3×3, покупка/продажа и gamble.</p>
-        </a>
-        <a class="card" href="./tavern.html">
-          <h3>Таверна</h3>
-          <p>Найм наёмных вайфу и управление отрядом.</p>
-        </a>
-        <a class="card" href="./caravan.html">
-          <h3>Караван</h3>
-          <p>Переход между актами и выбор маршрута.</p>
-        </a>
-        <a class="card" href="./guild_hall.html">
-          <h3>Гильдия</h3>
-          <p>Создание/поиск гильдии, банк, чат, управление.</p>
-        </a>
-        <a class="card" href="./training_hall.html">
-          <h3>Тренировочный зал</h3>
-          <p>Пассивные навыки и их прокачка по актам.</p>
-        </a>
-        <a class="card" href="./profile.html">
-          <h3>Профиль вайфу</h3>
-          <p>Статы, экипировка, навыки основной вайфу.</p>
-        </a>
-        <a class="card" href="./settings.html">
-          <h3>Настройки</h3>
-          <p>Звук, язык, выход, помощь.</p>
-        </a>
-      </section>
+      <div id="title-screen-auth" class="title-screen-auth muted tiny" style="display: none"></div>
 
-      <section class="section">
-        <div class="placeholder">Здесь будет фон города и интерактивные кнопки зданий по ТЗ.</div>
-      </section>
-
-      <section class="grid-2">
-        <div class="section">
-          <h3>Данжи (акт)</h3>
-          <div style="margin-bottom:8px;">
-            <button onclick="WaifuApp.loadProfile().then(p=>WaifuApp.loadDungeons(p.act)).then(()=>WaifuApp.loadActiveDungeon()).catch(console.error);">Обновить</button>
-          </div>
-          <div id="dungeon-list" class="list placeholder" style="text-align:left"></div>
-          <div style="margin-top:10px;">
-            <div class="muted">Активный данж:</div>
-            <div id="dungeon-active" class="placeholder"></div>
-          </div>
-        </div>
-        <div class="section">
-          <h3>События (SSE)</h3>
-          <div id="event-log" class="list placeholder" style="text-align:left"></div>
-        </div>
-      </section>
+      <nav class="title-screen-menu" aria-label="Главное меню">
+        <button type="button" id="title-primary-btn" class="title-screen-btn" disabled>
+          …
+        </button>
+        <a class="title-screen-btn" href="./settings.html">Настройки</a>
+        <button type="button" id="title-info-btn" class="title-screen-btn">Информация</button>
+      </nav>
     </main>
 
-    <nav class="nav basement">
-      <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
-      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span aria-hidden="true">🏰</span></a>
-      <a href="./shop.html" data-page="shop" title="Магазин"><span aria-hidden="true">🏪</span></a>
-      <a href="./tavern.html" data-page="tavern" title="Таверна"><span aria-hidden="true">🍻</span></a>
-      <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
-      <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
-      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
-      <a href="./settings.html" data-page="settings" title="Настройки"><span aria-hidden="true">⚙️</span></a>
-    </nav>
+    <div id="title-info-modal" class="title-screen-modal" role="dialog" aria-modal="true" aria-labelledby="title-info-heading" hidden>
+      <div class="title-screen-modal-panel">
+        <h2 id="title-info-heading" class="title-screen-modal-title">О игре</h2>
+        <p class="title-screen-modal-text">
+          Waifu REBORN — веб-игра в Telegram: основная вайфу, подземелья, магазин, таверна с наёмницами, караван по актам,
+          пассивные навыки и групповые походы. Откройте разделы через нижнее меню после входа в игру.
+        </p>
+        <button type="button" id="title-info-close" class="title-screen-btn">Закрыть</button>
+      </div>
+    </div>
   </body>
 </html>
-

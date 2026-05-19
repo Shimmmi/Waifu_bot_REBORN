@@ -21,6 +21,10 @@ node_modules/
 .idea/
 .vscode/
 
+# Загруженные эмблемы гильдий (WebApp)
+static/guild_icons/*
+!static/guild_icons/.gitkeep
+
 # Секреты и токены (дополнительная защита)
 *secret*
 *token*

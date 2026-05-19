@@ -2,6 +2,8 @@
 import math
 import random
 
+from typing import Any
+
 from waifu_bot.game.constants import (
     BASE_HP_PER_LEVEL,
     BASE_SKILL_DAMAGE,
@@ -41,7 +43,7 @@ from waifu_bot.game.constants import (
 def calculate_max_hp(level: int, endurance: int, strength: int = 0) -> int:
     """Calculate maximum HP.
 
-    Formula: BASE_HP_PER_LEVEL × level + ВЫН × 5 + СИЛ × 2
+    Formula: BASE_HP_PER_LEVEL × level + ВЫН × 10 + СИЛ × 3
     """
     base_hp = BASE_HP_PER_LEVEL * level
     endurance_bonus = endurance * HP_K_COEFFICIENT
@@ -60,7 +62,7 @@ def calculate_damage_reduction(endurance: int) -> float:
 
 
 def calculate_crit_multiplier(strength: int) -> float:
-    """Crit multiplier = 1.5 + СИЛ × 0.005."""
+    """Crit multiplier = 1.5 + СИЛ × 0.01."""
     return CRIT_MULTIPLIER_BASE + strength * CRIT_MULTIPLIER_PER_STR
 
 
@@ -112,31 +114,195 @@ def calculate_message_damage(
 ) -> int:
     """Calculate damage from message.
 
-    Components:
-    - base = weapon_damage (if provided) else BASE_SKILL_DAMAGE
-    - media multiplier depends on MediaType
-    - length multiplier (text/link only) gives small scaling with message length (capped)
-    - stat scaling depends on attack_type (strength/agility/intelligence)
+    TEXT/LINK: (база × длина + статы по типу оружия) затем × коэффициент типа из MEDIA_COEFFICIENTS.
+
+    Остальные медиа: база + ИНТ×INT_SKILL_DAMAGE_COEFF (без СИЛ/ЛОВ/ИНТ от оружия), затем × коэффициент типа.
     """
-    media_coef = MEDIA_COEFFICIENTS.get(media_type, 1.0)
+    media_coef = float(MEDIA_COEFFICIENTS.get(media_type, 1.0))
     base = int(weapon_damage) if weapon_damage is not None else int(BASE_SKILL_DAMAGE)
 
-    # Only scale with length for text-like actions
     length = max(0, int(message_length or 0))
     if media_type in (MediaType.TEXT, MediaType.LINK):
-        # Up to +50% at 200 chars (then capped)
         length_cap = 200
         length_mult = 1.0 + (min(length, length_cap) / length_cap) * 0.5
     else:
         length_mult = 1.0
 
-    base_damage = base * media_coef * length_mult
+    if media_type in (MediaType.TEXT, MediaType.LINK):
+        scaled = float(base) * length_mult
+        core = calculate_damage(scaled, strength, agility, intelligence, attack_type)
+        return int(core * media_coef)
 
-    return calculate_damage(base_damage, strength, agility, intelligence, attack_type)
+    int_media = int(intelligence * INT_SKILL_DAMAGE_COEFF)
+    core = base + int_media
+    return int(core * media_coef)
+
+
+def _stat_bonus_flat_for_attack(
+    strength: int, agility: int, intelligence: int, attack_type: str
+) -> tuple[float, str, str]:
+    """Плоский бонус от основной характеристики и подпись для журнала."""
+    if attack_type == "melee":
+        return strength * MELEE_DAMAGE_COEFFICIENT, "СИЛ", "ближний бой"
+    if attack_type == "ranged":
+        return agility * RANGED_DAMAGE_COEFFICIENT, "ЛОВ", "дальний бой"
+    if attack_type in ("magic", "spell"):
+        return intelligence * SPELL_DAMAGE_COEFFICIENT, "ИНТ", "магия"
+    return 0.0, "—", attack_type
+
+
+def _media_type_label_ru(media_type: MediaType) -> str:
+    return {
+        MediaType.TEXT: "текст",
+        MediaType.LINK: "ссылка",
+        MediaType.STICKER: "стикер",
+        MediaType.PHOTO: "фото",
+        MediaType.GIF: "GIF",
+        MediaType.AUDIO: "аудио",
+        MediaType.VIDEO: "видео",
+        MediaType.VOICE: "голос",
+    }.get(media_type, "медиа")
+
+
+def build_message_damage_base_trace_ru(
+    media_type: MediaType,
+    strength: int,
+    agility: int,
+    intelligence: int,
+    attack_type: str,
+    message_length: int,
+    weapon_damage: int | None,
+) -> tuple[int, list[dict[str, Any]]]:
+    """Шаги базы урона сообщения в формате damage_breakdown; итог = calculate_message_damage(...)."""
+    media_coef = float(MEDIA_COEFFICIENTS.get(media_type, 1.0))
+    base = int(weapon_damage) if weapon_damage is not None else int(BASE_SKILL_DAMAGE)
+    length = max(0, int(message_length or 0))
+    if media_type in (MediaType.TEXT, MediaType.LINK):
+        length_cap = 200
+        length_mult = 1.0 + (min(length, length_cap) / length_cap) * 0.5
+    else:
+        length_mult = 1.0
+
+    stat_bonus, stat_abbr, atk_ru = _stat_bonus_flat_for_attack(
+        strength, agility, intelligence, attack_type
+    )
+    mt = _media_type_label_ru(media_type)
+    steps: list[dict[str, Any]] = []
+    wpn_lbl = "База: урон оружия" if weapon_damage is not None else "База: урон без оружия (навык)"
+    steps.append(
+        {
+            "kind": "base",
+            "source": "message_base",
+            "label_ru": wpn_lbl,
+            "value_before": 0,
+            "value_after": base,
+        }
+    )
+
+    if media_type in (MediaType.TEXT, MediaType.LINK):
+        scaled = float(base) * length_mult
+        scaled_int = int(scaled)
+        dmg_core = calculate_damage(scaled, strength, agility, intelligence, attack_type)
+        total = int(dmg_core * media_coef)
+
+        if length_mult != 1.0:
+            steps.append(
+                {
+                    "kind": "mult",
+                    "source": "message_text_length",
+                    "label_ru": f"Длина текста/ссылки: до +50% на 200 симв. (×{length_mult:.3f})",
+                    "value_before": base,
+                    "value_after": scaled_int,
+                    "factor": round(length_mult, 6),
+                }
+            )
+        steps.append(
+            {
+                "kind": "add",
+                "source": "message_primary_stat",
+                "label_ru": f"Урон от {stat_abbr} ({atk_ru}): +{int(stat_bonus)}",
+                "value_before": scaled_int,
+                "value_after": dmg_core,
+                "delta": int(dmg_core - scaled_int),
+            }
+        )
+        steps.append(
+            {
+                "kind": "mult",
+                "source": "message_media_type",
+                "label_ru": f"Коэффициент типа сообщения ({mt}): ×{media_coef:g}",
+                "value_before": dmg_core,
+                "value_after": total,
+                "factor": round(media_coef, 6),
+            }
+        )
+        return total, steps
+
+    int_media_flat = int(intelligence * INT_SKILL_DAMAGE_COEFF)
+    core = base + int_media_flat
+    total = int(core * media_coef)
+
+    if int_media_flat:
+        steps.append(
+            {
+                "kind": "add",
+                "source": "message_int_media",
+                "label_ru": f"Урон от ИНТ к медиа: +{int_media_flat} (ИНТ × {INT_SKILL_DAMAGE_COEFF:g})",
+                "value_before": base,
+                "value_after": core,
+                "delta": int_media_flat,
+            }
+        )
+    steps.append(
+        {
+            "kind": "mult",
+            "source": "message_media_type",
+            "label_ru": f"Коэффициент типа сообщения ({mt}): ×{media_coef:g}",
+            "value_before": core,
+            "value_after": total,
+            "factor": round(media_coef, 6),
+        }
+    )
+    return total, steps
+
+
+def blend_rarity_weights_with_magic_find(opts: list[tuple[int, int]], total_mf_pct: float) -> list[tuple[int, int]]:
+    """Смешать базовые веса редкости с целевым хвостом (15% эпик / 85% легенда при t=1).
+
+    total_mf_pct — суммарный Magic Find в процентах (удача × LCK_MAGIC_FIND_COEFF×100 + экипировка).
+    """
+    from waifu_bot.game.constants import MAGIC_FIND_FULL_BLEND_PCT
+
+    t = min(1.0, max(0.0, float(total_mf_pct) / float(MAGIC_FIND_FULL_BLEND_PCT)))
+    base_w = {r: 0 for r in range(1, 6)}
+    for r, w in opts:
+        try:
+            rr = int(r)
+            ww = int(w)
+        except Exception:
+            continue
+        if 1 <= rr <= 5 and ww > 0:
+            base_w[rr] += ww
+    total_b = sum(base_w.values())
+    if total_b <= 0:
+        base_w = {1: 70, 2: 25, 3: 5, 4: 0, 5: 0}
+        total_b = 100
+    bp = {r: base_w[r] / total_b for r in range(1, 6)}
+    tp = {1: 0.0, 2: 0.0, 3: 0.0, 4: 0.15, 5: 0.85}
+    scale = 10000
+    blended: list[tuple[int, int]] = []
+    for r in range(1, 6):
+        p = (1.0 - t) * bp[r] + t * tp[r]
+        w = max(0, int(round(p * scale)))
+        if w > 0:
+            blended.append((r, w))
+    if not blended:
+        return [(1, 1)]
+    return blended
 
 
 def calculate_crit_chance(agility: int, luck: int) -> float:
-    """Calculate critical hit chance: УДЧ×0.1% (primary) + ЛОВ×0.05% (secondary). Cap 50%."""
+    """Calculate critical hit chance: УДЧ×0.1% (primary) + ЛОВ×0.1% (secondary). Cap 100%."""
     chance = (agility * CRIT_CHANCE_AGILITY) + (luck * CRIT_CHANCE_LUCK)
     return min(chance, CRIT_CHANCE_CAP)
 
@@ -148,7 +314,7 @@ def roll_crit(agility: int, luck: int) -> bool:
 
 
 def get_crit_multiplier(strength: int = 0) -> float:
-    """Get crit multiplier: 1.5 + СИЛ×0.005, randomised up to CRIT_MULTIPLIER_MAX."""
+    """Get crit multiplier: 1.5 + СИЛ×0.01, randomised up to CRIT_MULTIPLIER_MAX."""
     base = calculate_crit_multiplier(strength)
     upper = max(base, CRIT_MULTIPLIER_MAX)
     return random.uniform(base, upper)
@@ -181,24 +347,30 @@ def calculate_total_experience_for_level(level: int) -> int:
     return total
 
 
+# Доля от «цены выкупа у NPC» после скидки ОБА (до пассивок). Итоговая продажа в магазине = доля × цена после пассивок.
+SHOP_SELL_VS_BUY_RATIO = 0.30
+
+
+def shop_buy_price_from_merchant_discount(base_value: int, merchant_discount_pct: float) -> int:
+    """Цена покупки у торговца: base × (1 − скидка%), скидка 0..50%."""
+    d = max(0.0, min(50.0, float(merchant_discount_pct)))
+    return max(1, int(int(base_value) * (1.0 - d / 100.0)))
+
+
 def calculate_shop_price(base_value: int, charm: int, is_buy: bool = True) -> int:
-    """Calculate shop price based on charm (ОБА).
+    """Оценка цены только по числу ОБА (без flat с предметов). Для реального магазина см. ShopService."""
+    from waifu_bot.game.constants import CHM_MERCHANT_DISCOUNT_COEFF
 
-    IMPORTANT: align with profile's merchant_discount:
-      merchant_discount% = clamp((charm - 10) * 1%, 0..50%)
-
-    - Buy: base * (1 - discount%)
-    - Sell: base * (0.5..0.9) scaled by the same discount% (keeps legacy bounds)
-    """
-    discount_pct = max(0.0, min(50.0, (float(charm) - 10.0) * 1.0))
-
+    discount_pct = max(0.0, min(50.0, float(charm) * float(CHM_MERCHANT_DISCOUNT_COEFF) * 100.0))
+    buy_eq = shop_buy_price_from_merchant_discount(int(base_value), discount_pct)
     if is_buy:
-        multiplier = 1.0 - (discount_pct / 100.0)  # 1.00 .. 0.50
-    else:
-        # Keep 0.5..0.9 range, but drive it from the same %.
-        multiplier = 0.5 + (discount_pct / 50.0) * 0.4  # 0.5 .. 0.9
+        return buy_eq
+    return max(1, int(buy_eq * SHOP_SELL_VS_BUY_RATIO))
 
-    return int(int(base_value) * multiplier)
+
+def calculate_shop_sell_price(base_value: int, charm: int) -> int:
+    """Цена скупки (charm-only): доля от эквивалента покупки при том же base_value."""
+    return calculate_shop_price(base_value, charm, is_buy=False)
 
 
 def calculate_gamble_price(level: int) -> int:

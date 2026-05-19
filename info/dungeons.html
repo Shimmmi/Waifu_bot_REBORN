@@ -117,6 +117,220 @@
       .monster-visual[data-family="slime"]     { --monster-bg: linear-gradient(135deg,#0d2e1a,#081908); }
       .monster-visual[data-family="dragon"]    { --monster-bg: linear-gradient(135deg,#2e1a00,#190d00); }
       .monster-visual[data-family="fae"]       { --monster-bg: linear-gradient(135deg,#1a0d2e,#2e0d1a); }
+
+    /* ═══════════════════════════════════════════════
+       EXPEDITION GRID v2
+    ═══════════════════════════════════════════════ */
+    .exp-sec-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin: 14px 0 6px;
+    }
+    .exp-sec-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--ash, #8a7a6a);
+    }
+    .exp-sec-sub { font-size: 10px; color: var(--muted, #6a5a4a); }
+
+    .exp-card-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    /* Card */
+    .exp-card-item {
+      border-radius: 10px; overflow: hidden; cursor: pointer;
+      border: 1px solid rgba(200,146,42,.15);
+      background: #221c16;
+      transition: border-color .15s, transform .12s;
+      position: relative;
+    }
+    .exp-card-item:hover { border-color: rgba(200,146,42,.4); transform: translateY(-2px); }
+    .exp-card-item.exp-is-active { border-color: rgba(96,165,250,.4); }
+
+    /* 2:3 image */
+    .exp-card-img {
+      width: 100%; aspect-ratio: 2/3; position: relative;
+      overflow: hidden; display: flex; align-items: center; justify-content: center;
+    }
+    .exp-card-img::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(to bottom, rgba(0,0,0,.05) 0%, rgba(0,0,0,.68) 100%);
+    }
+    .exp-card-emoji { font-size: 32px; position: relative; z-index: 1; }
+    .exp-card-affix-icons {
+      position: absolute; top: 5px; right: 5px;
+      display: flex; flex-direction: column; gap: 3px; z-index: 2;
+    }
+    .exp-affix-ico {
+      width: 20px; height: 20px; border-radius: 5px;
+      background: rgba(0,0,0,.75); border: 1px solid rgba(255,255,255,.12);
+      display: flex; align-items: center; justify-content: center; font-size: 11px;
+    }
+    .exp-card-name {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: 5px 6px 6px; z-index: 2;
+      font-size: 11px; font-weight: 700; color: #fff; line-height: 1.2;
+    }
+    /* progress bar on active cards */
+    .exp-card-progbar { height: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
+    .exp-card-progfill {
+      height: 100%;
+      background: linear-gradient(90deg, #7c3aed, #a78bfa);
+    }
+    .exp-card-foot {
+      padding: 5px 7px 6px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .exp-foot-active { font-size: 9px; color: #93c5fd; }
+    .exp-foot-ready  { font-size: 9px; color: #e8b84b; }
+    .exp-foot-timer  { font-size: 9px; color: #8a7a6a; font-weight: 600; }
+
+    /* ── SHARED OVERLAY / SHEET ── */
+    .exp-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.78);
+      z-index: 1050; display: none; align-items: flex-end;
+    }
+    .exp-overlay.exp-open { display: flex; }
+    .exp-sheet {
+      background: #1a1410;
+      border: 1px solid rgba(200,146,42,.2); border-bottom: none;
+      border-radius: 16px 16px 0 0; width: 100%; padding: 14px 14px 28px;
+      max-height: 92%; overflow-y: auto; position: relative;
+    }
+    .exp-sheet-handle {
+      width: 36px; height: 4px; background: rgba(255,255,255,.15);
+      border-radius: 2px; margin: 0 auto 12px;
+    }
+    .exp-sheet-close {
+      position: absolute; top: 14px; right: 14px;
+      background: rgba(255,255,255,.08); border: none; border-radius: 8px;
+      color: #8a7a6a; font-size: 14px; width: 28px; height: 28px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+
+    /* ── MODAL IMAGE 3:2 ── */
+    .exp-modal-img {
+      width: 100%; aspect-ratio: 3/2; border-radius: 10px;
+      overflow: hidden; margin-bottom: 12px;
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+    .exp-modal-img::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(to bottom, rgba(0,0,0,.05), rgba(0,0,0,.5));
+    }
+    .exp-modal-emoji { font-size: 54px; position: relative; z-index: 1; }
+    .exp-modal-title { font-size: 17px; font-weight: 700; color: #e8dcc8; margin-bottom: 6px; }
+    .exp-modal-affixes { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px; }
+    .exp-aff-chip {
+      font-size: 10px; padding: 2px 8px; border-radius: 8px; font-weight: 600;
+    }
+    .exp-cat-enemy   { background:rgba(248,113,113,.15); border:1px solid rgba(248,113,113,.35); color:#fca5a5; }
+    .exp-cat-hazard  { background:rgba(250,204,21,.15);  border:1px solid rgba(250,204,21,.35);  color:#fde047; }
+    .exp-cat-cursed  { background:rgba(167,139,250,.15); border:1px solid rgba(167,139,250,.35); color:#c4b5fd; }
+    .exp-cat-nature  { background:rgba(74,222,128,.15);  border:1px solid rgba(74,222,128,.35);  color:#86efac; }
+    .exp-cat-social  { background:rgba(96,165,250,.15);  border:1px solid rgba(96,165,250,.35);  color:#93c5fd; }
+    .exp-cat-magic   { background:rgba(251,191,36,.15);  border:1px solid rgba(251,191,36,.35);  color:#fcd34d; }
+
+    /* ── ACTIVE MODAL STATUS BLOCK ── */
+    .exp-status-block {
+      background: #221c16; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px;
+    }
+    .exp-big-timer {
+      font-size: 22px; font-weight: 700; color: #93c5fd;
+      text-align: center; margin-bottom: 8px;
+    }
+    .exp-status-row {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
+    }
+    .exp-status-label { font-size: 11px; color: #8a7a6a; }
+    .exp-status-val   { font-size: 13px; font-weight: 700; color: #e8dcc8; }
+    .exp-big-prog-bar { height: 8px; background: rgba(255,255,255,.08); border-radius: 4px; overflow: hidden; }
+    .exp-big-prog-fill {
+      height: 100%; background: linear-gradient(90deg, #7c3aed, #a78bfa);
+      border-radius: 4px; transition: width .5s;
+    }
+
+    /* ── UNIT ROWS ── */
+    .exp-unit-rows { display: flex; flex-direction: column; gap: 6px; }
+    .exp-unit-row {
+      display: flex; align-items: center; gap: 10px;
+      background: #221c16; border-radius: 8px; padding: 8px 10px;
+    }
+    .exp-unit-ico  { font-size: 20px; flex-shrink: 0; }
+    .exp-unit-inf  { flex: 1; }
+    .exp-unit-name { font-size: 12px; font-weight: 600; color: #e8dcc8; }
+    .exp-unit-sub  { font-size: 10px; color: #8a7a6a; margin-top: 1px; }
+    .exp-unit-hpbar {
+      width: 60px; height: 4px; background: rgba(255,255,255,.1);
+      border-radius: 2px; overflow: hidden; flex-shrink: 0;
+    }
+    .exp-unit-hpfill { height: 100%; border-radius: 2px; }
+
+    /* ── ABORT / SEND BUTTONS ── */
+    .exp-abort-btn {
+      width: 100%; margin-top: 14px; padding: 11px;
+      background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
+      border-radius: 10px; color: #fca5a5; font-size: 12px; font-weight: 700;
+      cursor: pointer; transition: background .15s;
+    }
+    .exp-abort-btn:hover { background: rgba(239,68,68,.18); }
+    .exp-send-btn {
+      width: 100%; margin-top: 14px; padding: 12px;
+      background: linear-gradient(135deg, rgba(200,146,42,.3), rgba(200,146,42,.5));
+      border: 1px solid rgba(200,146,42,.5); border-radius: 10px;
+      color: #e8b84b; font-size: 13px; font-weight: 700;
+      cursor: pointer; transition: opacity .15s; letter-spacing: .03em;
+    }
+    .exp-send-btn:disabled { opacity: .38; cursor: default; }
+
+    /* ── OPTION ROWS (diff / dur) ── */
+    .exp-opt-label {
+      font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+      color: #8a7a6a; margin-bottom: 6px; margin-top: 12px;
+    }
+    .exp-opt-row { display: flex; gap: 6px; }
+    .exp-opt-btn {
+      flex: 1; padding: 8px 4px; border-radius: 8px;
+      border: 1px solid rgba(200,146,42,.2);
+      background: rgba(255,255,255,.04); color: #6a5a4a;
+      font-size: 12px; font-weight: 700; cursor: pointer;
+      text-align: center; transition: all .15s;
+    }
+    .exp-opt-btn:hover, .exp-opt-btn.active {
+      background: rgba(200,146,42,.18); border-color: rgba(200,146,42,.5); color: #e8b84b;
+    }
+
+    /* ── SQUAD SLOTS ── */
+    .exp-squad-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin-top: 2px; }
+    .exp-squad-slot {
+      border: 1px dashed rgba(200,146,42,.25); border-radius: 8px; padding: 8px 6px;
+      text-align: center; cursor: pointer; transition: border-color .15s;
+      min-height: 64px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 3px;
+    }
+    .exp-squad-slot:hover { border-color: rgba(200,146,42,.5); }
+    .exp-squad-slot.exp-slot-filled {
+      border-style: solid; border-color: rgba(200,146,42,.35);
+      background: rgba(200,146,42,.05);
+    }
+    .exp-squad-empty { font-size: 10px; color: #6a5a4a; }
+    .exp-squad-ico   { font-size: 18px; }
+    .exp-squad-name  { font-size: 9px; color: #8a7a6a; }
+    .exp-squad-hp    { font-size: 9px; color: #4ade80; }
+
+    /* ── UNIT PICKER LIST ── */
+    .exp-unit-list { display: flex; flex-direction: column; gap: 6px; }
+    .exp-ul-item {
+      display: flex; align-items: center; gap: 10px;
+      background: #221c16; border: 1px solid rgba(200,146,42,.15);
+      border-radius: 8px; padding: 8px 10px; cursor: pointer;
+      transition: border-color .15s;
+    }
+    .exp-ul-item:hover { border-color: rgba(200,146,42,.4); }
+    .exp-ul-item.exp-ul-sel { border-color: #4ade80; background: rgba(74,222,128,.06); }
+    .exp-ul-item.exp-ul-dis { opacity: .42; cursor: default; }
+
     </style>
   </head>
   <body class="page-dungeons" onload="WaifuApp.bootstrapPage('dungeons', WaifuApp.populateDungeonsPage);">
@@ -284,55 +498,136 @@
           <!-- / #tab-solo -->
 
           <!-- ── EXPEDITION TAB ───────────────────────────────────────── -->
-          <div id="tab-expedition" class="tab-panel" style="display: none;">
+          <!-- ── EXPEDITION TAB ── -->
+          <div id="tab-expedition" class="tab-panel" style="display:none;">
             <div id="expedition-error" class="banner" style="display:none;"></div>
-            <div class="section-head">
-              <div>
-                <div style="font-weight:800;">Активные экспедиции</div>
-                <div class="muted tiny">Завершённые — кнопка «Забрать награду»</div>
+
+            <!-- Active expeditions section (hidden when empty) -->
+            <div id="exp-active-section" style="display:none;">
+              <div class="exp-sec-header">
+                <span class="exp-sec-title">Активные экспедиции</span>
+                <button class="secondary admin-only" id="expedition-admin-refresh"
+                        style="display:none;" onclick="WaifuApp.adminRefreshExpeditions()">🔄</button>
+              </div>
+              <div class="exp-card-grid" id="exp-active-grid">
+                <div class="placeholder muted tiny">Загрузка...</div>
               </div>
             </div>
-            <div id="expedition-active-list" class="expedition-active-list">
-              <div class="placeholder">Загрузка...</div>
-            </div>
-            <div class="section-head" style="margin-top:16px;">
-              <div>
-                <div style="font-weight:800;">Слоты на сегодня</div>
-                <div class="muted tiny">Обновление в 00:00 МСК · отряд из таверны (1–3 вайфу)</div>
+
+            <!-- Daily expeditions section -->
+            <div id="exp-daily-section">
+              <div class="exp-sec-header">
+                <span class="exp-sec-title">Ежедневные экспедиции</span>
+                <span class="exp-sec-sub" id="exp-daily-refresh-label">Обновляются в 00:00 МСК</span>
               </div>
-              <button class="secondary admin-only" id="expedition-admin-refresh"
-                      style="display:none;" onclick="WaifuApp.adminRefreshExpeditions()">🔄</button>
+              <div class="exp-card-grid" id="exp-daily-grid">
+                <div class="placeholder muted tiny">Загрузка слотов...</div>
+              </div>
             </div>
-            <div id="expedition-slots-list" class="expedition-slots-grid">
-              <div class="placeholder">Загрузка слотов...</div>
-            </div>
-            <p class="muted tiny" style="margin-top:10px;">
-              Длительность: 15–120 мин (шаг 15). Чем дольше — выше награда и риск. Отмена даёт 50% награды.
-            </p>
           </div>
 
-          <!-- Expedition start modal -->
-          <div id="expedition-start-modal" class="modal" style="display:none;">
-            <div class="modal-content">
-              <div class="modal-head">
-                <div>
-                  <div class="modal-title" id="expedition-start-title">Экспедиция</div>
-                  <div class="muted tiny" id="expedition-start-subtitle">—</div>
+          <!-- ── MODAL 1: ACTIVE EXPEDITION INFO ── -->
+          <div id="exp-active-modal" class="exp-overlay" style="display:none;"
+               onclick="if(event.target===this)WaifuApp.closeActiveExpModal()">
+            <div class="exp-sheet">
+              <div class="exp-sheet-handle"></div>
+              <button class="exp-sheet-close" onclick="WaifuApp.closeActiveExpModal()">✕</button>
+
+              <!-- 3:2 image -->
+              <div class="exp-modal-img" id="eam-img">
+                <div class="exp-modal-emoji" id="eam-emoji"></div>
+              </div>
+              <div class="exp-modal-title" id="eam-title"></div>
+              <div class="exp-modal-affixes" id="eam-affixes"></div>
+
+              <!-- Status -->
+              <div class="exp-status-block">
+                <div class="exp-big-timer" id="eam-timer">—</div>
+                <div class="exp-status-row">
+                  <span class="exp-status-label">Прогресс</span>
+                  <span class="exp-status-val" id="eam-prog-txt">—</span>
                 </div>
-                <button class="secondary" onclick="WaifuApp.closeExpeditionStartModal()">✖</button>
+                <div class="exp-big-prog-bar">
+                  <div class="exp-big-prog-fill" id="eam-prog-fill"></div>
+                </div>
+                <div class="exp-status-row" style="margin-top:10px;margin-bottom:0">
+                  <span class="exp-status-label">Событий</span>
+                  <span class="exp-status-val" id="eam-events">—</span>
+                </div>
               </div>
-              <div class="modal-body">
-                <div class="detail-row"><span class="muted">Отряд (1–3 вайфу из таверны)</span></div>
-                <div id="expedition-squad-pick" class="expedition-squad-pick"></div>
-                <div class="detail-row" style="margin-top:10px;"><span class="muted">Длительность</span></div>
-                <select id="expedition-duration-select" class="form-field"></select>
-                <div id="expedition-preview" class="expedition-preview" style="margin-top:12px;"></div>
+
+              <!-- Squad -->
+              <div class="exp-opt-label" style="margin-top:12px;">Состояние отряда</div>
+              <div class="exp-unit-rows" id="eam-squad"></div>
+
+              <button class="exp-abort-btn" onclick="WaifuApp.abortExpedition(window._activeExpId)">
+                🏳 Завершить досрочно (×0.5 награды)
+              </button>
+            </div>
+          </div>
+
+          <!-- ── MODAL 2: SEND NEW EXPEDITION ── -->
+          <div id="exp-send-modal" class="exp-overlay" style="display:none;"
+               onclick="if(event.target===this)WaifuApp.closeSendExpModal()">
+            <div class="exp-sheet">
+              <div class="exp-sheet-handle"></div>
+              <button class="exp-sheet-close" onclick="WaifuApp.closeSendExpModal()">✕</button>
+
+              <!-- 3:2 image -->
+              <div class="exp-modal-img" id="esm-img">
+                <div class="exp-modal-emoji" id="esm-emoji"></div>
               </div>
-              <div class="modal-footer">
-                <button class="secondary" onclick="WaifuApp.closeExpeditionStartModal()">Отмена</button>
-                <button class="primary" id="expedition-start-confirm"
-                        onclick="WaifuApp.submitExpeditionStart()">Отправить</button>
+              <div class="exp-modal-title" id="esm-title"></div>
+              <div class="exp-modal-affixes" id="esm-affixes"></div>
+
+              <!-- Difficulty -->
+              <div class="exp-opt-label">Уровень сложности</div>
+              <div class="exp-opt-row" id="esm-diff-row">
+                <button class="exp-opt-btn active" onclick="WaifuApp.expSelDiff(1,this)">I</button>
+                <button class="exp-opt-btn" onclick="WaifuApp.expSelDiff(2,this)">II</button>
+                <button class="exp-opt-btn" onclick="WaifuApp.expSelDiff(3,this)">III</button>
+                <button class="exp-opt-btn" onclick="WaifuApp.expSelDiff(4,this)">IV</button>
+                <button class="exp-opt-btn" onclick="WaifuApp.expSelDiff(5,this)">V</button>
               </div>
+
+              <!-- Duration -->
+              <div class="exp-opt-label">Длительность (мин)</div>
+              <div class="exp-opt-row" id="esm-dur-row">
+                <button class="exp-opt-btn active" onclick="WaifuApp.expSelDur(30,this)">30</button>
+                <button class="exp-opt-btn" onclick="WaifuApp.expSelDur(45,this)">45</button>
+                <button class="exp-opt-btn" onclick="WaifuApp.expSelDur(60,this)">60</button>
+                <button class="exp-opt-btn" onclick="WaifuApp.expSelDur(90,this)">90</button>
+                <button class="exp-opt-btn" onclick="WaifuApp.expSelDur(120,this)">120</button>
+              </div>
+
+              <!-- Squad slots -->
+              <div class="exp-opt-label">Состав отряда (1–3)</div>
+              <div class="exp-squad-row">
+                <div class="exp-squad-slot" id="exp-sl-0" onclick="WaifuApp.expOpenPicker(0)">
+                  <span class="exp-squad-empty">+ Добавить</span>
+                </div>
+                <div class="exp-squad-slot" id="exp-sl-1" onclick="WaifuApp.expOpenPicker(1)">
+                  <span class="exp-squad-empty">+ Добавить</span>
+                </div>
+                <div class="exp-squad-slot" id="exp-sl-2" onclick="WaifuApp.expOpenPicker(2)">
+                  <span class="exp-squad-empty">+ Добавить</span>
+                </div>
+              </div>
+
+              <button class="exp-send-btn" id="exp-send-btn" disabled
+                      onclick="WaifuApp.submitExpeditionStart()">
+                Отправить отряд
+              </button>
+            </div>
+          </div>
+
+          <!-- ── UNIT PICKER ── -->
+          <div id="exp-picker-overlay" class="exp-overlay" style="display:none;"
+               onclick="if(event.target===this)WaifuApp.expClosePicker()">
+            <div class="exp-sheet" style="max-height:72%">
+              <div class="exp-sheet-handle"></div>
+              <div class="exp-opt-label" style="margin-top:0;margin-bottom:10px">Выбрать наёмницу</div>
+              <div id="exp-unit-list" class="exp-unit-list"></div>
             </div>
           </div>
 
@@ -468,7 +763,7 @@
     ═══════════════════════════════════════════════════════════════════════════
 
     // ─── Monster image helpers ─────────────────────────────────────────────
-    const MONSTER_STATIC_BASE = window.APP_CONFIG?.staticBase ?? '/static/monsters';
+    const MONSTER_STATIC_BASE = window.APP_CONFIG?.staticBase ?? '/static/game/monsters';
 
     /**
      * Строит упорядоченный массив URL для fallback-цепочки.
@@ -624,6 +919,253 @@
     };
     // ─── End monster image system ──────────────────────────────────────────
     -->
+
+  <script>
+  /* ═══════════════════════════════════════════════════════════════
+     EXPEDITION v2 — Grid + two modals (active info / send new)
+  ═══════════════════════════════════════════════════════════════ */
+  (function() {
+
+    // ── State ──────────────────────────────────────────────────────
+    let _squadSlots = [null, null, null];
+    let _pickerSlot = -1;
+    let _diffVal    = 1;
+    let _durVal     = 30;
+    let _currentSlotId = null;
+    window._activeExpId = null;
+
+    // ── Helpers ────────────────────────────────────────────────────
+    function g(id) { return document.getElementById(id); }
+
+    function openOverlay(id) {
+      const el = g(id);
+      if (el) { el.style.display = 'flex'; el.classList.add('exp-open'); }
+    }
+    function closeOverlay(id) {
+      const el = g(id);
+      if (el) { el.style.display = 'none'; el.classList.remove('exp-open'); }
+    }
+
+    // ── Render card grid ────────────────────────────────────────────
+    WaifuApp.renderExpeditionTab = function(activeExps, dailySlots) {
+      // Active section
+      const activeSection = g('exp-active-section');
+      if (activeExps && activeExps.length > 0) {
+        activeSection.style.display = '';
+        g('exp-active-grid').innerHTML = activeExps.map(renderCard).join('');
+      } else {
+        activeSection.style.display = 'none';
+      }
+
+      // Daily section
+      if (dailySlots && dailySlots.length > 0) {
+        g('exp-daily-grid').innerHTML = dailySlots.map(renderCard).join('');
+      } else {
+        g('exp-daily-grid').innerHTML = '<div class="placeholder muted tiny">Нет доступных экспедиций</div>';
+      }
+    };
+
+    function renderCard(exp) {
+      const isActive  = exp.type === 'active' || exp.status === 'active';
+      const affixIcos = (exp.affixes || []).slice(0,4).map(a =>
+        `<div class="exp-affix-ico">${a.icon || '✦'}</div>`
+      ).join('');
+      const progBar = isActive
+        ? `<div class="exp-card-progbar"><div class="exp-card-progfill" style="width:${exp.progress||0}%"></div></div>`
+        : '';
+      const foot = isActive
+        ? `<div class="exp-card-foot"><span class="exp-foot-active">● В пути</span><span class="exp-foot-timer">${exp.time_left||'—'}</span></div>`
+        : `<div class="exp-card-foot"><span class="exp-foot-ready">● Доступна</span></div>`;
+
+      return `<div class="exp-card-item${isActive?' exp-is-active':''}"
+                   onclick="WaifuApp.expOpenCard(${JSON.stringify(JSON.stringify(exp))})">
+        <div class="exp-card-img" style="background:${exp.bg||'#1a1008'}">
+          <div class="exp-card-emoji">${exp.emoji||'🗺'}</div>
+          <div class="exp-card-affix-icons">${affixIcos}</div>
+          <div class="exp-card-name">${exp.name||'—'}</div>
+        </div>
+        ${progBar}${foot}
+      </div>`;
+    }
+
+    // ── Open correct modal depending on type ────────────────────────
+    WaifuApp.expOpenCard = function(expJson) {
+      const exp = typeof expJson === 'string' ? JSON.parse(expJson) : expJson;
+      const isActive = exp.type === 'active' || exp.status === 'active';
+      if (isActive) openActiveModal(exp);
+      else          openSendModal(exp);
+    };
+
+    // ── ACTIVE MODAL ────────────────────────────────────────────────
+    function openActiveModal(exp) {
+      window._activeExpId = exp.id;
+      setModalImg('eam-img', 'eam-emoji', exp);
+      g('eam-title').textContent     = exp.name || '—';
+      g('eam-affixes').innerHTML     = affixChips(exp.affixes || []);
+      g('eam-timer').textContent     = exp.time_left || '—';
+      g('eam-prog-txt').textContent  = (exp.progress || 0) + '%';
+      g('eam-prog-fill').style.width = (exp.progress || 0) + '%';
+      g('eam-events').textContent    = exp.events_label || '— / —';
+      g('eam-squad').innerHTML       = (exp.squad || []).map(unitRow).join('');
+      openOverlay('exp-active-modal');
+    }
+
+    WaifuApp.closeActiveExpModal = function() { closeOverlay('exp-active-modal'); };
+
+    // ── SEND MODAL ──────────────────────────────────────────────────
+    function openSendModal(exp) {
+      _currentSlotId = exp.id;
+      setModalImg('esm-img', 'esm-emoji', exp);
+      g('esm-title').textContent   = exp.name || '—';
+      g('esm-affixes').innerHTML   = affixChips(exp.affixes || []);
+
+      // Reset selections
+      _diffVal = 1; _durVal = 30;
+      g('esm-diff-row').querySelectorAll('.exp-opt-btn')
+        .forEach((b,i) => b.classList.toggle('active', i === 0));
+      g('esm-dur-row').querySelectorAll('.exp-opt-btn')
+        .forEach((b,i) => b.classList.toggle('active', i === 0));
+
+      // Reset squad
+      _squadSlots = [null, null, null];
+      renderSquadSlots();
+      openOverlay('exp-send-modal');
+    }
+
+    WaifuApp.closeSendExpModal = function() { closeOverlay('exp-send-modal'); };
+
+    // Option selectors
+    WaifuApp.expSelDiff = function(val, btn) {
+      _diffVal = val;
+      g('esm-diff-row').querySelectorAll('.exp-opt-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    };
+    WaifuApp.expSelDur = function(val, btn) {
+      _durVal = val;
+      g('esm-dur-row').querySelectorAll('.exp-opt-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    };
+
+    // Squad slots
+    function renderSquadSlots() {
+      for (let i = 0; i < 3; i++) {
+        const slot = g('exp-sl-' + i);
+        const unit = _squadSlots[i];
+        if (unit) {
+          slot.className = 'exp-squad-slot exp-slot-filled';
+          slot.innerHTML = `<div class="exp-squad-ico">${unit.icon||'⚔️'}</div>
+            <div class="exp-squad-name">${unit.name}</div>
+            <div class="exp-squad-hp">${unit.hp_current}/${unit.hp_max}</div>`;
+        } else {
+          slot.className = 'exp-squad-slot';
+          slot.innerHTML = '<span class="exp-squad-empty">+ Добавить</span>';
+        }
+        slot.onclick = () => WaifuApp.expOpenPicker(i);
+      }
+      g('exp-send-btn').disabled = _squadSlots.every(s => !s);
+    }
+
+    WaifuApp.expOpenPicker = function(slotIdx) {
+      _pickerSlot = slotIdx;
+      const takenIds = new Set(
+        _squadSlots.filter(Boolean)
+          .filter((_, i) => i !== slotIdx)
+          .map(u => u.id)
+      );
+
+      const units = WaifuApp.getAvailableUnits ? WaifuApp.getAvailableUnits() : [];
+      g('exp-unit-list').innerHTML = units.map(u => {
+        const inExpedition = !!u.expedition_id;
+        const inSquad      = takenIds.has(u.id);
+        const isSelected   = _squadSlots[slotIdx]?.id === u.id;
+        const disabled     = inExpedition || inSquad;
+        const pct          = u.hp_max > 0 ? Math.round(u.hp_current/u.hp_max*100) : 0;
+        const hpColor      = pct > 50 ? '#4ade80' : pct > 25 ? '#fbbf24' : '#f87171';
+        const note         = inExpedition ? '🔒 В экспедиции' : `${u.unit_class} · ${u.race}`;
+        return `<div class="exp-ul-item${isSelected?' exp-ul-sel':''}${disabled?' exp-ul-dis':''}"
+                     onclick="${disabled?'':('WaifuApp.expPickUnit('+u.id+')')}">
+          <div class="exp-unit-ico">${u.icon||'⚔️'}</div>
+          <div class="exp-unit-inf">
+            <div class="exp-unit-name">${u.name}</div>
+            <div class="exp-unit-sub">${note}</div>
+          </div>
+          <div class="exp-unit-hpbar">
+            <div class="exp-unit-hpfill" style="width:${pct}%;background:${hpColor}"></div>
+          </div>
+        </div>`;
+      }).join('') || '<div class="placeholder muted tiny">Нет доступных наёмниц</div>';
+
+      closeOverlay('exp-send-modal');
+      openOverlay('exp-picker-overlay');
+    };
+
+    WaifuApp.expPickUnit = function(id) {
+      const units = WaifuApp.getAvailableUnits ? WaifuApp.getAvailableUnits() : [];
+      const unit  = units.find(u => u.id === id);
+      if (!unit || unit.expedition_id) return;
+      _squadSlots[_pickerSlot] = unit;
+      WaifuApp.expClosePicker();
+      openOverlay('exp-send-modal');
+      renderSquadSlots();
+    };
+
+    WaifuApp.expClosePicker = function() { closeOverlay('exp-picker-overlay'); };
+
+    // Submit
+    WaifuApp.submitExpeditionStart = async function() {
+      const unitIds = _squadSlots.filter(Boolean).map(u => u.id);
+      if (!unitIds.length || !_currentSlotId) return;
+      try {
+        await WaifuApp.apiFetch('/api/expeditions/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            slot_id:          _currentSlotId,
+            unit_ids:         unitIds,
+            difficulty_level: _diffVal,
+            duration_minutes: _durVal,
+          }),
+        });
+        WaifuApp.closeSendExpModal();
+        if (WaifuApp.loadExpeditionTab) WaifuApp.loadExpeditionTab();
+      } catch(e) {
+        WaifuApp.showToast?.('Ошибка: ' + e.message, 'error');
+      }
+    };
+
+    // ── HELPERS ─────────────────────────────────────────────────────
+    function setModalImg(imgId, emojiId, exp) {
+      const imgEl = g(imgId);
+      if (imgEl) imgEl.style.background = exp.bg || '#1a1008';
+      const emojiEl = g(emojiId);
+      if (emojiEl) emojiEl.textContent = exp.emoji || '🗺';
+    }
+
+    function affixChips(affixes) {
+      return affixes.map(a =>
+        `<span class="exp-aff-chip exp-cat-${a.category||'enemy'}">${a.icon||'✦'} ${a.name}</span>`
+      ).join('');
+    }
+
+    function unitRow(u) {
+      const pct   = u.hp_max > 0 ? Math.round(u.hp_current/u.hp_max*100) : 0;
+      const color = pct > 50 ? '#4ade80' : pct > 25 ? '#fbbf24' : '#f87171';
+      const warn  = pct <= 25 ? '<span style="color:#f87171;font-size:9px"> ⚠ Лечение</span>' : '';
+      return `<div class="exp-unit-row">
+        <div class="exp-unit-ico">${u.icon||'⚔️'}</div>
+        <div class="exp-unit-inf">
+          <div class="exp-unit-name">${u.name}</div>
+          <div class="exp-unit-sub">${u.unit_class||''}${warn}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:10px;color:${color};font-weight:700;margin-bottom:3px">${u.hp_current}/${u.hp_max}</div>
+          <div class="exp-unit-hpbar"><div class="exp-unit-hpfill" style="width:${pct}%;background:${color}"></div></div>
+        </div>
+      </div>`;
+    }
+
+  })();
+  </script>
 
   </body>
 </html>

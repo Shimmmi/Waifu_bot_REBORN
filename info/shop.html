@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Магазин</title>
+  <link rel="stylesheet" href="./styles.css"/>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script defer src="./app.js"></script>
+  <style>
+    /* ── SHOP-SPECIFIC OVERRIDES ────────────────────────────────── */
+    body.page-shop {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      background: #0f0c08;
+    }
+
+    /* ── STAGE: fills space between attic and bottom bars ── */
+    .shop-stage {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* Background gradient */
+    .shop-stage-bg {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      background: linear-gradient(150deg, #2a1a08 0%, #15100a 55%, #0d0908 100%);
+    }
+
+    /* Optional WebP background image (loaded if available) */
+    .shop-stage-bg-img {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.45;
+      pointer-events: none;
+    }
+
+    /* ── MERCHANT ── */
+    .shop-merchant {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 108px;
+      z-index: 5;
+      display: flex;
+      align-items: flex-end;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .shop-merchant img {
+      width: 108px;
+      height: auto;
+      display: block;
+      object-fit: contain;
+    }
+    /* Fallback SVG shown when image not loaded */
+    .shop-merchant-svg {
+      width: 108px;
+      height: auto;
+      display: block;
+    }
+    /* Tap hint bubble icon */
+    .shop-merchant::after {
+      content: '💬';
+      position: absolute;
+      top: 8px; right: 2px;
+      font-size: 16px;
+      opacity: 0;
+      transition: opacity .25s;
+      pointer-events: none;
+    }
+    .shop-merchant:hover::after { opacity: .65; }
+
+    /* ── DIALOG BUBBLE ── */
+    .shop-dialog {
+      /* Fixed, bottom-right of stage — above btabs, right of merchant */
+      position: fixed;
+      bottom: 116px; /* above btabs(~52px) + nav(~52px) + gap */
+      left: 108px;   /* right of merchant column */
+      right: 10px;
+      background: rgba(255, 248, 215, .97);
+      border: 2px solid #c8922a;
+      border-radius: 14px;
+      padding: 10px 12px 9px;
+      z-index: 1100;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(6px) scale(.97);
+      transition: opacity .22s ease, transform .22s ease;
+    }
+    .shop-dialog.show {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+    /* Tail pointing DOWN-LEFT toward merchant body */
+    .shop-dialog::before {
+      content: '';
+      position: absolute;
+      bottom: -11px; left: 18px;
+      border: 6px solid transparent;
+      border-top-color: rgba(255, 248, 215, .97);
+    }
+    .shop-dialog::after {
+      content: '';
+      position: absolute;
+      bottom: -15px; left: 16px;
+      border: 7px solid transparent;
+      border-top-color: #c8922a;
+    }
+    .shop-dialog-label {
+      font-size: 9px;
+      color: #8a5a1a;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      margin-bottom: 3px;
+    }
+    .shop-dialog-text {
+      font-size: 12px;
+      color: #3a2010;
+      line-height: 1.4;
+      font-style: italic;
+    }
+    .shop-dialog-text b { color: #8a3010; font-style: normal; }
+    /* Countdown bar */
+    .shop-dialog-timer {
+      height: 2px;
+      background: rgba(200, 146, 42, .2);
+      border-radius: 1px;
+      margin-top: 7px;
+      overflow: hidden;
+    }
+    .shop-dialog-timer-fill {
+      height: 100%;
+      background: #c8922a;
+      border-radius: 1px;
+      width: 100%;
+      transition: width linear;
+    }
+
+    /* ── RIGHT COLUMN: items area ── */
+    .shop-items-col {
+      position: absolute;
+      left: 106px; right: 0;
+      top: 0; bottom: 0;
+      z-index: 4;
+      display: flex;
+      flex-direction: column;
+      padding: 8px 6px 4px 4px;
+      overflow-y: auto; /* scroll if items overflow on wide viewports */
+    }
+
+    /* ── ITEM GRID ── */
+    .shop-items-wrap {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .shop-items-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-auto-rows: 1fr;
+      gap: 5px;
+      align-content: stretch;
+      min-height: 0;
+    }
+
+    /* ── ITEM CARD ── */
+    .shop-item-card {
+      background: rgba(20, 13, 6, .88);
+      border: 1px solid rgba(200, 146, 42, .2);
+      border-radius: 10px;
+      padding: 3px 3px 5px;
+      cursor: pointer;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      transition: border-color .15s, background .15s;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .shop-item-card:active { background: rgba(46, 34, 18, .9); }
+    .shop-item-card.rarity-uncommon { border-color: rgba(70, 190, 90, .45); }
+    .shop-item-card.rarity-rare     { border-color: rgba(70, 130, 240, .5); }
+    .shop-item-card.rarity-epic     { border-color: rgba(155, 70, 240, .55); }
+    .shop-item-card.rarity-legendary { border-color: rgba(230, 180, 42, .7); }
+
+    /* Silhouette icon — darkened/desaturated */
+    .shop-item-icon {
+      flex: 1;
+      min-height: 0;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      filter: brightness(.38) saturate(.3);
+    }
+    .shop-item-icon img,
+    .shop-item-icon svg {
+      width: min(36px, 70%);
+      height: auto;
+    }
+
+    /* Level badge top-left */
+    .shop-item-level {
+      position: absolute;
+      top: 3px; left: 3px;
+      background: rgba(0, 0, 0, .75);
+      color: #aaa;
+      font-size: 8.5px;
+      font-weight: 700;
+      padding: 1px 3px;
+      border-radius: 3px;
+      line-height: 1.4;
+    }
+    .shop-item-card.rarity-uncommon  .shop-item-level { color: #60cc70; }
+    .shop-item-card.rarity-rare      .shop-item-level { color: #7aadff; }
+    .shop-item-card.rarity-epic      .shop-item-level { color: #c07aff; }
+    .shop-item-card.rarity-legendary .shop-item-level { color: #f5c842; }
+
+    .shop-item-name {
+      font-size: 9px;
+      color: #a09080;
+      text-align: center;
+      line-height: 1.15;
+      padding: 0 2px;
+    }
+    .shop-item-price {
+      font-size: 9.5px;
+      color: #e8b84b;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    /* ── SELL PANEL ── */
+    .shop-sell-wrap {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .shop-sell-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-auto-rows: 1fr;
+      gap: 5px;
+      align-content: start;
+    }
+    .shop-sell-card {
+      background: rgba(20, 13, 6, .88);
+      border: 1px solid rgba(200, 146, 42, .2);
+      border-radius: 10px;
+      padding: 3px 3px 5px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      transition: border-color .15s;
+    }
+    .shop-sell-card:hover { border-color: rgba(200, 60, 60, .45); }
+    .shop-sell-price {
+      font-size: 9.5px;
+      color: #60cc70;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    /* ── GAMBLE PANEL ── */
+    .shop-gamble-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .shop-gamble-orb {
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #c070ff, #6010bb 55%, #200840);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: shop-orb-pulse 3s ease-in-out infinite;
+    }
+    @keyframes shop-orb-pulse {
+      0%, 100% { transform: scale(1); }
+      50%       { transform: scale(1.07); }
+    }
+    .shop-gamble-orb svg { width: 34px; height: 34px; }
+    .shop-gamble-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #c080f0;
+      font-family: var(--font-display, serif);
+    }
+    .shop-gamble-desc {
+      font-size: 11px;
+      color: #6a5a4a;
+      text-align: center;
+      line-height: 1.5;
+    }
+    .shop-gamble-btn {
+      background: linear-gradient(135deg, #6010bb, #c070ff);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 10px 28px;
+      cursor: pointer;
+    }
+    .shop-gamble-cost {
+      font-size: 10px;
+      color: #c8922a;
+    }
+
+    /* ── BOTTOM TABS BAR ── */
+    .shop-btabs-wrap {
+      flex-shrink: 0;
+      background: rgba(10, 7, 3, .97);
+      border-top: 1px solid rgba(200, 146, 42, .12);
+      padding: 5px 8px;
+      z-index: 10;
+      height: auto; /* prevent white gap */
+    }
+    .shop-btabs {
+      display: flex;
+      gap: 5px;
+      background: rgba(22, 15, 7, .9);
+      border: 1px solid rgba(200, 146, 42, .18);
+      border-radius: 12px;
+      padding: 4px;
+    }
+    .shop-btab {
+      flex: 1;
+      padding: 7px 4px;
+      background: rgba(255, 255, 255, .03);
+      border: 1px solid rgba(200, 146, 42, .1);
+      border-radius: 9px;
+      color: #6a5a4a;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      cursor: pointer;
+      transition: all .18s;
+      text-align: center;
+    }
+    .shop-btab.active {
+      background: rgba(200, 146, 42, .18);
+      border-color: rgba(200, 146, 42, .42);
+      color: #e8b84b;
+    }
+    .shop-btab-sm {
+      flex: 0 0 32px;
+      background: rgba(255, 255, 255, .03);
+      border: 1px solid rgba(200, 146, 42, .1);
+      border-radius: 9px;
+      color: #6a5a4a;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .shop-btab-sm.admin-only { display: none; }
+
+    /* ── SHOP: force shared modal above merchant + btabs ── */
+    body.page-shop .modal,
+    body.page-shop [class*="modal"] {
+      z-index: 1050 !important;
+    }
+    body.page-shop .modal-content,
+    body.page-shop .modal-sheet {
+      z-index: 1051 !important;
+    }
+  </style>
+</head>
+
+<body class="page-shop" onload="WaifuApp.bootstrapPage('shop', (p) => WaifuApp.loadShop(p));">
+
+  <!-- ── ATTIC ── -->
+  <header class="attic">
+    <div class="attic-row" aria-label="Основной чердак">
+      <div class="chip attic-level-chip" title="Уровень и опыт">
+        <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
+        <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
+      </div>
+      <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье">🏰&nbsp;<span id="attic-dungeon-label">Нет боя</span></div>
+      <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции">🗺&nbsp;<span id="attic-expedition-label"></span></div>
+      <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
+      <div class="chip" title="Энергия">⚡&nbsp;<span id="badge-energy">—</span></div>
+    </div>
+  </header>
+
+  <!-- ── STAGE ── -->
+  <div class="shop-stage" id="shop-stage">
+
+    <!-- BG -->
+    <div class="shop-stage-bg"></div>
+    <!-- Real background image (AI-generated, loaded by app.js) -->
+    <img class="shop-stage-bg-img"
+         id="shop-bg-img"
+         src="/static/game/ui/shop/background.webp"
+         alt=""
+         onerror="this.style.display='none'"
+    />
+
+    <!-- DIALOG BUBBLE (hidden, shown on merchant tap) -->
+    <div class="shop-dialog" id="shop-dialog" role="status" aria-live="polite">
+      <div class="shop-dialog-label">Торговец говорит</div>
+      <div class="shop-dialog-text" id="shop-dialog-text">...</div>
+      <div class="shop-dialog-timer">
+        <div class="shop-dialog-timer-fill" id="shop-dialog-timer-fill"></div>
+      </div>
+    </div>
+
+    <!-- MERCHANT (tap to open dialog) -->
+    <div class="shop-merchant"
+         id="shop-merchant"
+         role="button"
+         aria-label="Поговорить с торговцем"
+         tabindex="0"
+         onclick="ShopPage.onMerchantTap()"
+         onkeydown="if(event.key==='Enter')ShopPage.onMerchantTap()">
+      <!-- Real merchant portrait; SVG fallback shown if image missing -->
+      <img src="/static/game/ui/shop/merchant.webp"
+           alt="Торговец"
+           style="width:108px;height:auto;display:block"
+           onerror="this.style.display='none'; document.getElementById('merchant-svg-fallback').style.display='block'"/>
+      <svg id="merchant-svg-fallback" class="shop-merchant-svg" style="display:none"
+           viewBox="0 0 108 320" xmlns="http://www.w3.org/2000/svg">
+        <!-- boots -->
+        <rect x="22" y="285" width="24" height="33" rx="5" fill="#120c06"/>
+        <rect x="56" y="285" width="24" height="33" rx="5" fill="#120c06"/>
+        <!-- legs -->
+        <rect x="24" y="228" width="22" height="62" rx="5" fill="#5a3818"/>
+        <rect x="58" y="228" width="22" height="62" rx="5" fill="#5a3818"/>
+        <!-- apron -->
+        <path d="M18 160 Q18 235 54 240 Q90 235 90 160 Z" fill="#b09868"/>
+        <!-- body -->
+        <rect x="16" y="143" width="78" height="100" rx="10" fill="#8a5825"/>
+        <!-- belt -->
+        <rect x="16" y="210" width="78" height="12" rx="3" fill="#4a2c0e"/>
+        <rect x="44" y="211" width="18" height="10" rx="2" fill="#c8922a"/>
+        <!-- arms -->
+        <line x1="16" y1="162" x2="-6" y2="118" stroke="#8a5825" stroke-width="18" stroke-linecap="round"/>
+        <line x1="-6" y1="118" x2="8"  y2="99"  stroke="#c8a070" stroke-width="13" stroke-linecap="round"/>
+        <circle cx="2"  cy="93" r="5" fill="#c8a070"/>
+        <circle cx="10" cy="90" r="5" fill="#c8a070"/>
+        <circle cx="16" cy="93" r="4" fill="#c8a070"/>
+        <line x1="94"  y1="168" x2="108" y2="210" stroke="#8a5825" stroke-width="18" stroke-linecap="round"/>
+        <line x1="108" y1="210" x2="104" y2="230" stroke="#c8a070" stroke-width="13" stroke-linecap="round"/>
+        <!-- neck -->
+        <rect x="41" y="120" width="28" height="28" rx="7" fill="#c8a070"/>
+        <!-- head -->
+        <ellipse cx="55" cy="98"  rx="34" ry="37" fill="#c8a070"/>
+        <!-- beard -->
+        <ellipse cx="55" cy="120" rx="22" ry="17" fill="#b0b0b0"/>
+        <ellipse cx="55" cy="132" rx="14" ry="10" fill="#989898"/>
+        <path d="M35 108 Q55 117 75 108" stroke="#909090" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <!-- eyes -->
+        <ellipse cx="42" cy="90" rx="6" ry="6.5" fill="#fff"/>
+        <ellipse cx="68" cy="90" rx="6" ry="6.5" fill="#fff"/>
+        <circle  cx="43.5" cy="91.5" r="4"   fill="#3a2010"/>
+        <circle  cx="69.5" cy="91.5" r="4"   fill="#3a2010"/>
+        <circle  cx="45"   cy="90"   r="1.5" fill="#fff"/>
+        <circle  cx="71"   cy="90"   r="1.5" fill="#fff"/>
+        <!-- eyebrows -->
+        <path d="M33 81 Q41 75 50 80" stroke="#808080" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <path d="M60 80 Q69 75 77 81" stroke="#808080" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <!-- nose -->
+        <ellipse cx="55" cy="102" rx="6" ry="5" fill="#b09060"/>
+        <!-- ears -->
+        <ellipse cx="21" cy="97" rx="6" ry="8" fill="#c8a070"/>
+        <ellipse cx="89" cy="97" rx="6" ry="8" fill="#c8a070"/>
+        <!-- hair -->
+        <ellipse cx="55" cy="70" rx="34" ry="17" fill="#a8a8a8"/>
+        <!-- hat -->
+        <ellipse cx="55" cy="58" rx="40" ry="10"  fill="#4a2c08"/>
+        <rect    x="22" y="22"  width="66" height="40" rx="9"  fill="#38200a"/>
+        <rect    x="18" y="52"  width="74" height="8"  rx="3"  fill="#5a3812"/>
+        <rect    x="30" y="33"  width="50" height="4"  rx="2"  fill="#c8922a" opacity=".7"/>
+        <path d="M77 30 Q92 15 98 4 Q90 18 82 31" fill="#c87030" opacity=".75"/>
+      </svg>
+    </div>
+
+    <!-- ITEMS COLUMN (right of merchant, full height) -->
+    <div class="shop-items-col">
+
+      <!-- BUY tab panel -->
+      <div class="shop-items-wrap" id="shop-panel-buy">
+        <div class="shop-items-grid" id="shop-buy-grid">
+          <div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0">
+            Загрузка ассортимента...
+          </div>
+        </div>
+      </div>
+
+      <!-- SELL tab panel -->
+      <div class="shop-sell-wrap" id="shop-panel-sell" style="display:none">
+        <div class="shop-sell-grid" id="shop-sell-grid">
+          <div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0">
+            Инвентарь загружается...
+          </div>
+        </div>
+      </div>
+
+      <!-- GAMBLE tab panel -->
+      <div class="shop-gamble-wrap" id="shop-panel-gamble" style="display:none">
+        <div class="shop-gamble-orb">
+          <svg viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M17 2 L20.5 12 L31 12 L22 18.5 L25.5 29 L17 22.5 L8.5 29 L12 18.5 L3 12 L13.5 12 Z"
+                  fill="rgba(255,255,255,.9)"/>
+          </svg>
+        </div>
+        <div class="shop-gamble-title">Мистическая Гемба</div>
+        <div class="shop-gamble-desc">Брось вызов судьбе.<br>От хлама до легендарки.<br>Шанс на редкость растёт с уровнем ОВ.</div>
+        <button class="shop-gamble-btn" onclick="WaifuApp.doShopGamble()">Испытать удачу</button>
+        <div class="shop-gamble-cost" id="shop-gamble-cost">🪙 500 золота</div>
+      </div>
+
+    </div><!-- /shop-items-col -->
+  </div><!-- /shop-stage -->
+
+  <!-- ── BOTTOM TABS (above nav) ── -->
+  <div class="shop-btabs-wrap">
+    <div class="shop-btabs">
+      <button class="shop-btab active"
+              id="shop-btab-buy"
+              onclick="ShopPage.switchTab('buy')">🛒 Купить</button>
+      <button class="shop-btab"
+              id="shop-btab-sell"
+              onclick="ShopPage.switchTab('sell')">💰 Продать</button>
+      <button class="shop-btab"
+              id="shop-btab-gamble"
+              onclick="ShopPage.switchTab('gamble')">🎲 Гемба</button>
+      <button class="shop-btab-sm admin-only"
+              id="shop-admin-refresh"
+              title="Обновить ассортимент (admin)"
+              onclick="WaifuApp.adminRefreshShop()">🔄</button>
+      <button class="shop-btab-sm admin-only"
+              title="Настройки магазина (admin)"
+              onclick="WaifuApp.adminShopSettings()">⚙</button>
+    </div>
+  </div>
+
+  <!-- ── NAV ── -->
+  <nav class="nav basement">
+    <a href="./profile.html"       data-page="profile"   title="Профиль">👤</a>
+    <a href="./dungeons.html"      data-page="dungeons"  title="Подземелья">🏰</a>
+    <a href="./shop.html"          data-page="shop"      title="Магазин">🏪</a>
+    <a href="./tavern.html"        data-page="tavern"    title="Таверна">🍻</a>
+    <a href="./caravan.html"       data-page="caravan"   title="Караван">🐫</a>
+    <a href="./guild_hall.html"    data-page="guild"     title="Гильдия">🏛️</a>
+    <a href="./training_hall.html" data-page="training"  title="Тренировочный зал">💪</a>
+    <a href="./settings.html"      data-page="settings"  title="Настройки">⚙️</a>
+  </nav>
+
+  <script>
+  /* ════════════════════════════════════════════════════════════
+     ShopPage — локальная логика страницы магазина
+     Все данные берутся из WaifuApp (app.js).
+     В демо-режиме — собственные заглушки.
+  ════════════════════════════════════════════════════════════ */
+  const ShopPage = (() => {
+
+    // ── Иконки предметов (SVG-силуэты) ─────────────────────────
+    const ITEM_ICONS = {
+      sword:  `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="14.5" y="3" width="3.5" height="19" rx="1.5" fill="#d0d0d0"/><rect x="9" y="19" width="14" height="3.5" rx="2" fill="#c8922a"/><rect x="13.5" y="22" width="5" height="7" rx="1.5" fill="#7a4a18"/><polygon points="16.2,3 14.5,3 13,8 19,8" fill="#e8e8e8"/></svg>`,
+      dagger: `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="14.5" y="4" width="3" height="14" rx="1" fill="#d0d0d0"/><rect x="10" y="17" width="12" height="3" rx="1.5" fill="#c8922a"/><rect x="13.5" y="20" width="5" height="6" rx="1" fill="#6a3a10"/><polygon points="16,4 14.5,4 13,10 19,10" fill="#e8e8e8"/></svg>`,
+      axe:    `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="14.5" y="16" width="3.5" height="14" rx="1.5" fill="#7a4a18"/><path d="M12 4 Q6 10 12 18 L16.2 18 L19 18 Q25 10 19 4 Z" fill="#b0b0b0"/></svg>`,
+      bow:    `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 3 Q4 16 8 29" stroke="#7a4a18" stroke-width="4" fill="none" stroke-linecap="round"/><line x1="8" y1="3" x2="8" y2="29" stroke="#c8922a" stroke-width="1.5"/><line x1="8" y1="16" x2="24" y2="16" stroke="#c0c0c0" stroke-width="1.5"/><polygon points="24,13 28,16 24,19" fill="#c0c0c0"/></svg>`,
+      staff:  `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="14.5" y="8" width="3.5" height="22" rx="2" fill="#5a3008"/><circle cx="16.2" cy="7" r="6" fill="#6020aa" opacity=".9"/><circle cx="16.2" cy="7" r="4" fill="#9050e0"/><circle cx="15" cy="5.5" r="1.5" fill="#d0a0ff" opacity=".85"/></svg>`,
+      shield: `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16 2 L28 7 L28 18 Q28 27 16 31 Q4 27 4 18 L4 7 Z" fill="#4a6a9a"/><path d="M16 6 L24 10 L24 18 Q24 25 16 28 Q8 25 8 18 L8 10 Z" fill="#3a5a8a"/><line x1="16" y1="6" x2="16" y2="28" stroke="#6a8ab0" stroke-width="1.5"/><line x1="8" y1="15" x2="24" y2="15" stroke="#6a8ab0" stroke-width="1.5"/></svg>`,
+      armor:  `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 10 Q6 5 16 5 Q26 5 26 10 L26 24 Q26 30 16 30 Q6 30 6 24 Z" fill="#505060"/><path d="M10 10 Q10 7 16 7 Q22 7 22 10 L22 24 Q22 28 16 28 Q10 28 10 24 Z" fill="#404050"/><rect x="8" y="5" width="7" height="8" rx="2" fill="#606070"/><rect x="17" y="5" width="7" height="8" rx="2" fill="#606070"/><rect x="8" y="20" width="16" height="4" rx="1.5" fill="#707080"/></svg>`,
+      ring:   `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="19" r="10" stroke="#c8922a" stroke-width="4" fill="none"/><circle cx="16" cy="9" r="5" fill="#b050e0"/><circle cx="16" cy="9" r="3" fill="#d080f0"/><circle cx="15" cy="8" r="1.2" fill="#fff" opacity=".8"/></svg>`,
+      amulet: `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="16" y1="2" x2="16" y2="11" stroke="#c8922a" stroke-width="2"/><path d="M7 9 Q7 2 16 2 Q25 2 25 9" stroke="#c8922a" stroke-width="2" fill="none"/><path d="M16 11 L22 20 L16 30 L10 20 Z" fill="#c8922a"/><path d="M16 13 L20 20 L16 28 L12 20 Z" fill="#e8b84b"/></svg>`,
+    };
+
+    // Маппинг subtype → иконка
+    const SUBTYPE_ICON = {
+      one_hand: 'sword', two_hand: 'axe', offhand: 'shield',
+      bow: 'bow', staff: 'staff',
+      light: 'armor', medium: 'armor', heavy: 'armor', robe: 'armor',
+      ring: 'ring', amulet: 'amulet',
+    };
+
+    // Фразы торговца (fallback — до получения AI-ответа)
+    const FALLBACK_BUBBLES = [
+      'Советую <b>Доспех паладина</b>! Отменная защита для твоего уровня, странник.',
+      'Сегодня завезли <b>Длинный меч</b> — редкий экземпляр. Разбирают быстро!',
+      'Загляни на <b>Кольцо чемпиона</b> — говорят, приносит удачу в подземельях.',
+      '<b>Кожаная броня</b> бесценна в первых актах. Сам пользовался, проверено!',
+      'Шёпотом: <b>Амулет архимага</b> поднимает интеллект, как ничто другое.',
+      'Осторожно с <b>Башенным щитом</b> — тяжёл, но надёжен как скала!',
+    ];
+
+    // ── Состояние ────────────────────────────────────────────────
+    let dialogTimer = null;
+    const DIALOG_MS = 5000;
+    let activeTab = 'buy';
+
+    // ── Dialog ───────────────────────────────────────────────────
+
+    function onMerchantTap() {
+      const dialog   = document.getElementById('shop-dialog');
+      const textEl   = document.getElementById('shop-dialog-text');
+      const fillEl   = document.getElementById('shop-dialog-timer-fill');
+
+      // Try AI-generated text first (set by app.js after loadShop)
+      const aiText = window.ShopPage._merchantAiText;
+      textEl.innerHTML = aiText ||
+        FALLBACK_BUBBLES[Math.floor(Math.random() * FALLBACK_BUBBLES.length)];
+
+      // Reset & show
+      fillEl.style.transition = 'none';
+      fillEl.style.width = '100%';
+      dialog.classList.add('show');
+
+      // Start countdown
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          fillEl.style.transition = `width ${DIALOG_MS}ms linear`;
+          fillEl.style.width = '0%';
+        });
+      });
+
+      clearTimeout(dialogTimer);
+      dialogTimer = setTimeout(hideDialog, DIALOG_MS);
+    }
+
+    function hideDialog() {
+      clearTimeout(dialogTimer);
+      document.getElementById('shop-dialog').classList.remove('show');
+    }
+
+    // Tap anywhere on stage to dismiss
+    document.getElementById('shop-stage').addEventListener('click', (e) => {
+      if (!e.target.closest('#shop-merchant') &&
+          document.getElementById('shop-dialog').classList.contains('show')) {
+        hideDialog();
+      }
+    });
+
+    // ── Tab switching ────────────────────────────────────────────
+
+    function switchTab(tab) {
+      activeTab = tab;
+      ['buy', 'sell', 'gamble'].forEach(t => {
+        const panel = document.getElementById(`shop-panel-${t}`);
+        const btn   = document.getElementById(`shop-btab-${t}`);
+        if (panel) panel.style.display = t === tab ? '' : 'none';
+        if (btn)   btn.classList.toggle('active', t === tab);
+      });
+    }
+
+    // ── Render buy grid ──────────────────────────────────────────
+
+    function renderBuyGrid(items) {
+      const grid = document.getElementById('shop-buy-grid');
+      if (!items || items.length === 0) {
+        grid.innerHTML = `<div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0">Ассортимент пуст</div>`;
+        return;
+      }
+      grid.innerHTML = items.map(item => {
+        const iconKey = SUBTYPE_ICON[item.subtype] || item.item_type || 'sword';
+        const icon    = ITEM_ICONS[iconKey] || ITEM_ICONS.sword;
+        const rarity  = item.rarity || 'common';
+        return `
+          <div class="shop-item-card rarity-${rarity}"
+               onclick="WaifuApp.openShopItemModal(${item.id})"
+               data-item-id="${item.id}">
+            <div class="shop-item-level">${item.level}</div>
+            <div class="shop-item-icon">${icon}</div>
+            <div class="shop-item-name">${item.name}</div>
+            <div class="shop-item-price">
+              <svg style="width:10px;height:10px;flex-shrink:0" viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="5" cy="5" r="4.5" fill="#c8922a"/>
+                <text x="5" y="7.5" text-anchor="middle" font-size="5.5" fill="#e8b84b" font-weight="bold">G</text>
+              </svg>
+              ${item.price.toLocaleString()}
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    // ── Render sell grid ─────────────────────────────────────────
+
+    function renderSellGrid(items) {
+      const grid = document.getElementById('shop-sell-grid');
+      if (!items || items.length === 0) {
+        grid.innerHTML = `<div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0">Нет предметов для продажи</div>`;
+        return;
+      }
+      grid.innerHTML = items.map(item => {
+        const iconKey = SUBTYPE_ICON[item.subtype] || item.item_type || 'sword';
+        const icon    = ITEM_ICONS[iconKey] || ITEM_ICONS.sword;
+        return `
+          <div class="shop-sell-card"
+               onclick="WaifuApp.openShopSellModal(${item.id})"
+               data-item-id="${item.id}">
+            <div class="shop-item-icon" style="filter:brightness(.38) saturate(.3)">${icon}</div>
+            <div class="shop-item-name">${item.name}</div>
+            <div class="shop-sell-price">
+              <svg style="width:10px;height:10px;flex-shrink:0" viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="5" cy="5" r="4.5" fill="#c8922a"/>
+                <text x="5" y="7.5" text-anchor="middle" font-size="5.5" fill="#e8b84b" font-weight="bold">G</text>
+              </svg>
+              ${item.sell_price.toLocaleString()}
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    // ── AI merchant text (set by app.js after API call) ──────────
+    // app.js calls: ShopPage.setMerchantText(aiText)
+    function setMerchantText(text) {
+      window.ShopPage._merchantAiText = text;
+    }
+
+    // ── Public API ───────────────────────────────────────────────
+    return {
+      onMerchantTap,
+      hideDialog,
+      switchTab,
+      renderBuyGrid,
+      renderSellGrid,
+      setMerchantText,
+      _merchantAiText: null,
+    };
+  })();
+  </script>
+
+</body>
+</html>

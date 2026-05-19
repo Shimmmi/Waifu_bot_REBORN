@@ -5,49 +5,181 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Гильдия</title>
     <link rel="stylesheet" href="./styles.css" />
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
-  <body onload="WaifuApp.bootstrapPage('guild');">
+  <body class="page-guild" onload="WaifuApp.bootstrapPage('guild', WaifuApp.populateGuildHall);">
     <header class="attic">
       <div class="attic-row" aria-label="Основной чердак">
         <div class="chip attic-level-chip" title="Уровень и опыт">
           <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
           <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
         </div>
-        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)"><span id="attic-dungeon-label">Нет боя</span></div>
-        <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
+        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье"><span id="attic-dungeon-label">Нет боя</span></div>
+        <div class="chip chip-ghost" id="attic-expedition-chip" title="Экспедиции"></div>
         <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
       </div>
     </header>
 
     <main class="layout">
-      <section class="section">
-        <h3>Поиск / Создание</h3>
-        <div class="placeholder">Модалки поиска и создания гильдии (название, тег, описание, стоимость 1000 золота).</div>
-      </section>
+      <nav class="guild-tabs" aria-label="Вкладки гильдии">
+        <button type="button" class="guild-tab-btn active" data-guild-tab-btn="main" onclick="WaifuApp.switchGuildTab('main')">Основная</button>
+        <button type="button" class="guild-tab-btn" data-guild-tab-btn="skills" onclick="WaifuApp.switchGuildTab('skills')">Навыки</button>
+        <button type="button" class="guild-tab-btn" data-guild-tab-btn="bank" onclick="WaifuApp.switchGuildTab('bank')">Банк</button>
+        <button type="button" class="guild-tab-btn" data-guild-tab-btn="activities" onclick="WaifuApp.switchGuildTab('activities')">Активности</button>
+        <button type="button" class="guild-tab-btn" data-guild-tab-btn="search" aria-label="Поиск гильдии" title="Поиск гильдии" onclick="WaifuApp.switchGuildTab('search')">🔍</button>
+      </nav>
 
-      <section class="section">
-        <h3>Информация гильдии</h3>
-        <div class="placeholder">Портрет, уровень, прогресс, навыки гильдии, переключение вкладок.</div>
-      </section>
+      <div id="guild-tab-content" class="section"></div>
 
-      <section class="grid-2">
-        <div class="section">
-          <h3>Состав</h3>
-          <div class="placeholder">Список участников, онлайн-детект (5 мин), модалка профиля.</div>
-        </div>
-        <div class="section">
-          <h3>Банк</h3>
-          <div class="placeholder">Золото, лимиты снятия, инвентарь 4×4, фильтры, мультивыбор.</div>
-        </div>
-      </section>
-
-      <section class="section">
-        <h3>Чат</h3>
-        <div class="placeholder">Окно сообщений гильдии, ввод, кнопка отправить.</div>
+      <section id="guild-create-section" class="section">
+        <h3>Создать гильдию</h3>
+        <p class="muted tiny" style="margin: 0 0 10px">
+          Стоимость: <strong>1000</strong> золота. Нужна основная вайфу (мин. ур. 1). Тег — до 10 символов, название — до 100.
+        </p>
+        <label class="form-field">
+          <span class="muted tiny">Название</span>
+          <input id="guild-create-name" type="text" maxlength="100" placeholder="Название гильдии" autocomplete="off" />
+        </label>
+        <label class="form-field" style="margin-top: 10px">
+          <span class="muted tiny">Тег</span>
+          <input id="guild-create-tag" type="text" maxlength="10" placeholder="TAG" autocomplete="off" />
+        </label>
+        <label class="form-field" style="margin-top: 10px">
+          <span class="muted tiny">Описание (необязательно)</span>
+          <textarea id="guild-create-desc" rows="2" maxlength="500" placeholder="Краткое описание"></textarea>
+        </label>
+        <p id="guild-create-error" class="muted tiny" style="margin: 8px 0 0; color: #f87171"></p>
+        <button type="button" class="btn primary" style="margin-top: 12px" id="guild-create-btn" onclick="WaifuApp.createGuildFromHall()">
+          Создать гильдию
+        </button>
       </section>
     </main>
+
+    <div id="guild-skill-modal" class="modal guild-skill-modal-root" style="display: none" aria-hidden="true">
+      <div class="modal-content guild-skill-modal-panel">
+        <div class="modal-head">
+          <h2 id="guild-skill-modal-title" class="modal-title"></h2>
+          <button type="button" class="modal-close" id="guild-skill-modal-close" aria-label="Закрыть">✕</button>
+        </div>
+        <div id="guild-skill-modal-body" class="modal-body"></div>
+        <div class="modal-footer" id="guild-skill-modal-footer"></div>
+      </div>
+    </div>
+
+    <div id="guild-member-preview-modal" class="modal guild-member-preview-modal-root" style="display: none" aria-hidden="true">
+      <div class="modal-content guild-member-preview-panel">
+        <div class="modal-head">
+          <h2 id="guild-member-preview-title" class="modal-title">Участник</h2>
+          <button type="button" class="modal-close" id="guild-member-preview-close" aria-label="Закрыть">✕</button>
+        </div>
+        <div id="guild-member-preview-body" class="modal-body"></div>
+      </div>
+    </div>
+
+    <div
+      id="guild-bank-item-modal"
+      class="modal item-modal-root item-modal-v2-wrap item-modal-v2-host"
+      style="display:none;"
+      onclick="if (event.target === this) WaifuApp.closeGuildBankItemModal()"
+    >
+      <div class="item-modal-v2-shell">
+        <div
+          id="guild-bank-offer-modal-content"
+          class="item-modal-v2-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="guild-bank-offer-modal-name"
+          onclick="event.stopPropagation()"
+        >
+          <header class="item-modal-v2-hdr">
+            <div class="item-modal-v2-hdr-l">
+              <button type="button" class="item-modal-v2-hdr-x" aria-label="Закрыть" onclick="WaifuApp.closeGuildBankItemModal()">✕</button>
+              <span class="item-modal-v2-hdr-t">Предмет в банке</span>
+            </div>
+          </header>
+          <div class="item-modal-v2-scroll">
+            <div class="item-modal-v2-title-block">
+              <div class="item-modal-v2-title" id="guild-bank-offer-modal-name">—</div>
+              <div class="item-modal-v2-sub">
+                <div class="item-modal-v2-sub-spacer" aria-hidden="true"></div>
+                <div class="item-modal-v2-sub-main">
+                  <span class="item-modal-v2-sub-lbl" id="guild-bank-offer-modal-subline"></span>
+                  <span class="item-modal-v2-dot" aria-hidden="true"></span>
+                  <span class="item-modal-v2-rpill" id="guild-bank-offer-modal-rpill">—</span>
+                </div>
+                <div class="item-modal-v2-sub-tail">
+                  <span class="item-modal-v2-upgrade" id="guild-bank-offer-modal-upgrade-hint" style="display: none" aria-hidden="true"></span>
+                </div>
+              </div>
+            </div>
+            <div class="item-modal-v2-art-wrap">
+              <div class="item-modal-v2-art" aria-hidden="true">
+                <div class="item-modal-v2-ring item-modal-v2-ring--outer"></div>
+                <div class="item-modal-v2-ring item-modal-v2-ring--inner"></div>
+                <div class="item-modal-v2-glow"></div>
+                <div class="item-modal-v2-frame" id="guild-bank-offer-modal-art-frame">
+                  <div class="item-modal-v2-art-inner" id="guild-bank-offer-modal-art">📦</div>
+                </div>
+              </div>
+            </div>
+            <div class="item-modal-v2-spanel shop-offer-modal-spanel">
+              <div class="item-modal-v2-spanel-hd"><span aria-hidden="true">✦</span> Характеристики</div>
+              <div id="guild-bank-offer-modal-body"></div>
+            </div>
+            <div class="item-modal-v2-req" id="guild-bank-offer-modal-req-section" style="display:none;">
+              <div class="item-modal-v2-req-hd">Требования</div>
+              <div class="item-modal-v2-req-pills" id="guild-bank-offer-modal-requirements" aria-live="polite"></div>
+            </div>
+            <div class="shop-offer-modal-cta">
+              <div class="item-modal-v2-actions shop-offer-modal-actions" data-cols="2">
+                <button class="item-modal-v2-btn item-modal-v2-btn--neutral" type="button" onclick="WaifuApp.closeGuildBankItemModal()">Отмена</button>
+                <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="guild-bank-modal-take" type="button" onclick="WaifuApp.confirmGuildBankTake()">Взять</button>
+              </div>
+            </div>
+            <div class="item-modal-v2-desc" id="guild-bank-offer-modal-desc" style="display:none;"></div>
+            <div class="item-modal-v2-scroll-pad shop-offer-modal-scroll-pad" aria-hidden="true"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="guild-bank-gold-modal" class="modal" style="display: none" aria-hidden="true" onclick="if (event.target === this) WaifuApp.closeGuildBankGoldModal()">
+      <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <h2 class="modal-title">Золото банка</h2>
+          <button type="button" class="modal-close" onclick="WaifuApp.closeGuildBankGoldModal()" aria-label="Закрыть">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted tiny">В банке: <strong id="guild-bank-gold-modal-balance">0</strong> 🪙 · у вас: <strong id="guild-bank-gold-modal-player">0</strong> 🪙</p>
+          <label class="form-field">
+            <span class="muted tiny">Сумма</span>
+            <input type="number" id="guild-bank-gold-amount" min="1" step="1" value="1" inputmode="numeric" />
+          </label>
+        </div>
+        <div class="modal-footer" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <button type="button" class="btn secondary" onclick="WaifuApp.confirmGuildBankGoldTake()">Взять</button>
+          <button type="button" class="btn primary" onclick="WaifuApp.confirmGuildBankGoldDeposit()">Положить</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="guild-bank-deposit-modal" class="modal" style="display: none" aria-hidden="true" onclick="if (event.target === this) WaifuApp.closeGuildBankDepositModal()">
+      <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <h2 class="modal-title">Положить в банк</h2>
+          <button type="button" class="modal-close" onclick="WaifuApp.closeGuildBankDepositModal()" aria-label="Закрыть">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted tiny">Только не экипированные предметы. Выберите несколько и нажмите «Положить».</p>
+          <div id="guild-bank-deposit-list" class="guild-bank-deposit-list"></div>
+        </div>
+        <div class="modal-footer" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <button type="button" class="btn secondary" onclick="WaifuApp.closeGuildBankDepositModal()">Отмена</button>
+          <button type="button" class="btn primary" id="guild-bank-deposit-submit" onclick="WaifuApp.confirmGuildBankDeposit()">Положить</button>
+        </div>
+      </div>
+    </div>
 
     <nav class="nav basement">
       <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
@@ -61,4 +193,3 @@
     </nav>
   </body>
 </html>
-

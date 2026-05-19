@@ -1,8 +1,9 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,56 +14,61 @@ from waifu_bot.db import models as m
 from sqlalchemy import delete, func, select, text, tuple_
 from sqlalchemy.orm import selectinload
 
-from waifu_bot.services.combat import CombatService
-from waifu_bot.services.dungeon import DungeonService
 from waifu_bot.services.energy import apply_regen
-from waifu_bot.services.guild import GuildService
-from waifu_bot.services.shop import ShopService
-from waifu_bot.services.skills import SkillService
-from waifu_bot.services.tavern import TavernService
 from waifu_bot.services.expedition import ExpeditionService
 from waifu_bot.services.webhook import process_update
 from waifu_bot.services import sse as sse_service
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
-from waifu_bot.services.item_art import derive_art_key, derive_image_key, enrich_items_with_image_urls
+from waifu_bot.services.item_art import derive_image_key, derive_item_art_key, enrich_items_with_image_urls
 from waifu_bot.services.enchanting import get_effective_params
-from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
-from waifu_bot.services.hidden_skills import list_hidden_skills_payload
 from waifu_bot.services.passive_skills import (
-    apply_passive_buy_price,
-    get_passive_skill_tree,
-    learn_passive_node,
+    get_passive_skill_bonuses,
+    merge_passive_into_profile_details,
     normalize_passive_level_affix_value,
-    reset_passive_branch,
 )
 from waifu_bot.services.expedition_events_ai import (
     build_caravan_driver_game_knowledge,
+    fallback_main_waifu_bio,
     generate_caravan_driver_tip,
+    generate_main_waifu_bio,
+    generate_main_waifu_paperdoll_from_portrait,
     generate_main_waifu_portrait,
-    generate_shop_merchant_line,
 )
+from waifu_bot.services.narrative import build_narrative_prompt_context
 from waifu_bot.services.starter_gear import grant_main_waifu_starter_gear
 from waifu_bot.services.player_new_game_reset import clear_player_redis_keys, reset_player_to_new_game
 from waifu_bot.game.constants import (
     CARAVAN_TRAVEL_GOLD_TO_ACT,
-    TAVERN_HIRE_COST,
-    TAVERN_SLOTS_PER_DAY,
+    WAIFU_CLASS_LABEL_RU,
+    WAIFU_RACE_LABEL_RU,
 )
+from waifu_bot.game.effective_stats import resolve_solo_combat_primary_four
 from waifu_bot.game.main_waifu_base_stats import (
     class_flat_bonuses_for,
     compute_main_waifu_base_stats,
     race_flat_bonuses_for,
 )
+from waifu_bot.api.admin_routes import router as admin_router
 from waifu_bot.api.inventory_routes import (
     router as inventory_router,
     _enrich_items_with_template_stats,
-    _to_inventory_item,
 )
+from waifu_bot.api.guild_routes import router as guild_router
+from waifu_bot.api.shop_routes import router as shop_router
+from waifu_bot.api.tavern_routes import router as tavern_router
+from waifu_bot.api.dungeon_routes import router as dungeon_router
+from waifu_bot.api.skill_routes import router as skill_router
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+router.include_router(admin_router)
 router.include_router(inventory_router)
+router.include_router(guild_router)
+router.include_router(shop_router)
+router.include_router(tavern_router)
+router.include_router(dungeon_router)
+router.include_router(skill_router)
 
 # Вторичные бонусы с предметов (шаблон + зачарование) и аффиксы с effect_key *_pct.
 # Значение в аффиксе — целое число в сотых долях процента: 150 => 1.50% => +0.015 к сумме.
@@ -74,6 +80,7 @@ _SECONDARY_AFFIX_EFFECT_KEYS: frozenset[str] = frozenset(
         "hp_max_pct",
         "exp_bonus_pct",
         "gold_bonus_pct",
+        "magic_find_pct",
     }
 )
 
@@ -109,6 +116,7 @@ def calculate_item_bonuses(inv: m.InventoryItem) -> dict:
         "secondary_hp_max_pct": 0.0,
         "secondary_exp_bonus_pct": 0.0,
         "secondary_gold_bonus_pct": 0.0,
+        "secondary_magic_find_pct": 0.0,
     }
 
     # Бонус от base_stat
@@ -145,6 +153,7 @@ def calculate_item_bonuses(inv: m.InventoryItem) -> dict:
                 "hp_max_pct": "secondary_hp_max_pct",
                 "exp_bonus_pct": "secondary_exp_bonus_pct",
                 "gold_bonus_pct": "secondary_gold_bonus_pct",
+                "magic_find_pct": "secondary_magic_find_pct",
             }
             bk = key_map.get(stat)
             if bk:
@@ -206,8 +215,13 @@ def _compute_details(
     equipped_items: list[m.InventoryItem] | None = None,
     *,
     main_stats_flat: int = 0,
+    effective_primary_four: tuple[int, int, int, int] | None = None,
 ) -> dict:
-    """Compute aggregated stats with equipment bonuses."""
+    """Compute aggregated stats with equipment bonuses.
+
+    effective_primary_four: STR, AGI, INT, LUK после экипа, main_stats_pct и all_stats_pct (как в соло-бое).
+    Для HP используется СИЛ без all_stats_pct (согласовано с waifu_hp).
+    """
     # Базовые статы вайфу
     strength = main.strength or 0
     agility = main.agility or 0
@@ -243,6 +257,7 @@ def _compute_details(
         "secondary_hp_max_pct": 0.0,
         "secondary_exp_bonus_pct": 0.0,
         "secondary_gold_bonus_pct": 0.0,
+        "secondary_magic_find_pct": 0.0,
     }
     armor_total = 0
 
@@ -272,6 +287,8 @@ def _compute_details(
                 total_bonuses["secondary_exp_bonus_pct"] += sec_eff
             elif sec_type == "gold_bonus_pct":
                 total_bonuses["secondary_gold_bonus_pct"] += sec_eff
+            elif sec_type == "magic_find_pct":
+                total_bonuses["secondary_magic_find_pct"] += sec_eff
 
     # Применяем бонусы к статам
     strength += total_bonuses["strength"]
@@ -281,13 +298,23 @@ def _compute_details(
     charm += total_bonuses["charm"]
     luck += total_bonuses["luck"]
     sf = int(main_stats_flat or 0)
+    str_no_mult = int(strength) + sf
+    agi_no_mult = int(agility) + sf
+    int_no_mult = int(intelligence) + sf
+    luck_no_mult = int(luck) + sf
     if sf:
-        strength += sf
-        agility += sf
-        intelligence += sf
         endurance += sf
         charm += sf
-        luck += sf
+
+    if effective_primary_four is not None:
+        strength, agility, intelligence, luck = (int(x) for x in effective_primary_four)
+        str_for_hp = str_no_mult
+    else:
+        strength = str_no_mult
+        agility = agi_no_mult
+        intelligence = int_no_mult
+        luck = luck_no_mult
+        str_for_hp = strength
 
     # --- Боевые параметры (приведены к game/formulas.py) ---
     # NOTE: это "оценка" урона для UI на базе BASE_SKILL_DAMAGE и текущих статов + бонусов экипировки.
@@ -317,7 +344,13 @@ def _compute_details(
     magic_damage = _damage_score("magic", total_bonuses.get("magic_damage_flat", 0))
 
     # Crit/Dodge chances from combat formulas (convert to percent for UI)
-    from waifu_bot.game.constants import CRIT_CHANCE_CAP, DODGE_CHANCE_CAP, CHM_HIRE_DISCOUNT_COEFF, CHM_TRAINING_DISCOUNT_COEFF
+    from waifu_bot.game.constants import (
+        CRIT_CHANCE_CAP,
+        DODGE_CHANCE_CAP,
+        CHM_HIRE_DISCOUNT_COEFF,
+        CHM_MERCHANT_DISCOUNT_COEFF,
+        CHM_TRAINING_DISCOUNT_COEFF,
+    )
     base_crit = float(calculate_crit_chance(int(agility), int(luck))) * 100.0
     crit_chance = base_crit + float(total_bonuses.get("crit_chance_flat", 0) or 0)
     if (total_bonuses.get("crit_chance_percent", 0) or 0) > 0:
@@ -335,16 +368,16 @@ def _compute_details(
     if total_bonuses["defense_percent"] > 0:
         defense = int(defense * (1 + total_bonuses["defense_percent"] / 100))
 
-    # Скидка у торговцев (ОБА × 0.1% = charm * CHM_HIRE_DISCOUNT_COEFF)
-    base_merchant_discount = max(0.0, min(50.0, charm * CHM_HIRE_DISCOUNT_COEFF * 100))
+    # Скидка у торговцев (магазин): эффективный ОБА × CHM_MERCHANT_DISCOUNT_COEFF, cap 50%
+    base_merchant_discount = max(0.0, min(50.0, charm * CHM_MERCHANT_DISCOUNT_COEFF * 100))
     merchant_discount = base_merchant_discount + total_bonuses["merchant_discount_flat"]
     if total_bonuses["merchant_discount_percent"] > 0:
         merchant_discount = merchant_discount * (1 + total_bonuses["merchant_discount_percent"] / 100)
     merchant_discount = min(50.0, merchant_discount)
 
-    # HP с учётом ВЫН × 5 + СИЛ × 2 + item bonuses
+    # HP с учётом ВЫН × 10 + СИЛ × 3 + item bonuses
     from waifu_bot.game.formulas import calculate_max_hp
-    hp_max = calculate_max_hp(int(main.level or 1), int(endurance), int(strength))
+    hp_max = calculate_max_hp(int(main.level or 1), int(endurance), int(str_for_hp))
     hp_max = int(hp_max + total_bonuses["hp_flat"])
     if total_bonuses["hp_percent"] > 0:
         hp_max = int(hp_max * (1 + total_bonuses["hp_percent"] / 100))
@@ -358,20 +391,30 @@ def _compute_details(
     damage_reduction_pct += float(total_bonuses.get("secondary_dmg_reduce_pct", 0.0) or 0.0) * 100.0
     damage_reduction_pct = min(90.0, max(0.0, damage_reduction_pct))
 
-    # Бонус к опыту от ИНТ
+    # Опыт в данже: (1 + вторичка) × (1 + ИНТ×INT_EXP_BONUS_COEFF) — как в combat.py; пассивки — в merge_passive_into_profile_details
     from waifu_bot.game.constants import INT_EXP_BONUS_COEFF
-    exp_bonus_pct = intelligence * INT_EXP_BONUS_COEFF * 100.0
-    exp_bonus_pct += float(total_bonuses.get("secondary_exp_bonus_pct", 0.0) or 0.0) * 100.0
+
+    sec_exp_frac = float(total_bonuses.get("secondary_exp_bonus_pct", 0.0) or 0.0)
+    exp_bonus_pct = ((1.0 + sec_exp_frac) * (1.0 + float(intelligence) * INT_EXP_BONUS_COEFF) - 1.0) * 100.0
 
     # Бонусы от УДЧ
-    from waifu_bot.game.constants import LCK_GOLD_COEFF, LCK_ITEM_DROP_COEFF
+    from waifu_bot.game.constants import (
+        LCK_GOLD_COEFF,
+        LCK_ITEM_DROP_COEFF,
+        LCK_MAGIC_FIND_COEFF,
+        MAGIC_FIND_FULL_BLEND_PCT,
+    )
+
     gold_bonus_pct = luck * LCK_GOLD_COEFF * 100.0
     gold_bonus_pct += float(total_bonuses.get("secondary_gold_bonus_pct", 0.0) or 0.0) * 100.0
     item_drop_bonus_pct = luck * LCK_ITEM_DROP_COEFF * 100.0
+    sec_mf_frac = float(total_bonuses.get("secondary_magic_find_pct", 0.0) or 0.0)
+    magic_find_pct = float(luck) * LCK_MAGIC_FIND_COEFF * 100.0 + sec_mf_frac * 100.0
+    magic_find_blend_pct = min(100.0, magic_find_pct / float(MAGIC_FIND_FULL_BLEND_PCT) * 100.0)
 
-    # Наймовая скидка (ОБА × 0.1%) и скидка тренировок (ОБА × 0.15%)
-    hire_discount_pct = charm * CHM_HIRE_DISCOUNT_COEFF * 100.0
-    training_discount_pct = charm * CHM_TRAINING_DISCOUNT_COEFF * 100.0
+    # Найм / тренировки: как у торговли — потолок 50% (без «−161%» в UI)
+    hire_discount_pct = min(50.0, charm * CHM_HIRE_DISCOUNT_COEFF * 100.0)
+    training_discount_pct = min(50.0, charm * CHM_TRAINING_DISCOUNT_COEFF * 100.0)
 
     return {
         "hp_current": main.current_hp,
@@ -390,6 +433,8 @@ def _compute_details(
         "exp_bonus": round(exp_bonus_pct, 2),
         "gold_bonus": round(gold_bonus_pct, 2),
         "item_drop_bonus": round(item_drop_bonus_pct, 2),
+        "magic_find_pct": round(magic_find_pct, 2),
+        "magic_find_blend_pct": round(magic_find_blend_pct, 2),
     }
 
 
@@ -575,8 +620,10 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
     prefix = next((a.name for a in (inv.affixes or []) if getattr(a, "kind", None) == "affix"), None)
     suffix = next((a.name for a in (inv.affixes or []) if getattr(a, "kind", None) == "suffix"), None)
     display_name = f"{(prefix + ' ') if prefix else ''}{base_name}{(' ' + suffix) if suffix else ''}".strip()
-    image_key = derive_image_key(inv.slot_type, inv.weapon_type)
-    art_key = derive_art_key(inv.slot_type, inv.weapon_type)
+    image_key = derive_image_key(inv.slot_type, inv.weapon_type, display_name)
+    art_key = derive_item_art_key(
+        inv.slot_type, inv.weapon_type, base_name, display_name=display_name
+    )
     
     can_equip = None
     requirement_errors = None
@@ -626,37 +673,103 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
     )
 
 
-def verify_webhook_secret(
-    x_webhook_secret: Optional[str] = Header(None, alias="X-Webhook-Secret"),
-    tg_secret: Optional[str] = Header(None, alias="X-Telegram-Bot-Api-Secret-Token"),
+_secret_warning_logged = False
+
+
+def _verify_webhook_secret(
+    x_webhook_secret: str | None,
+    tg_secret: str | None,
 ) -> None:
+    global _secret_warning_logged
     provided = x_webhook_secret or tg_secret
-    if provided != settings.webhook_secret:
-        logger.warning("Webhook rejected: invalid secret (provided=%s)", "yes" if provided else "no")
+    expected = settings.webhook_secret
+
+    if provided and provided == expected:
+        return
+
+    if provided and provided != expected:
+        logger.warning("Webhook rejected: wrong secret token")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid secret")
+
+    if not provided and not _secret_warning_logged:
+        _secret_warning_logged = True
+        logger.warning(
+            "Webhook request has NO secret header — Telegram proxy may not support secret_token. "
+            "Accepting update (webhook URL acts as shared secret). "
+            "Fix: set secret_token via direct Telegram API or upgrade proxy."
+        )
 
 
 @router.post("/webhook", tags=["telegram"])
-async def telegram_webhook(request: Request, _: None = Depends(verify_webhook_secret)) -> dict:
+async def telegram_webhook(
+    request: Request,
+    x_webhook_secret: Optional[str] = Header(None, alias="X-Webhook-Secret"),
+    tg_secret: Optional[str] = Header(None, alias="X-Telegram-Bot-Api-Secret-Token"),
+) -> dict:
+    logger.info(
+        "WEBHOOK_INCOMING: remote=%s content_length=%s has_secret=%s",
+        request.client.host if request.client else "?",
+        request.headers.get("content-length", "?"),
+        "yes" if (x_webhook_secret or tg_secret) else "no",
+    )
+    _verify_webhook_secret(x_webhook_secret, tg_secret)
+
     body = await request.json()
-    # Minimal structured logging for debugging delivery from Telegram
     try:
         msg = (body or {}).get("message") or {}
         chat = msg.get("chat") or {}
         frm = msg.get("from") or {}
+        raw_text = msg.get("text")
+        cmd_like = bool(isinstance(raw_text, str) and raw_text.lstrip().startswith("/"))
         logger.info(
-            "webhook update received: update_id=%s chat_id=%s chat_type=%s from_id=%s has_text=%s has_caption=%s",
+            "webhook update received: update_id=%s chat_id=%s chat_type=%s from_id=%s "
+            "has_text=%s has_caption=%s cmd_like=%s",
             (body or {}).get("update_id"),
             chat.get("id"),
             chat.get("type"),
             frm.get("id"),
             bool(msg.get("text")),
             bool(msg.get("caption")),
+            cmd_like,
         )
     except Exception:
         logger.exception("Failed to log webhook update summary")
     await process_update(body)
     return {"ok": True}
+
+
+@router.get("/webhook/status", tags=["infra"])
+async def webhook_status():
+    """Check current webhook state from Telegram (no auth — read-only diagnostic)."""
+    from waifu_bot.services.webhook import get_bot
+    try:
+        info = await get_bot().get_webhook_info()
+        return {
+            "url": info.url,
+            "has_custom_certificate": info.has_custom_certificate,
+            "pending_update_count": info.pending_update_count,
+            "last_error_date": info.last_error_date,
+            "last_error_message": info.last_error_message,
+            "max_connections": info.max_connections,
+            "ip_address": getattr(info, "ip_address", None),
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@router.post("/webhook/re-register", tags=["infra"])
+async def webhook_reregister(player_id: int = Depends(require_admin)):
+    """Force re-register the webhook with Telegram (admin only)."""
+    from waifu_bot.services.webhook import setup_webhook
+    await setup_webhook()
+    from waifu_bot.services.webhook import get_bot
+    info = await get_bot().get_webhook_info()
+    return {
+        "ok": True,
+        "url": info.url,
+        "pending_update_count": info.pending_update_count,
+        "last_error_message": info.last_error_message,
+    }
 
 
 @router.get("/sse/ping", tags=["sse"])
@@ -680,6 +793,7 @@ async def sse_stream(
 async def get_profile(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
+    x_telegram_init_data: str | None = Header(None, alias="X-Telegram-Init-Data"),
 ):
     try:
         result = await session.execute(
@@ -700,6 +814,25 @@ async def get_profile(
             )
             session.add(player)
             await session.commit()
+
+        if x_telegram_init_data:
+            try:
+                from waifu_bot.services.auth import validate_init_data
+                from waifu_bot.services.player_activity import sync_player_telegram_identity
+
+                data = validate_init_data(x_telegram_init_data, settings.bot_token)
+                u = data.get("user") or {}
+                await sync_player_telegram_identity(
+                    session,
+                    player_id,
+                    u.get("username"),
+                    u.get("first_name"),
+                    u.get("last_name"),
+                )
+                await session.commit()
+                await session.refresh(player)
+            except Exception:
+                logger.exception("sync_player_telegram_identity in /profile failed player_id=%s", player_id)
 
         main_waifu = player.main_waifu
         main_payload = None
@@ -731,25 +864,49 @@ async def get_profile(
 
             psb_profile: dict[str, float] = {}
             try:
-                from waifu_bot.services.passive_skills import (
-                    get_passive_skill_bonuses,
-                    merge_passive_into_profile_details,
-                )
-
                 psb_profile = await get_passive_skill_bonuses(session, player_id)
             except Exception:
                 logger.exception("passive fetch failed in /profile player_id=%s", player_id)
 
             stat_flat = int(psb_profile.get("main_stats_flat", 0) or 0)
 
+            eff_four = None
             try:
-                raw_d = _compute_details(main_waifu, equipped_items, main_stats_flat=stat_flat)
-                try:
+                eff_four = await resolve_solo_combat_primary_four(
+                    session, player_id, main_waifu, ps=psb_profile
+                )
+            except Exception:
+                logger.exception("resolve_solo_combat_primary_four in /profile player_id=%s", player_id)
+
+            try:
+                if eff_four is not None:
+                    prim = (
+                        eff_four.strength,
+                        eff_four.agility,
+                        eff_four.intelligence,
+                        eff_four.luck,
+                    )
+                    raw_d = _compute_details(
+                        main_waifu,
+                        equipped_items,
+                        main_stats_flat=stat_flat,
+                        effective_primary_four=prim,
+                    )
+                    raw_d = merge_passive_into_profile_details(
+                        raw_d,
+                        psb_profile,
+                        skip_all_stats_pct_on_damage=True,
+                    )
+                else:
+                    raw_d = _compute_details(
+                        main_waifu,
+                        equipped_items,
+                        main_stats_flat=stat_flat,
+                    )
                     raw_d = merge_passive_into_profile_details(raw_d, psb_profile)
-                except Exception:
-                    logger.exception("passive profile merge failed player_id=%s", player_id)
                 main_details = schemas.MainWaifuDetails(**raw_d)
             except Exception:
+                logger.exception("main_waifu_details build failed player_id=%s", player_id)
                 main_details = None
 
             try:
@@ -783,18 +940,29 @@ async def get_profile(
             base_charm = main_waifu.charm
             base_luck = main_waifu.luck
 
-            # Текущие значения с учётом экипировки и плоского бонуса пассива (Трансценд.)
-            current_strength = base_strength + total_bonuses["strength"] + stat_flat
-            current_agility = base_agility + total_bonuses["agility"] + stat_flat
-            current_intelligence = base_intelligence + total_bonuses["intelligence"] + stat_flat
+            # Четыре основные — как в соло-бое (экип + flat + all_stats_pct); ВЫН/ОБА — экип + flat.
+            if eff_four is not None:
+                current_strength = eff_four.strength
+                current_agility = eff_four.agility
+                current_intelligence = eff_four.intelligence
+                current_luck = eff_four.luck
+            else:
+                current_strength = base_strength + total_bonuses["strength"] + stat_flat
+                current_agility = base_agility + total_bonuses["agility"] + stat_flat
+                current_intelligence = base_intelligence + total_bonuses["intelligence"] + stat_flat
+                current_luck = base_luck + total_bonuses["luck"] + stat_flat
             current_endurance = base_endurance + total_bonuses["endurance"] + stat_flat
             current_charm = base_charm + total_bonuses["charm"] + stat_flat
-            current_luck = base_luck + total_bonuses["luck"] + stat_flat
 
             portrait_url = None
             if getattr(main_waifu, "image_data", None):
                 mime = getattr(main_waifu, "image_mime", None) or "image/webp"
                 portrait_url = f"data:{mime};base64,{main_waifu.image_data}"
+
+            paperdoll_url = None
+            if getattr(main_waifu, "paperdoll_image_data", None):
+                pm = getattr(main_waifu, "paperdoll_image_mime", None) or "image/png"
+                paperdoll_url = f"data:{pm};base64,{main_waifu.paperdoll_image_data}"
 
             main_payload = schemas.MainWaifuProfile(
                 id=main_waifu.id,
@@ -818,17 +986,27 @@ async def get_profile(
                 base_endurance=base_endurance,
                 base_charm=base_charm,
                 base_luck=base_luck,
-                bonus_strength=total_bonuses["strength"] + stat_flat,
-                bonus_agility=total_bonuses["agility"] + stat_flat,
-                bonus_intelligence=total_bonuses["intelligence"] + stat_flat,
+                bonus_strength=current_strength - int(base_strength or 0),
+                bonus_agility=current_agility - int(base_agility or 0),
+                bonus_intelligence=current_intelligence - int(base_intelligence or 0),
                 bonus_endurance=total_bonuses["endurance"] + stat_flat,
                 bonus_charm=total_bonuses["charm"] + stat_flat,
-                bonus_luck=total_bonuses["luck"] + stat_flat,
+                bonus_luck=current_luck - int(base_luck or 0),
                 passive_main_stats_flat=stat_flat,
                 race_flat_bonuses=race_flat_bonuses_for(main_waifu.race),
                 class_flat_bonuses=class_flat_bonuses_for(main_waifu.class_),
                 portrait_url=portrait_url,
+                paperdoll_url=paperdoll_url,
+                bio=getattr(main_waifu, "bio", None),
             )
+
+        try:
+            from waifu_bot.services.player_activity import touch_player_last_active
+
+            await touch_player_last_active(session, player_id)
+            await session.commit()
+        except Exception:
+            logger.exception("touch_player_last_active in /profile failed player_id=%s", player_id)
 
         return schemas.ProfileResponse(
             player_id=player.id,
@@ -1127,6 +1305,148 @@ async def preview_main_waifu_portrait(
     )
 
 
+async def _build_paperdoll_equipment_prompt_en(
+    session: AsyncSession,
+    player_id: int,
+    main: m.MainWaifu,
+) -> str:
+    """English equipment summary for image model (current equipped slots)."""
+    result = await session.execute(
+        select(m.InventoryItem)
+        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+        .where(
+            m.InventoryItem.player_id == player_id,
+            m.InventoryItem.equipment_slot.isnot(None),
+        )
+    )
+    equipped = list(result.scalars().all())
+    if not equipped:
+        return (
+            "Equipment state: no armor or weapons are currently equipped in the game. "
+            "Use simple light adventurer base clothing appropriate to the class; avoid inventing heavy unrelated armor."
+        )
+    await _enrich_items_with_template_stats(session, equipped)
+    equipped.sort(key=lambda inv: int(inv.equipment_slot or 0))
+    slot_label = {
+        1: "Main hand",
+        2: "Off hand (weapon, shield, or orb)",
+        3: "Body armor / costume",
+        4: "Ring (slot 1)",
+        5: "Ring (slot 2)",
+        6: "Amulet / neck",
+    }
+    lines: list[str] = [
+        "Equipment state — show the character wearing and holding exactly this gear (fantasy JRPG, clear silhouettes). "
+        "Match these items; do not add unrelated armor or weapons:",
+    ]
+    for inv in equipped:
+        g = _to_gear_item(inv, main)
+        sl = int(inv.equipment_slot or 0)
+        label = slot_label.get(sl, f"Slot {sl}")
+        name = (g.display_name or g.name or "item").strip()
+        st = (g.slot_type or "").strip()
+        lines.append(f"- {label}: {name} (game type: {st})")
+    lines.append(
+        "Respect weapon grip for main/off hand; body slot shows armor or outfit; rings and amulet as visible jewelry when applicable."
+    )
+    return "\n".join(lines)
+
+
+async def _run_paperdoll_generation_save(
+    session: AsyncSession,
+    player_id: int,
+    *,
+    replace_existing: bool,
+) -> schemas.MainWaifuPaperdollResponse:
+    """Generate JRPG paperdoll from portrait + current equipment; replace_existing for admin regenerate."""
+    result = await session.execute(
+        select(m.Player).options(selectinload(m.Player.main_waifu)).where(m.Player.id == player_id)
+    )
+    player = result.scalar_one_or_none()
+    if not player or not player.main_waifu:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="main_waifu_not_found")
+
+    main = player.main_waifu
+    portrait_raw = (getattr(main, "image_data", None) or "").strip()
+    if not portrait_raw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="portrait_required_for_paperdoll",
+        )
+    if (getattr(main, "paperdoll_image_data", None) or "").strip() and not replace_existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="paperdoll_already_generated",
+        )
+
+    mime = (getattr(main, "image_mime", None) or "image/webp").strip() or "image/webp"
+    equip_prompt = await _build_paperdoll_equipment_prompt_en(session, player_id, main)
+    b64 = await generate_main_waifu_paperdoll_from_portrait(
+        portrait_b64=portrait_raw,
+        portrait_mime=mime,
+        race_id=int(main.race),
+        class_id=int(main.class_),
+        equipment_prompt_en=equip_prompt,
+    )
+    if not b64:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="paperdoll_generation_failed",
+        )
+
+    b64_stripped = str(b64).strip()
+    mime_out = "image/png"
+    session.add(
+        m.MainWaifuPaperdollVariant(
+            main_waifu_id=int(main.id),
+            image_data=b64_stripped,
+            image_mime=mime_out,
+            created_at=datetime.now(tz=timezone.utc),
+        )
+    )
+    main.paperdoll_image_data = b64_stripped
+    main.paperdoll_image_mime = mime_out
+    main.paperdoll_generated_at = datetime.now(tz=timezone.utc)
+    try:
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.exception("Failed to save paperdoll player_id=%s", player_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="paperdoll_save_failed",
+        )
+
+    url = f"data:{main.paperdoll_image_mime};base64,{main.paperdoll_image_data}"
+    return schemas.MainWaifuPaperdollResponse(paperdoll_url=url)
+
+
+@router.post(
+    "/profile/main-waifu/paperdoll",
+    response_model=schemas.MainWaifuPaperdollResponse,
+    tags=["profile"],
+)
+async def generate_main_waifu_paperdoll(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """One-time JRPG paperdoll for inventory; portrait + current equipment + OPENROUTER_MODEL_IMAGE."""
+    return await _run_paperdoll_generation_save(session, player_id, replace_existing=False)
+
+
+@router.post(
+    "/profile/main-waifu/paperdoll/regenerate",
+    response_model=schemas.MainWaifuPaperdollResponse,
+    tags=["profile"],
+)
+async def regenerate_main_waifu_paperdoll(
+    player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: re-run paperdoll generation (overwrites stored image)."""
+    return await _run_paperdoll_generation_save(session, player_id, replace_existing=True)
+
+
 @router.post("/profile/main-waifu", response_model=schemas.MainWaifuCreateResponse, tags=["profile"])
 async def create_main_waifu(
     payload: schemas.MainWaifuCreateRequest,
@@ -1237,6 +1557,12 @@ async def create_main_waifu(
                     m.MainWaifuPortraitDraft.player_id == player_id
                 )
             )
+        race_ru = WAIFU_RACE_LABEL_RU.get(int(main.race), "человек")
+        class_ru = WAIFU_CLASS_LABEL_RU.get(int(main.class_), "воин")
+        bio_text = await generate_main_waifu_bio(name=main.name, race_ru=race_ru, class_ru=class_ru)
+        if not bio_text:
+            bio_text = fallback_main_waifu_bio(main.name, race_ru, class_ru)
+        main.bio = bio_text
         await session.commit()
         await session.refresh(main)
     except Exception as e:
@@ -1271,6 +1597,7 @@ async def create_main_waifu(
             race_flat_bonuses=race_flat_bonuses_for(main.race),
             class_flat_bonuses=class_flat_bonuses_for(main.class_),
             portrait_url=portrait_url,
+            bio=getattr(main, "bio", None),
         )
     )
 
@@ -1352,73 +1679,6 @@ async def set_player_act(
     }
 
 
-# --- Shop endpoints ---
-shop_service = ShopService()
-
-
-@router.get("/shop/inventory", tags=["shop"])
-async def get_shop_inventory(
-    act: int = Query(..., ge=1, le=5),
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    waifu = await session.scalar(select(m.MainWaifu).where(m.MainWaifu.player_id == player_id))
-    charm = None
-    if waifu:
-        # Use effective charm (base + equipped bonuses), to match profile details.
-        try:
-            inv_items = await session.execute(
-                select(m.InventoryItem)
-                .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
-                .where(m.InventoryItem.player_id == player_id, m.InventoryItem.equipment_slot.isnot(None))
-            )
-            equipped_items = inv_items.scalars().all()
-        except Exception:
-            equipped_items = []
-
-        total = 0
-        for inv in equipped_items or []:
-            b = calculate_item_bonuses(inv)
-            try:
-                total += int(b.get("charm", 0) or 0)
-            except Exception:
-                pass
-        charm = int(getattr(waifu, "charm", 0) or 0) + int(total or 0)
-
-    items = await shop_service.get_shop_inventory(session, act, charm=charm, player_id=player_id)
-    return schemas.ShopInventoryResponse(items=items, count=len(items))
-
-
-@router.post("/shop/merchant-line", tags=["shop"])
-async def get_shop_merchant_line(
-    request: Request,
-    _: int = Depends(get_player_id),
-):
-    """
-    Generate AI merchant recommendation line for current shop assortment (OpenRouter).
-    Логи: смотри [shop merchant-line] в логах приложения.
-    """
-    payload = await request.json()
-    item_name = str(payload.get("name") or "предмет")
-    item_level = int(payload.get("level") or 1)
-    item_rarity = str(payload.get("rarity") or "обычная")
-    item_bonuses = str(payload.get("bonuses") or "").strip()
-    line_context = str(payload.get("context") or "buy").strip().lower()
-    text = await generate_shop_merchant_line(
-        item_name=item_name,
-        item_level=item_level,
-        item_rarity=item_rarity,
-        item_bonuses=item_bonuses,
-        context=line_context,
-    )
-    out = {"text": text}
-    if text is None:
-        from waifu_bot.core.config import settings
-        if not getattr(settings, "openrouter_api_key", None):
-            out["error"] = "OPENROUTER_API_KEY не задан в .env"
-        else:
-            out["error"] = "OpenRouter не вернул текст (см. логи приложения [shop merchant-line])"
-    return out
 
 
 @router.post("/player/caravan-driver-tip", tags=["caravan"])
@@ -1432,11 +1692,13 @@ async def caravan_driver_tip(
         raise HTTPException(status_code=404, detail="player_not_found")
     act = int(player.current_act or 1)
     game_knowledge = await build_caravan_driver_game_knowledge(session, act)
+    narrative_context = await build_narrative_prompt_context(session, player_id)
     text = await generate_caravan_driver_tip(
         current_act=act,
         max_act=int(player.max_act or 1),
         gold=int(player.gold or 0),
         game_knowledge=game_knowledge,
+        narrative_context=narrative_context,
     )
     out = {"text": text}
     if text is None:
@@ -1447,436 +1709,21 @@ async def caravan_driver_tip(
     return out
 
 
-@router.post("/shop/buy", tags=["shop"])
-async def buy_item(
-    act: int = Query(..., ge=1, le=5),
-    slot: int = Query(..., ge=1, le=9),
+@router.get("/player/secret-echo-boss", tags=["player"])
+async def secret_echo_boss_status(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    result = await shop_service.buy_item(session, player_id, act, slot)
-    if result.get("error"):
-        err = result["error"]
-        if err == "insufficient_gold":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Недостаточно золота. Нужно {result.get('required')}, у вас {result.get('have')}",
-            )
-        if err == "no_waifu":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Сначала создайте вайфу")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Оффер не найден")
-    return result
-
-
-@router.post("/shop/buy-protection-stone", tags=["shop"])
-async def buy_protection_stone(
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
+    """Статус секретного босса эха (Maven-like): разблокировка после 25×+30 соло по данжам; бой — заглушка."""
     player = await session.get(m.Player, player_id)
-    if not player:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="player_not_found")
-    cfg = await get_game_config_map(session)
-    price = int(cfg_float(cfg, "enchant.stone_shop_price", 5000))
-    price = await apply_passive_buy_price(session, player_id, price)
-    if int(player.gold or 0) < price:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"insufficient_gold need {price} have {int(player.gold or 0)}",
-        )
-    player.gold = int(player.gold or 0) - price
-    player.protection_stones = int(getattr(player, "protection_stones", 0) or 0) + 1
-    await session.commit()
+    if player is None:
+        raise HTTPException(status_code=404, detail="player_not_found")
     return {
-        "success": True,
-        "gold_remaining": player.gold,
-        "protection_stones": player.protection_stones,
-        "price_paid": price,
+        "unlocked": bool(getattr(player, "secret_echo_boss_unlocked", False)),
+        "defeated": bool(getattr(player, "secret_echo_boss_defeated", False)),
+        "placeholder": True,
+        "message": "Арена наблюдателя ещё не открыта в бою — флаг разблокировки только.",
     }
-
-
-@router.post("/shop/sell", tags=["shop"])
-async def sell_item(
-    inventory_item_id: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    result = await shop_service.sell_item(session, player_id, inventory_item_id)
-    if result.get("item_id"):
-        item = await session.get(m.Item, result["item_id"])
-        if item:
-            result["item"] = _to_item(item)
-    return schemas.BuySellResponse(**result)
-
-
-@router.post("/shop/gamble", tags=["shop"])
-async def gamble(
-    act: int = Query(..., ge=1, le=5),
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    result = await shop_service.gamble(session, player_id, act)
-    if result.get("success") and result.get("inventory_item_id") is not None:
-        iid = int(result["inventory_item_id"])
-        try:
-            inv = await session.get(
-                m.InventoryItem,
-                iid,
-                options=[
-                    selectinload(m.InventoryItem.item),
-                    selectinload(m.InventoryItem.affixes),
-                ],
-            )
-            if inv is None:
-                logger.warning(
-                    "shop/gamble: inventory_items.id=%s not found after commit (player_id=%s)",
-                    iid,
-                    player_id,
-                )
-            elif int(inv.player_id) != int(player_id):
-                logger.warning(
-                    "shop/gamble: item %s belongs to player %s, expected %s",
-                    iid,
-                    inv.player_id,
-                    player_id,
-                )
-            else:
-                await _enrich_items_with_template_stats(session, [inv])
-                item_payload = _to_inventory_item(inv)
-                try:
-                    await enrich_items_with_image_urls(session, [item_payload])
-                except Exception:
-                    pass
-                result["item"] = item_payload
-        except Exception:
-            logger.exception("shop/gamble: failed to build item payload for inventory_items.id=%s", iid)
-    return result
-
-
-@router.post("/shop/refresh", tags=["shop"])
-async def refresh_shop_inventory(
-    act: int = Query(..., ge=1, le=5),
-    _: int = Depends(require_admin),
-    session: AsyncSession = Depends(get_db),
-):
-    offers = await shop_service.refresh_offers(session, act)
-    return {"refreshed": len(offers)}
-
-
-@router.get("/shop/refresh", tags=["shop"])
-async def refresh_shop_inventory_get(
-    act: int = Query(..., ge=1, le=5),
-    _: int = Depends(require_admin),
-    session: AsyncSession = Depends(get_db),
-):
-    offers = await shop_service.refresh_offers(session, act)
-    return {"refreshed": len(offers)}
-
-
-@router.post("/admin/add-gold", tags=["admin"])
-async def admin_add_gold(
-    amount: int = Query(10000, ge=1, le=1000000),
-    player_id: int = Depends(require_admin),
-    session: AsyncSession = Depends(get_db),
-):
-    """Admin-only endpoint to add gold to player account."""
-    player = await session.get(m.Player, player_id)
-    if not player:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
-    player.gold += amount
-    await session.commit()
-    return {"success": True, "gold_added": amount, "gold_total": player.gold}
-
-
-@router.post("/admin/dungeons/kill-monster", tags=["admin"])
-async def admin_kill_monster(
-    player_id: int = Depends(require_admin),
-    session: AsyncSession = Depends(get_db),
-):
-    """Admin debug: kill current monster instantly."""
-    result = await combat_service.admin_kill_monster(session, player_id)
-    if result.get("error"):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result["error"])
-    return result
-
-
-@router.post("/admin/dungeons/complete", tags=["admin"])
-async def admin_complete_dungeon(
-    player_id: int = Depends(require_admin),
-    session: AsyncSession = Depends(get_db),
-):
-    """Admin debug: complete current dungeon instantly."""
-    result = await combat_service.admin_complete_dungeon(session, player_id)
-    if result.get("error"):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result["error"])
-    return result
-
-
-@router.post("/admin/waifu/restore", tags=["admin"])
-async def admin_restore_waifu(
-    player_id: int = Depends(require_admin),
-    session: AsyncSession = Depends(get_db),
-):
-    """Admin debug: restore waifu HP to max (effective max including equipment)."""
-    from datetime import datetime, timezone
-    waifu = (await session.execute(select(m.MainWaifu).where(m.MainWaifu.player_id == player_id))).scalar_one_or_none()
-    if not waifu:
-        raise HTTPException(status_code=404, detail="waifu_not_found")
-    # Recompute max_hp with current equipment bonuses before restoring
-    await _sync_waifu_max_hp(session, player_id, waifu)
-    waifu.current_hp = int(waifu.max_hp or 100)
-    waifu.hp_updated_at = datetime.now(timezone.utc)
-    await session.commit()
-    return {"success": True, "current_hp": waifu.current_hp}
-
-
-@router.post("/admin/waifu/levelup", tags=["admin"])
-async def admin_waifu_levelup(
-    player_id: int = Depends(require_admin),
-    session: AsyncSession = Depends(get_db),
-):
-    """Admin: повысить уровень ОВ на 1 (полный лвлап с пересчётом HP/энергии)."""
-    from waifu_bot.game.formulas import calculate_total_experience_for_level
-    from waifu_bot.game.constants import MAX_LEVEL
-
-    waifu = (await session.execute(select(m.MainWaifu).where(m.MainWaifu.player_id == player_id))).scalar_one_or_none()
-    if not waifu:
-        raise HTTPException(status_code=404, detail="waifu_not_found")
-    current_level = int(waifu.level or 1)
-    if current_level >= MAX_LEVEL:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Уже максимальный уровень")
-    exp_for_next = calculate_total_experience_for_level(current_level + 1)
-    waifu.experience = exp_for_next
-    await combat_service._apply_levelups(session, waifu)
-    await _sync_waifu_max_hp(session, player_id, waifu)
-    await session.commit()
-    await session.refresh(waifu)
-    return {
-        "new_level": int(waifu.level),
-        "new_exp_max": exp_for_next,
-        "new_hp_max": int(waifu.max_hp or 100),
-    }
-
-
-@router.post("/admin/items/clear", tags=["admin"])
-async def admin_clear_all_items(
-    player_id: int = Depends(require_admin),
-    session: AsyncSession = Depends(get_db),
-):
-    """
-    Админ: удалить все предметы игрока (инвентарь + экипировка).
-    Удаляем все InventoryItem, привязанные к player_id; шаблоны Item остаются.
-    """
-    await session.execute(
-        delete(m.InventoryItem).where(m.InventoryItem.player_id == player_id)
-    )
-    await session.commit()
-    return {"ok": True}
-
-
-@router.post("/admin/player/reset-new-game", tags=["admin"])
-async def admin_reset_player_new_game(
-    player_id: int = Depends(require_admin),
-    session: AsyncSession = Depends(get_db),
-    redis=Depends(get_redis),
-):
-    """
-    Админ: полный сброс соло-прогресса как у нового игрока (золото, акт, ОВ, инвентарь,
-    найм, данжи, экспедиции, пассивы/скрытые скиллы, запись в гильдии). Не трогает GD/chat-таблицы.
-    """
-    await reset_player_to_new_game(session, player_id)
-    await session.commit()
-    await clear_player_redis_keys(redis, player_id)
-    return {"ok": True}
-
-
-# --- Tavern endpoints ---
-tavern_service = TavernService()
-
-
-def _tavern_perks_for_response():
-    """Список перков для ответа таверны (избегаем 404 от отдельного /expeditions/perks)."""
-    from waifu_bot.game.expedition_data import PERKS
-    return [
-        schemas.ExpeditionPerkOut(id=p.id, name=p.name, counters=list(p.counters), category=p.category)
-        for p in PERKS
-    ]
-
-
-@router.get("/tavern/available", response_model=schemas.TavernAvailableResponse, tags=["tavern"])
-async def tavern_available(
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    try:
-        slots = await tavern_service.get_available_waifus(session, player_id)
-    except SQLAlchemyError:
-        slots = []
-    out = []
-    for s in slots:
-        out.append(
-            schemas.TavernHireSlotOut(
-                slot=int(s.slot),
-                available=s.hired_at is None,
-                price=int(TAVERN_HIRE_COST),
-                hired_waifu_id=int(s.hired_waifu_id) if s.hired_waifu_id is not None else None,
-            )
-        )
-    remaining = sum(1 for s in slots if s.hired_at is None)
-    return schemas.TavernAvailableResponse(
-        slots=out,
-        remaining=int(remaining),
-        total=int(TAVERN_SLOTS_PER_DAY),
-        price=int(TAVERN_HIRE_COST),
-        perks=_tavern_perks_for_response(),
-    )
-
-
-@router.post("/tavern/hire", tags=["tavern"])
-async def tavern_hire(
-    slot: Optional[int] = Query(None, ge=1, le=4),
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    result = await tavern_service.hire_waifu(session, player_id, slot=slot)
-    err = result.get("error")
-    if err:
-        if err == "insufficient_gold":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Недостаточно золота. Нужно {result.get('required')}, у вас {result.get('have')}",
-            )
-        if err == "reserve_full":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Запас переполнен")
-        if err == "slot_taken":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Этот слот найма уже использован")
-        if err == "slot_not_found":
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Слоты найма не найдены")
-        if err == "invalid_slot":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Некорректный слот")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
-    return schemas.TavernActionResponse(**result)
-
-
-@router.post("/admin/tavern/refresh", tags=["admin"])
-async def admin_tavern_refresh(
-    player_id: int = Depends(require_admin),
-    session: AsyncSession = Depends(get_db),
-):
-    """Admin-only: reset today's tavern hire slots to full availability."""
-    try:
-        slots = await tavern_service.admin_refresh_today(session, player_id)
-    except SQLAlchemyError as e:
-        logger.exception("admin_tavern_refresh failed: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="tavern_storage_unavailable",
-        )
-    out = [
-        schemas.TavernHireSlotOut(
-            slot=int(s.slot),
-            available=s.hired_at is None,
-            price=int(TAVERN_HIRE_COST),
-            hired_waifu_id=int(s.hired_waifu_id) if s.hired_waifu_id is not None else None,
-        )
-        for s in slots
-    ]
-    remaining = sum(1 for s in slots if s.hired_at is None)
-    return schemas.TavernAvailableResponse(
-        slots=out,
-        remaining=int(remaining),
-        total=int(TAVERN_SLOTS_PER_DAY),
-        price=int(TAVERN_HIRE_COST),
-        perks=_tavern_perks_for_response(),
-    )
-
-
-@router.get("/tavern/squad", tags=["tavern"])
-async def tavern_squad(
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    try:
-        squad = await tavern_service.get_squad(session, player_id)
-        await session.commit()
-        return {"squad": [_to_hired_waifu(w) for w in squad]}
-    except SQLAlchemyError:
-        return {"squad": []}
-
-
-@router.get("/tavern/reserve", tags=["tavern"])
-async def tavern_reserve(
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    try:
-        reserve = await tavern_service.get_reserve(session, player_id)
-        await session.commit()
-        return {"reserve": [_to_hired_waifu(w) for w in reserve]}
-    except SQLAlchemyError:
-        return {"reserve": []}
-
-
-@router.post("/tavern/squad/add", tags=["tavern"])
-async def tavern_squad_add(
-    waifu_id: int,
-    slot: Optional[int] = Query(None, ge=1, le=6),
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    result = await tavern_service.add_to_squad(session, player_id, waifu_id, slot)
-    if result.get("error"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
-    return schemas.TavernActionResponse(**result)
-
-
-@router.post("/tavern/squad/remove", tags=["tavern"])
-async def tavern_squad_remove(
-    waifu_id: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    result = await tavern_service.remove_from_squad(session, player_id, waifu_id)
-    if result.get("error"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
-    return schemas.TavernActionResponse(**result)
-
-
-@router.post("/tavern/heal", tags=["tavern"])
-async def tavern_heal(
-    hired_waifu_id: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    result = await tavern_service.heal_waifu(session, player_id, hired_waifu_id)
-    if result.get("error"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
-    return result
-
-
-@router.post("/tavern/dismiss", tags=["tavern"])
-async def tavern_dismiss(
-    waifu_id: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    """Уволить вайфу из запаса. Уровень сохранится для следующей нанятой (ТЗ)."""
-    try:
-        result = await tavern_service.dismiss_waifu(session, player_id, waifu_id)
-    except SQLAlchemyError as e:
-        logger.exception("tavern_dismiss failed: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="tavern_storage_unavailable",
-        )
-    if result.get("error"):
-        if result.get("error") == "waifu_in_squad":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("hint", "Сначала снимите вайфу с отряда в запас."),
-            )
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("error"))
-    return result
 
 
 # --- Expedition endpoints ---
@@ -1949,6 +1796,7 @@ def _expedition_active_progress_pct(active, now):
 
 
 async def _expedition_active_affixes(session: AsyncSession, active) -> list:
+    from waifu_bot.game.expedition_perk_resolve import normalize_expedition_paired_perk_ids
     from waifu_bot.game.expedition_redesign import affix_display_icon
 
     aids: list[int] = []
@@ -1972,6 +1820,7 @@ async def _expedition_active_affixes(session: AsyncSession, active) -> list:
             category=x.category,
             description_hint=getattr(x, "description_hint", None),
             icon=affix_display_icon(x),
+            paired_perks=normalize_expedition_paired_perk_ids(getattr(x, "paired_perks", None) or []),
         )
         for x in rows
     ]
@@ -2046,6 +1895,7 @@ async def expeditions_roster(
         cur = int(getattr(w, "current_hp", max_hp) or 0)
         ratio = cur / max_hp
         cid = int(w.class_ or 1)
+        pl = getattr(w, "perk_levels", None) or {}
         out.append({
             "id": w.id,
             "name": w.name,
@@ -2053,6 +1903,7 @@ async def expeditions_roster(
             "class": w.class_,
             "level": w.level,
             "perks": w.perks,
+            "perk_levels": dict(pl) if isinstance(pl, dict) else {},
             "current_hp": cur,
             "max_hp": max_hp,
             "hp_current": cur,
@@ -2077,7 +1928,8 @@ async def expeditions_slots(
     player_level = (
         int(player.main_waifu.level or 1) if (player and player.main_waifu) else 1
     )
-    from waifu_bot.game.expedition_redesign import affix_display_icon, biome_emoji_for_tag
+    from waifu_bot.game.expedition_perk_resolve import normalize_expedition_paired_perk_ids
+    from waifu_bot.game.expedition_redesign import affix_display_icon, biome_emoji_for_tag, union_challenge_categories_from_db_affix_rows
     from waifu_bot.services.expedition import _slot_required_perks
     # Сложность: из slot.difficulty (аффиксы) или по номеру слота (старые слоты)
     def _diff_label(d: int | None, sn: int) -> tuple[int, str]:
@@ -2108,7 +1960,9 @@ async def expeditions_slots(
             else max(1, player_level - 3 + (sn - 1) * 3)
         )
         diff_val, label = _diff_label(slot_difficulty, sn)
-        required_perks = list(_slot_required_perks(s))
+        required_perks = sorted(_slot_required_perks(s))
+        affix_rows_for_slot = [affix_map[aid] for aid in (getattr(s, "affix_ids", None) or []) if aid in affix_map]
+        ch_cats = sorted(union_challenge_categories_from_db_affix_rows(affix_rows_for_slot)) if affix_rows_for_slot else []
         affix_out = []
         for aid in (getattr(s, "affix_ids", None) or []):
             aff = affix_map.get(aid)
@@ -2120,6 +1974,7 @@ async def expeditions_slots(
                     category=aff.category,
                     description_hint=getattr(aff, "description_hint", None),
                     icon=affix_display_icon(aff),
+                    paired_perks=normalize_expedition_paired_perk_ids(getattr(aff, "paired_perks", None) or []),
                 ))
         bt = getattr(s, "biome_tag", None)
         out_slots.append(
@@ -2132,6 +1987,7 @@ async def expeditions_slots(
                 difficulty=diff_val,
                 label=label,
                 required_perks=required_perks,
+                challenge_categories=ch_cats,
                 affixes=affix_out,
                 base_location=getattr(s, "base_location", None),
                 biome_tag=bt,
@@ -2229,8 +2085,20 @@ async def expeditions_preview(
         w = await session.get(m.HiredWaifu, wid)
         if w and w.player_id == player_id:
             squad.append(w)
-    from waifu_bot.services.expedition import calculate_squad_chance, get_duration_multipliers
-    data = calculate_squad_chance(squad, slot, player_level, duration_minutes=duration_minutes)
+    from waifu_bot.services.expedition import calculate_squad_chance, get_duration_multipliers, slot_challenge_categories_union
+    affix_by_id = {}
+    if getattr(slot, "affix_ids", None):
+        affix_stmt = select(m.ExpeditionAffix).where(m.ExpeditionAffix.id.in_(set(slot.affix_ids)))
+        affix_rows_pv = list((await session.execute(affix_stmt)).scalars().all())
+        affix_by_id = {a.id: a for a in affix_rows_pv}
+    ch_union = slot_challenge_categories_union(slot, affix_by_id)
+    data = calculate_squad_chance(
+        squad,
+        slot,
+        player_level,
+        duration_minutes=duration_minutes,
+        challenge_union=ch_union,
+    )
     units_out = [
         schemas.ExpeditionPreviewUnitOut(
             unit_id=u["unit_id"],
@@ -2454,48 +2322,6 @@ async def expeditions_abort_by_id(
     return await expeditions_cancel(active_id=expedition_id, player_id=player_id, session=session)
 
 
-@router.post("/admin/expeditions/refresh", tags=["admin"])
-async def admin_expeditions_refresh(
-    session: AsyncSession = Depends(get_db),
-    _: int = Depends(require_admin),
-):
-    """Удалить слоты на сегодня и создать 3 новых (только для админа). Явная транзакция, rollback при ошибке (cursor_plan_7)."""
-    from datetime import datetime
-    try:
-        slots = await expedition_service.admin_refresh_slots(session)
-        await session.commit()
-        def _safe_affixes(s):
-            aff = getattr(s, "affixes", None)
-            return list(aff) if isinstance(aff, (list, tuple)) else []
-
-        return {
-            "slots": [
-                {
-                    "id": s.id,
-                    "slot": int(s.slot),
-                    "name": s.name,
-                    "base_level": int(s.base_level),
-                    "base_difficulty": int(s.base_difficulty),
-                    "affixes": _safe_affixes(s),
-                    "base_gold": int(s.base_gold),
-                    "base_experience": int(s.base_experience),
-                    "trial": getattr(s, "trial", False),
-                    "is_used": False,
-                }
-                for s in slots
-            ],
-            "day": slots[0].day.isoformat() if slots else "",
-            "refreshed_at": datetime.utcnow().isoformat() + "Z",
-        }
-    except Exception as e:
-        await session.rollback()
-        logger.exception("admin_expeditions_refresh failed: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e),
-        )
-
-
 @router.get("/expeditions/perks", tags=["expeditions"])
 async def expeditions_perks():
     """Список перков наёмных вайфу (контраффиксы для испытаний)."""
@@ -2531,447 +2357,6 @@ async def expeditions_affixes():
     }
 
 
-def _gd_v1_monster_hp_display(state: dict, cycle_status: str) -> tuple[str, int, int, int]:
-    """Имя (агрегат), текущее HP, макс HP, процент для карточки / статуса чата."""
-    monsters = state.get("monsters") or []
-    alive = [x for x in monsters if int(x.get("hp") or 0) > 0]
-    use = alive if alive else monsters
-    if cycle_status == "registration":
-        return "Ожидание старта", 0, 1, 0
-    if not use:
-        return "—", 0, 1, 0
-    hp_cur = sum(int(mm.get("hp") or 0) for mm in use)
-    hp_max = 0
-    for mm in use:
-        max_h = int(mm.get("max_hp") or 0) or int(mm.get("hp") or 0)
-        hp_max += max(max_h, int(mm.get("hp") or 0))
-    if hp_max <= 0:
-        hp_max = 1
-    names = [str(x.get("name") or "?") for x in use[:2]]
-    monster_name = ", ".join(names)
-    if len(use) > 2:
-        monster_name += f" +{len(use) - 2}"
-    hp_pct = min(100, max(0, int(round(100 * hp_cur / hp_max)))) if hp_max else 0
-    return monster_name, hp_cur, hp_max, hp_pct
-
-
-def _gd_v1_dungeon_card_dict(
-    cycle: m.GDCycle,
-    template: m.GDDungeonTemplate | None,
-    player_id: int,
-) -> dict:
-    """Payload for WebApp group-dungeon cards (GD v1 cycles)."""
-    from datetime import datetime, timezone
-
-    state = cycle.battle_state_json or {}
-    contrib = (state.get("contribution") or {}).get(str(int(player_id)), {}) or {}
-    try:
-        total_damage = int(contrib.get("text") or 0) + int(contrib.get("skill") or 0)
-    except (TypeError, ValueError):
-        total_damage = 0
-    try:
-        contrib_rounds = int(contrib.get("rounds") or 0)
-    except (TypeError, ValueError):
-        contrib_rounds = 0
-    monster_name, hp_cur, hp_max, hp_pct = _gd_v1_monster_hp_display(state, cycle.status)
-    duration = 0
-    if cycle.started_at:
-        start = cycle.started_at
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=timezone.utc)
-        duration = int((datetime.now(timezone.utc) - start).total_seconds())
-    template_name = (template.name if template else None) or "Подземелье"
-    round_no = int(cycle.current_round_number or 0)
-    collecting = int(state.get("collecting_for_round") or 1)
-    wave = state.get("wave")
-    deadline_iso = (
-        cycle.round_deadline_at.isoformat() if cycle.round_deadline_at is not None else None
-    )
-    return {
-        "v1": True,
-        "id": cycle.id,
-        "chat_id": int(cycle.chat_id),
-        "dungeon_name": template_name,
-        "stage": round_no,
-        "cycle_status": cycle.status,
-        "collecting_for_round": collecting,
-        "wave": wave,
-        "round_deadline_at": deadline_iso,
-        "monster_name": monster_name,
-        "hp_current": hp_cur,
-        "hp_max": hp_max,
-        "hp_percent": hp_pct,
-        "total_damage": total_damage,
-        "contrib_rounds": contrib_rounds,
-        "joined_at_stage": 1,
-        "duration_seconds": max(0, duration),
-        "active_effects": [],
-    }
-
-
-# --- Dungeon endpoints ---
-dungeon_service = DungeonService()
-combat_service = CombatService(redis_client=get_redis())
-
-
-@router.get("/gd/dungeons/active", tags=["gd"])
-async def get_gd_dungeons_active(
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    """GD v1: cycles in registration or active where the player is registered (dungeons.html list)."""
-    try:
-        stmt = (
-            select(m.GDCycle, m.GDRegistration, m.GDDungeonTemplate)
-            .join(m.GDRegistration, m.GDRegistration.cycle_id == m.GDCycle.id)
-            .outerjoin(m.GDDungeonTemplate, m.GDDungeonTemplate.id == m.GDCycle.dungeon_template_id)
-            .where(
-                m.GDRegistration.user_id == player_id,
-                m.GDCycle.status.in_(("registration", "active")),
-            )
-            .order_by(m.GDCycle.id.desc())
-        )
-        rows = (await session.execute(stmt)).all()
-        dungeons = [_gd_v1_dungeon_card_dict(cycle, tmpl, player_id) for cycle, _reg, tmpl in rows]
-        return {"dungeons": dungeons}
-    except Exception as e:
-        logger.exception("Failed /gd/dungeons/active for player_id=%s: %s", player_id, e)
-        return {"dungeons": []}
-
-
-@router.get("/gd/cycle/{chat_id}", tags=["gd"])
-async def get_gd_cycle_v1(
-    chat_id: int,
-    session: AsyncSession = Depends(get_db),
-):
-    """GD v1.0: registration or active cycle for a Telegram chat (публичный снимок для WebApp)."""
-    try:
-        for st in ("active", "registration"):
-            r = await session.execute(
-                select(m.GDCycle)
-                .where(m.GDCycle.chat_id == chat_id, m.GDCycle.status == st)
-                .order_by(m.GDCycle.id.desc())
-                .limit(1)
-            )
-            c = r.scalar_one_or_none()
-            if c:
-                tmpl = await session.get(m.GDDungeonTemplate, c.dungeon_template_id)
-                template_name = (tmpl.name if tmpl else None) or "Подземелье"
-                state = c.battle_state_json or {}
-                collecting = int(state.get("collecting_for_round") or 1)
-                wave = state.get("wave")
-                deadline_iso = (
-                    c.round_deadline_at.isoformat() if c.round_deadline_at is not None else None
-                )
-                mname, hp_cur, hp_max, hp_pct = _gd_v1_monster_hp_display(state, c.status)
-                return {
-                    "v1": True,
-                    "status": c.status,
-                    "cycle_id": c.id,
-                    "current_round": c.current_round_number,
-                    "collecting_for_round": collecting,
-                    "wave": wave,
-                    "round_deadline_at": deadline_iso,
-                    "dungeon_name": template_name,
-                    "monster_name": mname,
-                    "hp_current": hp_cur,
-                    "hp_max": hp_max,
-                    "hp_percent": hp_pct,
-                    "registration_closes": c.registration_closes.isoformat()
-                    if c.registration_closes
-                    else None,
-                }
-        return {"v1": False}
-    except Exception as e:
-        logger.exception("Failed /gd/cycle/%s: %s", chat_id, e)
-        return {"v1": False}
-
-
-@router.get("/gd/cycles/{cycle_id}/battle-log", tags=["gd"])
-async def get_gd_cycle_battle_log(
-    cycle_id: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    """Механический журнал боя по раундам (для WebApp); только для зарегистрированных в цикле."""
-    from waifu_bot.services.gd_battle_log import format_gd_round_log_lines_ru
-
-    reg = await session.execute(
-        select(m.GDRegistration.id).where(
-            m.GDRegistration.cycle_id == cycle_id,
-            m.GDRegistration.user_id == player_id,
-        ).limit(1)
-    )
-    if reg.scalar_one_or_none() is None:
-        raise HTTPException(status_code=404, detail="Cycle not found or access denied")
-
-    rounds_res = await session.execute(
-        select(m.GDRound)
-        .where(m.GDRound.cycle_id == cycle_id)
-        .order_by(m.GDRound.round_number.asc())
-    )
-    rounds = rounds_res.scalars().all()
-    out: list[dict] = []
-    for gr in rounds:
-        aj = gr.actions_json or {}
-        resolved = aj.get("resolved") or []
-        lines = format_gd_round_log_lines_ru(resolved, gr.context_json or {}, gr.outcomes_json or {})
-        out.append(
-            {
-                "round_number": gr.round_number,
-                "round_outcome": gr.round_outcome,
-                "ai_narrative": gr.ai_narrative or "",
-                "lines": lines,
-            }
-        )
-    return {"cycle_id": cycle_id, "rounds": out}
-
-
-@router.get("/dungeons", tags=["dungeon"])
-async def list_dungeons(
-    act: int = Query(..., ge=1, le=5),
-    type: Optional[int] = Query(None, ge=1, le=3),
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    try:
-        dungeons = await dungeon_service.get_dungeons_for_act(session, act, type)
-        player = await session.get(m.Player, player_id)
-        max_act = int(player.max_act or 1) if player else 1
-        dungeon_ids = [d.id for d in dungeons]
-        progress_map = {}
-        if dungeon_ids:
-            prog_stmt = select(m.DungeonProgress).where(
-                m.DungeonProgress.player_id == player_id,
-                m.DungeonProgress.dungeon_id.in_(dungeon_ids),
-            )
-            for row in (await session.execute(prog_stmt)).scalars().all():
-                progress_map[row.dungeon_id] = row
-        out = []
-        for d in dungeons:
-            locked_by_act = d.act > max_act
-            locked_by_prev = False
-            if d.dungeon_number > 1:
-                prev_d = next(
-                    (x for x in dungeons if x.act == d.act and x.dungeon_type == d.dungeon_type and x.dungeon_number == d.dungeon_number - 1),
-                    None,
-                )
-                if prev_d:
-                    prev_prog = progress_map.get(prev_d.id)
-                    locked_by_prev = not (prev_prog and prev_prog.is_completed)
-            out.append(_to_dungeon(d, locked_by_act=locked_by_act, locked_by_prev=locked_by_prev))
-        return schemas.DungeonListResponse(dungeons=out)
-    except Exception as e:
-        logger.exception("Failed /dungeons for act=%s type=%s: %s", act, type, e)
-        return schemas.DungeonListResponse(dungeons=[])
-
-
-@router.get("/dungeons/plus/status", tags=["dungeon"])
-async def dungeon_plus_status(
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    # Global unlock after Act5#5 completion; status rows exist after first initialization.
-    try:
-        # Find last solo dungeon (act5 #5)
-        last = await session.execute(
-            select(m.Dungeon).where(m.Dungeon.act == 5, m.Dungeon.dungeon_type == 1, m.Dungeon.dungeon_number == 5)
-        )
-        last_d = last.scalar_one_or_none()
-        global_unlocked = False
-        if last_d:
-            prog = await session.execute(
-                select(m.DungeonProgress).where(m.DungeonProgress.player_id == player_id, m.DungeonProgress.dungeon_id == last_d.id)
-            )
-            p = prog.scalar_one_or_none()
-            global_unlocked = bool(p and p.is_completed)
-
-        q = await session.execute(
-            select(m.PlayerDungeonPlus).where(m.PlayerDungeonPlus.player_id == player_id)
-        )
-        rows = q.scalars().all()
-        out = [
-            schemas.DungeonPlusStatusOut(
-                dungeon_id=int(r.dungeon_id),
-                unlocked_plus_level=int(r.unlocked_plus_level or 0),
-                best_completed_plus_level=int(r.best_completed_plus_level or 0),
-            )
-            for r in rows
-        ]
-        return schemas.DungeonPlusStatusResponse(global_unlocked=global_unlocked, status=out)
-    except Exception:
-        logger.exception("Failed /dungeons/plus/status for player %s", player_id)
-        return schemas.DungeonPlusStatusResponse(global_unlocked=False, status=[])
-
-
-@router.post("/dungeons/{dungeon_id}/start", tags=["dungeon"])
-async def start_dungeon(
-    dungeon_id: int,
-    plus_level: int = Query(0, ge=0),
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    # Check level requirement
-    dungeon = await session.get(m.Dungeon, dungeon_id)
-    if not dungeon:
-        raise HTTPException(status_code=404, detail="Dungeon not found")
-
-    player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
-    waifu = player.main_waifu if player else None
-    if not waifu:
-        raise HTTPException(status_code=400, detail="No main waifu")
-
-    # For Dungeon+ we don't gate by base dungeon.min_level; difficulty is normalized by plus_level.
-    if plus_level <= 0 and waifu.level < dungeon.level:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Level requirement not met. Required: {dungeon.level}, current: {waifu.level}"
-        )
-
-    result = await dungeon_service.start_dungeon(session, player_id, dungeon_id, plus_level=plus_level)
-    if "error" in result:
-        if result["error"] == "dungeon_locked_act":
-            raise HTTPException(status_code=400, detail="dungeon_locked_act")
-        if result["error"] == "dungeon_locked_prev":
-            raise HTTPException(status_code=400, detail="dungeon_locked_prev")
-        if result["error"] == "dungeon_plus_locked":
-            raise HTTPException(status_code=400, detail="dungeon_plus_locked")
-        if result["error"] == "dungeon_plus_level_locked":
-            raise HTTPException(status_code=400, detail="dungeon_plus_level_locked")
-        if result["error"] == "dungeon_already_completed":
-            # farming is allowed; keep backward compatibility if older services return this
-            raise HTTPException(status_code=400, detail="dungeon_already_completed")
-        raise HTTPException(status_code=400, detail=result["error"])
-    return schemas.DungeonStartResponse(**result)
-
-
-@router.get("/dungeons/active", tags=["dungeon"])
-async def active_dungeon(
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    try:
-        data = await dungeon_service.get_active_dungeon(session, player_id)
-        if data is None:
-            return {"active": False}
-
-        # Enrich with last damage event + derived progress numbers (fast queries)
-        dungeon_id = data.get("dungeon_id")
-        last_damage = None
-        last_is_crit = None
-        if dungeon_id:
-            try:
-                last = await session.execute(
-                    select(m.BattleLog)
-                    .where(m.BattleLog.player_id == player_id, m.BattleLog.dungeon_id == dungeon_id)
-                    .order_by(m.BattleLog.id.desc())
-                    .limit(1)
-                )
-                last_log = last.scalar_one_or_none()
-                if last_log and last_log.event_type == "damage":
-                    last_damage = (last_log.event_data or {}).get("damage")
-                    last_is_crit = (last_log.event_data or {}).get("is_crit")
-            except Exception:
-                # Backward compatibility: BattleLog table/model may be absent on older DBs.
-                last_damage = None
-                last_is_crit = None
-
-        dmg_done = None
-        try:
-            dmg_done = int(data.get("monster_max_hp", 0)) - int(data.get("monster_current_hp", 0))
-            if dmg_done < 0:
-                dmg_done = 0
-        except Exception:
-            dmg_done = None
-
-        total_monsters = data.get("total_monsters", None)
-        return {
-            "active": True,
-            "dungeon_id": dungeon_id,
-            "dungeon_name": data.get("dungeon_name", "Неизвестное подземелье"),
-            "plus_level": data.get("plus_level", 0),
-            "total_rooms": total_monsters,
-            "monster_name": data.get("monster_name", "Монстр"),
-            "monster_level": data.get("monster_level", 1),
-            "monster_current_hp": data.get("monster_current_hp", 100),
-            "monster_max_hp": data.get("monster_max_hp", 100),
-            "monster_damage": data.get("monster_damage", 10),
-            "monster_defense": data.get("monster_defense", 0),
-            "monster_type": data.get("monster_type", "Обычный"),
-            "monster_position": data.get("monster_position", 1),
-            "total_monsters": total_monsters,
-            "is_elite": data.get("is_elite", False),
-            "elite_color": data.get("elite_color"),
-            "applied_affixes": data.get("applied_affixes", []),
-            "monster_family": data.get("monster_family", "unknown"),
-            "monster_slug": data.get("monster_slug", "unknown"),
-            "monster_tier": data.get("monster_tier", 1),
-            "monster_emoji": data.get("monster_emoji", "👾"),
-            "is_boss": data.get("is_boss", False),
-            "affix_count": data.get("affix_count", 0),
-            "affixes": data.get("affixes", []),
-            "monster_has_image": data.get("monster_has_image", False),
-            "monster_image_override": data.get("monster_image_override"),
-            "damage_done": dmg_done,
-            "last_damage": last_damage,
-            "last_is_crit": last_is_crit,
-            "waifu_name": data.get("waifu_name", "Вайфу"),
-            "waifu_level": data.get("waifu_level", 1),
-            "waifu_current_hp": data.get("waifu_current_hp", 100),
-            "waifu_max_hp": data.get("waifu_max_hp", 100),
-            "waifu_attack_min": data.get("waifu_attack_min", 10),
-            "waifu_attack_max": data.get("waifu_attack_max", 15),
-            "waifu_defense": data.get("waifu_defense", 5),
-            "battle_log": data.get("battle_log", []),
-        }
-    except Exception as e:
-        logger.exception("Failed /dungeons/active for player_id=%s: %s", player_id, e)
-        return {"active": False}
-
-@router.post("/dungeons/continue", tags=["dungeon"])
-async def continue_dungeon(
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    """Продолжить битву в подземелье (WebApp-кнопка — один удар через combat_service)."""
-    from waifu_bot.game.constants import MediaType as _MT
-    result = await combat_service.process_message_damage(
-        session,
-        player_id,
-        _MT.STICKER,
-        message_text=None,
-        message_length=0,
-    )
-    return result
-
-@router.post("/dungeons/exit", tags=["dungeon"])
-async def exit_dungeon(
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    """Досрочный выход из подземелья. Начисляются все накопленные XP и золото без штрафа."""
-    result = await dungeon_service.exit_dungeon(session, player_id)
-    return result
-
-
-@router.post("/battle/message", tags=["battle"])
-async def battle_message(
-    media_type: int = Query(..., ge=1, le=8),
-    message_text: Optional[str] = None,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    from waifu_bot.game.constants import MediaType
-
-    return schemas.BattleMessageResponse(
-        **await combat_service.process_message_damage(
-            session,
-            player_id,
-            MediaType(media_type),
-            message_text=message_text,
-            message_length=len(message_text) if message_text else 0,
-        )
-    )
 
 
 @router.post("/waifu/stats/spend", tags=["waifu"])
@@ -3012,176 +2397,6 @@ async def spend_stat_point(
 
     await session.commit()
     return {"success": True, "stat_points": int(waifu.stat_points or 0)}
-
-
-# --- Guild endpoints ---
-guild_service = GuildService()
-
-
-@router.post("/guilds", tags=["guild"])
-async def create_guild(
-    name: str,
-    tag: str,
-    description: Optional[str] = None,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    return schemas.GuildCreateResponse(
-        **await guild_service.create_guild(session, player_id, name, tag, description)
-    )
-
-
-@router.get("/guilds/search", tags=["guild"])
-async def search_guilds(
-    q: Optional[str] = Query(None, alias="query"),
-    limit: int = Query(20, ge=1, le=50),
-    session: AsyncSession = Depends(get_db),
-):
-    guilds = await guild_service.search_guilds(session, q, limit)
-    return schemas.GuildSearchResponse(guilds=[_to_guild(g) for g in guilds])
-
-
-@router.post("/guilds/{guild_id}/join", tags=["guild"])
-async def join_guild(
-    guild_id: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    return schemas.GuildActionResponse(**await guild_service.join_guild(session, player_id, guild_id))
-
-
-@router.post("/guilds/leave", tags=["guild"])
-async def leave_guild(
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    return schemas.GuildActionResponse(**await guild_service.leave_guild(session, player_id))
-
-
-@router.post("/guilds/deposit/gold", tags=["guild"])
-async def deposit_guild_gold(
-    amount: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    return schemas.GuildActionResponse(
-        **await guild_service.deposit_gold(session, player_id, amount)
-    )
-
-
-@router.post("/guilds/withdraw/gold", tags=["guild"])
-async def withdraw_guild_gold(
-    amount: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    return schemas.GuildActionResponse(
-        **await guild_service.withdraw_gold(session, player_id, amount)
-    )
-
-
-@router.post("/guilds/deposit/item", tags=["guild"])
-async def deposit_guild_item(
-    inventory_item_id: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    return schemas.GuildActionResponse(
-        **await guild_service.deposit_item(session, player_id, inventory_item_id)
-    )
-
-
-@router.post("/guilds/withdraw/item", tags=["guild"])
-async def withdraw_guild_item(
-    bank_item_id: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    return schemas.GuildActionResponse(
-        **await guild_service.withdraw_item(session, player_id, bank_item_id)
-    )
-
-
-# --- Skills endpoints ---
-skill_service = SkillService()
-
-
-@router.get("/skills/available", tags=["skills"])
-async def available_skills(
-    act: int = Query(..., ge=1, le=5),
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    skills = await skill_service.get_available_skills(session, player_id, act)
-    return schemas.SkillsListResponse(skills=[_to_skill(s) for s in skills])
-
-
-@router.get("/skills/hidden", response_model=schemas.HiddenSkillsResponse, tags=["skills"])
-async def hidden_skills(
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    raw = await list_hidden_skills_payload(session, player_id)
-    return schemas.HiddenSkillsResponse(
-        skills=[
-            schemas.HiddenSkillOut(
-                id=x["id"],
-                name=x["name"],
-                icon=x.get("icon"),
-                category=x.get("category"),
-                description=x.get("description"),
-                unlock_hint=x.get("unlock_hint"),
-                counter_type=x["counter_type"],
-                level=int(x.get("level") or 0),
-                counter=int(x.get("counter") or 0),
-                next_threshold=x.get("next_threshold"),
-                max_level=int(x.get("max_level") or 5),
-                revealed=bool(x.get("revealed")),
-            )
-            for x in raw
-        ]
-    )
-
-
-@router.get("/skills/passive/tree", response_model=schemas.PassiveSkillTreeResponse, tags=["skills"])
-async def passive_skill_tree(
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    raw = await get_passive_skill_tree(session, player_id)
-    return schemas.PassiveSkillTreeResponse(**raw)
-
-
-@router.post("/skills/passive/learn", response_model=schemas.PassiveLearnResponse, tags=["skills"])
-async def passive_skill_learn(
-    body: schemas.PassiveLearnRequest,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    out = await learn_passive_node(session, player_id, body.node_id.strip())
-    return schemas.PassiveLearnResponse(**out)
-
-
-@router.post("/skills/passive/reset/{branch}", response_model=schemas.PassiveResetResponse, tags=["skills"])
-async def passive_skill_reset_branch(
-    branch: str,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    out = await reset_passive_branch(session, player_id, branch)
-    return schemas.PassiveResetResponse(**out)
-
-
-@router.post("/skills/{skill_id}/upgrade", tags=["skills"])
-async def upgrade_skill(
-    skill_id: int,
-    cost: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    return schemas.SkillUpgradeResponse(
-        **await skill_service.upgrade_skill(session, player_id, skill_id, cost)
-    )
 
 
 @router.get("/waifu/statistics", tags=["waifu"])
@@ -3244,123 +2459,3 @@ def _to_item(item: m.Item) -> schemas.ItemOut:
     )
 
 
-def _hired_waifu_in_squad(w: m.HiredWaifu) -> bool:
-    pos = getattr(w, "squad_position", None)
-    if pos is None:
-        return False
-    try:
-        p = int(pos)
-    except (TypeError, ValueError):
-        return False
-    return 1 <= p <= 6
-
-
-def _hired_waifu_status(w: m.HiredWaifu) -> Literal["expedition", "wounded", "squad", "ready"]:
-    if getattr(w, "expedition_id", None):
-        return "expedition"
-    max_hp = max(1, int(getattr(w, "max_hp", 65) or 1))
-    cur = int(getattr(w, "current_hp", max_hp) or 0)
-    if max_hp > 0 and cur / max_hp < 0.3:
-        return "wounded"
-    if _hired_waifu_in_squad(w):
-        return "squad"
-    return "ready"
-
-
-def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
-    image_url = None
-    if getattr(w, "image_data", None):
-        mime = getattr(w, "image_mime", None) or "image/webp"
-        image_url = f"data:{mime};base64,{w.image_data}"
-    return schemas.HiredWaifuOut(
-        id=w.id,
-        name=w.name,
-        race=w.race,
-        class_=w.class_,
-        rarity=w.rarity,
-        level=w.level,
-        experience=w.experience,
-        power=getattr(w, "power", None),
-        perks=getattr(w, "perks", None),
-        bio=getattr(w, "bio", None),
-        strength=w.strength,
-        agility=w.agility,
-        intelligence=w.intelligence,
-        endurance=w.endurance,
-        charm=w.charm,
-        luck=w.luck,
-        squad_position=w.squad_position,
-        expedition_id=getattr(w, "expedition_id", None),
-        in_squad=_hired_waifu_in_squad(w),
-        status=_hired_waifu_status(w),
-        image_url=image_url,
-        current_hp=getattr(w, "current_hp", 65),
-        max_hp=getattr(w, "max_hp", 65),
-    )
-
-
-def _to_dungeon(
-    d: m.Dungeon,
-    *,
-    locked_by_act: bool = False,
-    locked_by_prev: bool = False,
-) -> schemas.DungeonOut:
-    # Normalize tags to a simple list[str] for API consumers.
-    raw_tags = getattr(d, "tags", None)
-    tags: list[str] | None = None
-    if isinstance(raw_tags, list):
-        tags = [str(t).strip() for t in raw_tags if t]
-    elif isinstance(raw_tags, dict):
-        inner = raw_tags.get("tags")
-        if isinstance(inner, list):
-            tags = [str(t).strip() for t in inner if t]
-
-    return schemas.DungeonOut(
-        id=d.id,
-        name=d.name,
-        act=d.act,
-        dungeon_number=d.dungeon_number,
-        dungeon_type=d.dungeon_type,
-        level=d.level,
-        tier=getattr(d, "tier", None),
-        tags=tags,
-        obstacle_count=d.obstacle_count,
-        location_type=getattr(d, "location_type", None),
-        difficulty=getattr(d, "difficulty", None),
-        obstacle_min=getattr(d, "obstacle_min", None),
-        obstacle_max=getattr(d, "obstacle_max", None),
-        base_experience=getattr(d, "base_experience", None),
-        base_gold=getattr(d, "base_gold", None),
-        locked_by_act=locked_by_act,
-        locked_by_prev=locked_by_prev,
-    )
-
-
-def _to_guild(g: m.Guild) -> schemas.GuildOut:
-    return schemas.GuildOut(
-        id=g.id,
-        name=g.name,
-        tag=g.tag,
-        level=g.level,
-        experience=g.experience,
-        is_recruiting=g.is_recruiting,
-    )
-
-
-def _to_skill(s: m.Skill) -> schemas.SkillOut:
-    return schemas.SkillOut(
-        id=s.id,
-        name=s.name,
-        description=s.description,
-        skill_type=s.skill_type,
-        tier=s.tier,
-        energy_cost=s.energy_cost,
-        cooldown=s.cooldown,
-        stat_bonus=s.stat_bonus,
-        bonus_value=s.bonus_value,
-        max_level_act_1=s.max_level_act_1,
-        max_level_act_2=s.max_level_act_2,
-        max_level_act_3=s.max_level_act_3,
-        max_level_act_4=s.max_level_act_4,
-        max_level_act_5=s.max_level_act_5,
-    )

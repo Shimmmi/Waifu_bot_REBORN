@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 revision: str = "0016_tavern_state_and_hired_waifu_power"
@@ -18,26 +19,34 @@ depends_on: str | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "hired_waifus",
-        sa.Column("power", sa.Integer(), nullable=False, server_default=sa.text("0")),
-    )
-    op.add_column(
-        "hired_waifus",
-        sa.Column("perks", sa.JSON(), nullable=False, server_default=sa.text("'[]'::json")),
-    )
+    conn = op.get_bind()
+    insp = inspect(conn)
+    tables = insp.get_table_names()
+    if "hired_waifus" in tables:
+        cols = [c["name"] for c in insp.get_columns("hired_waifus")]
+        if "power" not in cols:
+            op.add_column(
+                "hired_waifus",
+                sa.Column("power", sa.Integer(), nullable=False, server_default=sa.text("0")),
+            )
+        if "perks" not in cols:
+            op.add_column(
+                "hired_waifus",
+                sa.Column("perks", sa.JSON(), nullable=False, server_default=sa.text("'[]'::json")),
+            )
 
-    op.create_table(
-        "tavern_states",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("player_id", sa.BigInteger(), sa.ForeignKey("players.id"), nullable=False, unique=True),
-        sa.Column("level", sa.Integer(), nullable=False, server_default=sa.text("1")),
-        sa.Column("experience", sa.Integer(), nullable=False, server_default=sa.text("0")),
-        sa.Column("daily_experience", sa.Integer(), nullable=False, server_default=sa.text("0")),
-        sa.Column("last_exp_day", sa.Date(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-    )
+    if "tavern_states" not in tables:
+        op.create_table(
+            "tavern_states",
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column("player_id", sa.BigInteger(), sa.ForeignKey("players.id"), nullable=False, unique=True),
+            sa.Column("level", sa.Integer(), nullable=False, server_default=sa.text("1")),
+            sa.Column("experience", sa.Integer(), nullable=False, server_default=sa.text("0")),
+            sa.Column("daily_experience", sa.Integer(), nullable=False, server_default=sa.text("0")),
+            sa.Column("last_exp_day", sa.Date(), nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        )
 
 
 def downgrade() -> None:

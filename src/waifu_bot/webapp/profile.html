@@ -190,6 +190,7 @@
       }
       body.page-profile .profile-tabs .tab-reset,
       body.page-profile .profile-tabs .tab-levelup,
+      body.page-profile .profile-tabs .tab-statspend-reset,
       body.page-profile .profile-tabs .tab-clearitems {
         flex: 0 0 auto;
         padding: 5px 8px;
@@ -258,8 +259,47 @@
       body.page-profile .profile-mtg-wrap {
         position: relative;
         display: flex;
-        justify-content: center;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 8px;
         padding: 14px 10px 18px;
+      }
+      /* Админ: одна строка иконок под портретом (только вкладка Профиль) */
+      body.page-profile .profile-admin-stat-debug {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        justify-content: center;
+        align-items: center;
+        gap: 4px;
+        width: 100%;
+        max-width: 300px;
+        margin: 0;
+        padding: 0 2px;
+        box-sizing: border-box;
+        z-index: 3;
+      }
+      body.page-profile .profile-admin-stat-btn {
+        flex: 0 0 auto;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        margin: 0;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.38);
+        background: rgba(10, 8, 6, 0.82);
+        backdrop-filter: blur(6px);
+        font-size: 15px;
+        line-height: 1;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        color: inherit;
+      }
+      body.page-profile .profile-admin-stat-btn:active {
+        transform: scale(0.96);
+        background: rgba(200, 146, 42, 0.18);
       }
       body.page-profile .profile-mtg-card {
         position: relative;
@@ -272,6 +312,17 @@
           0 16px 48px rgba(0, 0, 0, 0.6),
           inset 0 0 0 1px rgba(0, 0, 0, 0.55);
         border: 2px solid rgba(200, 146, 42, 0.55);
+        cursor: pointer;
+      }
+      body.page-profile .profile-mtg-card--portrait-only .profile-mtg-top,
+      body.page-profile .profile-mtg-card--portrait-only .profile-mtg-bottom {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      body.page-profile .profile-mtg-top,
+      body.page-profile .profile-mtg-bottom {
+        transition: opacity 0.2s ease, visibility 0.2s ease;
       }
       body.page-profile .profile-mtg-bg {
         position: absolute;
@@ -675,31 +726,68 @@
         background: rgba(10, 8, 6, 0.65);
       }
       body.page-profile #tab-inventory .profile-slot-card--mini .profile-slot-media {
+        position: relative;
         flex: 1;
-        min-height: 52px;
-        padding: 6px;
+        min-height: 56px;
+        min-width: 0;
+        padding: 4px;
         border-right: none !important;
-        border-bottom: 1px solid rgba(200, 146, 42, 0.18);
+        border-bottom: none;
         background: rgba(0, 0, 0, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
       }
       body.page-profile #tab-inventory .profile-slot-card--mini .profile-slot-media img {
-        width: 40px;
-        height: 40px;
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        display: block;
+      }
+      body.page-profile #tab-inventory .profile-slot-card--mini .profile-slot-media .item-art-admin-wrap {
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
       body.page-profile #tab-inventory .profile-slot-card--mini .profile-slot-fallback {
         font-size: 26px;
       }
       body.page-profile #tab-inventory .profile-slot-card--mini .profile-slot-mini-level {
-        text-align: center;
-        font-size: 9px;
+        position: absolute;
+        right: 3px;
+        bottom: 3px;
+        z-index: 2;
+        font-size: 8px;
         font-weight: 800;
-        letter-spacing: 0.03em;
-        padding: 4px 4px 5px;
+        letter-spacing: 0.02em;
+        line-height: 1.2;
+        padding: 2px 5px;
+        border-radius: 6px;
         color: var(--cream) !important;
-        background: rgba(0, 0, 0, 0.45);
+        background: rgba(0, 0, 0, 0.72);
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        pointer-events: none;
       }
       body.page-profile #tab-inventory .profile-slot-card--mini.empty .profile-slot-mini-level {
         color: var(--ash) !important;
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+      body.page-profile #tab-inventory .profile-paperdoll-body .profile-paperdoll-generate {
+        border: 1px solid rgba(200, 146, 42, 0.45);
+        background: linear-gradient(180deg, rgba(200, 146, 42, 0.35), rgba(160, 110, 30, 0.45));
+        color: #fff8ee;
+      }
+      body.page-profile #tab-inventory .profile-paperdoll-body .profile-paperdoll-generate:disabled {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--ash);
+        border-color: rgba(200, 146, 42, 0.2);
       }
       body.page-profile #tab-inventory .profile-paperdoll-caption .muted {
         color: rgba(232, 220, 200, 0.65) !important;
@@ -737,6 +825,10 @@
 
       /* Ячейки предметов в сумке */
       body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        justify-content: flex-start !important;
         background: rgba(22, 18, 14, 0.95) !important;
         border-width: 2px;
         padding: 3px 3px 2px;
@@ -744,12 +836,19 @@
         box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
       }
       body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item .item-icon {
-        width: 34px !important;
-        height: 34px !important;
+        position: relative !important;
+        flex: 1 1 auto !important;
+        min-height: 36px !important;
+        width: 100% !important;
+        height: auto !important;
+        min-width: 0 !important;
         font-size: 18px !important;
         background: rgba(0, 0, 0, 0.35) !important;
         border-color: rgba(200, 146, 42, 0.2) !important;
         color: var(--cream) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
       }
       body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item .item-level {
         background: rgba(0, 0, 0, 0.65) !important;
@@ -757,7 +856,8 @@
         font-size: 8px !important;
         padding: 1px 4px !important;
         top: 3px;
-        right: 3px;
+        left: 3px;
+        right: auto;
       }
       body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item .item-name {
         background: rgba(0, 0, 0, 0.72) !important;
@@ -779,8 +879,7 @@
         min-height: 50px;
       }
       body.page-profile #tab-inventory .profile-bag-grid.mode-compact .item-card.profile-inv-item .item-icon {
-        width: 28px !important;
-        height: 28px !important;
+        min-height: 28px !important;
         font-size: 16px !important;
       }
       body.page-profile #tab-inventory .inv-bag-summary,
@@ -806,7 +905,7 @@
         color: rgba(232, 220, 200, 0.88);
       }
     </style>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
   <body class="page-profile" onload="WaifuApp.bootstrapPage('profile', WaifuApp.populateProfile);">
@@ -826,6 +925,12 @@
     </header>
 
     <main class="layout profile-layout">
+      <div id="profile-load-error" class="section banner banner-danger" hidden style="margin-bottom: 12px">
+        <p><strong>Не удалось загрузить профиль</strong></p>
+        <p data-profile-load-msg></p>
+        <button type="button" class="btn primary" data-profile-retry>Повторить</button>
+        <div style="margin-top: 8px"><a href="./index.html" class="muted tiny">На главный экран</a></div>
+      </div>
       <div id="profile-missing-waifu" class="profile-missing-waifu section" hidden>
         <h3 class="profile-missing-waifu-title">Нет основной вайфу</h3>
         <p class="muted">Создайте персонажа через главный экран или перейдите сразу к генератору.</p>
@@ -838,9 +943,10 @@
         <button class="tab active" data-tab="profile" onclick="WaifuApp.switchProfileTab('profile')">Профиль</button>
         <button class="tab" data-tab="inventory" onclick="WaifuApp.switchProfileTab('inventory')">Инвентарь</button>
         <button class="tab" data-tab="info" onclick="WaifuApp.switchProfileTab('info')">Подробно</button>
-        <button class="tab tab-reset admin-only" title="Сбросить вайфу" aria-label="Сбросить вайфу" onclick="WaifuApp.resetMainWaifu()">♻️</button>
-        <button class="tab tab-levelup admin-only" title="Повысить уровень +1" aria-label="Повысить уровень ОВ на 1" onclick="WaifuApp.adminLevelUpWaifu()">⬆️</button>
-        <button class="tab tab-clearitems admin-only" title="Удалить все предметы" aria-label="Удалить все предметы" onclick="WaifuApp.adminClearAllItems()">🗑️</button>
+        <button class="tab tab-reset admin-only" title="Сбросить вайфу" aria-label="Сбросить вайфу" onclick="WaifuApp.resetMainWaifu()" style="display:none">♻️</button>
+        <button class="tab tab-levelup admin-only" title="Повысить уровень +1" aria-label="Повысить уровень ОВ на 1" onclick="WaifuApp.adminLevelUpWaifu()" style="display:none">⬆️</button>
+        <button class="tab tab-statspend-reset admin-only" title="Сбросить потраченные ОХ (статы к базе)" aria-label="Сбросить потраченные очки характеристик" onclick="WaifuApp.adminResetMainWaifuStatSpend()" style="display:none">⟲</button>
+        <button class="tab tab-clearitems admin-only" title="Удалить все предметы" aria-label="Удалить все предметы" onclick="WaifuApp.adminClearAllItems()" style="display:none">🗑️</button>
       </div>
 
       <section id="tab-profile" class="tab-panel active">
@@ -848,7 +954,7 @@
           <div class="profile-mtg-stage-bg" aria-hidden="true"></div>
           <img
             class="profile-mtg-stage-bg-img"
-            src="/static/profile/background.webp"
+            src="/static/game/ui/profile/background.webp"
             alt=""
             onerror="this.style.display='none'"
           />
@@ -884,6 +990,21 @@
                 </div>
               </div>
             </article>
+            <div
+              class="profile-admin-stat-debug admin-only"
+              id="profile-admin-stat-debug"
+              role="toolbar"
+              aria-label="Админ: добавить к характеристикам"
+              style="display: none"
+            >
+              <button type="button" class="profile-admin-stat-btn" title="СИЛ +100" aria-label="СИЛ +100" onclick="WaifuApp.adminAddMainWaifuStat('strength')">💪</button>
+              <button type="button" class="profile-admin-stat-btn" title="ЛОВ +100" aria-label="ЛОВ +100" onclick="WaifuApp.adminAddMainWaifuStat('agility')">🎯</button>
+              <button type="button" class="profile-admin-stat-btn" title="ИНТ +100" aria-label="ИНТ +100" onclick="WaifuApp.adminAddMainWaifuStat('intelligence')">🧠</button>
+              <button type="button" class="profile-admin-stat-btn" title="ВЫН +100" aria-label="ВЫН +100" onclick="WaifuApp.adminAddMainWaifuStat('endurance')">🛡️</button>
+              <button type="button" class="profile-admin-stat-btn" title="ОБА +100" aria-label="ОБА +100" onclick="WaifuApp.adminAddMainWaifuStat('charm')">🎭</button>
+              <button type="button" class="profile-admin-stat-btn" title="УДЧ +100" aria-label="УДЧ +100" onclick="WaifuApp.adminAddMainWaifuStat('luck')">🍀</button>
+              <button type="button" class="profile-admin-stat-btn" title="ОХ +100" aria-label="Очки характеристик +100" onclick="WaifuApp.adminAddStatPoints()">⭐</button>
+            </div>
           </div>
         </div>
       </section>
@@ -1112,6 +1233,14 @@
             <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemEquipRingOverlay()">Отмена</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="item-art-gen-busy-overlay" aria-hidden="true" aria-live="polite">
+      <div class="item-art-gen-busy-panel">
+        <div class="item-art-gen-busy-spinner" aria-hidden="true"></div>
+        <p>Генерация иконки…</p>
+        <p class="item-art-gen-busy-hint muted tiny">OpenRouter может отвечать до 2 минут</p>
       </div>
     </div>
 

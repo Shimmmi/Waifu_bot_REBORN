@@ -4,12 +4,35 @@ import math
 import random
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
-from waifu_bot.db.models import Player, InventoryItem, ItemTemplate, Affix, ShopOffer
-from waifu_bot.game.formulas import calculate_shop_price, calculate_gamble_price
+from waifu_bot.db.models import Player, InventoryItem, Item, ItemTemplate, Affix, ShopOffer
+from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
+from waifu_bot.game.formulas import calculate_gamble_price, shop_buy_price_from_merchant_discount
 from waifu_bot.services.item_service import ItemService
+from waifu_bot.services.enchanting import get_effective_params
+from waifu_bot.services.hidden_skills import increment_skill_counter
+from waifu_bot.services.passive_skills import (
+    apply_passive_buy_price,
+    merchant_discount_pct_for_player,
+    normalize_passive_level_affix_value,
+)
+from waifu_bot.services.item_art import (
+    derive_image_key,
+    derive_item_art_key,
+    enrich_items_with_image_urls,
+)
+
+
+async def compute_player_shop_sell_price(session: AsyncSession, player_id: int, base_value: int) -> int:
+    """Скупка: доля от цены «как у NPC после ОБА», уже с теми же пассивными скидками что и покупка."""
+    from waifu_bot.game.formulas import SHOP_SELL_VS_BUY_RATIO
+
+    disc = await merchant_discount_pct_for_player(session, player_id)
+    raw_buy = shop_buy_price_from_merchant_discount(int(base_value), disc)
+    anchor = await apply_passive_buy_price(session, player_id, raw_buy)
+    return max(1, int(anchor * SHOP_SELL_VS_BUY_RATIO))
 
 
 class ShopService:
@@ -20,10 +43,26 @@ class ShopService:
         self.item_service = ItemService()
 
     async def get_shop_inventory(
-        self, session: AsyncSession, act: int, charm: int | None = None, size: int = 9
+        self,
+        session: AsyncSession,
+        act: int,
+        charm: int | None = None,
+        size: int = 9,
+        player_id: int | None = None,
     ) -> List[Dict[str, Any]]:
         """Get or generate daily shop inventory for act (3x3), persisted in shop_offers."""
+        from waifu_bot.game.constants import CHM_MERCHANT_DISCOUNT_COEFF
+
         offers = await self._ensure_offers(session, act, size=size)
+        if player_id is not None:
+            merchant_disc = await merchant_discount_pct_for_player(session, player_id)
+        elif charm is not None:
+            merchant_disc = min(
+                50.0,
+                max(0.0, float(charm) * float(CHM_MERCHANT_DISCOUNT_COEFF) * 100.0),
+            )
+        else:
+            merchant_disc = None
         previews = []
         for off in offers:
             # NOTE: AsyncSession.get(..., options=...) can still lead to lazy-load paths
@@ -46,10 +85,41 @@ class ShopService:
                 continue
             # Проверяем, продан ли предмет (если у него есть player_id, значит куплен)
             is_sold = inv.player_id is not None
-            preview = self._offer_to_preview(off, inv, charm=charm, act=act)
+            await self._enrich_inv_with_template_stats(session, inv)
+            preview = self._offer_to_preview(off, inv, act=act, merchant_discount_pct=merchant_disc)
             preview["sold"] = is_sold
+            if player_id is not None and preview.get("price") is not None:
+                preview["price"] = await apply_passive_buy_price(
+                    session, player_id, int(preview["price"])
+                )
             previews.append(preview)
+        await enrich_items_with_image_urls(session, previews)
         return previews
+
+    async def _enrich_inv_with_template_stats(self, session: AsyncSession, inv: InventoryItem) -> None:
+        """Attach armor/secondary template values for shop serialization."""
+        item_name = str(getattr(getattr(inv, "item", None), "name", "") or "").strip()
+        tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 0)
+        if not item_name or tier <= 0:
+            return
+        row = (
+            await session.execute(
+                text(
+                    """
+                    SELECT armor_base, secondary_bonus_type, secondary_bonus_value
+                    FROM item_base_templates
+                    WHERE name = :name AND tier = :tier
+                    LIMIT 1
+                    """
+                ),
+                {"name": item_name, "tier": tier},
+            )
+        ).first()
+        if not row:
+            return
+        setattr(inv, "_armor_base", int(getattr(row, "armor_base", 0) or 0))
+        setattr(inv, "_secondary_bonus_type", getattr(row, "secondary_bonus_type", None))
+        setattr(inv, "_secondary_bonus_value", float(getattr(row, "secondary_bonus_value", 0.0) or 0.0))
 
     async def buy_item(
         self, session: AsyncSession, player_id: int, act: int, slot: int
@@ -58,11 +128,6 @@ class ShopService:
         player = await session.get(Player, player_id)
         if not player:
             return {"error": "not_found"}
-
-        from waifu_bot.db.models import MainWaifu
-        waifu = (await session.execute(select(MainWaifu).where(MainWaifu.player_id == player_id))).scalar_one_or_none()
-        if not waifu:
-            return {"error": "no_waifu"}
 
         offer = await session.scalar(
             select(ShopOffer).where(ShopOffer.act == act, ShopOffer.slot == slot)
@@ -77,7 +142,9 @@ class ShopService:
         if not inv:
             return {"error": "not_found"}
 
-        price = calculate_shop_price(offer.price_base, waifu.charm, is_buy=True)
+        disc = await merchant_discount_pct_for_player(session, player_id)
+        price = shop_buy_price_from_merchant_discount(offer.price_base, disc)
+        price = await apply_passive_buy_price(session, player_id, price)
 
         if player.gold < price:
             return {"error": "insufficient_gold", "required": price, "have": player.gold}
@@ -87,6 +154,7 @@ class ShopService:
         # Не удаляем offer, а помечаем как проданный (удалим при следующем обновлении)
         # Это позволит показывать заблокированную ячейку в UI
         # await session.delete(offer)  # Удаляем только при обновлении магазина
+        await increment_skill_counter(session, player_id, "shop_purchase", 1)
         await session.commit()
 
         return {
@@ -120,16 +188,8 @@ class ShopService:
         if not item or not player:
             return {"error": "not_found"}
 
-        # Get waifu for charm
-        from waifu_bot.db.models import MainWaifu
-        stmt = select(MainWaifu).where(MainWaifu.player_id == player_id)
-        waifu = (await session.execute(stmt)).scalar_one_or_none()
-
-        if not waifu:
-            return {"error": "no_waifu"}
-
-        # Calculate sell price
-        price = calculate_shop_price(item.base_value, waifu.charm, is_buy=False)
+        # Calculate sell price (эффективный ОБА + пассивки, доля от «цены выкупа»)
+        price = await compute_player_shop_sell_price(session, player_id, int(item.base_value))
 
         # Add gold
         player.gold += price
@@ -161,6 +221,7 @@ class ShopService:
 
         # Calculate price
         price = calculate_gamble_price(waifu.level)
+        price = await apply_passive_buy_price(session, player_id, price)
 
         # Check gold
         if player.gold < price:
@@ -178,11 +239,15 @@ class ShopService:
             is_shop=False,
         )
 
+        # id до commit — надёжнее, чем читать атрибут ORM после commit в некоторых конфигурациях
+        new_inventory_id = int(inv_item.id)
+
+        await increment_skill_counter(session, player_id, "gamble_use", 1)
         await session.commit()
 
         return {
             "success": True,
-            "inventory_item_id": inv_item.id,
+            "inventory_item_id": new_inventory_id,
             "item_name": "Случайный предмет",
             "item_rarity": inv_item.rarity,
             "price_paid": price,
@@ -257,10 +322,17 @@ class ShopService:
             "base_value": base_value,
         }
 
-    def _offer_to_preview(self, offer: ShopOffer, inv: InventoryItem, charm: int | None = None, act: int | None = None) -> Dict[str, Any]:
-        price = offer.price_base
-        if charm is not None:
-            price = calculate_shop_price(offer.price_base, charm, is_buy=True)
+    def _offer_to_preview(
+        self,
+        offer: ShopOffer,
+        inv: InventoryItem,
+        act: int | None = None,
+        merchant_discount_pct: float | None = None,
+    ) -> Dict[str, Any]:
+        if merchant_discount_pct is not None:
+            price = shop_buy_price_from_merchant_discount(offer.price_base, float(merchant_discount_pct))
+        else:
+            price = offer.price_base
         def _fallback_base_name_ru() -> str:
             st = (inv.slot_type or "").lower()
             wt = (inv.weapon_type or "").lower()
@@ -348,9 +420,10 @@ class ShopService:
         affixes_out: list[dict] = []
         for a in inv.affixes or []:
             try:
-                v = int(str(getattr(a, "value", "0")))
+                raw_v = int(str(getattr(a, "value", "0")))
             except Exception:
-                v = 0
+                raw_v = 0
+            v = normalize_passive_level_affix_value(getattr(a, "stat", None), raw_v)
             affixes_out.append(
                 {
                     "name": a.name,
@@ -358,28 +431,61 @@ class ShopService:
                     "stat": getattr(a, "stat", None),
                     "value": v,
                     "is_percent": bool(getattr(a, "is_percent", False)),
+                    "description": effect_stat_description_ru(getattr(a, "stat", None)) or None,
                 }
             )
+        ab = int(getattr(inv, "_armor_base", 0) or 0)
+        sv = float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0)
+        eff = get_effective_params(inv, armor_base=ab, secondary_bonus_value=sv)
+        req_raw = getattr(inv, "requirements", None)
+        if not isinstance(req_raw, dict) and getattr(inv, "item", None) is not None:
+            req_raw = getattr(inv.item, "requirements", None)
+        requirements_out = req_raw if isinstance(req_raw, dict) else None
+        display_name_for_art = full_name or base_name
+        image_key = derive_image_key(inv.slot_type, inv.weapon_type, display_name_for_art)
+        art_key = derive_item_art_key(
+            inv.slot_type,
+            inv.weapon_type,
+            base_name,
+            display_name=display_name_for_art,
+        )
         return {
             "offer_id": offer.id,
             "slot": offer.slot,
             "act": act,
+            "base_name": base_name,
             "name": full_name or base_name,
             "display_name": full_name or base_name,
+            "image_key": image_key,
+            "art_key": art_key,
+            "image_url": None,
             "rarity": inv.rarity,
             "level": inv.level,
             "tier": inv.tier,
             "damage_min": inv.damage_min,
             "damage_max": inv.damage_max,
+            "damage_min_effective": eff.get("damage_min"),
+            "damage_max_effective": eff.get("damage_max"),
             "attack_speed": inv.attack_speed,
             "attack_type": inv.attack_type,
             "weapon_type": inv.weapon_type,
             "base_stat": inv.base_stat,
             "base_stat_value": inv.base_stat_value,
+            "armor_base": ab or None,
+            "armor_effective": int(eff.get("armor", 0) or 0) or None,
+            "secondary_bonus_type": getattr(inv, "_secondary_bonus_type", None),
+            "secondary_bonus_value": sv or None,
+            "secondary_bonus_effective": float(eff.get("secondary", 0.0) or 0.0) or None,
+            "enchant_level": int(getattr(inv, "enchant_level", 0) or 0),
+            "enchant_dmg_step": int(getattr(inv, "enchant_dmg_step", 0) or 0),
+            "enchant_arm_step": int(getattr(inv, "enchant_arm_step", 0) or 0),
+            "enchant_sec_step": float(getattr(inv, "enchant_sec_step", 0.0) or 0.0),
+            "is_broken": bool(getattr(inv, "is_broken", False)),
             "slot_type": inv.slot_type,  # Добавляем slot_type для фронтенда
             "affixes": affixes_out,
             "base_value": offer.price_base,
             "price": price,
             "sold": False,  # Будет переопределено в get_shop_inventory
+            "requirements": requirements_out,
         }
 

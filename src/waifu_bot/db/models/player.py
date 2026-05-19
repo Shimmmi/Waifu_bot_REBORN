@@ -1,8 +1,7 @@
 """Player model."""
 from datetime import datetime
-from enum import IntEnum
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from waifu_bot.db.base import Base
@@ -23,9 +22,21 @@ class Player(Base):
     current_act: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # 1-5, player's chosen act
     max_act: Mapped[int] = mapped_column(Integer, default=1, nullable=False)       # 1-5, highest act unlocked
     gold: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    protection_stones: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_active: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )
+
+    # Hidden skills: streaks updated from combat / expeditions
+    perfect_dungeon_streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    no_damage_dungeon_streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Пассивное дерево навыков ОВ (очки за левелап вайфу)
+    skill_points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Секретный босс «эха» (Maven-like) после 25 соло-данжей на +30
+    secret_echo_boss_unlocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    secret_echo_boss_defeated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships
     main_waifu: Mapped["MainWaifu"] = relationship(

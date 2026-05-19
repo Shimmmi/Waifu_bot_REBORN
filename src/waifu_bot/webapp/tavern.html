@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Таверна</title>
     <link rel="stylesheet" href="./styles.css" />
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
     <style>
       .page-tavern {
@@ -209,6 +209,31 @@
       .page-tavern .tavern-tab-refresh:active {
         transform: scale(0.96);
       }
+      .page-tavern .tavern-tab-bgm--muted {
+        opacity: 0.65;
+        border-color: rgba(200, 146, 42, 0.22);
+        background: rgba(80, 60, 40, 0.15);
+      }
+      /* Отряд / Леч / LVL: тёмно-золотой фон вместо глобального --card */
+      .page-tavern #tab-squad .section,
+      .page-tavern #tab-heal .section,
+      .page-tavern #tab-upgrade .section {
+        background: linear-gradient(165deg, rgba(46, 37, 32, 0.94), rgba(22, 18, 14, 0.92));
+        border: 1px solid rgba(200, 146, 42, 0.28);
+        box-shadow: inset 0 1px 0 rgba(232, 184, 75, 0.05);
+      }
+      .page-tavern #tab-squad .section .section-head h3,
+      .page-tavern #tab-heal .section .section-head h3,
+      .page-tavern #tab-upgrade .section .section-head h3 {
+        color: var(--amber-glow);
+      }
+      .page-tavern #tab-squad .placeholder,
+      .page-tavern #tab-heal .placeholder,
+      .page-tavern #tab-upgrade .placeholder {
+        background: rgba(13, 10, 8, 0.45);
+        border-color: rgba(200, 146, 42, 0.22);
+        color: var(--ash);
+      }
       /* Фон страницы под вкладками */
       .page-tavern .tavern-root-stage {
         position: relative;
@@ -231,9 +256,110 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
-        opacity: 0.48;
+        opacity: 0.96;
         z-index: 1;
         pointer-events: none;
+        transition: opacity 0.35s ease;
+      }
+      /* Пока грузятся слоты найма — без «вспышки» фона на 4 фигуры */
+      body.page-tavern.tavern-loading .tavern-root-bg-img {
+        opacity: 0 !important;
+      }
+      body.page-tavern.tavern-loading #tavern-hire-footer {
+        display: none !important;
+      }
+      .page-tavern .tavern-page-loading {
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: linear-gradient(180deg, rgba(10, 7, 5, 0.9) 0%, rgba(22, 16, 12, 0.94) 55%, rgba(12, 9, 7, 0.96) 100%);
+        pointer-events: auto;
+      }
+      body.page-tavern.tavern-loading .tavern-page-loading {
+        display: flex;
+      }
+      .page-tavern .tavern-loading-label {
+        margin: 0;
+        font-family: var(--font-title);
+        font-size: 13px;
+        letter-spacing: 0.12em;
+        color: var(--amber-glow);
+        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
+      }
+      .page-tavern .tavern-beer-wrap {
+        position: relative;
+        width: 72px;
+        height: 100px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+      }
+      .page-tavern .tavern-beer-mug {
+        position: relative;
+        width: 48px;
+        height: 88px;
+        border-radius: 4px 4px 10px 10px;
+        border: 3px solid rgba(200, 146, 42, 0.55);
+        background: linear-gradient(90deg, rgba(40, 28, 18, 0.95), rgba(28, 20, 14, 0.98));
+        box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.35), 0 6px 20px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+      }
+      .page-tavern .tavern-beer-handle {
+        position: absolute;
+        right: -16px;
+        top: 22px;
+        width: 18px;
+        height: 36px;
+        border: 3px solid rgba(200, 146, 42, 0.5);
+        border-left: none;
+        border-radius: 0 14px 14px 0;
+        box-sizing: border-box;
+      }
+      .page-tavern .tavern-beer-fill {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 100%;
+        background: linear-gradient(180deg, #f4d03f 0%, #d4a017 45%, #a67c00 100%);
+        transform-origin: bottom center;
+        transform: scaleY(0.12);
+        animation: tavern-beer-fill 1.6s ease-in-out infinite alternate;
+      }
+      .page-tavern .tavern-beer-foam {
+        position: absolute;
+        left: 10%;
+        right: 10%;
+        top: 6px;
+        height: 14px;
+        border-radius: 8px;
+        background: rgba(255, 248, 220, 0.92);
+        opacity: 0.95;
+        z-index: 2;
+        animation: tavern-beer-foam 1.6s ease-in-out infinite alternate;
+      }
+      @keyframes tavern-beer-fill {
+        0% {
+          transform: scaleY(0.12);
+        }
+        100% {
+          transform: scaleY(0.92);
+        }
+      }
+      @keyframes tavern-beer-foam {
+        0% {
+          transform: translateY(2px);
+          opacity: 0.75;
+        }
+        100% {
+          transform: translateY(-2px);
+          opacity: 1;
+        }
       }
       .page-tavern .tavern-root-main.layout {
         position: relative;
@@ -250,27 +376,38 @@
       .page-tavern .nav.basement a {
         color: var(--ash);
       }
-      .page-tavern .tavern-scene-wrap::before {
-        content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
-        width: 280px; height: 120px; background: radial-gradient(ellipse, rgba(200,146,42,0.18) 0%, transparent 70%); pointer-events: none; z-index: 0;
+      .page-tavern #tab-hire.tab-panel {
+        padding-bottom: 88px;
+        min-height: min(42vh, 280px);
       }
-      .page-tavern .tavern-svg-scene { display: block; width: 100%; max-width: 480px; margin: 0 auto; position: relative; z-index: 1; }
-      .page-tavern .figure-btn { cursor: pointer; transition: opacity .2s; }
-      .page-tavern .figure-btn:hover .hood-body { fill: #4a3a28; }
-      .page-tavern .figure-btn.hired .hood-body { fill: #1a1410; opacity: .3; }
-      .page-tavern .figure-btn.hired .price-bubble { display: none; }
-      .page-tavern .figure-btn.hired { pointer-events: none; }
-      .page-tavern .price-bubble-bg { fill: rgba(13,10,8,0.88); stroke: #c8922a; stroke-width: 1; }
-      .page-tavern .price-text { fill: #e8b84b; font-family: var(--font-body); font-size: 11px; font-weight: 600; }
-      @keyframes flicker { 0%,100% { opacity: 1; transform: scaleY(1); } 25% { opacity: .7; transform: scaleY(.88); } 50% { opacity: .9; transform: scaleY(1.04); } 75% { opacity: .75; transform: scaleY(.92); } }
-      .page-tavern .candle-flame { animation: flicker 1.8s ease-in-out infinite; transform-origin: center bottom; }
-      .page-tavern .candle-flame-2 { animation: flicker 2.3s ease-in-out infinite .4s; transform-origin: center bottom; }
-      .page-tavern .candle-flame-3 { animation: flicker 1.5s ease-in-out infinite .9s; transform-origin: center bottom; }
-      @keyframes smoke-rise { 0% { opacity: 0; transform: translateY(0) scaleX(1); } 30% { opacity: .35; } 100% { opacity: 0; transform: translateY(-22px) scaleX(1.8); } }
-      .page-tavern .smoke-wisp { animation: smoke-rise 3s ease-out infinite; transform-origin: center; }
-      .page-tavern .smoke-wisp-2 { animation: smoke-rise 3s ease-out infinite 1s; }
-      .page-tavern .smoke-wisp-3 { animation: smoke-rise 3s ease-out infinite 2s; }
       .page-tavern .hire-hint { text-align: center; color: var(--ash); font-style: italic; font-size: 14px; padding: 8px 16px 16px; }
+      .page-tavern .tavern-hire-footer {
+        display: none;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: calc(52px + env(safe-area-inset-bottom, 0px));
+        z-index: 4;
+        padding: 10px 14px 12px;
+        background: linear-gradient(180deg, transparent 0%, rgba(13, 10, 8, 0.92) 28%, rgba(13, 10, 8, 0.98) 100%);
+        border-top: 1px solid rgba(200, 146, 42, 0.12);
+        box-sizing: border-box;
+        align-items: center;
+        justify-content: center;
+      }
+      .page-tavern .tavern-hire-footer-btn {
+        width: 100%;
+        max-width: 420px;
+        margin: 0 auto;
+        padding: 14px 18px;
+        font-size: 14px;
+        letter-spacing: 0.06em;
+      }
+      .page-tavern .tavern-hire-footer-btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        filter: grayscale(0.25);
+      }
       .page-tavern .section-head h3 { font-family: var(--font-title); font-size: 13px; letter-spacing: .1em; color: var(--amber-glow); }
       .page-tavern .section-subhead { font-size: 12px; color: var(--ash); margin-top: 2px; }
       .page-tavern .squad-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; min-width: 0; }
@@ -315,15 +452,49 @@
       /* Карточка результата найма: MTG-style, фон 2:3 на всю карточку */
       .page-tavern .hire-result-modal-sheet { padding: 52px 16px 24px; display: flex; flex-direction: column; align-items: center; }
       .page-tavern .hire-result-close { position: absolute; top: 12px; right: 14px; z-index: 20; }
-      .page-tavern .hire-result-card {
-        position: relative; width: 100%; max-width: 300px; aspect-ratio: 2 / 3; border-radius: 14px; overflow: hidden;
+      .page-tavern .hire-result-flip-hint {
+        font-size: 11px; color: var(--ash); margin: 0 0 10px; text-align: center; letter-spacing: 0.04em;
+      }
+      .page-tavern .hire-result-flip-scene {
+        perspective: 1000px; width: 100%; max-width: 300px; cursor: pointer; outline: none;
+      }
+      .page-tavern .hire-result-flip-scene:focus-visible {
+        box-shadow: 0 0 0 2px rgba(200, 146, 42, 0.55); border-radius: 16px;
+      }
+      .page-tavern .hire-result-flip-inner {
+        position: relative; transform-style: preserve-3d; transition: transform 0.55s cubic-bezier(0.4, 0.2, 0.2, 1);
+        width: 100%; aspect-ratio: 2 / 3; border-radius: 14px;
         border: 3px solid rgba(255,255,255,0.28); box-shadow: 0 12px 40px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(0,0,0,0.35);
       }
-      .page-tavern .hire-result-card.rarity-common { border-color: rgba(255,255,255,0.35); }
-      .page-tavern .hire-result-card.rarity-uncommon { border-color: rgba(74, 222, 128, 0.75); }
-      .page-tavern .hire-result-card.rarity-rare { border-color: rgba(96, 165, 250, 0.85); }
-      .page-tavern .hire-result-card.rarity-epic { border-color: rgba(192, 132, 252, 0.9); }
-      .page-tavern .hire-result-card.rarity-legendary { border-color: rgba(251, 191, 36, 0.95); box-shadow: 0 12px 48px rgba(251, 191, 36, 0.15), 0 12px 40px rgba(0,0,0,0.55); }
+      .page-tavern .hire-result-flip-inner.is-flipped { transform: rotateY(180deg); }
+      .page-tavern .hire-result-flip-inner.rarity-common { border-color: rgba(255,255,255,0.35); }
+      .page-tavern .hire-result-flip-inner.rarity-uncommon { border-color: rgba(74, 222, 128, 0.75); }
+      .page-tavern .hire-result-flip-inner.rarity-rare { border-color: rgba(96, 165, 250, 0.85); }
+      .page-tavern .hire-result-flip-inner.rarity-epic { border-color: rgba(192, 132, 252, 0.9); }
+      .page-tavern .hire-result-flip-inner.rarity-legendary {
+        border-color: rgba(251, 191, 36, 0.95); box-shadow: 0 12px 48px rgba(251, 191, 36, 0.15), 0 12px 40px rgba(0,0,0,0.55);
+      }
+      .page-tavern .hire-result-face {
+        position: absolute; inset: 0; border-radius: 11px; overflow: hidden; backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
+      }
+      .page-tavern .hire-result-face--back {
+        transform: rotateY(180deg); background: linear-gradient(165deg, #1e1814, #0d0a08);
+        display: flex; align-items: stretch; justify-content: center; padding: 14px 12px; box-sizing: border-box;
+      }
+      .page-tavern .hire-result-back-inner {
+        display: flex; flex-direction: column; gap: 8px; width: 100%; overflow: hidden;
+      }
+      .page-tavern .hire-result-back-title {
+        font-family: var(--font-title); font-size: 12px; letter-spacing: 0.12em; color: var(--amber-glow); text-align: center;
+      }
+      .page-tavern .hire-result-bio-back {
+        flex: 1; overflow-y: auto; font-size: 12px; line-height: 1.5; color: var(--cream); text-align: left;
+      }
+      .page-tavern .hire-result-stats {
+        font-size: 11px; color: var(--cream); letter-spacing: 0.03em; margin-top: 6px; opacity: 0.95;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.95);
+      }
       .page-tavern .hire-result-bg {
         position: absolute; inset: 0; background-size: cover; background-position: center top; background-repeat: no-repeat;
         background-color: #1a1410;
@@ -360,11 +531,6 @@
         font-size: 10px; padding: 3px 8px; border-radius: 999px;
         background: rgba(13,10,8,0.65); border: 1px solid rgba(200,146,42,0.45); color: var(--amber-glow);
         backdrop-filter: blur(4px);
-      }
-      .page-tavern .hire-result-bio {
-        font-size: 11px; line-height: 1.45; color: var(--cream); font-style: italic; opacity: 0.92;
-        text-shadow: 0 1px 4px rgba(0,0,0,0.95); max-height: 5.8em; overflow: hidden;
-        display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
       }
       /* Отряд: те же MTG-карточки (фон 2:3), компактнее под сетку 2×3 */
       .page-tavern .squad-mtg-card {
@@ -901,7 +1067,7 @@
       }
     </style>
   </head>
-  <body class="page-tavern" onload="WaifuApp.bootstrapPage('tavern',(p)=>WaifuApp.loadTavern(p));">
+  <body class="page-tavern tavern-loading" onload="WaifuApp.bootstrapPage('tavern',(p)=>WaifuApp.loadTavern(p));">
     <header class="attic">
       <div class="attic-row" aria-label="Основной чердак">
         <div class="chip attic-level-chip" title="Уровень и опыт">
@@ -924,101 +1090,36 @@
         <button type="button" class="tab" data-tab="heal" onclick="WaifuApp.switchTavernTab('heal')">💊 Леч.</button>
         <button type="button" class="tab" data-tab="upgrade" onclick="WaifuApp.switchTavernTab('upgrade')">⬆ LVL</button>
         <button type="button" class="tavern-tab-refresh" title="Обновить данные таверны" aria-label="Обновить" onclick="WaifuApp.refreshTavernPage()">🔄</button>
+        <button
+          type="button"
+          id="tavern-bgm-toggle"
+          class="tavern-tab-refresh tavern-tab-bgm"
+          title="Выключить музыку"
+          aria-label="Выключить музыку"
+          aria-pressed="false"
+          onclick="WaifuApp.toggleTavernBgmMuted()"
+        >
+          🔊
+        </button>
       </div>
     </div>
 
     <div class="tavern-root-stage">
       <div class="tavern-root-bg" aria-hidden="true"></div>
-      <img class="tavern-root-bg-img" src="/static/tavern/tavern.background.webp" alt="" onerror="this.style.display='none'" />
+      <img id="tavern-page-bg" class="tavern-root-bg-img" src="" alt="" onerror="this.style.display='none'" />
+      <div id="tavern-page-loading" class="tavern-page-loading" aria-live="polite" aria-busy="true">
+        <div class="tavern-beer-wrap" aria-hidden="true">
+          <div class="tavern-beer-mug">
+            <div class="tavern-beer-handle"></div>
+            <div class="tavern-beer-fill"></div>
+            <div class="tavern-beer-foam"></div>
+          </div>
+        </div>
+        <p class="tavern-loading-label">Заходим в таверну…</p>
+      </div>
     <main class="layout tavern-root-main">
       <div id="tab-hire" class="tab-panel active">
-        <div class="tavern-scene-wrap">
-          <svg class="tavern-svg-scene" viewBox="0 0 360 280" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <radialGradient id="floorGrad" cx="50%" cy="100%" r="70%"><stop offset="0%" stop-color="#2e2018"/><stop offset="100%" stop-color="#0d0a08"/></radialGradient>
-              <radialGradient id="tableGrad" cx="50%" cy="30%" r="70%"><stop offset="0%" stop-color="#5a3a18"/><stop offset="100%" stop-color="#2e1c0a"/></radialGradient>
-              <radialGradient id="glowAmber" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#e8b84b" stop-opacity="0.35"/><stop offset="100%" stop-color="#e8b84b" stop-opacity="0"/></radialGradient>
-              <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.7"/></filter>
-            </defs>
-            <rect width="360" height="280" fill="url(#floorGrad)"/>
-            <line x1="0" y1="200" x2="360" y2="200" stroke="#1e1408" stroke-width="1" opacity=".5"/>
-            <line x1="0" y1="220" x2="360" y2="220" stroke="#1e1408" stroke-width="1" opacity=".5"/>
-            <line x1="0" y1="240" x2="360" y2="240" stroke="#1e1408" stroke-width="1" opacity=".5"/>
-            <ellipse cx="180" cy="185" rx="130" ry="30" fill="url(#glowAmber)"/>
-            <ellipse cx="180" cy="178" rx="150" ry="22" fill="url(#tableGrad)" filter="url(#shadow)"/>
-            <ellipse cx="180" cy="175" rx="148" ry="20" fill="none" stroke="#8a5a20" stroke-width="1" opacity=".5"/>
-            <rect x="160" y="192" width="40" height="50" rx="4" fill="#1e1008"/>
-            <rect x="150" y="234" width="60" height="10" rx="3" fill="#1e1008"/>
-            <rect x="60" y="158" width="8" height="22" rx="2" fill="#e8dcc8" opacity=".9"/>
-            <ellipse cx="64" cy="158" rx="4" ry="2" fill="#d4c8b0"/>
-            <g class="candle-flame" transform="translate(64,156)"><ellipse cx="0" cy="-5" rx="3" ry="6" fill="#f5a623" opacity=".9"/><ellipse cx="0" cy="-7" rx="1.5" ry="3" fill="#ffe066"/></g>
-            <g class="smoke-wisp" transform="translate(64,148)"><ellipse cx="0" cy="0" rx="1.5" ry="3" fill="#888" opacity=".2"/></g>
-            <rect x="148" y="155" width="8" height="22" rx="2" fill="#e8dcc8" opacity=".9"/>
-            <ellipse cx="152" cy="155" rx="4" ry="2" fill="#d4c8b0"/>
-            <g class="candle-flame-2" transform="translate(152,153)"><ellipse cx="0" cy="-5" rx="3.5" ry="7" fill="#f5a623" opacity=".9"/><ellipse cx="0" cy="-7" rx="1.8" ry="3.5" fill="#ffe066"/></g>
-            <g class="smoke-wisp-2" transform="translate(152,144)"><ellipse cx="0" cy="0" rx="1.5" ry="3" fill="#888" opacity=".2"/></g>
-            <rect x="205" y="155" width="8" height="22" rx="2" fill="#e8dcc8" opacity=".9"/>
-            <ellipse cx="209" cy="155" rx="4" ry="2" fill="#d4c8b0"/>
-            <g class="candle-flame" transform="translate(209,153)"><ellipse cx="0" cy="-5" rx="3" ry="6" fill="#f5a623" opacity=".9"/><ellipse cx="0" cy="-7" rx="1.5" ry="3" fill="#ffe066"/></g>
-            <g class="smoke-wisp-3" transform="translate(209,144)"><ellipse cx="0" cy="0" rx="1.5" ry="3" fill="#888" opacity=".2"/></g>
-            <rect x="291" y="158" width="8" height="22" rx="2" fill="#e8dcc8" opacity=".9"/>
-            <ellipse cx="295" cy="158" rx="4" ry="2" fill="#d4c8b0"/>
-            <g class="candle-flame-3" transform="translate(295,156)"><ellipse cx="0" cy="-5" rx="3" ry="6" fill="#f5a623" opacity=".9"/><ellipse cx="0" cy="-7" rx="1.5" ry="3" fill="#ffe066"/></g>
-            <rect x="88" y="165" width="14" height="12" rx="2" fill="#5a3a18" opacity=".8"/>
-            <rect x="90" y="163" width="10" height="4" rx="1" fill="#8a6030" opacity=".8"/>
-            <rect x="258" y="165" width="14" height="12" rx="2" fill="#5a3a18" opacity=".8"/>
-            <rect x="260" y="163" width="10" height="4" rx="1" fill="#8a6030" opacity=".8"/>
-            <g class="figure-btn" id="svg-figure-1" data-slot="1" role="button" aria-label="Нанять (слот 1)">
-                <ellipse cx="55" cy="160" rx="26" ry="32" fill="#3a2a1a" class="hood-body"/>
-                <path d="M29 180 Q55 200 81 180 L78 210 Q55 225 32 210 Z" fill="#2e2010" class="hood-body"/>
-                <ellipse cx="55" cy="132" rx="18" ry="16" fill="#3a2a1a" class="hood-body"/>
-                <path d="M37 132 Q55 115 73 132 Q73 148 55 150 Q37 148 37 132Z" fill="#2e2010" class="hood-body"/>
-                <ellipse cx="55" cy="136" rx="11" ry="10" fill="#120c06"/>
-                <ellipse cx="51" cy="135" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
-                <ellipse cx="59" cy="135" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
-                <path d="M29 162 Q18 172 22 182" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
-                <path d="M81 162 Q92 172 88 182" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
-                <g class="price-bubble"><rect x="28" y="100" width="54" height="22" rx="6" class="price-bubble-bg"/><polygon points="52,122 58,122 55,128" fill="#c8922a"/><text x="55" y="115" text-anchor="middle" class="price-text" id="price-text-0">🪙 —</text></g>
-              </g>
-            <g class="figure-btn" id="svg-figure-2" data-slot="2" role="button" aria-label="Нанять (слот 2)">
-                <ellipse cx="120" cy="155" rx="24" ry="30" fill="#3a2a1a" class="hood-body"/>
-                <path d="M96 173 Q120 193 144 173 L141 202 Q120 216 99 202 Z" fill="#2e2010" class="hood-body"/>
-                <ellipse cx="120" cy="129" rx="17" ry="15" fill="#3a2a1a" class="hood-body"/>
-                <path d="M103 129 Q120 113 137 129 Q137 144 120 146 Q103 144 103 129Z" fill="#2e2010" class="hood-body"/>
-                <ellipse cx="120" cy="133" rx="10" ry="9" fill="#120c06"/>
-                <ellipse cx="116" cy="132" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
-                <ellipse cx="124" cy="132" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
-                <path d="M96 158 Q86 167 89 176" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
-                <path d="M144 158 Q154 167 151 176" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
-                <g class="price-bubble"><rect x="94" y="96" width="54" height="22" rx="6" class="price-bubble-bg"/><polygon points="118,118 124,118 121,124" fill="#c8922a"/><text x="121" y="111" text-anchor="middle" class="price-text" id="price-text-1">🪙 —</text></g>
-              </g>
-            <g class="figure-btn" id="svg-figure-3" data-slot="3" role="button" aria-label="Нанять (слот 3)">
-                <ellipse cx="240" cy="155" rx="24" ry="30" fill="#3a2a1a" class="hood-body"/>
-                <path d="M216 173 Q240 193 264 173 L261 202 Q240 216 219 202 Z" fill="#2e2010" class="hood-body"/>
-                <ellipse cx="240" cy="129" rx="17" ry="15" fill="#3a2a1a" class="hood-body"/>
-                <path d="M223 129 Q240 113 257 129 Q257 144 240 146 Q223 144 223 129Z" fill="#2e2010" class="hood-body"/>
-                <ellipse cx="240" cy="133" rx="10" ry="9" fill="#120c06"/>
-                <ellipse cx="236" cy="132" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
-                <ellipse cx="244" cy="132" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
-                <path d="M216 158 Q206 167 209 176" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
-                <path d="M264 158 Q274 167 271 176" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
-                <g class="price-bubble"><rect x="214" y="96" width="54" height="22" rx="6" class="price-bubble-bg"/><polygon points="238,118 244,118 241,124" fill="#c8922a"/><text x="241" y="111" text-anchor="middle" class="price-text" id="price-text-2">🪙 —</text></g>
-              </g>
-            <g class="figure-btn" id="svg-figure-4" data-slot="4" role="button" aria-label="Нанять (слот 4)">
-                <ellipse cx="305" cy="160" rx="26" ry="32" fill="#3a2a1a" class="hood-body"/>
-                <path d="M279 180 Q305 200 331 180 L328 210 Q305 225 282 210 Z" fill="#2e2010" class="hood-body"/>
-                <ellipse cx="305" cy="132" rx="18" ry="16" fill="#3a2a1a" class="hood-body"/>
-                <path d="M287 132 Q305 115 323 132 Q323 148 305 150 Q287 148 287 132Z" fill="#2e2010" class="hood-body"/>
-                <ellipse cx="305" cy="136" rx="11" ry="10" fill="#120c06"/>
-                <ellipse cx="301" cy="135" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
-                <ellipse cx="309" cy="135" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
-                <path d="M279 162 Q268 172 272 182" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
-                <path d="M331 162 Q342 172 338 182" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
-                <g class="price-bubble"><rect x="279" y="100" width="54" height="22" rx="6" class="price-bubble-bg"/><polygon points="303,122 309,122 306,128" fill="#c8922a"/><text x="306" y="115" text-anchor="middle" class="price-text" id="price-text-3">🪙 —</text></g>
-              </g>
-          </svg>
-        </div>
-        <p class="hire-hint">Нажмите на фигуру, чтобы снять капюшон и нанять наёмницу · Слоты обновляются в 00:00 МСК</p>
+        <p class="hire-hint">Нажмите кнопку внизу экрана, чтобы нанять наёмницу · Слоты обновляются в 00:00 МСК</p>
         <div id="tavern-hire-error" class="banner" style="display:none;"></div>
       </div>
 
@@ -1047,8 +1148,19 @@
     </main>
     </div>
 
+    <div id="tavern-hire-footer" class="tavern-hire-footer" style="display: flex;">
+      <button
+        type="button"
+        id="tavern-hire-primary-btn"
+        class="tavern-btn tavern-btn-primary tavern-hire-footer-btn"
+        onclick="WaifuApp.onTavernHirePrimaryClick()"
+      >
+        Нанять — 🪙 …
+      </button>
+    </div>
+
     <!-- Подтверждение найма (боттомшит) -->
-    <div id="modal-confirm-hire" class="modal hidden" style="display:none; align-items: flex-end; justify-content: center;" role="dialog" aria-modal="true">
+    <div id="modal-confirm-hire" class="modal hidden" style="display:none; align-items: center; justify-content: center;" role="dialog" aria-modal="true">
       <div class="tavern-modal-sheet">
         <div class="modal-handle"></div>
         <button class="secondary" style="position:absolute;top:16px;right:16px;" onclick="WaifuApp.closeTavernConfirmHire()">✕</button>
@@ -1086,17 +1198,36 @@
     <div id="modal-hire-result" class="modal hidden" style="display:none;" role="dialog" aria-modal="true">
       <div class="tavern-modal-sheet hire-result-modal-sheet">
         <button type="button" class="secondary hire-result-close" onclick="WaifuApp.closeTavernHireResult()" aria-label="Закрыть">✕</button>
-        <div class="hire-result-card rarity-common" id="result-card">
-          <div class="hire-result-bg hire-result-bg--placeholder" id="result-card-bg" role="img" aria-label="Портрет наёмницы"></div>
-          <div class="hire-result-scrim-top" aria-hidden="true"></div>
-          <div class="hire-result-scrim-bottom" aria-hidden="true"></div>
-          <div class="hire-result-top">
-            <div class="hire-result-name" id="result-name">—</div>
-            <div class="hire-result-meta" id="result-meta">—</div>
-          </div>
-          <div class="hire-result-bottom">
-            <div class="hire-result-perks" id="result-perks"></div>
-            <div class="hire-result-bio" id="result-bio">—</div>
+        <p class="hire-result-flip-hint">Нажмите карточку — биография</p>
+        <div
+          class="hire-result-flip-scene"
+          id="hire-result-flip-scene"
+          role="button"
+          tabindex="0"
+          aria-label="Показать биографию наёмницы"
+          onclick="WaifuApp.toggleHireResultFlip(event)"
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();WaifuApp.toggleHireResultFlip(event);}"
+        >
+          <div class="hire-result-flip-inner rarity-common" id="hire-result-flip-inner">
+            <div class="hire-result-face hire-result-face--front">
+              <div class="hire-result-bg hire-result-bg--placeholder" id="result-card-bg" role="img" aria-label="Портрет наёмницы"></div>
+              <div class="hire-result-scrim-top" aria-hidden="true"></div>
+              <div class="hire-result-scrim-bottom" aria-hidden="true"></div>
+              <div class="hire-result-top">
+                <div class="hire-result-name" id="result-name">—</div>
+                <div class="hire-result-meta" id="result-meta">—</div>
+              </div>
+              <div class="hire-result-bottom">
+                <div class="hire-result-perks" id="result-perks"></div>
+                <div class="hire-result-stats" id="result-hire-stats">—</div>
+              </div>
+            </div>
+            <div class="hire-result-face hire-result-face--back">
+              <div class="hire-result-back-inner">
+                <div class="hire-result-back-title">Биография</div>
+                <div class="hire-result-bio-back" id="result-bio-back">—</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

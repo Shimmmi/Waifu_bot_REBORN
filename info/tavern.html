@@ -1,0 +1,1659 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Таверна</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="./styles.css"/>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script defer src="./app.js"></script>
+  <style>
+    :root {
+      --ink:        #0d0a08;
+      --parchment:  #1a1410;
+      --amber:      #c8922a;
+      --amber-glow: #e8b84b;
+      --ember:      #d45a1a;
+      --smoke:      #2e2520;
+      --ash:        #8a7a6a;
+      --cream:      #e8dcc8;
+      --danger:     #c0392b;
+      --success:    #2e7d52;
+      --font-title: 'Cinzel', serif;
+      --font-body:  'Crimson Pro', serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--ink);
+      color: var(--cream);
+      font-family: var(--font-body);
+      font-size: 16px;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── ATTIC ── */
+    .attic {
+      background: rgba(13,10,8,0.92);
+      border-bottom: 1px solid rgba(200,146,42,0.2);
+      padding: 8px 12px;
+      position: sticky; top: 0; z-index: 100;
+      backdrop-filter: blur(8px);
+    }
+    .attic-row {
+      display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+    }
+    .chip {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(200,146,42,0.2);
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: 12px;
+      white-space: nowrap;
+      font-family: var(--font-body);
+    }
+    .attic-level-chip { display: flex; flex-direction: column; gap: 2px; padding: 4px 10px; }
+    .attic-level-top { font-size: 12px; font-weight: 600; }
+    .attic-xp-bar { height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; width: 60px; }
+    .attic-xp-fill { height: 100%; background: var(--amber); border-radius: 2px; width: 40%; transition: width .4s; }
+
+    /* ── TABS ── */
+    .tavern-tabs {
+      display: flex;
+      border-bottom: 1px solid rgba(200,146,42,0.15);
+      background: var(--ink);
+      position: sticky; top: 52px; z-index: 90;
+    }
+    .tab {
+      flex: 1; padding: 12px 8px;
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: var(--ash); cursor: pointer;
+      font-family: var(--font-title); font-size: 12px; letter-spacing: .08em;
+      transition: color .2s, border-color .2s;
+    }
+    .tab.active { color: var(--amber-glow); border-bottom-color: var(--amber); }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── HIRE SCENE ── */
+    .tavern-hero-layer {
+      position: relative;
+      min-height: 280px;
+      border-radius: 0 0 12px 12px;
+      overflow: hidden;
+    }
+    .tavern-bg-webp {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.38;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .tavern-keeper-webp {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      max-height: 58%;
+      min-width: 100px;
+      width: auto;
+      z-index: 1;
+      pointer-events: none;
+      filter: drop-shadow(0 4px 14px rgba(0,0,0,0.65));
+    }
+    .tavern-scene-wrap {
+      position: relative;
+      overflow: hidden;
+      z-index: 2;
+    }
+
+    /* Ambient glow behind scene */
+    .tavern-scene-wrap::before {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 280px; height: 120px;
+      background: radial-gradient(ellipse, rgba(200,146,42,0.18) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .tavern-svg-scene {
+      display: block;
+      width: 100%;
+      max-width: 480px;
+      margin: 0 auto;
+      position: relative; z-index: 1;
+    }
+
+    /* Hoverable figure groups */
+    .figure-btn {
+      cursor: pointer;
+      transition: opacity .2s;
+    }
+    .figure-btn:hover .hood-body { fill: #4a3a28; }
+    .figure-btn.hired .hood-body { fill: #1a1410; opacity: .3; }
+    .figure-btn.hired .price-bubble { display: none; }
+
+    /* Price bubble */
+    .price-bubble-bg { fill: rgba(13,10,8,0.88); stroke: #c8922a; stroke-width: 1; }
+    .price-text { fill: #e8b84b; font-family: 'Crimson Pro', serif; font-size: 11px; font-weight: 600; }
+
+    /* Candle flicker */
+    @keyframes flicker {
+      0%,100% { opacity: 1; transform: scaleY(1); }
+      25%      { opacity: .7; transform: scaleY(.88); }
+      50%      { opacity: .9; transform: scaleY(1.04); }
+      75%      { opacity: .75; transform: scaleY(.92); }
+    }
+    .candle-flame { animation: flicker 1.8s ease-in-out infinite; transform-origin: center bottom; }
+    .candle-flame-2 { animation: flicker 2.3s ease-in-out infinite .4s; transform-origin: center bottom; }
+    .candle-flame-3 { animation: flicker 1.5s ease-in-out infinite .9s; transform-origin: center bottom; }
+
+    /* Smoke wisps */
+    @keyframes smoke-rise {
+      0%   { opacity: 0; transform: translateY(0) scaleX(1); }
+      30%  { opacity: .35; }
+      100% { opacity: 0; transform: translateY(-22px) scaleX(1.8); }
+    }
+    .smoke-wisp { animation: smoke-rise 3s ease-out infinite; transform-origin: center; }
+    .smoke-wisp-2 { animation: smoke-rise 3s ease-out infinite 1s; }
+    .smoke-wisp-3 { animation: smoke-rise 3s ease-out infinite 2s; }
+
+    .hire-hint {
+      text-align: center;
+      color: var(--ash);
+      font-style: italic;
+      font-size: 14px;
+      padding: 8px 16px 16px;
+    }
+
+    /* ── SQUAD & RESERVE ── */
+    .section { padding: 16px; }
+    .section-head { margin-bottom: 12px; }
+    .section-head h3 { font-family: var(--font-title); font-size: 13px; letter-spacing: .1em; color: var(--amber-glow); }
+    .section-subhead { font-size: 12px; color: var(--ash); margin-top: 2px; }
+
+    .squad-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .squad-slot {
+      border: 1px dashed rgba(200,146,42,0.25);
+      border-radius: 12px;
+      min-height: 110px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(26,20,16,0.6);
+      color: var(--ash);
+      font-size: 13px;
+      gap: 4px;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    .squad-slot:hover { border-color: rgba(200,146,42,0.5); background: rgba(46,37,32,0.8); }
+    .squad-slot.occupied {
+      border-style: solid;
+      border-color: rgba(200,146,42,0.3);
+      padding: 10px;
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
+
+    .unit-card-mini {
+      width: 100%;
+    }
+    .unit-card-mini-header {
+      display: flex; gap: 8px; align-items: flex-start; margin-bottom: 6px;
+    }
+    .unit-portrait {
+      width: 44px; height: 44px; border-radius: 8px;
+      background: var(--smoke);
+      border: 1px solid rgba(200,146,42,0.3);
+      overflow: hidden; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+    }
+    .unit-portrait img { width: 100%; height: 100%; object-fit: cover; }
+    .unit-info { flex: 1; min-width: 0; }
+    .unit-name {
+      font-family: var(--font-title); font-size: 11px;
+      color: var(--cream); letter-spacing: .04em;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .unit-class { font-size: 11px; color: var(--ash); margin-top: 1px; }
+    .unit-level {
+      font-size: 10px;
+      background: rgba(200,146,42,0.15);
+      color: var(--amber-glow);
+      border-radius: 4px; padding: 1px 5px;
+      display: inline-block; margin-top: 2px;
+    }
+
+    .unit-bars { display: flex; flex-direction: column; gap: 3px; }
+    .mini-bar-row { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--ash); }
+    .mini-bar { flex: 1; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; }
+    .mini-bar-fill { height: 100%; border-radius: 2px; transition: width .3s; }
+    .mini-bar-fill.hp   { background: #e05555; }
+    .mini-bar-fill.energy { background: #5595e0; }
+
+    .unit-perks-mini { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 5px; }
+    .perk-pip {
+      font-size: 10px; padding: 1px 5px;
+      border-radius: 10px;
+      background: rgba(200,146,42,0.12);
+      border: 1px solid rgba(200,146,42,0.2);
+      color: var(--amber);
+    }
+
+    .unit-status {
+      font-size: 10px; margin-top: 4px;
+      padding: 2px 6px; border-radius: 6px; display: inline-block;
+    }
+    .unit-status.ok      { background: rgba(46,125,82,0.2); color: #6fcf97; border: 1px solid rgba(46,125,82,0.3); }
+    .unit-status.wounded { background: rgba(192,57,43,0.15); color: #e07070; border: 1px solid rgba(192,57,43,0.3); }
+    .unit-status.tired   { background: rgba(80,80,150,0.15); color: #a0a0e0; border: 1px solid rgba(80,80,150,0.3); }
+    .unit-status.expedition { background: rgba(200,146,42,0.15); color: var(--amber); border: 1px solid rgba(200,146,42,0.3); }
+
+    /* Reserve list */
+    .reserve-list { display: flex; flex-direction: column; gap: 8px; }
+    .reserve-card {
+      background: rgba(26,20,16,0.7);
+      border: 1px solid rgba(200,146,42,0.15);
+      border-radius: 10px;
+      padding: 10px 12px;
+      display: flex; align-items: center; gap: 10px;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    .reserve-card:hover { border-color: rgba(200,146,42,0.35); background: rgba(46,37,32,0.9); }
+    .reserve-info { flex: 1; min-width: 0; }
+    .reserve-name { font-family: var(--font-title); font-size: 12px; color: var(--cream); }
+    .reserve-meta { font-size: 11px; color: var(--ash); margin-top: 2px; }
+    .reserve-action {
+      font-size: 11px; color: var(--amber); padding: 4px 8px;
+      border: 1px solid rgba(200,146,42,0.3); border-radius: 6px;
+      background: none; cursor: pointer; font-family: var(--font-body);
+      white-space: nowrap;
+    }
+    .reserve-action:hover { background: rgba(200,146,42,0.1); }
+
+    /* ── MODAL BASE ── */
+    .modal {
+      position: fixed; inset: 0; z-index: 200;
+      display: flex; align-items: flex-end; justify-content: center;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(4px);
+      padding: 0;
+    }
+    .modal-sheet {
+      background: var(--parchment);
+      border: 1px solid rgba(200,146,42,0.25);
+      border-bottom: none;
+      border-radius: 20px 20px 0 0;
+      width: 100%; max-width: 480px;
+      padding: 20px 20px 32px;
+      max-height: 90vh;
+      overflow-y: auto;
+      position: relative;
+    }
+    .modal-handle {
+      width: 36px; height: 4px;
+      background: rgba(200,146,42,0.3);
+      border-radius: 2px;
+      margin: 0 auto 16px;
+    }
+    .modal-title {
+      font-family: var(--font-title);
+      font-size: 16px; letter-spacing: .06em;
+      color: var(--amber-glow); margin-bottom: 4px;
+    }
+    .modal-subtitle { font-size: 13px; color: var(--ash); margin-bottom: 16px; }
+    .modal-close {
+      position: absolute; top: 16px; right: 16px;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(200,146,42,0.2);
+      border-radius: 50%; width: 28px; height: 28px;
+      color: var(--ash); cursor: pointer; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .modal-close:hover { color: var(--cream); background: rgba(200,146,42,0.1); }
+
+    /* ── CONFIRM HIRE MODAL ── */
+    .hire-confirm-body {
+      text-align: center; padding: 8px 0 16px;
+    }
+    .hire-confirm-icon { font-size: 48px; margin-bottom: 12px; display: block; }
+    .hire-confirm-text { font-size: 15px; color: var(--cream); line-height: 1.5; margin-bottom: 4px; }
+    .hire-confirm-price { font-size: 20px; color: var(--amber-glow); font-weight: 600; margin: 8px 0; }
+    .hire-confirm-note { font-size: 13px; color: var(--ash); font-style: italic; }
+
+    .btn-row { display: flex; gap: 10px; margin-top: 16px; }
+    .btn {
+      flex: 1; padding: 12px;
+      border: none; border-radius: 10px;
+      font-family: var(--font-title); font-size: 13px; letter-spacing: .06em;
+      cursor: pointer; transition: opacity .2s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-primary {
+      background: linear-gradient(135deg, #c8922a, #e8b84b);
+      color: var(--ink);
+    }
+    .btn-secondary {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(200,146,42,0.25);
+      color: var(--ash);
+    }
+    .btn:disabled { opacity: .4; pointer-events: none; }
+
+    /* ── GENERATION OVERLAY ── */
+    .gen-overlay {
+      position: fixed; inset: 0; z-index: 300;
+      background: rgba(5,3,2,0.95);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 20px;
+      padding: 32px;
+    }
+
+    .gen-orb {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #e8b84b, #c8922a 50%, #6b3a10);
+      box-shadow: 0 0 40px rgba(200,146,42,0.6), 0 0 80px rgba(200,146,42,0.2);
+      animation: orb-pulse 2s ease-in-out infinite;
+    }
+    @keyframes orb-pulse {
+      0%,100% { transform: scale(1); box-shadow: 0 0 40px rgba(200,146,42,0.6), 0 0 80px rgba(200,146,42,0.2); }
+      50%      { transform: scale(1.12); box-shadow: 0 0 60px rgba(232,184,75,0.8), 0 0 100px rgba(200,146,42,0.3); }
+    }
+
+    .gen-rune-ring {
+      position: absolute;
+      width: 120px; height: 120px;
+      border: 1px solid rgba(200,146,42,0.3);
+      border-radius: 50%;
+      animation: spin-slow 8s linear infinite;
+    }
+    .gen-rune-ring::before, .gen-rune-ring::after {
+      content: '✦ ᚠ ✦ ᚢ ✦ ᚦ ✦ ᚨ';
+      position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+      font-size: 9px; color: rgba(200,146,42,0.5); letter-spacing: 3px; white-space: nowrap;
+    }
+    @keyframes spin-slow { to { transform: rotate(360deg); } }
+
+    .gen-stage-label {
+      font-family: var(--font-title);
+      font-size: 14px; letter-spacing: .1em;
+      color: var(--amber-glow);
+      text-align: center;
+      min-height: 20px;
+    }
+    .gen-stage-detail {
+      font-size: 13px; color: var(--ash); font-style: italic;
+      text-align: center;
+    }
+
+    .gen-progress-bar {
+      width: 200px; height: 3px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px; overflow: hidden;
+    }
+    .gen-progress-fill {
+      height: 100%; background: var(--amber);
+      border-radius: 2px;
+      transition: width .6s ease;
+    }
+
+    /* Floating runes */
+    .gen-rune {
+      position: absolute;
+      font-size: 16px; color: rgba(200,146,42,0.4);
+      animation: rune-float 4s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes rune-float {
+      0%,100% { transform: translateY(0) rotate(0deg); opacity: .3; }
+      50%      { transform: translateY(-15px) rotate(180deg); opacity: .7; }
+    }
+
+    /* ── RESULT CARD ── */
+    .result-card {
+      background: var(--parchment);
+      border: 1px solid rgba(200,146,42,0.35);
+      border-radius: 16px;
+      overflow: hidden;
+      max-width: 360px;
+      width: 100%;
+      position: relative;
+    }
+
+    .result-portrait {
+      width: 100%;
+      aspect-ratio: 3/2;
+      background: var(--smoke);
+      position: relative;
+      overflow: hidden;
+    }
+    .result-portrait img {
+      width: 100%; height: 100%; object-fit: cover;
+    }
+    .result-portrait-placeholder {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 64px;
+      background: linear-gradient(135deg, #2e2520, #1a1410);
+    }
+    .result-portrait-label {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: 32px 12px 12px;
+      background: linear-gradient(transparent, rgba(5,3,2,.9));
+    }
+    .result-name {
+      font-family: var(--font-title); font-size: 18px;
+      color: var(--cream); letter-spacing: .06em;
+    }
+    .result-class { font-size: 13px; color: var(--amber); margin-top: 2px; }
+
+    .result-body { padding: 14px 16px; }
+    .result-bio {
+      font-size: 14px; line-height: 1.55;
+      color: var(--ash); font-style: italic;
+      margin-bottom: 12px;
+      border-left: 2px solid rgba(200,146,42,0.3);
+      padding-left: 10px;
+    }
+
+    .result-stats {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 6px; margin-bottom: 12px;
+    }
+    .result-stat {
+      background: rgba(255,255,255,0.04);
+      border-radius: 8px; padding: 6px 8px;
+    }
+    .result-stat-label { font-size: 10px; color: var(--ash); text-transform: uppercase; letter-spacing: .06em; }
+    .result-stat-value { font-size: 16px; color: var(--cream); font-weight: 600; margin-top: 1px; }
+
+    .result-perks { display: flex; flex-wrap: wrap; gap: 5px; }
+    .perk-badge {
+      font-size: 11px; padding: 3px 8px;
+      border-radius: 12px;
+      background: rgba(200,146,42,0.12);
+      border: 1px solid rgba(200,146,42,0.25);
+      color: var(--amber-glow);
+    }
+    .perk-badge .perk-lvl { color: var(--ash); font-size: 10px; margin-left: 2px; }
+
+    /* ── WAIFU DETAILS MODAL ── */
+    .waifu-detail-portrait {
+      width: 100%; aspect-ratio: 3/2;
+      background: var(--smoke);
+      border-radius: 12px; overflow: hidden;
+      margin-bottom: 12px;
+      position: relative;
+    }
+    .waifu-detail-portrait img { width: 100%; height: 100%; object-fit: cover; }
+    .waifu-detail-portrait-placeholder {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center; font-size: 56px;
+      background: linear-gradient(135deg, #2e2520, #1a1410);
+    }
+
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+    .stat-box { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 8px 10px; }
+    .stat-box-label { font-size: 10px; color: var(--ash); letter-spacing: .06em; text-transform: uppercase; }
+    .stat-box-val { font-size: 18px; color: var(--cream); font-weight: 700; }
+
+    .full-bar-row { margin: 6px 0; }
+    .full-bar-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--ash); margin-bottom: 3px; }
+    .full-bar { height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; }
+    .full-bar-fill { height: 100%; border-radius: 3px; }
+    .full-bar-fill.hp     { background: linear-gradient(90deg, #c0392b, #e05555); }
+    .full-bar-fill.energy { background: linear-gradient(90deg, #2255c0, #5595e0); }
+
+    .perks-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+    .perk-row {
+      background: rgba(200,146,42,0.06);
+      border: 1px solid rgba(200,146,42,0.15);
+      border-radius: 10px; padding: 8px 10px;
+    }
+    .perk-row-head { display: flex; justify-content: space-between; align-items: center; }
+    .perk-row-name { font-size: 13px; color: var(--amber-glow); font-weight: 600; }
+    .perk-row-lvl  { font-size: 11px; color: var(--ash); }
+    .perk-row-desc { font-size: 12px; color: var(--ash); margin-top: 3px; font-style: italic; }
+
+    .dismiss-btn {
+      background: rgba(192,57,43,0.12);
+      border: 1px solid rgba(192,57,43,0.3);
+      color: #e07070;
+      border-radius: 8px; padding: 8px 14px;
+      font-family: var(--font-body); font-size: 13px;
+      cursor: pointer; width: 100%; margin-top: 12px;
+    }
+    .dismiss-btn:hover { background: rgba(192,57,43,0.22); }
+
+    /* ── BASEMENT NAV ── */
+    .basement {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: rgba(13,10,8,0.95);
+      border-top: 1px solid rgba(200,146,42,0.15);
+      display: flex; justify-content: space-around;
+      padding: 8px 4px 12px;
+      z-index: 100;
+      backdrop-filter: blur(8px);
+    }
+    .basement a {
+      display: flex; flex-direction: column; align-items: center;
+      color: var(--ash); text-decoration: none;
+      font-size: 20px; padding: 4px 8px;
+      border-radius: 10px;
+      transition: color .2s, background .2s;
+    }
+    .basement a[data-page="tavern"],
+    .basement a:hover { color: var(--amber-glow); background: rgba(200,146,42,0.08); }
+
+    main { padding-bottom: 72px; }
+
+    .placeholder { padding: 32px; text-align: center; color: var(--ash); font-style: italic; }
+
+    /* ── UTILITIES ── */
+    .hidden { display: none !important; }
+    .muted { color: var(--ash); }
+    .tiny  { font-size: 12px; }
+
+    /* Scroll snap for main tabs */
+    .scroll-section { padding: 16px; }
+
+    /* ── TAB: ЛЕЧЕНИЕ (золото / бронза / коричневый) ── */
+    .heal-main-card {
+      background: rgba(26, 20, 16, 0.82);
+      border: 1px solid rgba(200, 146, 42, 0.28);
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2);
+    }
+    .heal-main-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      gap: 8px;
+    }
+    .heal-main-card-head .heal-main-title {
+      font-family: var(--font-title);
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      color: var(--amber-glow);
+    }
+    .heal-main-card .btn.btn-secondary:disabled {
+      width: 100%;
+      margin-top: 10px;
+      opacity: 0.45;
+    }
+
+    .heal-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      min-width: 0;
+    }
+    .heal-merc-card {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid rgba(200, 146, 42, 0.28);
+      border-radius: 14px;
+      background: rgba(26, 20, 16, 0.82);
+      min-width: 0;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+    }
+    .heal-merc-card:hover {
+      border-color: rgba(200, 146, 42, 0.45);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+      transform: translateY(-1px);
+    }
+    .heal-card-hp-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .heal-card-hp-row .heal-hp-label { color: var(--ash); letter-spacing: 0.04em; }
+    .heal-card-hp-row .heal-hp-values {
+      color: var(--cream);
+      font-variant-numeric: tabular-nums;
+    }
+    .heal-bar-wrap {
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(0, 0, 0, 0.35);
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    .heal-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: linear-gradient(90deg, #a02828, #c94a3a 45%, #c8922a);
+      transition: width 0.2s ease;
+    }
+    .heal-faint-note {
+      margin-top: 4px;
+      font-size: 10px;
+      color: #e07070;
+      line-height: 1.25;
+    }
+    .heal-card-portrait {
+      width: 100%;
+      aspect-ratio: 3 / 4;
+      border-radius: 12px;
+      border: 2px solid rgba(200, 146, 42, 0.35);
+      background: rgba(46, 37, 32, 0.9);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+    }
+    .heal-card-portrait img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .heal-card-name {
+      font-family: var(--font-title);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: var(--cream);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+    .heal-card-btn {
+      width: 100%;
+      margin-top: auto;
+      padding: 8px 10px;
+      font-size: 12px;
+    }
+    .heal-empty {
+      padding: 24px 16px;
+      text-align: center;
+      color: var(--ash);
+      font-style: italic;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body class="page-tavern" onload="TavernPage.init()">
+
+<!-- ── ATTIC ── -->
+<header class="attic">
+  <div class="attic-row" aria-label="Основной чердак">
+    <div class="chip attic-level-chip" title="Уровень и опыт">
+      <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">12</strong></div>
+      <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill" style="width:60%"></div></div>
+    </div>
+    <div class="chip" id="attic-dungeon-chip" title="Подземелье">🏰&nbsp;<span id="attic-dungeon-label">Нет боя</span></div>
+    <div class="chip" id="attic-expedition-chip" title="Экспедиции">🗺&nbsp;<span id="attic-expedition-label">0 акт.</span></div>
+    <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">4 820</strong></div>
+    <div class="chip" title="Энергия">⚡&nbsp;<span id="badge-energy">87/100</span></div>
+  </div>
+</header>
+
+<!-- ── TABS ── -->
+<div class="tavern-tabs">
+  <button class="tab active" data-tab="hire" onclick="TavernPage.switchTab('hire')">⚔ Найм</button>
+  <button class="tab" data-tab="squad" onclick="TavernPage.switchTab('squad')">🛡 Отряд</button>
+  <button class="tab" data-tab="heal" onclick="TavernPage.switchTab('heal')">💊 Лечение</button>
+  <button class="tab" data-tab="upgrade" onclick="TavernPage.switchTab('upgrade')">⬆ Прокачка</button>
+</div>
+
+<main>
+
+<!-- ── TAB: НАЙМ ── -->
+<div id="tab-hire" class="tab-panel active">
+
+  <div class="tavern-hero-layer">
+    <img class="tavern-bg-webp" src="/static/game/ui/tavern/tavern.background.webp" alt="" onerror="this.style.display='none'"/>
+    <img class="tavern-keeper-webp" src="/static/game/ui/tavern/tavern.keeper.webp" alt="" onerror="this.style.display='none'"/>
+
+  <!-- SVG-сцена таверны -->
+  <div class="tavern-scene-wrap">
+    <svg class="tavern-svg-scene" viewBox="0 0 360 280" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="floorGrad" cx="50%" cy="100%" r="70%">
+          <stop offset="0%" stop-color="#2e2018"/>
+          <stop offset="100%" stop-color="#0d0a08"/>
+        </radialGradient>
+        <radialGradient id="tableGrad" cx="50%" cy="30%" r="70%">
+          <stop offset="0%" stop-color="#5a3a18"/>
+          <stop offset="100%" stop-color="#2e1c0a"/>
+        </radialGradient>
+        <radialGradient id="glowAmber" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#e8b84b" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="#e8b84b" stop-opacity="0"/>
+        </radialGradient>
+        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.7"/>
+        </filter>
+        <filter id="glow-amber">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+
+      <!-- Floor -->
+      <rect width="360" height="280" fill="url(#floorGrad)"/>
+      <!-- Floor planks -->
+      <line x1="0" y1="200" x2="360" y2="200" stroke="#1e1408" stroke-width="1" opacity=".5"/>
+      <line x1="0" y1="220" x2="360" y2="220" stroke="#1e1408" stroke-width="1" opacity=".5"/>
+      <line x1="0" y1="240" x2="360" y2="240" stroke="#1e1408" stroke-width="1" opacity=".5"/>
+      <line x1="60" y1="200" x2="50" y2="280" stroke="#1e1408" stroke-width="1" opacity=".4"/>
+      <line x1="130" y1="200" x2="120" y2="280" stroke="#1e1408" stroke-width="1" opacity=".4"/>
+      <line x1="200" y1="200" x2="196" y2="280" stroke="#1e1408" stroke-width="1" opacity=".4"/>
+      <line x1="270" y1="200" x2="272" y2="280" stroke="#1e1408" stroke-width="1" opacity=".4"/>
+
+      <!-- Ambient table glow -->
+      <ellipse cx="180" cy="185" rx="130" ry="30" fill="url(#glowAmber)"/>
+
+      <!-- Table top -->
+      <ellipse cx="180" cy="178" rx="150" ry="22" fill="url(#tableGrad)" filter="url(#shadow)"/>
+      <ellipse cx="180" cy="175" rx="148" ry="20" fill="none" stroke="#8a5a20" stroke-width="1" opacity=".5"/>
+      <!-- Table leg -->
+      <rect x="160" y="192" width="40" height="50" rx="4" fill="#1e1008"/>
+      <rect x="150" y="234" width="60" height="10" rx="3" fill="#1e1008"/>
+
+      <!-- Candle LEFT -->
+      <rect x="60" y="158" width="8" height="22" rx="2" fill="#e8dcc8" opacity=".9"/>
+      <ellipse cx="64" cy="158" rx="4" ry="2" fill="#d4c8b0"/>
+      <g class="candle-flame" transform="translate(64,156)">
+        <ellipse cx="0" cy="-5" rx="3" ry="6" fill="#f5a623" opacity=".9"/>
+        <ellipse cx="0" cy="-7" rx="1.5" ry="3" fill="#ffe066"/>
+      </g>
+      <g class="smoke-wisp" transform="translate(64,148)"><ellipse cx="0" cy="0" rx="1.5" ry="3" fill="#888" opacity=".2"/></g>
+
+      <!-- Candle CENTRE-LEFT -->
+      <rect x="148" y="155" width="8" height="22" rx="2" fill="#e8dcc8" opacity=".9"/>
+      <ellipse cx="152" cy="155" rx="4" ry="2" fill="#d4c8b0"/>
+      <g class="candle-flame-2" transform="translate(152,153)">
+        <ellipse cx="0" cy="-5" rx="3.5" ry="7" fill="#f5a623" opacity=".9"/>
+        <ellipse cx="0" cy="-7" rx="1.8" ry="3.5" fill="#ffe066"/>
+      </g>
+      <g class="smoke-wisp-2" transform="translate(152,144)"><ellipse cx="0" cy="0" rx="1.5" ry="3" fill="#888" opacity=".2"/></g>
+
+      <!-- Candle CENTRE-RIGHT -->
+      <rect x="205" y="155" width="8" height="22" rx="2" fill="#e8dcc8" opacity=".9"/>
+      <ellipse cx="209" cy="155" rx="4" ry="2" fill="#d4c8b0"/>
+      <g class="candle-flame" transform="translate(209,153)">
+        <ellipse cx="0" cy="-5" rx="3" ry="6" fill="#f5a623" opacity=".9"/>
+        <ellipse cx="0" cy="-7" rx="1.5" ry="3" fill="#ffe066"/>
+      </g>
+      <g class="smoke-wisp-3" transform="translate(209,144)"><ellipse cx="0" cy="0" rx="1.5" ry="3" fill="#888" opacity=".2"/></g>
+
+      <!-- Candle RIGHT -->
+      <rect x="291" y="158" width="8" height="22" rx="2" fill="#e8dcc8" opacity=".9"/>
+      <ellipse cx="295" cy="158" rx="4" ry="2" fill="#d4c8b0"/>
+      <g class="candle-flame-3" transform="translate(295,156)">
+        <ellipse cx="0" cy="-5" rx="3" ry="6" fill="#f5a623" opacity=".9"/>
+        <ellipse cx="0" cy="-7" rx="1.5" ry="3" fill="#ffe066"/>
+      </g>
+
+      <!-- Mugs on table -->
+      <rect x="88" y="165" width="14" height="12" rx="2" fill="#5a3a18" opacity=".8"/>
+      <rect x="90" y="163" width="10" height="4" rx="1" fill="#8a6030" opacity=".8"/>
+      <rect x="258" y="165" width="14" height="12" rx="2" fill="#5a3a18" opacity=".8"/>
+      <rect x="260" y="163" width="10" height="4" rx="1" fill="#8a6030" opacity=".8"/>
+
+      <!-- FIGURE 1 (leftmost) -->
+      <g class="figure-btn" id="svg-figure-1" onclick="TavernPage.onFigureClick(0)" role="button" aria-label="Нанять вайфу (слот 1)">
+        <!-- Body/cloak -->
+        <ellipse cx="55" cy="160" rx="26" ry="32" fill="#3a2a1a" class="hood-body"/>
+        <path d="M29 180 Q55 200 81 180 L78 210 Q55 225 32 210 Z" fill="#2e2010" class="hood-body"/>
+        <!-- Hood -->
+        <ellipse cx="55" cy="132" rx="18" ry="16" fill="#3a2a1a" class="hood-body"/>
+        <path d="M37 132 Q55 115 73 132 Q73 148 55 150 Q37 148 37 132Z" fill="#2e2010" class="hood-body"/>
+        <!-- Shadow face -->
+        <ellipse cx="55" cy="136" rx="11" ry="10" fill="#120c06"/>
+        <!-- Eyes glint -->
+        <ellipse cx="51" cy="135" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+        <ellipse cx="59" cy="135" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+        <!-- Arms -->
+        <path d="M29 162 Q18 172 22 182" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <path d="M81 162 Q92 172 88 182" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <!-- Price bubble -->
+        <g class="price-bubble" id="price-bubble-0">
+          <rect x="28" y="100" width="54" height="22" rx="6" class="price-bubble-bg"/>
+          <polygon points="52,122 58,122 55,128" fill="#c8922a"/>
+          <text x="55" y="115" text-anchor="middle" class="price-text" id="price-text-0">🪙 320</text>
+        </g>
+      </g>
+
+      <!-- FIGURE 2 -->
+      <g class="figure-btn" id="svg-figure-2" onclick="TavernPage.onFigureClick(1)" role="button" aria-label="Нанять вайфу (слот 2)">
+        <ellipse cx="120" cy="155" rx="24" ry="30" fill="#3a2a1a" class="hood-body"/>
+        <path d="M96 173 Q120 193 144 173 L141 202 Q120 216 99 202 Z" fill="#2e2010" class="hood-body"/>
+        <ellipse cx="120" cy="129" rx="17" ry="15" fill="#3a2a1a" class="hood-body"/>
+        <path d="M103 129 Q120 113 137 129 Q137 144 120 146 Q103 144 103 129Z" fill="#2e2010" class="hood-body"/>
+        <ellipse cx="120" cy="133" rx="10" ry="9" fill="#120c06"/>
+        <ellipse cx="116" cy="132" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+        <ellipse cx="124" cy="132" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+        <path d="M96 158 Q86 167 89 176" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <path d="M144 158 Q154 167 151 176" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <g class="price-bubble" id="price-bubble-1">
+          <rect x="94" y="96" width="54" height="22" rx="6" class="price-bubble-bg"/>
+          <polygon points="118,118 124,118 121,124" fill="#c8922a"/>
+          <text x="121" y="111" text-anchor="middle" class="price-text" id="price-text-1">🪙 450</text>
+        </g>
+      </g>
+
+      <!-- FIGURE 3 -->
+      <g class="figure-btn" id="svg-figure-3" onclick="TavernPage.onFigureClick(2)" role="button" aria-label="Нанять вайфу (слот 3)">
+        <ellipse cx="240" cy="155" rx="24" ry="30" fill="#3a2a1a" class="hood-body"/>
+        <path d="M216 173 Q240 193 264 173 L261 202 Q240 216 219 202 Z" fill="#2e2010" class="hood-body"/>
+        <ellipse cx="240" cy="129" rx="17" ry="15" fill="#3a2a1a" class="hood-body"/>
+        <path d="M223 129 Q240 113 257 129 Q257 144 240 146 Q223 144 223 129Z" fill="#2e2010" class="hood-body"/>
+        <ellipse cx="240" cy="133" rx="10" ry="9" fill="#120c06"/>
+        <ellipse cx="236" cy="132" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+        <ellipse cx="244" cy="132" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+        <path d="M216 158 Q206 167 209 176" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <path d="M264 158 Q274 167 271 176" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <g class="price-bubble" id="price-bubble-2">
+          <rect x="214" y="96" width="54" height="22" rx="6" class="price-bubble-bg"/>
+          <polygon points="238,118 244,118 241,124" fill="#c8922a"/>
+          <text x="241" y="111" text-anchor="middle" class="price-text" id="price-text-2">🪙 280</text>
+        </g>
+      </g>
+
+      <!-- FIGURE 4 (rightmost) -->
+      <g class="figure-btn" id="svg-figure-4" onclick="TavernPage.onFigureClick(3)" role="button" aria-label="Нанять вайфу (слот 4)">
+        <ellipse cx="305" cy="160" rx="26" ry="32" fill="#3a2a1a" class="hood-body"/>
+        <path d="M279 180 Q305 200 331 180 L328 210 Q305 225 282 210 Z" fill="#2e2010" class="hood-body"/>
+        <ellipse cx="305" cy="132" rx="18" ry="16" fill="#3a2a1a" class="hood-body"/>
+        <path d="M287 132 Q305 115 323 132 Q323 148 305 150 Q287 148 287 132Z" fill="#2e2010" class="hood-body"/>
+        <ellipse cx="305" cy="136" rx="11" ry="10" fill="#120c06"/>
+        <ellipse cx="301" cy="135" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+        <ellipse cx="309" cy="135" rx="2" ry="1.5" fill="#c8922a" opacity=".6"/>
+        <path d="M279 162 Q268 172 272 182" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <path d="M331 162 Q342 172 338 182" stroke="#2e2010" stroke-width="8" stroke-linecap="round" fill="none"/>
+        <g class="price-bubble" id="price-bubble-3">
+          <rect x="279" y="100" width="54" height="22" rx="6" class="price-bubble-bg"/>
+          <polygon points="303,122 309,122 306,128" fill="#c8922a"/>
+          <text x="306" y="115" text-anchor="middle" class="price-text" id="price-text-3">🪙 510</text>
+        </g>
+      </g>
+    </svg>
+  </div>
+  </div>
+
+  <p class="hire-hint">Нажмите на фигуру, чтобы нанять наёмницу · Слоты обновляются в 00:00 МСК</p>
+
+</div><!-- /tab-hire -->
+
+<!-- ── TAB: ОТРЯД ── (прод: единый пул 2×5, счётчики, статусы по рамке; см. webapp/tavern.html + app.js) -->
+<div id="tab-squad" class="tab-panel">
+  <div class="scroll-section">
+    <div class="section-head">
+      <h3>Пул наёмниц</h3>
+      <div class="section-subhead">До 10 карточек (2×5) · отряд и запас в одной сетке</div>
+    </div>
+    <div id="tavern-squad-counters" class="muted" style="font-size:13px;font-weight:700;margin-bottom:8px;">0 готовы · 0 в отряде · 0 в походе</div>
+    <div class="squad-grid" id="squad-grid">
+      <!-- filled by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- ── TAB: ЛЕЧЕНИЕ ── -->
+<div id="tab-heal" class="tab-panel">
+  <div class="scroll-section">
+    <div class="section-head"><h3>Лечение ОВ</h3></div>
+    <div id="heal-main-waifu" class="heal-main-card">
+      <div class="heal-main-card-head">
+        <span class="heal-main-title">Основная вайфу</span>
+        <span class="unit-status ok">Полное HP</span>
+      </div>
+      <div class="full-bar-row">
+        <div class="full-bar-label"><span>❤ HP</span><span>300 / 300</span></div>
+        <div class="full-bar"><div class="full-bar-fill hp" style="width:100%"></div></div>
+      </div>
+      <button type="button" class="btn btn-secondary" disabled>Лечение не нужно</button>
+    </div>
+    <div class="section-head"><h3>Раненые наёмницы</h3></div>
+    <div class="section-subhead tiny muted" style="margin-bottom:8px;">До 10 в сетке 2×5 · при обмороке стоимость ×2</div>
+    <div id="heal-units-list" class="heal-empty muted">Все наёмницы здоровы</div>
+  </div>
+</div>
+
+<!-- ── TAB: ПРОКАЧКА ── -->
+<div id="tab-upgrade" class="tab-panel">
+  <div class="scroll-section">
+    <div class="section-head"><h3>Прокачка наёмниц</h3></div>
+    <div id="upgrade-list"><div class="placeholder muted" style="font-style:italic;">Нет нанятых наёмниц</div></div>
+  </div>
+</div>
+
+</main><!-- /main -->
+
+<!-- ════════════════════════════════
+     MODAL: Подтверждение найма
+════════════════════════════════ -->
+<div id="modal-confirm-hire" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="TavernPage.closeConfirmHire()">✕</button>
+    <div class="hire-confirm-body">
+      <span class="hire-confirm-icon">🪄</span>
+      <div class="hire-confirm-text">Снять капюшон и нанять наёмницу?</div>
+      <div class="hire-confirm-price" id="confirm-price">🪙 —</div>
+      <div class="hire-confirm-note">Параметры, история и облик будут сгенерированы</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="TavernPage.closeConfirmHire()">Отмена</button>
+      <button class="btn btn-primary" id="btn-confirm-hire" onclick="TavernPage.confirmHire()">Нанять</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════
+     GENERATION OVERLAY
+════════════════════════════════ -->
+<div id="gen-overlay" class="gen-overlay hidden" role="status" aria-live="polite">
+  <!-- Floating runes -->
+  <span class="gen-rune" style="top:12%;left:8%;animation-delay:0s">ᚠ</span>
+  <span class="gen-rune" style="top:18%;right:10%;animation-delay:.8s">ᚢ</span>
+  <span class="gen-rune" style="top:70%;left:12%;animation-delay:1.6s">ᚦ</span>
+  <span class="gen-rune" style="top:75%;right:8%;animation-delay:.4s">ᚨ</span>
+  <span class="gen-rune" style="top:45%;left:5%;animation-delay:1.2s">ᚱ</span>
+  <span class="gen-rune" style="top:40%;right:6%;animation-delay:2s">ᚲ</span>
+
+  <!-- Orb + ring -->
+  <div style="position:relative;display:flex;align-items:center;justify-content:center;width:120px;height:120px;">
+    <div class="gen-rune-ring"></div>
+    <div class="gen-orb"></div>
+  </div>
+
+  <div class="gen-stage-label" id="gen-stage-label">Призыв наёмницы...</div>
+  <div class="gen-stage-detail" id="gen-stage-detail">Генерация параметров</div>
+
+  <div class="gen-progress-bar">
+    <div class="gen-progress-fill" id="gen-progress-fill" style="width:0%"></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════
+     MODAL: Результат найма
+════════════════════════════════ -->
+<div id="modal-hire-result" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="TavernPage.closeHireResult()">✕</button>
+    <div class="modal-title">Наёмница нанята!</div>
+    <div class="modal-subtitle">Добавлена в запас · управляйте во вкладке Отряд</div>
+
+    <div class="result-card" id="result-card">
+      <div class="result-portrait">
+        <div class="result-portrait-placeholder" id="result-portrait-placeholder">✨</div>
+        <img id="result-portrait-img" src="" alt="" style="display:none; position:absolute;inset:0;"/>
+        <div class="result-portrait-label">
+          <div class="result-name" id="result-name">—</div>
+          <div class="result-class" id="result-class">—</div>
+        </div>
+      </div>
+      <div class="result-body">
+        <div class="result-bio" id="result-bio">...</div>
+        <div class="result-stats" id="result-stats"></div>
+        <div class="result-perks" id="result-perks"></div>
+      </div>
+    </div>
+
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn btn-secondary" onclick="TavernPage.goToSquad()">→ В отряд</button>
+      <button class="btn btn-primary" onclick="TavernPage.closeHireResult()">Готово</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════
+     MODAL: Детали наёмницы
+════════════════════════════════ -->
+<div id="modal-unit-detail" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="TavernPage.closeUnitDetail()">✕</button>
+    <div class="modal-title" id="detail-name">—</div>
+    <div class="modal-subtitle" id="detail-subtitle">—</div>
+
+    <div class="waifu-detail-portrait">
+      <div class="waifu-detail-portrait-placeholder" id="detail-portrait-ph">🧙</div>
+      <img id="detail-portrait-img" src="" alt="" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"/>
+    </div>
+
+    <div class="result-bio" id="detail-bio"></div>
+
+    <div class="stat-grid">
+      <div class="stat-box"><div class="stat-box-label">Уровень</div><div class="stat-box-val" id="detail-level">—</div></div>
+      <div class="stat-box"><div class="stat-box-label">HP макс</div><div class="stat-box-val" id="detail-hp-max">—</div></div>
+    </div>
+
+    <div class="full-bar-row">
+      <div class="full-bar-label"><span>❤ HP</span><span id="detail-hp-val">—</span></div>
+      <div class="full-bar"><div class="full-bar-fill hp" id="detail-hp-fill" style="width:100%"></div></div>
+    </div>
+    <div class="full-bar-row">
+      <div class="full-bar-label"><span>⚡ Энергия</span><span id="detail-energy-val">—</span></div>
+      <div class="full-bar"><div class="full-bar-fill energy" id="detail-energy-fill" style="width:100%"></div></div>
+    </div>
+
+    <div style="font-family:var(--font-title);font-size:11px;letter-spacing:.08em;color:var(--amber);margin:14px 0 6px;">ПЕРКИ</div>
+    <div class="perks-list" id="detail-perks"></div>
+
+    <div class="btn-row" style="margin-top:14px;" id="detail-action-row"></div>
+
+    <button class="dismiss-btn" id="detail-dismiss-btn" onclick="TavernPage.dismissUnit()">🗑 Уволить из запаса</button>
+  </div>
+</div>
+
+<!-- ── BASEMENT NAV ── -->
+<nav class="basement">
+  <a href="./profile.html" data-page="profile" title="Профиль"><span>👤</span></a>
+  <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span>🏰</span></a>
+  <a href="./shop.html" data-page="shop" title="Магазин"><span>🏪</span></a>
+  <a href="./tavern.html" data-page="tavern" title="Таверна"><span>🍻</span></a>
+  <a href="./caravan.html" data-page="caravan" title="Караван"><span>🐫</span></a>
+  <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span>🏛️</span></a>
+  <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span>💪</span></a>
+  <a href="./settings.html" data-page="settings" title="Настройки"><span>⚙️</span></a>
+</nav>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   TavernPage — полная логика страницы таверны
+   В продакшне WaifuApp.* вызовы заменяются реальными API-вызовами.
+   Здесь — полностью рабочая демо-логика с AI-генерацией через
+   Anthropic API (промпт текста) + заглушка для изображения.
+════════════════════════════════════════════════════════════════════ */
+const TavernPage = (() => {
+
+  // ── Справочники ──────────────────────────────────────────────────
+
+  const CLASS_ICONS = {
+    warrior: '⚔️', ranger: '🏹', mage: '🔮',
+    healer: '💚', rogue: '🗡️', shaman: '🌿', merchant: '💰',
+  };
+  const CLASS_RU = {
+    warrior: 'Воин', ranger: 'Лучница', mage: 'Магесса',
+    healer: 'Целительница', rogue: 'Плутовка', shaman: 'Шаманка', merchant: 'Торговка',
+  };
+  const CLASS_HP = { warrior:120, ranger:90, mage:70, healer:80, rogue:85, shaman:75, merchant:70 };
+  const CLASS_ENERGY = { warrior:80, ranger:100, mage:130, healer:110, rogue:95, shaman:120, merchant:90 };
+
+  const PERK_NAMES = {
+    combat_strike:'Мастер клинка', combat_shield:'Железная кожа', combat_berserk:'Берсерк',
+    combat_tactics:'Тактик', stealth_shadow:'Тень', stealth_disguise:'Мастер маскировки',
+    stealth_pickpocket:'Ловкие руки', magic_ward:'Магический щит', magic_dispel:'Рассеиватель',
+    magic_identify:'Знаток артефактов', nature_herb:'Травница', nature_beast:'Укротитель зверей',
+    nature_pathfind:'Первопроходец', social_charm:'Харизма', social_bribe:'Взяточник',
+    social_bargain:'Торгаш', social_intel:'Информатор', heal_field:'Полевая медицина',
+    heal_antidote:'Антидот', heal_revive:'Воля к жизни', heal_stamina:'Выносливость',
+    trap_detect:'Детектор', trap_disarm:'Сапёр', trap_vault:'Взломщик',
+    spirit_ward:'Святая защита', spirit_commune:'Общение с духами', spirit_anchor:'Якорь душ',
+    luck_finder:'Искатель сокровищ', luck_dodge:'Везунчик', luck_bonus:'Счастливая звезда',
+    know_history:'Историк', know_map:'Картограф', know_monster:'Монстрология',
+    trade_value:'Оценщик', trade_invest:'Инвестор', trade_fence:'Скупщик',
+    def_fortress:'Крепость', def_endure:'Терпение', def_formation:'Боевой строй',
+    def_last_stand:'Последний рубеж',
+  };
+  const PERK_DESCS = {
+    combat_strike:'Снижает урон в боях', combat_shield:'Снижает получаемый урон',
+    combat_berserk:'Шанс избежать урона в бою', nature_herb:'Восстанавливает HP на природных событиях',
+    heal_field:'Восстанавливает HP после каждого испытания', heal_revive:'Выживает с 1 HP (1 раз)',
+    social_charm:'Решает события переговорами', luck_bonus:'Бонус к итоговым наградам',
+    trap_detect:'Обнаруживает и обезвреживает ловушки', magic_ward:'Снижает магический урон',
+    stealth_shadow:'Обходит ловушки незаметно', spirit_ward:'Защита от нежити и демонов',
+    def_fortress:'Снижает весь входящий урон', def_last_stand:'Снижает урон при низком HP',
+    trade_fence:'Улучшает редкость найденных предметов',
+  };
+
+  const CLASSES = Object.keys(CLASS_RU);
+  const CLASS_PERKS = {
+    warrior: ['combat_strike','combat_shield','combat_berserk','combat_tactics','def_fortress','def_last_stand'],
+    ranger:  ['stealth_shadow','stealth_disguise','nature_pathfind','nature_beast','luck_finder','trap_detect'],
+    mage:    ['magic_ward','magic_dispel','magic_identify','spirit_ward','know_history','trap_detect'],
+    healer:  ['heal_field','heal_antidote','heal_revive','heal_stamina','nature_herb','spirit_commune'],
+    rogue:   ['stealth_shadow','stealth_pickpocket','trap_detect','trap_disarm','trap_vault','social_intel'],
+    shaman:  ['nature_herb','spirit_ward','spirit_commune','spirit_anchor','know_monster','magic_dispel'],
+    merchant:['social_charm','social_bribe','social_bargain','trade_value','trade_invest','trade_fence'],
+  };
+
+  const RACES = ['Человек','Эльфийка','Зверолюд','Ангел','Вампирша','Демоница','Фея'];
+  // Имя теперь генерируется ИИ вместе с BIO — массив NAMES не используется
+
+  // ── Состояние ────────────────────────────────────────────────────
+
+  const SLOT_COUNT = 4;
+
+  // Слоты: null = нанят / occupied = пустое место
+  const slots = Array.from({length: SLOT_COUNT}, (_, i) => ({
+    index: i,
+    price: [320,450,280,510][i],
+    hired: false,
+  }));
+
+  let roster = []; // нанятые юниты
+  let activeTab = 'hire';
+  let pendingSlotIndex = null;
+  let pendingUnit = null;
+  let selectedUnit = null;
+
+  // ── Инициализация ────────────────────────────────────────────────
+
+  function init() {
+    renderSquadTab();
+    updateSquadGrid();
+  }
+
+  // ── Переключение вкладок ─────────────────────────────────────────
+
+  function switchTab(tab) {
+    activeTab = tab;
+    document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+    if (tab === 'squad') updateSquadGrid();
+    if (tab === 'heal') renderHealTab();
+    if (tab === 'upgrade') renderUpgradeTab();
+  }
+
+  // ── НАЙМ: клик по фигуре ─────────────────────────────────────────
+
+  function onFigureClick(i) {
+    if (slots[i].hired) return;
+    pendingSlotIndex = i;
+    document.getElementById('confirm-price').textContent = `🪙 ${slots[i].price}`;
+    document.getElementById('modal-confirm-hire').classList.remove('hidden');
+  }
+
+  function closeConfirmHire() {
+    document.getElementById('modal-confirm-hire').classList.add('hidden');
+    pendingSlotIndex = null;
+  }
+
+  async function confirmHire() {
+    const i = pendingSlotIndex;
+    closeConfirmHire();
+    await runGeneration(i);
+  }
+
+  // ── ГЕНЕРАЦИЯ ────────────────────────────────────────────────────
+
+  async function runGeneration(slotIndex) {
+    const overlay = document.getElementById('gen-overlay');
+    const stageLabel = document.getElementById('gen-stage-label');
+    const stageDetail = document.getElementById('gen-stage-detail');
+    const progressFill = document.getElementById('gen-progress-fill');
+
+    overlay.classList.remove('hidden');
+    progressFill.style.width = '0%';
+
+    // 1. Генерируем параметры
+    setStage(stageLabel, stageDetail, progressFill, 'Призыв наёмницы...', 'Формирование параметров', 10);
+    await sleep(400);
+
+    const unit = generateUnitParams();
+    setStage(stageLabel, stageDetail, progressFill, 'Параметры готовы', `${CLASS_RU[unit.cls]} · Ур.${unit.level}`, 30);
+    await sleep(300);
+
+    // 2. AI: генерируем имя + BIO через Anthropic
+    setStage(stageLabel, stageDetail, progressFill, 'Пишем историю...', 'ИИ придумывает имя и биографию', 40);
+    try {
+      const result = await generateBio(unit);
+      unit.name = result.name;
+      unit.bio  = result.bio;
+    } catch(e) {
+      unit.name = fallbackName(unit);
+      unit.bio  = fallbackBio(unit);
+    }
+    setStage(stageLabel, stageDetail, progressFill, `${unit.name} — история написана`, unit.bio.slice(0,40)+'...', 65);
+    await sleep(300);
+
+    // 3. AI image (заглушка — в продакшне здесь вызов image API)
+    setStage(stageLabel, stageDetail, progressFill, 'Рисуем портрет...', 'Генерация изображения', 75);
+    await sleep(800); // эмулируем задержку генерации изображения
+    unit.imageUrl = null; // в продакшне: await generateImage(unit)
+    setStage(stageLabel, stageDetail, progressFill, 'Портрет готов', 'Завершение...', 95);
+    await sleep(400);
+
+    // 4. Фиксируем
+    progressFill.style.width = '100%';
+    setStage(stageLabel, stageDetail, progressFill, '✦ Наёмница готова ✦', '', 100);
+    await sleep(500);
+
+    overlay.classList.add('hidden');
+
+    // Помечаем слот как нанятый
+    slots[slotIndex].hired = true;
+    const svgFigure = document.getElementById(`svg-figure-${slotIndex + 1}`);
+    if (svgFigure) svgFigure.classList.add('hired');
+
+    roster.push(unit);
+    pendingUnit = unit;
+    showHireResult(unit);
+  }
+
+  function generateUnitParams() {
+    const cls = CLASSES[Math.floor(Math.random() * CLASSES.length)];
+    const level = 1 + Math.floor(Math.random() * 5);
+    const race = RACES[Math.floor(Math.random() * RACES.length)];
+    const hpMax = CLASS_HP[cls] + (level - 1) * 15 + Math.floor(Math.random() * 20);
+    const energyMax = CLASS_ENERGY[cls] + (level - 1) * 8;
+    const perkCount = 2 + Math.floor(Math.random() * 2); // 2–3 перка
+    const perkPool = CLASS_PERKS[cls];
+    const perks = shuffle(perkPool).slice(0, perkCount).map(id => ({
+      id,
+      level: 1 + Math.floor(Math.random() * 3),
+    }));
+    return {
+      id: Date.now(),
+      name: '...', // имя придёт от ИИ вместе с BIO
+      cls, race, level, hpMax, hpCurrent: hpMax,
+      energyMax, energyCurrent: energyMax,
+      perks, bio: '', imageUrl: null,
+      inSquad: false, status: 'ok',
+    };
+  }
+
+  async function generateBio(unit) {
+    const perkNames = unit.perks.map(p => PERK_NAMES[p.id] || p.id).join(', ');
+    const prompt = `Ты — рассказчик в фэнтезийной RPG-игре про вайфу-наёмниц.
+Придумай имя и биографию для наёмницы со следующими параметрами:
+Раса: ${unit.race}
+Класс: ${CLASS_RU[unit.cls]}
+Уровень: ${unit.level}
+Умения: ${perkNames}
+
+Требования к имени: короткое фэнтезийное женское имя (1–2 слога), подходящее под расу и класс. Не используй имена из популярных аниме.
+Требования к биографии: 2–3 предложения, русский язык, живо и с характером, без механик и чисел. Упомяни умения через образы и действия, не называя их напрямую.
+
+Ответь СТРОГО в формате JSON без пояснений и markdown:
+{"name": "Имя", "bio": "Биография..."}`;
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 300,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const data = await resp.json();
+    const raw = data.content?.find(b => b.type === 'text')?.text?.trim() || '';
+
+    // Парсим JSON из ответа — вырезаем блок {...} даже если ИИ добавил лишнее
+    try {
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        return {
+          name: parsed.name?.trim() || fallbackName(unit),
+          bio:  parsed.bio?.trim()  || fallbackBio(unit),
+        };
+      }
+    } catch (_) { /* ignore parse error, fall through */ }
+
+    // Fallback: попробовать извлечь имя из первого предложения
+    return { name: fallbackName(unit), bio: raw || fallbackBio(unit) };
+  }
+
+  function fallbackName(unit) {
+    // Запасные имена по расе если ИИ недоступен
+    const byRace = {
+      'Человек':  ['Мира','Лена','Ада','Соль'],
+      'Эльфийка': ['Аэль','Нэли','Сиэль','Ирэн'],
+      'Зверолюд': ['Рэй','Кора','Яра','Тэйн'],
+      'Ангел':    ['Лира','Аэра','Нэль','Сия'],
+      'Вампирша': ['Вэра','Нокс','Дэйн','Рива'],
+      'Демоница': ['Зэль','Кира','Асха','Вэл'],
+      'Фея':      ['Пик','Дэви','Нии','Фэй'],
+    };
+    const pool = byRace[unit.race] || ['Аира','Мика','Нэли','Ки'];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function fallbackBio(unit) {
+    return `Таинственная ${CLASS_RU[unit.cls].toLowerCase()} с непростым прошлым. Мало говорит, много делает.`;
+  }
+
+  // ── Результат найма ───────────────────────────────────────────────
+
+  function showHireResult(unit) {
+    document.getElementById('result-name').textContent = unit.name;
+    document.getElementById('result-class').textContent = `${CLASS_ICONS[unit.cls]} ${CLASS_RU[unit.cls]} · ${unit.race} · Ур.${unit.level}`;
+    document.getElementById('result-bio').textContent = unit.bio;
+
+    // Stats
+    document.getElementById('result-stats').innerHTML = `
+      <div class="result-stat"><div class="result-stat-label">HP</div><div class="result-stat-value">${unit.hpMax}</div></div>
+      <div class="result-stat"><div class="result-stat-label">Энергия</div><div class="result-stat-value">${unit.energyMax}</div></div>
+      <div class="result-stat"><div class="result-stat-label">Уровень</div><div class="result-stat-value">${unit.level}</div></div>
+      <div class="result-stat"><div class="result-stat-label">Перков</div><div class="result-stat-value">${unit.perks.length}</div></div>
+    `;
+
+    // Perks
+    document.getElementById('result-perks').innerHTML = unit.perks.map(p =>
+      `<span class="perk-badge">${PERK_NAMES[p.id] || p.id}<span class="perk-lvl"> ур.${p.level}</span></span>`
+    ).join('');
+
+    // Portrait
+    if (unit.imageUrl) {
+      document.getElementById('result-portrait-img').src = unit.imageUrl;
+      document.getElementById('result-portrait-img').style.display = 'block';
+      document.getElementById('result-portrait-placeholder').style.display = 'none';
+    } else {
+      document.getElementById('result-portrait-placeholder').textContent = CLASS_ICONS[unit.cls] || '✨';
+      document.getElementById('result-portrait-placeholder').style.display = 'flex';
+      document.getElementById('result-portrait-img').style.display = 'none';
+    }
+
+    document.getElementById('modal-hire-result').classList.remove('hidden');
+  }
+
+  function closeHireResult() {
+    document.getElementById('modal-hire-result').classList.add('hidden');
+    pendingUnit = null;
+    updateSquadGrid();
+  }
+
+  function goToSquad() {
+    closeHireResult();
+    switchTab('squad');
+  }
+
+  // ── Отряд / ростер ────────────────────────────────────────────────
+
+  function renderSquadTab() { updateSquadGrid(); }
+
+  function updateSquadGrid() {
+    const grid = document.getElementById('squad-grid');
+    const countersEl = document.getElementById('tavern-squad-counters');
+    const squadUnits = roster.filter(u => u.inSquad);
+    const reserveUnits = roster.filter(u => !u.inSquad);
+    const pool = [...squadUnits, ...reserveUnits].slice(0, 10);
+
+    let nReady = 0;
+    let nSquad = 0;
+    let nExp = 0;
+    roster.forEach((u) => {
+      if (u.status === 'expedition') nExp += 1;
+      else if (u.inSquad) nSquad += 1;
+      else nReady += 1;
+    });
+    if (countersEl) countersEl.textContent = `${nReady} готовы · ${nSquad} в отряде · ${nExp} в походе`;
+
+    const POOL_MAX = 10;
+    grid.innerHTML = '';
+    for (let i = 0; i < POOL_MAX; i++) {
+      const unit = pool[i];
+      const slot = document.createElement('div');
+      if (!unit) {
+        slot.className = 'squad-slot';
+        slot.innerHTML = `<span style="font-size:24px;opacity:.3">＋</span><span style="font-size:11px;">Пустой слот</span>`;
+        slot.onclick = () => openAddToSquadPicker();
+        grid.appendChild(slot);
+        continue;
+      }
+      slot.className = 'squad-slot occupied';
+      slot.innerHTML = unitCardMiniHTML(unit);
+      slot.onclick = () => openUnitDetail(unit);
+      grid.appendChild(slot);
+    }
+  }
+
+  function unitCardMiniHTML(unit) {
+    const hpPct = Math.round(unit.hpCurrent / unit.hpMax * 100);
+    const enPct = Math.round(unit.energyCurrent / unit.energyMax * 100);
+    const statusClass = unit.hpCurrent === 0 ? 'wounded' :
+                        unit.energyCurrent === 0 ? 'tired' :
+                        unit.status === 'expedition' ? 'expedition' : 'ok';
+    const statusText = { ok:'Готова', wounded:'Ранена', tired:'Без сил', expedition:'В экспедиции' }[statusClass];
+    return `
+      <div class="unit-card-mini">
+        <div class="unit-card-mini-header">
+          <div class="unit-portrait">${CLASS_ICONS[unit.cls]}</div>
+          <div class="unit-info">
+            <div class="unit-name">${unit.name}</div>
+            <div class="unit-class">${CLASS_RU[unit.cls]}</div>
+            <span class="unit-level">Ур. ${unit.level}</span>
+          </div>
+        </div>
+        <div class="unit-bars">
+          <div class="mini-bar-row">❤
+            <div class="mini-bar"><div class="mini-bar-fill hp" style="width:${hpPct}%"></div></div>
+            ${unit.hpCurrent}/${unit.hpMax}
+          </div>
+          <div class="mini-bar-row">⚡
+            <div class="mini-bar"><div class="mini-bar-fill energy" style="width:${enPct}%"></div></div>
+            ${unit.energyCurrent}/${unit.energyMax}
+          </div>
+        </div>
+        <div class="unit-perks-mini">${unit.perks.slice(0,2).map(p => `<span class="perk-pip">${PERK_NAMES[p.id]?.split(' ')[0] || '?'}</span>`).join('')}${unit.perks.length > 2 ? `<span class="perk-pip">+${unit.perks.length-2}</span>` : ''}</div>
+        <span class="unit-status ${statusClass}">${statusText}</span>
+      </div>`;
+  }
+
+  function addToSquad(unitId) {
+    const unit = roster.find(u => u.id === unitId);
+    const squadCount = roster.filter(u => u.inSquad).length;
+    if (!unit || squadCount >= 3) return;
+    unit.inSquad = true;
+    updateSquadGrid();
+  }
+
+  function removeFromSquad(unitId) {
+    const unit = roster.find(u => u.id === unitId);
+    if (unit) unit.inSquad = false;
+    updateSquadGrid();
+    closeUnitDetail();
+  }
+
+  function openAddToSquadPicker() {
+    const available = roster.filter(u => !u.inSquad);
+    if (available.length === 0) { switchTab('hire'); return; }
+    openUnitDetail(available[0]);
+  }
+
+  // ── Детали наёмницы ───────────────────────────────────────────────
+
+  function openUnitDetail(unit) {
+    if (!unit) return;
+    selectedUnit = unit;
+    document.getElementById('detail-name').textContent = unit.name;
+    document.getElementById('detail-subtitle').textContent = `${CLASS_RU[unit.cls]} · ${unit.race} · Ур.${unit.level}`;
+    document.getElementById('detail-bio').textContent = unit.bio || 'Биография не записана.';
+
+    if (unit.imageUrl) {
+      document.getElementById('detail-portrait-img').src = unit.imageUrl;
+      document.getElementById('detail-portrait-img').style.display = 'block';
+      document.getElementById('detail-portrait-ph').style.display = 'none';
+    } else {
+      document.getElementById('detail-portrait-ph').textContent = CLASS_ICONS[unit.cls];
+      document.getElementById('detail-portrait-ph').style.display = 'flex';
+      document.getElementById('detail-portrait-img').style.display = 'none';
+    }
+
+    document.getElementById('detail-level').textContent = unit.level;
+    document.getElementById('detail-hp-max').textContent = unit.hpMax;
+    document.getElementById('detail-hp-val').textContent = `${unit.hpCurrent} / ${unit.hpMax}`;
+    document.getElementById('detail-energy-val').textContent = `${unit.energyCurrent} / ${unit.energyMax}`;
+    document.getElementById('detail-hp-fill').style.width = (unit.hpCurrent/unit.hpMax*100)+'%';
+    document.getElementById('detail-energy-fill').style.width = (unit.energyCurrent/unit.energyMax*100)+'%';
+
+    document.getElementById('detail-perks').innerHTML = unit.perks.map(p => `
+      <div class="perk-row">
+        <div class="perk-row-head">
+          <span class="perk-row-name">${PERK_NAMES[p.id] || p.id}</span>
+          <span class="perk-row-lvl">Ур. ${p.level}</span>
+        </div>
+        <div class="perk-row-desc">${PERK_DESCS[p.id] || 'Специальное умение'}</div>
+      </div>`).join('');
+
+    const actionRow = document.getElementById('detail-action-row');
+    if (unit.inSquad) {
+      actionRow.innerHTML = `<button class="btn btn-secondary" onclick="TavernPage.removeFromSquad(${unit.id})">Убрать из отряда</button>`;
+    } else {
+      const squadFull = roster.filter(u => u.inSquad).length >= 3;
+      actionRow.innerHTML = `<button class="btn btn-primary" ${squadFull ? 'disabled' : ''} onclick="TavernPage.addToSquad(${unit.id}); TavernPage.closeUnitDetail();">В отряд</button>`;
+    }
+
+    document.getElementById('modal-unit-detail').classList.remove('hidden');
+  }
+
+  function closeUnitDetail() {
+    document.getElementById('modal-unit-detail').classList.add('hidden');
+    selectedUnit = null;
+  }
+
+  function dismissUnit() {
+    if (!selectedUnit) return;
+    if (!confirm(`Уволить ${selectedUnit.name}? Уровень передастся следующей нанятой наёмнице.`)) return;
+    roster = roster.filter(u => u.id !== selectedUnit.id);
+    closeUnitDetail();
+    updateSquadGrid();
+  }
+
+  function getUnit(id) { return roster.find(u => u.id === id); }
+
+  // ── Лечение ───────────────────────────────────────────────────────
+
+  function renderHealTab() {
+    const wounded = roster.filter(u => u.hpCurrent < u.hpMax);
+    const list = document.getElementById('heal-units-list');
+    if (wounded.length === 0) {
+      list.className = 'heal-empty muted';
+      list.textContent = 'Все наёмницы здоровы';
+      return;
+    }
+    list.className = 'heal-grid';
+    list.innerHTML = wounded.map(u => {
+      const missing = u.hpMax - u.hpCurrent;
+      const cost = Math.round(missing * (u.hpCurrent === 0 ? 2 : 1) * 0.8);
+      const pct = u.hpMax > 0 ? Math.round(u.hpCurrent / u.hpMax * 100) : 0;
+      const hpLine = u.hpCurrent === 0 ? `0 / ${u.hpMax}` : `${u.hpCurrent} / ${u.hpMax}`;
+      const faint = u.hpCurrent === 0
+        ? '<div class="heal-faint-note">Обморок — стоимость ×2</div>'
+        : '';
+      const portrait = u.imageUrl
+        ? `<img src="${String(u.imageUrl).replace(/"/g, '&quot;')}" alt=""/>`
+        : (CLASS_ICONS[u.cls] || '✨');
+      return `
+        <div class="heal-merc-card">
+          <div>
+            <div class="heal-card-hp-row">
+              <span class="heal-hp-label">❤ HP</span>
+              <span class="heal-hp-values">${hpLine}</span>
+            </div>
+            <div class="heal-bar-wrap"><div class="heal-bar-fill" style="width:${pct}%"></div></div>
+            ${faint}
+          </div>
+          <div class="heal-card-portrait">${portrait}</div>
+          <div class="heal-card-name">${u.name}</div>
+          <button type="button" class="btn btn-primary heal-card-btn" onclick="TavernPage.healUnit(${u.id})">
+            Вылечить · 🪙 ${cost}
+          </button>
+        </div>`;
+    }).join('');
+  }
+
+  function healUnit(id) {
+    const unit = roster.find(u => u.id === id);
+    if (!unit) return;
+    unit.hpCurrent = unit.hpMax;
+    unit.heal_cost_multiplier = 1.0;
+    renderHealTab();
+    updateSquadGrid();
+  }
+
+  // ── Прокачка ──────────────────────────────────────────────────────
+
+  function renderUpgradeTab() {
+    const list = document.getElementById('upgrade-list');
+    if (roster.length === 0) {
+      list.innerHTML = '<div class="placeholder muted" style="font-style:italic;">Нет нанятых наёмниц</div>';
+      return;
+    }
+    list.innerHTML = roster.map(u => {
+      if (u.level >= 30) return `
+        <div style="background:rgba(255,255,255,.04);border:1px solid rgba(200,146,42,.15);border-radius:12px;padding:12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+          <div><div style="font-family:var(--font-title);font-size:13px;">${u.name}</div><div style="font-size:11px;color:var(--ash);">Макс. уровень</div></div>
+          <span style="font-size:12px;color:var(--amber);">Ур. 30 ✦</span>
+        </div>`;
+      const cost = Math.round(150 * u.level * 0.9985);
+      return `
+        <div style="background:rgba(255,255,255,.04);border:1px solid rgba(200,146,42,.15);border-radius:12px;padding:12px;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <span style="font-family:var(--font-title);font-size:13px;">${u.name}</span>
+            <span class="unit-level">Ур. ${u.level} → ${u.level+1}</span>
+          </div>
+          <div style="font-size:12px;color:var(--ash);margin-bottom:8px;">+${15} HP · +1 к случайному перку</div>
+          <button class="btn btn-primary" style="font-size:12px;" onclick="TavernPage.upgradeUnit(${u.id})">
+            Прокачать — 🪙 ${cost}
+          </button>
+        </div>`;
+    }).join('');
+  }
+
+  function upgradeUnit(id) {
+    const unit = roster.find(u => u.id === id);
+    if (!unit || unit.level >= 30) return;
+    unit.level++;
+    unit.hpMax += 15;
+    unit.hpCurrent = Math.min(unit.hpCurrent + 15, unit.hpMax);
+    const perk = unit.perks[Math.floor(Math.random() * unit.perks.length)];
+    if (perk && perk.level < 3) perk.level++;
+    renderUpgradeTab();
+    updateSquadGrid();
+  }
+
+  // ── Утилиты ───────────────────────────────────────────────────────
+
+  function setStage(label, detail, bar, lText, dText, pct) {
+    label.textContent = lText;
+    detail.textContent = dText;
+    bar.style.width = pct + '%';
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function shuffle(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  // Публичный API
+  return {
+    init, switchTab, onFigureClick, closeConfirmHire, confirmHire,
+    closeHireResult, goToSquad, updateSquadGrid, openUnitDetail,
+    closeUnitDetail, dismissUnit, removeFromSquad, addToSquad,
+    healUnit, upgradeUnit, getUnit,
+  };
+})();
+</script>
+
+</body>
+</html>

@@ -9,7 +9,6 @@ from waifu_bot.db.models import (
     MainWaifu,
     Skill,
     WaifuSkill,
-    GuildSkill,
     Guild,
 )
 

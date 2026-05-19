@@ -1,0 +1,5 @@
+# Deploy: cd scripts/cloudflare-telegram-proxy && npx wrangler deploy
+# Secret: npx wrangler secret put SECRET_PREFIX  (случайная строка, та же что в TELEGRAM_API_BASE_URL на VPS)
+name = "waifu-telegram-api-proxy"
+main = "worker.js"
+compatibility_date = "2025-01-01"

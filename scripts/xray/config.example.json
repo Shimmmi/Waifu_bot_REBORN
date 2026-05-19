@@ -1,0 +1,72 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "tag": "socks-local",
+      "listen": "127.0.0.1",
+      "port": 1080,
+      "protocol": "socks",
+      "settings": {
+        "udp": true
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "vless-reality-xhttp",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "YOUR_SERVER_IP_OR_HOST",
+            "port": 443,
+            "users": [
+              {
+                "id": "YOUR_VLESS_UUID",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "fingerprint": "chrome",
+          "serverName": "yahoo.com",
+          "publicKey": "PASTE_pbk_FROM_VLESS_URI",
+          "shortId": "776ba31e",
+          "spiderX": ""
+        },
+        "xhttpSettings": {
+          "path": "/",
+          "mode": "auto",
+          "host": ""
+        }
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "settings": {}
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "outboundTag": "vless-reality-xhttp",
+        "network": "tcp,udp"
+      }
+    ]
+  }
+}

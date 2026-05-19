@@ -67,11 +67,35 @@
       body.page-training .passive-stats-sep {
         opacity: 0.45;
       }
-      body.page-training #passive-free-pts {
+      body.page-training .passive-free-pts-wrap {
         margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      body.page-training #passive-free-pts {
         font-size: 15px;
         font-weight: 800;
         color: var(--amber-glow);
+      }
+      body.page-training .passive-admin-max-btn {
+        margin-left: 6px;
+        padding: 2px 8px;
+        font-size: 16px;
+        line-height: 1;
+        border: 1px solid rgba(200, 146, 42, 0.45);
+        border-radius: 8px;
+        background: rgba(200, 146, 42, 0.12);
+        color: var(--amber-glow);
+        cursor: pointer;
+      }
+      body.page-training .passive-admin-max-btn:hover {
+        border-color: var(--amber-glow);
+        background: rgba(200, 146, 42, 0.22);
+      }
+      body.page-training .passive-admin-max-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
       }
       body.page-training .passive-tabs {
         border-bottom-color: rgba(200, 146, 42, 0.22);
@@ -162,7 +186,7 @@
         color: #ffe8a8 !important;
       }
     </style>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
   <body class="page-training" onload="WaifuApp.bootstrapPage('training', WaifuApp.populateTrainingHall);">
@@ -184,7 +208,19 @@
           <span>Воин / Тень / Мудрец</span>
           <span id="passive-branch-pts">—</span>
           <span class="passive-stats-sep" aria-hidden="true">·</span>
-          <strong id="passive-free-pts" title="Свободные очки навыков">—</strong>
+          <span class="passive-free-pts-wrap">
+            <strong id="passive-free-pts" title="Свободные очки навыков">—</strong>
+            <button
+              type="button"
+              id="passive-admin-max-all"
+              class="passive-admin-max-btn"
+              hidden
+              aria-label="Прокачать все пассивы (админ QA)"
+              title="Прокачать все пассивы (админ QA)"
+            >
+              ⏫
+            </button>
+          </span>
         </div>
         <div class="passive-tabs" role="tablist" aria-label="Пассивные и скрытые навыки">
           <button type="button" class="passive-tab active" data-training-tab="warrior" role="tab" aria-selected="true">
@@ -236,6 +272,32 @@
           <button type="button" class="passive-modal-x" id="passive-modal-close" aria-label="Закрыть">✕</button>
         </div>
         <div class="modal-body passive-modal-body--skill" id="passive-modal-body"></div>
+      </div>
+    </div>
+
+    <div
+      id="hidden-skill-modal"
+      class="modal"
+      style="display: none"
+      onclick="if (event.target === this) WaifuApp.closeHiddenSkillModal()"
+    >
+      <div class="modal-content passive-skill-modal-panel" onclick="event.stopPropagation()">
+        <div class="modal-head passive-modal-head--skill">
+          <div class="modal-title passive-modal-title-row">
+            <span id="hidden-skill-modal-icon" class="passive-modal-icon" aria-hidden="true"></span>
+            <span id="hidden-skill-modal-title">—</span>
+          </div>
+          <button
+            type="button"
+            class="passive-modal-x"
+            id="hidden-skill-modal-close"
+            aria-label="Закрыть"
+            onclick="WaifuApp.closeHiddenSkillModal()"
+          >
+            ✕
+          </button>
+        </div>
+        <div class="modal-body passive-modal-body--skill" id="hidden-skill-modal-body"></div>
       </div>
     </div>
 

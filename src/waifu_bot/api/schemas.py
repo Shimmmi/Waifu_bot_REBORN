@@ -95,6 +95,7 @@ class DungeonStartResponse(BaseModel):
     monster_name: str
     monster_hp: int
     error: Optional[str] = None
+    story_modal: Optional[dict] = None
 
 
 class DungeonActiveResponse(BaseModel):
@@ -116,6 +117,7 @@ class BattleMessageResponse(BaseModel):
     experience_gained: Optional[int] = None
     next_monster: Optional[str] = None
     error: Optional[str] = None
+    reward_why_next: Optional[str] = None
 
 
 class GuildCreateResponse(BaseModel):
@@ -136,6 +138,9 @@ class GuildActionResponse(BaseModel):
     guild_gold: Optional[int] = None
     player_gold: Optional[int] = None
     item_id: Optional[int] = None
+    reason: Optional[str] = None
+    max_members: Optional[int] = None
+    guild_id: Optional[int] = None
 
 
 class HiddenSkillOut(BaseModel):
@@ -215,6 +220,13 @@ class PassiveResetResponse(BaseModel):
     have: Optional[int] = None
 
 
+class PassiveAdminMaxAllResponse(BaseModel):
+    ok: bool
+    total_nodes: int = 0
+    rows_changed: int = 0
+    error: Optional[str] = None
+
+
 class SkillsListResponse(BaseModel):
     skills: List["SkillOut"]
 
@@ -240,12 +252,9 @@ class HiredWaifuOut(BaseModel):
     power: int | None = None
     perks: list[str] | None = None
     bio: Optional[str] = None
-    strength: int
-    agility: int
-    intelligence: int
-    endurance: int
-    charm: int
-    luck: int
+    perk_upgrade_points: int = 0
+    exp_current: int = 0
+    perk_levels: dict = Field(default_factory=dict)
     squad_position: Optional[int] = None
     expedition_id: Optional[int] = None
     in_squad: bool = False
@@ -262,6 +271,9 @@ class HiredWaifuOut(BaseModel):
         out["hpMax"] = data.get("max_hp")
         out["imageUrl"] = data.get("image_url")
         out["inSquad"] = data.get("in_squad")
+        out["perkUpgradePoints"] = data.get("perk_upgrade_points", 0)
+        out["expCurrent"] = data.get("exp_current", 0)
+        out["perkLevels"] = data.get("perk_levels") or {}
         return out
 
 
@@ -359,9 +371,15 @@ class MainWaifuProfile(BaseModel):
     race_flat_bonuses: dict[str, int] = Field(default_factory=dict)
     class_flat_bonuses: dict[str, int] = Field(default_factory=dict)
     portrait_url: Optional[str] = None
+    paperdoll_url: Optional[str] = None
+    bio: Optional[str] = None
 
     class Config:
         populate_by_name = True
+
+
+class MainWaifuPaperdollResponse(BaseModel):
+    paperdoll_url: str
 
 
 class MainWaifuDetails(BaseModel):
@@ -375,6 +393,8 @@ class MainWaifuDetails(BaseModel):
     dodge_chance: float
     defense: int
     merchant_discount: float
+    magic_find_pct: float = 0.0
+    magic_find_blend_pct: float = 0.0
 
 
 class AffixOut(BaseModel):
@@ -420,7 +440,7 @@ class GearItemOut(BaseModel):
     affixes: List[AffixOut] = []
     slot_type: Optional[str] = None
     image_key: Optional[str] = None
-    # Tiered item art (WebApp). art_key selects per-type images (e.g. sword_1h vs sword_2h).
+    # Tiered WebP path key: ``category`` or ``category/name_slug`` (template base name, no affixes).
     art_key: Optional[str] = None
     image_url: Optional[str] = None
     can_equip: Optional[bool] = None  # Для endpoint available - можно ли экипировать
@@ -439,6 +459,25 @@ class ProfileResponse(BaseModel):
     main_waifu: Optional[MainWaifuProfile] = None
     main_waifu_details: Optional[MainWaifuDetails] = None
     equipment: List[GearItemOut] = []
+
+
+class GuildMemberMainWaifuPreviewOut(BaseModel):
+    name: Optional[str] = None
+    level: int = 1
+    race: int = 0
+    class_: int = Field(default=0, alias="class")
+    portrait_url: Optional[str] = None
+    paperdoll_url: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
+
+
+class GuildMemberPreviewOut(BaseModel):
+    player_id: int
+    telegram_username: Optional[str] = None
+    first_name: Optional[str] = None
+    main_waifu: Optional[GuildMemberMainWaifuPreviewOut] = None
 
 
 MainWaifuHairColor = Literal[
@@ -648,6 +687,7 @@ class ExpeditionAffixOut(BaseModel):
     category: str  # elemental, enemy, hazard, cursed, blessed
     description_hint: Optional[str] = None
     icon: Optional[str] = None
+    paired_perks: List[str] = []  # id перков-контров из expedition_affixes
 
 
 class ExpeditionSlotOut(BaseModel):
@@ -659,6 +699,8 @@ class ExpeditionSlotOut(BaseModel):
     difficulty: Optional[int] = None  # 1=лёгкая, 3=средняя, 5=тяжёлая (из аффиксов или по слоту)
     label: Optional[str] = None  # "Лёгкая" | "Средняя" | "Тяжёлая"
     required_perks: List[str] = []  # id перков, полезных для этого слота (контраффиксы)
+    # Объединение категорий испытаний v1.3 по всем аффиксам слота (раса/класс/перки)
+    challenge_categories: List[str] = []
     affixes: List[ExpeditionAffixOut] = []  # ТЗ v1.1: чипы аффиксов (если нет — пусто)
     base_location: Optional[str] = None  # «Пещера», «Руины» — для отображения
     biome_tag: Optional[str] = None  # cave, forest, ruins… — для CSS фона карточки

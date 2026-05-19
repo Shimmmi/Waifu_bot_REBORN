@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Караван</title>
     <link rel="stylesheet" href="./styles.css" />
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
     <style>
       :root {
@@ -129,7 +129,7 @@
         background: rgba(255, 255, 255, 0.06) !important;
         border-color: rgba(200, 146, 42, 0.2) !important;
       }
-      /* Сцена: фон карты на весь блок, точки, погонщица поверх */
+      /* Сцена: фон карты на весь блок, точки */
       .page-caravan .caravan-stage {
         position: relative;
         flex: 1;
@@ -165,74 +165,22 @@
         font-size: 11px;
         border-radius: 8px;
       }
-      .page-caravan .caravan-driver-overlay {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        z-index: 4;
-        display: flex;
-        justify-content: center;
-        align-items: flex-start;
-        padding: 6px 8px 0;
-        pointer-events: none;
-      }
-      .page-caravan .caravan-driver-btn {
-        border: none;
-        background: transparent;
-        padding: 0;
-        margin: 0;
-        cursor: pointer;
-        max-width: min(92vw, 440px);
-        pointer-events: auto;
-        -webkit-tap-highlight-color: transparent;
-      }
-      .page-caravan .caravan-driver-btn:focus-visible {
-        outline: 2px solid rgba(232, 184, 75, 0.65);
-        outline-offset: 3px;
-        border-radius: 12px;
-      }
-      .page-caravan .caravan-driver-btn:active {
-        transform: scale(0.98);
-      }
-      .page-caravan .caravan-driver-wrap {
-        display: block;
-        position: relative;
-        line-height: 0;
-      }
-      .page-caravan .caravan-driver-img {
-        display: block;
-        max-height: min(30vh, 260px);
-        width: auto;
-        max-width: 100%;
-        margin: 0 auto;
-        object-fit: contain;
-        object-position: bottom center;
-        filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.5));
-      }
-      .page-caravan .caravan-driver-emoji {
-        display: none;
-        font-size: clamp(48px, 15vw, 88px);
-        line-height: 1;
-        padding: 8px 0;
-        opacity: 0.9;
-        filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.5));
-      }
-      .page-caravan .caravan-driver-wrap.driver-fallback .caravan-driver-img {
-        display: none !important;
-      }
-      .page-caravan .caravan-driver-wrap.driver-fallback .caravan-driver-emoji {
-        display: block;
-      }
       .page-caravan .caravan-pins-layer {
         position: absolute;
         inset: 0;
         z-index: 2;
         pointer-events: none;
       }
-      .page-caravan .caravan-pin {
+      .page-caravan .act-btn {
         position: absolute;
         transform: translate(-50%, -50%);
+      }
+      .page-caravan .caravan-pin--1 { left: 33%; top: 82%; }
+      .page-caravan .caravan-pin--2 { left: 40%; top: 62%; }
+      .page-caravan .caravan-pin--3 { left: 38%; top: 45%; }
+      .page-caravan .caravan-pin--4 { left: 30%; top: 28%; }
+      .page-caravan .caravan-pin--5 { left: 42%; top: 10%; }
+      .page-caravan .caravan-pin {
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -242,11 +190,6 @@
         pointer-events: auto;
         text-align: center;
       }
-      .page-caravan .caravan-pin--1 { left: 22%; top: 72%; }
-      .page-caravan .caravan-pin--2 { left: 16%; top: 50%; }
-      .page-caravan .caravan-pin--3 { left: 48%; top: 44%; }
-      .page-caravan .caravan-pin--4 { left: 74%; top: 40%; }
-      .page-caravan .caravan-pin--5 { left: 86%; top: 26%; }
       .page-caravan .caravan-pin-gold {
         font-size: 9px;
         font-weight: 700;
@@ -334,55 +277,6 @@
         white-space: nowrap;
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
       }
-      .page-caravan #caravan-tip-modal.modal {
-        z-index: 120;
-        align-items: flex-end;
-        justify-content: center;
-      }
-      .page-caravan .caravan-tip-sheet {
-        width: 100%;
-        max-width: 480px;
-        border-radius: 18px 18px 0 0;
-        border: 1px solid rgba(200, 146, 42, 0.28);
-        border-bottom: none;
-        background: rgba(26, 20, 16, 0.98);
-        color: var(--cv-cream);
-        padding: 12px 16px 20px;
-        max-height: 55vh;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-      .page-caravan .caravan-tip-sheet .modal-handle {
-        width: 36px;
-        height: 4px;
-        background: rgba(200, 146, 42, 0.35);
-        border-radius: 2px;
-        margin: 0 auto 4px;
-      }
-      .page-caravan .caravan-tip-title {
-        font-weight: 700;
-        font-size: 15px;
-        color: var(--cv-amber-glow);
-        letter-spacing: 0.04em;
-      }
-      .page-caravan .caravan-tip-body {
-        font-size: 14px;
-        line-height: 1.45;
-        overflow-y: auto;
-        flex: 1;
-        min-height: 0;
-        white-space: pre-wrap;
-      }
-      .page-caravan .caravan-tip-actions {
-        flex-shrink: 0;
-      }
-      .page-caravan .caravan-tip-actions .secondary {
-        width: 100%;
-        padding: 10px;
-        border-radius: 10px;
-      }
       .page-caravan .nav.basement {
         flex-shrink: 0;
         background: rgba(13, 10, 8, 0.99);
@@ -422,25 +316,6 @@
       <img id="caravan-bg-img" class="caravan-bg-full" src="" alt="" />
       <div id="caravan-pins-layer" class="caravan-pins-layer"></div>
       <div id="caravan-error" class="banner caravan-error-banner" style="display: none;"></div>
-      <div class="caravan-driver-overlay">
-        <button type="button" class="caravan-driver-btn" id="caravan-driver-btn" title="Совет погонщицы" aria-label="Совет погонщицы">
-          <span class="caravan-driver-wrap" id="caravan-driver-wrap">
-            <img id="caravan-driver-img" class="caravan-driver-img" src="" alt="" />
-            <span class="caravan-driver-emoji" aria-hidden="true">🐫</span>
-          </span>
-        </button>
-      </div>
-    </div>
-
-    <div id="caravan-tip-modal" class="modal hidden" style="display: none" role="dialog" aria-modal="true" aria-labelledby="caravan-tip-title">
-      <div class="modal-content caravan-tip-sheet">
-        <div class="modal-handle"></div>
-        <div class="caravan-tip-title" id="caravan-tip-title">Погонщица</div>
-        <div id="caravan-tip-body" class="caravan-tip-body">…</div>
-        <div class="caravan-tip-actions">
-          <button type="button" class="secondary" onclick="WaifuApp.closeCaravanTipModal()">Закрыть</button>
-        </div>
-      </div>
     </div>
 
     <nav class="nav basement">

@@ -145,7 +145,7 @@
       position: relative;
       display: flex;
       flex-direction: column;
-      align-items: center;
+      align-items: stretch;
       gap: 4px;
       justify-content: flex-start;
       transition: border-color .15s;
@@ -154,29 +154,23 @@
     /* Remove the global flex-fill on icon, so cards become shorter. */
     body.page-shop .shop-item-card .item-icon,
     body.page-shop .shop-sell-card .item-icon {
-      width: 44px;
-      height: 44px;
+      position: relative;
+      width: 100%;
+      flex: 1 1 auto;
+      min-height: 40px;
       display: flex;
       align-items: center;
       justify-content: center;
-      flex: 0 0 auto;
-      min-height: 0;
-      filter: brightness(.35) saturate(.25);
       z-index: 1;
     }
     body.page-shop .shop-item-card .item-icon img,
     body.page-shop .shop-sell-card .item-icon img {
-      width: min(36px, 70%);
-      height: auto;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
     }
-    /* Продажа: эмодзи-заглушки без общего затемнения; картинки — как на «Купить» */
-    body.page-shop .shop-sell-card .item-icon {
-      filter: none;
-    }
-    body.page-shop .shop-sell-card .item-icon img {
-      filter: brightness(.35) saturate(.25);
-    }
-
     /* Редкость: 2px линия сверху */
     body.page-shop .shop-item-card::before,
     body.page-shop .shop-sell-card::before {
@@ -198,13 +192,13 @@
     body.page-shop .shop-item-card.rarity-legendary::before,
     body.page-shop .shop-sell-card.rarity-legendary::before { background: rgba(251, 191, 36, .65); }
 
-    /* Уровень — правый верхний угол, непрозрачный бейдж */
+    /* Уровень — левый верхний (справа — админ-кнопка генерации иконки) */
     body.page-shop .shop-item-card .item-level,
     body.page-shop .shop-sell-card .item-level {
       position: absolute;
       top: 4px;
-      right: 4px;
-      left: auto;
+      left: 4px;
+      right: auto;
       background: #14100c;
       color: #c4b8a8;
       font-size: 8.5px;
@@ -835,7 +829,7 @@
       font-weight: 600;
     }
   </style>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="./vendor/telegram-web-app.js"></script>
   <script defer src="./app.js"></script>
 </head>
 <body class="page-shop">
@@ -855,13 +849,14 @@
   </header>
 
   <main class="shop-stage" id="shop-stage">
+    <div id="shop-profile-error" class="banner banner-danger" style="display: none; position: relative; z-index: 20; margin: 8px 12px 0"></div>
     <div class="shop-stage-bg"></div>
-    <img class="shop-stage-bg-img" src="/static/shop/background.webp" alt="" onerror="this.style.display='none'" />
+    <img id="shop-bg-img" class="shop-stage-bg-img" src="" alt="" />
 
     <div class="shop-merchant-zone">
       <button type="button" class="shop-merchant" id="shop-merchant" aria-label="Поговорить с торговцем"></button>
       <div class="shop-merchant-visual" aria-hidden="true">
-        <img src="/static/shop/merchant.webp" alt="" onerror="this.style.display='none'; this.parentElement.querySelector('.fallback').style.display='block';" />
+        <img id="shop-merchant-img" src="" alt="" />
         <span class="fallback" style="display:none;">🧙‍♂️</span>
       </div>
     </div>
@@ -1246,12 +1241,20 @@
           });
         }
         if (window.WaifuApp && typeof WaifuApp.bootstrapPage === "function") {
-          WaifuApp.bootstrapPage("shop", (p) => WaifuApp.loadShop(p?.act || 1));
+          WaifuApp.bootstrapPage("shop", (p) => WaifuApp.loadShop(p?.act ?? 1));
         }
       });
       return { switchTab, hideDialog, onMerchantTap };
     })();
   </script>
+
+  <div class="item-art-gen-busy-overlay" aria-hidden="true" aria-live="polite">
+    <div class="item-art-gen-busy-panel">
+      <div class="item-art-gen-busy-spinner" aria-hidden="true"></div>
+      <p>Генерация иконки…</p>
+      <p class="item-art-gen-busy-hint muted tiny">OpenRouter может отвечать до 2 минут</p>
+    </div>
+  </div>
 </body>
 </html>
 

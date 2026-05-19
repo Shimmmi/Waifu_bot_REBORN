@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Seed script for dungeons and monsters."""
+"""Seed script for dungeons and monsters (демо-контент).
+
+Полная сетка соло-подземелий 5×5 (акты 1–5, номера 1–5) создаётся миграциями Alembic
+(0007_seed_base_dungeons и др.). Имена и описания регионов/лора — миграция
+``0045_dungeon_act_biome``; при поднятой БД правьте данные там или отдельной миграцией.
+
+Этот скрипт в основном для локальной выборки монстров под акт 1; не дублируйте в нём
+полную сетку без синхронизации с Alembic.
+"""
 import asyncio
 from pathlib import Path
 
@@ -9,7 +17,7 @@ from waifu_bot.db.session import get_session, init_engine
 from waifu_bot.db import models as m
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
-DUNGEONS_FILE = DATA_DIR / "dungeons.json"
+DUNGEONS_FILE = DATA_DIR / "dungeons.json"  # зарезервировано; данные пока встроены ниже
 
 
 async def upsert_dungeons(session, dungeons_data: list[dict]):
@@ -53,11 +61,14 @@ async def main():
     """Main seeding function."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Sample dungeon data
+    # Акт 1 — регион Вердгленд (см. 0045_dungeon_act_biome)
     dungeons_data = [
         {
-            "name": "Пещера Теней",
-            "description": "Темная пещера, полная опасных существ",
+            "name": "Трёхдубовая нора",
+            "description": (
+                "Пещера у корней древних дубов на окраине Вердгленда: сюда стекает вода, "
+                "а из норы тянет сыростью и звериным дыханием."
+            ),
             "act": 1,
             "dungeon_number": 1,
             "dungeon_type": 1,  # SOLO
@@ -96,8 +107,11 @@ async def main():
             ]
         },
         {
-            "name": "Лесной Лабиринт",
-            "description": "Запутанный лес с дикими зверями",
+            "name": "Старая кряжа",
+            "description": (
+                "Заросшая чаща, где дороги давно съела хвоя; путники ходят кругами, "
+                "а ветви шепчут на ветру."
+            ),
             "act": 1,
             "dungeon_number": 2,
             "dungeon_type": 1,  # SOLO
@@ -145,8 +159,10 @@ async def main():
             ]
         },
         {
-            "name": "Подземный Храм",
-            "description": "Забытый храм с древними стражами",
+            "name": "Развалины приозёрного бастиона",
+            "description": (
+                "Стены бывшего форта у тихой воды: башни пусты, подвалы полны обломков и теней."
+            ),
             "act": 1,
             "dungeon_number": 3,
             "dungeon_type": 1,  # SOLO
@@ -203,8 +219,8 @@ async def main():
             ]
         },
         {
-            "name": "Огненные Пещеры",
-            "description": "Раскаленные пещеры с лавовыми существами",
+            "name": "Курган первых стражей",
+            "description": "Древний насыпной холм с погребениями тех, кто держал границу королевства.",
             "act": 1,
             "dungeon_number": 4,
             "dungeon_type": 1,  # SOLO
@@ -252,8 +268,10 @@ async def main():
             ]
         },
         {
-            "name": "Крепость Тьмы",
-            "description": "Мрачная крепость с армией нежити",
+            "name": "Расщелина утреннего тумана",
+            "description": (
+                "Узкий разлом в земле; из него тянет холодом даже в полдень, а туман не рассеивается."
+            ),
             "act": 1,
             "dungeon_number": 5,
             "dungeon_type": 1,  # SOLO
