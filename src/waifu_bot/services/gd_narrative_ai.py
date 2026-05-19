@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -64,17 +64,219 @@ def format_gd_party_member_line(p: dict[str, Any], *, for_start: bool) -> str:
     pct = int(100 * hp / mx)
     return f"{base} HP в бою: ~{pct}%."
 
+
+def _member_display_name(p: dict[str, Any]) -> str:
+    return str(p.get("name") or f"Игрок {p.get('user_id', '?')}")
+
+
+def _party_by_uid(party: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    out: dict[int, dict[str, Any]] = {}
+    for p in party:
+        uid = p.get("user_id")
+        if uid is not None:
+            out[int(uid)] = p
+    return out
+
+
+def gd_party_size_mode(party: list[dict[str, Any]]) -> Literal["solo", "small", "large"]:
+    n = len(party)
+    if n <= 1:
+        return "solo"
+    if n <= 4:
+        return "small"
+    return "large"
+
+
+def gd_silent_members(
+    party: list[dict[str, Any]],
+    actions_log: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    by_uid = _party_by_uid(party)
+    silent_uids = {
+        int(a.get("user_id") or 0)
+        for a in (actions_log or [])
+        if a.get("kind") == "silent" and a.get("user_id") is not None
+    }
+    return [by_uid[uid] for uid in silent_uids if uid in by_uid]
+
+
+def _member_activity_score(
+    uid: int,
+    actions_log: list[dict[str, Any]] | None,
+    raw_buffer_users: dict[str, Any] | None,
+) -> int:
+    score = 0
+    rb = (raw_buffer_users or {}).get(str(uid))
+    if isinstance(rb, dict):
+        score += int(rb.get("text_len") or 0) * 10
+        score += len(rb.get("media") or []) * 50
+    for a in actions_log or []:
+        if int(a.get("user_id") or 0) != uid:
+            continue
+        if a.get("kind") == "text":
+            score += 100 + int(a.get("damage") or 0)
+        elif a.get("skill"):
+            score += 150
+    return score
+
+
+def gd_active_members(
+    party: list[dict[str, Any]],
+    actions_log: list[dict[str, Any]] | None,
+    raw_buffer_users: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    by_uid = _party_by_uid(party)
+    silent_uids = {
+        int(a.get("user_id") or 0)
+        for a in (actions_log or [])
+        if a.get("kind") == "silent"
+    }
+    active_uids: set[int] = set()
+    for uid in by_uid:
+        if uid not in silent_uids:
+            active_uids.add(uid)
+    for a in actions_log or []:
+        uid = int(a.get("user_id") or 0)
+        if uid in by_uid and (a.get("kind") == "text" or a.get("skill")):
+            active_uids.add(uid)
+    rb = raw_buffer_users or {}
+    for uid_str, u in rb.items():
+        if not isinstance(u, dict):
+            continue
+        uid = int(uid_str)
+        if uid not in by_uid:
+            continue
+        if int(u.get("text_len") or 0) > 0 or u.get("media"):
+            active_uids.add(uid)
+    ranked = sorted(
+        active_uids,
+        key=lambda uid: _member_activity_score(uid, actions_log, raw_buffer_users),
+        reverse=True,
+    )
+    return [by_uid[uid] for uid in ranked]
+
+
+def build_gd_composition_instructions(
+    party: list[dict[str, Any]],
+    actions_log: list[dict[str, Any]] | None = None,
+    *,
+    phase: Literal["start", "round", "finale"] = "round",
+    raw_buffer_users: dict[str, Any] | None = None,
+    contributions: dict[int, float] | None = None,
+) -> str:
+    """Динамические правила: solo / small / large + только реальный состав."""
+    mode = gd_party_size_mode(party)
+    names_all = [_member_display_name(p) for p in party]
+    silent_names = [_member_display_name(p) for p in gd_silent_members(party, actions_log)]
+    active_focus = [
+        _member_display_name(p)
+        for p in gd_active_members(party, actions_log, raw_buffer_users)[:3]
+    ]
+
+    lines = [
+        "ПРАВИЛА СОСТАВА (обязательны):",
+        (
+            f"В походе ровно {len(party)} участник(ов). Упоминай в тексте ТОЛЬКО персонажей "
+            f"из блока СОСТАВ ОТРЯДА: {', '.join(names_all) if names_all else '—'}."
+        ),
+        (
+            "ЗАПРЕЩЕНО придумывать дополнительных союзников, «остальных в отряде», "
+            "рыцарей, целительниц и любых NPC, которых нет в списке."
+        ),
+    ]
+
+    if mode == "solo":
+        solo_name = _member_display_name(party[0]) if party else "боец"
+        lines.append(
+            f"Режим: одиночный поход. Единственный боец — {solo_name}. "
+            "Не пиши про «остальных», «товарищей в отряде» или бездействующих союзников — их нет. "
+            "Можно обыграть одиночество, отсутствие подкрепления или самостоятельность."
+        )
+    elif mode == "small":
+        lines.append(
+            f"Режим: небольшой отряд ({len(party)} чел.). Можешь кратко затронуть каждого из списка по имени."
+        )
+    else:
+        focus = ", ".join(active_focus) if active_focus else ", ".join(names_all[:3])
+        lines.append(
+            f"Режим: большой отряд ({len(party)} чел.). В фокусе повествования до 3 наиболее "
+            f"активных за раунд: {focus}. Остальных из списка — не более одной-двух коротких фраз "
+            "суммарно, без выдуманных персонажей."
+        )
+
+    if phase == "round":
+        if silent_names:
+            lines.append(
+                "За этот раунд молчали (персональная шутка по классу и расе — только про них): "
+                + ", ".join(silent_names)
+                + "."
+            )
+        else:
+            lines.append(
+                "За этот раунд в данных нет молчавших — не выдумывай бездействующих союзников "
+                "и не шути про «тех, кто отсиживался в стороне»."
+            )
+    elif phase == "start":
+        if mode == "solo":
+            lines.append(
+                "На старте: настрой одиночки у входа, без ожидания подмоги от несуществующих союзников."
+            )
+        else:
+            lines.append("На старте: отрази настрой всего реального состава, без лишних персонажей.")
+    elif phase == "finale":
+        lines.append(
+            "Финал: итог похода только по реальным участникам. MVP и наименьший вклад — "
+            "только из списка состава и данных вклада ниже."
+        )
+        if contributions and party:
+            by_uid = _party_by_uid(party)
+            ranked = sorted(contributions.items(), key=lambda x: -float(x[1]))
+            if ranked:
+                mvp_uid, _ = ranked[0]
+                low_uid, _ = ranked[-1]
+                mvp_p = by_uid.get(int(mvp_uid))
+                low_p = by_uid.get(int(low_uid))
+                if mvp_p:
+                    lines.append(f"MVP по вкладу: {_member_display_name(mvp_p)}.")
+                if low_p and int(low_uid) != int(mvp_uid):
+                    lines.append(
+                        f"Наименьший вклад (шутливо, без оскорблений): {_member_display_name(low_p)}."
+                    )
+
+    return "\n".join(lines)
+
+
+def _party_names_by_uid(party: list[dict[str, Any]]) -> dict[int, str]:
+    return {int(p["user_id"]): _member_display_name(p) for p in party if p.get("user_id") is not None}
+
+
+def _format_gd_action_line(a: dict[str, Any], names: dict[int, str]) -> str | None:
+    uid = a.get("user_id")
+    if uid is None and not a.get("skill"):
+        return None
+    label = names.get(int(uid or 0), f"user {uid}") if uid is not None else ""
+    uid_bit = f" (user {uid})" if uid is not None else ""
+    if a.get("kind") == "silent":
+        return f"- {label}{uid_bit}: молчала"
+    if a.get("kind") == "text":
+        return f"- {label}{uid_bit}: текстовые атаки, суммарный урон условный"
+    if a.get("skill"):
+        who = label or "отряд"
+        return f"- {who}{uid_bit}: навык effect_type={a.get('skill')}"
+    return None
+
+
 GD_SYSTEM_PROMPT = f"""Ты рассказчик в фэнтезийной RPG-игре про вайфу.
 Пишешь о событиях групповых походов в Telegram-группе.
 Стиль: ярко, с юмором, с характером персонажей. {AI_NARRATIVE_GROTESQUE_HUMOR_RU}
 3–5 предложений на раунд.
 Язык: русский. Без markdown. Без чисел и игровых механик в тексте.
 Персонажи — девушки с именами и характерами.
+Состав отряда и правила, кого упоминать, заданы в user-сообщении — следуй им строго.
 Для каждого применённого навыка придумай органичное название (1–3 слова),
 соответствующее классу: маг — магия/стихии, воин — сила/ярость,
 ассассин — скрытность/яд, лекарь — исцеление/свет,
 рыцарь — защита/команда, лучник — точность/скорость, торговец — хитрость/алхимия.
-Для каждого молчавшего — обязательная персональная шутка по классу и расе.
 Статус раунда определяет тон:
 victory — финальный удар, гибель монстра, ощущение завершённости.
 ongoing — стычка не закончена. НЕ убивай монстра. Намёк на продолжение.
@@ -121,11 +323,15 @@ def _assistant_text(choice: object) -> str:
 
 def build_user_prompt_round(ctx: dict[str, Any]) -> str:
     """§6.3 dynamic user prompt from structured_context."""
+    party = list(ctx.get("party") or [])
+    actions = list(ctx.get("actions") or [])
+    raw_buffer = ctx.get("raw_buffer_users") or {}
     dungeon = ctx.get("dungeon_name") or "Подземелье"
     biome = ctx.get("biome_tag") or "неизвестно"
     n = ctx.get("round", 1)
     total_est = ctx.get("total_est") or "?"
     outcome = ctx.get("round_outcome") or "ongoing"
+    names = _party_names_by_uid(party)
     lines = [
         f"Подземелье: {dungeon} (биом: {biome})",
         f"Раунд {n} из ~{total_est}, следующий через 30 мин.",
@@ -135,8 +341,16 @@ def build_user_prompt_round(ctx: dict[str, Any]) -> str:
     lines.append(
         "Класс и раса каждой указаны словами и id — не подменяй архетип (маг ≠ воин с мечом)."
     )
-    for p in ctx.get("party") or []:
+    for p in party:
         lines.append(format_gd_party_member_line(p, for_start=False))
+    lines.append(
+        build_gd_composition_instructions(
+            party,
+            actions,
+            phase="round",
+            raw_buffer_users=raw_buffer,
+        )
+    )
     lines.append("ПРОТИВНИКИ:")
     for m in ctx.get("monsters") or []:
         mx = max(1, int(m.get("max_hp") or 1))
@@ -144,15 +358,10 @@ def build_user_prompt_round(ctx: dict[str, Any]) -> str:
         pct = int(100 * hp / mx)
         lines.append(f"- {m.get('name', 'Монстр')} Lv{m.get('level', '?')}, HP: {pct}%")
     lines.append("ДЕЙСТВИЯ ЗА РАУНД:")
-    for a in ctx.get("actions") or []:
-        if a.get("kind") == "silent":
-            lines.append(f"- user {a.get('user_id')}: молчала")
-        elif a.get("kind") == "text":
-            lines.append(f"- user {a.get('user_id')}: текстовые атаки, суммарный урон условный")
-        elif a.get("skill"):
-            lines.append(
-                f"- user {a.get('user_id')}: навык effect_type={a.get('skill')}"
-            )
+    for a in actions:
+        line = _format_gd_action_line(a, names)
+        if line:
+            lines.append(line)
     fl = ctx.get("flags") or {}
     if fl.get("revive_no_target"):
         lines.append("Особое: воскрешение — целей не было, обыграй.")
@@ -190,10 +399,53 @@ def build_user_prompt_start(
     ]
     for p in party:
         lines.append(format_gd_party_member_line(p, for_start=True))
+    lines.append(build_gd_composition_instructions(party, phase="start"))
     lines.append(
         "Напиши 4–6 предложений на русском: отряд собирается у входа, "
         "настрой, короткие реплики или мысли в духе персонажей, ощущение угрозы впереди. "
         "Без markdown. Не повторяй дословно системные фразы про «30 минут»."
+    )
+    return "\n".join(lines)
+
+
+def build_user_prompt_finale(ctx: dict[str, Any]) -> str:
+    """Эпилог похода: состав, вклад, правила без выдуманных участников."""
+    party = list(ctx.get("party") or [])
+    contributions_raw = ctx.get("contributions") or {}
+    contributions: dict[int, float] = {}
+    for k, v in contributions_raw.items():
+        try:
+            contributions[int(k)] = float(v)
+        except (TypeError, ValueError):
+            continue
+    dungeon = ctx.get("dungeon_name") or "Подземелье"
+    lines = [
+        "Этап: ФИНАЛ ПОХОДА (победа, выход из подземелья).",
+        f"Подземелье: {dungeon}",
+        "СОСТАВ ОТРЯДА (только эти участники существовали в походе):",
+    ]
+    for p in party:
+        lines.append(format_gd_party_member_line(p, for_start=True))
+    lines.append(
+        build_gd_composition_instructions(
+            party,
+            phase="finale",
+            contributions=contributions or None,
+        )
+    )
+    if contributions:
+        by_uid = _party_by_uid(party)
+        contrib_lines = []
+        for uid, score in sorted(contributions.items(), key=lambda x: -x[1]):
+            p = by_uid.get(uid)
+            nm = _member_display_name(p) if p else f"user {uid}"
+            contrib_lines.append(f"- {nm} (user {uid}): относительный вклад {score:.1f}")
+        lines.append("ВКЛАД УЧАСТНИКОВ (для MVP и аутсайдера, не выводи числа в ответе):")
+        lines.extend(contrib_lines)
+    lines.append(
+        "Напиши эпичный короткий итог похода (4–6 предложений). "
+        "Выдели MVP и одного с наименьшим вкладом — шутливо, без оскорблений. "
+        "Без markdown. Без цифр."
     )
     return "\n".join(lines)
 
@@ -288,12 +540,7 @@ async def generate_gd_finale_narrative(ctx: dict[str, Any], *, timeout_sec: floa
     api_key = getattr(settings, "openrouter_api_key", None) or ""
     if not api_key.strip():
         return None, stub
-    extra = (
-        "Напиши эпичный короткий итог похода по данным ниже. "
-        "Выдели MVP (лучший вклад) и одного с наименьшим вкладом — шутливо, без оскорблений. "
-        "Без markdown и без цифр.\n\n"
-        + json.dumps(ctx, ensure_ascii=False, default=str)
-    )
+    extra = build_user_prompt_finale(ctx)
     payload = {
         "model": getattr(settings, "openrouter_model", None) or "anthropic/claude-3.5-sonnet",
         "max_tokens": 500,

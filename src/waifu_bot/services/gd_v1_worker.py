@@ -318,6 +318,8 @@ async def _gd_v1_execute_round_resolution_after_simulation(
         "round_outcome": result["round_outcome"],
         "hits_n": len((result.get("outcomes_json") or {}).get("hits") or []),
     }
+    battle_party = list((cycle.battle_state_json or {}).get("party") or ctx.get("party") or [])
+    ctx["party"] = await _refresh_party_display_from_main_waifu(session, battle_party)
     timeout = float(
         (await get_game_config_map(session)).get("gd_ai_timeout_seconds") or "15"
     )

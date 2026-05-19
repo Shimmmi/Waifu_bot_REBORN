@@ -870,11 +870,24 @@ def _build_ai_context(
             }
     hits = outcomes.get("hits") or []
     heals = outcomes.get("heals") or []
+    silent_user_ids = [
+        int(a.get("user_id") or 0)
+        for a in actions_log
+        if a.get("kind") == "silent" and a.get("user_id") is not None
+    ]
+    active_user_ids = [
+        int(p.get("user_id") or 0)
+        for p in party
+        if p.get("user_id") is not None and int(p.get("user_id") or 0) not in silent_user_ids
+    ]
     return {
         "dungeon_name": "",
         "round": round_num,
         "round_outcome": round_outcome,
         "party": party,
+        "party_size": len(party),
+        "silent_user_ids": silent_user_ids,
+        "active_user_ids": active_user_ids,
         "monsters": monsters,
         "actions": actions_log,
         "flags": outcomes.get("flags") or {},
