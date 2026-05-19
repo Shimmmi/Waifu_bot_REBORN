@@ -432,6 +432,14 @@ const shopState = {
   sellSelected: new Set(),
 };
 
+const SHOP_MERCHANTS = {
+  1: { icon: "🧙‍♂️", name: "Старый торговец", greeting: "Добро пожаловать в лавку новичка!" },
+  2: { icon: "🧝", name: "Лесной купец", greeting: "Редкости из глубины леса — только для избранных." },
+  3: { icon: "🧛", name: "Безликий лавочник", greeting: "Цена? Зависит от вашего обаяния..." },
+  4: { icon: "👹", name: "Хозяин базара", greeting: "Бери быстрее, пока товар не раскупили." },
+  5: { icon: "🐉", name: "Драконий скупщик", greeting: "Золото говорит громче слов." },
+};
+
 const ADMIN_USER_ID = 305174198;
 
 function isAdminUser() {
@@ -469,6 +477,42 @@ async function bootstrapPage(page, afterLoad) {
   }
 
   return profile;
+}
+
+function renderShopMerchant(profile) {
+  const act = Math.max(1, Math.min(5, Number(profile?.act || shopState.act || 1)));
+  const merchant = SHOP_MERCHANTS[act] || SHOP_MERCHANTS[1];
+
+  const img = document.getElementById("shop-merchant-img");
+  if (img) {
+    img.textContent = merchant.icon;
+    img.title = merchant.name;
+  }
+
+  const hint = document.getElementById("shop-hint");
+  if (hint) {
+    const discount = profile?.main_waifu_details?.merchant_discount;
+    const parts = [merchant.greeting];
+    if (discount != null && Number(discount) > 0) {
+      parts.push(`Скидка: ${discount}%`);
+    }
+    hint.textContent = parts.join(" ");
+    hint.style.display = "";
+  }
+
+  const bg = document.querySelector(".shop-bg");
+  if (bg) {
+    ["act-1", "act-2", "act-3", "act-4", "act-5"].forEach((c) => bg.classList.remove(c));
+    bg.classList.add(`act-${act}`);
+  }
+}
+
+async function shopPageBootstrap(profile) {
+  const p = profile || (await loadProfile().catch(() => ({ act: 1 })));
+  const act = Number(p?.act || 1);
+  renderShopMerchant(p);
+  await loadShop(act);
+  return p;
 }
 
 async function loadShop(act) {
@@ -3137,6 +3181,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   bootstrapPage,
   loadProfile,
   loadShop,
+  shopPageBootstrap,
   loadTavern,
   switchTavernTab,
   hireFromTavern,
