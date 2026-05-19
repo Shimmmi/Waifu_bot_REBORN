@@ -8,7 +8,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
-  <body onload="WaifuApp.bootstrapPage('shop',(p)=>WaifuApp.loadShop(p.act));">
+  <body onload="WaifuApp.bootstrapPage('shop', WaifuApp.shopPageBootstrap);">
     <header class="attic">
       <div class="topbar">
         <div class="badge">Золото: <strong id="badge-gold">—</strong></div>
