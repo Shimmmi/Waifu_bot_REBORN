@@ -22,8 +22,9 @@
     </header>
 
     <section id="guild-hero-banner" class="guild-hero-banner" hidden aria-hidden="true">
-      <div class="guild-hero-bg" aria-hidden="true">
-        <svg class="guild-hero-svg" viewBox="0 0 390 220" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+      <div class="guild-hero-bg" id="guild-hero-bg" role="presentation">
+        <img id="guild-hero-banner-img" class="guild-hero-banner-img" alt="" hidden />
+        <svg class="guild-hero-svg" id="guild-hero-svg-fallback" viewBox="0 0 390 220" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
           <defs>
             <radialGradient id="guildHeroRg1" cx="50%" cy="55%" r="55%">
               <stop offset="0%" stop-color="#3b2000" stop-opacity="0.9" />
@@ -59,6 +60,7 @@
           <button type="button" id="guild-hero-emblem" class="guild-hero-emblem" aria-label="Эмблема гильдии">
             <span id="guild-hero-emblem-inner" class="guild-hero-emblem-inner">🏛️</span>
           </button>
+          <input type="file" id="guild-banner-file-input" class="guild-icon-file-input" accept="image/jpeg,image/png,image/webp" aria-hidden="true" tabindex="-1" />
           <input type="file" id="guild-icon-file-input" class="guild-icon-file-input" accept="image/jpeg,image/png,image/webp" aria-hidden="true" tabindex="-1" />
           <div class="guild-hero-info">
             <span id="guild-hero-tag" class="guild-tag"></span>

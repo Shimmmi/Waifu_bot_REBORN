@@ -9034,6 +9034,7 @@ async function loadSkills(act) {
 const guildHallState = {
   tab: "main",
   activitySubTab: "raid",
+  showMembersPanel: false,
   me: null,
   profileGold: 0,
   bankItems: [],
@@ -9046,6 +9047,10 @@ const guildHallState = {
   raidParticipantIds: [],
   warTargets: null,
 };
+
+function canEditGuildMedia(d) {
+  return Boolean(d?.is_leader);
+}
 
 function guildApiErrorToUser(detail, fallback) {
   const err =
@@ -9122,19 +9127,31 @@ function renderGuildHero(d) {
   const xpLabel = document.getElementById("guild-hero-xp-label");
   const emblemBtn = document.getElementById("guild-hero-emblem");
   const emblemInner = document.getElementById("guild-hero-emblem-inner");
-  const fileInp = document.getElementById("guild-icon-file-input");
+  const heroBg = document.getElementById("guild-hero-bg");
+  const bannerImg = document.getElementById("guild-hero-banner-img");
+  const svgFallback = document.getElementById("guild-hero-svg-fallback");
+  const iconInp = document.getElementById("guild-icon-file-input");
+  const bannerInp = document.getElementById("guild-banner-file-input");
   const bar = formatGuildGxpBar(d);
-  const canEditIcon = d.is_leader || d.is_officer;
+  const canEdit = Boolean(d.is_leader);
   if (tagEl) tagEl.textContent = `[${d.guild_tag || ""}]`;
   if (nameEl) nameEl.textContent = d.guild_name || "—";
   if (levelEl) levelEl.textContent = `Ур. гильдии ${d.guild_level ?? "—"}`;
   if (xpFill) xpFill.style.width = `${bar.pct}%`;
   if (xpLabel) xpLabel.textContent = bar.label;
-  const iconUrl = d.guild_icon_url
-    ? d.guild_icon_url.startsWith("http")
-      ? d.guild_icon_url
-      : d.guild_icon_url
-    : "";
+  const bannerUrl = d.guild_banner_url || "";
+  if (bannerImg) {
+    if (bannerUrl) {
+      bannerImg.src = bannerUrl;
+      bannerImg.hidden = false;
+      if (svgFallback) svgFallback.style.display = "none";
+    } else {
+      bannerImg.removeAttribute("src");
+      bannerImg.hidden = true;
+      if (svgFallback) svgFallback.style.display = "";
+    }
+  }
+  const iconUrl = d.guild_icon_url || "";
   if (emblemInner) {
     if (iconUrl) {
       emblemInner.innerHTML = `<img src="${escapeHtml(iconUrl)}" alt="" />`;
@@ -9142,13 +9159,17 @@ function renderGuildHero(d) {
       emblemInner.textContent = "🏛️";
     }
   }
+  hero.classList.toggle("guild-hero-banner--editable", canEdit);
+  if (heroBg) {
+    heroBg.onclick = canEdit ? () => onGuildBannerClick() : null;
+    heroBg.style.cursor = canEdit ? "pointer" : "";
+  }
   if (emblemBtn) {
-    emblemBtn.classList.toggle("guild-hero-emblem--readonly", !canEditIcon);
-    emblemBtn.onclick = canEditIcon ? () => onGuildEmblemClick() : null;
+    emblemBtn.classList.toggle("guild-hero-emblem--readonly", !canEdit);
+    emblemBtn.onclick = canEdit ? () => onGuildEmblemClick() : () => showToast("Меняет только глава гильдии", "error");
   }
-  if (fileInp) {
-    fileInp.onchange = () => uploadGuildIcon(fileInp);
-  }
+  if (iconInp) iconInp.onchange = () => uploadGuildIcon(iconInp);
+  if (bannerInp) bannerInp.onchange = () => uploadGuildBanner(bannerInp);
 }
 
 function renderGuildStatsGrid(d) {
@@ -9161,13 +9182,17 @@ function renderGuildStatsGrid(d) {
       : "—";
   const rating =
     d?.guild_rating != null && d.guild_rating > 0 ? `#${d.guild_rating}` : "—";
+  const membersActive = guildHallState.showMembersPanel ? " guild-stat-card--active" : "";
+  const membersPanel = guildHallState.showMembersPanel
+    ? `<div id="guild-members-panel" class="guild-members-panel">${renderGuildMembersHtml(d.members)}</div>`
+    : "";
   return `
     <div class="guild-section-label">Статистика</div>
     <div class="guild-stats-grid">
-      <div class="guild-stat-card">
+      <button type="button" class="guild-stat-card guild-stat-card--btn${membersActive}" onclick="WaifuApp.toggleGuildMembersPanel()" aria-expanded="${guildHallState.showMembersPanel ? "true" : "false"}">
         <div class="guild-stat-label">Участники</div>
         <div class="guild-stat-val">${members.length} <span class="guild-stat-sub">/ ${slots}</span></div>
-      </div>
+      </button>
       <div class="guild-stat-card">
         <div class="guild-stat-label">Онлайн</div>
         <div class="guild-stat-val guild-stat-val--green"><span class="guild-dot-online" aria-hidden="true"></span>${onlineN}</div>
@@ -9180,31 +9205,37 @@ function renderGuildStatsGrid(d) {
         <div class="guild-stat-label">Рейтинг</div>
         <div class="guild-stat-val" id="guild-stat-rating">${escapeHtml(String(rating))}</div>
       </div>
-    </div>`;
+    </div>
+    ${membersPanel}`;
+}
+
+function toggleGuildMembersPanel() {
+  guildHallState.showMembersPanel = !guildHallState.showMembersPanel;
+  void renderGuildTabContent();
 }
 
 function renderGuildActivityFeed(d) {
   const feed = Array.isArray(d?.activity_feed) ? d.activity_feed : [];
-  if (!feed.length) {
-    return `
-      <div class="guild-section-label">Активность</div>
-      <p class="muted tiny" style="margin-bottom:18px">Пока нет событий.</p>`;
-  }
-  const items = feed
-    .map((ev) => {
-      const avatar = ev.actor_avatar || "📋";
-      const text = ev.text || "";
-      const time = formatGuildRelativeTime(ev.created_at);
-      return `<div class="guild-act-item">
+  const inner = !feed.length
+    ? `<p class="muted tiny guild-activity-empty">Пока нет событий.</p>`
+    : `<div class="guild-activity-list">${feed
+        .map((ev) => {
+          const avatar = ev.actor_avatar || "📋";
+          const text = ev.text || "";
+          const time = formatGuildRelativeTime(ev.created_at);
+          return `<div class="guild-act-item">
         <div class="guild-act-avatar" aria-hidden="true">${escapeHtml(String(avatar))}</div>
         <div class="guild-act-body">
           <div class="guild-act-text">${escapeHtml(text)}</div>
           ${time ? `<div class="guild-act-time">${escapeHtml(time)}</div>` : ""}
         </div>
       </div>`;
-    })
-    .join("");
-  return `<div class="guild-section-label">Активность</div><div class="guild-activity-list">${items}</div>`;
+        })
+        .join("")}</div>`;
+  return `<div class="guild-activity-panel">
+    <div class="guild-section-label">Активность</div>
+    ${inner}
+  </div>`;
 }
 
 function renderGuildHistoryPane(d) {
@@ -9689,10 +9720,20 @@ async function openGuildMemberPreviewModal(playerId) {
   }
 }
 
+function onGuildBannerClick() {
+  const d = guildHallState.me;
+  if (!d?.is_leader) {
+    showToast("Меняет только глава гильдии", "error");
+    return;
+  }
+  const inp = document.getElementById("guild-banner-file-input");
+  if (inp) inp.click();
+}
+
 function onGuildEmblemClick() {
   const d = guildHallState.me;
-  if (!d?.is_leader && !d?.is_officer) {
-    showToast("Эмблему меняют глава или офицер", "error");
+  if (!d?.is_leader) {
+    showToast("Меняет только глава гильдии", "error");
     return;
   }
   const inp = document.getElementById("guild-icon-file-input");
@@ -9706,6 +9747,31 @@ function onGuildEmblemClick() {
     hidden.onchange = () => uploadGuildIcon(hidden);
     document.body.appendChild(hidden);
     hidden.click();
+  }
+}
+
+async function uploadGuildBanner(fileInput) {
+  const file = fileInput?.files?.[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const res = await fetch(`${API_BASE}/guilds/me/banner`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: fd,
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      showToast(guildApiErrorToUser(detail?.detail || detail, "Не удалось загрузить баннер"), "error");
+      return;
+    }
+    showToast("Баннер гильдии обновлён");
+    if (fileInput) fileInput.value = "";
+    await populateGuildHall();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
   }
 }
 
@@ -10127,8 +10193,6 @@ async function renderGuildTabContent() {
     root.innerHTML = `
       ${renderGuildStatsGrid(d)}
       ${renderGuildActivityFeed(d)}
-      <div class="guild-section-label">Участники</div>
-      ${renderGuildMembersHtml(d.members)}
       ${
         !d.is_leader
           ? `<button type="button" class="btn secondary" style="margin-top:12px" onclick="WaifuApp.leaveGuildFromHall()">Покинуть гильдию</button>`
@@ -11446,8 +11510,11 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   openGuildMemberPreviewModal,
   closeGuildMemberPreviewModal,
   setGuildMemberPreviewView,
+  onGuildBannerClick,
   onGuildEmblemClick,
   uploadGuildIcon,
+  uploadGuildBanner,
+  toggleGuildMembersPanel,
   toggleGuildRaidParticipant,
   startGuildRaid,
   leaveGuildRaid,

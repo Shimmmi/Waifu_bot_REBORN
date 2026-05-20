@@ -213,6 +213,7 @@ async def guilds_me(
         key=lambda x: (-bool(x["is_leader"]), -bool(x["is_officer"]), x["display_name"].lower())
     )
     guild_icon_url = f"/static/{guild.icon_path}" if guild.icon_path else None
+    guild_banner_url = f"/static/{guild.banner_path}" if guild.banner_path else None
     from waifu_bot.services.guild_activity import (
         compute_guild_power,
         compute_guild_rating,
@@ -249,6 +250,7 @@ async def guilds_me(
         "wars_unlocked": bool(thr.wars_unlocked) if thr else False,
         "members": members_out,
         "guild_icon_url": guild_icon_url,
+        "guild_banner_url": guild_banner_url,
         "guild_power": guild_power,
         "guild_rating": guild_rating,
         "activity_feed": activity_feed,
@@ -354,6 +356,28 @@ async def guild_upload_icon(
     session: AsyncSession = Depends(get_db),
 ):
     result = await _guild_icon_upload_impl(file, player_id, session)
+    _raise_from_guild_icon_result(result)
+    return result
+
+
+async def _guild_banner_upload_impl(
+    file: UploadFile,
+    player_id: int,
+    session: AsyncSession,
+) -> dict:
+    raw = await file.read()
+    return await guild_service.upload_guild_banner(
+        session, player_id, raw, file.content_type, _guild_static_root()
+    )
+
+
+@router.post("/guilds/me/banner", tags=["guild"])
+async def guild_upload_banner_under_me(
+    file: UploadFile = File(...),
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    result = await _guild_banner_upload_impl(file, player_id, session)
     _raise_from_guild_icon_result(result)
     return result
 

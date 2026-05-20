@@ -524,15 +524,20 @@ class GuildService:
         result = await session.execute(stmt)
         return len(list(result.scalars().all()))
 
-    async def upload_guild_icon(
+    async def _upload_guild_image(
         self,
         session: AsyncSession,
         player_id: int,
         raw: bytes,
         content_type: Optional[str],
         static_root: Path,
+        *,
+        subdir_name: str,
+        path_prefix: str,
+        attr_name: str,
+        url_key: str,
     ) -> dict:
-        """Save guild emblem to static/guild_icons/{guild_id}.{ext}. Leader or officer only."""
+        """Save guild image; guild leader only."""
         ct = (content_type or "").split(";")[0].strip().lower()
         if ct not in GUILD_ICON_CONTENT_TYPES:
             return {"error": "invalid_type"}
@@ -541,13 +546,13 @@ class GuildService:
         member = await self.get_guild_member(session, player_id)
         if not member:
             return {"error": "not_in_guild"}
-        if not (member.is_leader or member.is_officer):
+        if not member.is_leader:
             return {"error": "forbidden"}
         guild = await session.get(Guild, member.guild_id)
         if not guild:
             return {"error": "no_guild"}
         ext = GUILD_ICON_CONTENT_TYPES[ct]
-        subdir = static_root / "guild_icons"
+        subdir = static_root / subdir_name
         subdir.mkdir(parents=True, exist_ok=True)
         for p in subdir.glob(f"{guild.id}.*"):
             try:
@@ -556,7 +561,50 @@ class GuildService:
                 pass
         dest = subdir / f"{guild.id}{ext}"
         dest.write_bytes(raw)
-        guild.icon_path = f"guild_icons/{guild.id}{ext}"
+        rel_path = f"{path_prefix}/{guild.id}{ext}"
+        setattr(guild, attr_name, rel_path)
         await session.commit()
-        return {"success": True, "guild_icon_url": f"/static/{guild.icon_path}"}
+        return {"success": True, url_key: f"/static/{rel_path}"}
+
+    async def upload_guild_icon(
+        self,
+        session: AsyncSession,
+        player_id: int,
+        raw: bytes,
+        content_type: Optional[str],
+        static_root: Path,
+    ) -> dict:
+        """Save guild emblem to static/guild_icons/{guild_id}.{ext}. Leader only."""
+        return await self._upload_guild_image(
+            session,
+            player_id,
+            raw,
+            content_type,
+            static_root,
+            subdir_name="guild_icons",
+            path_prefix="guild_icons",
+            attr_name="icon_path",
+            url_key="guild_icon_url",
+        )
+
+    async def upload_guild_banner(
+        self,
+        session: AsyncSession,
+        player_id: int,
+        raw: bytes,
+        content_type: Optional[str],
+        static_root: Path,
+    ) -> dict:
+        """Save guild hero banner to static/guild_banners/{guild_id}.{ext}. Leader only."""
+        return await self._upload_guild_image(
+            session,
+            player_id,
+            raw,
+            content_type,
+            static_root,
+            subdir_name="guild_banners",
+            path_prefix="guild_banners",
+            attr_name="banner_path",
+            url_key="guild_banner_url",
+        )
 
