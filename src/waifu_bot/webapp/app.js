@@ -7464,15 +7464,81 @@ function renderProfileSlotCard(slot, item) {
 }
 
 function renderProfilePaperDoll(waifu) {
+  const paperdollUrl = String(waifu?.paperdoll_url || "").trim();
+  const portraitUrl = String(
+    waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
+  ).trim();
+  const hasPortrait = Boolean(portraitUrl);
+  const admin = isAdminUser();
+  const name = escapeHtml(String(waifu?.name || "Основная вайфу"));
+  const meta = `${escapeHtml(className(waifu?.class ?? waifu?.class_))} · ${escapeHtml(raceName(waifu?.race))}`;
+
+  let bodyInner = "";
+  let bodyClass = "profile-paperdoll-body";
+  if (paperdollUrl) {
+    bodyClass += " profile-paperdoll-body--stage";
+    bodyInner = `<img class="profile-paperdoll-img" src="${escapeHtml(paperdollUrl)}" alt="${name}" />`;
+    if (admin) {
+      bodyInner += `<button type="button" class="profile-paperdoll-regenerate" title="Перегенерировать образ (admin)" aria-label="Перегенерировать образ" onclick="WaifuApp.adminGenerateMainWaifuPaperdoll()">${ITEM_ART_GEN_SVG}</button>`;
+    }
+  } else {
+    bodyInner = escapeHtml(waifuPortraitEmoji(waifu) || "👤");
+    if (admin) {
+      const dis = hasPortrait ? "" : " disabled";
+      const title = hasPortrait
+        ? "Сгенерировать образ с экипировкой (admin)"
+        : "Нужен портрет основной вайфу";
+      bodyInner += `<button type="button" class="btn profile-paperdoll-generate"${dis} title="${escapeHtml(title)}" onclick="WaifuApp.adminGenerateMainWaifuPaperdoll()">Сгенерировать образ</button>`;
+    }
+  }
+
+  const ariaHidden = paperdollUrl || admin ? "" : ' aria-hidden="true"';
   return `
     <div class="profile-paperdoll">
-      <div class="profile-paperdoll-body" aria-hidden="true">${escapeHtml(waifuPortraitEmoji(waifu) || "👤")}</div>
+      <div class="${bodyClass}"${ariaHidden}>${bodyInner}</div>
       <div class="profile-paperdoll-caption">
-        <strong>${escapeHtml(String(waifu?.name || "Основная вайфу"))}</strong>
-        <span class="muted tiny">${escapeHtml(className(waifu?.class ?? waifu?.class_))} · ${escapeHtml(raceName(waifu?.race))}</span>
+        <strong>${name}</strong>
+        <span class="muted tiny">${meta}</span>
       </div>
     </div>
   `;
+}
+
+async function adminGenerateMainWaifuPaperdoll() {
+  if (!isAdminUser()) return;
+  const waifu = profileState.currentProfile?.main_waifu;
+  if (!waifu) {
+    showToast("Нет основной вайфу", "error");
+    return;
+  }
+  const portraitUrl = String(
+    waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
+  ).trim();
+  if (!portraitUrl) {
+    showToast("Сначала нужен портрет вайфу", "error");
+    return;
+  }
+  setItemArtGenBusy(true);
+  try {
+    const payload = await apiFetch("/profile/main-waifu/paperdoll/regenerate", { method: "POST" });
+    const url = String(payload?.paperdoll_url || "").trim();
+    if (url && profileState.currentProfile?.main_waifu) {
+      profileState.currentProfile.main_waifu.paperdoll_url = url;
+    }
+    renderProfileEquipment();
+    showToast("Образ с экипировкой сохранён");
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    const msg =
+      detail === "portrait_required_for_paperdoll"
+        ? "Сначала нужен портрет вайфу"
+        : detail === "paperdoll_generation_failed"
+          ? "Не удалось сгенерировать образ"
+          : detail || "Ошибка генерации";
+    showToast(msg, "error");
+  } finally {
+    setItemArtGenBusy(false);
+  }
 }
 
 function renderProfileEquipment() {
@@ -9478,6 +9544,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   adminCompleteDungeon,
   adminRestoreHpEnergy,
   adminGenerateMonsterArt,
+  adminGenerateMainWaifuPaperdoll,
   sellSelected,
   toggleShopSellFilter,
   setShopSellSort,

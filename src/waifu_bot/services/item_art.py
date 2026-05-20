@@ -10,23 +10,59 @@ layout can change without code changes. Legacy DB paths may use `items_webp/...`
 
 from __future__ import annotations
 
+import base64
 import re
+from pathlib import Path
 from typing import Any, Iterable
 
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
+from waifu_bot.paths import static_game_directory
 
 GAME_STATIC_PREFIX = "/static/game"
 
 
-def game_asset_public_url(relative_path: str) -> str:
-    """Map stored relative_path (DB or default) to public URL under /static/game/."""
+def normalize_game_relative_path(relative_path: str) -> str:
+    """Normalize DB/default relative_path to filesystem path under static/game/."""
     rel = (relative_path or "").strip().lstrip("/")
     if rel.startswith("items_webp/"):
         rel = "items/webp/" + rel[len("items_webp/") :]
-    return f"{GAME_STATIC_PREFIX}/{rel}"
+    return rel
+
+
+def game_asset_public_url(relative_path: str) -> str:
+    """Map stored relative_path (DB or default) to public URL under /static/game/."""
+    return f"{GAME_STATIC_PREFIX}/{normalize_game_relative_path(relative_path)}"
+
+
+def relative_path_to_game_file(relative_path: str) -> Path:
+    """Resolve relative_path to an absolute file under static/game/."""
+    rel = normalize_game_relative_path(relative_path)
+    return static_game_directory() / rel
+
+
+def read_game_asset_data_url(relative_path: str) -> str | None:
+    """Read a static/game asset as data URL for multimodal AI; None if missing."""
+    path = relative_path_to_game_file(relative_path)
+    if not path.is_file():
+        return None
+    suffix = path.suffix.lower()
+    mime = {
+        ".webp": "image/webp",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+    }.get(suffix, "application/octet-stream")
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    b64 = base64.b64encode(raw).decode("ascii")
+    return f"data:{mime};base64,{b64}"
 
 
 def normalize_tier(tier: Any) -> int:
@@ -250,6 +286,29 @@ def _set_field(obj: Any, key: str, value: Any) -> None:
         except Exception:
             # Pydantic models may be frozen depending on config; ignore silently.
             pass
+
+
+async def resolve_item_art_relative_path(
+    session: AsyncSession,
+    art_key: str,
+    tier: Any,
+) -> str:
+    """DB relative_path for (art_key, tier) or default items_webp/... path."""
+    k = str(art_key or "").strip()
+    t = normalize_tier(tier)
+    if not k:
+        return default_relative_path("misc/base", t)
+    res = await session.execute(
+        select(m.ItemArt).where(
+            m.ItemArt.art_key == k,
+            m.ItemArt.tier == t,
+            m.ItemArt.enabled.is_(True),
+        )
+    )
+    row = res.scalar_one_or_none()
+    if row and (row.relative_path or "").strip():
+        return str(row.relative_path).strip()
+    return default_relative_path(k, t)
 
 
 async def enrich_items_with_image_urls(session: AsyncSession, items: list[Any]) -> list[Any]:

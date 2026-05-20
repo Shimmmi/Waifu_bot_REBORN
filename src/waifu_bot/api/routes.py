@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal, Optional
@@ -19,7 +20,14 @@ from waifu_bot.services.expedition import ExpeditionService
 from waifu_bot.services.webhook import process_update
 from waifu_bot.services import sse as sse_service
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
-from waifu_bot.services.item_art import derive_image_key, derive_item_art_key, enrich_items_with_image_urls
+from waifu_bot.services.item_art import (
+    derive_image_key,
+    derive_item_art_key,
+    enrich_items_with_image_urls,
+    normalize_tier,
+    read_game_asset_data_url,
+    resolve_item_art_relative_path,
+)
 from waifu_bot.services.enchanting import get_effective_params
 from waifu_bot.services.passive_skills import (
     get_passive_skill_bonuses,
@@ -1305,12 +1313,19 @@ async def preview_main_waifu_portrait(
     )
 
 
-async def _build_paperdoll_equipment_prompt_en(
+@dataclass
+class PaperdollEquipmentContext:
+    prompt_text: str
+    item_references: list[tuple[str, str]]
+    avg_tier: float
+
+
+async def _build_paperdoll_equipment_context(
     session: AsyncSession,
     player_id: int,
     main: m.MainWaifu,
-) -> str:
-    """English equipment summary for image model (current equipped slots)."""
+) -> PaperdollEquipmentContext:
+    """Equipment summary + item image refs + average tier for paperdoll generation."""
     result = await session.execute(
         select(m.InventoryItem)
         .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
@@ -1321,12 +1336,20 @@ async def _build_paperdoll_equipment_prompt_en(
     )
     equipped = list(result.scalars().all())
     if not equipped:
-        return (
-            "Equipment state: no armor or weapons are currently equipped in the game. "
-            "Use simple light adventurer base clothing appropriate to the class; avoid inventing heavy unrelated armor."
+        return PaperdollEquipmentContext(
+            prompt_text=(
+                "Equipment state: no armor or weapons are currently equipped in the game. "
+                "Use simple light adventurer base clothing appropriate to the class; avoid inventing heavy unrelated armor."
+            ),
+            item_references=[],
+            avg_tier=1.0,
         )
+
     await _enrich_items_with_template_stats(session, equipped)
     equipped.sort(key=lambda inv: int(inv.equipment_slot or 0))
+    gear_items = [_to_gear_item(inv, main) for inv in equipped]
+    await enrich_items_with_image_urls(session, gear_items)
+
     slot_label = {
         1: "Main hand",
         2: "Off hand (weapon, shield, or orb)",
@@ -1339,17 +1362,42 @@ async def _build_paperdoll_equipment_prompt_en(
         "Equipment state — show the character wearing and holding exactly this gear (fantasy JRPG, clear silhouettes). "
         "Match these items; do not add unrelated armor or weapons:",
     ]
-    for inv in equipped:
-        g = _to_gear_item(inv, main)
+    item_references: list[tuple[str, str]] = []
+    tier_sum = 0.0
+    tier_count = 0
+
+    for inv, g in zip(equipped, gear_items):
         sl = int(inv.equipment_slot or 0)
         label = slot_label.get(sl, f"Slot {sl}")
         name = (g.display_name or g.name or "item").strip()
         st = (g.slot_type or "").strip()
-        lines.append(f"- {label}: {name} (game type: {st})")
+        tier_sum += float(normalize_tier(g.tier))
+        tier_count += 1
+
+        art_key = str(g.art_key or "").strip()
+        rel = await resolve_item_art_relative_path(session, art_key, g.tier) if art_key else ""
+        data_url = read_game_asset_data_url(rel) if rel else None
+        if data_url:
+            item_references.append((label, data_url))
+            lines.append(
+                f"- {label}: {name} (game type: {st}; tier {normalize_tier(g.tier)}). "
+                f"Reference gear image attached for {label} — match its design on the character."
+            )
+        else:
+            lines.append(
+                f"- {label}: {name} (game type: {st}; tier {normalize_tier(g.tier)}; "
+                "no reference image — infer design from this name only)."
+            )
+
     lines.append(
         "Respect weapon grip for main/off hand; body slot shows armor or outfit; rings and amulet as visible jewelry when applicable."
     )
-    return "\n".join(lines)
+    avg_tier = tier_sum / tier_count if tier_count else 1.0
+    return PaperdollEquipmentContext(
+        prompt_text="\n".join(lines),
+        item_references=item_references,
+        avg_tier=avg_tier,
+    )
 
 
 async def _run_paperdoll_generation_save(
@@ -1380,13 +1428,15 @@ async def _run_paperdoll_generation_save(
         )
 
     mime = (getattr(main, "image_mime", None) or "image/webp").strip() or "image/webp"
-    equip_prompt = await _build_paperdoll_equipment_prompt_en(session, player_id, main)
+    equip_ctx = await _build_paperdoll_equipment_context(session, player_id, main)
     b64 = await generate_main_waifu_paperdoll_from_portrait(
         portrait_b64=portrait_raw,
         portrait_mime=mime,
         race_id=int(main.race),
         class_id=int(main.class_),
-        equipment_prompt_en=equip_prompt,
+        equipment_prompt_en=equip_ctx.prompt_text,
+        equipment_references=equip_ctx.item_references,
+        avg_equipment_tier=equip_ctx.avg_tier,
     )
     if not b64:
         raise HTTPException(

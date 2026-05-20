@@ -1160,6 +1160,45 @@ async def generate_main_waifu_portrait(
         return None
 
 
+_PAPERDOLL_POSES_EN: tuple[str, ...] = (
+    "waist-up, slight three-quarter view, confident battle-ready stance, weight on back foot, ready to strike",
+    "waist-up, dynamic mid-action pose with subtle motion in hair and cloth, energetic but controlled",
+    "waist-up, relaxed heroic standing pose, one hand on hip, friendly adventurer energy",
+    "waist-up, casting or channeling pose, off-hand raised with faint magical intent, focused expression",
+    "waist-up, alert guard stance, knees slightly bent, weapons or shield held naturally for equipped gear",
+    "waist-up, charismatic three-quarter pose, slight lean forward, expressive and lively",
+)
+
+
+def _paperdoll_background_for_avg_tier(avg_tier: float) -> str:
+    t = float(avg_tier or 1.0)
+    if t >= 9.0:
+        return (
+            "Background: legendary divine atmosphere — rich deep gradient (royal violet to gold), "
+            "intense golden god-rays, radiant halo glow behind the character, sparkling particles and arcane energy wisps, "
+            "premium loot aura; no scenery, no text."
+        )
+    if t >= 7.0:
+        return (
+            "Background: epic high-tier fantasy — dramatic purple-blue gradient with bright rim light, "
+            "floating sparkles, soft energy wisps and subtle lens flare; heroic showcase feel; no scenery, no text."
+        )
+    if t >= 5.0:
+        return (
+            "Background: rare gear atmosphere — warm amber and teal gradient, magical particle motes, "
+            "soft rim glow around the silhouette, light VFX sparkles; no scenery, no text."
+        )
+    if t >= 3.0:
+        return (
+            "Background: uncommon quality — soft vertical gradient (warm cream to pale gold), "
+            "gentle warm aura and faint glow behind shoulders; no scenery, no text."
+        )
+    return (
+        "Background: solid or very soft vertical gradient light beige (#f5f0e6 to #ebe4d6), warm parchment tone, "
+        "minimal effects; no scenery, no patterns, no text — must harmonize with a soft UI paperdoll panel."
+    )
+
+
 async def generate_main_waifu_paperdoll_from_portrait(
     *,
     portrait_b64: str,
@@ -1167,6 +1206,8 @@ async def generate_main_waifu_paperdoll_from_portrait(
     race_id: int,
     class_id: int,
     equipment_prompt_en: str | None = None,
+    equipment_references: list[tuple[str, str]] | None = None,
+    avg_equipment_tier: float = 1.0,
 ) -> Optional[str]:
     """
     2D JRPG-style paperdoll (waist-up) from existing portrait: multimodal request to OPENROUTER_MODEL_IMAGE.
@@ -1192,31 +1233,51 @@ async def generate_main_waifu_paperdoll_from_portrait(
     class_en = _MAIN_WAIFU_CLASS_VISUAL_EN.get(int(class_id), "female adventurer")
     raw_eq = str(equipment_prompt_en or "").strip()
     equip_extra = "\n\n" + raw_eq if raw_eq else ""
+    pose_en = random.choice(_PAPERDOLL_POSES_EN)
+    bg_en = _paperdoll_background_for_avg_tier(avg_equipment_tier)
+    gear_ref_note = ""
+    refs = equipment_references or []
+    if refs:
+        gear_ref_note = (
+            f"\nAttached after the portrait: {len(refs)} reference image(s) of equipped gear — "
+            "integrate each item's design onto the character in the matching slot."
+        )
     prompt = (
         "Using the attached reference portrait, generate a single JRPG-style 2D full-color illustration of the "
         "SAME character. CRITICAL: preserve the face exactly — same facial features, eyes, nose, mouth, expression, "
         "hairstyle, hair color, skin tone, and overall identity as the reference; do not redesign the face."
-        f"\nBody framing: waist-up or mid-thigh-up, slight three-quarter view, neutral relaxed stance; hands positioned "
-        f"so equipped weapons or shields can be held naturally where applicable."
+        f"\nBody framing: {pose_en}; hands positioned so equipped weapons or shields can be held naturally where applicable."
         f"\nCharacter flavor: {race_en}, {class_en}."
         f"{equip_extra}"
+        f"{gear_ref_note}"
         "\nArt style: soft cel-shading, clean line art, not photorealistic, not 3D render, fantasy JRPG character art. "
         "Safe for work, 1girl."
-        "\nBackground: solid or very soft vertical gradient light beige (#f5f0e6 to #ebe4d6), warm parchment tone, "
-        "no scenery, no patterns, no text — must harmonize with a soft UI paperdoll panel."
+        f"\n{bg_en}"
     )
     logger.info(
-        "[MAIN OV PAPERDOLL] model=%s race=%s class=%s equip_chars=%s",
+        "[MAIN OV PAPERDOLL] model=%s race=%s class=%s equip_chars=%s refs=%s avg_tier=%.2f pose=%s",
         model,
         race_id,
         class_id,
         len(raw_eq),
+        len(refs),
+        float(avg_equipment_tier or 1.0),
+        pose_en[:48],
     )
 
     user_content: list[dict[str, Any]] = [
         {"type": "text", "text": prompt},
         {"type": "image_url", "image_url": {"url": data_url}},
     ]
+    for slot_label, ref_url in refs:
+        label = str(slot_label or "Gear").strip() or "Gear"
+        url = str(ref_url or "").strip()
+        if not url:
+            continue
+        user_content.append(
+            {"type": "text", "text": f"Reference gear image for {label} — match this item on the character:"}
+        )
+        user_content.append({"type": "image_url", "image_url": {"url": url}})
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
