@@ -77,6 +77,9 @@ async def guild_skill_upgrade(session: AsyncSession, player_id: int, skill_defin
         await session.flush()
     row.current_level = cur + 1
     guild.skill_points_spent = int(guild.skill_points_spent) + cost
+    from waifu_bot.services.guild_activity import log_skill_upgrade
+
+    await log_skill_upgrade(session, guild.id, player_id, dfn.name)
     await session.commit()
     return {"success": True, "new_level": row.current_level, "spent": guild.skill_points_spent}
 

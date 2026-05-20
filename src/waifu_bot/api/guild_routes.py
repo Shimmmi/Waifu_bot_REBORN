@@ -213,6 +213,18 @@ async def guilds_me(
         key=lambda x: (-bool(x["is_leader"]), -bool(x["is_officer"]), x["display_name"].lower())
     )
     guild_icon_url = f"/static/{guild.icon_path}" if guild.icon_path else None
+    from waifu_bot.services.guild_activity import (
+        compute_guild_power,
+        compute_guild_rating,
+        fetch_guild_activity_feed,
+        fetch_guild_history,
+    )
+
+    guild_power = await compute_guild_power(session, guild.id)
+    guild_rating = await compute_guild_rating(session, guild.id)
+    activity_feed = await fetch_guild_activity_feed(session, guild.id)
+    history = await fetch_guild_history(session, guild.id)
+
     try:
         from waifu_bot.services.player_activity import touch_player_last_active
 
@@ -237,6 +249,10 @@ async def guilds_me(
         "wars_unlocked": bool(thr.wars_unlocked) if thr else False,
         "members": members_out,
         "guild_icon_url": guild_icon_url,
+        "guild_power": guild_power,
+        "guild_rating": guild_rating,
+        "activity_feed": activity_feed,
+        "history": history,
     }
 
 

@@ -157,6 +157,9 @@ class GuildService:
         member = GuildMember(guild_id=guild_id, player_id=player_id, is_leader=False)
         session.add(member)
 
+        from waifu_bot.services.guild_activity import log_member_join
+
+        await log_member_join(session, guild_id, player_id)
         await session.commit()
 
         return {"success": True, "guild_id": guild_id}
@@ -225,6 +228,9 @@ class GuildService:
         await add_gxp_from_bank_deposit(session, member.guild_id, amount)
         await apply_war_bank_deposit(session, player_id, amount)
 
+        from waifu_bot.services.guild_activity import log_bank_deposit
+
+        await log_bank_deposit(session, member.guild_id, player_id, amount)
         await session.commit()
 
         return {"success": True, "guild_gold": guild.gold, "player_gold": player.gold}

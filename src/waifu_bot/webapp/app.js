@@ -9079,10 +9079,154 @@ function guildApiErrorToUser(detail, fallback) {
 }
 
 function updateGuildHallChrome(inGuild) {
-  const tabs = document.querySelector(".guild-tabs");
+  const tabs = document.querySelector(".guild-tabs-row");
+  const hero = document.getElementById("guild-hero-banner");
   const createSec = document.getElementById("guild-create-section");
   if (tabs) tabs.style.display = inGuild ? "" : "none";
+  if (hero) {
+    hero.hidden = !inGuild;
+    hero.setAttribute("aria-hidden", inGuild ? "false" : "true");
+  }
   if (createSec) createSec.style.display = inGuild ? "none" : "";
+}
+
+function formatGuildPower(n) {
+  const v = safeInt(n, 0);
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(v);
+}
+
+function formatGuildRelativeTime(iso) {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const sec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (sec < 60) return "только что";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} мин. назад`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} ч. назад`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day} дн. назад`;
+  return new Date(t).toLocaleDateString("ru-RU");
+}
+
+function renderGuildHero(d) {
+  const hero = document.getElementById("guild-hero-banner");
+  if (!hero || !d?.in_guild) return;
+  const tagEl = document.getElementById("guild-hero-tag");
+  const nameEl = document.getElementById("guild-hero-name");
+  const levelEl = document.getElementById("guild-hero-level");
+  const xpFill = document.getElementById("guild-hero-xp-fill");
+  const xpLabel = document.getElementById("guild-hero-xp-label");
+  const emblemBtn = document.getElementById("guild-hero-emblem");
+  const emblemInner = document.getElementById("guild-hero-emblem-inner");
+  const fileInp = document.getElementById("guild-icon-file-input");
+  const bar = formatGuildGxpBar(d);
+  const canEditIcon = d.is_leader || d.is_officer;
+  if (tagEl) tagEl.textContent = `[${d.guild_tag || ""}]`;
+  if (nameEl) nameEl.textContent = d.guild_name || "—";
+  if (levelEl) levelEl.textContent = `Ур. гильдии ${d.guild_level ?? "—"}`;
+  if (xpFill) xpFill.style.width = `${bar.pct}%`;
+  if (xpLabel) xpLabel.textContent = bar.label;
+  const iconUrl = d.guild_icon_url
+    ? d.guild_icon_url.startsWith("http")
+      ? d.guild_icon_url
+      : d.guild_icon_url
+    : "";
+  if (emblemInner) {
+    if (iconUrl) {
+      emblemInner.innerHTML = `<img src="${escapeHtml(iconUrl)}" alt="" />`;
+    } else {
+      emblemInner.textContent = "🏛️";
+    }
+  }
+  if (emblemBtn) {
+    emblemBtn.classList.toggle("guild-hero-emblem--readonly", !canEditIcon);
+    emblemBtn.onclick = canEditIcon ? () => onGuildEmblemClick() : null;
+  }
+  if (fileInp) {
+    fileInp.onchange = () => uploadGuildIcon(fileInp);
+  }
+}
+
+function renderGuildStatsGrid(d) {
+  const members = Array.isArray(d?.members) ? d.members : [];
+  const onlineN = members.filter((m) => m.online).length;
+  const slots = d?.member_slots ?? "—";
+  const power =
+    d?.guild_power != null && d.guild_power !== ""
+      ? formatGuildPower(d.guild_power)
+      : "—";
+  const rating =
+    d?.guild_rating != null && d.guild_rating > 0 ? `#${d.guild_rating}` : "—";
+  return `
+    <div class="guild-section-label">Статистика</div>
+    <div class="guild-stats-grid">
+      <div class="guild-stat-card">
+        <div class="guild-stat-label">Участники</div>
+        <div class="guild-stat-val">${members.length} <span class="guild-stat-sub">/ ${slots}</span></div>
+      </div>
+      <div class="guild-stat-card">
+        <div class="guild-stat-label">Онлайн</div>
+        <div class="guild-stat-val guild-stat-val--green"><span class="guild-dot-online" aria-hidden="true"></span>${onlineN}</div>
+      </div>
+      <div class="guild-stat-card">
+        <div class="guild-stat-label">Мощь</div>
+        <div class="guild-stat-val guild-stat-val--gold" id="guild-stat-power">${escapeHtml(String(power))}</div>
+      </div>
+      <div class="guild-stat-card">
+        <div class="guild-stat-label">Рейтинг</div>
+        <div class="guild-stat-val" id="guild-stat-rating">${escapeHtml(String(rating))}</div>
+      </div>
+    </div>`;
+}
+
+function renderGuildActivityFeed(d) {
+  const feed = Array.isArray(d?.activity_feed) ? d.activity_feed : [];
+  if (!feed.length) {
+    return `
+      <div class="guild-section-label">Активность</div>
+      <p class="muted tiny" style="margin-bottom:18px">Пока нет событий.</p>`;
+  }
+  const items = feed
+    .map((ev) => {
+      const avatar = ev.actor_avatar || "📋";
+      const text = ev.text || "";
+      const time = formatGuildRelativeTime(ev.created_at);
+      return `<div class="guild-act-item">
+        <div class="guild-act-avatar" aria-hidden="true">${escapeHtml(String(avatar))}</div>
+        <div class="guild-act-body">
+          <div class="guild-act-text">${escapeHtml(text)}</div>
+          ${time ? `<div class="guild-act-time">${escapeHtml(time)}</div>` : ""}
+        </div>
+      </div>`;
+    })
+    .join("");
+  return `<div class="guild-section-label">Активность</div><div class="guild-activity-list">${items}</div>`;
+}
+
+function renderGuildHistoryPane(d) {
+  const history = Array.isArray(d?.history) ? d.history : [];
+  if (!history.length) {
+    return `<p class="muted tiny" style="padding:12px 0;text-align:center">История пуста.</p>`;
+  }
+  const items = history
+    .map((ev) => {
+      const avatar = ev.actor_avatar || "📜";
+      const text = ev.text || "";
+      const time = formatGuildRelativeTime(ev.created_at);
+      return `<div class="guild-act-item">
+        <div class="guild-act-avatar" aria-hidden="true">${escapeHtml(String(avatar))}</div>
+        <div class="guild-act-body">
+          <div class="guild-act-text">${escapeHtml(text)}</div>
+          ${time ? `<div class="guild-act-time">${escapeHtml(time)}</div>` : ""}
+        </div>
+      </div>`;
+    })
+    .join("");
+  return `<div class="guild-history-list">${items}</div>`;
 }
 
 function switchGuildTab(name) {
@@ -9090,7 +9234,7 @@ function switchGuildTab(name) {
   document.querySelectorAll("[data-guild-tab-btn]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.guildTabBtn === name);
   });
-  if (name === "activities" && !guildHallState.activitySubTab) {
+  if (name === "battles" && !guildHallState.activitySubTab) {
     guildHallState.activitySubTab = "raid";
   }
   void renderGuildTabContent();
@@ -9980,29 +10124,10 @@ async function renderGuildTabContent() {
   }
 
   if (tab === "main") {
-    const bar = formatGuildGxpBar(d);
-    const iconUrl = d.guild_icon_url ? (d.guild_icon_url.startsWith("http") ? d.guild_icon_url : d.guild_icon_url) : "";
-    const emblemCls = d.is_leader || d.is_officer ? "guild-emblem-hit" : "guild-emblem-hit guild-emblem-hit--readonly";
-    const canEditIcon = d.is_leader || d.is_officer;
     root.innerHTML = `
-      <div class="guild-hall-header">
-        <div class="guild-emblem-col">
-          <button type="button" class="${emblemCls}" onclick="${canEditIcon ? "WaifuApp.onGuildEmblemClick()" : ""}" aria-label="Эмблема гильдии">
-            ${
-              iconUrl
-                ? `<img class="guild-emblem-img" src="${escapeHtml(iconUrl)}" alt="" />`
-                : `<span class="guild-emblem-placeholder">🏛️</span>`
-            }
-          </button>
-          ${canEditIcon ? `<input type="file" id="guild-icon-file-input" class="guild-icon-file-input" accept="image/jpeg,image/png,image/webp" onchange="WaifuApp.uploadGuildIcon(this)" />` : ""}
-        </div>
-        <div class="guild-hall-titles">
-          <h3 class="guild-hall-name">[${escapeHtml(d.guild_tag || "")}] ${escapeHtml(d.guild_name || "")}</h3>
-          <p class="muted tiny">Ур. гильдии ${d.guild_level ?? "—"} · ${bar.label}</p>
-          <div class="attic-xp-bar" style="margin-top:6px"><div class="attic-xp-fill" style="width:${bar.pct}%"></div></div>
-          <p class="muted tiny">Участники: ${(d.members || []).length} / ${d.member_slots ?? "—"}</p>
-        </div>
-      </div>
+      ${renderGuildStatsGrid(d)}
+      ${renderGuildActivityFeed(d)}
+      <div class="guild-section-label">Участники</div>
       ${renderGuildMembersHtml(d.members)}
       ${
         !d.is_leader
@@ -10029,10 +10154,10 @@ async function renderGuildTabContent() {
     return;
   }
 
-  if (tab === "activities") {
+  if (tab === "battles") {
     const sub = guildHallState.activitySubTab || "raid";
     root.innerHTML = `
-      <nav class="guild-subtabs" aria-label="Подвкладки активностей">
+      <nav class="guild-subtabs" aria-label="Подвкладки битв">
         <button type="button" class="guild-subtab-btn ${sub === "raid" ? "active" : ""}" onclick="WaifuApp.switchGuildActivityTab('raid')">Рейды</button>
         <button type="button" class="guild-subtab-btn ${sub === "war" ? "active" : ""}" onclick="WaifuApp.switchGuildActivityTab('war')">Война</button>
         <button type="button" class="guild-subtab-btn ${sub === "quests" ? "active" : ""}" onclick="WaifuApp.switchGuildActivityTab('quests')">Квесты</button>
@@ -10044,6 +10169,11 @@ async function renderGuildTabContent() {
             ? renderGuildWarPane(d)
             : renderGuildQuestsPane()
       }</div>`;
+    return;
+  }
+
+  if (tab === "history") {
+    root.innerHTML = `<div class="guild-section-label">История</div>${renderGuildHistoryPane(d)}`;
     return;
   }
 
@@ -10111,9 +10241,20 @@ async function populateGuildHall(profile) {
     updateGuildHallChrome(Boolean(data?.in_guild));
     if (!data?.in_guild) {
       guildHallState.tab = guildHallState.tab === "main" ? "search" : guildHallState.tab;
-      if (guildHallState.tab === "main" || guildHallState.tab === "skills" || guildHallState.tab === "bank" || guildHallState.tab === "activities") {
+      if (
+        guildHallState.tab === "main" ||
+        guildHallState.tab === "skills" ||
+        guildHallState.tab === "bank" ||
+        guildHallState.tab === "battles" ||
+        guildHallState.tab === "activities" ||
+        guildHallState.tab === "history"
+      ) {
         guildHallState.tab = "search";
       }
+    } else {
+      if (guildHallState.tab === "activities") guildHallState.tab = "battles";
+      if (guildHallState.tab === "search") guildHallState.tab = "main";
+      renderGuildHero(data);
     }
     document.querySelectorAll("[data-guild-tab-btn]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.guildTabBtn === guildHallState.tab);

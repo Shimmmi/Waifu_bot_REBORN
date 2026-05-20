@@ -21,13 +21,75 @@
       </div>
     </header>
 
+    <section id="guild-hero-banner" class="guild-hero-banner" hidden aria-hidden="true">
+      <div class="guild-hero-bg" aria-hidden="true">
+        <svg class="guild-hero-svg" viewBox="0 0 390 220" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+          <defs>
+            <radialGradient id="guildHeroRg1" cx="50%" cy="55%" r="55%">
+              <stop offset="0%" stop-color="#3b2000" stop-opacity="0.9" />
+              <stop offset="100%" stop-color="#0d0a08" stop-opacity="0" />
+            </radialGradient>
+            <radialGradient id="guildHeroRg2" cx="50%" cy="85%" r="40%">
+              <stop offset="0%" stop-color="#92400e" stop-opacity="0.35" />
+              <stop offset="100%" stop-color="transparent" />
+            </radialGradient>
+            <radialGradient id="guildHeroRg3" cx="50%" cy="50%" r="30%">
+              <stop offset="0%" stop-color="#c8922a" stop-opacity="0.12" />
+              <stop offset="100%" stop-color="transparent" />
+            </radialGradient>
+          </defs>
+          <rect width="390" height="220" fill="#0c0e14" />
+          <rect width="390" height="220" fill="url(#guildHeroRg1)" />
+          <rect width="390" height="220" fill="url(#guildHeroRg2)" />
+          <rect width="390" height="220" fill="url(#guildHeroRg3)" />
+          <ellipse cx="195" cy="115" rx="75" ry="95" fill="none" stroke="rgba(200,146,42,0.1)" stroke-width="1" />
+          <ellipse cx="195" cy="115" rx="110" ry="130" fill="none" stroke="rgba(200,146,42,0.06)" stroke-width="1" />
+          <circle cx="55" cy="35" r="1.5" fill="rgba(244,208,120,0.45)" />
+          <circle cx="300" cy="55" r="1" fill="rgba(244,208,120,0.35)" />
+          <circle cx="330" cy="105" r="2" fill="rgba(244,208,120,0.28)" />
+          <circle cx="40" cy="115" r="1.5" fill="rgba(200,146,42,0.4)" />
+          <circle cx="340" cy="38" r="1.5" fill="rgba(200,146,42,0.3)" />
+          <circle cx="90" cy="175" r="2" fill="rgba(244,208,120,0.25)" />
+          <circle cx="268" cy="160" r="1.5" fill="rgba(244,208,120,0.3)" />
+          <rect x="0" y="170" width="390" height="50" fill="rgba(13,10,8,0.88)" />
+        </svg>
+      </div>
+      <div class="guild-hero-overlay">
+        <div class="guild-hero-meta">
+          <button type="button" id="guild-hero-emblem" class="guild-hero-emblem" aria-label="Эмблема гильдии">
+            <span id="guild-hero-emblem-inner" class="guild-hero-emblem-inner">🏛️</span>
+          </button>
+          <input type="file" id="guild-icon-file-input" class="guild-icon-file-input" accept="image/jpeg,image/png,image/webp" aria-hidden="true" tabindex="-1" />
+          <div class="guild-hero-info">
+            <span id="guild-hero-tag" class="guild-tag"></span>
+            <h1 id="guild-hero-name" class="guild-hero-name"></h1>
+            <p id="guild-hero-level" class="guild-hero-sub"></p>
+            <div class="guild-hero-xp-row">
+              <div class="guild-hero-xp-bar" aria-hidden="true"><div class="guild-hero-xp-fill" id="guild-hero-xp-fill"></div></div>
+              <span class="guild-hero-xp-label" id="guild-hero-xp-label"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <main class="layout">
-      <nav class="guild-tabs" aria-label="Вкладки гильдии">
-        <button type="button" class="guild-tab-btn active" data-guild-tab-btn="main" onclick="WaifuApp.switchGuildTab('main')">Основная</button>
-        <button type="button" class="guild-tab-btn" data-guild-tab-btn="skills" onclick="WaifuApp.switchGuildTab('skills')">Навыки</button>
-        <button type="button" class="guild-tab-btn" data-guild-tab-btn="bank" onclick="WaifuApp.switchGuildTab('bank')">Банк</button>
-        <button type="button" class="guild-tab-btn" data-guild-tab-btn="activities" onclick="WaifuApp.switchGuildTab('activities')">Активности</button>
-        <button type="button" class="guild-tab-btn" data-guild-tab-btn="search" aria-label="Поиск гильдии" title="Поиск гильдии" onclick="WaifuApp.switchGuildTab('search')">🔍</button>
+      <nav class="guild-tabs-row" aria-label="Вкладки гильдии">
+        <button type="button" class="guild-tab-item active" data-guild-tab-btn="main" onclick="WaifuApp.switchGuildTab('main')">
+          <span class="guild-tab-icon" aria-hidden="true">🏰</span><span class="guild-tab-label">Гильдия</span>
+        </button>
+        <button type="button" class="guild-tab-item" data-guild-tab-btn="battles" onclick="WaifuApp.switchGuildTab('battles')">
+          <span class="guild-tab-icon" aria-hidden="true">⚔️</span><span class="guild-tab-label">Битвы</span>
+        </button>
+        <button type="button" class="guild-tab-item" data-guild-tab-btn="skills" onclick="WaifuApp.switchGuildTab('skills')">
+          <span class="guild-tab-icon" aria-hidden="true">✨</span><span class="guild-tab-label">Навыки</span>
+        </button>
+        <button type="button" class="guild-tab-item" data-guild-tab-btn="bank" onclick="WaifuApp.switchGuildTab('bank')">
+          <span class="guild-tab-icon" aria-hidden="true">💰</span><span class="guild-tab-label">Казна</span>
+        </button>
+        <button type="button" class="guild-tab-item" data-guild-tab-btn="history" onclick="WaifuApp.switchGuildTab('history')">
+          <span class="guild-tab-icon" aria-hidden="true">📜</span><span class="guild-tab-label">История</span>
+        </button>
       </nav>
 
       <div id="guild-tab-content" class="section"></div>

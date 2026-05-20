@@ -200,3 +200,19 @@ class GuildWarScoreBankDaily(Base):
     ws_from_deposits: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     __table_args__ = (UniqueConstraint("guild_id", "day", name="uq_guild_ws_bank_day"),)
+
+
+class GuildActivityLog(Base):
+    """Recent guild events for hall activity feed and history."""
+
+    __tablename__ = "guild_activity_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(Integer, ForeignKey("guilds.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_player_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    text: Mapped[str] = mapped_column(String(512), nullable=False)
+    actor_avatar: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False, index=True
+    )

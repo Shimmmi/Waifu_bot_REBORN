@@ -45,6 +45,7 @@ from waifu_bot.db.models.guild_extended import (
     GuildWarStatus,
     GuildRaidStatus,
     GuildWarRowStatus,
+    GuildActivityLog,
 )
 from waifu_bot.db.models.skill import Skill, WaifuSkill
 from waifu_bot.db.models.battle import BattleLog

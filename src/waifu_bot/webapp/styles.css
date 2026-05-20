@@ -8518,6 +8518,327 @@ body.page-guild .guild-member-preview-modal-root .modal-close:hover {
   background: rgba(200, 146, 42, 0.12);
 }
 
+/* Guild hall — hero banner */
+body.page-guild .guild-hero-banner {
+  position: relative;
+  height: 220px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+body.page-guild .guild-hero-bg {
+  width: 100%;
+  height: 100%;
+  background: #0c0e14;
+}
+
+body.page-guild .guild-hero-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+body.page-guild .guild-hero-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 14px 16px;
+  background: linear-gradient(to top, rgba(13, 10, 8, 1) 0%, rgba(13, 10, 8, 0.65) 55%, transparent 100%);
+}
+
+body.page-guild .guild-hero-meta {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+body.page-guild .guild-hero-emblem {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 2px solid var(--amber);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  overflow: hidden;
+}
+
+body.page-guild .guild-hero-emblem--readonly {
+  cursor: default;
+}
+
+body.page-guild .guild-hero-emblem:hover:not(.guild-hero-emblem--readonly) {
+  border-color: var(--amber-glow);
+  background: rgba(200, 146, 42, 0.12);
+}
+
+body.page-guild .guild-hero-emblem-inner {
+  font-size: 22px;
+  line-height: 1;
+}
+
+body.page-guild .guild-hero-emblem img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+body.page-guild .guild-hero-info {
+  flex: 1;
+  min-width: 0;
+}
+
+body.page-guild .guild-tag {
+  display: inline-block;
+  background: rgba(200, 146, 42, 0.15);
+  border: 1px solid rgba(200, 146, 42, 0.3);
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 10px;
+  color: var(--amber-glow);
+  margin-bottom: 4px;
+}
+
+body.page-guild .guild-hero-name {
+  margin: 0 0 1px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1.2;
+}
+
+body.page-guild .guild-hero-sub {
+  margin: 0 0 7px;
+  font-size: 11px;
+  color: var(--amber);
+}
+
+body.page-guild .guild-hero-xp-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+body.page-guild .guild-hero-xp-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+body.page-guild .guild-hero-xp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(200, 146, 42, 0.9), rgba(244, 208, 120, 0.9));
+  width: 0%;
+  transition: width 0.25s ease;
+}
+
+body.page-guild .guild-hero-xp-label {
+  font-size: 10px;
+  color: var(--amber);
+  flex-shrink: 0;
+}
+
+/* Guild hall — icon tabs */
+body.page-guild .guild-tabs-row {
+  display: flex;
+  border-bottom: 1px solid rgba(200, 146, 42, 0.2);
+  background: rgba(13, 10, 8, 0.95);
+  padding: 0 6px;
+  overflow-x: auto;
+  margin: 0 -10px 0;
+  width: calc(100% + 20px);
+}
+
+body.page-guild .guild-tabs-row::-webkit-scrollbar {
+  display: none;
+}
+
+body.page-guild .guild-tab-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 9px 4px 7px;
+  font-size: 10px;
+  color: var(--ash);
+  cursor: pointer;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  transition: color 0.2s;
+  min-width: 56px;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+body.page-guild .guild-tab-item:hover {
+  color: var(--muted);
+}
+
+body.page-guild .guild-tab-item.active {
+  color: var(--amber-glow);
+  border-bottom-color: var(--amber);
+}
+
+body.page-guild .guild-tab-icon {
+  font-size: 17px;
+  line-height: 1;
+}
+
+body.page-guild .guild-tab-label {
+  line-height: 1.2;
+}
+
+body.page-guild .layout {
+  padding-top: 0;
+}
+
+body.page-guild #guild-tab-content {
+  background: transparent;
+  border: none;
+  padding: 14px 4px 0;
+  margin-top: 0;
+}
+
+body.page-guild .guild-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ash);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  margin: 4px 0 9px;
+}
+
+body.page-guild .guild-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+body.page-guild .guild-stat-card {
+  background: var(--card);
+  border: 1px solid rgba(200, 146, 42, 0.15);
+  border-radius: 12px;
+  padding: 11px 13px;
+  transition: border-color 0.2s;
+}
+
+body.page-guild .guild-stat-card:hover {
+  border-color: rgba(200, 146, 42, 0.3);
+}
+
+body.page-guild .guild-stat-label {
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+body.page-guild .guild-stat-val {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+body.page-guild .guild-stat-val--gold {
+  color: var(--amber-glow);
+}
+
+body.page-guild .guild-stat-val--green {
+  color: #34d399;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+body.page-guild .guild-stat-sub {
+  font-size: 13px;
+  color: var(--ash);
+  font-weight: 400;
+}
+
+body.page-guild .guild-dot-online {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34d399;
+  flex-shrink: 0;
+}
+
+body.page-guild .guild-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 18px;
+}
+
+body.page-guild .guild-act-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  background: var(--card);
+  border: 1px solid rgba(200, 146, 42, 0.15);
+  border-radius: 11px;
+  transition: border-color 0.2s;
+}
+
+body.page-guild .guild-act-item:hover {
+  border-color: rgba(200, 146, 42, 0.3);
+}
+
+body.page-guild .guild-act-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(200, 146, 42, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+body.page-guild .guild-act-body {
+  flex: 1;
+  min-width: 0;
+}
+
+body.page-guild .guild-act-text {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+body.page-guild .guild-act-highlight {
+  color: var(--amber-glow);
+  font-weight: 500;
+}
+
+body.page-guild .guild-act-time {
+  font-size: 10px;
+  color: var(--ash);
+  margin-top: 2px;
+}
+
+body.page-guild .guild-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 body.page-guild .nav.basement a {
   color: #d8cbb8 !important;
 }
