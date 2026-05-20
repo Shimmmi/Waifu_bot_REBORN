@@ -1142,7 +1142,7 @@
       <div id="tab-upgrade" class="tab-panel" style="display:none;">
         <section class="section">
           <div class="section-head"><h3>Прокачка наёмниц</h3></div>
-          <div id="tavern-upgrade-list" class="placeholder muted" style="font-style:italic;">Стоимость растёт с уровнем. Выберите наёмницу из запаса или отряда.</div>
+          <div id="tavern-upgrade-list" class="tavern-upgrade-list placeholder muted" style="font-style:italic;">Загрузка…</div>
         </section>
       </div>
     </main>
@@ -1269,6 +1269,20 @@
         <div class="modal-title" id="squad-picker-title">Добавить в отряд</div>
         <div class="modal-subtitle" style="font-size:12px;color:var(--ash);margin-top:4px;">Выберите наёмницу из запаса для слота</div>
         <div id="squad-picker-list" style="display:flex;flex-direction:column;gap:8px;margin-top:12px;"></div>
+      </div>
+    </div>
+
+    <div id="tavern-upgrade-loading-modal" class="modal tavern-upgrade-loading-modal"
+         style="display:none;" role="dialog" aria-modal="true" aria-busy="true"
+         aria-label="Прокачка перка">
+      <div class="tavern-modal-sheet tavern-upgrade-loading-sheet">
+        <div class="tavern-upgrade-loading-visual" aria-hidden="true">
+          <div class="tavern-upgrade-loading-gym">🏋️</div>
+          <div class="tavern-upgrade-loading-pulse"></div>
+        </div>
+        <div class="tavern-upgrade-loading-title">Прокачка перка…</div>
+        <div class="tavern-upgrade-loading-sub">Наёмница тренируется</div>
+        <div class="tavern-upgrade-loading-bar"><div class="tavern-upgrade-loading-fill"></div></div>
       </div>
     </div>
 

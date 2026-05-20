@@ -1,5 +1,7 @@
 # ТЗ: Редизайн системы экспедиций
 
+> **v1.4 (теги сложности):** 8 игровых типов (`monsters`, `undead`, `dark_magic`, …), union на слот, `tag_mult = Π(1−1/N)` за покрытые типы отрядом, урон через `calc_event_damage_v14` + ±10% за challenge-тик. См. `expedition_difficulty_tags.py`, `info/expedition_mercenary_system_analysis.md`.
+
 ---
 
 ## 1. Архитектура сложностей

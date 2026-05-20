@@ -516,6 +516,13 @@ async def apply_passive_buy_price(session: AsyncSession, player_id: int, price: 
     except Exception:
         return max(1, int(price))
     sd = float(ps.get("shop_discount_pct", 0) or 0)
+    try:
+        from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
+
+        hs = await get_hidden_skill_bonuses(session, player_id)
+        sd += float(hs.get("shop_discount_pct", 0) or 0) / 100.0
+    except Exception:
+        pass
     p = max(1, int(round(int(price) * (1.0 - min(0.85, max(0.0, sd))))))
     tf = int(ps.get("trade_flat", 0) or 0)
     if tf > 0:
@@ -619,15 +626,23 @@ async def effective_passive_learn_cost(session: AsyncSession, player_id: int, ba
     return apply_charm_training_discount(after_passive, ch)
 
 
-def expedition_reward_multiplier(ps: dict[str, float]) -> float:
+def expedition_reward_multiplier(ps: dict[str, float], hs: dict[str, float] | None = None) -> float:
     """Множитель золота/опыта экспедиции."""
-    return 1.0 + float(ps.get("expedition_bonus_pct", 0) or 0)
+    mult = 1.0 + float(ps.get("expedition_bonus_pct", 0) or 0)
+    if hs:
+        mult += float(hs.get("expedition_reward_pct", 0) or 0) / 100.0
+    return mult
 
 
-def expedition_success_probability_boost(ps: dict[str, float]) -> float:
+def expedition_success_probability_boost(
+    ps: dict[str, float], hs: dict[str, float] | None = None
+) -> float:
     """Добавка к вероятности успеха (0..1) при первом claim."""
     eb = float(ps.get("expedition_bonus_pct", 0) or 0)
-    return min(0.4, eb * 0.65)
+    boost = min(0.4, eb * 0.65)
+    if hs:
+        boost += float(hs.get("loyal_unit_success_pct", 0) or 0) / 100.0
+    return min(0.5, boost)
 
 
 def merge_passive_into_profile_details(

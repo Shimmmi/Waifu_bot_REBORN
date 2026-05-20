@@ -260,20 +260,54 @@ def weighted_challenge_category(
     *,
     primary_categories: frozenset[str],
     squad_categories: frozenset[str],
+    tag_boosted_categories: frozenset[str] | None = None,
     rng: random.Random | None = None,
 ) -> str:
-    """Выбор категории испытания: базовый вес 100, ×2 если у отряда есть перк по категории."""
+    """Выбор категории испытания: базовый вес 100, ×2 перк отряда, ×1.35 primary слота, ×1.25 теги слота."""
     r = rng or random
     weights: list[float] = []
     cats = list(CHALLENGE_CATEGORIES)
+    tag_boost = tag_boosted_categories or frozenset()
     for cat in cats:
         w = 100.0
         if cat in squad_categories:
             w *= 2.0
         if cat in primary_categories:
             w *= 1.35
+        if cat in tag_boost:
+            w *= 1.25
         weights.append(w)
     return r.choices(cats, weights=weights, k=1)[0]
+
+
+def calc_event_damage_v14(
+    *,
+    base_hp_pct: float,
+    squad_hp_total: int,
+    active_tags: frozenset[str],
+    covered_tags: frozenset[str],
+    challenge_cat: str,
+    squad: Sequence,
+    primary_categories: frozenset[str],
+    affix_level: int = 1,
+    rand_variance: float | None = None,
+) -> int:
+    """v1.4/v1.5: tag_mult × (1 + tick_adj) × rand; tick_adj и tag_mult учитывают уровень перка."""
+    from waifu_bot.game.expedition_difficulty_tags import (
+        calc_tag_effectiveness_mult,
+        calc_tick_challenge_adj,
+    )
+
+    tag_mult = calc_tag_effectiveness_mult(
+        active_tags, covered_tags, squad=squad, affix_level=affix_level
+    )
+    tick_adj = calc_tick_challenge_adj(
+        challenge_cat, squad, primary_categories, affix_level=affix_level
+    )
+    rv = rand_variance if rand_variance is not None else random.uniform(0.85, 1.15)
+    mult = tag_mult * (1.0 + tick_adj) * rv
+    base_damage = float(squad_hp_total) * base_hp_pct
+    return max(1, round(base_damage * mult))
 
 
 def count_race_counters_for_category(squad: Sequence, category: str) -> int:

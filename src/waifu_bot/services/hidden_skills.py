@@ -49,6 +49,7 @@ COUNTER_EVENTS: dict[str, list[str]] = {
     "loyal_expedition": ["loyal_commander"],
     "saving_period": ["hoarder"],
     "enchant_5plus": ["enchanter_soul"],
+    "marathon_complete": ["marathon"],
 }
 
 
@@ -63,7 +64,7 @@ def _level_from_counter(thresholds: list, counter: int) -> int:
     return min(5, lvl)
 
 
-def _effects_for_level(defn: HiddenSkillDefinition, level: int) -> dict[str, float]:
+def effects_for_level(defn: HiddenSkillDefinition, level: int) -> dict[str, float]:
     if level <= 0:
         return {}
     idx = level - 1
@@ -351,7 +352,7 @@ async def get_hidden_skill_bonuses(session: AsyncSession, player_id: int) -> dic
     rows = (await session.execute(q)).all()
     bonuses: dict[str, float] = {}
     for phs, defn in rows:
-        eff = _effects_for_level(defn, int(phs.level or 0))
+        eff = effects_for_level(defn, int(phs.level or 0))
         for k, v in eff.items():
             bonuses[k] = bonuses.get(k, 0.0) + float(v)
     return bonuses
@@ -376,6 +377,8 @@ async def list_hidden_skills_payload(session: AsyncSession, player_id: int) -> l
             next_th = int(th[lvl])
         elif th:
             next_th = int(th[-1])
+        cur_eff = effects_for_level(d, lvl) if lvl > 0 else {}
+        next_eff = effects_for_level(d, lvl + 1) if lvl < 5 else {}
         out.append(
             {
                 "id": d.id,
@@ -390,9 +393,135 @@ async def list_hidden_skills_payload(session: AsyncSession, player_id: int) -> l
                 "next_threshold": next_th,
                 "max_level": 5,
                 "revealed": lvl > 0,
+                "effect_types": list(d.effect_types or []),
+                "effect_values": d.effect_values if d.effect_values is not None else [],
+                "current_effects": cur_eff,
+                "next_effects": next_eff if next_eff else None,
             }
         )
     return out
+
+
+def _redis_optional(redis: Any | None = None) -> Any | None:
+    if redis is not None:
+        return redis
+    try:
+        from waifu_bot.core import redis as redis_core
+
+        return redis_core.get_redis()
+    except Exception:
+        return None
+
+
+async def record_hidden_gold_spend(player_id: int, redis: Any | None = None) -> None:
+    """Отметить трату золота (для навыка «Скряга»)."""
+    redis = _redis_optional(redis)
+    if not redis:
+        return
+    try:
+        await redis.set(f"hidden:hoarder:last_spend:{int(player_id)}", "1", ex=86400 * 14)
+    except Exception:
+        logger.debug("hoarder last_spend redis skip", exc_info=True)
+
+
+async def try_hoarder_saving_streak(
+    session: AsyncSession, player_id: int, current_gold: int, redis: Any | None = None
+) -> None:
+    """Один раз в сутки: если не было трат — +1 к серии «Скряги»."""
+    redis = _redis_optional(redis)
+    if not redis:
+        return
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("Europe/Moscow")
+    now = datetime.now(timezone.utc).astimezone(tz)
+    day_key = f"hidden:hoarder:day:{player_id}:{now.year}{now.month:02d}{now.day:02d}"
+    try:
+        if not await redis.set(day_key, "1", nx=True, ex=86400):
+            return
+        spent = await redis.get(f"hidden:hoarder:last_spend:{int(player_id)}")
+        if spent:
+            return
+        peak_key = f"hidden:hoarder:peak:{int(player_id)}"
+        prev = await redis.get(peak_key)
+        prev_g = int(prev) if prev else 0
+        if int(current_gold) <= prev_g:
+            return
+        await redis.set(peak_key, str(int(current_gold)), ex=86400 * 60)
+        await increment_skill_counter(session, int(player_id), "saving_period", 1)
+    except Exception:
+        logger.debug("hoarder streak skip", exc_info=True)
+
+
+async def try_track_marathon_session(
+    session: AsyncSession, player_id: int, redis: Any | None = None
+) -> None:
+    """Сессия активности: ≥6 ч без перерыва >30 мин → +1 к «Марафонец»."""
+    redis = _redis_optional(redis)
+    if not redis:
+        return
+    pid = int(player_id)
+    last_key = f"hidden:marathon:last_msg:{pid}"
+    start_key = f"hidden:marathon:start:{pid}"
+    try:
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        last_raw = await redis.get(last_key)
+        start_raw = await redis.get(start_key)
+        if last_raw and start_raw:
+            last_ts = int(last_raw)
+            start_ts = int(start_raw)
+            if now_ts - last_ts > 30 * 60:
+                if last_ts - start_ts >= 6 * 3600:
+                    await increment_skill_counter(session, pid, "marathon_complete", 1)
+                await redis.delete(start_key)
+                start_raw = None
+        if not start_raw:
+            await redis.set(start_key, str(now_ts), ex=86400)
+        await redis.set(last_key, str(now_ts), ex=86400)
+    except Exception:
+        logger.debug("marathon track skip", exc_info=True)
+
+
+async def try_track_consistent_day(
+    session: AsyncSession, player_id: int, redis: Any | None = None
+) -> None:
+    """Один раз в сутки (МСК): активность в подземелье → streak «Постоянство»."""
+    redis = _redis_optional(redis)
+    if not redis:
+        return
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("Europe/Moscow")
+    now = datetime.now(timezone.utc).astimezone(tz)
+    day = f"{now.year}{now.month:02d}{now.day:02d}"
+    pid = int(player_id)
+    try:
+        if not await redis.set(f"hidden:consistent:day:{pid}:{day}", "1", nx=True, ex=86400):
+            return
+        last_key = f"hidden:consistent:last:{pid}"
+        streak_key = f"hidden:consistent:streak:{pid}"
+        last_raw = await redis.get(last_key)
+        streak_raw = await redis.get(streak_key)
+        streak = int(streak_raw or 0)
+        if last_raw:
+            from datetime import date
+
+            last_d = str(last_raw)
+            y, m, d = int(last_d[:4]), int(last_d[4:6]), int(last_d[6:8])
+            last_date = date(y, m, d)
+            today = now.date()
+            delta = (today - last_date).days
+            if delta == 1:
+                streak += 1
+            elif delta > 1:
+                streak = 1
+        else:
+            streak = 1
+        await redis.set(last_key, day, ex=86400 * 400)
+        await redis.set(streak_key, str(streak), ex=86400 * 400)
+        await set_skill_counter(session, pid, "consistent", streak)
+    except Exception:
+        logger.debug("consistent track skip", exc_info=True)
 
 
 def moscow_hour(ts: datetime | None = None) -> int:

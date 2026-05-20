@@ -1,5 +1,5 @@
 """Pydantic schemas for API responses/requests."""
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
@@ -156,6 +156,10 @@ class HiddenSkillOut(BaseModel):
     next_threshold: Optional[int] = None
     max_level: int = 5
     revealed: bool
+    effect_types: List[str] = []
+    effect_values: List[Any] = []
+    current_effects: dict[str, float] = {}
+    next_effects: Optional[dict[str, float]] = None
 
 
 class HiddenSkillsResponse(BaseModel):
@@ -688,6 +692,7 @@ class ExpeditionAffixOut(BaseModel):
     description_hint: Optional[str] = None
     icon: Optional[str] = None
     paired_perks: List[str] = []  # id перков-контров из expedition_affixes
+    difficulty_tags: List[str] = []  # monsters, undead, dark_magic, …
 
 
 class ExpeditionSlotOut(BaseModel):
@@ -701,6 +706,7 @@ class ExpeditionSlotOut(BaseModel):
     required_perks: List[str] = []  # id перков, полезных для этого слота (контраффиксы)
     # Объединение категорий испытаний v1.3 по всем аффиксам слота (раса/класс/перки)
     challenge_categories: List[str] = []
+    difficulty_tags: List[str] = []  # union тегов сложности слота v1.4
     affixes: List[ExpeditionAffixOut] = []  # ТЗ v1.1: чипы аффиксов (если нет — пусто)
     base_location: Optional[str] = None  # «Пещера», «Руины» — для отображения
     biome_tag: Optional[str] = None  # cave, forest, ruins… — для CSS фона карточки
@@ -713,12 +719,21 @@ class ExpeditionSlotOut(BaseModel):
 
 
 class ExpeditionPreviewRequest(BaseModel):
-    expedition_slot_id: int
+    expedition_slot_id: Optional[int] = None
     squad_waifu_ids: List[int] = []
     duration_minutes: Optional[int] = 60  # ТЗ v1.1: влияет на шанс и награды
+    difficulty_level: Optional[int] = None  # 1..5 — уровень препятствий I–V
     # альтернативные имена для совместимости с планом
     slot_id: Optional[int] = None
     unit_ids: Optional[List[int]] = None
+
+    @model_validator(mode="after")
+    def _merge_aliases(self):
+        if self.expedition_slot_id is None and self.slot_id is not None:
+            object.__setattr__(self, "expedition_slot_id", self.slot_id)
+        if not self.squad_waifu_ids and self.unit_ids:
+            object.__setattr__(self, "squad_waifu_ids", list(self.unit_ids))
+        return self
 
 
 class ExpeditionPreviewUnitOut(BaseModel):
@@ -745,6 +760,12 @@ class ExpeditionPreviewOut(BaseModel):
     success_chance: Optional[float] = None
     success_label: Optional[str] = None
     matched_perks: Optional[List[str]] = None
+    active_tags: List[str] = []
+    covered_tags: List[str] = []
+    tag_effectiveness_pct: float = 100.0
+    tag_effectiveness_mult: float = 1.0
+    perk_effectiveness_pct: Optional[float] = None
+    affix_level: Optional[int] = None
 
 
 class ExpeditionSlotsResponse(BaseModel):

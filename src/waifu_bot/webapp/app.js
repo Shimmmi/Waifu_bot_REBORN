@@ -26,6 +26,7 @@ const CARAVAN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/caravan`;
 const DUNGEONS_STATIC_BASE = `${GAME_STATIC_BASE}/dungeons`;
 const SHOP_STATIC_BASE = `${GAME_STATIC_BASE}/ui/shop`;
 const TAVERN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/tavern`;
+const EXPEDITION_BIOMES_BASE = `${GAME_STATIC_BASE}/expeditions/biomes`;
 /** Имена файлов в `static/game/ui/tavern/audio/` (добавьте MP3 на сервер). */
 const TAVERN_BGM_TRACKS = ["tavern-01.mp3", "tavern-02.mp3", "tavern-03.mp3"];
 
@@ -346,7 +347,7 @@ const PERK_ICONS = {
 
 /** Пояснение, как перк связан со сложностью экспедиций (слоты 1–5, сумма аффиксов). */
 const PERK_EXPEDITION_COUNTER_HINT =
-  "В экспедициях перк усиливает шанс отряда, если в выбранном слоте он указан среди требуемых перков (иконки на карточке экспедиции в караване). Чем выше суммарная сложность слота (уровни примерно 1–5), тем заметнее вклад совпадения перков.";
+  "Перк помогает в экспедициях, если закрывает тип сложности слота (Монстры, Нежить…). Эффективность = min(100%, уровень_перка ÷ уровень_препятствия I–V). Прокачка перков — вкладка ⬆ LVL в таверне (очки за лвлап после экспедиции).";
 
 function statMeta(stat) {
   const key = String(stat || "").trim();
@@ -2275,6 +2276,7 @@ const tavernState = {
   available: null,
   squad: [],
   reserve: [],
+  perksMap: {},
   selectedWaifu: null,
   pendingHireSlot: null, // 1..4
   lastHiredResult: null, // result of last successful hire for result modal
@@ -2293,6 +2295,7 @@ const expeditionSend = {
   diffVal: 1,
   durVal: 30,
   slotId: null,
+  pickerExcludedTags: null,
 };
 
 function showTavernError(message, kind = "info") {
@@ -2607,6 +2610,7 @@ function switchTavernTab(name) {
   if (footer) footer.style.display = name === "hire" ? "flex" : "none";
   if (name === "heal") renderTavernHealList();
   if (name === "squad") renderTavernSquad();
+  if (name === "upgrade") renderTavernUpgradeList();
 }
 
 function renderTavernHealList() {
@@ -2667,6 +2671,138 @@ function renderTavernHealList() {
           showToast("Ошибка лечения: " + (e?.message || ""), "error");
         }
       })();
+    });
+  });
+}
+
+function perkLevelStars(level, maxLevel = 5, compact = false) {
+  const lv = Math.max(1, Math.min(maxLevel, Number(level) || 1));
+  if (compact) {
+    return `<span class="tavern-upgrade-perk-stars tavern-upgrade-perk-stars--compact" title="Уровень ${lv}">${lv}</span>`;
+  }
+  return `<span class="tavern-upgrade-perk-stars" title="Уровень ${lv}">${"★".repeat(lv)}${"☆".repeat(maxLevel - lv)}</span>`;
+}
+
+function openTavernUpgradeLoading() {
+  const modal = document.getElementById("tavern-upgrade-loading-modal");
+  if (!modal) return;
+  modal.style.display = "flex";
+  modal.setAttribute("aria-busy", "true");
+  setTavernWaifuModalPageScrollLocked(true);
+}
+
+function closeTavernUpgradeLoading() {
+  const modal = document.getElementById("tavern-upgrade-loading-modal");
+  if (!modal) return;
+  modal.style.display = "none";
+  modal.setAttribute("aria-busy", "false");
+  setTavernWaifuModalPageScrollLocked(false);
+}
+
+function tavernUpgradePerkGridHtml(w, perksMap, inExpedition) {
+  const perks = (Array.isArray(w.perks) ? w.perks : []).filter(Boolean);
+  const count = perks.length;
+  if (!count) return "";
+  const perkLevels = w.perkLevels || w.perk_levels || {};
+  const points = Number(w.perkUpgradePoints ?? w.perk_upgrade_points ?? 0);
+  const compact = count >= 5;
+  const colsMod = ` tavern-upgrade-perk-grid--cols-${count}`;
+  const cells = perks
+    .map((pid) => {
+      const lv = Number(perkLevels[pid] ?? 1);
+      const maxLv = 5;
+      const cost = lv;
+      const canUpgrade = !inExpedition && lv < maxLv && points >= cost;
+      const perkName = String(perksMap[pid] || pid);
+      const readyCls = canUpgrade ? " tavern-upgrade-perk-hit--ready" : "";
+      const ariaLabel = canUpgrade
+        ? `Улучшить ${perkName} за ${cost} очк.`
+        : `${perkName}, уровень ${lv}`;
+      return `
+      <div class="tavern-upgrade-perk-cell">
+        <button type="button"
+          class="tavern-upgrade-perk-hit${readyCls}"
+          data-waifu-id="${w.id}"
+          data-perk-id="${escapeHtml(String(pid))}"
+          aria-label="${escapeHtml(ariaLabel)}"
+          ${canUpgrade ? "" : "disabled tabindex=\"-1\""}>
+          <span class="tavern-upgrade-perk-ico" aria-hidden="true">${PERK_ICONS[pid] || "✦"}</span>
+          ${perkLevelStars(lv, maxLv, compact)}
+        </button>
+      </div>`;
+    })
+    .join("");
+  return `<div class="tavern-upgrade-perk-grid${colsMod}" style="--perk-cols:${count}">${cells}</div>`;
+}
+
+function renderTavernUpgradeList() {
+  const container = document.getElementById("tavern-upgrade-list");
+  if (!container) return;
+  const squad = Array.isArray(tavernState.squad) ? tavernState.squad : [];
+  const reserve = Array.isArray(tavernState.reserve) ? tavernState.reserve : [];
+  const all = [...squad, ...reserve];
+  const perksMap = tavernState.perksMap || {};
+  if (!all.length) {
+    container.className = "placeholder muted";
+    container.innerHTML =
+      '<p style="font-style:italic;padding:8px 0;">Нет нанятых наёмниц. Очки улучшения перков даются за лвлап после экспедиции.</p>';
+    return;
+  }
+  container.className = "tavern-upgrade-list";
+  container.innerHTML = all
+    .map((w) => {
+      const points = Number(w.perkUpgradePoints ?? w.perk_upgrade_points ?? 0);
+      const expId = w.expedition_id ?? w.expeditionId;
+      const inExpedition = expId != null && Number(expId) > 0;
+      const portrait = hiredWaifuImageUrl(w);
+      const portraitHtml = portrait
+        ? `<img src="${escapeHtml(portrait)}" alt="">`
+        : `<span aria-hidden="true">🛡️</span>`;
+      const perkGrid = tavernUpgradePerkGridHtml(w, perksMap, inExpedition);
+      return `
+      <div class="tavern-upgrade-card">
+        <div class="tavern-upgrade-card-portrait">${portraitHtml}</div>
+        <div class="tavern-upgrade-card-info">
+          <div class="tavern-upgrade-card-title">
+            <div class="tavern-upgrade-card-name">${escapeHtml(w.name || "Наёмница")}</div>
+            <div class="tavern-upgrade-card-level">Ур. ${w.level ?? "—"}</div>
+          </div>
+          <div class="tavern-upgrade-points-badge ${points > 0 ? "has-points" : ""}" title="Очки улучшения перков">
+            <span class="tavern-upgrade-points-num">${points}</span>
+            <span class="tavern-upgrade-points-label">очк.</span>
+          </div>
+        </div>
+        ${perkGrid}
+        ${inExpedition ? '<div class="muted tiny tavern-upgrade-exp-note">В экспедиции</div>' : ""}
+      </div>`;
+    })
+    .join("");
+  container.querySelectorAll(".tavern-upgrade-perk-hit--ready").forEach((btn) => {
+    btn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      if (btn.disabled || btn.dataset.upgrading === "1") return;
+      const waifuId = parseInt(btn.dataset.waifuId, 10);
+      const perkId = btn.dataset.perkId;
+      if (!waifuId || !perkId) return;
+      btn.dataset.upgrading = "1";
+      openTavernUpgradeLoading();
+      try {
+        await apiFetch(
+          `/tavern/upgrade-perk?waifu_id=${encodeURIComponent(waifuId)}&perk_id=${encodeURIComponent(perkId)}`,
+          { method: "POST" }
+        );
+        const { squad: s, reserve: r } = await loadTavernWithProfile(undefined, { innerRefresh: true });
+        tavernState.squad = s || tavernState.squad;
+        tavernState.reserve = r || tavernState.reserve;
+        renderTavernUpgradeList();
+        renderTavernSquad();
+      } catch (e) {
+        const { detail } = parseHttpErrorDetail(e);
+        showToast(detail || "Ошибка улучшения", "error");
+      } finally {
+        closeTavernUpgradeLoading();
+        delete btn.dataset.upgrading;
+      }
     });
   });
 }
@@ -5389,6 +5525,294 @@ function biomeBg(tag) {
   return map[t] || "linear-gradient(135deg,#1a1008,#0d0808)";
 }
 
+function normalizeBiomeTag(tag) {
+  return String(tag || "")
+    .trim()
+    .toLowerCase()
+    .replace(/ /g, "_")
+    .replace(/-/g, "_");
+}
+
+function biomeImageUrls(tag) {
+  const key = normalizeBiomeTag(tag);
+  const urls = [];
+  if (key) urls.push(`${EXPEDITION_BIOMES_BASE}/${encodeURIComponent(key)}.webp`);
+  urls.push(`${EXPEDITION_BIOMES_BASE}/default.webp`);
+  return urls;
+}
+
+function applyExpeditionBiomeBackground(el, tag, emojiEl) {
+  if (!el) return;
+  const fallback = biomeBg(tag);
+  const isModal = el.classList.contains("exp-modal-img");
+  const biomeCls = isModal ? "exp-modal-img--biome" : "exp-card-img--biome";
+  el.classList.remove("exp-modal-img--biome", "exp-card-img--biome");
+  el.style.backgroundImage = "";
+  el.style.background = fallback;
+  if (emojiEl) emojiEl.style.display = "";
+  const urls = biomeImageUrls(tag);
+  let i = 0;
+  function tryNext() {
+    if (i >= urls.length) return;
+    const url = urls[i++];
+    const probe = new Image();
+    probe.onload = () => {
+      el.style.background = fallback;
+      el.style.backgroundImage = `url("${url}")`;
+      el.style.backgroundSize = "cover";
+      el.style.backgroundPosition = "center";
+      el.classList.add(biomeCls);
+      if (emojiEl) emojiEl.style.display = "none";
+    };
+    probe.onerror = tryNext;
+    probe.src = url;
+  }
+  tryNext();
+}
+
+function wireExpeditionCardBiomes(root) {
+  (root || document).querySelectorAll(".exp-card-img[data-biome-tag]").forEach((imgEl) => {
+    const tag = imgEl.getAttribute("data-biome-tag") || "";
+    const emojiEl = imgEl.querySelector(".exp-card-emoji");
+    applyExpeditionBiomeBackground(imgEl, tag, emojiEl);
+  });
+}
+
+const EXPEDITION_DIFFICULTY_TAG_RU = {
+  monsters: "Монстры",
+  undead: "Нежить",
+  dark_magic: "Тёмная магия",
+  elements: "Стихии",
+  traps: "Ловушки",
+  curses: "Проклятия",
+  knowledge: "Знания",
+  social: "Социум",
+};
+
+const EXPEDITION_TAG_PRIORITY = [
+  "undead",
+  "monsters",
+  "dark_magic",
+  "curses",
+  "traps",
+  "elements",
+  "knowledge",
+  "social",
+];
+
+const EXPEDITION_ROMAN = ["I", "II", "III", "IV", "V"];
+
+function primaryObstacleLabel(tags, affixes, diffVal) {
+  const tagList = tags || [];
+  let primaryTag = null;
+  for (const t of EXPEDITION_TAG_PRIORITY) {
+    if (tagList.includes(t)) {
+      primaryTag = EXPEDITION_DIFFICULTY_TAG_RU[t] || t;
+      break;
+    }
+  }
+  if (!primaryTag && affixes && affixes.length) {
+    primaryTag = affixes[0].name || "Препятствие";
+  }
+  if (!primaryTag) primaryTag = "Препятствия";
+  const roman = EXPEDITION_ROMAN[Math.max(0, Math.min(4, (diffVal || 1) - 1))];
+  return `${primaryTag} ${roman}`;
+}
+
+function updateExpeditionObstacleLevel() {
+  const el = expG("esm-obstacle-level");
+  const slot = expeditionSend.currentSlot;
+  if (!el || !slot) return;
+  el.textContent = primaryObstacleLabel(slot.difficulty_tags, slot.affixes, expeditionSend.diffVal);
+}
+
+function updateExpeditionSendAffixes() {
+  const slot = expeditionSend.currentSlot;
+  const affixEl = expG("esm-affixes");
+  if (!slot || !affixEl) return;
+  affixEl.innerHTML = expeditionAffixChipsHtml(slot.affixes || [], expeditionSend.diffVal, true);
+}
+
+function expeditionDifficultyTagsHtml(tagIds, coveredIds) {
+  const covered = new Set(coveredIds || []);
+  return (tagIds || [])
+    .map((id) => {
+      const label = EXPEDITION_DIFFICULTY_TAG_RU[id] || id;
+      const isCov = covered.has(id);
+      const cls = isCov ? "exp-diff-tag exp-diff-tag-covered" : "exp-diff-tag";
+      const title = isCov
+        ? "Тип закрыт отрядом (снижение сложности на 1/N)"
+        : "Активный тип сложности";
+      return `<span class="${cls}" title="${title}">${escapeHtml(label)}</span>`;
+    })
+    .join("");
+}
+
+function getExpPickerHighlightTags() {
+  const all = expeditionSend.currentSlot?.difficulty_tags || [];
+  const excluded = expeditionSend.pickerExcludedTags || new Set();
+  return all.filter((t) => !excluded.has(t));
+}
+
+function expeditionPickerFilterTagsHtml(tagIds, excludedSet) {
+  const excluded = excludedSet instanceof Set ? excludedSet : new Set(excludedSet || []);
+  const hint = "Нажмите, чтобы вкл/выкл подсветку подходящих наёмниц";
+  return (tagIds || [])
+    .map((id) => {
+      const label = EXPEDITION_DIFFICULTY_TAG_RU[id] || id;
+      const on = !excluded.has(id);
+      const cls = on
+        ? "exp-pick-filter-tag exp-pick-filter-tag--on"
+        : "exp-pick-filter-tag exp-pick-filter-tag--off";
+      const title = on ? `${hint} (подсветка включена)` : `${hint} (подсветка выключена)`;
+      return `<button type="button" class="${cls}" data-pick-filter-tag="${escapeHtml(id)}" title="${escapeHtml(title)}">${escapeHtml(label)}</button>`;
+    })
+    .join("");
+}
+
+function expeditionUnitMatchedPerkIds(unit, activeTags) {
+  const active = new Set(activeTags || []);
+  const matched = new Set();
+  const perkTags = unit?.perk_tags || {};
+  for (const pid of unit?.perks || []) {
+    const tags = perkTags[pid] || [];
+    if (tags.some((t) => active.has(t))) matched.add(pid);
+  }
+  return matched;
+}
+
+function expeditionUnitMatchIndicators(unit, activeTags) {
+  const active = new Set(activeTags || []);
+  const indicators = [];
+  const matchedPerks = expeditionUnitMatchedPerkIds(unit, activeTags);
+  for (const pid of unit?.perks || []) {
+    if (!matchedPerks.has(pid)) continue;
+    const tags = (unit.perk_tags || {})[pid] || [];
+    const hit = tags.filter((t) => active.has(t)).map((t) => EXPEDITION_DIFFICULTY_TAG_RU[t] || t);
+    indicators.push({
+      kind: "perk",
+      id: pid,
+      icon: PERK_ICONS[pid] || "✦",
+      title: `${PERK_DESCS[pid] || pid}${hit.length ? " · " + hit.join(", ") : ""}`,
+    });
+  }
+  const raceTags = (unit?.race_tags || []).filter((t) => active.has(t));
+  if (raceTags.length) {
+    const rid = Number(unit.race);
+    const race = WAIFU_RACES.find((r) => r.id === rid);
+    const hit = raceTags.map((t) => EXPEDITION_DIFFICULTY_TAG_RU[t] || t);
+    indicators.push({
+      kind: "race",
+      id: rid,
+      icon: race?.icon || raceIcon(rid),
+      title: `${race?.name || "Раса"} · ${hit.join(", ")}`,
+    });
+  }
+  const classTags = (unit?.class_tags || []).filter((t) => active.has(t));
+  if (classTags.length) {
+    const cid = Number(unit.class ?? unit.class_);
+    const cls = WAIFU_CLASSES.find((c) => c.id === cid);
+    const hit = classTags.map((t) => EXPEDITION_DIFFICULTY_TAG_RU[t] || t);
+    indicators.push({
+      kind: "class",
+      id: cid,
+      icon: cls?.icon || classIcon(cid),
+      title: `${cls?.name || "Класс"} · ${hit.join(", ")}`,
+    });
+  }
+  return indicators;
+}
+
+function expPickPortraitHtml(u, extraClass) {
+  const cls = extraClass ? ` ${extraClass}` : "";
+  const url = hiredWaifuImageUrl(u);
+  if (url) {
+    return `<div class="exp-pick-portrait${cls}"><img src="${escapeHtml(url)}" alt="" class="exp-pick-portrait-img" /></div>`;
+  }
+  return `<div class="exp-pick-portrait${cls}"><span class="exp-pick-portrait-emoji">${waifuPortraitEmoji(u)}</span></div>`;
+}
+
+function expPickMatchRowHtml(indicators) {
+  if (!indicators.length) return "";
+  return `<div class="exp-pick-match-row">${indicators
+    .map(
+      (ind) =>
+        `<span class="perk-icon-badge perk-icon-badge--match" title="${escapeHtml(ind.title)}">${ind.icon}</span>`
+    )
+    .join("")}</div>`;
+}
+
+function expPickPerksHtml(u, matchedPerkIds) {
+  const perks = u?.perks || [];
+  if (!perks.length) return "";
+  return `<div class="exp-pick-perks">${perks
+    .map((pid) => {
+      const isMatch = matchedPerkIds.has(pid);
+      const title = PERK_DESCS[pid] || pid;
+      return `<span class="perk-icon-badge${isMatch ? " perk-icon-badge--match" : ""}" title="${escapeHtml(title)}">${PERK_ICONS[pid] || "✦"}</span>`;
+    })
+    .join("")}</div>`;
+}
+
+function expeditionSquadCoveredTags(squadSlots, activeTags) {
+  const active = new Set(activeTags || []);
+  const out = new Set();
+  for (const u of (squadSlots || []).filter(Boolean)) {
+    for (const t of u.covered_tags || []) {
+      if (active.has(t)) out.add(t);
+    }
+  }
+  return [...out];
+}
+
+function updateExpeditionSendTags(coveredIds) {
+  const slot = expeditionSend.currentSlot;
+  const tagsEl = expG("esm-difficulty-tags");
+  if (!slot || !tagsEl) return;
+  tagsEl.innerHTML = expeditionDifficultyTagsHtml(slot.difficulty_tags || [], coveredIds || []);
+}
+
+async function refreshExpeditionTagPreview() {
+  const slot = expeditionSend.currentSlot;
+  const effEl = expG("esm-tag-effectiveness");
+  if (!slot || !expG("esm-difficulty-tags")) return;
+  const unitIds = expeditionSend.squadSlots.filter(Boolean).map((u) => u.id);
+  const baseTags = slot.difficulty_tags || [];
+  if (!unitIds.length) {
+    updateExpeditionSendTags([]);
+    if (effEl) effEl.textContent = "Снижение сложности: ~100% (выберите отряд)";
+    return;
+  }
+  const clientCovered = expeditionSquadCoveredTags(expeditionSend.squadSlots, baseTags);
+  updateExpeditionSendTags(clientCovered);
+  try {
+    const prev = await apiFetch("/expeditions/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slot_id: slot.id,
+        unit_ids: unitIds,
+        duration_minutes: expeditionSend.durVal,
+        difficulty_level: expeditionSend.diffVal,
+      }),
+    });
+    updateExpeditionSendTags(prev.covered_tags || clientCovered);
+    if (effEl) {
+      const tagPct = Math.round(Number(prev.tag_effectiveness_pct ?? 100));
+      const perkPct =
+        prev.perk_effectiveness_pct != null ? Math.round(Number(prev.perk_effectiveness_pct)) : null;
+      let txt = `Снижение сложности: ~${tagPct}%`;
+      if (perkPct != null && unitIds.length) {
+        txt += ` · эффективность перков: ~${perkPct}%`;
+      }
+      effEl.textContent = txt;
+    }
+  } catch (_) {
+    updateExpeditionSendTags(clientCovered);
+    if (effEl) effEl.textContent = "";
+  }
+}
+
 function expeditionAffixChipsHtml(affixes, affixLevel, withLevelOnFirst) {
   const roman =
     affixLevel >= 1 && affixLevel <= 5 ? ["I", "II", "III", "IV", "V"][affixLevel - 1] : "";
@@ -5427,9 +5851,9 @@ function renderExpeditionGrids() {
           const sec = a.seconds_left != null ? a.seconds_left : 0;
           const timeStr = a.can_claim ? "—" : formatExpeditionTime(sec);
           const emoji = a.biome_emoji || "🗺";
-          const bg = biomeBg(a.biome_tag);
+          const biomeTag = escapeHtml(a.biome_tag || "");
           return `<div class="exp-card-item exp-is-active" data-exp-kind="active" data-exp-id="${a.id}">
-            <div class="exp-card-img" style="background:${bg}">
+            <div class="exp-card-img" data-biome-tag="${biomeTag}">
               <div class="exp-card-emoji">${emoji}</div>
               <div class="exp-card-affix-icons">${affixIcos}</div>
               <div class="exp-card-name">${name}</div>
@@ -5458,13 +5882,13 @@ function renderExpeditionGrids() {
           .map((x) => `<div class="exp-affix-ico">${x.icon || "✦"}</div>`)
           .join("");
         const emoji = s.biome_emoji || "🗺";
-        const bg = biomeBg(s.biome_tag);
+        const biomeTag = escapeHtml(s.biome_tag || "");
         const cls = used ? " exp-card-used" : "";
         const foot = used
           ? `<div class="exp-card-foot"><span class="exp-foot-muted">● Отправлена</span></div>`
           : `<div class="exp-card-foot"><span class="exp-foot-ready">● Доступна</span></div>`;
         return `<div class="exp-card-item${cls}" data-exp-kind="daily" data-exp-id="${s.id}" data-exp-used="${used ? "1" : "0"}">
-            <div class="exp-card-img" style="background:${bg}">
+            <div class="exp-card-img" data-biome-tag="${biomeTag}">
               <div class="exp-card-emoji">${emoji}</div>
               <div class="exp-card-affix-icons">${affixIcos}</div>
               <div class="exp-card-name">${name}</div>
@@ -5474,6 +5898,9 @@ function renderExpeditionGrids() {
       })
       .join("");
   }
+
+  wireExpeditionCardBiomes(activeGrid);
+  wireExpeditionCardBiomes(dailyGrid);
 
   document.querySelectorAll("#exp-active-grid [data-exp-kind], #exp-daily-grid [data-exp-kind]").forEach((el) => {
     el.addEventListener("click", () => {
@@ -5553,11 +5980,10 @@ function openActiveExpModal(raw) {
   expG("eam-title").textContent = raw.base_location || raw.expedition_name || "—";
   const affHtml = expeditionAffixChipsHtml(raw.affixes || [], raw.affix_level, true);
   expG("eam-affixes").innerHTML = affHtml;
-  const bg = biomeBg(raw.biome_tag);
   const img = expG("eam-img");
   const emo = expG("eam-emoji");
-  if (img) img.style.background = bg;
   if (emo) emo.textContent = raw.biome_emoji || "🗺";
+  applyExpeditionBiomeBackground(img, raw.biome_tag, emo);
 
   tickActiveModal();
   if (expActiveModalTimer) clearInterval(expActiveModalTimer);
@@ -5635,16 +6061,21 @@ function closeActiveExpModal() {
 
 function openSendExpModal(slot) {
   expeditionSend.slotId = slot.id;
+  expeditionSend.currentSlot = slot;
   expeditionSend.diffVal = 1;
   expeditionSend.durVal = 30;
   expeditionSend.squadSlots = [null, null, null];
   expG("esm-title").textContent = slot.base_location || slot.name || "—";
-  expG("esm-affixes").innerHTML = expeditionAffixChipsHtml(slot.affixes || [], null, false);
-  const bg = biomeBg(slot.biome_tag);
+  updateExpeditionSendAffixes();
+  const tagsEl = expG("esm-difficulty-tags");
+  if (tagsEl) updateExpeditionSendTags([]);
+  updateExpeditionObstacleLevel();
+  const effEl = expG("esm-tag-effectiveness");
+  if (effEl) effEl.textContent = "Снижение сложности: ~100% (выберите отряд)";
   const img = expG("esm-img");
   const emo = expG("esm-emoji");
-  if (img) img.style.background = bg;
   if (emo) emo.textContent = slot.biome_emoji || "🗺";
+  applyExpeditionBiomeBackground(img, slot.biome_tag, emo);
 
   expG("esm-diff-row").querySelectorAll(".exp-opt-btn").forEach((b, i) => b.classList.toggle("active", i === 0));
   expG("esm-dur-row").querySelectorAll(".exp-opt-btn").forEach((b, i) => b.classList.toggle("active", i === 0));
@@ -5660,12 +6091,16 @@ function expSelDiff(val, btn) {
   expeditionSend.diffVal = val;
   expG("esm-diff-row").querySelectorAll(".exp-opt-btn").forEach((b) => b.classList.remove("active"));
   btn.classList.add("active");
+  updateExpeditionObstacleLevel();
+  updateExpeditionSendAffixes();
+  refreshExpeditionTagPreview();
 }
 
 function expSelDur(val, btn) {
   expeditionSend.durVal = val;
   expG("esm-dur-row").querySelectorAll(".exp-opt-btn").forEach((b) => b.classList.remove("active"));
   btn.classList.add("active");
+  refreshExpeditionTagPreview();
 }
 
 function getAvailableUnits() {
@@ -5681,7 +6116,7 @@ function renderExpeditionSquadSlots() {
       slot.className = "exp-squad-slot exp-slot-filled";
       const hpC = unit.hp_current ?? unit.current_hp ?? 0;
       const hpM = unit.hp_max ?? unit.max_hp ?? 1;
-      slot.innerHTML = `<div class="exp-squad-ico">${unit.icon || "⚔️"}</div>
+      slot.innerHTML = `${expPickPortraitHtml(unit, "exp-pick-portrait--squad")}
         <div class="exp-squad-name">${escapeHtml(unit.name || "")}</div>
         <div class="exp-squad-hp">${hpC}/${hpM}</div>`;
     } else {
@@ -5692,10 +6127,36 @@ function renderExpeditionSquadSlots() {
   }
   const btn = expG("exp-send-btn");
   if (btn) btn.disabled = expeditionSend.squadSlots.every((s) => !s);
+  refreshExpeditionTagPreview();
 }
 
-function expOpenPicker(slotIdx) {
-  expeditionSend.pickerSlot = slotIdx;
+let expPickerTagsWired = false;
+
+function wireExpPickerTagsFilter() {
+  const tagsEl = expG("exp-picker-tags");
+  if (!tagsEl || expPickerTagsWired) return;
+  expPickerTagsWired = true;
+  tagsEl.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-pick-filter-tag]");
+    if (!btn) return;
+    e.preventDefault();
+    expTogglePickerFilterTag(btn.getAttribute("data-pick-filter-tag"));
+  });
+}
+
+function expTogglePickerFilterTag(tagId) {
+  if (!tagId) return;
+  if (!expeditionSend.pickerExcludedTags) expeditionSend.pickerExcludedTags = new Set();
+  if (expeditionSend.pickerExcludedTags.has(tagId)) {
+    expeditionSend.pickerExcludedTags.delete(tagId);
+  } else {
+    expeditionSend.pickerExcludedTags.add(tagId);
+  }
+  renderExpPickerContent();
+}
+
+function renderExpPickerContent() {
+  const slotIdx = expeditionSend.pickerSlot;
   const takenIds = new Set(
     expeditionSend.squadSlots
       .map((u, i) => (i !== slotIdx && u ? u.id : null))
@@ -5703,6 +6164,17 @@ function expOpenPicker(slotIdx) {
   );
   const units = getAvailableUnits();
   const list = expG("exp-unit-list");
+  const tagsEl = expG("exp-picker-tags");
+  const allTags = expeditionSend.currentSlot?.difficulty_tags || [];
+  const highlightTags = getExpPickerHighlightTags();
+  const excluded = expeditionSend.pickerExcludedTags || new Set();
+
+  if (tagsEl) {
+    tagsEl.innerHTML = allTags.length
+      ? `<div class="muted tiny" style="margin-bottom:4px">Типы сложности:</div><div class="exp-pick-filter-tags">${expeditionPickerFilterTagsHtml(allTags, excluded)}</div>`
+      : "";
+  }
+
   if (!list) return;
   list.innerHTML =
     units
@@ -5719,20 +6191,41 @@ function expOpenPicker(slotIdx) {
         const cls = WAIFU_CLASSES.find((c) => c.id === cid);
         const race = WAIFU_RACES.find((r) => r.id === rid);
         const note = inExp ? "🔒 В экспедиции" : `${cls?.name || "—"} · ${race?.name || "—"}`;
+        const matchedPerks = expeditionUnitMatchedPerkIds(u, highlightTags);
+        const indicators = expeditionUnitMatchIndicators(u, highlightTags);
+        const hasMatch = indicators.length > 0;
         const clickAttr = disabled ? "" : ` onclick="WaifuApp.expPickUnit(${u.id})"`;
-        return `<div class="exp-ul-item${disabled ? " exp-ul-dis" : ""}"${clickAttr}>
-          <div class="exp-unit-ico">${u.icon || "⚔️"}</div>
-          <div class="exp-unit-inf">
-            <div class="exp-unit-name">${escapeHtml(u.name || "")}</div>
-            <div class="exp-unit-sub">${note}</div>
+        const cardCls = `exp-pick-card${disabled ? " exp-pick-card--disabled" : ""}${hasMatch ? " exp-pick-card--match" : ""}`;
+        const power = u.power != null ? u.power : "—";
+        return `<div class="${cardCls}"${clickAttr}>
+          <div class="exp-pick-head">
+            ${expPickPortraitHtml(u)}
+            <div class="exp-pick-info">
+              <div class="exp-pick-name-row">
+                <div class="exp-pick-name">${escapeHtml(u.name || "")}</div>
+                ${expPickMatchRowHtml(indicators)}
+              </div>
+              <div class="exp-pick-sub">${note}</div>
+            </div>
           </div>
-          <div class="exp-unit-hpbar">
-            <div class="exp-unit-hpfill" style="width:${pct}%;background:${hpColor}"></div>
+          <div class="exp-pick-stats">
+            <span class="exp-pick-stat" title="Мощь">⚔ ${power}</span>
+            <span class="exp-pick-stat" title="Здоровье">❤ ${hpC}/${hpM}</span>
           </div>
+          <div class="exp-pick-hpbar">
+            <div class="exp-pick-hpfill" style="width:${pct}%;background:${hpColor}"></div>
+          </div>
+          ${expPickPerksHtml(u, matchedPerks)}
         </div>`;
       })
       .join("") || '<div class="placeholder muted tiny">Нет доступных наёмниц</div>';
+}
 
+function expOpenPicker(slotIdx) {
+  expeditionSend.pickerSlot = slotIdx;
+  expeditionSend.pickerExcludedTags = new Set();
+  wireExpPickerTagsFilter();
+  renderExpPickerContent();
   closeSendExpModal();
   expOpenOverlay("exp-picker-overlay");
 }
@@ -5777,6 +6270,41 @@ async function submitExpeditionStart() {
     const { detail } = parseHttpErrorDetail(e);
     showExpeditionError(detail || "Ошибка запуска экспедиции");
   }
+}
+
+function expeditionHelpHtml() {
+  const effRows = [1, 2, 3, 4, 5]
+    .map((pl) => {
+      const cells = [1, 2, 3, 4, 5]
+        .map((al) => {
+          const pct = Math.round(Math.min(100, (pl / al) * 100));
+          return `<td>${pct}%</td>`;
+        })
+        .join("");
+      return `<tr><th>${pl}</th>${cells}</tr>`;
+    })
+    .join("");
+  return `
+    <p><strong>Слот.</strong> Локация + типы сложности (Монстры, Нежить…). Закрытые отрядом типы снижают урон. Пример: «Нежить III» — основной тип + выбранный уровень I–V.</p>
+    <p><strong>Уровень I–V.</strong> Сила препятствий и наград. Урон за событие: 6% / 10% / 15% / 20% / 28% HP отряда. Награды: +6% за каждый уровень выше I.</p>
+    <p><strong>Длительность.</strong> Каждые 15 мин = 1 событие. Больше времени — больше событий, выше риск по HP, но больше награда.</p>
+    <p><strong>Перки.</strong> Прокачка во вкладке ⬆ LVL таверны (очки за лвлап после экспедиции). Эффективность перка против уровня препятствия:</p>
+    <table class="exp-help-table" aria-label="Эффективность перка">
+      <thead><tr><th>Перк↓ / Ур.→</th><th>I</th><th>II</th><th>III</th><th>IV</th><th>V</th></tr></thead>
+      <tbody>${effRows}</tbody>
+    </table>
+    <p><strong>Исход.</strong> По HP отряда в конце: &lt;12% — провал, ≥52% — успех, иначе частичный (награда ×0.7). Досрочное завершение — ×0.5 награды.</p>
+  `;
+}
+
+function openExpeditionHelp() {
+  const body = document.getElementById("expedition-help-body");
+  if (body) body.innerHTML = expeditionHelpHtml();
+  expOpenOverlay("expedition-help-modal");
+}
+
+function closeExpeditionHelp() {
+  expCloseOverlay("expedition-help-modal");
 }
 
 async function abortExpedition(activeId) {
@@ -8872,6 +9400,8 @@ let passiveActiveBranch = "warrior";
 /** Вкладка зала: ветка дерева или «hidden» — скрытые навыки. */
 let trainingHallTab = "warrior";
 let passiveTreeListenersBound = false;
+let hiddenSkillsCache = [];
+let hiddenSkillsListenersBound = false;
 const PASSIVE_SKILL_PLACEHOLDER = `${GAME_STATIC_BASE}/passive-skill-placeholder.svg`;
 
 /** Иконки узлов пассивного дерева (совпадают с id в БД). */
@@ -9374,13 +9904,112 @@ async function loadPassiveSkillTree() {
   }
 }
 
+function formatHiddenEffectValue(effectType, raw) {
+  if (raw == null || raw === undefined) return "—";
+  const n = Number(raw);
+  if (Number.isNaN(n)) return String(raw);
+  const t = String(effectType || "");
+  if (t.startsWith("media_") && t.endsWith("_mult")) return `×${n.toFixed(2)}`;
+  if (t === "all_stats_pct") return `+${Math.round(n)}% к СИЛ/ЛОВ/ИНТ/УДЧ`;
+  if (t === "enchant_cost_pct" || t === "enchant_chance_pct") {
+    return `${n > 0 ? "+" : ""}${Math.round(n)}%`;
+  }
+  return `+${Math.round(n)}%`;
+}
+
+function formatHiddenEffectsBlock(effects) {
+  if (!effects || typeof effects !== "object") return "—";
+  const keys = Object.keys(effects);
+  if (!keys.length) return "—";
+  return keys
+    .map((k) => `${formatHiddenEffectValue(k, effects[k])}`)
+    .join(" · ");
+}
+
+function findHiddenSkillById(skillId) {
+  return hiddenSkillsCache.find((s) => s.id === skillId) || null;
+}
+
+function openHiddenSkillModal(skillId) {
+  const s = findHiddenSkillById(skillId);
+  if (!s) return;
+  const m = document.getElementById("hidden-skill-modal");
+  const title = document.getElementById("hidden-skill-modal-title");
+  const iconEl = document.getElementById("hidden-skill-modal-icon");
+  const body = document.getElementById("hidden-skill-modal-body");
+  if (!m || !title || !body) return;
+  if (iconEl) iconEl.textContent = s.icon || "✨";
+  title.textContent = s.name || "—";
+  const lv = Number(s.level) || 0;
+  const cnt = Number(s.counter) || 0;
+  const next = s.next_threshold != null ? Number(s.next_threshold) : null;
+  const curFx = formatHiddenEffectsBlock(s.current_effects);
+  const nextFx =
+    s.next_effects && Object.keys(s.next_effects).length
+      ? formatHiddenEffectsBlock(s.next_effects)
+      : "—";
+  const unlockHint = s.unlock_hint || "—";
+  body.innerHTML = `
+    <div class="passive-modal-dota">
+      <p class="muted" style="margin:0 0 8px">${passiveEscHtml(s.category || "")}</p>
+      <p class="passive-modal-dota-desc">${passiveEscHtml(s.description || "—")}</p>
+      <div class="passive-modal-dota-stats">
+        <div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Текущий бонус</span><span class="passive-modal-stat-v">${passiveEscHtml(curFx)}</span></div>
+        <div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Бонус на сл. уровне</span><span class="passive-modal-stat-v">${passiveEscHtml(nextFx)}</span></div>
+        <div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Уровень</span><span class="passive-modal-stat-v">${lv} / ${Number(s.max_level) || 5}</span></div>
+      </div>
+      <div class="hidden-skill-modal-progress">
+        <strong>Прогресс</strong>
+        <p>Счётчик: ${cnt}${next != null ? ` / ${next}` : ""}</p>
+        ${
+          next && next > 0
+            ? `<div class="hidden-skill-bar"><div class="hidden-skill-bar-fill" style="width:${Math.min(100, Math.round((cnt / next) * 100))}%"></div></div>`
+            : ""
+        }
+      </div>
+      <p class="hidden-skill-modal-hint"><strong>Как открыть:</strong> ${passiveEscHtml(unlockHint)}</p>
+    </div>
+  `;
+  m.style.display = "grid";
+}
+
+function closeHiddenSkillModal() {
+  const m = document.getElementById("hidden-skill-modal");
+  if (m) m.style.display = "none";
+}
+
+function bindHiddenSkillsListenersOnce() {
+  if (hiddenSkillsListenersBound) return;
+  hiddenSkillsListenersBound = true;
+  const closeBtn = document.getElementById("hidden-skill-modal-close");
+  if (closeBtn) closeBtn.addEventListener("click", closeHiddenSkillModal);
+  const root = document.getElementById("hidden-skills-root");
+  if (!root) return;
+  root.addEventListener("click", (ev) => {
+    const card = ev.target.closest("[data-hidden-skill-id]");
+    if (!card) return;
+    const id = card.getAttribute("data-hidden-skill-id");
+    if (id) openHiddenSkillModal(id);
+  });
+  root.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    const card = ev.target.closest("[data-hidden-skill-id]");
+    if (!card) return;
+    ev.preventDefault();
+    const id = card.getAttribute("data-hidden-skill-id");
+    if (id) openHiddenSkillModal(id);
+  });
+}
+
 async function populateTrainingHall() {
   await loadPassiveSkillTree();
+  bindHiddenSkillsListenersOnce();
   const root = document.getElementById("hidden-skills-root");
   if (!root) return;
   try {
     const data = await apiFetch("/skills/hidden");
-    const skills = (Array.isArray(data?.skills) ? data.skills : []).filter((s) => Boolean(s.revealed));
+    hiddenSkillsCache = Array.isArray(data?.skills) ? data.skills : [];
+    const skills = hiddenSkillsCache.filter((s) => Boolean(s.revealed));
     if (!skills.length) {
       root.textContent = "Нет открытых скрытых навыков.";
       root.classList.remove("placeholder");
@@ -9410,10 +10039,12 @@ async function populateTrainingHall() {
           pct = Math.min(100, Math.round((cnt / next) * 100));
         }
         const hint = s.description || "";
-        html += `<div class="hidden-skill-card">
+        const curFxShort = formatHiddenEffectsBlock(s.current_effects);
+        html += `<div class="hidden-skill-card" data-hidden-skill-id="${esc(s.id)}" role="button" tabindex="0" title="Подробнее">
           <div class="hidden-skill-card-top"><span>${esc(s.icon || "✨")}</span>
             <span class="hidden-skill-card-title">${esc(s.name)}</span></div>
           <div class="hidden-skill-meta">${esc(hint)}</div>
+          <div class="hidden-skill-meta">${esc(curFxShort)}</div>
           <div class="hidden-skill-meta">Ур. ${lv} / ${s.max_level || 5} · ${cnt}${
             next != null ? ` / ${next}` : ""
           }</div>
@@ -9446,6 +10077,8 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   populateTrainingHall,
   loadPassiveSkillTree,
   closePassiveSkillModal,
+  openHiddenSkillModal,
+  closeHiddenSkillModal,
   loadProfile,
   renderAtticDungeon,
   renderAtticExpeditions,
@@ -9575,6 +10208,8 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   closeExpeditionResult,
   cancelExpedition,
   adminRefreshExpeditions,
+  openExpeditionHelp,
+  closeExpeditionHelp,
   populateCaravanPage,
   travelToAct,
   openCaravanModal,

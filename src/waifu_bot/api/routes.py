@@ -1862,6 +1862,8 @@ async def _expedition_active_affixes(session: AsyncSession, active) -> list:
     rows = list((await session.execute(stmt)).scalars().all())
     order = {aid: i for i, aid in enumerate(aids)}
     rows.sort(key=lambda r: order.get(r.id, 99))
+    from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
+
     return [
         schemas.ExpeditionAffixOut(
             id=x.id,
@@ -1871,6 +1873,7 @@ async def _expedition_active_affixes(session: AsyncSession, active) -> list:
             description_hint=getattr(x, "description_hint", None),
             icon=affix_display_icon(x),
             paired_perks=normalize_expedition_paired_perk_ids(getattr(x, "paired_perks", None) or []),
+            difficulty_tags=sorted_tag_list(tags_for_db_affix_row(x)),
         )
         for x in rows
     ]
@@ -1905,6 +1908,7 @@ async def _expedition_squad_snapshot(session: AsyncSession, player_id: int, squa
 async def expeditions_catalog(session: AsyncSession = Depends(get_db)):
     """v1.3: базовые локации + аффиксы из БД + допустимые длительности (без дневных слотов)."""
     from waifu_bot.game.constants import EXPEDITION_MAX_CONCURRENT, EXPEDITION_V13_DURATIONS
+    from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
     from waifu_bot.game.expedition_redesign import affix_display_icon
     from waifu_bot.services.expedition import BASE_LOCATIONS
 
@@ -1920,6 +1924,7 @@ async def expeditions_catalog(session: AsyncSession = Depends(get_db)):
                 "category": a.category,
                 "icon": affix_display_icon(a),
                 "description_hint": getattr(a, "description_hint", None),
+                "difficulty_tags": sorted_tag_list(tags_for_db_affix_row(a)),
             }
             for a in rows
         ],
@@ -1936,6 +1941,7 @@ async def expeditions_roster(
 ):
     """Все наёмницы пула для выбора в экспедиции; занятые помечены expedition_id (блокировка в UI)."""
     from waifu_bot.game.constants import EXPEDITION_HP_MIN_PCT_TO_START
+    from waifu_bot.game.expedition_difficulty_tags import unit_coverage_detail
 
     stmt = select(m.HiredWaifu).where(m.HiredWaifu.player_id == player_id)
     rows = list((await session.execute(stmt)).scalars().all())
@@ -1946,6 +1952,11 @@ async def expeditions_roster(
         ratio = cur / max_hp
         cid = int(w.class_ or 1)
         pl = getattr(w, "perk_levels", None) or {}
+        image_url = None
+        if getattr(w, "image_data", None):
+            mime = getattr(w, "image_mime", None) or "image/webp"
+            image_url = f"data:{mime};base64,{w.image_data}"
+        coverage = unit_coverage_detail(w)
         out.append({
             "id": w.id,
             "name": w.name,
@@ -1958,9 +1969,15 @@ async def expeditions_roster(
             "max_hp": max_hp,
             "hp_current": cur,
             "hp_max": max_hp,
+            "power": getattr(w, "power", None),
+            "image_url": image_url,
             "icon": _EXPEDITION_CLASS_ICONS.get(cid, "⚔️"),
             "expedition_id": w.expedition_id,
             "eligible": ratio >= EXPEDITION_HP_MIN_PCT_TO_START,
+            "covered_tags": coverage["covered_tags"],
+            "race_tags": coverage["race_tags"],
+            "class_tags": coverage["class_tags"],
+            "perk_tags": coverage["perk_tags"],
         })
     return {"waifus": out}
 
@@ -1979,8 +1996,9 @@ async def expeditions_slots(
         int(player.main_waifu.level or 1) if (player and player.main_waifu) else 1
     )
     from waifu_bot.game.expedition_perk_resolve import normalize_expedition_paired_perk_ids
+    from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
     from waifu_bot.game.expedition_redesign import affix_display_icon, biome_emoji_for_tag, union_challenge_categories_from_db_affix_rows
-    from waifu_bot.services.expedition import _slot_required_perks
+    from waifu_bot.services.expedition import _slot_required_perks, slot_active_tags
     # Сложность: из slot.difficulty (аффиксы) или по номеру слота (старые слоты)
     def _diff_label(d: int | None, sn: int) -> tuple[int, str]:
         if d is not None:
@@ -2013,10 +2031,12 @@ async def expeditions_slots(
         required_perks = sorted(_slot_required_perks(s))
         affix_rows_for_slot = [affix_map[aid] for aid in (getattr(s, "affix_ids", None) or []) if aid in affix_map]
         ch_cats = sorted(union_challenge_categories_from_db_affix_rows(affix_rows_for_slot)) if affix_rows_for_slot else []
+        slot_tags = sorted_tag_list(slot_active_tags(s, affix_map))
         affix_out = []
         for aid in (getattr(s, "affix_ids", None) or []):
             aff = affix_map.get(aid)
             if aff:
+                aff_tags = sorted_tag_list(tags_for_db_affix_row(aff))
                 affix_out.append(schemas.ExpeditionAffixOut(
                     id=aff.id,
                     name=aff.name,
@@ -2025,6 +2045,7 @@ async def expeditions_slots(
                     description_hint=getattr(aff, "description_hint", None),
                     icon=affix_display_icon(aff),
                     paired_perks=normalize_expedition_paired_perk_ids(getattr(aff, "paired_perks", None) or []),
+                    difficulty_tags=aff_tags,
                 ))
         bt = getattr(s, "biome_tag", None)
         out_slots.append(
@@ -2038,6 +2059,7 @@ async def expeditions_slots(
                 label=label,
                 required_perks=required_perks,
                 challenge_categories=ch_cats,
+                difficulty_tags=slot_tags,
                 affixes=affix_out,
                 base_location=getattr(s, "base_location", None),
                 biome_tag=bt,
@@ -2125,6 +2147,9 @@ async def expeditions_preview(
     slot_id = payload.slot_id if payload.slot_id is not None else payload.expedition_slot_id
     unit_ids = payload.unit_ids if payload.unit_ids is not None else payload.squad_waifu_ids
     duration_minutes = payload.duration_minutes if getattr(payload, "duration_minutes", None) is not None else 60
+    affix_level = payload.difficulty_level if getattr(payload, "difficulty_level", None) is not None else 1
+    if affix_level is not None:
+        affix_level = max(1, min(5, int(affix_level)))
     slot = await session.get(m.ExpeditionSlot, slot_id)
     if not slot:
         raise HTTPException(status_code=404, detail="Слот не найден")
@@ -2135,7 +2160,12 @@ async def expeditions_preview(
         w = await session.get(m.HiredWaifu, wid)
         if w and w.player_id == player_id:
             squad.append(w)
-    from waifu_bot.services.expedition import calculate_squad_chance, get_duration_multipliers, slot_challenge_categories_union
+    from waifu_bot.services.expedition import (
+        calculate_squad_chance,
+        enrich_chance_with_tags,
+        get_duration_multipliers,
+        slot_challenge_categories_union,
+    )
     affix_by_id = {}
     if getattr(slot, "affix_ids", None):
         affix_stmt = select(m.ExpeditionAffix).where(m.ExpeditionAffix.id.in_(set(slot.affix_ids)))
@@ -2149,6 +2179,7 @@ async def expeditions_preview(
         duration_minutes=duration_minutes,
         challenge_union=ch_union,
     )
+    enrich_chance_with_tags(data, squad, slot, affix_by_id, affix_level=affix_level or 1)
     units_out = [
         schemas.ExpeditionPreviewUnitOut(
             unit_id=u["unit_id"],
@@ -2176,6 +2207,12 @@ async def expeditions_preview(
         success_chance=data["chance"],
         success_label=data["label"],
         matched_perks=[pid for u in data.get("units", []) for pid in u.get("matched_perks", [])],
+        active_tags=data.get("active_tags", []),
+        covered_tags=data.get("covered_tags", []),
+        tag_effectiveness_pct=float(data.get("tag_effectiveness_pct", 100.0)),
+        tag_effectiveness_mult=float(data.get("tag_effectiveness_mult", 1.0)),
+        perk_effectiveness_pct=data.get("perk_effectiveness_pct"),
+        affix_level=data.get("affix_level"),
     )
 
 

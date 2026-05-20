@@ -228,6 +228,8 @@ def build_incoming_damage_breakdown_ru(
     damage_after_mitigation: int,
     final_armor_pct: float,
     damage_after_final_armor: int,
+    low_hp_reduce_pct: float = 0.0,
+    damage_after_low_hp_reduce: int | None = None,
     secondary_evade_triggered: bool,
     full_evade_triggered: bool,
     final_damage_taken: int,
@@ -243,8 +245,10 @@ def build_incoming_damage_breakdown_ru(
     daa = int(damage_after_armor)
     dam = int(damage_after_mitigation)
     daf = int(damage_after_final_armor)
+    dalhr = int(damage_after_low_hp_reduce if damage_after_low_hp_reduce is not None else daf)
     tr = float(total_reduce)
     fap = float(final_armor_pct or 0.0)
+    lhrp = float(low_hp_reduce_pct or 0.0)
 
     steps.append(
         {
@@ -314,6 +318,21 @@ def build_incoming_damage_breakdown_ru(
             }
         )
     before_ev = daf
+    if lhrp > 0 and dalhr != daf:
+        fac_lhr = max(0.0, min(1.0, 1.0 - lhrp / 100.0))
+        steps.append(
+            {
+                "kind": "mult",
+                "source": "hidden_low_hp_reduce",
+                "label_ru": f"Скрытый «Выживший»: снижение урона при низком HP −{lhrp:.0f}%",
+                "value_before": daf,
+                "value_after": dalhr,
+                "factor": round(fac_lhr, 6),
+            }
+        )
+        before_ev = dalhr
+    elif lhrp > 0 and dalhr == daf and daf != dam:
+        before_ev = dalhr
     if evade_contribs and (secondary_evade_triggered or full_evade_triggered):
         for c in evade_contribs:
             if c.get("kind") == "contrib":

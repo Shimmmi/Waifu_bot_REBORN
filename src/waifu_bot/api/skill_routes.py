@@ -69,6 +69,10 @@ async def hidden_skills(
                 next_threshold=x.get("next_threshold"),
                 max_level=int(x.get("max_level") or 5),
                 revealed=bool(x.get("revealed")),
+                effect_types=list(x.get("effect_types") or []),
+                effect_values=list(x.get("effect_values") or []),
+                current_effects=dict(x.get("current_effects") or {}),
+                next_effects=x.get("next_effects"),
             )
             for x in raw
         ]

@@ -1,4 +1,4 @@
-"""Тики экспедиции v1.3: урон, твисты, обновление HP, текст для Telegram."""
+"""Тики экспедиции v1.3/v1.4: урон по тегам сложности + ±10% challenge, твисты, Telegram."""
 from __future__ import annotations
 
 import random
@@ -8,14 +8,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db.models import ActiveExpedition, ExpeditionAffix, ExpeditionSlot, HiredWaifu
+from waifu_bot.game.expedition_difficulty_tags import (
+    DIFFICULTY_TAG_LABEL_RU,
+    challenge_categories_boosted_by_tags,
+    squad_covered_tags,
+    union_affix_tags,
+    union_legacy_affix_tags,
+)
 from waifu_bot.game.expedition_redesign import (
     AFFIX_LEVEL_BASE_HP_PCT,
     PERK_CHALLENGE_CATEGORIES,
     _db_category_to_challenge_categories,
-    best_perk_level_for_category,
-    calc_event_damage,
-    count_class_counters_for_category,
-    count_race_counters_for_category,
+    calc_event_damage_v14,
     distribute_damage_to_squad,
     squad_perk_challenge_categories,
     twist_roll,
@@ -31,6 +35,28 @@ def _hp_bar(cur: int, max_hp: int, width: int = 10) -> str:
     filled = int(round(width * cur / max_hp))
     filled = max(0, min(width, filled))
     return "█" * filled + "░" * (width - filled)
+
+
+def _active_tags_for_run(
+    active: ActiveExpedition,
+    slot: ExpeditionSlot | None,
+    slot_affix_rows: list,
+    affix_row: ExpeditionAffix | None,
+) -> frozenset[str]:
+    snap = getattr(active, "difficulty_tags_snapshot", None)
+    if snap:
+        valid = {str(t) for t in snap if str(t) in DIFFICULTY_TAG_LABEL_RU}
+        if valid:
+            return frozenset(valid)
+    if slot_affix_rows:
+        return union_affix_tags(slot_affix_rows)
+    if slot:
+        legacy = list(getattr(slot, "affixes", None) or [])
+        if legacy:
+            return union_legacy_affix_tags(legacy)
+    if affix_row:
+        return union_affix_tags([affix_row])
+    return frozenset()
 
 
 async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silent: bool = False) -> dict:
@@ -58,6 +84,8 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
         return {"ok": False, "error": "no_squad"}
 
     primary = _db_category_to_challenge_categories(getattr(affix_row, "category", None))
+    slot: ExpeditionSlot | None = None
+    slot_affix_rows: list = []
     sid = getattr(active, "expedition_slot_id", None)
     if sid:
         slot = await session.get(ExpeditionSlot, int(sid))
@@ -67,6 +95,11 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
             slot_affix_rows = list((await session.execute(stmt_sa)).scalars().all())
             if slot_affix_rows:
                 primary = union_challenge_categories_from_db_affix_rows(slot_affix_rows)
+
+    active_tags = _active_tags_for_run(active, slot, slot_affix_rows, affix_row)
+    covered_tags = squad_covered_tags(squad)
+    tag_boost = challenge_categories_boosted_by_tags(active_tags)
+
     squad_cats = frozenset()
     for u in squad:
         squad_cats = squad_cats | squad_perk_challenge_categories(u.perks or [])
@@ -75,23 +108,30 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
     challenge_cat = weighted_challenge_category(
         primary_categories=primary,
         squad_categories=squad_cats,
+        tag_boosted_categories=tag_boost,
         rng=rng,
     )
-    race_n = count_race_counters_for_category(squad, challenge_cat)
-    class_n = count_class_counters_for_category(squad, challenge_cat)
-    perk_lv = best_perk_level_for_category(squad, challenge_cat, default_level=1)
     base_pct = AFFIX_LEVEL_BASE_HP_PCT[affix_level]
     squad_hp_total = sum(max(1, int(getattr(u, "max_hp", 1) or 1)) for u in squad)
     variance = rng.uniform(0.85, 1.15)
-    total_dmg = calc_event_damage(
+    total_dmg = calc_event_damage_v14(
         base_hp_pct=base_pct,
         squad_hp_total=squad_hp_total,
-        race_counters=race_n,
-        class_counters=class_n,
-        perk_level=perk_lv,
-        difficulty_level=affix_level,
+        active_tags=active_tags,
+        covered_tags=covered_tags,
+        challenge_cat=challenge_cat,
+        squad=squad,
+        primary_categories=primary,
+        affix_level=affix_level,
         rand_variance=variance,
     )
+
+    from waifu_bot.game.expedition_difficulty_tags import calc_tag_effectiveness_mult, calc_tick_challenge_adj
+
+    tag_mult = calc_tag_effectiveness_mult(
+        active_tags, covered_tags & active_tags, squad=squad, affix_level=affix_level
+    )
+    tick_adj = calc_tick_challenge_adj(challenge_cat, squad, primary, affix_level=affix_level)
 
     twist = twist_roll(rng)
     skip_damage = bool(twist and twist.get("skip_next_damage"))
@@ -175,6 +215,10 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
         )
     ts["last_narrative"] = (narrative or "") if not silent else (ts.get("last_narrative") or "")
     ts["last_challenge_category"] = challenge_cat
+    ts["tag_mult"] = round(tag_mult, 4)
+    ts["tick_adj"] = round(tick_adj, 4)
+    ts["active_tags"] = sorted(active_tags)
+    ts["covered_tags"] = sorted(covered_tags & active_tags)
     active.tick_state = ts
 
     now = datetime.now(tz=timezone.utc)

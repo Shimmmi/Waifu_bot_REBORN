@@ -448,6 +448,62 @@
         font-size: 14px;
         line-height: 1;
       }
+      .exp-help-btn {
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border-radius: 50%;
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--amber, #c8922a);
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      .exp-help-btn:hover {
+        background: rgba(200, 146, 42, 0.15);
+      }
+      .exp-obstacle-level {
+        font-family: var(--font-title, Cinzel, serif);
+        font-size: 14px;
+        color: var(--amber, #c8922a);
+        margin: 4px 0 8px;
+        letter-spacing: 0.03em;
+      }
+      .exp-help-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 10px;
+        margin: 8px 0;
+      }
+      .exp-help-table th,
+      .exp-help-table td {
+        border: 1px solid rgba(200, 146, 42, 0.2);
+        padding: 3px 4px;
+        text-align: center;
+      }
+      .exp-help-table th {
+        background: rgba(200, 146, 42, 0.15);
+        font-weight: 600;
+        color: #e8dcc8;
+      }
+      .exp-help-title {
+        color: var(--amber, #c8922a);
+      }
+      .exp-help-body {
+        font-size: 12px;
+        line-height: 1.55;
+        text-align: left;
+        color: #d4c4b0;
+      }
+      .exp-help-body strong {
+        color: #f0e6d8;
+      }
+      .exp-help-table td {
+        color: #c8b8a8;
+      }
       .exp-card-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
@@ -634,6 +690,9 @@
         position: relative;
         z-index: 1;
       }
+      .exp-modal-img--biome .exp-modal-emoji {
+        display: none;
+      }
       .exp-modal-title {
         font-size: 17px;
         font-weight: 700;
@@ -685,6 +744,28 @@
         background: rgba(148, 163, 184, 0.15);
         border: 1px solid rgba(148, 163, 184, 0.35);
         color: #cbd5e1;
+      }
+      .exp-difficulty-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 6px 0 4px;
+      }
+      .exp-diff-tag {
+        font-size: 10px;
+        padding: 3px 9px;
+        border-radius: 8px;
+        font-weight: 600;
+        background: rgba(248, 113, 113, 0.12);
+        border: 1px solid rgba(248, 113, 113, 0.4);
+        color: #fecaca;
+      }
+      .exp-diff-tag-covered {
+        opacity: 0.55;
+        text-decoration: line-through;
+        border-color: rgba(74, 222, 128, 0.55);
+        color: #86efac;
+        background: rgba(74, 222, 128, 0.14);
       }
       .exp-status-block {
         background: #221c16;
@@ -880,6 +961,12 @@
       .exp-squad-ico {
         font-size: 18px;
       }
+      .exp-pick-portrait--squad {
+        width: 28px;
+        height: 28px;
+        margin: 0 auto 4px;
+        font-size: 14px;
+      }
       .exp-squad-name {
         font-size: 9px;
         color: #8a7a6a;
@@ -888,10 +975,174 @@
         font-size: 9px;
         color: #4ade80;
       }
+      .exp-picker-tags {
+        margin-bottom: 8px;
+      }
+      .exp-picker-tags:empty {
+        display: none;
+      }
+      .exp-pick-filter-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .exp-pick-filter-tag {
+        font-size: 10px;
+        font-weight: 600;
+        padding: 3px 9px;
+        border-radius: 8px;
+        cursor: pointer;
+        border: none;
+        transition: opacity 0.15s, border-color 0.15s;
+      }
+      .exp-pick-filter-tag--on {
+        background: rgba(248, 113, 113, 0.12);
+        border: 1px solid rgba(248, 113, 113, 0.4);
+        color: #fecaca;
+      }
+      .exp-pick-filter-tag--off {
+        opacity: 0.5;
+        text-decoration: line-through;
+        background: rgba(138, 122, 106, 0.12);
+        border: 1px solid rgba(138, 122, 106, 0.35);
+        color: #8a7a6a;
+      }
+      .exp-pick-filter-tag:focus-visible {
+        outline: 2px solid rgba(200, 146, 42, 0.6);
+        outline-offset: 1px;
+      }
       .exp-unit-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      @media (max-width: 360px) {
+        .exp-unit-list {
+          grid-template-columns: 1fr;
+        }
+      }
+      .exp-pick-card {
         display: flex;
         flex-direction: column;
         gap: 6px;
+        background: #221c16;
+        border: 1px solid rgba(200, 146, 42, 0.15);
+        border-radius: 10px;
+        padding: 8px;
+        cursor: pointer;
+        transition: border-color 0.15s, box-shadow 0.15s;
+        min-width: 0;
+      }
+      .exp-pick-card:hover {
+        border-color: rgba(200, 146, 42, 0.4);
+      }
+      .exp-pick-card--disabled {
+        opacity: 0.42;
+        cursor: default;
+        pointer-events: none;
+      }
+      .exp-pick-card--match {
+        border-color: rgba(34, 197, 94, 0.55);
+        box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.2);
+        background: rgba(34, 197, 94, 0.06);
+      }
+      .exp-pick-head {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        min-width: 0;
+      }
+      .exp-pick-portrait {
+        flex-shrink: 0;
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #1a1410;
+        border: 1px solid rgba(200, 146, 42, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .exp-pick-portrait-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .exp-pick-portrait-emoji {
+        font-size: 18px;
+        line-height: 1;
+      }
+      .exp-pick-info {
+        flex: 1;
+        min-width: 0;
+      }
+      .exp-pick-name-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 4px;
+        min-width: 0;
+      }
+      .exp-pick-name {
+        font-size: 11px;
+        font-weight: 700;
+        color: #e8dcc8;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+      }
+      .exp-pick-match-row {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 2px;
+        align-items: center;
+      }
+      .exp-pick-match-row .perk-icon-badge {
+        width: 20px;
+        height: 20px;
+        font-size: 12px;
+        border-radius: 5px;
+      }
+      .exp-pick-sub {
+        font-size: 9px;
+        color: #8a7a6a;
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .exp-pick-stats {
+        display: flex;
+        gap: 10px;
+        font-size: 10px;
+        color: #b8a898;
+      }
+      .exp-pick-stat {
+        white-space: nowrap;
+      }
+      .exp-pick-hpbar {
+        height: 4px;
+        background: rgba(0, 0, 0, 0.35);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .exp-pick-hpfill {
+        height: 100%;
+        border-radius: 2px;
+        transition: width 0.2s;
+      }
+      .exp-pick-perks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px;
+      }
+      .exp-pick-perks .perk-icon-badge {
+        width: 22px;
+        height: 22px;
+        font-size: 13px;
       }
       .exp-ul-item {
         display: flex;
@@ -1129,6 +1380,7 @@
                 <span class="exp-sec-title">Ежедневные экспедиции</span>
                 <div class="exp-sec-header-right">
                   <span class="exp-sec-sub" id="exp-daily-refresh-label">Обновляются в 00:00 МСК</span>
+                  <button type="button" class="exp-help-btn" onclick="WaifuApp.openExpeditionHelp()" aria-label="Справка по экспедициям" title="Справка">?</button>
                   <button type="button" class="secondary admin-only" id="expedition-admin-refresh" style="display:none;" title="Обновить слоты экспедиций (админ)" aria-label="Обновить слоты экспедиций" onclick="WaifuApp.adminRefreshExpeditions()">🔄</button>
                 </div>
               </div>
@@ -1175,6 +1427,10 @@
                 <div id="esm-affix-popover" class="exp-affix-popover" style="display:none" role="tooltip" aria-hidden="true"></div>
               </div>
               <div id="esm-challenge-cats" class="muted tiny" style="margin:6px 0 0;display:none" aria-live="polite"></div>
+              <div class="exp-opt-label" style="margin-top:8px">Типы сложности</div>
+              <div id="esm-difficulty-tags" class="exp-difficulty-tags" aria-live="polite"></div>
+              <div id="esm-obstacle-level" class="exp-obstacle-level" aria-live="polite"></div>
+              <div id="esm-tag-effectiveness" class="muted tiny" style="margin:4px 0 8px" aria-live="polite"></div>
               <div class="exp-opt-label">Уровень сложности</div>
               <div class="exp-opt-row" id="esm-diff-row">
                 <button type="button" class="exp-opt-btn active" onclick="WaifuApp.expSelDiff(1,this)">I</button>
@@ -1203,14 +1459,24 @@
           </div>
 
           <div id="exp-picker-overlay" class="exp-overlay" style="display:none;" onclick="if(event.target===this)WaifuApp.expClosePicker()">
-            <div class="exp-sheet" style="max-height:72%">
+            <div class="exp-sheet" style="max-height:80%">
               <div class="exp-sheet-handle"></div>
-              <div class="exp-opt-label" style="margin-top:0;margin-bottom:10px">Выбрать наёмницу</div>
+              <div class="exp-opt-label" style="margin-top:0;margin-bottom:6px">Выбрать наёмницу</div>
+              <div id="exp-picker-tags" class="exp-picker-tags"></div>
               <div id="exp-unit-list" class="exp-unit-list"></div>
             </div>
           </div>
 
           <!-- Expedition Result Modal (cursor_plan_5) -->
+          <div id="expedition-help-modal" class="exp-overlay" style="display:none;" onclick="if(event.target===this)WaifuApp.closeExpeditionHelp()">
+            <div class="exp-sheet" style="max-height:85vh;overflow-y:auto;">
+              <div class="exp-sheet-handle"></div>
+              <button type="button" class="exp-sheet-close" onclick="WaifuApp.closeExpeditionHelp()">✕</button>
+              <div class="exp-modal-title exp-help-title" style="margin-bottom:10px;">Экспедиции — справка</div>
+              <div id="expedition-help-body" class="exp-help-body"></div>
+            </div>
+          </div>
+
           <div id="expedition-result-modal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-label="Результат экспедиции">
             <div class="exp-result-sheet">
               <div class="modal-handle"></div>

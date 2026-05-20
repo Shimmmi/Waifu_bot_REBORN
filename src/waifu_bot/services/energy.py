@@ -26,7 +26,12 @@ def _normalize_ts(ts: datetime, fallback: datetime) -> datetime:
     return ts
 
 
-def apply_regen(waifu: MainWaifu, now: datetime | None = None) -> bool:
+def apply_regen(
+    waifu: MainWaifu,
+    now: datetime | None = None,
+    *,
+    extra_hp_per_min: int = 0,
+) -> bool:
     """
     Regen HP (5/min + END bonus) in discrete minute ticks.
     Returns True if waifu was modified (HP changed).
@@ -62,7 +67,7 @@ def apply_regen(waifu: MainWaifu, now: datetime | None = None) -> bool:
         if minutes >= 1:
             # Minimal END influence: +1 HP/min for each END above 10
             end_bonus = max(0, int(getattr(waifu, "endurance", 0) or 0) - 10)
-            per_min = int(HP_REGEN_PER_MIN) + int(end_bonus)
+            per_min = int(HP_REGEN_PER_MIN) + int(end_bonus) + max(0, int(extra_hp_per_min))
             gain = min(minutes * per_min, waifu.max_hp - waifu.current_hp)
             waifu.current_hp = int(waifu.current_hp) + gain
             waifu.hp_updated_at = last_hp + timedelta(minutes=minutes)

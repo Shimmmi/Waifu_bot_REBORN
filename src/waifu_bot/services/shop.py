@@ -12,7 +12,12 @@ from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
 from waifu_bot.game.formulas import calculate_gamble_price, shop_buy_price_from_merchant_discount
 from waifu_bot.services.item_service import ItemService
 from waifu_bot.services.enchanting import get_effective_params
-from waifu_bot.services.hidden_skills import increment_skill_counter
+from waifu_bot.services.hidden_skills import (
+    get_hidden_skill_bonuses,
+    increment_skill_counter,
+    record_hidden_gold_spend,
+)
+from waifu_bot.services.item_service import RARITY_WEIGHTS, _pick_weighted
 from waifu_bot.services.passive_skills import (
     apply_passive_buy_price,
     merchant_discount_pct_for_player,
@@ -150,6 +155,7 @@ class ShopService:
             return {"error": "insufficient_gold", "required": price, "have": player.gold}
 
         player.gold -= price
+        await record_hidden_gold_spend(player_id)
         inv.player_id = player_id  # transfer ownership
         # Не удаляем offer, а помечаем как проданный (удалим при следующем обновлении)
         # Это позволит показывать заблокированную ячейку в UI
@@ -229,12 +235,25 @@ class ShopService:
 
         # Deduct gold
         player.gold -= price
+        await record_hidden_gold_spend(player_id)
+
+        rarity = None
+        try:
+            hs = await get_hidden_skill_bonuses(session, player_id)
+            gl = float(hs.get("gamble_legendary_pct", 0) or 0)
+            if gl > 0:
+                weights = [
+                    (r, int(w * (1.0 + gl / 100.0)) if r == 5 else w) for r, w in RARITY_WEIGHTS
+                ]
+                rarity = _pick_weighted(weights)
+        except Exception:
+            pass
 
         inv_item = await self.item_service.generate_inventory_item(
             session,
             player_id=player_id,
             act=act,
-            rarity=None,
+            rarity=rarity,
             level=None,
             is_shop=False,
         )

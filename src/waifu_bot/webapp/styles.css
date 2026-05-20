@@ -8792,52 +8792,190 @@ body.page-guild .guild-bank-deposit-row.selected {
   color: var(--text-muted);
 }
 
-.page-tavern .tavern-upgrade-perks {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
+.page-tavern .tavern-upgrade-perk-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--perk-cols, 1), minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px 4px 4px;
+  min-height: 56px;
+  box-sizing: border-box;
 }
 
-.page-tavern .tavern-upgrade-perk-row {
+.page-tavern .tavern-upgrade-perk-grid--cols-1 {
+  justify-items: center;
+}
+
+.page-tavern .tavern-upgrade-perk-grid--cols-1 .tavern-upgrade-perk-hit {
+  width: 56px;
+  max-width: 56px;
+}
+
+.page-tavern .tavern-upgrade-perk-grid--cols-5 .tavern-upgrade-perk-ico {
+  font-size: 16px;
+}
+
+.page-tavern .tavern-upgrade-perk-cell {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-  padding: 4px 6px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  justify-content: center;
+  min-width: 0;
 }
 
-.page-tavern .tavern-upgrade-perk-info {
+.page-tavern .tavern-upgrade-perk-hit {
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: 52px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background: rgba(18, 12, 8, 0.55);
+  cursor: default;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 
-.page-tavern .tavern-upgrade-perk-name {
-  font-size: 11px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.page-tavern .tavern-upgrade-perk-hit:disabled {
+  opacity: 1;
+}
+
+.page-tavern .tavern-upgrade-perk-hit--ready {
+  border-color: var(--amber-glow, #e8b84b);
+  box-shadow: 0 0 8px rgba(232, 184, 75, 0.55);
+  cursor: pointer;
+}
+
+.page-tavern .tavern-upgrade-perk-hit--ready:hover {
+  border-color: #ffe08a;
+  box-shadow: 0 0 12px rgba(232, 184, 75, 0.75);
+  background: rgba(46, 37, 32, 0.95);
+}
+
+.page-tavern .tavern-upgrade-perk-ico {
+  font-size: 18px;
+  line-height: 1;
 }
 
 .page-tavern .tavern-upgrade-perk-stars {
-  font-size: 9px;
+  font-size: 8px;
   color: var(--amber-glow);
-  letter-spacing: 1px;
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: nowrap;
 }
 
-.page-tavern .tavern-upgrade-btn {
-  flex-shrink: 0;
+.page-tavern .tavern-upgrade-perk-stars--compact {
   font-size: 10px;
-  padding: 3px 6px;
-  border-radius: 5px;
-  white-space: nowrap;
+  font-weight: 700;
+  font-family: var(--font-title);
+  min-width: 14px;
+  height: 14px;
+  line-height: 14px;
+  text-align: center;
+  border-radius: 4px;
+  background: rgba(200, 146, 42, 0.2);
+  color: var(--amber-glow);
+}
+
+.page-tavern .tavern-upgrade-exp-note {
+  padding: 0 8px 6px;
+  text-align: center;
+}
+
+.page-tavern .tavern-upgrade-loading-modal {
+  z-index: 1100;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  pointer-events: auto;
+}
+
+.page-tavern .tavern-upgrade-loading-sheet {
+  width: min(360px, 92vw);
+  padding: 24px 20px 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(200, 146, 42, 0.35);
+}
+
+.page-tavern .tavern-upgrade-loading-visual {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(30, 22, 16, 0.95) 0%, rgba(18, 12, 8, 0.98) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.page-tavern .tavern-upgrade-loading-gym {
+  font-size: 56px;
+  line-height: 1;
+  z-index: 1;
+  animation: tavern-upgrade-gym-bounce 1.4s ease-in-out infinite;
+}
+
+.page-tavern .tavern-upgrade-loading-pulse {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 60%, rgba(232, 184, 75, 0.25) 0%, transparent 65%);
+  animation: tavern-upgrade-pulse 2s ease-in-out infinite;
+}
+
+@keyframes tavern-upgrade-gym-bounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-6px) scale(1.05); }
+}
+
+@keyframes tavern-upgrade-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.page-tavern .tavern-upgrade-loading-title {
+  font-family: var(--font-title);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--amber-glow, #e8b84b);
+  text-align: center;
+}
+
+.page-tavern .tavern-upgrade-loading-sub {
+  font-size: 13px;
+  color: var(--text-muted, #8a7a6a);
+  text-align: center;
+}
+
+.page-tavern .tavern-upgrade-loading-bar {
+  width: 180px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.page-tavern .tavern-upgrade-loading-fill {
+  height: 100%;
+  width: 40%;
+  background: linear-gradient(90deg, #c8922a, #e8b84b);
+  border-radius: 2px;
+  animation: tavern-upgrade-bar-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes tavern-upgrade-bar-slide {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
 }
 
 /* Admin: generate tiered item pixel-art (static/game/items/) */

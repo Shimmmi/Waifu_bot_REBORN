@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from waifu_bot.db.models import ActiveExpedition, ExpeditionAffix, ExpeditionSlot, HiredWaifu, Player
-from waifu_bot.services.hidden_skills import increment_skill_counter, sync_loyal_commander_counter
+from waifu_bot.services.hidden_skills import (
+    get_hidden_skill_bonuses,
+    increment_skill_counter,
+    sync_loyal_commander_counter,
+)
 from waifu_bot.services.passive_skills import (
     expedition_reward_multiplier,
     expedition_success_probability_boost,
@@ -19,6 +23,14 @@ from waifu_bot.services.passive_skills import (
 )
 from waifu_bot.game.expedition_data import AFFIX_BY_ID
 from waifu_bot.game.expedition_perk_resolve import normalize_expedition_paired_perk_ids
+from waifu_bot.game.expedition_difficulty_tags import (
+    calc_tag_effectiveness_mult,
+    sorted_tag_list,
+    squad_covered_tags,
+    tag_effectiveness_pct,
+    union_affix_tags,
+    union_legacy_affix_tags,
+)
 from waifu_bot.game.expedition_redesign import (
     PERK_CHALLENGE_CATEGORIES,
     affix_display_icon,
@@ -154,6 +166,69 @@ def slot_challenge_categories_union(
         return frozenset()
     rows = [affix_by_id[int(aid)] for aid in aids if int(aid) in affix_by_id]
     return union_challenge_categories_from_db_affix_rows(rows) if rows else frozenset()
+
+
+def slot_active_tags(
+    slot: ExpeditionSlot,
+    affix_by_id: dict[int, Any] | None,
+) -> frozenset[str]:
+    """Union игровых тегов сложности слота (кэш или вычисление)."""
+    from waifu_bot.game.expedition_difficulty_tags import (
+        DIFFICULTY_TAG_LABEL_RU,
+        union_affix_tags,
+        union_legacy_affix_tags,
+    )
+
+    cached = getattr(slot, "difficulty_tags", None)
+    if cached:
+        valid = {str(t) for t in cached if str(t) in DIFFICULTY_TAG_LABEL_RU}
+        if valid:
+            return frozenset(valid)
+    aids = list(getattr(slot, "affix_ids", None) or [])
+    if aids and affix_by_id:
+        rows = [affix_by_id[int(aid)] for aid in aids if int(aid) in affix_by_id]
+        if rows:
+            return union_affix_tags(rows)
+    legacy = list(getattr(slot, "affixes", None) or [])
+    if legacy:
+        return union_legacy_affix_tags(legacy)
+    return frozenset()
+
+
+def tags_snapshot_for_affix_rows(rows: list) -> list[str]:
+    from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, union_affix_tags
+
+    return sorted_tag_list(union_affix_tags(rows))
+
+
+def tag_preview_for_squad(
+    squad: list[HiredWaifu],
+    slot: ExpeditionSlot,
+    affix_by_id: dict[int, Any] | None,
+    affix_level: int = 1,
+) -> dict:
+    from waifu_bot.game.expedition_difficulty_tags import (
+        calc_tag_effectiveness_mult,
+        squad_covered_tags,
+        sorted_tag_list,
+        squad_perk_effectiveness_pct,
+        tag_effectiveness_pct,
+    )
+
+    active = slot_active_tags(slot, affix_by_id)
+    covered = squad_covered_tags(squad) & active
+    al = max(1, min(5, int(affix_level or 1)))
+    mult = calc_tag_effectiveness_mult(active, covered, squad=squad, affix_level=al)
+    return {
+        "active_tags": sorted_tag_list(active),
+        "covered_tags": sorted_tag_list(covered),
+        "tag_effectiveness_mult": round(mult, 4),
+        "tag_effectiveness_pct": tag_effectiveness_pct(
+            active, covered, squad=squad, affix_level=al
+        ),
+        "perk_effectiveness_pct": squad_perk_effectiveness_pct(active, covered, squad, al),
+        "affix_level": al,
+    }
 
 
 def _slot_required_perks(slot: ExpeditionSlot) -> set[str]:
@@ -375,6 +450,19 @@ def calculate_squad_chance(
     return out
 
 
+def enrich_chance_with_tags(
+    data: dict,
+    squad: list[HiredWaifu],
+    slot: ExpeditionSlot,
+    affix_by_id: dict[int, Any] | None,
+    affix_level: int = 1,
+) -> dict:
+    """Добавляет поля тегов v1.4 к результату calculate_squad_chance."""
+    tp = tag_preview_for_squad(squad, slot, affix_by_id, affix_level=affix_level)
+    data.update(tp)
+    return data
+
+
 def calculate_success_chance(
     slot: ExpeditionSlot,
     squad_waifus: list[HiredWaifu],
@@ -445,7 +533,8 @@ async def _expedition_passive_p_success(
     """Шанс успеха при броске исхода: базовый шанс слота + бонус пассивного дерева."""
     p_base = float(chance_pct or 0) / 100.0
     ps = await get_passive_skill_bonuses(session, player_id)
-    boost = expedition_success_probability_boost(ps)
+    hs = await get_hidden_skill_bonuses(session, player_id)
+    boost = expedition_success_probability_boost(ps, hs)
     return min(0.95, max(0.05, p_base + boost))
 
 
@@ -687,7 +776,8 @@ class ExpeditionService:
             challenge_union=ch_union,
         )
         ps_exp = await get_passive_skill_bonuses(session, player_id)
-        rm = expedition_reward_multiplier(ps_exp)
+        hs_exp = await get_hidden_skill_bonuses(session, player_id)
+        rm = expedition_reward_multiplier(ps_exp, hs_exp)
         reward_gold = max(0, int(round(reward_gold * rm)))
         reward_exp = max(0, int(round(reward_exp * rm)))
         now = datetime.now(tz=timezone.utc)
@@ -771,12 +861,17 @@ class ExpeditionService:
         reward_gold = int(EXPEDITION_BASE_GOLD * reward_mult * ar * level_bonus)
         reward_exp = int(EXPEDITION_BASE_EXP * reward_mult * ar * level_bonus)
         ps_exp = await get_passive_skill_bonuses(session, player_id)
-        rm = expedition_reward_multiplier(ps_exp)
+        hs_exp = await get_hidden_skill_bonuses(session, player_id)
+        rm = expedition_reward_multiplier(ps_exp, hs_exp)
         reward_gold = max(0, int(round(reward_gold * rm)))
         reward_exp = max(0, int(round(reward_exp * rm)))
 
         now = datetime.now(tz=timezone.utc)
         ends_at = now + timedelta(minutes=duration_minutes)
+
+        from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
+
+        tag_snap = sorted_tag_list(tags_for_db_affix_row(affix_row))
 
         active = ActiveExpedition(
             player_id=player_id,
@@ -797,6 +892,7 @@ class ExpeditionService:
             events_done=0,
             next_tick_at=now + timedelta(minutes=15),
             tick_state={},
+            difficulty_tags_snapshot=tag_snap,
         )
         session.add(active)
         await session.flush()
@@ -887,12 +983,19 @@ class ExpeditionService:
         reward_gold = int(base_g * reward_mult * ar * level_bonus * slot_rm)
         reward_exp = int(base_e * reward_mult * ar * level_bonus * slot_rm)
         ps_exp = await get_passive_skill_bonuses(session, player_id)
-        rm = expedition_reward_multiplier(ps_exp)
+        hs_exp = await get_hidden_skill_bonuses(session, player_id)
+        rm = expedition_reward_multiplier(ps_exp, hs_exp)
         reward_gold = max(0, int(round(reward_gold * rm)))
         reward_exp = max(0, int(round(reward_exp * rm)))
 
         now = datetime.now(tz=timezone.utc)
         ends_at = now + timedelta(minutes=duration_minutes)
+
+        affix_rows_for_tags = []
+        if affix_ids:
+            stmt_t = select(ExpeditionAffix).where(ExpeditionAffix.id.in_(affix_ids))
+            affix_rows_for_tags = list((await session.execute(stmt_t)).scalars().all())
+        tag_snap = tags_snapshot_for_affix_rows(affix_rows_for_tags) if affix_rows_for_tags else []
 
         active = ActiveExpedition(
             player_id=player_id,
@@ -913,6 +1016,7 @@ class ExpeditionService:
             events_done=0,
             next_tick_at=now + timedelta(minutes=15) if has_affix else None,
             tick_state={},
+            difficulty_tags_snapshot=tag_snap,
         )
         session.add(active)
         await session.flush()
@@ -1357,6 +1461,7 @@ class ExpeditionService:
                 total_reward_mult *= a.reward_mult
                 all_paired.extend(a.paired_perks or [])
             paired_perks_list = list(dict.fromkeys(normalize_expedition_paired_perk_ids(all_paired)))
+            slot_tags = tags_snapshot_for_affix_rows(chosen) if chosen else []
 
             slot_level = max(1, default_player_level - 5 + (real_difficulty - 1) * 2)
             base_gold = EXPEDITION_BASE_GOLD + slot_level * 10 + random.randint(0, 50) + (80 if is_trial else 0)
@@ -1379,6 +1484,7 @@ class ExpeditionService:
                     damage_mult=round(total_damage_mult, 2),
                     reward_mult=round(total_reward_mult, 2),
                     paired_perks=paired_perks_list,
+                    difficulty_tags=slot_tags,
                     base_gold=base_gold,
                     base_experience=base_exp,
                     trial=is_trial,

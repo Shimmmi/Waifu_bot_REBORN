@@ -39,6 +39,7 @@ class ExpeditionAffix(Base):
     forbidden_biomes: Mapped[list | None] = mapped_column(JSON, nullable=True)
     weight: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     description_hint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    difficulty_tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
 
 
 class ExpeditionSlot(Base):
@@ -66,6 +67,7 @@ class ExpeditionSlot(Base):
     damage_mult: Mapped[float | None] = mapped_column(Float, nullable=True)
     reward_mult: Mapped[float | None] = mapped_column(Float, nullable=True)
     paired_perks: Mapped[list | None] = mapped_column(JSON, nullable=True)  # perk ids, полезные для слота
+    difficulty_tags: Mapped[list | None] = mapped_column(JSON, nullable=True)  # кэш union тегов аффиксов
 
     base_gold: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     base_experience: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -124,4 +126,5 @@ class ActiveExpedition(Base):
     events_done: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     next_tick_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     tick_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    difficulty_tags_snapshot: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
