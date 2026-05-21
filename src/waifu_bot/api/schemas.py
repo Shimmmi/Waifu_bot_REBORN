@@ -477,11 +477,25 @@ class GuildMemberMainWaifuPreviewOut(BaseModel):
         populate_by_name = True
 
 
+class GuildMemberHiredWaifuPreviewOut(BaseModel):
+    id: int
+    name: str
+    level: int = 1
+    portrait_url: Optional[str] = None
+
+
 class GuildMemberPreviewOut(BaseModel):
     player_id: int
     telegram_username: Optional[str] = None
     first_name: Optional[str] = None
     main_waifu: Optional[GuildMemberMainWaifuPreviewOut] = None
+    online: bool = False
+    rank: str = "Участник"
+    member_power: int = 0
+    contribution_week: int = 0
+    contribution_week_cap: int = 200_000
+    hired_waifus: list[GuildMemberHiredWaifuPreviewOut] = Field(default_factory=list)
+    is_self: bool = False
 
 
 MainWaifuHairColor = Literal[

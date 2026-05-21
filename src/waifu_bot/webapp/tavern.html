@@ -450,13 +450,21 @@
       .page-tavern .gen-rune { position: absolute; font-size: 16px; color: rgba(200,146,42,0.4); animation: rune-float 4s ease-in-out infinite; pointer-events: none; }
       @keyframes rune-float { 0%,100% { transform: translateY(0) rotate(0deg); opacity: .3; } 50% { transform: translateY(-15px) rotate(180deg); opacity: .7; } }
       /* Карточка результата найма: MTG-style, фон 2:3 на всю карточку */
-      .page-tavern .hire-result-modal-sheet { padding: 52px 16px 24px; display: flex; flex-direction: column; align-items: center; }
-      .page-tavern .hire-result-close { position: absolute; top: 12px; right: 14px; z-index: 20; }
-      .page-tavern .hire-result-flip-hint {
-        font-size: 11px; color: var(--ash); margin: 0 0 10px; text-align: center; letter-spacing: 0.04em;
-      }
+      .page-tavern .hire-result-modal-sheet { padding: 24px 16px 24px; display: flex; flex-direction: column; align-items: center; }
       .page-tavern .hire-result-flip-scene {
+        position: relative;
         perspective: 1000px; width: 100%; max-width: 300px; cursor: pointer; outline: none;
+      }
+      .page-tavern .hire-result-close {
+        position: absolute; bottom: 10px; right: 10px; z-index: 25;
+        width: 28px; height: 28px; padding: 0; border-radius: 50%;
+        background: rgba(13, 10, 8, 0.75); border: 1px solid rgba(200, 146, 42, 0.4);
+        color: var(--ash); font-size: 14px; line-height: 1; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+      }
+      .page-tavern .hire-result-close:hover {
+        color: var(--cream); background: rgba(200, 146, 42, 0.15); border-color: rgba(200, 146, 42, 0.55);
       }
       .page-tavern .hire-result-flip-scene:focus-visible {
         box-shadow: 0 0 0 2px rgba(200, 146, 42, 0.55); border-radius: 16px;
@@ -572,24 +580,45 @@
         padding: 2px 6px; border-radius: 999px; text-shadow: none;
       }
       .page-tavern .squad-mtg-top {
-        position: absolute; top: 0; left: 0; right: 0; z-index: 2; padding: 22px 8px 8px; text-align: center;
+        position: absolute; top: 0; left: 0; right: 0; z-index: 5; padding: 10px 8px 8px; text-align: center;
       }
-      .page-tavern .squad-mtg-name {
-        font-family: var(--font-title); font-size: 13px; color: var(--cream); letter-spacing: .06em; line-height: 1.2;
-        text-shadow: 0 2px 6px rgba(0,0,0,0.9); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      .page-tavern .squad-mtg-name-lines {
+        display: flex; flex-direction: column; gap: 1px; min-width: 0;
+      }
+      .page-tavern .squad-mtg-name-first,
+      .page-tavern .squad-mtg-name-last {
+        font-family: var(--font-title); font-size: 12px; color: var(--cream); letter-spacing: .05em; line-height: 1.15;
+        text-shadow: 0 2px 6px rgba(0,0,0,0.9); overflow: hidden; text-overflow: ellipsis;
+        word-break: break-word;
+      }
+      .page-tavern .squad-mtg-name-last {
+        font-size: 11px; color: rgba(232, 220, 200, 0.88);
       }
       .page-tavern .squad-mtg-meta {
-        font-size: 9px; color: var(--amber-glow); margin-top: 3px; letter-spacing: .03em; line-height: 1.25;
+        font-size: 9px; color: var(--amber-glow); margin-bottom: 4px; letter-spacing: .03em; line-height: 1.25;
         text-shadow: 0 1px 4px rgba(0,0,0,0.95); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
       }
       .page-tavern .squad-mtg-bottom {
-        position: absolute; bottom: 0; left: 0; right: 0; z-index: 2; padding: 6px 8px 8px; text-align: center;
+        position: absolute; bottom: 0; left: 0; right: 0; z-index: 5; padding: 6px 8px 8px; text-align: center;
+      }
+      .page-tavern .squad-mtg-status-hatch {
+        position: absolute; inset: 0; z-index: 4; pointer-events: none; border-radius: 9px;
+      }
+      .page-tavern .squad-mtg-card--traveling .squad-mtg-status-hatch {
+        background: repeating-linear-gradient(-45deg,
+          transparent 0 5px,
+          rgba(160, 160, 160, 0.22) 5px 10px);
+      }
+      .page-tavern .squad-mtg-card--fainted .squad-mtg-status-hatch {
+        background: repeating-linear-gradient(-45deg,
+          transparent 0 5px,
+          rgba(190, 70, 70, 0.24) 5px 10px);
       }
       .page-tavern .squad-mtg-perks { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; margin-bottom: 0; }
-      .page-tavern .squad-mtg-perks .perk-badge {
-        font-size: 8px; padding: 2px 6px; border-radius: 999px;
-        background: rgba(13,10,8,0.7); border: 1px solid rgba(200,146,42,0.45); color: var(--amber-glow);
-        max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      .page-tavern .squad-mtg-perk-ico {
+        width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 5px; font-size: 12px; line-height: 1;
+        background: rgba(13, 10, 8, 0.72); border: 1px solid rgba(200, 146, 42, 0.4);
       }
       /* Рамка карточки пула — только редкость (.rarity-* на .squad-mtg-card) */
       body.page-tavern.tavern-modal-scroll-lock .tavern-root-stage {
@@ -597,6 +626,9 @@
       }
       .page-tavern #tavern-waifu-modal.modal {
         z-index: 120;
+      }
+      .page-tavern #modal-confirm-dismiss.modal {
+        z-index: 130;
       }
       /* Совместимость: старые классы в других местах страницы */
       .page-tavern .result-bio { font-size: 12px; line-height: 1.45; color: var(--ash); font-style: italic; margin-bottom: 8px; border-left: 2px solid rgba(200,146,42,0.3); padding-left: 8px; }
@@ -1125,7 +1157,6 @@
 
       <div id="tab-squad" class="tab-panel" style="display:none;">
         <section class="section">
-          <div id="tavern-squad-counters" class="tavern-squad-counters muted" style="font-size:13px;font-weight:700;margin-bottom:8px;">—</div>
           <div class="squad-grid tavern-squad-grid tavern-pool-grid" id="tavern-squad-grid">
             <div class="placeholder">Загрузка отряда...</div>
           </div>
@@ -1134,14 +1165,12 @@
 
       <div id="tab-heal" class="tab-panel" style="display:none;">
         <section class="section">
-          <div class="section-head"><h3>Лечение наёмниц</h3></div>
           <div id="tavern-heal-list" class="placeholder muted" style="font-style:italic;">Раненые наёмницы появятся здесь. Стоимость ×2 при 0 HP.</div>
         </section>
       </div>
 
       <div id="tab-upgrade" class="tab-panel" style="display:none;">
         <section class="section">
-          <div class="section-head"><h3>Прокачка наёмниц</h3></div>
           <div id="tavern-upgrade-list" class="tavern-upgrade-list placeholder muted" style="font-style:italic;">Загрузка…</div>
         </section>
       </div>
@@ -1177,6 +1206,23 @@
       </div>
     </div>
 
+    <!-- Подтверждение увольнения -->
+    <div id="modal-confirm-dismiss" class="modal hidden" style="display:none; align-items: center; justify-content: center;" role="dialog" aria-modal="true">
+      <div class="tavern-modal-sheet">
+        <div class="modal-handle"></div>
+        <button type="button" class="secondary" style="position:absolute;top:16px;right:16px;" onclick="WaifuApp.closeTavernDismissConfirm()" aria-label="Закрыть">✕</button>
+        <div class="hire-confirm-body">
+          <span class="hire-confirm-icon">📜</span>
+          <div class="hire-confirm-text" id="confirm-dismiss-text">Уволить наёмницу?</div>
+          <div class="hire-confirm-note">Уровень передастся следующей нанятой наёмнице.</div>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="tavern-btn tavern-btn-secondary" onclick="WaifuApp.closeTavernDismissConfirm()">Отмена</button>
+          <button type="button" class="tavern-btn tavern-btn-primary" id="btn-confirm-dismiss" onclick="WaifuApp.confirmTavernDismiss()" style="background:linear-gradient(135deg,#a03020,#c85040);">Уволить</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Оверлей генерации -->
     <div id="gen-overlay" class="gen-overlay hidden" style="display:none;" role="status" aria-live="polite">
       <span class="gen-rune" style="top:12%;left:8%;">ᚠ</span>
@@ -1197,8 +1243,6 @@
     <!-- Результат найма -->
     <div id="modal-hire-result" class="modal hidden" style="display:none;" role="dialog" aria-modal="true">
       <div class="tavern-modal-sheet hire-result-modal-sheet">
-        <button type="button" class="secondary hire-result-close" onclick="WaifuApp.closeTavernHireResult()" aria-label="Закрыть">✕</button>
-        <p class="hire-result-flip-hint">Нажмите карточку — биография</p>
         <div
           class="hire-result-flip-scene"
           id="hire-result-flip-scene"
@@ -1208,6 +1252,7 @@
           onclick="WaifuApp.toggleHireResultFlip(event)"
           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();WaifuApp.toggleHireResultFlip(event);}"
         >
+          <button type="button" class="hire-result-close" onclick="event.stopPropagation(); WaifuApp.closeTavernHireResult()" aria-label="Закрыть">✕</button>
           <div class="hire-result-flip-inner rarity-common" id="hire-result-flip-inner">
             <div class="hire-result-face hire-result-face--front">
               <div class="hire-result-bg hire-result-bg--placeholder" id="result-card-bg" role="img" aria-label="Портрет наёмницы"></div>
@@ -1240,7 +1285,7 @@
         <div class="modal-body tavern-waifu-mtg-modal-body-outer" id="tavern-waifu-modal-body"></div>
         <div class="modal-footer tavern-waifu-mtg-footer tavern-waifu-mtg-footer--actions">
           <button type="button" class="secondary tavern-footer-btn" onclick="WaifuApp.closeTavernWaifuModal()">Закрыть</button>
-          <button type="button" class="secondary tavern-footer-btn" id="tavern-waifu-modal-dismiss" onclick="WaifuApp.dismissTavernWaifu()" title="Уволить наёмницу. Уровень передастся следующей нанятой.">Уволить</button>
+          <button type="button" class="secondary tavern-footer-btn" id="tavern-waifu-modal-dismiss" onclick="WaifuApp.openTavernDismissConfirm()" title="Уволить наёмницу. Уровень передастся следующей нанятой.">Уволить</button>
         </div>
       </div>
     </div>

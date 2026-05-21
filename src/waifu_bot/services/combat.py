@@ -357,7 +357,36 @@ async def apply_main_waifu_levelups(session: AsyncSession, waifu: MainWaifu) -> 
             waifu.hp_updated_at = datetime.now(timezone.utc)
         except Exception:
             pass
+        try:
+            from waifu_bot.services.guild_activity import log_waifu_level_up
+
+            await log_waifu_level_up(session, int(waifu.player_id), lvl)
+        except Exception:
+            pass
     return changed
+
+
+async def _maybe_log_guild_combat_rewards(
+    session: AsyncSession,
+    player_id: int,
+    *,
+    drop_item_payload: dict | None,
+    is_first_completion: bool,
+    dungeon_name: str | None,
+) -> None:
+    try:
+        from waifu_bot.services.guild_activity import log_first_dungeon_clear, log_legendary_item
+
+        if is_first_completion and dungeon_name:
+            await log_first_dungeon_clear(session, int(player_id), dungeon_name)
+        if drop_item_payload and int(drop_item_payload.get("rarity") or 0) >= 5:
+            await log_legendary_item(
+                session,
+                int(player_id),
+                str(drop_item_payload.get("name") or "Предмет"),
+            )
+    except Exception:
+        pass
 
 
 class CombatService:
@@ -1829,6 +1858,14 @@ class CombatService:
                 # Never break completion due to drop failures
                 drop_item_payload = None
 
+            await _maybe_log_guild_combat_rewards(
+                session,
+                int(waifu.player_id),
+                drop_item_payload=drop_item_payload,
+                is_first_completion=is_first_completion,
+                dungeon_name=str(dungeon.name if dungeon else "") or None,
+            )
+
             try:
                 from waifu_bot.services.guild_progress import apply_solo_dungeon_complete_gxp
 
@@ -2331,6 +2368,14 @@ class CombatService:
                     }
                 except Exception:
                     drop_item_payload = None
+
+            await _maybe_log_guild_combat_rewards(
+                session,
+                pid,
+                drop_item_payload=drop_item_payload,
+                is_first_completion=is_first_completion,
+                dungeon_name=str(dungeon.name if dungeon else "") or None,
+            )
 
             stone_gained = False
             try:

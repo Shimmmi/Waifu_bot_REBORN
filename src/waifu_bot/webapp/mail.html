@@ -8,18 +8,21 @@
     <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
-  <body onload="WaifuApp.bootstrapPage('mail');">
+  <body class="page-mail" onload="WaifuApp.bootstrapPage('mail', WaifuApp.initMailPage);">
     <header>
       <div class="topbar">
-        <div class="badge">Непрочитанные: <strong>—</strong></div>
-        <div class="badge">Награды: <strong>—</strong></div>
+        <div class="badge">Непрочитанные: <strong id="mail-unread-count">—</strong></div>
+        <div class="badge">Награды: <strong id="mail-rewards-count">—</strong></div>
       </div>
     </header>
 
     <main class="layout">
       <section class="section">
         <h3>Входящие</h3>
-        <div class="placeholder">Список писем, фильтр по типу, детали письма, кнопка “забрать награду”.</div>
+        <div id="mail-inbox-root" class="mail-inbox-list">
+          <p class="muted">Загрузка…</p>
+        </div>
+        <div id="mail-detail-root" style="display: none"></div>
       </section>
     </main>
 
@@ -35,4 +38,3 @@
     </nav>
   </body>
 </html>
-

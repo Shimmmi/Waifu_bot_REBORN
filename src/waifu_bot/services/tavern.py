@@ -281,6 +281,11 @@ class TavernService:
         player = await session.get(Player, player_id)
         if not player:
             return {"error": "player_not_found"}
+        if getattr(waifu, "expedition_id", None) is not None:
+            return {
+                "error": "waifu_on_expedition",
+                "hint": "Дождитесь возвращения из экспедиции.",
+            }
         max_hp = getattr(waifu, "max_hp", 65) or 65
         current_hp = getattr(waifu, "current_hp", max_hp)
         need_heal = max(0, max_hp - current_hp)

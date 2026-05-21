@@ -96,7 +96,7 @@ class InventoryItem(Base):
     __tablename__ = "inventory_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    player_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("players.id"))
+    player_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("players.id"), nullable=True)
     item_id: Mapped[int] = mapped_column(Integer, ForeignKey("items.id"))
     rarity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tier: Mapped[int | None] = mapped_column(Integer, nullable=True)

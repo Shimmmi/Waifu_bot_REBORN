@@ -178,6 +178,22 @@ class GuildWar(Base):
     narrative_history_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
+class GuildMemberContributionWeekly(Base):
+    """Per-member guild contribution points for the current ISO week (UTC)."""
+
+    __tablename__ = "guild_member_contribution_weekly"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(Integer, ForeignKey("guilds.id", ondelete="CASCADE"), nullable=False)
+    player_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    week_start: Mapped[date] = mapped_column(Date, nullable=False)
+    points: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        UniqueConstraint("guild_id", "player_id", "week_start", name="uq_guild_member_contrib_week"),
+    )
+
+
 class GuildGxpBankDaily(Base):
     __tablename__ = "guild_gxp_bank_daily"
 

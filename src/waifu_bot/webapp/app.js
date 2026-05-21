@@ -82,6 +82,14 @@ function authHeaders() {
 async function apiFetch(path, options = {}) {
   const opts = { ...options };
   opts.headers = { ...(options.headers || {}), ...authHeaders() };
+  if (
+    opts.body &&
+    typeof opts.body === "string" &&
+    !opts.headers["Content-Type"] &&
+    !opts.headers["content-type"]
+  ) {
+    opts.headers["Content-Type"] = "application/json";
+  }
   const res = await fetch(`${API_BASE}${path}`, opts);
   if (!res.ok) {
     const text = await res.text();
@@ -2327,6 +2335,12 @@ function hiredWaifuImageUrl(w) {
   return u ? String(u) : "";
 }
 
+function hiredWaifuNameLines(name) {
+  const parts = String(name || "Наёмница").trim().split(/\s+/);
+  if (parts.length <= 1) return { first: parts[0] || "Наёмница", last: "" };
+  return { first: parts[0], last: parts.slice(1).join(" ") };
+}
+
 /** Статус в пуле наёмниц: экспедиция / обморок (0 HP) / готова. Без «отряд vs запас». */
 function hiredWaifuPoolUiStatus(w) {
   const expId = w?.expedition_id ?? w?.expeditionId;
@@ -2356,6 +2370,17 @@ function tavernHireBackgroundUrl(remaining) {
   const n = 4 - rem;
   const root = `${TAVERN_STATIC_BASE}/tavern.background`;
   return n === 0 ? `${root}.webp` : `${root}_${n}.webp`;
+}
+
+function getActiveTavernTab() {
+  const active = document.querySelector(".tavern-tabs .tab.active");
+  return active?.dataset?.tab || "hire";
+}
+
+function syncTavernPageBackgroundVisibility() {
+  const pageBg = document.getElementById("tavern-page-bg");
+  if (!pageBg) return;
+  pageBg.style.display = getActiveTavernTab() === "hire" ? "" : "none";
 }
 
 function preloadTavernBg(url) {
@@ -2611,6 +2636,7 @@ function switchTavernTab(name) {
   if (name === "heal") renderTavernHealList();
   if (name === "squad") renderTavernSquad();
   if (name === "upgrade") renderTavernUpgradeList();
+  syncTavernPageBackgroundVisibility();
 }
 
 function renderTavernHealList() {
@@ -2620,6 +2646,7 @@ function renderTavernHealList() {
   const reserve = Array.isArray(tavernState.reserve) ? tavernState.reserve : [];
   const all = [...squad, ...reserve];
   const wounded = all.filter((w) => {
+    if (hiredWaifuPoolUiStatus(w).key === "traveling") return false;
     const { cur, max: maxHp } = hiredWaifuHp(w);
     return cur < maxHp;
   });
@@ -2628,7 +2655,7 @@ function renderTavernHealList() {
     container.className = "placeholder muted";
     return;
   }
-  container.className = "";
+  container.className = "tavern-heal-grid";
   container.innerHTML = wounded
     .map((w) => {
       const { cur, max: maxHp } = hiredWaifuHp(w);
@@ -2636,41 +2663,51 @@ function renderTavernHealList() {
       const mult = cur === 0 ? 2 : 1;
       const cost = need * TAVERN_HEAL_GOLD_PER_HP * mult;
       const pct = maxHp > 0 ? Math.round((cur / maxHp) * 100) : 0;
-      const label = cur === 0 ? "В обмороке" : `HP ${cur}/${maxHp}`;
+      const portrait = hiredWaifuImageUrl(w);
+      const portraitHtml = portrait
+        ? `<img src="${escapeHtml(portrait)}" alt="">`
+        : `<span aria-hidden="true">🛡️</span>`;
       return `
-        <div class="tavern-heal-card" data-waifu-id="${w.id}">
-          <div class="tavern-heal-info">
-            <span class="tavern-waifu-name">${escapeHtml(w.name || "Наёмница")}</span>
-            <span class="tavern-heal-hp">${label}</span>
+        <div class="tavern-heal-card" data-waifu-id="${w.id}" data-cost="${cost}" role="button" tabindex="0" aria-label="Лечить ${escapeHtml(w.name || "наёмницу")} за ${cost} золота">
+          <div class="tavern-heal-card-portrait">${portraitHtml}</div>
+          <div class="tavern-heal-card-hp">
             <div class="tavern-hp-bar-wrap"><div class="tavern-hp-bar" style="width:${pct}%"></div></div>
           </div>
-          <div class="tavern-heal-action">
-            <span class="tavern-heal-cost">🪙 ${cost}</span>
-            <button type="button" class="btn btn-primary tavern-heal-btn" data-waifu-id="${w.id}" data-cost="${cost}">Лечить</button>
-          </div>
+          <div class="tavern-heal-cost">🪙 ${cost}</div>
         </div>`;
     })
     .join("");
-  container.querySelectorAll(".tavern-heal-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = parseInt(btn.dataset.waifuId, 10);
-      if (!id) return;
-      (async () => {
-        try {
-          const res = await apiFetch(`/tavern/heal?hired_waifu_id=${encodeURIComponent(id)}`, { method: "POST" });
-          if (res && res.success) {
-            showToast("Наёмница вылечена");
-            if (typeof res.gold_total === "number") profileState.gold = res.gold_total;
-            const { squad: s, reserve: r } = await loadTavernWithProfile(undefined, { innerRefresh: true });
-            tavernState.squad = s || tavernState.squad;
-            tavernState.reserve = r || tavernState.reserve;
-            renderTavernHealList();
-            renderTavernSquad();
-          }
-        } catch (e) {
-          showToast("Ошибка лечения: " + (e?.message || ""), "error");
-        }
-      })();
+
+  async function healWaifu(card) {
+    if (!card || card.dataset.healing === "1") return;
+    const id = parseInt(card.dataset.waifuId, 10);
+    if (!id) return;
+    card.dataset.healing = "1";
+    try {
+      const res = await apiFetch(`/tavern/heal?hired_waifu_id=${encodeURIComponent(id)}`, { method: "POST" });
+      if (res && res.success) {
+        showToast("Наёмница вылечена");
+        if (typeof res.gold_total === "number") profileState.gold = res.gold_total;
+        const { squad: s, reserve: r } = await loadTavernWithProfile(undefined, { innerRefresh: true });
+        tavernState.squad = s || tavernState.squad;
+        tavernState.reserve = r || tavernState.reserve;
+        renderTavernHealList();
+        renderTavernSquad();
+      }
+    } catch (e) {
+      showToast("Ошибка лечения: " + (e?.message || ""), "error");
+    } finally {
+      delete card.dataset.healing;
+    }
+  }
+
+  container.querySelectorAll(".tavern-heal-card").forEach((card) => {
+    card.addEventListener("click", () => healWaifu(card));
+    card.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        healWaifu(card);
+      }
     });
   });
 }
@@ -2755,21 +2792,24 @@ function renderTavernUpgradeList() {
       const expId = w.expedition_id ?? w.expeditionId;
       const inExpedition = expId != null && Number(expId) > 0;
       const portrait = hiredWaifuImageUrl(w);
-      const portraitHtml = portrait
+      const portraitInner = portrait
         ? `<img src="${escapeHtml(portrait)}" alt="">`
         : `<span aria-hidden="true">🛡️</span>`;
       const perkGrid = tavernUpgradePerkGridHtml(w, perksMap, inExpedition);
       return `
       <div class="tavern-upgrade-card">
-        <div class="tavern-upgrade-card-portrait">${portraitHtml}</div>
-        <div class="tavern-upgrade-card-info">
-          <div class="tavern-upgrade-card-title">
+        <div class="tavern-upgrade-card-portrait">
+          ${portraitInner}
+          <div class="tavern-upgrade-card-scrim" aria-hidden="true"></div>
+          <div class="tavern-upgrade-card-overlay">
             <div class="tavern-upgrade-card-name">${escapeHtml(w.name || "Наёмница")}</div>
-            <div class="tavern-upgrade-card-level">Ур. ${w.level ?? "—"}</div>
-          </div>
-          <div class="tavern-upgrade-points-badge ${points > 0 ? "has-points" : ""}" title="Очки улучшения перков">
-            <span class="tavern-upgrade-points-num">${points}</span>
-            <span class="tavern-upgrade-points-label">очк.</span>
+            <div class="tavern-upgrade-card-meta">
+              <span class="tavern-upgrade-card-level">Ур. ${w.level ?? "—"}</span>
+              <span class="tavern-upgrade-points-badge ${points > 0 ? "has-points" : ""}" title="Очки улучшения перков">
+                <span class="tavern-upgrade-points-num">${points}</span>
+                <span class="tavern-upgrade-points-label">очк.</span>
+              </span>
+            </div>
           </div>
         </div>
         ${perkGrid}
@@ -2863,9 +2903,9 @@ function renderTavernHire(profile, available) {
 
   const pageBg = document.getElementById("tavern-page-bg");
   if (pageBg) {
-    pageBg.style.display = "";
     pageBg.src = tavernHireBackgroundUrl(remaining);
   }
+  syncTavernPageBackgroundVisibility();
 
   const hireBtn = document.getElementById("tavern-hire-primary-btn");
   if (hireBtn) {
@@ -2954,20 +2994,6 @@ function renderTavernSquad() {
   const pool = roster.slice(0, TAVERN_POOL_MAX);
   const perksMap = tavernState.perksMap || {};
 
-  const countersEl = document.getElementById("tavern-squad-counters");
-  if (countersEl) {
-    let nReady = 0;
-    let nTravel = 0;
-    let nFaint = 0;
-    roster.forEach((w) => {
-      const ui = hiredWaifuPoolUiStatus(w);
-      if (ui.key === "traveling") nTravel += 1;
-      else if (ui.key === "fainted") nFaint += 1;
-      else nReady += 1;
-    });
-    countersEl.textContent = `${nReady} готовы · ${nTravel} в пути · ${nFaint} в обмороке`;
-  }
-
   box.innerHTML = "";
 
   for (let i = 0; i < TAVERN_POOL_MAX; i += 1) {
@@ -2987,24 +3013,19 @@ function renderTavernSquad() {
       continue;
     }
 
-    const uiSt = hiredWaifuPoolUiStatus(w);
-    const badge =
-      uiSt.key === "traveling"
-        ? "🗺 В пути"
-        : uiSt.key === "fainted"
-          ? "💤 В обмороке"
-          : "✓ Готова";
-
     const rarity = Number(w?.rarity ?? 1);
     const rCls = rarityClass(rarity);
     const clsId = Number(w?.class ?? w?.class_ ?? 0);
     const raceId = Number(w?.race ?? 0);
-    const nm = escapeHtml(String(w?.name || "Вайфу"));
+    const { first, last } = hiredWaifuNameLines(w?.name);
     const meta = `${escapeHtml(raceName(raceId))} · ${escapeHtml(className(clsId))} · Ур.${escapeHtml(String(w?.level ?? "—"))} · Мощь ${escapeHtml(String(w?.power ?? "—"))}`;
     const perkIds = Array.isArray(w.perks) ? w.perks : [];
     const perkBadges = perkIds.length
       ? perkIds
-          .map((pid) => `<span class="perk-badge">${escapeHtml(String(perksMap[pid] || pid))}</span>`)
+          .map(
+            (pid) =>
+              `<span class="squad-mtg-perk-ico" title="${escapeHtml(String(perksMap[pid] || pid))}">${PERK_ICONS[pid] || "✦"}</span>`
+          )
           .join("")
       : `<span class="muted tiny" style="opacity:.75;">—</span>`;
 
@@ -3012,21 +3033,27 @@ function renderTavernSquad() {
     const portraitLayer = url ? `<img class="squad-mtg-bg-img" src="${escapeHtml(url)}" alt="" />` : "";
     const bgCls = url ? "squad-mtg-bg" : "squad-mtg-bg squad-mtg-bg--placeholder";
 
+    const uiSt = hiredWaifuPoolUiStatus(w);
+    const statusCls = `squad-mtg-card--${uiSt.key}`;
+
     const slot = document.createElement("div");
     slot.className = "squad-slot occupied";
     slot.setAttribute("role", "button");
     slot.tabIndex = 0;
     slot.innerHTML = `
-      <div class="squad-mtg-card ${rCls}">
+      <div class="squad-mtg-card ${rCls} ${statusCls}">
         <div class="${bgCls}" role="img" aria-label="">${portraitLayer}</div>
         <div class="squad-mtg-scrim-top" aria-hidden="true"></div>
         <div class="squad-mtg-scrim-bottom" aria-hidden="true"></div>
-        <div class="squad-mtg-slot-mark" aria-hidden="true">${escapeHtml(badge)}</div>
+        <div class="squad-mtg-status-hatch" aria-hidden="true"></div>
         <div class="squad-mtg-top">
-          <div class="squad-mtg-name">${nm}</div>
-          <div class="squad-mtg-meta">${meta}</div>
+          <div class="squad-mtg-name-lines">
+            <div class="squad-mtg-name-first">${escapeHtml(first)}</div>
+            ${last ? `<div class="squad-mtg-name-last">${escapeHtml(last)}</div>` : ""}
+          </div>
         </div>
         <div class="squad-mtg-bottom">
+          <div class="squad-mtg-meta">${meta}</div>
           <div class="squad-mtg-perks">${perkBadges}</div>
         </div>
       </div>`;
@@ -3499,21 +3526,57 @@ function openTavernSlotModal(w) {
   m.style.display = "grid";
 }
 
-async function dismissTavernWaifu() {
+function openTavernDismissConfirm() {
   const w = tavernState.selectedWaifu;
   if (!w?.id) return;
   const nm = String(w?.name || "наёмницу").trim() || "наёмницу";
-  const ok = window.confirm(`Уволить «${nm}»? Уровень передастся следующей нанятой наёмнице.`);
-  if (!ok) return;
+  const textEl = document.getElementById("confirm-dismiss-text");
+  if (textEl) textEl.textContent = `Уволить «${nm}»?`;
+  const modal = document.getElementById("modal-confirm-dismiss");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+  }
+}
+
+function closeTavernDismissConfirm() {
+  const modal = document.getElementById("modal-confirm-dismiss");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
+}
+
+async function confirmTavernDismiss() {
+  const w = tavernState.selectedWaifu;
+  if (!w?.id) return;
+  const btn = document.getElementById("btn-confirm-dismiss");
+  if (btn?.dataset.dismissing === "1") return;
+  if (btn) btn.dataset.dismissing = "1";
   try {
     const res = await apiFetch(`/tavern/dismiss?waifu_id=${encodeURIComponent(w.id)}`, { method: "POST" });
+    if (!res?.success) throw new Error(res?.hint || res?.error || "dismiss_failed");
+    closeTavernDismissConfirm();
     closeTavernWaifuModal();
-    showTavernError(res.hint || "Вайфу уволена. Уровень сохранён для следующей нанятой.");
-    await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true }).catch(() => {});
+    tavernState.selectedWaifu = null;
+    try {
+      await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
+      renderTavernHealList();
+      renderTavernUpgradeList();
+      showToast(res.hint || "Наёмница уволена");
+    } catch (refreshErr) {
+      showToast("Наёмница уволена, но не удалось обновить список", "error");
+    }
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
-    showTavernError(detail || "Ошибка увольнения", "danger");
+    showToast(detail || "Ошибка увольнения", "error");
+  } finally {
+    if (btn) delete btn.dataset.dismissing;
   }
+}
+
+function dismissTavernWaifu() {
+  openTavernDismissConfirm();
 }
 
 /** Кнопка 🔄 у вкладок: у игрока — перезагрузка с сервера; у админа — принудительное обновление слотов найма. */
@@ -9034,22 +9097,40 @@ async function loadSkills(act) {
 const guildHallState = {
   tab: "main",
   activitySubTab: "raid",
-  showMembersPanel: false,
   me: null,
   profileGold: 0,
   bankItems: [],
   bankPage: 1,
-  bankPageSize: 16,
+  bankPageSize: 12,
+  bankFilters: { weapon: true, armor: true, accessory: true },
+  bankSort: "level",
+  bankSortDir: "desc",
+  bankGoldMode: "deposit",
   selectedBankItem: null,
-  depositSelectedIds: [],
-  memberPreviewView: "portrait",
+  depositInventory: [],
+  depositPage: 1,
+  depositPageSize: 12,
+  depositPreviewItem: null,
   memberPreviewData: null,
+  mailCompose: { recipientId: null, inventoryItemId: null, itemLabel: "" },
+  mailState: { inbox: [], selectedId: null, unreadCount: 0 },
+  skillsBranch: "combat",
   raidParticipantIds: [],
   warTargets: null,
+  heroMenuListener: false,
 };
 
+function isGuildLeader(d) {
+  if (!d) return false;
+  if (d.is_leader) return true;
+  const viewerId = Number(d.viewer_player_id);
+  if (!viewerId) return false;
+  const members = Array.isArray(d.members) ? d.members : [];
+  return members.some((m) => Number(m.player_id) === viewerId && m.is_leader);
+}
+
 function canEditGuildMedia(d) {
-  return Boolean(d?.is_leader);
+  return isGuildLeader(d);
 }
 
 function guildApiErrorToUser(detail, fallback) {
@@ -9081,6 +9162,33 @@ function guildApiErrorToUser(detail, fallback) {
     level_range: "Уровень цели вне диапазона ±3.",
   };
   return map[err] || fallback || String(err || "Ошибка");
+}
+
+function mailApiErrorToUser(detail, fallback) {
+  const err = typeof detail === "string" ? detail : String(detail?.error || detail || "");
+  const map = {
+    cannot_mail_self: "Нельзя отправить письмо самому себе.",
+    not_same_guild: "Писать можно только участникам своей гильдии.",
+    empty_mail: "Укажите текст, золото или предмет.",
+    body_too_long: "Слишком длинное сообщение.",
+    gold_too_much: "Слишком много золота в одном письме.",
+    insufficient_gold: "Недостаточно золота.",
+    item_not_found: "Предмет не найден.",
+    item_equipped: "Снимите предмет перед отправкой.",
+    recipient_inbox_full: "Входящие получателя переполнены.",
+    daily_send_limit: "Достигнут дневной лимит отправки писем.",
+    sender_not_found: "Отправитель не найден.",
+    recipient_not_found: "Получатель не найден.",
+  };
+  return map[err] || guildApiErrorToUser(detail, fallback);
+}
+
+function setGuildPageLoading(on) {
+  if (typeof document === "undefined" || !document.body?.classList?.contains("page-guild")) return;
+  const v = Boolean(on);
+  document.body.classList.toggle("guild-loading", v);
+  const modal = document.getElementById("guild-page-loading-modal");
+  if (modal) modal.setAttribute("aria-busy", v ? "true" : "false");
 }
 
 function updateGuildHallChrome(inGuild) {
@@ -9125,7 +9233,7 @@ function renderGuildHero(d) {
   const levelEl = document.getElementById("guild-hero-level");
   const xpFill = document.getElementById("guild-hero-xp-fill");
   const xpLabel = document.getElementById("guild-hero-xp-label");
-  const emblemBtn = document.getElementById("guild-hero-emblem");
+  const emblemEl = document.getElementById("guild-hero-emblem");
   const emblemInner = document.getElementById("guild-hero-emblem-inner");
   const heroBg = document.getElementById("guild-hero-bg");
   const bannerImg = document.getElementById("guild-hero-banner-img");
@@ -9133,7 +9241,7 @@ function renderGuildHero(d) {
   const iconInp = document.getElementById("guild-icon-file-input");
   const bannerInp = document.getElementById("guild-banner-file-input");
   const bar = formatGuildGxpBar(d);
-  const canEdit = Boolean(d.is_leader);
+  const canEdit = isGuildLeader(d);
   if (tagEl) tagEl.textContent = `[${d.guild_tag || ""}]`;
   if (nameEl) nameEl.textContent = d.guild_name || "—";
   if (levelEl) levelEl.textContent = `Ур. гильдии ${d.guild_level ?? "—"}`;
@@ -9159,17 +9267,31 @@ function renderGuildHero(d) {
       emblemInner.textContent = "🏛️";
     }
   }
-  hero.classList.toggle("guild-hero-banner--editable", canEdit);
+  hero.onclick = null;
+  hero.classList.remove("guild-hero-banner--editable");
   if (heroBg) {
-    heroBg.onclick = canEdit ? () => onGuildBannerClick() : null;
-    heroBg.style.cursor = canEdit ? "pointer" : "";
+    heroBg.onclick = null;
+    heroBg.style.cursor = "";
   }
-  if (emblemBtn) {
-    emblemBtn.classList.toggle("guild-hero-emblem--readonly", !canEdit);
-    emblemBtn.onclick = canEdit ? () => onGuildEmblemClick() : () => showToast("Меняет только глава гильдии", "error");
-  }
+  const menuIcon = document.getElementById("guild-hero-menu-icon");
+  const menuBanner = document.getElementById("guild-hero-menu-banner");
+  const menuDivider = document.getElementById("guild-hero-menu-divider");
+  const menuLeave = document.getElementById("guild-hero-menu-leave");
+  if (menuIcon) menuIcon.hidden = !canEdit;
+  if (menuBanner) menuBanner.hidden = !canEdit;
+  if (menuDivider) menuDivider.hidden = !canEdit;
+  if (menuLeave) menuLeave.hidden = canEdit;
+  closeGuildHeroMenu();
   if (iconInp) iconInp.onchange = () => uploadGuildIcon(iconInp);
   if (bannerInp) bannerInp.onchange = () => uploadGuildBanner(bannerInp);
+  if (!guildHallState.heroMenuListener) {
+    guildHallState.heroMenuListener = true;
+    document.addEventListener("click", (ev) => {
+      if (!ev.target.closest("#guild-hero-menu") && !ev.target.closest("#guild-hero-menu-btn")) {
+        closeGuildHeroMenu();
+      }
+    });
+  }
 }
 
 function renderGuildStatsGrid(d) {
@@ -9182,14 +9304,10 @@ function renderGuildStatsGrid(d) {
       : "—";
   const rating =
     d?.guild_rating != null && d.guild_rating > 0 ? `#${d.guild_rating}` : "—";
-  const membersActive = guildHallState.showMembersPanel ? " guild-stat-card--active" : "";
-  const membersPanel = guildHallState.showMembersPanel
-    ? `<div id="guild-members-panel" class="guild-members-panel">${renderGuildMembersHtml(d.members)}</div>`
-    : "";
   return `
     <div class="guild-section-label">Статистика</div>
     <div class="guild-stats-grid">
-      <button type="button" class="guild-stat-card guild-stat-card--btn${membersActive}" onclick="WaifuApp.toggleGuildMembersPanel()" aria-expanded="${guildHallState.showMembersPanel ? "true" : "false"}">
+      <button type="button" class="guild-stat-card guild-stat-card--btn" onclick="WaifuApp.openGuildMembersModal()">
         <div class="guild-stat-label">Участники</div>
         <div class="guild-stat-val">${members.length} <span class="guild-stat-sub">/ ${slots}</span></div>
       </button>
@@ -9205,17 +9323,51 @@ function renderGuildStatsGrid(d) {
         <div class="guild-stat-label">Рейтинг</div>
         <div class="guild-stat-val" id="guild-stat-rating">${escapeHtml(String(rating))}</div>
       </div>
-    </div>
-    ${membersPanel}`;
+    </div>`;
 }
 
-function toggleGuildMembersPanel() {
-  guildHallState.showMembersPanel = !guildHallState.showMembersPanel;
-  void renderGuildTabContent();
+function openGuildMembersModal() {
+  const d = guildHallState.me;
+  if (!d?.in_guild) return;
+  const body = document.getElementById("guild-members-modal-body");
+  const modal = document.getElementById("guild-members-modal");
+  if (body) body.innerHTML = renderGuildMembersHtml(d.members);
+  if (modal) {
+    modal.style.display = "flex";
+    modal.setAttribute("aria-hidden", "false");
+  }
+}
+
+function closeGuildMembersModal() {
+  const modal = document.getElementById("guild-members-modal");
+  if (modal) {
+    modal.style.display = "none";
+    modal.setAttribute("aria-hidden", "true");
+  }
+}
+
+function toggleGuildHeroMenu(ev) {
+  ev?.stopPropagation?.();
+  const menu = document.getElementById("guild-hero-menu");
+  const btn = document.getElementById("guild-hero-menu-btn");
+  if (!menu) return;
+  const willOpen = menu.hidden;
+  closeGuildHeroMenu();
+  if (willOpen) {
+    menu.hidden = false;
+    if (btn) btn.setAttribute("aria-expanded", "true");
+  }
+}
+
+function closeGuildHeroMenu() {
+  const menu = document.getElementById("guild-hero-menu");
+  const btn = document.getElementById("guild-hero-menu-btn");
+  if (menu) menu.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
 }
 
 function renderGuildActivityFeed(d) {
-  const feed = Array.isArray(d?.activity_feed) ? d.activity_feed : [];
+  const feed = Array.isArray(d?.activity_feed) ? d.activity_feed.slice(0, 3) : [];
   const inner = !feed.length
     ? `<p class="muted tiny guild-activity-empty">Пока нет событий.</p>`
     : `<div class="guild-activity-list">${feed
@@ -9307,9 +9459,14 @@ function renderGuildMembersHtml(members) {
       .filter(Boolean)
       .join("");
     const dotCls = m.online ? "guild-member-dot--online" : "guild-member-dot--offline";
+    const pwr =
+      m.member_power != null && m.member_power !== ""
+        ? formatGuildPower(m.member_power)
+        : "—";
     return `<div class="guild-member-row">
       <span class="guild-member-dot ${dotCls}" aria-hidden="true"></span>
       <button type="button" class="guild-member-preview-btn" onclick="WaifuApp.openGuildMemberPreviewModal(${Number(m.player_id)})">${guildMemberLabel(m)}</button>
+      <span class="guild-member-power">${escapeHtml(String(pwr))}</span>
       ${badges}
     </div>`;
   };
@@ -9337,15 +9494,16 @@ async function loadGuildBankItems() {
   return guildHallState.bankItems;
 }
 
-function fillGuildBankOfferModal(item) {
+function fillItemOfferModal(item, prefix) {
   const offer = item;
-  const contentEl = document.getElementById("guild-bank-offer-modal-content");
-  const nameEl = document.getElementById("guild-bank-offer-modal-name");
-  const subEl = document.getElementById("guild-bank-offer-modal-subline");
-  const rpill = document.getElementById("guild-bank-offer-modal-rpill");
-  const art = document.getElementById("guild-bank-offer-modal-art");
-  const body = document.getElementById("guild-bank-offer-modal-body");
-  const upHint = document.getElementById("guild-bank-offer-modal-upgrade-hint");
+  const el = (suffix) => document.getElementById(`${prefix}-${suffix}`);
+  const contentEl = el("content");
+  const nameEl = el("name");
+  const subEl = el("subline");
+  const rpill = el("rpill");
+  const art = el("art");
+  const body = el("body");
+  const upHint = el("upgrade-hint");
   if (!offer) return;
   const nm = String(offer?.display_name || offer?.name || "Предмет").trim();
   if (nameEl) nameEl.innerHTML = composeItemTitlePlain(offer) || escapeHtml(nm);
@@ -9369,13 +9527,13 @@ function fillGuildBankOfferModal(item) {
     renderItemModalV2CharacteristicsHtml(offer) ||
     `<div class="muted tiny" style="padding:6px 0;">Нет характеристик.</div>`;
   if (body) body.innerHTML = charHtml;
-  const reqSec = document.getElementById("guild-bank-offer-modal-req-section");
-  const reqFoot = document.getElementById("guild-bank-offer-modal-requirements");
+  const reqSec = el("req-section");
+  const reqFoot = el("requirements");
   const mw = profileState.currentProfile?.main_waifu || null;
   const pillsHtml = buildItemModalRequirementsPillsHtml(offer, mw);
   if (reqFoot) reqFoot.innerHTML = pillsHtml;
   if (reqSec) reqSec.style.display = pillsHtml ? "" : "none";
-  const descEl = document.getElementById("guild-bank-offer-modal-desc");
+  const descEl = el("desc");
   const descText = String(offer?.description || "").trim();
   if (descEl) {
     if (descText) {
@@ -9386,6 +9544,10 @@ function fillGuildBankOfferModal(item) {
       descEl.innerHTML = "";
     }
   }
+}
+
+function fillGuildBankOfferModal(item) {
+  fillItemOfferModal(item, "guild-bank-offer-modal");
 }
 
 function openGuildBankItemModal(bankItemId) {
@@ -9429,16 +9591,24 @@ async function confirmGuildBankTake() {
   }
 }
 
-function openGuildBankGoldModal() {
+function openGuildBankGoldModal(mode) {
+  const m = mode === "withdraw" ? "withdraw" : "deposit";
+  guildHallState.bankGoldMode = m;
   const d = guildHallState.me;
   const bal = document.getElementById("guild-bank-gold-modal-balance");
   const pl = document.getElementById("guild-bank-gold-modal-player");
-  if (bal) bal.textContent = String(d?.bank_gold ?? 0);
-  if (pl) pl.textContent = String(guildHallState.profileGold ?? 0);
-  const m = document.getElementById("guild-bank-gold-modal");
-  if (m) {
-    m.style.display = "flex";
-    m.setAttribute("aria-hidden", "false");
+  const title = document.getElementById("guild-bank-gold-modal-title");
+  const confirm = document.getElementById("guild-bank-gold-confirm");
+  const inp = document.getElementById("guild-bank-gold-amount");
+  if (bal) bal.textContent = formatGuildBankGold(d?.bank_gold ?? 0);
+  if (pl) pl.textContent = formatGuildBankGold(guildHallState.profileGold ?? 0);
+  if (title) title.textContent = m === "withdraw" ? "Снять золото" : "Внести золото";
+  if (confirm) confirm.textContent = m === "withdraw" ? "Снять" : "Внести";
+  if (inp) inp.value = "1";
+  const modal = document.getElementById("guild-bank-gold-modal");
+  if (modal) {
+    modal.style.display = "flex";
+    modal.setAttribute("aria-hidden", "false");
   }
 }
 
@@ -9447,6 +9617,14 @@ function closeGuildBankGoldModal() {
   if (m) {
     m.style.display = "none";
     m.setAttribute("aria-hidden", "true");
+  }
+}
+
+async function confirmGuildBankGold() {
+  if (guildHallState.bankGoldMode === "withdraw") {
+    await confirmGuildBankGoldTake();
+  } else {
+    await confirmGuildBankGoldDeposit();
   }
 }
 
@@ -9463,7 +9641,6 @@ async function confirmGuildBankGoldDeposit() {
       showToast(guildApiErrorToUser(res, "Ошибка вложения"), "error");
       return;
     }
-    showToast("Золото положено в банк");
     closeGuildBankGoldModal();
     await loadProfile().catch(() => {});
     await populateGuildHall();
@@ -9496,78 +9673,151 @@ async function confirmGuildBankGoldTake() {
   }
 }
 
+function renderGuildBankDepositCell(it) {
+  const rCls = rarityClassFromValue(it?.rarity);
+  const lvl = safeInt(it?.level, 0);
+  const lvlLabel = lvl > 0 ? `ур. ${lvl}` : "ур. ?";
+  return `<button type="button" class="guild-bank-deposit-cell ${rCls}" onclick="WaifuApp.openGuildBankDepositItemPreview(${Number(it.id)})" aria-label="${escapeHtml(composeItemDisplayName(it))}">
+    <span class="item-level">${lvlLabel}</span>
+    <span class="guild-bank-deposit-cell-art">${itemArtHtml(it)}</span>
+  </button>`;
+}
+
+function renderGuildBankDepositPicker() {
+  const grid = document.getElementById("guild-bank-deposit-grid");
+  const pager = document.getElementById("guild-bank-deposit-pagination");
+  const emptyNote = document.getElementById("guild-bank-deposit-empty-note");
+  if (!grid || !pager) return;
+  const items = guildHallState.depositInventory;
+  const pageSize = guildHallState.depositPageSize;
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const page = Math.min(Math.max(1, guildHallState.depositPage), totalPages);
+  if (page !== guildHallState.depositPage) guildHallState.depositPage = page;
+  const start = (page - 1) * pageSize;
+  const slice = items.slice(start, start + pageSize);
+  const cells = [];
+  for (let i = 0; i < pageSize; i += 1) {
+    if (i < slice.length) {
+      cells.push(renderGuildBankDepositCell(slice[i]));
+    } else {
+      cells.push(`<div class="guild-bank-deposit-cell guild-bank-deposit-cell--empty" aria-hidden="true"></div>`);
+    }
+  }
+  grid.innerHTML = cells.join("");
+  if (emptyNote) {
+    if (!items.length) {
+      emptyNote.textContent = "Нет предметов для вложения (только неэкипированные).";
+      emptyNote.style.display = "";
+    } else {
+      emptyNote.textContent = "";
+      emptyNote.style.display = "none";
+    }
+  }
+  if (totalPages > 1) {
+    pager.innerHTML = `<button type="button" class="guild-bank-pag-btn" ${page <= 1 ? "disabled" : ""} onclick="WaifuApp.guildBankDepositPrevPage()">← Назад</button>
+      <span class="guild-bank-pag-info">Стр. ${page}</span>
+      <button type="button" class="guild-bank-pag-btn" ${page >= totalPages ? "disabled" : ""} onclick="WaifuApp.guildBankDepositNextPage()">Вперёд →</button>`;
+    pager.style.display = "";
+  } else {
+    pager.innerHTML = "";
+    pager.style.display = "none";
+  }
+}
+
+function syncGuildBankDepositModalBodyScrollLock() {
+  const picker = document.getElementById("guild-bank-deposit-modal");
+  const preview = document.getElementById("guild-bank-deposit-item-modal");
+  const pickerOpen = Boolean(picker && picker.style.display !== "none");
+  const previewOpen = Boolean(preview && preview.classList.contains("shop-modal--open"));
+  document.body.style.overflow = pickerOpen || previewOpen ? "hidden" : "";
+}
+
 async function openGuildBankDepositModal() {
   try {
     const eq = await apiFetch("/waifu/equipment");
-    const inv = (Array.isArray(eq?.inventory) ? eq.inventory : []).filter((i) => i?.id);
-    guildHallState.depositSelectedIds = [];
-    const list = document.getElementById("guild-bank-deposit-list");
-    if (!list) return;
-    if (!inv.length) {
-      list.innerHTML = `<p class="muted tiny">Нет предметов для вложения (только неэкипированные).</p>`;
-    } else {
-      list.innerHTML = inv
-        .map((it) => {
-          const iid = Number(it.id);
-          return `<label class="guild-bank-deposit-row" data-id="${iid}">
-            <input type="checkbox" value="${iid}" onchange="WaifuApp.toggleGuildBankDepositSelect(${iid}, this.checked)" />
-            <span class="guild-bank-cell-art">${itemArtHtml(it)}</span>
-            <span class="guild-bank-cell-meta">${composeItemDisplayName(it)}</span>
-          </label>`;
-        })
-        .join("");
-    }
+    const inv = (Array.isArray(eq?.inventory) ? eq.inventory : []).filter((i) => i?.id && !i?.equipment_slot);
+    guildHallState.depositInventory = inv;
+    guildHallState.depositPage = 1;
+    guildHallState.depositPreviewItem = null;
+    renderGuildBankDepositPicker();
     const m = document.getElementById("guild-bank-deposit-modal");
     if (m) {
       m.style.display = "flex";
       m.setAttribute("aria-hidden", "false");
     }
+    syncGuildBankDepositModalBodyScrollLock();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(detail || "Не удалось загрузить инвентарь", "error");
   }
 }
 
-function toggleGuildBankDepositSelect(id, checked) {
-  const n = Number(id);
-  const set = new Set(guildHallState.depositSelectedIds.map(Number));
-  if (checked) set.add(n);
-  else set.delete(n);
-  guildHallState.depositSelectedIds = [...set];
-  document.querySelectorAll(".guild-bank-deposit-row").forEach((row) => {
-    const rid = Number(row.dataset.id);
-    row.classList.toggle("selected", set.has(rid));
-  });
+function guildBankDepositPrevPage() {
+  guildHallState.depositPage = Math.max(1, guildHallState.depositPage - 1);
+  renderGuildBankDepositPicker();
+}
+
+function guildBankDepositNextPage() {
+  const pageSize = guildHallState.depositPageSize;
+  const totalPages = Math.max(1, Math.ceil(guildHallState.depositInventory.length / pageSize));
+  guildHallState.depositPage = Math.min(guildHallState.depositPage + 1, totalPages);
+  renderGuildBankDepositPicker();
+}
+
+function openGuildBankDepositItemPreview(inventoryItemId) {
+  const it = guildHallState.depositInventory.find((x) => Number(x.id) === Number(inventoryItemId));
+  if (!it) return;
+  guildHallState.depositPreviewItem = it;
+  fillItemOfferModal(it, "guild-bank-deposit-offer-modal");
+  const m = document.getElementById("guild-bank-deposit-item-modal");
+  if (m) {
+    m.classList.add("shop-modal--open");
+    m.style.display = "grid";
+    m.setAttribute("aria-hidden", "false");
+  }
+  syncGuildBankDepositModalBodyScrollLock();
+}
+
+function closeGuildBankDepositItemPreview() {
+  guildHallState.depositPreviewItem = null;
+  const m = document.getElementById("guild-bank-deposit-item-modal");
+  if (m) {
+    m.classList.remove("shop-modal--open");
+    m.style.display = "none";
+    m.setAttribute("aria-hidden", "true");
+  }
+  syncGuildBankDepositModalBodyScrollLock();
+}
+
+async function confirmGuildBankDepositItem() {
+  const it = guildHallState.depositPreviewItem;
+  const iid = Number(it?.id);
+  if (!iid) return;
+  try {
+    const res = await apiFetch(`/guilds/deposit/item?inventory_item_id=${encodeURIComponent(iid)}`, {
+      method: "POST",
+    });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось вложить"), "error");
+      return;
+    }
+    closeGuildBankDepositItemPreview();
+    closeGuildBankDepositModal();
+    await populateGuildHall();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
 }
 
 function closeGuildBankDepositModal() {
+  closeGuildBankDepositItemPreview();
   const m = document.getElementById("guild-bank-deposit-modal");
   if (m) {
     m.style.display = "none";
     m.setAttribute("aria-hidden", "true");
   }
-}
-
-async function confirmGuildBankDeposit() {
-  const ids = guildHallState.depositSelectedIds;
-  if (!ids.length) {
-    showToast("Выберите предметы", "error");
-    return;
-  }
-  let ok = 0;
-  for (const iid of ids) {
-    try {
-      const res = await apiFetch(`/guilds/deposit/item?inventory_item_id=${encodeURIComponent(iid)}`, {
-        method: "POST",
-      });
-      if (!res?.error) ok += 1;
-    } catch {
-      /* continue */
-    }
-  }
-  showToast(ok ? `Вложено предметов: ${ok}` : "Не удалось вложить", ok ? "success" : "error");
-  closeGuildBankDepositModal();
-  await populateGuildHall();
+  syncGuildBankDepositModalBodyScrollLock();
 }
 
 function closeGuildSkillModal() {
@@ -9593,10 +9843,12 @@ function openGuildSkillModal(skillId) {
   const cost =
     cur === 0 ? safeInt(sk.cost_sp, 1) : cur < 3 ? safeInt(sk.cost_per_upgrade, 1) : 0;
   const avail = safeInt(d?.skill_points_available, 0);
+  const tierUnlock = safeInt(d?.skill_tier_unlock, 1);
   const canUp =
     d?.is_leader &&
     cur < 3 &&
     safeInt(d?.guild_level, 1) >= safeInt(sk.guild_level_req, 1) &&
+    safeInt(sk.tier, 1) <= tierUnlock &&
     avail >= cost;
   if (body) {
     body.innerHTML = `
@@ -9654,65 +9906,126 @@ async function guildSkillReset() {
   }
 }
 
-function closeGuildMemberPreviewModal() {
-  const m = document.getElementById("guild-member-preview-modal");
-  if (m) {
-    m.style.display = "none";
-    m.setAttribute("aria-hidden", "true");
-  }
-  guildHallState.memberPreviewData = null;
+function formatGuildContrib(n) {
+  const v = safeInt(n, 0);
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+  return String(v);
 }
 
-function setGuildMemberPreviewView(view) {
-  guildHallState.memberPreviewView = view === "paperdoll" ? "paperdoll" : "portrait";
-  renderGuildMemberPreviewBody();
-  document.querySelectorAll(".guild-member-preview-view-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.view === guildHallState.memberPreviewView);
-  });
+function guildMemberPreviewHeroUrl(data) {
+  const mw = data?.main_waifu;
+  if (!mw) return "";
+  return mw.paperdoll_url || mw.portrait_url || "";
 }
 
 function renderGuildMemberPreviewBody() {
-  const body = document.getElementById("guild-member-preview-body");
   const data = guildHallState.memberPreviewData;
-  if (!body || !data) return;
+  if (!data) return;
+
   const mw = data.main_waifu;
-  const view = guildHallState.memberPreviewView;
-  const url =
-    view === "paperdoll" && mw?.paperdoll_url
-      ? mw.paperdoll_url
-      : mw?.portrait_url || null;
-  const portraitHtml = url
-    ? `<div class="guild-member-preview-portrait"><img src="${escapeHtml(url)}" alt="" /></div>`
-    : `<div class="guild-member-preview-portrait guild-member-preview-portrait--empty">Нет изображения</div>`;
-  const un = (data.telegram_username || "").trim();
-  const nameLine = un ? `@${escapeHtml(un)}` : escapeHtml(data.first_name || "Участник");
-  const waifuBlock = mw
-    ? `<p class="guild-member-preview-waifu-name"><strong>${escapeHtml(mw.name || "—")}</strong> · ур. ${mw.level ?? "—"}</p>
-       <p class="muted tiny">${escapeHtml(raceName(mw.race))} · ${escapeHtml(className(mw.class ?? mw.class_))}</p>`
-    : `<p class="muted tiny">Основная вайфу не создана.</p>`;
-  const toggles =
-    mw?.paperdoll_url && mw?.portrait_url
-      ? `<div class="guild-member-preview-view-toggle">
-          <button type="button" class="guild-member-preview-view-btn ${view === "portrait" ? "active" : ""}" data-view="portrait" onclick="WaifuApp.setGuildMemberPreviewView('portrait')">Портрет</button>
-          <button type="button" class="guild-member-preview-view-btn ${view === "paperdoll" ? "active" : ""}" data-view="paperdoll" onclick="WaifuApp.setGuildMemberPreviewView('paperdoll')">Paperdoll</button>
-        </div>`
-      : "";
-  body.innerHTML = `${toggles}${portraitHtml}<p>${nameLine}</p>${waifuBlock}`;
+  const charNameEl = document.getElementById("guild-member-preview-char-name");
+  const heroImg = document.getElementById("guild-member-preview-hero-img");
+  const statusDot = document.getElementById("guild-member-preview-status-dot");
+  const statusLabel = document.getElementById("guild-member-preview-status-label");
+  const rankEl = document.getElementById("guild-member-preview-rank");
+  const levelEl = document.getElementById("guild-member-preview-level");
+  const powerEl = document.getElementById("guild-member-preview-power");
+  const contribEl = document.getElementById("guild-member-preview-contrib");
+  const contribBar = document.getElementById("guild-member-preview-contrib-bar");
+  const heroesRow = document.getElementById("guild-member-preview-heroes-row");
+
+  const charName = (mw?.name || data.first_name || "Участник").trim();
+  if (charNameEl) charNameEl.textContent = charName.toUpperCase();
+
+  const heroUrl = guildMemberPreviewHeroUrl(data);
+  if (heroImg) {
+    if (heroUrl) {
+      heroImg.src = heroUrl;
+      heroImg.hidden = false;
+    } else {
+      heroImg.removeAttribute("src");
+      heroImg.hidden = true;
+    }
+  }
+
+  const online = Boolean(data.online);
+  if (statusDot) statusDot.classList.toggle("online", online);
+  if (statusLabel) statusLabel.textContent = online ? "В сети" : "Офлайн";
+  if (rankEl) rankEl.textContent = data.rank || "Участник";
+
+  const viewerId = Number(guildHallState.me?.viewer_player_id);
+  const mailBtn = document.getElementById("guild-member-preview-mail");
+  if (mailBtn) {
+    const isSelf =
+      Boolean(data.is_self) ||
+      (viewerId > 0 && viewerId === Number(data.player_id)) ||
+      Number(profileState.currentProfile?.player_id) === Number(data.player_id);
+    mailBtn.hidden = isSelf;
+    mailBtn.style.display = isSelf ? "none" : "";
+  }
+
+  if (levelEl) levelEl.textContent = mw?.level != null ? String(mw.level) : "—";
+  if (powerEl) {
+    const mp = data.member_power != null ? Number(data.member_power) : 0;
+    powerEl.innerHTML =
+      mp > 0
+        ? `${escapeHtml(formatGuildPower(mp))} <em>(GvG)</em>`
+        : `<span class="gold">—</span> <em>(GvG)</em>`;
+  }
+
+  const contrib = safeInt(data.contribution_week, 0);
+  const contribCap = safeInt(data.contribution_week_cap, 200_000);
+  const contribPct = contribCap > 0 ? Math.min(100, (contrib / contribCap) * 100) : 0;
+  if (contribEl) {
+    contribEl.innerHTML = `${escapeHtml(formatGuildContrib(contrib))} <em>/ ${escapeHtml(formatGuildContrib(contribCap))}</em>`;
+  }
+  if (contribBar) contribBar.style.width = `${contribPct}%`;
+
+  if (heroesRow) {
+    const hired = Array.isArray(data.hired_waifus) ? data.hired_waifus : [];
+    if (!hired.length) {
+      heroesRow.innerHTML = `<div class="guild-member-preview-heroes-empty">Нет наёмниц</div>`;
+    } else {
+      heroesRow.innerHTML = hired
+        .map((hw) => {
+          const portrait = hw.portrait_url ? String(hw.portrait_url) : "";
+          const imgInner = portrait
+            ? `<img src="${escapeHtml(portrait)}" alt="" />`
+            : "🧝";
+          return `<div class="guild-member-preview-hero-thumb">
+            <div class="guild-member-preview-hero-thumb-img">${imgInner}</div>
+            <div class="guild-member-preview-hero-level">Ур. ${Number(hw.level || 1)}</div>
+          </div>`;
+        })
+        .join("");
+    }
+  }
+}
+
+function closeGuildMemberPreviewModal() {
+  const m = document.getElementById("guild-member-preview-modal");
+  if (!m) return;
+  m.classList.remove("visible");
+  const onEnd = () => {
+    m.style.display = "none";
+    m.setAttribute("aria-hidden", "true");
+    guildHallState.memberPreviewData = null;
+  };
+  m.addEventListener("transitionend", onEnd, { once: true });
+  setTimeout(onEnd, 300);
 }
 
 async function openGuildMemberPreviewModal(playerId) {
   try {
     const data = await apiFetch(`/guilds/members/${encodeURIComponent(playerId)}/preview`);
     guildHallState.memberPreviewData = data;
-    guildHallState.memberPreviewView = "portrait";
-    const title = document.getElementById("guild-member-preview-title");
-    const un = (data.telegram_username || "").trim();
-    if (title) title.textContent = un ? `@${un}` : data.first_name || "Участник";
     renderGuildMemberPreviewBody();
     const m = document.getElementById("guild-member-preview-modal");
     if (m) {
       m.style.display = "flex";
       m.setAttribute("aria-hidden", "false");
+      requestAnimationFrame(() => m.classList.add("visible"));
     }
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -9720,22 +10033,243 @@ async function openGuildMemberPreviewModal(playerId) {
   }
 }
 
-function onGuildBannerClick() {
-  const d = guildHallState.me;
-  if (!d?.is_leader) {
-    showToast("Меняет только глава гильдии", "error");
+function openGuildMemberMailCompose() {
+  const data = guildHallState.memberPreviewData;
+  if (!data?.player_id) return;
+  const isSelf =
+    Boolean(data.is_self) ||
+    Number(guildHallState.me?.viewer_player_id) === Number(data.player_id) ||
+    Number(profileState.currentProfile?.player_id) === Number(data.player_id);
+  if (isSelf) {
+    showToast("Нельзя отправить письмо самому себе.", "error");
     return;
   }
+  openPlayerMailComposeModal(Number(data.player_id), data);
+}
+
+function mailRecipientLabel(data) {
+  const un = (data?.telegram_username || "").trim();
+  if (un) return `@${un}`;
+  return (data?.first_name || data?.main_waifu?.name || `Игрок ${data?.player_id || ""}`).trim();
+}
+
+async function openPlayerMailComposeModal(recipientId, previewData = null) {
+  const rid = Number(recipientId);
+  if (!Number.isFinite(rid) || rid <= 0) return;
+  guildHallState.mailCompose = { recipientId: rid, inventoryItemId: null, itemLabel: "" };
+  let label = previewData ? mailRecipientLabel(previewData) : `Игрок ${rid}`;
+  if (!previewData) {
+    try {
+      const p = await apiFetch(`/guilds/members/${encodeURIComponent(rid)}/preview`);
+      label = mailRecipientLabel(p);
+    } catch {
+      /* keep fallback */
+    }
+  }
+  const recEl = document.getElementById("player-mail-compose-recipient");
+  const bodyEl = document.getElementById("player-mail-compose-body");
+  const goldEl = document.getElementById("player-mail-compose-gold");
+  const pickEl = document.getElementById("player-mail-compose-item-pick");
+  const listEl = document.getElementById("player-mail-compose-item-list");
+  if (recEl) recEl.textContent = label;
+  if (bodyEl) bodyEl.value = "";
+  if (goldEl) goldEl.value = "0";
+  if (pickEl) pickEl.textContent = "Не выбран";
+  if (listEl) listEl.style.display = "none";
+  const m = document.getElementById("player-mail-compose-modal");
+  if (m) {
+    m.style.display = "flex";
+    m.setAttribute("aria-hidden", "false");
+  }
+}
+
+function closePlayerMailComposeModal() {
+  const m = document.getElementById("player-mail-compose-modal");
+  if (m) {
+    m.style.display = "none";
+    m.setAttribute("aria-hidden", "true");
+  }
+  guildHallState.mailCompose = { recipientId: null, inventoryItemId: null, itemLabel: "" };
+}
+
+async function openPlayerMailItemPicker() {
+  const listEl = document.getElementById("player-mail-compose-item-list");
+  if (!listEl) return;
+  try {
+    const eq = await apiFetch("/waifu/equipment");
+    const inv = (Array.isArray(eq?.inventory) ? eq.inventory : []).filter((i) => i?.id);
+    if (!inv.length) {
+      listEl.innerHTML = `<p class="muted tiny">Нет предметов (только неэкипированные).</p>`;
+    } else {
+      listEl.innerHTML = inv
+        .map((it) => {
+          const iid = Number(it.id);
+          const sel = guildHallState.mailCompose.inventoryItemId === iid ? " selected" : "";
+          return `<div class="player-mail-compose-item-row${sel}" data-id="${iid}" onclick="WaifuApp.selectPlayerMailItem(${iid})">
+            <span>${itemArtHtml(it)}</span>
+            <span>${escapeHtml(composeItemDisplayName(it))}</span>
+          </div>`;
+        })
+        .join("");
+    }
+    listEl.style.display = "";
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось загрузить инвентарь", "error");
+  }
+}
+
+function selectPlayerMailItem(id) {
+  const iid = Number(id);
+  guildHallState.mailCompose.inventoryItemId = iid;
+  const row = document.querySelector(`.player-mail-compose-item-row[data-id="${iid}"]`);
+  const label = row?.querySelector("span:last-child")?.textContent?.trim() || `Предмет #${iid}`;
+  guildHallState.mailCompose.itemLabel = label;
+  const pickEl = document.getElementById("player-mail-compose-item-pick");
+  if (pickEl) pickEl.textContent = label;
+  document.querySelectorAll(".player-mail-compose-item-row").forEach((el) => {
+    el.classList.toggle("selected", Number(el.dataset.id) === iid);
+  });
+  const listEl = document.getElementById("player-mail-compose-item-list");
+  if (listEl) listEl.style.display = "none";
+}
+
+async function sendPlayerMail() {
+  const rid = Number(guildHallState.mailCompose.recipientId);
+  if (!Number.isFinite(rid) || rid <= 0) return;
+  const bodyText = (document.getElementById("player-mail-compose-body")?.value || "").trim();
+  const goldAmount = Math.max(0, safeInt(document.getElementById("player-mail-compose-gold")?.value, 0));
+  const inventoryItemId = guildHallState.mailCompose.inventoryItemId;
+  const payload = { recipient_player_id: rid, body_text: bodyText || null, gold_amount: goldAmount };
+  if (inventoryItemId) payload.inventory_item_id = Number(inventoryItemId);
+  try {
+    await apiFetch("/mail/send", { method: "POST", body: JSON.stringify(payload) });
+    showToast("Письмо отправлено");
+    closePlayerMailComposeModal();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(mailApiErrorToUser(detail, "Не удалось отправить"), "error");
+  }
+}
+
+async function initMailPage() {
+  await refreshMailInbox();
+}
+
+async function refreshMailInbox() {
+  try {
+    const [inbox, unread] = await Promise.all([
+      apiFetch("/mail/inbox?limit=50"),
+      apiFetch("/mail/unread-count"),
+    ]);
+    guildHallState.mailState.inbox = Array.isArray(inbox?.items) ? inbox.items : [];
+    guildHallState.mailState.unreadCount = safeInt(unread?.count, 0);
+    renderMailInbox();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    const root = document.getElementById("mail-inbox-root");
+    if (root) root.innerHTML = `<p class="muted" style="color:#f87171">${escapeHtml(detail || "Не удалось загрузить почту")}</p>`;
+  }
+}
+
+function renderMailInbox() {
+  const root = document.getElementById("mail-inbox-root");
+  const unreadEl = document.getElementById("mail-unread-count");
+  const rewardsEl = document.getElementById("mail-rewards-count");
+  if (unreadEl) unreadEl.textContent = String(guildHallState.mailState.unreadCount);
+  if (rewardsEl) {
+    const pending = guildHallState.mailState.inbox.filter(
+      (m) => (m.gold_amount > 0 || m.inventory_item_id) && m.status !== "claimed"
+    ).length;
+    rewardsEl.textContent = String(pending);
+  }
+  if (!root) return;
+  const items = guildHallState.mailState.inbox;
+  if (!items.length) {
+    root.innerHTML = `<p class="muted">Входящих писем нет.</p>`;
+    return;
+  }
+  root.innerHTML = items
+    .map((m) => {
+      const unread = m.status === "unread";
+      const attach = [];
+      if (m.gold_amount > 0) attach.push(`🪙 ${Number(m.gold_amount).toLocaleString("ru-RU")}`);
+      if (m.inventory_item_id) attach.push("📦 предмет");
+      const preview = (m.body_text || attach.join(" · ") || "—").slice(0, 80);
+      return `<button type="button" class="mail-inbox-row${unread ? " unread" : ""}" onclick="WaifuApp.openMailDetail(${Number(m.id)})">
+        <span class="mail-inbox-dot"></span>
+        <span style="flex:1;min-width:0">
+          <strong>${escapeHtml(m.sender_label || "Игрок")}</strong>
+          <div class="muted tiny">${escapeHtml(preview)}</div>
+        </span>
+      </button>`;
+    })
+    .join("");
+}
+
+async function openMailDetail(mailId) {
+  const id = Number(mailId);
+  if (!Number.isFinite(id)) return;
+  try {
+    const mail = await apiFetch(`/mail/${encodeURIComponent(id)}`);
+    guildHallState.mailState.selectedId = id;
+    const panel = document.getElementById("mail-detail-root");
+    if (!panel) return;
+    const attach = [];
+    if (mail.gold_amount > 0) attach.push(`🪙 ${Number(mail.gold_amount).toLocaleString("ru-RU")} золота`);
+    if (mail.item_name) attach.push(`📦 ${mail.item_name}`);
+    const canClaim =
+      mail.status !== "claimed" && (mail.gold_amount > 0 || mail.inventory_item_id);
+    panel.innerHTML = `<div class="mail-detail-panel">
+      <p><strong>От:</strong> ${escapeHtml(mail.sender_label || "Игрок")}</p>
+      <p class="muted tiny">${escapeHtml(new Date(mail.created_at).toLocaleString("ru-RU"))}</p>
+      ${mail.body_text ? `<p>${escapeHtml(mail.body_text)}</p>` : ""}
+      ${attach.length ? `<p>${attach.map((a) => escapeHtml(a)).join("<br>")}</p>` : ""}
+      ${canClaim ? `<button type="button" class="btn primary" onclick="WaifuApp.claimMail(${id})">Забрать награду</button>` : ""}
+      <button type="button" class="btn secondary" style="margin-top:8px" onclick="WaifuApp.deleteMail(${id})">Удалить</button>
+    </div>`;
+    panel.style.display = "";
+    await refreshMailInbox();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось открыть письмо", "error");
+  }
+}
+
+async function claimMail(mailId) {
+  try {
+    await apiFetch(`/mail/${encodeURIComponent(mailId)}/claim`, { method: "POST" });
+    showToast("Награда получена");
+    await openMailDetail(mailId);
+    await refreshMailInbox();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось забрать награду", "error");
+  }
+}
+
+async function deleteMail(mailId) {
+  try {
+    await apiFetch(`/mail/${encodeURIComponent(mailId)}`, { method: "DELETE" });
+    showToast("Письмо удалено");
+    const panel = document.getElementById("mail-detail-root");
+    if (panel) {
+      panel.innerHTML = "";
+      panel.style.display = "none";
+    }
+    await refreshMailInbox();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось удалить", "error");
+  }
+}
+
+function onGuildBannerClick() {
   const inp = document.getElementById("guild-banner-file-input");
   if (inp) inp.click();
 }
 
 function onGuildEmblemClick() {
-  const d = guildHallState.me;
-  if (!d?.is_leader) {
-    showToast("Меняет только глава гильдии", "error");
-    return;
-  }
   const inp = document.getElementById("guild-icon-file-input");
   if (inp) inp.click();
   else {
@@ -9979,82 +10513,353 @@ async function respondGuildWar(warId, accept) {
 }
 
 function renderGuildSkillsGrid(d) {
-  const defs = Array.isArray(d?.definitions) ? d.definitions : [];
-  const byTier = {};
-  defs.forEach((sk) => {
-    const t = safeInt(sk.tier, 1);
-    if (!byTier[t]) byTier[t] = [];
-    byTier[t].push(sk);
-  });
-  const tiers = Object.keys(byTier)
-    .map(Number)
-    .sort((a, b) => a - b);
-  const avail = safeInt(d?.skill_points_available, 0);
-  let html = `<p class="muted tiny">ОПГ: ${safeInt(d?.skill_points_spent, 0)} / ${safeInt(d?.skill_points_total, 0)} (доступно ${avail})</p>`;
-  if (d?.is_leader) {
-    html += `<button type="button" class="btn secondary" style="margin:8px 0" onclick="WaifuApp.guildSkillReset()">Сбросить навыки</button>`;
-  }
-  tiers.forEach((tier) => {
-    html += `<div class="guild-skill-tier"><h4 class="guild-skill-tier-title">Тир ${tier}</h4><div class="guild-skills-grid">`;
-    byTier[tier].forEach((sk) => {
-      const cur = safeInt(sk.current_level, 0);
-      const cost = cur === 0 ? safeInt(sk.cost_sp, 1) : safeInt(sk.cost_per_upgrade, 1);
-      const canUp =
-        d?.is_leader &&
-        cur < 3 &&
-        safeInt(d?.guild_level, 1) >= safeInt(sk.guild_level_req, 1) &&
-        avail >= cost;
-      const upBtn = canUp
-        ? `<button type="button" class="btn tiny primary" onclick="event.stopPropagation();WaifuApp.guildSkillUpgrade(${Number(sk.id)})">+1 ОПГ</button>`
-        : "";
-      html += `<button type="button" class="guild-skill-cell section" onclick="WaifuApp.openGuildSkillModal(${Number(sk.id)})">
-        <div class="guild-skill-cell-meta"><strong>${escapeHtml(sk.name || "")}</strong>
-        <span class="muted tiny">ур. ${cur}/3 · треб. гильдия ${sk.guild_level_req}</span></div>
-        <div class="guild-skill-cell-actions">${upBtn}</div>
-      </button>`;
-    });
-    html += `</div></div>`;
-  });
-  return html;
+  return renderGuildSkillsPanel(d);
 }
 
-function renderGuildBankTab(d) {
+const GUILD_SKILL_BRANCH_COMBAT = new Set([
+  "gd_party_damage_pct",
+  "raid_attack_flat",
+  "raid_boss_damage_pct",
+  "raid_completion_reward_pct",
+  "damage_per_online_member_pct",
+  "raid_gxp_multiplier",
+]);
+const GUILD_SKILL_BRANCH_DEFENSE = new Set(["max_hp_pct", "raid_monster_damage_reduction_pct"]);
+const GUILD_SKILL_EFFECT_LABELS = {
+  gd_party_damage_pct: "Урон отряда в GD",
+  raid_attack_flat: "Атака в рейдах",
+  raid_boss_damage_pct: "Урон боссам в рейде",
+  raid_completion_reward_pct: "Награда за рейд",
+  damage_per_online_member_pct: "Урон за каждого онлайн участника",
+  raid_gxp_multiplier: "Множитель GXP рейда",
+  max_hp_pct: "Макс. HP",
+  raid_monster_damage_reduction_pct: "Снижение урона монстров в рейде",
+  monster_gold_pct: "Золото с монстров",
+  dungeon_exp_pct: "Опыт в подземельях",
+  bank_slots_bonus: "Слоты банка",
+  item_drop_pct: "Шанс выпадения предметов",
+  tavern_heal_discount_pct: "Скидка на лечение в таверне",
+  tavern_hire_discount_pct: "Скидка на найм",
+  global_reward_pct: "Глобальный бонус наград",
+};
+const GUILD_SKILL_BRANCH_ICONS = {
+  combat: ["⚔️", "🗡️", "💥", "🔥", "⚡", "🎯"],
+  defense: ["🛡️", "🗿", "💪", "🧱"],
+  utility: ["🪙", "💰", "📦", "✨", "🏦", "🍺"],
+};
+
+function guildSkillBranch(sk) {
+  const p = String(sk?.effect_param || "");
+  if (GUILD_SKILL_BRANCH_COMBAT.has(p)) return "combat";
+  if (GUILD_SKILL_BRANCH_DEFENSE.has(p)) return "defense";
+  return "utility";
+}
+
+function formatGuildSkillEffectValue(param, val) {
+  if (val == null) return "—";
+  const n = Number(val);
+  if (!Number.isFinite(n)) return String(val);
+  const key = String(param || "");
+  if (key.endsWith("_multiplier")) {
+    return `×${n % 1 === 0 ? n : n.toFixed(1)}`;
+  }
+  if (key.endsWith("_flat") || key === "bank_slots_bonus") {
+    return `+${n % 1 === 0 ? n : n}`;
+  }
+  const pct = Math.abs(n) <= 1 ? n * 100 : n;
+  const shown = pct % 1 === 0 ? pct : Math.round(pct * 10) / 10;
+  return `+${shown}%`;
+}
+
+function formatGuildSkillEffectDesc(sk) {
+  const param = String(sk?.effect_param || "");
+  const label = GUILD_SKILL_EFFECT_LABELS[param] || sk.name || "Эффект";
+  const cur = safeInt(sk.current_level, 0);
+  const eff = Array.isArray(sk.effect_per_level) ? sk.effect_per_level : [];
+  if (cur >= 3 && eff[2] != null) {
+    return `${label} <span class="guild-skill-desc-gold">${formatGuildSkillEffectValue(param, eff[2])}</span>`;
+  }
+  const fmtCur =
+    cur > 0 && eff[cur - 1] != null
+      ? `<span class="guild-skill-desc-current">${formatGuildSkillEffectValue(param, eff[cur - 1])}</span>`
+      : "";
+  const fmtNext =
+    cur < 3 && eff[cur] != null
+      ? `<span class="guild-skill-desc-arrow"> ➔ </span><span class="guild-skill-desc-next">${formatGuildSkillEffectValue(param, eff[cur])}</span>`
+      : "";
+  if (cur > 0 && fmtNext) return `${label} ${fmtCur}${fmtNext}`;
+  if (cur > 0) return `${label} ${fmtCur}`;
+  if (eff[0] != null) {
+    return `${label} <span class="guild-skill-desc-current">${formatGuildSkillEffectValue(param, eff[0])}</span>`;
+  }
+  return label;
+}
+
+function guildSkillIcon(sk, branch, locked) {
+  if (locked) return "🔒";
+  const icons = GUILD_SKILL_BRANCH_ICONS[branch] || ["✨"];
+  const idx = (safeInt(sk.sort_order, safeInt(sk.id, 0)) - 1) % icons.length;
+  return icons[idx] || icons[0];
+}
+
+function renderGuildSkillCard(sk, d) {
+  const cur = safeInt(sk.current_level, 0);
+  const guildLevel = safeInt(d?.guild_level, 1);
+  const tierUnlock = safeInt(d?.skill_tier_unlock, 1);
+  const glReq = safeInt(sk.guild_level_req, 1);
+  const tier = safeInt(sk.tier, 1);
+  const locked = guildLevel < glReq || tier > tierUnlock;
+  const maxed = cur >= 3;
+  const branch = guildSkillBranch(sk);
+  const avail = safeInt(d?.skill_points_available, 0);
+  const cost = cur === 0 ? safeInt(sk.cost_sp, 1) : safeInt(sk.cost_per_upgrade, 1);
+  const canUp = d?.is_leader && !locked && !maxed && avail >= cost;
+  const avatarClass = locked
+    ? "guild-skill-card-avatar guild-skill-card-avatar--locked"
+    : `guild-skill-card-avatar guild-skill-card-avatar--${branch}`;
+  const icon = guildSkillIcon(sk, branch, locked);
+  const pips = [0, 1, 2]
+    .map((i) => {
+      const filled = i < cur;
+      const cls = maxed && filled
+        ? "guild-skill-card-pip guild-skill-card-pip--gold"
+        : filled
+          ? "guild-skill-card-pip guild-skill-card-pip--filled"
+          : "guild-skill-card-pip";
+      return `<div class="${cls}"></div>`;
+    })
+    .join("");
+  let lockReq = "";
+  if (locked) {
+    if (guildLevel < glReq) {
+      lockReq = `<div class="guild-skill-card-req">Требуется ${glReq} уровень гильдии</div>`;
+    } else if (tier > tierUnlock) {
+      lockReq = `<div class="guild-skill-card-req">Требуется тир навыков ${tier}</div>`;
+    }
+  }
+  let action = "";
+  if (maxed) {
+    action = `<span class="guild-skill-badge-max">Изучено</span>`;
+  } else if (locked) {
+    action = `<button type="button" class="guild-skill-card-upgrade" disabled aria-label="Заблокировано">🔒</button>`;
+  } else if (canUp) {
+    action = `<button type="button" class="guild-skill-card-upgrade guild-skill-card-upgrade--primary" onclick="event.stopPropagation();WaifuApp.guildSkillUpgrade(${Number(sk.id)})"><span class="guild-skill-card-upgrade-plus">+</span><span class="guild-skill-card-upgrade-cost">${cost} ОПГ</span></button>`;
+  } else {
+    action = `<button type="button" class="guild-skill-card-upgrade" disabled onclick="event.stopPropagation()"><span class="guild-skill-card-upgrade-plus">+</span><span class="guild-skill-card-upgrade-cost">${cost} ОПГ</span></button>`;
+  }
+  const cardClass = `guild-skill-card${maxed ? " maxed" : ""}${locked ? " locked" : ""}`;
+  const lvlLabel = maxed
+    ? `<span class="guild-skill-card-level guild-skill-card-level--gold">МАКС. ур.</span>`
+    : `<span class="guild-skill-card-level">ур. ${cur}/3</span>`;
+  return `<div class="${cardClass}" role="button" tabindex="0" onclick="WaifuApp.openGuildSkillModal(${Number(sk.id)})">
+    <div class="guild-skill-card-main">
+      <div class="${avatarClass}">${icon}</div>
+      <div class="guild-skill-card-body">
+        <div class="guild-skill-card-title-row">
+          <strong class="guild-skill-card-name">${escapeHtml(sk.name || "")}</strong>
+          ${lvlLabel}
+        </div>
+        <p class="guild-skill-card-desc">${formatGuildSkillEffectDesc(sk)}</p>
+        ${lockReq}
+        <div class="guild-skill-card-pips">${pips}</div>
+      </div>
+    </div>
+    <div class="guild-skill-card-action">${action}</div>
+  </div>`;
+}
+
+function renderGuildSkillsPanel(d) {
+  const avail = safeInt(d?.skill_points_available, 0);
+  const spent = safeInt(d?.skill_points_spent, 0);
+  const total = safeInt(d?.skill_points_total, 0);
+  const activeBranch = guildHallState.skillsBranch || "combat";
+  const branches = [
+    { id: "combat", icon: "⚔️", label: "Боевые" },
+    { id: "defense", icon: "🛡️", label: "Защитные" },
+    { id: "utility", icon: "💰", label: "Мирные" },
+  ];
+  const resetBtn = d?.is_leader
+    ? `<button type="button" class="guild-skills-panel-reset" onclick="WaifuApp.guildSkillReset()">🔄 Сбросить</button>`
+    : "";
+  const tabs = branches
+    .map(
+      (b) =>
+        `<button type="button" role="tab" aria-selected="${activeBranch === b.id ? "true" : "false"}" class="guild-skills-panel-tab${activeBranch === b.id ? " active" : ""}" onclick="WaifuApp.switchGuildSkillsBranch('${b.id}')"><span>${b.icon}</span> ${b.label}</button>`
+    )
+    .join("");
+  const defs = Array.isArray(d?.definitions) ? d.definitions : [];
+  const branchSkills = defs
+    .filter((sk) => guildSkillBranch(sk) === activeBranch)
+    .sort(
+      (a, b) =>
+        safeInt(a.sort_order, safeInt(a.id, 0)) - safeInt(b.sort_order, safeInt(b.id, 0))
+    );
+  const cards = branchSkills.map((sk) => renderGuildSkillCard(sk, d)).join("");
+  return `
+    <div class="guild-skills-panel">
+      <div class="guild-skills-panel-header">
+        <div>
+          <div class="guild-skills-panel-title">Навыки гильдии</div>
+          <p class="guild-skills-panel-sp">Доступно: <strong>${avail} ОПГ</strong> <em>(распределено: ${spent}/${total})</em></p>
+        </div>
+        ${resetBtn}
+      </div>
+      <div class="guild-skills-panel-tabs" role="tablist">${tabs}</div>
+      <div class="guild-skills-panel-list" role="tabpanel">${cards || `<p class="muted tiny">Нет навыков в этой ветке.</p>`}</div>
+    </div>`;
+}
+
+function switchGuildSkillsBranch(branchId) {
+  guildHallState.skillsBranch = branchId || "combat";
+  void renderGuildTabContent();
+}
+
+function formatGuildBankGold(n) {
+  return safeInt(n, 0).toLocaleString("ru-RU");
+}
+
+function compareGuildBankItems(a, b) {
+  const sortKey = guildHallState.bankSort || "level";
+  const dir = guildHallState.bankSortDir === "asc" ? 1 : -1;
+  const rarityA = safeNumber(a?.rarity, 1);
+  const rarityB = safeNumber(b?.rarity, 1);
+  const levelA = safeNumber(a?.level, 0);
+  const levelB = safeNumber(b?.level, 0);
+  let result = 0;
+  if (sortKey === "level") result = levelA - levelB || rarityA - rarityB;
+  if (sortKey === "rarity") result = rarityA - rarityB || levelA - levelB;
+  if (sortKey === "type") {
+    const typeA = slotTypeLabel(a?.slot_type).toLowerCase();
+    const typeB = slotTypeLabel(b?.slot_type).toLowerCase();
+    result = typeA.localeCompare(typeB, "ru") || levelA - levelB || rarityA - rarityB;
+  }
+  if (result === 0) {
+    const nameA = String(a?.display_name || a?.name || "").toLowerCase();
+    const nameB = String(b?.display_name || b?.name || "").toLowerCase();
+    result = nameA.localeCompare(nameB, "ru");
+  }
+  return result * dir;
+}
+
+function getGuildBankFilteredSortedItems() {
+  const items = Array.isArray(guildHallState.bankItems) ? guildHallState.bankItems : [];
+  return items
+    .filter((item) => guildHallState.bankFilters[getProfileItemCategory(item)])
+    .sort(compareGuildBankItems);
+}
+
+function toggleGuildBankFilter(category) {
+  if (!Object.prototype.hasOwnProperty.call(guildHallState.bankFilters, category)) return;
+  guildHallState.bankFilters[category] = !guildHallState.bankFilters[category];
+  guildHallState.bankPage = 1;
+  void renderGuildTabContent();
+}
+
+function setGuildBankSort(value) {
+  guildHallState.bankSort = ["level", "rarity", "type"].includes(value) ? value : "level";
+  guildHallState.bankPage = 1;
+  void renderGuildTabContent();
+}
+
+function toggleGuildBankSortDir() {
+  guildHallState.bankSortDir = guildHallState.bankSortDir === "asc" ? "desc" : "asc";
+  void renderGuildTabContent();
+}
+
+function renderGuildBankItemCell(it) {
+  const rCls = rarityClassFromValue(it?.rarity);
+  return `<button type="button" class="guild-bank-item-cell ${rCls}" onclick="WaifuApp.openGuildBankItemModal(${Number(it.bank_item_id)})" aria-label="${escapeHtml(composeItemDisplayName(it))}">
+    <span class="guild-bank-item-cell-art">${itemArtHtml(it)}</span>
+  </button>`;
+}
+
+function renderGuildBankPanel(d) {
   const maxItems = safeInt(d?.max_bank_items, 100);
   const count = safeInt(d?.bank_items_count, 0);
   const page = Math.max(1, guildHallState.bankPage);
   const pageSize = guildHallState.bankPageSize;
-  const items = guildHallState.bankItems;
-  const start = (page - 1) * pageSize;
+  const allItems = Array.isArray(guildHallState.bankItems) ? guildHallState.bankItems : [];
+  const items = getGuildBankFilteredSortedItems();
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize) || 1);
+  const safePage = Math.min(page, totalPages);
+  if (safePage !== page) guildHallState.bankPage = safePage;
+  const start = (safePage - 1) * pageSize;
   const slice = items.slice(start, start + pageSize);
-  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
-  let grid = "";
-  if (!slice.length) {
-    grid = `<p class="muted tiny">Банк пуст.</p>`;
-  } else {
-    grid = `<div class="guild-bank-grid">${slice
-      .map(
-        (it) => `<button type="button" class="guild-bank-cell" onclick="WaifuApp.openGuildBankItemModal(${Number(it.bank_item_id)})">
-          <span class="guild-bank-cell-art">${itemArtHtml(it)}</span>
-          <span class="guild-bank-cell-meta">${composeItemDisplayName(it)}</span>
-        </button>`
-      )
-      .join("")}</div>`;
+  const sortDirIcon = guildHallState.bankSortDir === "asc" ? "▲" : "▼";
+  const sortOptions = [
+    { value: "level", label: "Ур." },
+    { value: "rarity", label: "Ред." },
+    { value: "type", label: "Тип" },
+  ];
+  const sortSelectHtml = sortOptions
+    .map(
+      (opt) =>
+        `<option value="${opt.value}"${guildHallState.bankSort === opt.value ? " selected" : ""}>${opt.label}</option>`
+    )
+    .join("");
+
+  const cells = [];
+  for (let i = 0; i < pageSize; i += 1) {
+    if (i < slice.length) {
+      cells.push(renderGuildBankItemCell(slice[i]));
+    } else {
+      cells.push(`<div class="guild-bank-item-cell guild-bank-item-cell--empty" aria-hidden="true"></div>`);
+    }
   }
+
+  const emptyNote = !allItems.length
+    ? `<p class="guild-bank-items-empty-note muted tiny">Банк пуст.</p>`
+    : !items.length
+      ? `<p class="guild-bank-items-empty-note muted tiny">Нет предметов по выбранным фильтрам.</p>`
+      : "";
+
   const pager =
     totalPages > 1
-      ? `<div style="display:flex;gap:8px;align-items:center;margin-top:8px">
-          <button type="button" class="btn secondary" ${page <= 1 ? "disabled" : ""} onclick="WaifuApp.guildBankPrevPage()">‹</button>
-          <span class="muted tiny">${page} / ${totalPages}</span>
-          <button type="button" class="btn secondary" ${page >= totalPages ? "disabled" : ""} onclick="WaifuApp.guildBankNextPage()">›</button>
+      ? `<div class="guild-bank-pagination">
+          <button type="button" class="guild-bank-pag-btn" ${safePage <= 1 ? "disabled" : ""} onclick="WaifuApp.guildBankPrevPage()">← Назад</button>
+          <span class="guild-bank-pag-info">Стр. ${safePage}</span>
+          <button type="button" class="guild-bank-pag-btn" ${safePage >= totalPages ? "disabled" : ""} onclick="WaifuApp.guildBankNextPage()">Вперёд →</button>
         </div>`
       : "";
+
   return `
-    <div class="guild-bank-toolbar">
-      <button type="button" class="guild-bank-gold-hit" onclick="WaifuApp.openGuildBankGoldModal()">🪙 ${safeInt(d?.bank_gold, 0)} · предметы ${count}/${maxItems}</button>
-      <button type="button" class="btn secondary" onclick="WaifuApp.openGuildBankDepositModal()">Положить</button>
-    </div>
-    ${grid}
-    ${pager}`;
+    <div class="guild-bank-panel">
+      <div class="guild-bank-top-row">
+        <div class="guild-bank-gold-panel">
+          <div class="guild-bank-gold-box">
+            <span class="guild-bank-gold-value">${formatGuildBankGold(d?.bank_gold)}</span>
+          </div>
+          <div class="guild-bank-gold-actions">
+            <button type="button" class="guild-bank-gold-btn guild-bank-gold-btn--deposit" aria-label="Внести золото" onclick="WaifuApp.openGuildBankGoldModal('deposit')">+</button>
+            <button type="button" class="guild-bank-gold-btn guild-bank-gold-btn--withdraw" aria-label="Снять золото" onclick="WaifuApp.openGuildBankGoldModal('withdraw')">−</button>
+          </div>
+        </div>
+        <div class="guild-bank-storage-panel">
+          <div class="guild-bank-storage-main">
+            <span class="guild-bank-storage-count">${count} / ${maxItems}</span>
+          </div>
+          <button type="button" class="guild-bank-add-item-btn" aria-label="Положить предмет" onclick="WaifuApp.openGuildBankDepositModal()">🤲</button>
+        </div>
+      </div>
+      <div class="guild-bank-items-panel">
+        <div class="guild-bank-controls">
+          <button type="button" class="guild-bank-filter-btn${guildHallState.bankFilters.weapon ? " active" : ""}" onclick="WaifuApp.toggleGuildBankFilter('weapon')">⚔ Оружие</button>
+          <button type="button" class="guild-bank-filter-btn${guildHallState.bankFilters.armor ? " active" : ""}" onclick="WaifuApp.toggleGuildBankFilter('armor')">🛡 Броня</button>
+          <button type="button" class="guild-bank-filter-btn${guildHallState.bankFilters.accessory ? " active" : ""}" onclick="WaifuApp.toggleGuildBankFilter('accessory')">💍 Акс.</button>
+          <div class="guild-bank-sort-wrap">
+            <select class="guild-bank-sort-select" onchange="WaifuApp.setGuildBankSort(this.value)">${sortSelectHtml}</select>
+            <button type="button" class="guild-bank-sort-dir" onclick="WaifuApp.toggleGuildBankSortDir()">${sortDirIcon}</button>
+          </div>
+        </div>
+        ${emptyNote}
+        <div class="guild-bank-items-grid">${cells.join("")}</div>
+        ${pager}
+      </div>
+    </div>`;
+}
+
+function renderGuildBankTab(d) {
+  return renderGuildBankPanel(d);
 }
 
 function guildBankPrevPage() {
@@ -10063,7 +10868,9 @@ function guildBankPrevPage() {
 }
 
 function guildBankNextPage() {
-  guildHallState.bankPage += 1;
+  const pageSize = guildHallState.bankPageSize;
+  const totalPages = Math.max(1, Math.ceil(getGuildBankFilteredSortedItems().length / pageSize));
+  guildHallState.bankPage = Math.min(guildHallState.bankPage + 1, totalPages);
   void renderGuildTabContent();
 }
 
@@ -10192,17 +10999,12 @@ async function renderGuildTabContent() {
   if (tab === "main") {
     root.innerHTML = `
       ${renderGuildStatsGrid(d)}
-      ${renderGuildActivityFeed(d)}
-      ${
-        !d.is_leader
-          ? `<button type="button" class="btn secondary" style="margin-top:12px" onclick="WaifuApp.leaveGuildFromHall()">Покинуть гильдию</button>`
-          : ""
-      }`;
+      ${renderGuildActivityFeed(d)}`;
     return;
   }
 
   if (tab === "skills") {
-    root.innerHTML = `<h3>Навыки гильдии</h3>${renderGuildSkillsGrid(d)}`;
+    root.innerHTML = renderGuildSkillsPanel(d);
     return;
   }
 
@@ -10214,7 +11016,7 @@ async function renderGuildTabContent() {
       root.innerHTML = `<p class="muted" style="color:#f87171">${escapeHtml(detail || "Ошибка банка")}</p>`;
       return;
     }
-    root.innerHTML = `<h3>Банк гильдии</h3>${renderGuildBankTab(d)}`;
+    root.innerHTML = renderGuildBankPanel(d);
     return;
   }
 
@@ -10298,7 +11100,8 @@ async function populateGuildHall(profile) {
   guildHallState.profileGold = safeInt(p?.gold, 0);
   const root = document.getElementById("guild-tab-content");
   if (!root) return;
-  root.innerHTML = `<p class="muted tiny">Загрузка…</p>`;
+  const firstLoad = !guildHallState.me;
+  if (firstLoad) setGuildPageLoading(true);
   try {
     const data = await apiFetch("/guilds/me");
     guildHallState.me = data;
@@ -10327,7 +11130,18 @@ async function populateGuildHall(profile) {
     if (!window.__guildHallModalBound) {
       window.__guildHallModalBound = true;
       document.getElementById("guild-skill-modal-close")?.addEventListener("click", closeGuildSkillModal);
-      document.getElementById("guild-member-preview-close")?.addEventListener("click", closeGuildMemberPreviewModal);
+      document.getElementById("guild-member-preview-mail")?.addEventListener("click", openGuildMemberMailCompose);
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          const compose = document.getElementById("player-mail-compose-modal");
+          if (compose && compose.style.display !== "none") {
+            closePlayerMailComposeModal();
+            return;
+          }
+          const m = document.getElementById("guild-member-preview-modal");
+          if (m && m.style.display !== "none") closeGuildMemberPreviewModal();
+        }
+      });
     }
   } catch (e) {
     console.error(e);
@@ -10338,6 +11152,8 @@ async function populateGuildHall(profile) {
     const { detail } = parseHttpErrorDetail(e);
     root.innerHTML = `<p class="muted" style="color:#f87171">${escapeHtml(detail || "Не удалось загрузить гильдию")}</p>`;
     updateGuildHallChrome(false);
+  } finally {
+    if (firstLoad) setGuildPageLoading(false);
   }
 }
 
@@ -11394,6 +12210,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   goToSquadTab,
   openTavernWaifuModal,
   closeTavernWaifuModal,
+  openTavernDismissConfirm,
+  closeTavernDismissConfirm,
+  confirmTavernDismiss,
   dismissTavernWaifu,
   closeTavernSlotModal,
   openAddToSquadPicker,
@@ -11484,6 +12303,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   loadSkills,
   searchGuilds,
   populateGuildHall,
+  setGuildPageLoading,
   switchGuildTab,
   switchGuildActivityTab,
   createGuildFromHall,
@@ -11492,29 +12312,50 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   runGuildSearch,
   openGuildBankGoldModal,
   closeGuildBankGoldModal,
+  confirmGuildBankGold,
   confirmGuildBankGoldDeposit,
   confirmGuildBankGoldTake,
   openGuildBankDepositModal,
   closeGuildBankDepositModal,
-  toggleGuildBankDepositSelect,
-  confirmGuildBankDeposit,
+  guildBankDepositPrevPage,
+  guildBankDepositNextPage,
+  openGuildBankDepositItemPreview,
+  closeGuildBankDepositItemPreview,
+  confirmGuildBankDepositItem,
   openGuildBankItemModal,
   closeGuildBankItemModal,
   confirmGuildBankTake,
+  toggleGuildBankFilter,
+  setGuildBankSort,
+  toggleGuildBankSortDir,
   guildBankPrevPage,
   guildBankNextPage,
   openGuildSkillModal,
   closeGuildSkillModal,
   guildSkillUpgrade,
   guildSkillReset,
+  switchGuildSkillsBranch,
   openGuildMemberPreviewModal,
   closeGuildMemberPreviewModal,
-  setGuildMemberPreviewView,
+  openGuildMemberMailCompose,
+  openPlayerMailComposeModal,
+  closePlayerMailComposeModal,
+  openPlayerMailItemPicker,
+  selectPlayerMailItem,
+  sendPlayerMail,
+  initMailPage,
+  refreshMailInbox,
+  openMailDetail,
+  claimMail,
+  deleteMail,
   onGuildBannerClick,
   onGuildEmblemClick,
   uploadGuildIcon,
   uploadGuildBanner,
-  toggleGuildMembersPanel,
+  openGuildMembersModal,
+  closeGuildMembersModal,
+  toggleGuildHeroMenu,
+  closeGuildHeroMenu,
   toggleGuildRaidParticipant,
   startGuildRaid,
   leaveGuildRaid,

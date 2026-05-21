@@ -24,6 +24,10 @@ def _member_power(w: m.MainWaifu | None) -> int:
     )
 
 
+def member_power(w: m.MainWaifu | None) -> int:
+    return _member_power(w)
+
+
 async def compute_guild_power(session: AsyncSession, guild_id: int) -> int:
     stmt = (
         select(m.MainWaifu)
@@ -107,6 +111,32 @@ async def log_guild_activity(
     session.add(row)
 
 
+async def log_for_guild_member(
+    session: AsyncSession,
+    player_id: int,
+    event_type: str,
+    text: str,
+    *,
+    actor_avatar: str | None = None,
+) -> None:
+    """Log activity if player belongs to a guild."""
+    mem = (
+        await session.execute(
+            select(m.GuildMember).where(m.GuildMember.player_id == int(player_id))
+        )
+    ).scalar_one_or_none()
+    if not mem:
+        return
+    await log_guild_activity(
+        session,
+        int(mem.guild_id),
+        event_type,
+        text,
+        actor_player_id=int(player_id),
+        actor_avatar=actor_avatar,
+    )
+
+
 async def log_member_join(
     session: AsyncSession, guild_id: int, player_id: int
 ) -> None:
@@ -124,13 +154,56 @@ async def log_member_join(
 async def log_bank_deposit(
     session: AsyncSession, guild_id: int, player_id: int, amount: int
 ) -> None:
+    name = await _player_display(session, player_id)
     await log_guild_activity(
         session,
         guild_id,
         "bank_deposit",
-        f"В казну добавлено +{int(amount)} золота",
+        f"{name} положил в казну +{int(amount)} золота",
         actor_player_id=player_id,
         actor_avatar="🧙",
+    )
+
+
+async def log_bank_withdraw_gold(
+    session: AsyncSession, guild_id: int, player_id: int, amount: int
+) -> None:
+    name = await _player_display(session, player_id)
+    await log_guild_activity(
+        session,
+        guild_id,
+        "bank_withdraw_gold",
+        f"{name} снял из казны {int(amount)} золота",
+        actor_player_id=player_id,
+        actor_avatar="💰",
+    )
+
+
+async def log_bank_deposit_item(
+    session: AsyncSession, guild_id: int, player_id: int, item_name: str
+) -> None:
+    name = await _player_display(session, player_id)
+    await log_guild_activity(
+        session,
+        guild_id,
+        "bank_deposit_item",
+        f"{name} положил в банк «{item_name}»",
+        actor_player_id=player_id,
+        actor_avatar="📦",
+    )
+
+
+async def log_bank_withdraw_item(
+    session: AsyncSession, guild_id: int, player_id: int, item_name: str
+) -> None:
+    name = await _player_display(session, player_id)
+    await log_guild_activity(
+        session,
+        guild_id,
+        "bank_withdraw_item",
+        f"{name} взял из банка «{item_name}»",
+        actor_player_id=player_id,
+        actor_avatar="🎁",
     )
 
 
@@ -145,4 +218,68 @@ async def log_skill_upgrade(
         f"{name} улучшил навык «{skill_name}»",
         actor_player_id=player_id,
         actor_avatar="🧝",
+    )
+
+
+async def log_waifu_level_up(
+    session: AsyncSession, player_id: int, new_level: int
+) -> None:
+    name = await _player_display(session, player_id)
+    await log_for_guild_member(
+        session,
+        player_id,
+        "waifu_level_up",
+        f"{name} достиг {int(new_level)} уровня вайфу",
+        actor_avatar="⭐",
+    )
+
+
+async def log_hidden_skill_unlock(
+    session: AsyncSession, player_id: int, skill_name: str
+) -> None:
+    name = await _player_display(session, player_id)
+    await log_for_guild_member(
+        session,
+        player_id,
+        "hidden_skill_unlock",
+        f"{name} открыл достижение «{skill_name}»",
+        actor_avatar="🏆",
+    )
+
+
+async def log_legendary_item(
+    session: AsyncSession, player_id: int, item_name: str
+) -> None:
+    name = await _player_display(session, player_id)
+    await log_for_guild_member(
+        session,
+        player_id,
+        "legendary_item",
+        f"{name} получил легендарный предмет «{item_name}»",
+        actor_avatar="✨",
+    )
+
+
+async def log_first_dungeon_clear(
+    session: AsyncSession, player_id: int, dungeon_name: str
+) -> None:
+    name = await _player_display(session, player_id)
+    await log_for_guild_member(
+        session,
+        player_id,
+        "first_dungeon_clear",
+        f"{name} впервые прошёл «{dungeon_name}»",
+        actor_avatar="🏰",
+    )
+
+
+async def log_guild_level_up(
+    session: AsyncSession, guild_id: int, new_level: int
+) -> None:
+    await log_guild_activity(
+        session,
+        guild_id,
+        "guild_level_up",
+        f"Гильдия достигла {int(new_level)} уровня",
+        actor_avatar="🏛️",
     )

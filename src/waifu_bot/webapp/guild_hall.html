@@ -8,7 +8,7 @@
     <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="./app.js"></script>
   </head>
-  <body class="page-guild" onload="WaifuApp.bootstrapPage('guild', WaifuApp.populateGuildHall);">
+  <body class="page-guild guild-loading" onload="WaifuApp.bootstrapPage('guild', WaifuApp.populateGuildHall);">
     <header class="attic">
       <div class="attic-row" aria-label="Основной чердак">
         <div class="chip attic-level-chip" title="Уровень и опыт">
@@ -55,13 +55,18 @@
           <rect x="0" y="170" width="390" height="50" fill="rgba(13,10,8,0.88)" />
         </svg>
       </div>
+      <button type="button" id="guild-hero-menu-btn" class="guild-hero-menu-btn" aria-label="Меню гильдии" aria-haspopup="true" aria-expanded="false" onclick="WaifuApp.toggleGuildHeroMenu(event)">⋯</button>
+      <div id="guild-hero-menu" class="guild-hero-menu" hidden>
+        <button type="button" class="guild-hero-menu-item" id="guild-hero-menu-icon" hidden onclick="WaifuApp.onGuildEmblemClick(); WaifuApp.closeGuildHeroMenu()">Сменить эмблему</button>
+        <button type="button" class="guild-hero-menu-item" id="guild-hero-menu-banner" hidden onclick="WaifuApp.onGuildBannerClick(); WaifuApp.closeGuildHeroMenu()">Сменить баннер</button>
+        <div class="guild-hero-menu-divider" id="guild-hero-menu-divider" hidden aria-hidden="true"></div>
+        <button type="button" class="guild-hero-menu-item" id="guild-hero-menu-leave" onclick="WaifuApp.leaveGuildFromHall(); WaifuApp.closeGuildHeroMenu()">Покинуть гильдию</button>
+      </div>
       <div class="guild-hero-overlay">
         <div class="guild-hero-meta">
-          <button type="button" id="guild-hero-emblem" class="guild-hero-emblem" aria-label="Эмблема гильдии">
+          <div id="guild-hero-emblem" class="guild-hero-emblem" aria-hidden="true">
             <span id="guild-hero-emblem-inner" class="guild-hero-emblem-inner">🏛️</span>
-          </button>
-          <input type="file" id="guild-banner-file-input" class="guild-icon-file-input" accept="image/jpeg,image/png,image/webp" aria-hidden="true" tabindex="-1" />
-          <input type="file" id="guild-icon-file-input" class="guild-icon-file-input" accept="image/jpeg,image/png,image/webp" aria-hidden="true" tabindex="-1" />
+          </div>
           <div class="guild-hero-info">
             <span id="guild-hero-tag" class="guild-tag"></span>
             <h1 id="guild-hero-name" class="guild-hero-name"></h1>
@@ -131,15 +136,150 @@
       </div>
     </div>
 
-    <div id="guild-member-preview-modal" class="modal guild-member-preview-modal-root" style="display: none" aria-hidden="true">
-      <div class="modal-content guild-member-preview-panel">
-        <div class="modal-head">
-          <h2 id="guild-member-preview-title" class="modal-title">Участник</h2>
-          <button type="button" class="modal-close" id="guild-member-preview-close" aria-label="Закрыть">✕</button>
+    <div
+      id="guild-member-preview-modal"
+      class="modal guild-member-preview-modal-root"
+      style="display: none"
+      aria-hidden="true"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="guild-member-preview-char-name"
+      onclick="if (event.target === this) WaifuApp.closeGuildMemberPreviewModal()"
+    >
+      <div class="guild-member-preview-box" onclick="event.stopPropagation()">
+        <div class="guild-member-preview-hero">
+          <svg class="guild-member-preview-hero-bg" viewBox="0 0 320 280" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <defs>
+              <radialGradient id="gmpRg1" cx="50%" cy="60%" r="60%">
+                <stop offset="0%" stop-color="#1a0d3a" stop-opacity="1"/>
+                <stop offset="100%" stop-color="#050810" stop-opacity="1"/>
+              </radialGradient>
+              <radialGradient id="gmpRg2" cx="50%" cy="40%" r="45%">
+                <stop offset="0%" stop-color="#2d1a5e" stop-opacity="0.8"/>
+                <stop offset="100%" stop-color="transparent"/>
+              </radialGradient>
+              <radialGradient id="gmpRg3" cx="50%" cy="70%" r="40%">
+                <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.12"/>
+                <stop offset="100%" stop-color="transparent"/>
+              </radialGradient>
+              <radialGradient id="gmpCenter" cx="50%" cy="50%" r="35%">
+                <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.2"/>
+                <stop offset="100%" stop-color="transparent"/>
+              </radialGradient>
+            </defs>
+            <rect width="320" height="280" fill="url(#gmpRg1)"/>
+            <rect width="320" height="280" fill="url(#gmpRg2)"/>
+            <rect width="320" height="280" fill="url(#gmpCenter)"/>
+            <rect width="320" height="280" fill="url(#gmpRg3)"/>
+            <polygon points="0,280 30,180 60,280" fill="#0a0618" opacity="0.9"/>
+            <polygon points="20,280 55,150 90,280" fill="#0d0820" opacity="0.85"/>
+            <polygon points="250,280 285,160 320,280" fill="#0a0618" opacity="0.9"/>
+            <polygon points="240,280 270,175 300,280" fill="#0d0820" opacity="0.85"/>
+            <polygon points="10,280 38,190 66,280" fill="#080514" opacity="0.7"/>
+            <polygon points="265,280 290,185 315,280" fill="#080514" opacity="0.7"/>
+            <ellipse cx="35" cy="195" rx="22" ry="12" fill="#0d0825" opacity="0.8"/>
+            <ellipse cx="280" cy="200" rx="22" ry="12" fill="#0d0825" opacity="0.8"/>
+            <ellipse cx="75" cy="55" r="1.5" fill="#a855f7" opacity="0.6"/>
+            <ellipse cx="245" cy="45" r="1" fill="#f59e0b" opacity="0.7"/>
+            <ellipse cx="160" cy="130" rx="35" ry="55" fill="rgba(120,60,220,0.07)"/>
+            <rect x="0" y="230" width="320" height="50" fill="rgba(8,14,26,0.95)"/>
+          </svg>
+          <img id="guild-member-preview-hero-img" class="guild-member-preview-hero-img" alt="" hidden />
+          <div class="guild-member-preview-status-bar">
+            <div class="guild-member-preview-status-badge">
+              <div id="guild-member-preview-status-dot" class="guild-member-preview-status-dot"></div>
+              <span id="guild-member-preview-status-label">Офлайн</span>
+            </div>
+            <div class="guild-member-preview-status-actions">
+              <button type="button" id="guild-member-preview-mail" class="guild-member-preview-mail-btn" aria-label="Написать игроку">✉</button>
+              <div id="guild-member-preview-rank" class="guild-member-preview-rank-badge">Участник</div>
+            </div>
+          </div>
+          <div class="guild-member-preview-char-name">
+            <div id="guild-member-preview-char-name" class="guild-member-preview-char-name-text">—</div>
+          </div>
         </div>
-        <div id="guild-member-preview-body" class="modal-body"></div>
+
+        <div class="guild-member-preview-stats">
+          <div class="guild-member-preview-stat-row">
+            <span class="guild-member-preview-stat-icon">⭐</span>
+            <span class="guild-member-preview-stat-key">Уровень:</span>
+            <span id="guild-member-preview-level" class="guild-member-preview-stat-value gold">—</span>
+          </div>
+          <div class="guild-member-preview-stat-row">
+            <span class="guild-member-preview-stat-icon">🟡</span>
+            <span class="guild-member-preview-stat-key">Боевая мощь:</span>
+            <span id="guild-member-preview-power" class="guild-member-preview-stat-value gold">—</span>
+          </div>
+          <div class="guild-member-preview-stat-row">
+            <span class="guild-member-preview-stat-icon">📋</span>
+            <span class="guild-member-preview-stat-key">Вклад (неделя):</span>
+            <span id="guild-member-preview-contrib" class="guild-member-preview-stat-value">—</span>
+          </div>
+          <div class="guild-member-preview-contrib-bar-wrap">
+            <div id="guild-member-preview-contrib-bar" class="guild-member-preview-contrib-bar-fill" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="guild-member-preview-divider"></div>
+
+        <div class="guild-member-preview-heroes">
+          <div class="guild-member-preview-heroes-label">Наёмницы</div>
+          <div id="guild-member-preview-heroes-row" class="guild-member-preview-heroes-row"></div>
+        </div>
       </div>
     </div>
+
+    <div
+      id="player-mail-compose-modal"
+      class="modal player-mail-compose-modal-root"
+      style="display: none"
+      aria-hidden="true"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="player-mail-compose-title"
+      onclick="if (event.target === this) WaifuApp.closePlayerMailComposeModal()"
+    >
+      <div class="modal-content player-mail-compose-panel" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <h2 id="player-mail-compose-title" class="modal-title">Письмо</h2>
+          <button type="button" class="modal-close" id="player-mail-compose-close" aria-label="Закрыть" onclick="WaifuApp.closePlayerMailComposeModal()">✕</button>
+        </div>
+        <div class="modal-body player-mail-compose-body">
+          <p class="player-mail-compose-recipient muted tiny">Кому: <strong id="player-mail-compose-recipient">—</strong></p>
+          <label class="player-mail-compose-field">
+            <span>Сообщение</span>
+            <textarea id="player-mail-compose-body" rows="4" maxlength="500" placeholder="Текст письма…"></textarea>
+          </label>
+          <label class="player-mail-compose-field">
+            <span>Золото</span>
+            <input type="number" id="player-mail-compose-gold" min="0" step="1" value="0" />
+          </label>
+          <div class="player-mail-compose-item">
+            <span class="player-mail-compose-field-label">Предмет</span>
+            <div id="player-mail-compose-item-pick" class="player-mail-compose-item-pick muted tiny">Не выбран</div>
+            <button type="button" class="btn secondary tiny" id="player-mail-compose-item-btn" onclick="WaifuApp.openPlayerMailItemPicker()">Выбрать предмет</button>
+          </div>
+          <div id="player-mail-compose-item-list" class="player-mail-compose-item-list" style="display: none"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn primary" id="player-mail-compose-send" onclick="WaifuApp.sendPlayerMail()">Отправить</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="guild-members-modal" class="modal guild-members-modal-root" style="display: none" aria-hidden="true" onclick="if (event.target === this) WaifuApp.closeGuildMembersModal()">
+      <div class="modal-content guild-members-modal-panel" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <h2 class="modal-title">Участники</h2>
+          <button type="button" class="modal-close" id="guild-members-modal-close" aria-label="Закрыть" onclick="WaifuApp.closeGuildMembersModal()">✕</button>
+        </div>
+        <div id="guild-members-modal-body" class="modal-body guild-members-modal-body"></div>
+      </div>
+    </div>
+
+    <input type="file" id="guild-banner-file-input" class="guild-icon-file-input" accept="image/jpeg,image/png,image/webp,image/*" aria-hidden="true" tabindex="-1" />
+    <input type="file" id="guild-icon-file-input" class="guild-icon-file-input" accept="image/jpeg,image/png,image/webp,image/*" aria-hidden="true" tabindex="-1" />
 
     <div
       id="guild-bank-item-modal"
@@ -211,37 +351,122 @@
     <div id="guild-bank-gold-modal" class="modal" style="display: none" aria-hidden="true" onclick="if (event.target === this) WaifuApp.closeGuildBankGoldModal()">
       <div class="modal-content" onclick="event.stopPropagation()">
         <div class="modal-head">
-          <h2 class="modal-title">Золото банка</h2>
+          <h2 class="modal-title" id="guild-bank-gold-modal-title">Внести золото</h2>
           <button type="button" class="modal-close" onclick="WaifuApp.closeGuildBankGoldModal()" aria-label="Закрыть">✕</button>
         </div>
         <div class="modal-body">
-          <p class="muted tiny">В банке: <strong id="guild-bank-gold-modal-balance">0</strong> 🪙 · у вас: <strong id="guild-bank-gold-modal-player">0</strong> 🪙</p>
+          <p class="muted tiny">В казне: <strong id="guild-bank-gold-modal-balance">0</strong> 🪙 · у вас: <strong id="guild-bank-gold-modal-player">0</strong> 🪙</p>
           <label class="form-field">
             <span class="muted tiny">Сумма</span>
             <input type="number" id="guild-bank-gold-amount" min="1" step="1" value="1" inputmode="numeric" />
           </label>
         </div>
         <div class="modal-footer" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-          <button type="button" class="btn secondary" onclick="WaifuApp.confirmGuildBankGoldTake()">Взять</button>
-          <button type="button" class="btn primary" onclick="WaifuApp.confirmGuildBankGoldDeposit()">Положить</button>
+          <button type="button" class="btn secondary" onclick="WaifuApp.closeGuildBankGoldModal()">Отмена</button>
+          <button type="button" class="btn primary" id="guild-bank-gold-confirm" onclick="WaifuApp.confirmGuildBankGold()">Внести</button>
         </div>
       </div>
     </div>
 
-    <div id="guild-bank-deposit-modal" class="modal" style="display: none" aria-hidden="true" onclick="if (event.target === this) WaifuApp.closeGuildBankDepositModal()">
-      <div class="modal-content" onclick="event.stopPropagation()">
+    <div id="guild-bank-deposit-modal" class="modal guild-bank-deposit-modal-root" style="display: none" aria-hidden="true" onclick="if (event.target === this) WaifuApp.closeGuildBankDepositModal()">
+      <div class="modal-content guild-bank-deposit-modal-panel" onclick="event.stopPropagation()">
         <div class="modal-head">
           <h2 class="modal-title">Положить в банк</h2>
           <button type="button" class="modal-close" onclick="WaifuApp.closeGuildBankDepositModal()" aria-label="Закрыть">✕</button>
         </div>
         <div class="modal-body">
-          <p class="muted tiny">Только не экипированные предметы. Выберите несколько и нажмите «Положить».</p>
-          <div id="guild-bank-deposit-list" class="guild-bank-deposit-list"></div>
+          <p class="muted tiny guild-bank-deposit-hint">Выберите предмет из инвентаря.</p>
+          <p id="guild-bank-deposit-empty-note" class="guild-bank-deposit-empty-note muted tiny" style="display:none"></p>
+          <div id="guild-bank-deposit-grid" class="guild-bank-deposit-grid"></div>
+          <div id="guild-bank-deposit-pagination" class="guild-bank-deposit-pagination"></div>
         </div>
         <div class="modal-footer" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-          <button type="button" class="btn secondary" onclick="WaifuApp.closeGuildBankDepositModal()">Отмена</button>
-          <button type="button" class="btn primary" id="guild-bank-deposit-submit" onclick="WaifuApp.confirmGuildBankDeposit()">Положить</button>
+          <button type="button" class="btn secondary" onclick="WaifuApp.closeGuildBankDepositModal()">Закрыть</button>
         </div>
+      </div>
+    </div>
+
+    <div
+      id="guild-bank-deposit-item-modal"
+      class="modal item-modal-root item-modal-v2-wrap item-modal-v2-host"
+      style="display:none;"
+      onclick="if (event.target === this) WaifuApp.closeGuildBankDepositItemPreview()"
+    >
+      <div class="item-modal-v2-shell">
+        <div
+          id="guild-bank-deposit-offer-modal-content"
+          class="item-modal-v2-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="guild-bank-deposit-offer-modal-name"
+          onclick="event.stopPropagation()"
+        >
+          <header class="item-modal-v2-hdr">
+            <div class="item-modal-v2-hdr-l">
+              <button type="button" class="item-modal-v2-hdr-x" aria-label="Закрыть" onclick="WaifuApp.closeGuildBankDepositItemPreview()">✕</button>
+              <span class="item-modal-v2-hdr-t">Положить в банк</span>
+            </div>
+          </header>
+          <div class="item-modal-v2-scroll">
+            <div class="item-modal-v2-title-block">
+              <div class="item-modal-v2-title" id="guild-bank-deposit-offer-modal-name">—</div>
+              <div class="item-modal-v2-sub">
+                <div class="item-modal-v2-sub-spacer" aria-hidden="true"></div>
+                <div class="item-modal-v2-sub-main">
+                  <span class="item-modal-v2-sub-lbl" id="guild-bank-deposit-offer-modal-subline"></span>
+                  <span class="item-modal-v2-dot" aria-hidden="true"></span>
+                  <span class="item-modal-v2-rpill" id="guild-bank-deposit-offer-modal-rpill">—</span>
+                </div>
+                <div class="item-modal-v2-sub-tail">
+                  <span class="item-modal-v2-upgrade" id="guild-bank-deposit-offer-modal-upgrade-hint" style="display: none" aria-hidden="true"></span>
+                </div>
+              </div>
+            </div>
+            <div class="item-modal-v2-art-wrap">
+              <div class="item-modal-v2-art" aria-hidden="true">
+                <div class="item-modal-v2-ring item-modal-v2-ring--outer"></div>
+                <div class="item-modal-v2-ring item-modal-v2-ring--inner"></div>
+                <div class="item-modal-v2-glow"></div>
+                <div class="item-modal-v2-frame" id="guild-bank-deposit-offer-modal-art-frame">
+                  <div class="item-modal-v2-art-inner" id="guild-bank-deposit-offer-modal-art">📦</div>
+                </div>
+              </div>
+            </div>
+            <div class="item-modal-v2-spanel shop-offer-modal-spanel">
+              <div class="item-modal-v2-spanel-hd"><span aria-hidden="true">✦</span> Характеристики</div>
+              <div id="guild-bank-deposit-offer-modal-body"></div>
+            </div>
+            <div class="item-modal-v2-req" id="guild-bank-deposit-offer-modal-req-section" style="display:none;">
+              <div class="item-modal-v2-req-hd">Требования</div>
+              <div class="item-modal-v2-req-pills" id="guild-bank-deposit-offer-modal-requirements" aria-live="polite"></div>
+            </div>
+            <div class="shop-offer-modal-cta">
+              <div class="item-modal-v2-actions shop-offer-modal-actions" data-cols="2">
+                <button class="item-modal-v2-btn item-modal-v2-btn--neutral" type="button" onclick="WaifuApp.closeGuildBankDepositItemPreview()">Отмена</button>
+                <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="guild-bank-deposit-modal-submit" type="button" onclick="WaifuApp.confirmGuildBankDepositItem()">Положить</button>
+              </div>
+            </div>
+            <div class="item-modal-v2-desc" id="guild-bank-deposit-offer-modal-desc" style="display:none;"></div>
+            <div class="item-modal-v2-scroll-pad shop-offer-modal-scroll-pad" aria-hidden="true"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="guild-page-loading-modal"
+      class="modal guild-page-loading-modal"
+      aria-live="polite"
+      aria-busy="true"
+      role="status"
+    >
+      <div class="guild-page-loading-sheet">
+        <div class="guild-page-loading-visual" aria-hidden="true">
+          <div class="guild-page-loading-emblem">🏛️</div>
+          <div class="guild-page-loading-ring"></div>
+          <div class="guild-page-loading-pulse"></div>
+        </div>
+        <p class="guild-page-loading-label">Загрузка гильдии…</p>
       </div>
     </div>
 

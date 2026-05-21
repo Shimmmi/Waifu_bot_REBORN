@@ -1,5 +1,6 @@
 """Database models."""
 from waifu_bot.db.models.player import Player
+from waifu_bot.db.models.player_mail import PlayerMail, PlayerMailStatus
 from waifu_bot.db.models.hidden_skill import HiddenSkillDefinition, PlayerHiddenSkill
 from waifu_bot.db.models.passive_skill import PassiveSkillNode, PlayerPassiveSkill
 from waifu_bot.db.models.game_config import GameConfig
@@ -40,6 +41,7 @@ from waifu_bot.db.models.guild_extended import (
     GuildRaid,
     GuildRaidParticipant,
     GuildWar,
+    GuildMemberContributionWeekly,
     GuildGxpBankDaily,
     GuildWarScoreBankDaily,
     GuildWarStatus,
@@ -70,6 +72,8 @@ from waifu_bot.db.models.gd_cycle import (
 
 __all__ = [
     "Player",
+    "PlayerMail",
+    "PlayerMailStatus",
     "HiddenSkillDefinition",
     "PlayerHiddenSkill",
     "PassiveSkillNode",
@@ -120,6 +124,7 @@ __all__ = [
     "GuildRaid",
     "GuildRaidParticipant",
     "GuildWar",
+    "GuildMemberContributionWeekly",
     "GuildGxpBankDaily",
     "GuildWarScoreBankDaily",
     "GuildWarStatus",

@@ -278,6 +278,13 @@ async def _apply_level_for_skill(session: AsyncSession, player_id: int, skill_id
         if row.unlocked_at is None:
             row.unlocked_at = now
         await _maybe_announce_group_skill_unlock(session, int(player_id), defn, old_level, nl)
+        if old_level == 0 and nl >= 1:
+            try:
+                from waifu_bot.services.guild_activity import log_hidden_skill_unlock
+
+                await log_hidden_skill_unlock(session, int(player_id), defn.name or skill_id)
+            except Exception:
+                pass
 
 
 async def check_level_up(session: AsyncSession, player_id: int, skill_id: str) -> None:

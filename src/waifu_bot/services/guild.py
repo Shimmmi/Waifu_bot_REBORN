@@ -225,7 +225,7 @@ class GuildService:
 
         from waifu_bot.services.guild_progress import add_gxp_from_bank_deposit, apply_war_bank_deposit
 
-        await add_gxp_from_bank_deposit(session, member.guild_id, amount)
+        await add_gxp_from_bank_deposit(session, member.guild_id, amount, player_id=player_id)
         await apply_war_bank_deposit(session, player_id, amount)
 
         from waifu_bot.services.guild_activity import log_bank_deposit
@@ -259,6 +259,9 @@ class GuildService:
         guild.gold -= amount
         player.gold += amount
 
+        from waifu_bot.services.guild_activity import log_bank_withdraw_gold
+
+        await log_bank_withdraw_gold(session, member.guild_id, player_id, amount)
         await session.commit()
 
         return {"success": True, "guild_gold": guild.gold, "player_gold": player.gold}
@@ -292,8 +295,16 @@ class GuildService:
         # Move to bank
         bank_item = GuildBank(guild_id=member.guild_id, item_id=inv_item.item_id)
         session.add(bank_item)
+        item_name = "Предмет"
+        if inv_item.item_id:
+            item_row = await session.get(Item, inv_item.item_id)
+            if item_row and item_row.name:
+                item_name = item_row.name
         await session.delete(inv_item)
 
+        from waifu_bot.services.guild_activity import log_bank_deposit_item
+
+        await log_bank_deposit_item(session, member.guild_id, player_id, item_name)
         await session.commit()
 
         return {"success": True, "item_id": inv_item.item_id}
@@ -310,11 +321,20 @@ class GuildService:
         if not bank_item or bank_item.guild_id != member.guild_id:
             return {"error": "item_not_found"}
 
+        item_name = "Предмет"
+        if bank_item.item_id:
+            item_row = await session.get(Item, bank_item.item_id)
+            if item_row and item_row.name:
+                item_name = item_row.name
+
         # Add to player inventory
         inv_item = InventoryItem(player_id=player_id, item_id=bank_item.item_id)
         session.add(inv_item)
         await session.delete(bank_item)
 
+        from waifu_bot.services.guild_activity import log_bank_withdraw_item
+
+        await log_bank_withdraw_item(session, member.guild_id, player_id, item_name)
         await session.commit()
 
         return {"success": True, "item_id": bank_item.item_id}
@@ -547,7 +567,16 @@ class GuildService:
         if not member:
             return {"error": "not_in_guild"}
         if not member.is_leader:
-            return {"error": "forbidden"}
+            cnt = await session.scalar(
+                select(func.count())
+                .select_from(GuildMember)
+                .where(GuildMember.guild_id == member.guild_id)
+            )
+            if int(cnt or 0) == 1:
+                member.is_leader = True
+                await session.flush()
+            else:
+                return {"error": "forbidden"}
         guild = await session.get(Guild, member.guild_id)
         if not guild:
             return {"error": "no_guild"}
