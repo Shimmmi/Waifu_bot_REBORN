@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Гильдия</title>
+  <style>
+    :root {
+      --accent: #f59e0b;
+      --accent-soft: rgba(245,158,11,0.15);
+      --accent-border: rgba(245,158,11,0.3);
+      --accent-glow: rgba(245,158,11,0.08);
+      --gold-bright: #fbbf24;
+      --gold-dim: #d97706;
+      --card: #111827;
+      --card-deep: #0d1117;
+      --card-raised: #1a2236;
+      --border: #1f2937;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --muted-deep: #4b5563;
+      --bg: #080e1a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── ATTIC ── */
+    .attic {
+      background: rgba(8,14,26,0.95);
+      padding: 8px 12px 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border-bottom: 1px solid rgba(245,158,11,0.1);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .chip {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      border-radius: 20px;
+      padding: 3px 9px;
+      font-size: 11px;
+      color: var(--gold-bright);
+      white-space: nowrap;
+    }
+    .chip-ghost {
+      background: rgba(255,255,255,0.03);
+      border-color: rgba(255,255,255,0.07);
+      color: var(--muted);
+    }
+    .attic-xp-bar {
+      width: 34px;
+      height: 3px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .attic-xp-fill {
+      height: 100%;
+      width: 62%;
+      background: linear-gradient(90deg, var(--accent), var(--gold-bright));
+    }
+    .attic-spacer { flex: 1; }
+
+    /* ── HERO BANNER ── */
+    .hero-banner {
+      position: relative;
+      height: 220px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .hero-bg {
+      width: 100%;
+      height: 100%;
+      background: #0c0e14;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .hero-svg {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      inset: 0;
+    }
+    .hero-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 14px 16px;
+      background: linear-gradient(to top, rgba(8,14,26,1) 0%, rgba(8,14,26,0.65) 55%, transparent 100%);
+    }
+    .guild-tag {
+      display: inline-block;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      border-radius: 6px;
+      padding: 1px 7px;
+      font-size: 10px;
+      color: var(--gold-bright);
+      margin-bottom: 4px;
+    }
+    .hero-name {
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 1px;
+    }
+    .hero-sub {
+      font-size: 11px;
+      color: var(--gold-dim);
+      margin-bottom: 7px;
+    }
+    .xp-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .xp-bar {
+      flex: 1;
+      height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .xp-bar-fill {
+      height: 100%;
+      width: 51%;
+      background: linear-gradient(90deg, var(--accent), var(--gold-bright));
+    }
+    .xp-label {
+      font-size: 10px;
+      color: var(--gold-dim);
+      flex-shrink: 0;
+    }
+    .hero-meta {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+    }
+    .emblem {
+      width: 48px;
+      height: 48px;
+      border-radius: 10px;
+      background: var(--card);
+      border: 2px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+
+    /* ── TABS ── */
+    .tabs-row {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--card-deep);
+      padding: 0 6px;
+      overflow-x: auto;
+    }
+    .tabs-row::-webkit-scrollbar { display: none; }
+    .tab {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 9px 4px 7px;
+      font-size: 10px;
+      color: var(--muted-deep);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.2s;
+      min-width: 56px;
+      white-space: nowrap;
+    }
+    .tab.active {
+      color: var(--gold-bright);
+      border-bottom-color: var(--accent);
+    }
+    .tab-icon { font-size: 17px; }
+
+    /* ── MAIN CONTENT ── */
+    .content {
+      flex: 1;
+      padding: 14px 14px 0;
+      background: var(--bg);
+      overflow-y: auto;
+    }
+
+    .section-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted-deep);
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      margin-bottom: 9px;
+    }
+
+    /* ── STATS GRID ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 11px 13px;
+      transition: border-color 0.2s;
+    }
+    .stat-card:hover { border-color: var(--accent-border); }
+    .stat-label {
+      font-size: 10px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .stat-val {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .stat-val.gold { color: var(--gold-bright); }
+    .stat-val.green {
+      color: #34d399;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .stat-sub {
+      font-size: 11px;
+      color: var(--muted-deep);
+    }
+    .dot-online {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #34d399;
+      flex-shrink: 0;
+    }
+
+    /* ── ACTIVITY ── */
+    .activity-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-bottom: 18px;
+    }
+    .act-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 11px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      transition: border-color 0.2s;
+    }
+    .act-item:hover { border-color: var(--accent-border); }
+    .act-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--card-raised);
+      border: 1px solid var(--accent-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .act-body { flex: 1; }
+    .act-text {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .act-highlight { color: var(--gold-bright); font-weight: 500; }
+    .act-time {
+      font-size: 10px;
+      color: var(--muted-deep);
+      margin-top: 2px;
+    }
+
+    /* ── BOTTOM NAV ── */
+    .nav {
+      background: var(--card-deep);
+      border-top: 1px solid var(--border);
+      padding: 6px 0 10px;
+      display: flex;
+    }
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 2px 0;
+      cursor: pointer;
+    }
+    .nav-icon { font-size: 18px; }
+    .nav-lbl {
+      font-size: 9px;
+      color: var(--muted-deep);
+    }
+    .nav-lbl.active { color: var(--accent); }
+    .nav-dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ATTIC -->
+  <header class="attic">
+    <div class="chip">
+      ⭐ <strong id="badge-level">42</strong>
+      <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
+    </div>
+    <div class="chip chip-ghost" id="attic-dungeon-chip">
+      <span id="attic-dungeon-label">Нет боя</span>
+    </div>
+    <div class="chip chip-ghost" id="attic-expedition-chip">🗺️ 2</div>
+    <div class="attic-spacer"></div>
+    <div class="chip">🪙 <strong id="badge-gold">4 820</strong></div>
+  </header>
+
+  <!-- HERO BANNER -->
+  <div class="hero-banner">
+    <div class="hero-bg">
+      <svg class="hero-svg" viewBox="0 0 390 220" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+        <defs>
+          <radialGradient id="rg1" cx="50%" cy="55%" r="55%">
+            <stop offset="0%" stop-color="#3b2000" stop-opacity="0.9"/>
+            <stop offset="100%" stop-color="#080e1a" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="rg2" cx="50%" cy="85%" r="40%">
+            <stop offset="0%" stop-color="#92400e" stop-opacity="0.35"/>
+            <stop offset="100%" stop-color="transparent"/>
+          </radialGradient>
+          <radialGradient id="rg3" cx="50%" cy="50%" r="30%">
+            <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.1"/>
+            <stop offset="100%" stop-color="transparent"/>
+          </radialGradient>
+        </defs>
+        <rect width="390" height="220" fill="#0c0e14"/>
+        <rect width="390" height="220" fill="url(#rg1)"/>
+        <rect width="390" height="220" fill="url(#rg2)"/>
+        <rect width="390" height="220" fill="url(#rg3)"/>
+        <!-- Декоративные кольца -->
+        <ellipse cx="195" cy="115" rx="75" ry="95" fill="none" stroke="rgba(245,158,11,0.08)" stroke-width="1"/>
+        <ellipse cx="195" cy="115" rx="110" ry="130" fill="none" stroke="rgba(245,158,11,0.05)" stroke-width="1"/>
+        <!-- Звёзды/искры -->
+        <circle cx="55" cy="35" r="1.5" fill="rgba(251,191,36,0.5)"/>
+        <circle cx="300" cy="55" r="1" fill="rgba(251,191,36,0.4)"/>
+        <circle cx="330" cy="105" r="2" fill="rgba(251,191,36,0.3)"/>
+        <circle cx="40" cy="115" r="1.5" fill="rgba(245,158,11,0.45)"/>
+        <circle cx="340" cy="38" r="1.5" fill="rgba(245,158,11,0.35)"/>
+        <circle cx="90" cy="175" r="2" fill="rgba(251,191,36,0.3)"/>
+        <circle cx="268" cy="160" r="1.5" fill="rgba(251,191,36,0.35)"/>
+        <circle cx="15" cy="75" r="1" fill="rgba(245,158,11,0.3)"/>
+        <circle cx="370" cy="140" r="1.5" fill="rgba(251,191,36,0.25)"/>
+        <!-- Центральный символ -->
+        <text x="195" y="148" text-anchor="middle" font-size="58" fill="rgba(245,158,11,0.85)">👸</text>
+        <!-- Нижний градиент -->
+        <rect x="0" y="140" width="390" height="80" fill="url(#rg2)"/>
+        <rect x="0" y="170" width="390" height="50" fill="rgba(8,14,26,0.9)"/>
+      </svg>
+    </div>
+    <div class="hero-overlay">
+      <div class="hero-meta">
+        <div class="emblem">🛡️</div>
+        <div style="flex:1">
+          <div class="guild-tag">[lolol]</div>
+          <div class="hero-name">Проходите Хозяин</div>
+          <div class="hero-sub">Ур. гильдии 3</div>
+          <div class="xp-row">
+            <div class="xp-bar"><div class="xp-bar-fill" id="guild-xp-fill"></div></div>
+            <span class="xp-label">1272 / 2500 GXP</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs-row" id="guild-tab-bar">
+    <div class="tab active" onclick="setTab(this)"><span class="tab-icon">🏰</span><span>Гильдия</span></div>
+    <div class="tab" onclick="setTab(this)"><span class="tab-icon">⚔️</span><span>Битвы</span></div>
+    <div class="tab" onclick="setTab(this)"><span class="tab-icon">✨</span><span>Навыки</span></div>
+    <div class="tab" onclick="setTab(this)"><span class="tab-icon">💰</span><span>Казна</span></div>
+    <div class="tab" onclick="setTab(this)"><span class="tab-icon">📜</span><span>История</span></div>
+  </div>
+
+  <!-- CONTENT -->
+  <main class="content">
+    <div id="tab-guild">
+
+      <div class="section-label" style="margin-top:4px">Статистика</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Участники</div>
+          <div class="stat-val">14 <span style="font-size:13px;color:var(--muted-deep)">/ 30</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Онлайн</div>
+          <div class="stat-val green"><span class="dot-online"></span>5</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Мощь</div>
+          <div class="stat-val gold">12.4K</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Рейтинг</div>
+          <div class="stat-val">#258</div>
+        </div>
+      </div>
+
+      <div class="section-label">Активность</div>
+      <div class="activity-list">
+        <div class="act-item">
+          <div class="act-avatar">🧝</div>
+          <div class="act-body">
+            <div class="act-text"><span class="act-highlight">Shimmmmi</span> улучшил навык «Ярость»</div>
+            <div class="act-time">2 часа назад</div>
+          </div>
+        </div>
+        <div class="act-item">
+          <div class="act-avatar">🧙</div>
+          <div class="act-body">
+            <div class="act-text">В казну добавлено <span class="act-highlight">+500 золота</span></div>
+            <div class="act-time">3 часа назад</div>
+          </div>
+        </div>
+        <div class="act-item">
+          <div class="act-avatar">🧜</div>
+          <div class="act-body">
+            <div class="act-text"><span class="act-highlight">DarkAngel</span> вступил в гильдию</div>
+            <div class="act-time">5 часов назад</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Скрытые плейсхолдеры для других вкладок -->
+    <div id="tab-battles" style="display:none;padding-top:4px">
+      <div class="section-label">Битвы</div>
+      <p style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Нет активных битв</p>
+    </div>
+    <div id="tab-skills" style="display:none;padding-top:4px">
+      <div class="section-label">Навыки гильдии</div>
+      <p style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Нет доступных навыков</p>
+    </div>
+    <div id="tab-bank" style="display:none;padding-top:4px">
+      <div class="section-label">Казна</div>
+      <p style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Казна пуста</p>
+    </div>
+    <div id="tab-history" style="display:none;padding-top:4px">
+      <div class="section-label">История</div>
+      <p style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">История пуста</p>
+    </div>
+
+    <div id="guild-hall-screen"></div>
+    <div id="guild-search-screen"></div>
+    <div id="guild-act-bank"></div>
+    <div id="guild-act-storage"></div>
+    <div id="guild-act-skills"></div>
+    <div id="guild-act-raids"></div>
+    <div id="guild-act-members"></div>
+    <div id="guild-act-wars"></div>
+  </main>
+
+  <!-- BOTTOM NAV -->
+  <nav class="nav">
+    <a href="./profile.html" class="nav-item" data-page="profile">
+      <span class="nav-icon">👤</span>
+      <span class="nav-lbl">Профиль</span>
+    </a>
+    <a href="./dungeons.html" class="nav-item" data-page="dungeons">
+      <span class="nav-icon">🏰</span>
+      <span class="nav-lbl">Подземелья</span>
+    </a>
+    <a href="./shop.html" class="nav-item" data-page="shop">
+      <span class="nav-icon">🏪</span>
+      <span class="nav-lbl">Магазин</span>
+    </a>
+    <a href="./tavern.html" class="nav-item" data-page="tavern">
+      <span class="nav-icon">🍻</span>
+      <span class="nav-lbl">Таверна</span>
+    </a>
+    <a href="./caravan.html" class="nav-item" data-page="caravan">
+      <span class="nav-icon">🐫</span>
+      <span class="nav-lbl">Караван</span>
+    </a>
+    <a href="./guild_hall.html" class="nav-item" data-page="guild">
+      <span class="nav-icon">🏛️</span>
+      <span class="nav-lbl active">Гильдия</span>
+      <div class="nav-dot"></div>
+    </a>
+    <a href="./training_hall.html" class="nav-item" data-page="training">
+      <span class="nav-icon">🏋️</span>
+      <span class="nav-lbl">Тренировка</span>
+    </a>
+  </nav>
+
+  <script>
+    const tabIds = ['tab-guild','tab-battles','tab-skills','tab-bank','tab-history'];
+    function setTab(el) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      const idx = Array.from(el.parentNode.children).indexOf(el);
+      tabIds.forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = i === idx ? '' : 'none';
+      });
+    }
+
+    const nav = document.querySelector('.nav');
+    if (nav) {
+      nav.querySelectorAll('a').forEach(a => {
+        a.style.textDecoration = 'none';
+      });
+    }
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Профиль участника</title>
+  <style>
+    /* ═══════════════════════════════════
+       CSS-переменные — синхронизированы
+       с gold-темой guild_hall.html
+    ═══════════════════════════════════ */
+    :root {
+      --accent:        #f59e0b;
+      --accent-soft:   rgba(245,158,11,0.15);
+      --accent-border: rgba(245,158,11,0.30);
+      --gold-bright:   #fbbf24;
+      --gold-dim:      #d97706;
+      --card:          #111827;
+      --card-deep:     #0d1117;
+      --card-raised:   #1a2236;
+      --border:        #1f2937;
+      --text:          #e5e7eb;
+      --muted:         #9ca3af;
+      --muted-deep:    #4b5563;
+      --bg:            #080e1a;
+      --green:         #22c55e;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, 'Segoe UI', sans-serif;
+      background: #0b0f1c;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    /* ═══════════════════════════════════
+       BACKDROP
+    ═══════════════════════════════════ */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.72);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+    .modal-backdrop.visible { opacity: 1; }
+
+    /* ═══════════════════════════════════
+       MODAL BOX
+    ═══════════════════════════════════ */
+    .modal-box {
+      width: 100%;
+      max-width: 320px;
+      border-radius: 20px;
+      overflow: hidden;
+      border: 1px solid rgba(245,158,11,0.18);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.7), 0 0 0 1px rgba(245,158,11,0.05);
+      transform: translateY(18px) scale(0.97);
+      transition: transform 0.28s cubic-bezier(0.34,1.3,0.64,1), opacity 0.25s ease;
+      opacity: 0;
+    }
+    .modal-backdrop.visible .modal-box {
+      transform: translateY(0) scale(1);
+      opacity: 1;
+    }
+
+    /* ═══════════════════════════════════
+       HERO SECTION (арт персонажа)
+    ═══════════════════════════════════ */
+    .modal-hero {
+      position: relative;
+      height: 280px;
+      overflow: hidden;
+      background: #0b0d18;
+    }
+
+    /* SVG-фон с лесом и свечением */
+    .modal-hero-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Статус-бар поверх арта */
+    .modal-status-bar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 100%);
+    }
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(8,14,26,0.65);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text);
+      backdrop-filter: blur(4px);
+    }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+      flex-shrink: 0;
+    }
+    .rank-badge {
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--gold-bright);
+      backdrop-filter: blur(4px);
+    }
+
+    /* Имя поверх арта, снизу */
+    .modal-char-name {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 40px 16px 14px;
+      background: linear-gradient(to top, rgba(8,14,26,1) 0%, rgba(8,14,26,0.6) 55%, transparent 100%);
+      text-align: center;
+    }
+    .char-name-text {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: #fff;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+    }
+
+    /* ═══════════════════════════════════
+       STATS SECTION
+    ═══════════════════════════════════ */
+    .modal-stats {
+      background: var(--card-deep);
+      padding: 12px 16px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+    .stat-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .stat-icon { font-size: 15px; flex-shrink: 0; }
+    .stat-key {
+      font-size: 12px;
+      color: var(--muted);
+      flex: 1;
+    }
+    .stat-value {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      text-align: right;
+    }
+    .stat-value.gold { color: var(--gold-bright); }
+    .stat-value em {
+      font-style: normal;
+      font-size: 11px;
+      color: var(--muted-deep);
+      font-weight: 400;
+      margin-left: 3px;
+    }
+
+    /* ═══════════════════════════════════
+       PROGRESS BAR (Contribution)
+    ═══════════════════════════════════ */
+    .contrib-bar-wrap {
+      margin-top: 2px;
+      height: 3px;
+      background: rgba(255,255,255,0.07);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .contrib-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--gold-bright));
+      border-radius: 2px;
+      transition: width 0.6s ease;
+    }
+
+    /* Разделитель */
+    .modal-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 0;
+    }
+
+    /* ═══════════════════════════════════
+       HEROES ROW (миниатюры персонажей)
+    ═══════════════════════════════════ */
+    .modal-heroes {
+      background: var(--card-deep);
+      padding: 10px 14px 12px;
+    }
+    .heroes-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted-deep);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .heroes-row {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+    }
+    .hero-thumb {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .hero-thumb-img {
+      width: 52px;
+      height: 52px;
+      border-radius: 10px;
+      background: var(--card-raised);
+      border: 1.5px solid var(--border);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      transition: border-color 0.2s;
+    }
+    .hero-thumb:hover .hero-thumb-img {
+      border-color: var(--accent-border);
+    }
+    .hero-stars {
+      display: flex;
+      gap: 1px;
+    }
+    .star {
+      font-size: 9px;
+      color: var(--muted-deep);
+    }
+    .star.lit { color: var(--gold-bright); }
+
+    /* ═══════════════════════════════════
+       FOOTER (кнопка)
+    ═══════════════════════════════════ */
+    .modal-footer {
+      background: var(--card-deep);
+      padding: 10px 16px 14px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+    }
+    .btn {
+      flex: 1;
+      padding: 11px 0;
+      border: none;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--gold-dim));
+      color: #1a0a00;
+      box-shadow: 0 4px 16px rgba(245,158,11,0.25);
+    }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-secondary {
+      background: rgba(255,255,255,0.06);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.09); }
+  </style>
+</head>
+<body>
+
+  <!-- ╔══════════════════════════════════╗
+       ║   МОДАЛЬНОЕ ОКНО — ПРОФИЛЬ       ║
+       ╚══════════════════════════════════╝ -->
+  <div class="modal-backdrop" id="memberModal" role="dialog" aria-modal="true" aria-labelledby="modal-char-name">
+
+    <div class="modal-box" id="modalBox">
+
+      <!-- Арт + статус + имя -->
+      <div class="modal-hero">
+
+        <!-- SVG фон с лесом и свечением -->
+        <svg class="modal-hero-bg" viewBox="0 0 320 280" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+          <defs>
+            <radialGradient id="mRg1" cx="50%" cy="60%" r="60%">
+              <stop offset="0%" stop-color="#1a0d3a" stop-opacity="1"/>
+              <stop offset="100%" stop-color="#050810" stop-opacity="1"/>
+            </radialGradient>
+            <radialGradient id="mRg2" cx="50%" cy="40%" r="45%">
+              <stop offset="0%" stop-color="#2d1a5e" stop-opacity="0.8"/>
+              <stop offset="100%" stop-color="transparent"/>
+            </radialGradient>
+            <radialGradient id="mRg3" cx="50%" cy="70%" r="40%">
+              <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.12"/>
+              <stop offset="100%" stop-color="transparent"/>
+            </radialGradient>
+            <radialGradient id="mCenter" cx="50%" cy="50%" r="35%">
+              <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.2"/>
+              <stop offset="100%" stop-color="transparent"/>
+            </radialGradient>
+          </defs>
+
+          <!-- Фон -->
+          <rect width="320" height="280" fill="url(#mRg1)"/>
+          <rect width="320" height="280" fill="url(#mRg2)"/>
+          <rect width="320" height="280" fill="url(#mCenter)"/>
+          <rect width="320" height="280" fill="url(#mRg3)"/>
+
+          <!-- Деревья/лес (силуэты) -->
+          <polygon points="0,280 30,180 60,280" fill="#0a0618" opacity="0.9"/>
+          <polygon points="20,280 55,150 90,280" fill="#0d0820" opacity="0.85"/>
+          <polygon points="250,280 285,160 320,280" fill="#0a0618" opacity="0.9"/>
+          <polygon points="240,280 270,175 300,280" fill="#0d0820" opacity="0.85"/>
+          <polygon points="10,280 38,190 66,280" fill="#080514" opacity="0.7"/>
+          <polygon points="265,280 290,185 315,280" fill="#080514" opacity="0.7"/>
+
+          <!-- Ветки с листьями -->
+          <ellipse cx="35" cy="195" rx="22" ry="12" fill="#0d0825" opacity="0.8"/>
+          <ellipse cx="280" cy="200" rx="22" ry="12" fill="#0d0825" opacity="0.8"/>
+          <ellipse cx="55" cy="170" rx="18" ry="9" fill="#0a0618" opacity="0.7"/>
+          <ellipse cx="268" cy="172" rx="18" ry="9" fill="#0a0618" opacity="0.7"/>
+
+          <!-- Мерцающие точки (магия) -->
+          <circle cx="75" cy="55" r="1.5" fill="#a855f7" opacity="0.6"/>
+          <circle cx="245" cy="45" r="1" fill="#f59e0b" opacity="0.7"/>
+          <circle cx="30" cy="100" r="1.2" fill="#a855f7" opacity="0.5"/>
+          <circle cx="295" cy="90" r="1.5" fill="#f59e0b" opacity="0.5"/>
+          <circle cx="160" cy="30" r="1" fill="#fff" opacity="0.4"/>
+          <circle cx="200" cy="65" r="0.8" fill="#fff" opacity="0.35"/>
+          <circle cx="110" cy="80" r="1.2" fill="#a855f7" opacity="0.4"/>
+          <circle cx="270" cy="130" r="1" fill="#f59e0b" opacity="0.45"/>
+
+          <!-- Ореол за персонажем -->
+          <ellipse cx="160" cy="130" rx="55" ry="80" fill="none" stroke="rgba(168,85,247,0.1)" stroke-width="1.5"/>
+          <ellipse cx="160" cy="130" rx="35" ry="55" fill="rgba(120,60,220,0.07)"/>
+
+          <!-- Персонаж (стилизованный силуэт воина) -->
+          <!-- Меч -->
+          <rect x="192" y="60" width="4" height="100" rx="2" fill="rgba(251,191,36,0.85)" transform="rotate(-18,194,110)"/>
+          <rect x="180" y="95" width="22" height="4" rx="2" fill="rgba(200,160,30,0.7)" transform="rotate(-18,194,97)"/>
+          <!-- Тело/доспех -->
+          <ellipse cx="155" cy="175" rx="28" ry="38" fill="#1e1040" opacity="0.9"/>
+          <ellipse cx="155" cy="160" rx="22" ry="28" fill="#2a1860" opacity="0.85"/>
+          <!-- Голова -->
+          <ellipse cx="155" cy="118" rx="18" ry="20" fill="#c8956a" opacity="0.85"/>
+          <!-- Волосы -->
+          <ellipse cx="155" cy="108" rx="20" ry="14" fill="#3d1f0a" opacity="0.9"/>
+          <ellipse cx="148" cy="125" rx="8" ry="18" fill="#3d1f0a" opacity="0.7"/>
+          <ellipse cx="163" cy="122" rx="8" ry="18" fill="#3d1f0a" opacity="0.7"/>
+          <!-- Наплечники -->
+          <ellipse cx="130" cy="158" rx="12" ry="9" fill="#2563eb" opacity="0.7"/>
+          <ellipse cx="180" cy="158" rx="12" ry="9" fill="#2563eb" opacity="0.7"/>
+          <!-- Свечение от меча -->
+          <ellipse cx="188" cy="110" rx="12" ry="30" fill="rgba(251,191,36,0.08)" transform="rotate(-18,188,110)"/>
+
+          <!-- Нижний градиент -->
+          <rect x="0" y="200" width="320" height="80" fill="url(#mRg3)"/>
+          <rect x="0" y="230" width="320" height="50" fill="rgba(8,14,26,0.95)"/>
+        </svg>
+
+        <!-- Статус-бар -->
+        <div class="modal-status-bar">
+          <div class="status-badge">
+            <div class="status-dot"></div>
+            В сети
+          </div>
+          <div class="rank-badge">Офицер</div>
+        </div>
+
+        <!-- Имя персонажа -->
+        <div class="modal-char-name">
+          <div class="char-name-text" id="modal-char-name">ЛИРА СВЕТА</div>
+        </div>
+      </div>
+
+      <!-- Статы -->
+      <div class="modal-stats">
+        <div class="stat-row">
+          <span class="stat-icon">⭐</span>
+          <span class="stat-key">Level:</span>
+          <span class="stat-value gold">92</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-icon">🟡</span>
+          <span class="stat-key">Combat Power:</span>
+          <span class="stat-value gold">585,000 <em>(GvG)</em></span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-icon">📋</span>
+          <span class="stat-key">Contribution (Week):</span>
+          <span class="stat-value">25k <em>/ 200k</em></span>
+        </div>
+        <!-- Прогресс-бар вклада -->
+        <div class="contrib-bar-wrap">
+          <div class="contrib-bar-fill" style="width:12.5%"></div>
+        </div>
+      </div>
+
+      <div class="modal-divider"></div>
+
+      <!-- Герои игрока -->
+      <div class="modal-heroes">
+        <div class="heroes-label">Герои</div>
+        <div class="heroes-row">
+
+          <div class="hero-thumb">
+            <div class="hero-thumb-img">🧝‍♀️</div>
+            <div class="hero-stars">
+              <span class="star lit">★</span><span class="star lit">★</span>
+              <span class="star lit">★</span><span class="star lit">★</span>
+              <span class="star">★</span>
+            </div>
+          </div>
+
+          <div class="hero-thumb">
+            <div class="hero-thumb-img">🧙‍♀️</div>
+            <div class="hero-stars">
+              <span class="star lit">★</span><span class="star lit">★</span>
+              <span class="star lit">★</span><span class="star lit">★</span>
+              <span class="star lit">★</span>
+            </div>
+          </div>
+
+          <div class="hero-thumb">
+            <div class="hero-thumb-img">🥷</div>
+            <div class="hero-stars">
+              <span class="star lit">★</span><span class="star lit">★</span>
+              <span class="star lit">★</span><span class="star">★</span>
+              <span class="star">★</span>
+            </div>
+          </div>
+
+          <div class="hero-thumb">
+            <div class="hero-thumb-img">🧜‍♀️</div>
+            <div class="hero-stars">
+              <span class="star lit">★</span><span class="star lit">★</span>
+              <span class="star lit">★</span><span class="star lit">★</span>
+              <span class="star lit">★</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Кнопки -->
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeMemberModal()">Закрыть</button>
+        <button class="btn btn-primary" onclick="closeMemberModal()">✉️ Написать</button>
+      </div>
+
+    </div><!-- /.modal-box -->
+  </div><!-- /.modal-backdrop -->
+
+
+  <script>
+    /* ═══════════════════════════════════════
+       ПУБЛИЧНОЕ API модального окна
+       Используйте из родительской страницы:
+         openMemberModal(data)
+         closeMemberModal()
+    ═══════════════════════════════════════ */
+
+    /** Открыть модальное окно.
+     *  @param {Object} [data] — опциональные данные участника
+     *  data.name        {string}  имя персонажа
+     *  data.online      {boolean} онлайн?
+     *  data.rank        {string}  звание (Офицер, Лидер, Участник…)
+     *  data.level       {number}  уровень
+     *  data.cp          {string}  боевая мощь
+     *  data.contrib     {string}  вклад за неделю
+     *  data.contribPct  {number}  % заполнения полосы (0–100)
+     */
+    function openMemberModal(data = {}) {
+      if (data.name)
+        document.getElementById('modal-char-name').textContent = data.name.toUpperCase();
+
+      if (data.online !== undefined) {
+        const dot = document.querySelector('.status-dot');
+        const lbl = document.querySelector('.status-badge');
+        dot.style.background = data.online ? 'var(--green)' : 'var(--muted-deep)';
+        dot.style.boxShadow  = data.online ? '0 0 6px var(--green)' : 'none';
+        lbl.childNodes[lbl.childNodes.length - 1].textContent = data.online ? ' В сети' : ' Офлайн';
+      }
+      if (data.rank)
+        document.querySelector('.rank-badge').textContent = data.rank;
+      if (data.level)
+        document.querySelectorAll('.stat-value')[0].textContent = data.level;
+      if (data.cp)
+        document.querySelectorAll('.stat-value')[1].innerHTML =
+          `<span style="color:var(--gold-bright)">${data.cp}</span> <em>(GvG)</em>`;
+      if (data.contrib)
+        document.querySelectorAll('.stat-value')[2].innerHTML =
+          `${data.contrib} <em>/ 200k</em>`;
+      if (data.contribPct !== undefined)
+        document.querySelector('.contrib-bar-fill').style.width = data.contribPct + '%';
+
+      const backdrop = document.getElementById('memberModal');
+      backdrop.style.display = 'flex';
+      requestAnimationFrame(() => backdrop.classList.add('visible'));
+    }
+
+    function closeMemberModal() {
+      const backdrop = document.getElementById('memberModal');
+      backdrop.classList.remove('visible');
+      backdrop.addEventListener('transitionend', () => {
+        backdrop.style.display = 'none';
+      }, { once: true });
+    }
+
+    /* Закрытие по клику вне окна */
+    document.getElementById('memberModal').addEventListener('click', function(e) {
+      if (e.target === this) closeMemberModal();
+    });
+
+    /* Закрытие по Escape */
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeMemberModal();
+    });
+
+    /* ── Для демонстрации: открываем сразу ── */
+    window.addEventListener('DOMContentLoaded', () => openMemberModal());
+
+    /* ═══════════════════════════════════════
+       КАК ВЫЗВАТЬ С ДРУГОЙ СТРАНИЦЫ
+       ───────────────────────────────────────
+       Вариант 1 — iframe (рекомендуется):
+       ──────────────────────────────────────
+       const frame = document.getElementById('modalFrame');
+       frame.src = 'guild_member_modal.html';
+       frame.onload = () => {
+         frame.contentWindow.openMemberModal({
+           name: 'ЛИРА СВЕТА',
+           online: true,
+           rank: 'Офицер',
+           level: 92,
+           cp: '585,000',
+           contrib: '25k',
+           contribPct: 12.5
+         });
+       };
+
+       Вариант 2 — динамический import скрипта в родительской странице:
+       Скопируйте стили и разметку .modal-backdrop в ваш HTML,
+       подключите этот файл как <script type="module"> и вызывайте
+       openMemberModal(data) напрямую.
+    ═══════════════════════════════════════ */
+  </script>
+
+</body>
+</html>
