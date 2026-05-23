@@ -41,6 +41,7 @@ from waifu_bot.game.monster_affix_behavior import media_type_matches_immune
 from waifu_bot.game.formulas import (
     blend_rarity_weights_with_magic_find,
     build_message_damage_base_trace_ru,
+    calculate_armor_damage_reduction,
     calculate_crit_chance,
     calculate_dodge_chance,
     calculate_damage_reduction,
@@ -78,6 +79,7 @@ from waifu_bot.services.combat_contributions import (
     collect_all_dmg_reduce_contribs,
     collect_armor_slot_contribs,
     collect_evade_chance_contribs,
+    collect_passive_armor_flat_contribs,
     collect_passive_armor_pct_contribs,
 )
 from waifu_bot.services.combat_damage_trace import (
@@ -112,6 +114,26 @@ async def clear_solo_battle_log(session: AsyncSession, player_id: int, dungeon_i
             BattleLog.dungeon_id == int(dungeon_id),
         )
     )
+
+
+TOTAL_INCOMING_REDUCE_CAP = 0.90
+
+
+def compute_incoming_damage_after_mitigation(
+    raw_in: int,
+    armor_total: float,
+    waifu_level: int,
+    end_reduce: float,
+    sec_reduce: float,
+) -> tuple[float, float, int]:
+    """Возвращает (armor_dr, total_reduce, damage_after_mitigation)."""
+    armor_dr = float(calculate_armor_damage_reduction(armor_total, waifu_level))
+    total_reduce = min(
+        TOTAL_INCOMING_REDUCE_CAP,
+        max(0.0, float(end_reduce) + float(sec_reduce) + armor_dr),
+    )
+    dmg_after_mit = max(1, int(round(int(raw_in) * (1.0 - total_reduce))))
+    return armor_dr, total_reduce, dmg_after_mit
 
 
 async def maybe_unlock_secret_echo_boss(session: AsyncSession, player_id: int) -> None:
@@ -998,9 +1020,13 @@ class CombatService:
                     calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_blk_r)
                 )
                 sec_reduce_r = float(sec_r.get("dmg_reduce_pct", 0.0) or 0.0)
-                total_reduce_r = min(0.90, max(0.0, end_reduce_r + sec_reduce_r))
-                dmg_after_armor_r = max(1, int(raw_refl) - int(armor_tr))
-                reflect_damage_taken = max(1, int(round(dmg_after_armor_r * (1.0 - total_reduce_r))))
+                _, total_reduce_r, reflect_damage_taken = compute_incoming_damage_after_mitigation(
+                    raw_refl,
+                    armor_tr,
+                    int(getattr(waifu, "level", 1) or 1),
+                    end_reduce_r,
+                    sec_reduce_r,
+                )
                 hp_w_b = int(waifu.current_hp or 0)
                 waifu.current_hp = max(0, hp_w_b - reflect_damage_taken)
                 run.waifu_hp_lost = int(run.waifu_hp_lost or 0) + reflect_damage_taken
@@ -1133,15 +1159,18 @@ class CombatService:
                     incoming = int(monster.damage or 0)  # type: ignore[union-attr]
                 sec = await self._get_waifu_armor_and_secondary(session, int(player_id))
                 armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
-                from waifu_bot.game.formulas import calculate_damage_reduction
                 msf_blk = int(ps.get("main_stats_flat", 0) or 0)
                 end_reduce = float(
                     calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_blk)
                 )
                 sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
-                total_reduce = min(0.90, max(0.0, end_reduce + sec_reduce))
-                dmg_after_armor = max(1, int(incoming) - int(armor_total))
-                dmg_taken = max(1, int(round(dmg_after_armor * (1.0 - total_reduce))))
+                _, total_reduce, dmg_taken = compute_incoming_damage_after_mitigation(
+                    incoming,
+                    armor_total,
+                    int(getattr(waifu, "level", 1) or 1),
+                    end_reduce,
+                    sec_reduce,
+                )
                 if int(getattr(waifu, "current_hp", 0) or 0) <= int(dmg_taken):
                     # revert to 1 HP remaining
                     monster_hp_after = 1
@@ -1354,6 +1383,7 @@ class CombatService:
                 session, player_id, waifu, main_stats_flat=msf
             ),
             "armor_slot_contribs": await collect_armor_slot_contribs(session, player_id),
+            "passive_armor_flat_contribs": await collect_passive_armor_flat_contribs(session, player_id),
             "passive_armor_pct_contribs": await collect_passive_armor_pct_contribs(session, player_id),
             "evade_contribs": await collect_evade_chance_contribs(
                 session, player_id, waifu, eff_agility=int(eff_agility), eff_luck=int(eff_luck)
@@ -1497,6 +1527,9 @@ class CombatService:
             pass
         try:
             psb = await get_passive_skill_bonuses(session, player_id)
+            af = int(psb.get("armor_flat", 0) or 0)
+            if af > 0:
+                bonuses["armor_total"] = float(bonuses["armor_total"]) + float(af)
             ap = float(psb.get("armor_pct", 0) or 0)
             if ap > 0:
                 bonuses["armor_total"] = float(bonuses["armor_total"]) * (1.0 + ap)
@@ -1599,11 +1632,9 @@ class CombatService:
         gold_mult = 1.0 + float(sec.get("gold_bonus_pct", 0.0) or 0.0)
         armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
         ps_cl = await get_passive_skill_bonuses(session, int(waifu.player_id))
-        from waifu_bot.game.formulas import calculate_damage_reduction
         msf_cl = int(ps_cl.get("main_stats_flat", 0) or 0)
         end_reduce = float(calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_cl))
         sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
-        total_reduce = min(0.90, max(0.0, end_reduce + sec_reduce))
 
         hs_cl = await get_hidden_skill_bonuses(session, int(waifu.player_id))
 
@@ -1639,8 +1670,13 @@ class CombatService:
         # Basic monster retaliation
         hp_before_incoming = int(waifu.current_hp or 0)
         raw_in = int(monster.damage)
-        dmg_after_armor = max(1, raw_in - int(armor_total))
-        dmg_after_mit = max(1, int(round(dmg_after_armor * (1.0 - total_reduce))))
+        armor_dr, total_reduce, dmg_after_mit = compute_incoming_damage_after_mitigation(
+            raw_in,
+            armor_total,
+            int(getattr(waifu, "level", 1) or 1),
+            end_reduce,
+            sec_reduce,
+        )
         dmg_taken = dmg_after_mit
         fa_c = float(hs_cl.get("final_armor_pct", 0) or 0)
         dmg_after_fa = dmg_taken
@@ -1701,7 +1737,8 @@ class CombatService:
         _inc_br = build_incoming_damage_breakdown_ru(
             raw_monster_damage=raw_in,
             armor_total=int(armor_total),
-            damage_after_armor=dmg_after_armor,
+            armor_dr=armor_dr,
+            waifu_level=int(getattr(waifu, "level", 1) or 1),
             total_reduce=total_reduce,
             damage_after_mitigation=dmg_after_mit,
             final_armor_pct=fa_c,
@@ -1713,6 +1750,7 @@ class CombatService:
             final_damage_taken=int(dmg_taken),
             dmg_reduce_contribs=_inc_ctx.get("dmg_reduce_contribs"),
             armor_slot_contribs=_inc_ctx.get("armor_slot_contribs"),
+            passive_armor_flat_contribs=_inc_ctx.get("passive_armor_flat_contribs"),
             passive_armor_pct_contribs=_inc_ctx.get("passive_armor_pct_contribs"),
             evade_contribs=_inc_ctx.get("evade_contribs"),
         )
@@ -1873,20 +1911,8 @@ class CombatService:
             except Exception:
                 pass
 
-            from waifu_bot.services.solo_battle_log_dm import (
-                prepare_solo_battle_log_dm_messages,
-                send_solo_battle_log_dm,
-            )
-
-            _dm_log = await prepare_solo_battle_log_dm_messages(
-                session,
-                int(waifu.player_id),
-                int(progress.dungeon_id),
-                str(dungeon.name if dungeon else ""),
-            )
             await clear_solo_battle_log(session, int(waifu.player_id), int(progress.dungeon_id))
             await session.commit()
-            await send_solo_battle_log_dm(int(waifu.player_id), _dm_log)
             out_legacy = {
                 "monster_defeated": True,
                 "dungeon_completed": True,
@@ -1934,11 +1960,9 @@ class CombatService:
         exp_mult = 1.0 + float(sec.get("exp_bonus_pct", 0.0) or 0.0)
         gold_mult = 1.0 + float(sec.get("gold_bonus_pct", 0.0) or 0.0)
         armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
-        from waifu_bot.game.formulas import calculate_damage_reduction
         msf_run = int(ps_run.get("main_stats_flat", 0) or 0)
         end_reduce = float(calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_run))
         sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
-        total_reduce = min(0.90, max(0.0, end_reduce + sec_reduce))
 
         hs = await get_hidden_skill_bonuses(session, pid)
         if run_monster.is_boss:
@@ -2050,8 +2074,13 @@ class CombatService:
                     raw_in = max(1, int(round(raw_in * _dbm)))
             except Exception:
                 pass
-        dmg_after_armor = max(1, raw_in - int(armor_total))
-        dmg_after_mit = max(1, int(round(dmg_after_armor * (1.0 - total_reduce))))
+        armor_dr, total_reduce, dmg_after_mit = compute_incoming_damage_after_mitigation(
+            raw_in,
+            armor_total,
+            int(getattr(waifu, "level", 1) or 1),
+            end_reduce,
+            sec_reduce,
+        )
         dmg_taken = dmg_after_mit
         fa = float(hs.get("final_armor_pct", 0) or 0)
         dmg_after_fa = dmg_taken
@@ -2109,7 +2138,8 @@ class CombatService:
         _inc_br = build_incoming_damage_breakdown_ru(
             raw_monster_damage=raw_in,
             armor_total=int(armor_total),
-            damage_after_armor=dmg_after_armor,
+            armor_dr=armor_dr,
+            waifu_level=int(getattr(waifu, "level", 1) or 1),
             total_reduce=total_reduce,
             damage_after_mitigation=dmg_after_mit,
             final_armor_pct=fa,
@@ -2121,6 +2151,7 @@ class CombatService:
             final_damage_taken=int(dmg_taken),
             dmg_reduce_contribs=_inc_ctx.get("dmg_reduce_contribs"),
             armor_slot_contribs=_inc_ctx.get("armor_slot_contribs"),
+            passive_armor_flat_contribs=_inc_ctx.get("passive_armor_flat_contribs"),
             passive_armor_pct_contribs=_inc_ctx.get("passive_armor_pct_contribs"),
             evade_contribs=_inc_ctx.get("evade_contribs"),
         )
@@ -2395,20 +2426,8 @@ class CombatService:
             except Exception:
                 pass
 
-            from waifu_bot.services.solo_battle_log_dm import (
-                prepare_solo_battle_log_dm_messages,
-                send_solo_battle_log_dm,
-            )
-
-            _dm_log = await prepare_solo_battle_log_dm_messages(
-                session,
-                pid,
-                int(run.dungeon_id),
-                str(dungeon.name if dungeon else ""),
-            )
             await clear_solo_battle_log(session, pid, int(run.dungeon_id))
             await session.commit()
-            await send_solo_battle_log_dm(pid, _dm_log)
             out_run = {
                 "monster_defeated": True,
                 "dungeon_completed": True,

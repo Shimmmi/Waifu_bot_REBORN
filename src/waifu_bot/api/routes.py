@@ -41,6 +41,7 @@ from waifu_bot.services.expedition_events_ai import (
     generate_main_waifu_bio,
     generate_main_waifu_paperdoll_from_portrait,
     generate_main_waifu_portrait,
+    pick_paperdoll_pose_for_equipment,
 )
 from waifu_bot.services.narrative import build_narrative_prompt_context
 from waifu_bot.services.starter_gear import grant_main_waifu_starter_gear
@@ -67,6 +68,7 @@ from waifu_bot.api.tavern_routes import router as tavern_router
 from waifu_bot.api.dungeon_routes import router as dungeon_router
 from waifu_bot.api.skill_routes import router as skill_router
 from waifu_bot.api.mail_routes import router as mail_router
+from waifu_bot.api.chat_rewards_routes import router as chat_rewards_router
 from waifu_bot.api.tutorial_routes import router as tutorial_router
 
 logger = logging.getLogger(__name__)
@@ -80,6 +82,7 @@ router.include_router(tavern_router)
 router.include_router(dungeon_router)
 router.include_router(skill_router)
 router.include_router(mail_router)
+router.include_router(chat_rewards_router)
 router.include_router(tutorial_router)
 
 # Вторичные бонусы с предметов (шаблон + зачарование) и аффиксы с effect_key *_pct.
@@ -1332,6 +1335,24 @@ class PaperdollEquipmentContext:
     prompt_text: str
     item_references: list[tuple[str, str]]
     avg_tier: float
+    pose_hint_en: str
+
+
+def _paperdoll_equipped_slots_summary(
+    equipped: list[m.InventoryItem],
+    gear_items: list[schemas.GearItemOut],
+) -> dict[int, dict[str, str]]:
+    """Slot index (1–6) → slot_type / weapon_type for pose selection."""
+    out: dict[int, dict[str, str]] = {}
+    for inv, g in zip(equipped, gear_items):
+        sl = int(inv.equipment_slot or 0)
+        if sl < 1:
+            continue
+        out[sl] = {
+            "slot_type": str(g.slot_type or inv.slot_type or "").strip().lower(),
+            "weapon_type": str(g.weapon_type or inv.weapon_type or "").strip().lower(),
+        }
+    return out
 
 
 async def _build_paperdoll_equipment_context(
@@ -1350,13 +1371,17 @@ async def _build_paperdoll_equipment_context(
     )
     equipped = list(result.scalars().all())
     if not equipped:
+        pose_hint = pick_paperdoll_pose_for_equipment({})
+        prompt = (
+            "Equipment state: no armor or weapons are currently equipped in the game. "
+            "Use simple light adventurer base clothing appropriate to the class; avoid inventing heavy unrelated armor."
+            f"\nPose requirement: {pose_hint}. Rebuild arm positions for this pose; do not inherit arm positions from the portrait."
+        )
         return PaperdollEquipmentContext(
-            prompt_text=(
-                "Equipment state: no armor or weapons are currently equipped in the game. "
-                "Use simple light adventurer base clothing appropriate to the class; avoid inventing heavy unrelated armor."
-            ),
+            prompt_text=prompt,
             item_references=[],
             avg_tier=1.0,
+            pose_hint_en=pose_hint,
         )
 
     await _enrich_items_with_template_stats(session, equipped)
@@ -1406,11 +1431,20 @@ async def _build_paperdoll_equipment_context(
     lines.append(
         "Respect weapon grip for main/off hand; body slot shows armor or outfit; rings and amulet as visible jewelry when applicable."
     )
+    lines.append(
+        "Main hand: primary weapon grip only. Off hand: at most one secondary item (shield, orb, or weapon) OR empty — never a third arm."
+    )
+    equipped_slots = _paperdoll_equipped_slots_summary(equipped, gear_items)
+    pose_hint = pick_paperdoll_pose_for_equipment(equipped_slots)
+    lines.append(
+        f"Pose requirement: {pose_hint}. Rebuild arm positions for this pose; do not inherit arm positions from the portrait."
+    )
     avg_tier = tier_sum / tier_count if tier_count else 1.0
     return PaperdollEquipmentContext(
         prompt_text="\n".join(lines),
         item_references=item_references,
         avg_tier=avg_tier,
+        pose_hint_en=pose_hint,
     )
 
 
@@ -1451,6 +1485,7 @@ async def _run_paperdoll_generation_save(
         equipment_prompt_en=equip_ctx.prompt_text,
         equipment_references=equip_ctx.item_references,
         avg_equipment_tier=equip_ctx.avg_tier,
+        pose_hint_en=equip_ctx.pose_hint_en,
     )
     if not b64:
         raise HTTPException(
@@ -1920,16 +1955,38 @@ async def _expedition_squad_snapshot(session: AsyncSession, player_id: int, squa
 
 @router.get("/expeditions/catalog", tags=["expeditions"])
 async def expeditions_catalog(session: AsyncSession = Depends(get_db)):
-    """v1.3: базовые локации + аффиксы из БД + допустимые длительности (без дневных слотов)."""
+    """v1.3: архетипы локаций, режимы, аффиксы из БД + допустимые длительности."""
     from waifu_bot.game.constants import EXPEDITION_MAX_CONCURRENT, EXPEDITION_V13_DURATIONS
     from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
+    from waifu_bot.game.expedition_narrative_catalog import EXPEDITION_LOCATION_ARCHETYPES, EXPEDITION_MODES
     from waifu_bot.game.expedition_redesign import affix_display_icon
-    from waifu_bot.services.expedition import BASE_LOCATIONS
 
     stmt = select(m.ExpeditionAffix).order_by(m.ExpeditionAffix.id)
     rows = list((await session.execute(stmt)).scalars().all())
     return {
-        "locations": [{"name": n, "biome_tag": b, "weight": w} for n, b, w in BASE_LOCATIONS],
+        "location_archetypes": [
+            {
+                "id": a.id,
+                "name": a.name_ru,
+                "biome_tag": a.biome_tag,
+                "weight": a.weight,
+                "narrative_hints": list(a.narrative_hints),
+            }
+            for a in EXPEDITION_LOCATION_ARCHETYPES
+        ],
+        "expedition_modes": [
+            {
+                "id": m.id,
+                "name": m.name_ru,
+                "weight": m.weight,
+                "narrative_focus": m.narrative_focus,
+            }
+            for m in EXPEDITION_MODES
+        ],
+        "locations": [
+            {"name": a.name_ru, "biome_tag": a.biome_tag, "weight": a.weight, "id": a.id}
+            for a in EXPEDITION_LOCATION_ARCHETYPES
+        ],
         "affixes": [
             {
                 "id": a.id,
@@ -2012,6 +2069,7 @@ async def expeditions_slots(
     from waifu_bot.game.expedition_perk_resolve import normalize_expedition_paired_perk_ids
     from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
     from waifu_bot.game.expedition_redesign import affix_display_icon, biome_emoji_for_tag, union_challenge_categories_from_db_affix_rows
+    from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
     from waifu_bot.services.expedition import _slot_required_perks, slot_active_tags
     # Сложность: из slot.difficulty (аффиксы) или по номеру слота (старые слоты)
     def _diff_label(d: int | None, sn: int) -> tuple[int, str]:
@@ -2062,6 +2120,8 @@ async def expeditions_slots(
                     difficulty_tags=aff_tags,
                 ))
         bt = getattr(s, "biome_tag", None)
+        arch = archetype_for_id(getattr(s, "location_archetype_id", None))
+        mode = mode_for_id(getattr(s, "expedition_mode_id", None))
         out_slots.append(
             schemas.ExpeditionSlotOut(
                 id=s.id,
@@ -2083,6 +2143,10 @@ async def expeditions_slots(
                 base_experience=int(s.base_experience),
                 trial=getattr(s, "trial", False),
                 is_used=(s.id in used_slot_ids),
+                location_archetype_id=getattr(s, "location_archetype_id", None),
+                location_archetype_name=arch.name_ru if arch else getattr(s, "base_location", None),
+                expedition_mode_id=getattr(s, "expedition_mode_id", None),
+                expedition_mode_name=mode.name_ru if mode else None,
             )
         )
     return schemas.ExpeditionSlotsResponse(
@@ -2107,6 +2171,7 @@ async def expeditions_active(
     from datetime import datetime, timezone
 
     from waifu_bot.game.expedition_redesign import biome_emoji_for_tag
+    from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
 
     active_list = await expedition_service.get_active(session, player_id)
     out = []
@@ -2121,6 +2186,12 @@ async def expeditions_active(
         affixes = await _expedition_active_affixes(session, a)
         squad_snap = await _expedition_squad_snapshot(session, player_id, list(a.squad_waifu_ids or []))
         prog = _expedition_active_progress_pct(a, now)
+        arch = archetype_for_id(getattr(a, "location_archetype_id", None))
+        mode = mode_for_id(getattr(a, "expedition_mode_id", None))
+        brief = getattr(a, "narrative_brief", None) or {}
+        narrative_title = None
+        if isinstance(brief, dict) and brief.get("title"):
+            narrative_title = str(brief["title"])
         out.append(
             schemas.ExpeditionActiveOut(
                 id=a.id,
@@ -2146,6 +2217,11 @@ async def expeditions_active(
                 events_total=int(getattr(a, "events_total", None) or 0),
                 progress_pct=prog,
                 squad_snapshot=squad_snap,
+                location_archetype_id=getattr(a, "location_archetype_id", None),
+                location_archetype_name=arch.name_ru if arch else None,
+                expedition_mode_id=getattr(a, "expedition_mode_id", None),
+                expedition_mode_name=mode.name_ru if mode else None,
+                narrative_title=narrative_title,
             )
         )
     return schemas.ExpeditionActiveResponse(active=out)
@@ -2314,6 +2390,9 @@ async def expeditions_start(
                 )]
             ])
             await bot.send_message(chat_id=player_id, text=text, reply_markup=keyboard)
+            intro = result.get("start_intro_narrative")
+            if intro:
+                await bot.send_message(chat_id=player_id, text=intro)
         except Exception:
             logger.exception("Expedition start DM to player_id=%s failed", player_id)
     return schemas.ExpeditionStartResponse(**result)

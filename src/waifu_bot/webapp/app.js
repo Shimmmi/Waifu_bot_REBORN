@@ -27,6 +27,9 @@ const DUNGEONS_STATIC_BASE = `${GAME_STATIC_BASE}/dungeons`;
 const SHOP_STATIC_BASE = `${GAME_STATIC_BASE}/ui/shop`;
 const TAVERN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/tavern`;
 const EXPEDITION_BIOMES_BASE = `${GAME_STATIC_BASE}/expeditions/biomes`;
+const EXPEDITION_ARCHETYPES_BASE = `${GAME_STATIC_BASE}/expeditions/archetypes`;
+/** Cache-bust для свежесгенерированных артов архетипов (archetype_id -> v). */
+const expeditionArchetypeArtVersion = {};
 /** Имена файлов в `static/game/ui/tavern/audio/` (добавьте MP3 на сервер). */
 const TAVERN_BGM_TRACKS = ["tavern-01.mp3", "tavern-02.mp3", "tavern-03.mp3"];
 
@@ -214,6 +217,32 @@ const MONSTER_FAMILY_LABELS_RU = {
   slime: "слизней",
   undead: "нежити",
 };
+
+const MONSTER_FAMILY_TYPE_LABELS_RU = {
+  beast: "Зверь",
+  construct: "Конструкт",
+  demon: "Демон",
+  dragon: "Дракон",
+  elemental: "Элементаль",
+  fae: "Фея",
+  humanoid: "Гуманоид",
+  slime: "Слизь",
+  undead: "Нежить",
+};
+
+function formatMonsterTypeLabelRu(raw) {
+  const s = String(raw || "").trim();
+  if (!s || s === "—") return "";
+  const low = s.toLowerCase();
+  if (MONSTER_FAMILY_TYPE_LABELS_RU[low]) return MONSTER_FAMILY_TYPE_LABELS_RU[low];
+  if (/[а-яё]/i.test(s)) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function setSoloExitBtnVisible(visible) {
+  const btn = document.getElementById("solo-exit-btn");
+  if (btn) btn.style.display = visible ? "" : "none";
+}
 
 function passiveNodeDisplayNameRu(nodeId) {
   const id = String(nodeId || "").trim();
@@ -818,7 +847,8 @@ function totalExpForLevel(level) {
 function renderAtticDungeon(active) {
   const chip = document.getElementById("attic-dungeon-chip");
   const label = document.getElementById("attic-dungeon-label");
-  const stagesEl = document.getElementById("attic-dungeon-stages");
+  const progressWrap = document.getElementById("attic-dungeon-progress");
+  const progressFill = document.getElementById("attic-dungeon-progress-fill");
   if (!chip || !label) return;
   if (active?.active) {
     const hpPct = active.monster_max_hp > 0
@@ -830,7 +860,7 @@ function renderAtticDungeon(active) {
     chip.classList.remove("chip-ghost");
     chip.classList.add("chip-active");
 
-    if (stagesEl) {
+    if (progressWrap && progressFill) {
       const curStage = Math.max(
         1,
         Math.floor(Number(
@@ -851,21 +881,20 @@ function renderAtticDungeon(active) {
           4
         ) || 4),
       );
-      const safeTotal = Math.min(8, totalStages); // avoid ultra-long headers
-      const safeCur = Math.max(1, Math.min(safeTotal, curStage));
-
-      let html = "";
-      for (let i = 1; i <= safeTotal; i += 1) {
-        const state = i < safeCur ? "done" : i === safeCur ? "active" : "pending";
-        html += `<span class="attic-stage-pixel attic-stage-pixel--${state}" aria-hidden="true"></span>`;
-      }
-      stagesEl.innerHTML = html;
+      const hpFrac = active.monster_max_hp > 0
+        ? 1 - clamp01(active.monster_current_hp / active.monster_max_hp)
+        : 0;
+      const pct = Math.max(0, Math.min(100, ((curStage - 1 + hpFrac) / totalStages) * 100));
+      progressFill.style.width = `${pct}%`;
+      progressWrap.setAttribute("aria-label", `Прогресс: ${curStage}/${totalStages}`);
+      progressWrap.hidden = false;
     }
   } else {
     label.textContent = "Нет боя";
     chip.classList.add("chip-ghost");
     chip.classList.remove("chip-active");
-    if (stagesEl) stagesEl.innerHTML = "";
+    if (progressWrap) progressWrap.hidden = true;
+    if (progressFill) progressFill.style.width = "0%";
   }
 }
 
@@ -3691,6 +3720,7 @@ function safeInt(x, fallback = 0) {
 
 let dungeonsFinishBlockedMsg = null;
 let soloActiveMonsterTemplateId = null;
+let soloActiveStoryBossId = null;
 
 function showDungeonsError(message, kind = "info") {
   const box = document.getElementById("dungeons-error");
@@ -3997,7 +4027,7 @@ function mountSoloBattleLog(entries) {
     return;
   }
   host.style.display = "";
-  host.innerHTML = `<div class="solo-battle-log-root"><div class="solo-battle-log-inner">${buildSoloBattleLogHtml(list)}</div></div>`;
+  host.innerHTML = `<details class="solo-battle-log-root"><summary class="solo-battle-log-root-sum">Журнал боя (${list.length})</summary><div class="solo-battle-log-inner">${buildSoloBattleLogHtml(list)}</div></details>`;
 }
 
 function onMonsterImageError(img) {
@@ -4037,8 +4067,15 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
     }
   }
 
-  setText("monster-name-text", (monster.emoji ? monster.emoji + " " : "") + (monster.name ?? "—"));
+  setText("monster-name-text", monster.name ?? "—");
   setText("monster-name-level", `Ур. ${monster.level ?? "—"}`);
+
+  const typeEl = document.getElementById("monster-name-type");
+  const typeLabel = formatMonsterTypeLabelRu(monster.monster_type);
+  if (typeEl) {
+    typeEl.textContent = typeLabel;
+    typeEl.style.display = typeLabel ? "block" : "none";
+  }
 
   const emojiEl = document.getElementById("monster-emoji");
   if (emojiEl) emojiEl.textContent = monster.emoji ?? "👾";
@@ -4102,13 +4139,21 @@ function renderSoloActiveProgress(active) {
 
   if (!active?.active) {
     soloActiveMonsterTemplateId = null;
+    soloActiveStoryBossId = null;
     host.style.display = "none";
     list.style.display = "";
+    setSoloExitBtnVisible(false);
     return;
   }
 
   soloActiveMonsterTemplateId =
     active.monster_template_id != null ? Number(active.monster_template_id) : null;
+  soloActiveStoryBossId =
+    active.is_story_boss && active.story_boss?.id != null
+      ? Number(active.story_boss.id)
+      : active.story_boss_definition_id != null
+        ? Number(active.story_boss_definition_id)
+        : null;
 
   const hpCur = safeNumber(active.monster_current_hp, 0);
   const hpMax = Math.max(1, safeNumber(active.monster_max_hp, 1));
@@ -4124,6 +4169,7 @@ function renderSoloActiveProgress(active) {
   window._lastSoloCrit = lastCrit;
   window._lastSoloDealt = dealt;
 
+  const storyBossImg = active.story_boss?.image_webp_path || null;
   const monster = {
     name: active.monster_name,
     level: active.monster_level,
@@ -4133,12 +4179,13 @@ function renderSoloActiveProgress(active) {
     slug: active.monster_slug || "unknown",
     tier: active.monster_tier ?? 1,
     has_image: active.monster_has_image === true,
-    image_override: active.monster_image_override || null,
+    image_override: active.monster_image_override || storyBossImg || null,
     emoji: active.monster_emoji || "👾",
     is_boss: active.is_boss === true,
     is_elite: active.is_elite === true,
     affix_count: active.affix_count ?? 0,
     affixes: Array.isArray(active.affixes) ? active.affixes : [],
+    monster_type: active.monster_type || active.monster_family || "",
   };
   const dungeon = {
     name: active.dungeon_name,
@@ -4158,6 +4205,7 @@ function renderSoloActiveProgress(active) {
   if (fallback) fallback.style.display = "none";
   renderSoloBattleCard(monster, dungeon, waifu);
   mountSoloBattleLog(active.battle_log_entries || []);
+  setSoloExitBtnVisible(true);
 }
 
 function renderSoloActiveFallback(reason) {
@@ -4188,6 +4236,7 @@ function renderSoloActiveFallback(reason) {
       </div>
     `;
   }
+  setSoloExitBtnVisible(true);
 }
 
 async function refreshSoloActive() {
@@ -4879,14 +4928,14 @@ function updateSmithSelectionUI() {
   const lbl = document.getElementById("shop-smith-selected-label");
   const btn = document.getElementById("shop-smith-enchant-btn");
   if (wrap) {
-    wrap.innerHTML = it ? itemArtHtml(it) : '<span class="muted">—</span>';
+    wrap.innerHTML = it ? itemArtHtml(it) : "⚒";
   }
   if (lbl) {
     if (it) {
       lbl.innerHTML = composeItemDisplayName(it);
       lbl.classList.remove("muted");
     } else {
-      lbl.textContent = "выбор предмета";
+      lbl.textContent = "Выберите предмет";
       lbl.classList.add("muted");
     }
   }
@@ -5290,7 +5339,7 @@ function createGdDungeonCard(dungeon) {
     <div class="dungeon-monster">
       <span class="monster-name">${escapeHtml(dungeon.monster_name || "—")}</span>
       <div class="hp-bar">
-        <div class="hp-fill" style="width: ${hpBarWidth}"></div>
+        <div class="hp-fill hp-fill-monster" style="width: ${hpBarWidth}"></div>
       </div>
       <div class="hp-text">${Number(dungeon.hp_current || 0).toLocaleString()} / ${Number(dungeon.hp_max || 0).toLocaleString()}</div>
     </div>
@@ -5362,7 +5411,7 @@ function renderDungeonDetails(dungeon) {
           <div class="monster-info">
             <span class="monster-name">${escapeHtml(dungeon.monster_name || "—")}</span>
             <div class="hp-bar-large">
-              <div class="hp-fill" style="width: ${dungeon.hp_percent || 0}%"></div>
+              <div class="hp-fill hp-fill-monster" style="width: ${dungeon.hp_percent || 0}%"></div>
             </div>
             <div class="hp-stats">
               <span>${Number(dungeon.hp_current || 0).toLocaleString()} / ${Number(dungeon.hp_max || 0).toLocaleString()} HP</span>
@@ -5509,33 +5558,39 @@ async function updateGdSessionUI() {
       const hpPct = Math.max(0, Math.min(100, Number(v1.hp_percent) || 0));
       const waveLine =
         v1.status === "active"
-          ? `<div class="muted tiny">Волна: ${escapeHtml(gdV1WaveLabelRu(v1.wave))}</div>`
+          ? `<div class="gd-session-meta muted tiny">Волна: ${escapeHtml(gdV1WaveLabelRu(v1.wave))}</div>`
           : "";
       const deadlineLine =
         deadline != null
-          ? `<div class="muted tiny">Дедлайн сбора раунда: ${escapeHtml(deadline)}</div>`
+          ? `<div class="gd-session-meta muted tiny">Дедлайн сбора раунда: ${escapeHtml(deadline)}</div>`
           : "";
       const hpBlock =
         v1.status === "active"
-          ? `<div class="gd-session-monster" style="margin-top:8px;">
+          ? `<div class="gd-session-hp-block">
+          <div class="gd-session-monster">
           <span id="gd-session-monster-name">${escapeHtml(v1.monster_name || "—")}</span>
           <span id="gd-session-hp">${Number(v1.hp_current || 0).toLocaleString()} / ${Number(v1.hp_max || 0).toLocaleString()}</span>
         </div>
-        <div class="gd-session-hp-bar"><div id="gd-session-hp-fill" class="gd-hp-fill" style="width:${hpPct}%"></div></div>`
+        <div class="gd-session-hp-bar"><div id="gd-session-hp-fill" class="gd-hp-fill hp-fill-monster" style="width:${hpPct}%"></div></div>
+        </div>`
           : "";
       card.innerHTML = `
-        <h3 class="gd-session-title" id="gd-session-dungeon-name">${title}</h3>
-        <div class="muted tiny" style="margin:6px 0;">${escapeHtml(st)}</div>
-        <div class="muted tiny">Регистрация до: ${escapeHtml(closes)}</div>
+        <div class="gd-session-head">
+          <h3 class="gd-session-title" id="gd-session-dungeon-name">${title}</h3>
+          <div class="gd-session-meta muted tiny">${escapeHtml(st)}</div>
+          <div class="gd-session-meta muted tiny">Регистрация до: ${escapeHtml(closes)}</div>
+        </div>
+        <div class="gd-session-body">
         ${
           v1.status === "active"
-            ? `<div class="muted tiny" style="margin-top:6px;">В журнале записан раунд: <strong>${lastR}</strong> · сбор на раунд: <strong>${coll}</strong></div>
+            ? `<div class="gd-session-meta gd-session-meta--spaced muted tiny">В журнале записан раунд: <strong>${lastR}</strong> · сбор на раунд: <strong>${coll}</strong></div>
         ${waveLine}
         ${deadlineLine}
         ${hpBlock}`
             : ""
         }
-        <p class="muted tiny" style="margin-top:8px;">Команда в чате: <code>/gd_join</code>. Сообщения в чат попадают в буфер текущего раунда; закрытие по таймеру (~30 мин) или админ-команде.</p>
+        </div>
+        <p class="gd-session-foot muted tiny">Команда в чате: <code>/gd_join</code>. Сообщения в чат попадают в буфер текущего раунда; закрытие по таймеру (~30 мин) или админ-команде.</p>
       `;
       return;
     }
@@ -5629,15 +5684,25 @@ function normalizeBiomeTag(tag) {
     .replace(/-/g, "_");
 }
 
-function biomeImageUrls(tag) {
-  const key = normalizeBiomeTag(tag);
+function biomeImageUrls(tag, archetypeId) {
   const urls = [];
+  const archKey = String(archetypeId || "")
+    .trim()
+    .toLowerCase()
+    .replace(/ /g, "_")
+    .replace(/-/g, "_");
+  if (archKey) {
+    const v = expeditionArchetypeArtVersion[archKey];
+    const q = v ? `?v=${encodeURIComponent(v)}` : "";
+    urls.push(`${EXPEDITION_ARCHETYPES_BASE}/${encodeURIComponent(archKey)}.webp${q}`);
+  }
+  const key = normalizeBiomeTag(tag);
   if (key) urls.push(`${EXPEDITION_BIOMES_BASE}/${encodeURIComponent(key)}.webp`);
   urls.push(`${EXPEDITION_BIOMES_BASE}/default.webp`);
   return urls;
 }
 
-function applyExpeditionBiomeBackground(el, tag, emojiEl) {
+function applyExpeditionBiomeBackground(el, tag, emojiEl, archetypeId) {
   if (!el) return;
   const fallback = biomeBg(tag);
   const isModal = el.classList.contains("exp-modal-img");
@@ -5646,7 +5711,7 @@ function applyExpeditionBiomeBackground(el, tag, emojiEl) {
   el.style.backgroundImage = "";
   el.style.background = fallback;
   if (emojiEl) emojiEl.style.display = "";
-  const urls = biomeImageUrls(tag);
+  const urls = biomeImageUrls(tag, archetypeId);
   let i = 0;
   function tryNext() {
     if (i >= urls.length) return;
@@ -5669,9 +5734,22 @@ function applyExpeditionBiomeBackground(el, tag, emojiEl) {
 function wireExpeditionCardBiomes(root) {
   (root || document).querySelectorAll(".exp-card-img[data-biome-tag]").forEach((imgEl) => {
     const tag = imgEl.getAttribute("data-biome-tag") || "";
+    const archetypeId = imgEl.getAttribute("data-archetype-id") || "";
     const emojiEl = imgEl.querySelector(".exp-card-emoji");
-    applyExpeditionBiomeBackground(imgEl, tag, emojiEl);
+    applyExpeditionBiomeBackground(imgEl, tag, emojiEl, archetypeId);
   });
+}
+
+function expeditionCardGenArtButton(kind, item) {
+  const archId = String(item?.location_archetype_id || "").trim();
+  if (!archId) return "";
+  const expId = Number(item?.id);
+  if (!Number.isFinite(expId)) return "";
+  const kindAttr = kind === "active" ? "active" : "daily";
+  return `<button type="button" class="exp-card-gen-art admin-only" style="display:none"
+    data-exp-kind="${kindAttr}" data-exp-id="${expId}" data-archetype-id="${escapeHtml(archId)}"
+    onclick="event.stopPropagation(); WaifuApp.adminGenerateExpeditionArt(this)"
+    title="Сгенерировать акварельный арт" aria-label="Сгенерировать акварельный арт">🎨</button>`;
 }
 
 const EXPEDITION_DIFFICULTY_TAG_RU = {
@@ -5909,6 +5987,35 @@ async function refreshExpeditionTagPreview() {
   }
 }
 
+function expeditionCardArchetypeChip(item) {
+  const arch = String(item?.location_archetype_name || item?.base_location || "").trim();
+  if (!arch) return "";
+  return `<div class="exp-narr-meta exp-narr-meta--card"><span class="exp-narr-chip exp-narr-arch">${escapeHtml(arch)}</span></div>`;
+}
+
+function expeditionCardTitleOverlay(title) {
+  const t = String(title || "").trim();
+  if (!t) return "";
+  return `<div class="exp-card-title-overlay">${escapeHtml(t)}</div>`;
+}
+
+function expeditionSendModalTitle(slot) {
+  const mode = slot?.expedition_mode_name;
+  const arch = slot?.location_archetype_name;
+  if (mode && arch) return `${mode} · ${arch}`;
+  return slot?.name || slot?.base_location || "—";
+}
+
+function expeditionNarrativeMetaHtml(item) {
+  const mode = item?.expedition_mode_name;
+  const arch = item?.location_archetype_name;
+  if (!mode && !arch) return "";
+  const parts = [];
+  if (mode) parts.push(`<span class="exp-narr-chip exp-narr-mode">${escapeHtml(mode)}</span>`);
+  if (arch) parts.push(`<span class="exp-narr-chip exp-narr-arch">${escapeHtml(arch)}</span>`);
+  return `<div class="exp-narr-meta">${parts.join("")}</div>`;
+}
+
 function expeditionAffixChipsHtml(affixes, affixLevel, withLevelOnFirst) {
   const roman =
     affixLevel >= 1 && affixLevel <= 5 ? ["I", "II", "III", "IV", "V"][affixLevel - 1] : "";
@@ -5938,7 +6045,8 @@ function renderExpeditionGrids() {
       activeSection.style.display = "";
       activeGrid.innerHTML = actives
         .map((a) => {
-          const name = escapeHtml(a.base_location || a.expedition_name || "—");
+          const titleOverlay = expeditionCardTitleOverlay(a.narrative_title);
+          const archetypeChip = expeditionCardArchetypeChip(a);
           const affixIcos = (a.affixes || [])
             .slice(0, 4)
             .map((x) => `<div class="exp-affix-ico">${x.icon || "✦"}</div>`)
@@ -5948,11 +6056,17 @@ function renderExpeditionGrids() {
           const timeStr = a.can_claim ? "—" : formatExpeditionTime(sec);
           const emoji = a.biome_emoji || "🗺";
           const biomeTag = escapeHtml(a.biome_tag || "");
+          const archId = escapeHtml(a.location_archetype_id || "");
+          const genBtn = expeditionCardGenArtButton("active", a);
           return `<div class="exp-card-item exp-is-active" data-exp-kind="active" data-exp-id="${a.id}">
-            <div class="exp-card-img" data-biome-tag="${biomeTag}">
+            <div class="exp-card-img" data-biome-tag="${biomeTag}" data-archetype-id="${archId}">
               <div class="exp-card-emoji">${emoji}</div>
-              <div class="exp-card-affix-icons">${affixIcos}</div>
-              <div class="exp-card-name">${name}</div>
+              <div class="exp-card-affix-col">
+                <div class="exp-card-affix-icons">${affixIcos}</div>
+                ${genBtn}
+              </div>
+              ${archetypeChip}
+              ${titleOverlay}
             </div>
             <div class="exp-card-progbar"><div class="exp-card-progfill" style="width:${prog}%"></div></div>
             <div class="exp-card-foot"><span class="exp-foot-active">● В пути</span><span class="exp-foot-timer">${timeStr}</span></div>
@@ -5972,22 +6086,27 @@ function renderExpeditionGrids() {
     dailyGrid.innerHTML = slots
       .map((s) => {
         const used = Boolean(s.is_used);
-        const name = escapeHtml(s.base_location || s.name || "—");
+        const archetypeChip = expeditionCardArchetypeChip(s);
         const affixIcos = (s.affixes || [])
           .slice(0, 4)
           .map((x) => `<div class="exp-affix-ico">${x.icon || "✦"}</div>`)
           .join("");
         const emoji = s.biome_emoji || "🗺";
         const biomeTag = escapeHtml(s.biome_tag || "");
+        const archId = escapeHtml(s.location_archetype_id || "");
+        const genBtn = expeditionCardGenArtButton("daily", s);
         const cls = used ? " exp-card-used" : "";
         const foot = used
           ? `<div class="exp-card-foot"><span class="exp-foot-muted">● Отправлена</span></div>`
           : `<div class="exp-card-foot"><span class="exp-foot-ready">● Доступна</span></div>`;
         return `<div class="exp-card-item${cls}" data-exp-kind="daily" data-exp-id="${s.id}" data-exp-used="${used ? "1" : "0"}">
-            <div class="exp-card-img" data-biome-tag="${biomeTag}">
+            <div class="exp-card-img" data-biome-tag="${biomeTag}" data-archetype-id="${archId}">
               <div class="exp-card-emoji">${emoji}</div>
-              <div class="exp-card-affix-icons">${affixIcos}</div>
-              <div class="exp-card-name">${name}</div>
+              <div class="exp-card-affix-col">
+                <div class="exp-card-affix-icons">${affixIcos}</div>
+                ${genBtn}
+              </div>
+              ${archetypeChip}
             </div>
             ${foot}
           </div>`;
@@ -5997,6 +6116,12 @@ function renderExpeditionGrids() {
 
   wireExpeditionCardBiomes(activeGrid);
   wireExpeditionCardBiomes(dailyGrid);
+
+  if (isAdminUser()) {
+    document.querySelectorAll("#exp-active-grid .admin-only, #exp-daily-grid .admin-only").forEach((el) => {
+      el.style.display = "";
+    });
+  }
 
   document.querySelectorAll("#exp-active-grid [data-exp-kind], #exp-daily-grid [data-exp-kind]").forEach((el) => {
     el.addEventListener("click", () => {
@@ -6073,13 +6198,15 @@ function expOpenCard(kind, id) {
 
 function openActiveExpModal(raw) {
   expeditionUiCache._activeRaw = raw;
-  expG("eam-title").textContent = raw.base_location || raw.expedition_name || "—";
+  expG("eam-title").textContent = raw.narrative_title || "—";
+  const eamNarr = expG("eam-narrative-meta");
+  if (eamNarr) eamNarr.innerHTML = expeditionNarrativeMetaHtml(raw);
   const affHtml = expeditionAffixChipsHtml(raw.affixes || [], raw.affix_level, true);
   expG("eam-affixes").innerHTML = affHtml;
   const img = expG("eam-img");
   const emo = expG("eam-emoji");
   if (emo) emo.textContent = raw.biome_emoji || "🗺";
-  applyExpeditionBiomeBackground(img, raw.biome_tag, emo);
+  applyExpeditionBiomeBackground(img, raw.biome_tag, emo, raw.location_archetype_id);
 
   tickActiveModal();
   if (expActiveModalTimer) clearInterval(expActiveModalTimer);
@@ -6161,7 +6288,9 @@ function openSendExpModal(slot) {
   expeditionSend.diffVal = 1;
   expeditionSend.durVal = 30;
   expeditionSend.squadSlots = [null, null, null];
-  expG("esm-title").textContent = slot.base_location || slot.name || "—";
+  expG("esm-title").textContent = expeditionSendModalTitle(slot);
+  const esmNarr = expG("esm-narrative-meta");
+  if (esmNarr) esmNarr.innerHTML = expeditionNarrativeMetaHtml(slot);
   updateExpeditionSendAffixes();
   const tagsEl = expG("esm-difficulty-tags");
   if (tagsEl) updateExpeditionSendTags([]);
@@ -6171,7 +6300,7 @@ function openSendExpModal(slot) {
   const img = expG("esm-img");
   const emo = expG("esm-emoji");
   if (emo) emo.textContent = slot.biome_emoji || "🗺";
-  applyExpeditionBiomeBackground(img, slot.biome_tag, emo);
+  applyExpeditionBiomeBackground(img, slot.biome_tag, emo, slot.location_archetype_id);
 
   expG("esm-diff-row").querySelectorAll(".exp-opt-btn").forEach((b, i) => b.classList.toggle("active", i === 0));
   expG("esm-dur-row").querySelectorAll(".exp-opt-btn").forEach((b, i) => b.classList.toggle("active", i === 0));
@@ -6588,6 +6717,57 @@ async function adminRefreshExpeditions() {
   }
 }
 
+async function adminGenerateExpeditionArt(btn) {
+  if (!isAdminUser() || !btn) return;
+  const kind = btn.getAttribute("data-exp-kind") || "daily";
+  const expId = btn.getAttribute("data-exp-id");
+  const archetypeId = btn.getAttribute("data-archetype-id") || "";
+  if (!expId) return;
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "⏳";
+  try {
+    const qs =
+      kind === "active"
+        ? `active_id=${encodeURIComponent(expId)}&archetype_id=${encodeURIComponent(archetypeId)}`
+        : `slot_id=${encodeURIComponent(expId)}&archetype_id=${encodeURIComponent(archetypeId)}`;
+    const payload = await apiFetch(`/admin/expedition-art/generate?${qs}`, { method: "POST" });
+    const arch = String(payload?.archetype_id || archetypeId || "")
+      .trim()
+      .toLowerCase();
+    if (arch) {
+      expeditionArchetypeArtVersion[arch] = Date.now();
+    }
+    wireExpeditionCardBiomes(document.getElementById("exp-active-grid"));
+    wireExpeditionCardBiomes(document.getElementById("exp-daily-grid"));
+    const openActive = expeditionUiCache._activeRaw;
+    if (openActive && String(openActive.location_archetype_id || "").toLowerCase() === arch) {
+      applyExpeditionBiomeBackground(
+        expG("eam-img"),
+        openActive.biome_tag,
+        expG("eam-emoji"),
+        openActive.location_archetype_id,
+      );
+    }
+    const openSlot = expeditionSend.currentSlot;
+    if (openSlot && String(openSlot.location_archetype_id || "").toLowerCase() === arch) {
+      applyExpeditionBiomeBackground(
+        expG("esm-img"),
+        openSlot.biome_tag,
+        expG("esm-emoji"),
+        openSlot.location_archetype_id,
+      );
+    }
+    showToast("Арт экспедиции сгенерирован", "success");
+  } catch (e) {
+    const msg = (e && e.message) || parseHttpErrorDetail(e).detail || "Ошибка генерации арта";
+    showToast(msg, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prev || "🎨";
+  }
+}
+
 function showTab(name) {
   const tabs = document.getElementById("dungeon-tabs");
   if (!tabs) return;
@@ -6829,6 +7009,9 @@ function compareSellItems(a, b) {
   let result = 0;
   if (sortKey === "level") result = levelA - levelB || rarityA - rarityB;
   if (sortKey === "rarity") result = rarityA - rarityB || levelA - levelB;
+  if (sortKey === "price") {
+    result = estimateProfileSellPrice(a) - estimateProfileSellPrice(b) || levelA - levelB;
+  }
   if (sortKey === "equipability") result = equipA - equipB || levelA - levelB || rarityA - rarityB;
   if (result === 0) {
     const nameA = String(a?.display_name || a?.name || "").toLowerCase();
@@ -8379,6 +8562,96 @@ function changeProfileInventoryPage(delta) {
   renderProfileInventory();
 }
 
+function renderChatRewardsStatus(data) {
+  const bag = document.getElementById("chat-reward-bag-btn");
+  if (!bag || !data) {
+    if (bag) bag.hidden = true;
+    return;
+  }
+
+  const claimable = Boolean(data.claimable);
+  bag.hidden = !claimable;
+  if (!claimable) return;
+
+  const chests = Number(data.wallet?.pending_chests || 0);
+  bag.classList.toggle("chat-reward-bag-btn--chest", chests > 0);
+  bag.classList.toggle("chat-reward-bag-btn--gold", chests <= 0);
+
+  if (!bag.dataset.bound) {
+    bag.dataset.bound = "1";
+    bag.addEventListener("click", (e) => {
+      e.stopPropagation();
+      claimChatRewards().catch(console.error);
+    });
+  }
+}
+
+async function loadChatRewardsStatus() {
+  try {
+    const data = await apiFetch("/chat-rewards/status");
+    renderChatRewardsStatus(data);
+    return data;
+  } catch (err) {
+    console.warn("chat rewards status failed", err);
+    return null;
+  }
+}
+
+function closeChatRewardClaimModal() {
+  const m = document.getElementById("chat-reward-claim-modal");
+  if (m) m.hidden = true;
+}
+
+function showChatRewardClaimModal(payload) {
+  const m = document.getElementById("chat-reward-claim-modal");
+  const body = document.getElementById("chat-reward-claim-body");
+  const dialog = document.getElementById("chat-reward-claim-dialog");
+  const sub = document.getElementById("chat-reward-claim-sub");
+  if (!m || !body) return;
+
+  const chests = Number(payload?.chests || 0);
+  if (dialog) {
+    dialog.classList.toggle("chat-reward-claim-dialog--chest", chests > 0);
+  }
+  if (sub) {
+    sub.hidden = chests > 0;
+  }
+
+  const lines = [];
+  if (payload.gold > 0) lines.push(`🪙 Золото: +${payload.gold}`);
+  if (payload.exp > 0) lines.push(`✨ Опыт ОВ: +${payload.exp}`);
+  if (chests > 0) lines.push(`📦 Сундуков: ${chests}`);
+  if (payload.level_up) {
+    lines.push(`⭐ Уровень: ${payload.level_before} → ${payload.level_after}`);
+  }
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  items.forEach((it) => {
+    if (it?.name) lines.push(`🎁 ${it.name}`);
+  });
+  if (!lines.length) lines.push("Нечего забирать.");
+  body.innerHTML = lines.map((l) => `<p class="chat-reward-claim-line">${l}</p>`).join("");
+  m.hidden = false;
+}
+
+async function claimChatRewards() {
+  const bag = document.getElementById("chat-reward-bag-btn");
+  if (bag?.classList.contains("chat-reward-bag-btn--claiming")) return;
+  if (bag) bag.classList.add("chat-reward-bag-btn--claiming");
+  try {
+    const payload = await apiFetch("/chat-rewards/claim", { method: "POST" });
+    showChatRewardClaimModal(payload);
+    await loadChatRewardsStatus();
+    const profile = await loadProfile().catch(() => null);
+    if (profile) await populateProfile(profile);
+  } catch (err) {
+    console.error("claim chat rewards failed", err);
+    alert("Не удалось забрать награды. Попробуйте позже.");
+  } finally {
+    if (bag) bag.classList.remove("chat-reward-bag-btn--claiming");
+    await loadChatRewardsStatus();
+  }
+}
+
 async function populateProfile(profile) {
   const p = profile || (await loadProfile());
   const w = p?.main_waifu;
@@ -8435,6 +8708,8 @@ async function populateProfile(profile) {
 
   renderProfileEquipment();
   renderProfileInventory();
+
+  await loadChatRewardsStatus().catch(() => null);
 
   try {
     const tab = new URLSearchParams(window.location.search).get("tab");
@@ -8954,6 +9229,56 @@ async function adminLevelUpWaifu() {
     const data = await apiFetch("/admin/waifu/levelup", { method: "POST" });
     await loadProfile();
     showToast(`Уровень повышен до ${data.new_level}`);
+  } catch (e) {
+    showToast("Ошибка: " + (e?.message || e), "error");
+  }
+}
+
+async function refreshProfileAfterAdminWaifuEdit() {
+  closeProfileStatInfoModal();
+  const p = await loadProfile().catch(() => null);
+  if (p && window.location.pathname.endsWith("/profile.html")) {
+    await populateProfile(p).catch(() => {});
+  }
+  return p;
+}
+
+async function adminAddMainWaifuStat(stat, ev) {
+  if (ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+  closeProfileStatInfoModal();
+  const allowed = ["strength", "agility", "intelligence", "endurance", "charm", "luck"];
+  if (!allowed.includes(stat)) return;
+  try {
+    await apiFetch(`/admin/waifu/add-stat?stat=${encodeURIComponent(stat)}&amount=100`, { method: "POST" });
+    await refreshProfileAfterAdminWaifuEdit();
+  } catch (e) {
+    console.warn("adminAddMainWaifuStat failed:", e);
+  }
+}
+
+async function adminAddStatPoints(ev) {
+  if (ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+  closeProfileStatInfoModal();
+  try {
+    await apiFetch("/admin/waifu/add-stat-points?amount=100", { method: "POST" });
+    await refreshProfileAfterAdminWaifuEdit();
+  } catch (e) {
+    console.warn("adminAddStatPoints failed:", e);
+  }
+}
+
+async function adminResetMainWaifuStatSpend() {
+  if (!confirm("Сбросить потраченные ОХ? Статы вернутся к базе расы/класса.")) return;
+  try {
+    const data = await apiFetch("/admin/waifu/reset-stat-spend", { method: "POST" });
+    await loadProfile();
+    showToast(`Возвращено ${data.refunded} ОХ`);
   } catch (e) {
     showToast("Ошибка: " + (e?.message || e), "error");
   }
@@ -11325,6 +11650,32 @@ async function adminRestoreHpEnergy() {
 
 async function adminGenerateMonsterArt() {
   if (!isAdminUser()) return;
+  const storyBossId = Number(soloActiveStoryBossId);
+  if (Number.isFinite(storyBossId) && storyBossId >= 1) {
+    setItemArtGenBusy(true);
+    try {
+      const payload = await apiFetch(
+        `/admin/story-boss-art/generate?story_boss_definition_id=${encodeURIComponent(storyBossId)}`,
+        { method: "POST" }
+      );
+      const visual = document.getElementById("monster-visual");
+      const family = visual?.dataset?.family || "unknown";
+      const slug = visual?.dataset?.slug || "unknown";
+      const tier = Number(visual?.dataset?.tier) || 1;
+      let override = String(payload?.image_url || "").trim();
+      if (override) {
+        override = override + (override.includes("?") ? "&" : "?") + "v=" + Date.now();
+      }
+      loadMonsterImage(family, slug, tier, override || null);
+      showToast("Портрет сюжетного босса сохранён");
+    } catch (e) {
+      const { detail } = parseHttpErrorDetail(e);
+      showToast(detail || "Ошибка генерации", "error");
+    } finally {
+      setItemArtGenBusy(false);
+    }
+    return;
+  }
   const templateId = Number(soloActiveMonsterTemplateId);
   if (!Number.isFinite(templateId) || templateId < 1) {
     showToast("Нет активного монстра (зайдите в бой)", "error");
@@ -11839,7 +12190,7 @@ function passiveExtrapolateEffectValue(effectValues, level, effectType) {
   const step = vLast - vPrev;
   const over = level - n;
   const out = vLast + step * over;
-  if (et === "trade_flat" || et === "nth_hit_crit") {
+  if (et === "trade_flat" || et === "nth_hit_crit" || et === "main_stats_flat" || et === "armor_flat") {
     if (et === "nth_hit_crit") return Math.max(1, Math.round(out));
     return Math.round(out);
   }
@@ -11849,7 +12200,7 @@ function passiveExtrapolateEffectValue(effectValues, level, effectType) {
 /** Форматирование одного значения эффекта (для тултипа и шкалы уровней). */
 function formatPassiveEffectValue(effectType, raw) {
   if (raw == null || raw === undefined) return "—";
-  if (effectType === "trade_flat" || effectType === "nth_hit_crit") return String(raw);
+  if (effectType === "trade_flat" || effectType === "nth_hit_crit" || effectType === "main_stats_flat" || effectType === "armor_flat") return String(raw);
   const n = Number(raw);
   if (Number.isNaN(n)) return String(raw);
   return `+${Math.round(n * 100)}%`;
@@ -12347,6 +12698,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   showTab,
   loadExpeditionTab,
   populateProfile,
+  loadChatRewardsStatus,
+  claimChatRewards,
+  closeChatRewardClaimModal,
   openProfileStatInfoModal,
   closeProfileStatInfoModal,
   toggleProfileStatAccordion,
@@ -12372,6 +12726,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   goShopSmithEnchantFromModal,
   resetMainWaifu,
   adminLevelUpWaifu,
+  adminAddMainWaifuStat,
+  adminAddStatPoints,
+  adminResetMainWaifuStatSpend,
   adminClearAllItems,
   showToast,
   initWaifuGenerator,
@@ -12484,6 +12841,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   closeExpeditionResult,
   cancelExpedition,
   adminRefreshExpeditions,
+  adminGenerateExpeditionArt,
   openExpeditionHelp,
   closeExpeditionHelp,
   populateCaravanPage,

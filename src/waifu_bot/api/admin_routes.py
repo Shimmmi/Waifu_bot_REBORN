@@ -357,6 +357,88 @@ async def admin_expeditions_refresh(
             detail=str(e),
         )
 
+
+@router.post("/admin/expedition-art/generate", tags=["admin"])
+async def admin_generate_expedition_art(
+    slot_id: int | None = Query(None, ge=1),
+    archetype_id: str | None = Query(None, min_length=1, max_length=32),
+    active_id: int | None = Query(None, ge=1),
+    _admin: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: generate watercolor expedition location WEBP via OpenRouter."""
+    from waifu_bot.paths import static_game_directory
+
+    try:
+        from waifu_bot.services.expedition_art_generation import generate_expedition_archetype_art_webp
+    except ImportError:
+        logger.exception("admin_generate_expedition_art: Pillow/expedition_art_generation import failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="expedition_art_pillow_unavailable",
+        )
+
+    resolved_archetype_id = (archetype_id or "").strip() or None
+    resolved_slot_id = slot_id
+
+    if active_id is not None:
+        from waifu_bot.db.models.expedition import ActiveExpedition
+
+        active = await session.get(ActiveExpedition, int(active_id))
+        if not active:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="active_expedition_not_found")
+        resolved_archetype_id = resolved_archetype_id or getattr(active, "location_archetype_id", None)
+        if not resolved_slot_id:
+            resolved_slot_id = getattr(active, "expedition_slot_id", None)
+
+    if resolved_slot_id is not None:
+        slot = await session.get(m.ExpeditionSlot, int(resolved_slot_id))
+        if slot:
+            if not resolved_archetype_id:
+                resolved_archetype_id = getattr(slot, "location_archetype_id", None)
+        else:
+            # Слот мог устареть (новый день) — генерируем по archetype_id без контекста affix/mode.
+            resolved_slot_id = None
+
+    if not resolved_archetype_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="archetype_id_required")
+
+    result = await generate_expedition_archetype_art_webp(
+        session,
+        archetype_id=str(resolved_archetype_id),
+        slot_id=int(resolved_slot_id) if resolved_slot_id else None,
+    )
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="expedition_art_generation_failed",
+        )
+
+    out_file = static_game_directory() / result.relative_path
+    try:
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_bytes(result.webp_bytes)
+    except OSError:
+        logger.exception(
+            "admin_generate_expedition_art write failed path=%s (check REPO_ROOT / filesystem permissions)",
+            out_file,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="expedition_art_write_failed",
+        )
+
+    import time
+
+    cache_bust = int(time.time())
+    image_url = f"/static/game/{result.relative_path}?v={cache_bust}"
+    return {
+        "ok": True,
+        "archetype_id": result.archetype_id,
+        "image_url": image_url,
+    }
+
+
 @router.post("/admin/item-art/generate", tags=["admin"])
 async def admin_generate_item_art(
     art_key: str = Query(..., min_length=1, max_length=191),
@@ -517,5 +599,73 @@ async def admin_generate_monster_art(
         "family": result.family,
         "slug": result.slug,
         "image_url": game_asset_public_url(result.relative_path),
+    }
+
+
+@router.post("/admin/story-boss-art/generate", tags=["admin"])
+async def admin_generate_story_boss_art(
+    story_boss_definition_id: int = Query(..., ge=1),
+    admin_player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: generate anime-style story boss WEBP; save under static/game/bosses/webp/."""
+    from waifu_bot.paths import static_game_directory
+    from waifu_bot.services.item_art import game_asset_public_url
+
+    try:
+        from waifu_bot.services.monster_art_generation import generate_story_boss_art_webp
+    except ImportError:
+        logger.exception("admin_generate_story_boss_art: Pillow/monster_art_generation import failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="monster_art_pillow_unavailable",
+        )
+
+    sbd = await session.get(m.StoryBossDefinition, int(story_boss_definition_id))
+    if not sbd:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="story_boss_definition_not_found")
+
+    result = await generate_story_boss_art_webp(session, int(story_boss_definition_id))
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="story_boss_art_generation_failed",
+        )
+
+    out_file = static_game_directory() / "bosses" / "webp" / f"{result.slug}.webp"
+    try:
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_bytes(result.webp_bytes)
+    except OSError:
+        logger.exception(
+            "admin_generate_story_boss_art write failed path=%s (check REPO_ROOT / filesystem permissions)",
+            out_file,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="story_boss_art_write_failed",
+        )
+
+    public_path = game_asset_public_url(result.relative_path)
+    sbd.image_webp_path = public_path
+    try:
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.exception(
+            "admin_generate_story_boss_art DB commit failed story_boss_definition_id=%s",
+            story_boss_definition_id,
+        )
+        try:
+            out_file.unlink(missing_ok=True)
+        except OSError:
+            logger.exception("admin_generate_story_boss_art unlink after DB fail path=%s", out_file)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="story_boss_art_db_failed")
+
+    return {
+        "success": True,
+        "story_boss_definition_id": int(story_boss_definition_id),
+        "slug": result.slug,
+        "image_url": public_path,
     }
 

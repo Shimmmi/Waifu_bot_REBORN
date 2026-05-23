@@ -51,6 +51,11 @@ END_ENERGY_COEFF = 0.5            # max energy bonus per ВЫН (ВЫН × 0.5)
 END_DAMAGE_REDUCTION_COEFF = 0.0008  # incoming damage reduction per ВЫН (0.08%/point)
 END_DAMAGE_REDUCTION_CAP = 0.35   # damage reduction cap: 35%
 
+# Armor DR: A/(A+K(L)), K(L)=ARMOR_K_BASE+ARMOR_K_PER_LEVEL×waifu_level; added to total_reduce pool
+ARMOR_K_BASE = 50
+ARMOR_K_PER_LEVEL = 9
+ARMOR_DR_CAP = 0.75
+
 # HP regeneration: HP_max × (1 − e^(−END/HP_REGEN_DIVISOR)) per hour
 HP_REGEN_END_DIVISOR = 100        # divisor in regen exponent formula
 HP_REGEN_OUT_OF_COMBAT_MULT = 5   # outside-dungeon regen multiplier

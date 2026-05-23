@@ -257,6 +257,31 @@ async def collect_armor_slot_contribs(session: AsyncSession, player_id: int) -> 
     return out
 
 
+async def collect_passive_armor_flat_contribs(
+    session: AsyncSession, player_id: int
+) -> list[dict[str, Any]]:
+    rows = await get_passive_contributions_for_log(session, player_id)
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        if str(r.get("effect_type") or "") != "armor_flat":
+            continue
+        v = int(round(float(r.get("value") or 0)))
+        if v <= 0:
+            continue
+        nid = str(r.get("node_id") or "")
+        name = str(r.get("name") or nid)
+        lvl = int(r.get("level") or 0)
+        out.append(
+            _contrib_row(
+                source=f"passive:{nid}:armor_flat",
+                label_ru=f"Пассив «{name}» (ур. {lvl}): +{v} брони",
+                flat_add=v,
+                meta={"node_id": nid, "level": lvl},
+            )
+        )
+    return out
+
+
 async def collect_passive_armor_pct_contribs(
     session: AsyncSession, player_id: int
 ) -> list[dict[str, Any]]:

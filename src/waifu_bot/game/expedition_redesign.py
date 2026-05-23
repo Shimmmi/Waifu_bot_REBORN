@@ -433,6 +433,16 @@ BIOME_EMOJI: dict[str, str] = {
     "desert": "🏜",
     "dungeon": "🗝",
     "coast": "🌊",
+    "urban": "🏙",
+    "indoor": "🏠",
+    "arctic": "🧊",
+    "tundra": "❄",
+    "volcano": "🌋",
+    "crypt": "⚰",
+    "fortress": "🏰",
+    "sky": "☁",
+    "sea_depth": "🐚",
+    "abyss": "🕳",
 }
 
 

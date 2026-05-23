@@ -26,6 +26,7 @@ flowchart TD
 
 - **Соло-урон в группе:** `group_message_damage` → при отсутствии активного GD v1 — `CombatService.process_message_damage` ([`combat.py`](../src/waifu_bot/services/combat.py)).
 - **GD v1:** отдельные хендлеры команд (`/gd_join`, `gd_v1_test_*`, …) в том же [`bot_handlers.py`](../src/waifu_bot/services/bot_handlers.py).
+- **Награды за чат (независимо):** в начале `group_message_damage` вызывается `chat_rewards.try_award_chat_message` — золото/опыт/сундуки копятся параллельно GD, рейду и соло-бою. См. [`docs/CHAT_ACTIVITY_REWARDS.md`](CHAT_ACTIVITY_REWARDS.md).
 
 ## Логи сервера (после доработки диагностики)
 

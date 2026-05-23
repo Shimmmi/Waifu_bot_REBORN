@@ -6,6 +6,24 @@ from typing import Any
 
 from waifu_bot.db.models.waifu import WaifuClass, WaifuRace
 
+# Бонусы к наградам за активность в групповом чате (доли: 0.10 = +10%).
+CHAT_GOLD_PCT_BY_RACE: dict[int, float] = {
+    int(WaifuRace.VAMPIRE): 0.05,
+    int(WaifuRace.DEMON): 0.05,
+}
+CHAT_EXP_PCT_BY_RACE: dict[int, float] = {
+    int(WaifuRace.ELF): 0.05,
+    int(WaifuRace.FAIRY): 0.05,
+}
+CHAT_GOLD_PCT_BY_CLASS: dict[int, float] = {
+    int(WaifuClass.MERCHANT): 0.10,
+    int(WaifuClass.ASSASSIN): 0.05,
+}
+CHAT_EXP_PCT_BY_CLASS: dict[int, float] = {
+    int(WaifuClass.MAGE): 0.10,
+    int(WaifuClass.HEALER): 0.05,
+}
+
 MAIN_WAIFU_BASE_STATS: dict[str, int] = {
     "strength": 10,
     "agility": 10,
@@ -58,6 +76,20 @@ def compute_main_waifu_base_stats(race: WaifuRace | int, class_: WaifuClass | in
     for key, bonus in MAIN_WAIFU_CLASS_FLAT_BONUSES.get(c, {}).items():
         stats[key] = stats.get(key, 0) + bonus
     return stats
+
+
+def chat_gold_pct_for(race: int | WaifuRace, class_: int | WaifuClass) -> float:
+    """Суммарный % бонуса к золоту за чат от расы и класса."""
+    rid = int(race)
+    cid = int(class_)
+    return float(CHAT_GOLD_PCT_BY_RACE.get(rid, 0.0)) + float(CHAT_GOLD_PCT_BY_CLASS.get(cid, 0.0))
+
+
+def chat_exp_pct_for(race: int | WaifuRace, class_: int | WaifuClass) -> float:
+    """Суммарный % бонуса к опыту за чат от расы и класса."""
+    rid = int(race)
+    cid = int(class_)
+    return float(CHAT_EXP_PCT_BY_RACE.get(rid, 0.0)) + float(CHAT_EXP_PCT_BY_CLASS.get(cid, 0.0))
 
 
 def validate_bonus_dict_keys(bonus_map: dict[Any, Any], *, context: str) -> None:

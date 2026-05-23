@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Подземелья</title>
     <link rel="stylesheet" href="/webapp/styles.css" />
-    <script src="./vendor/telegram-web-app.js"></script>
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
+    <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
     <script defer src="/webapp/app.js"></script>
     <style>
@@ -88,33 +88,6 @@
         line-height: 1.2;
         font-size: 10px;
       }
-      .page-dungeons .attic-dungeon-stages {
-        display: flex;
-        gap: 2px;
-        margin-top: 2px;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-      .page-dungeons .attic-dungeon-stages:empty {
-        display: none;
-      }
-      .page-dungeons .attic-stage-pixel {
-        width: 6px;
-        height: 6px;
-        border-radius: 1px;
-        background: rgba(200, 146, 42, 0.18);
-        border: 1px solid rgba(200, 146, 42, 0.2);
-        box-sizing: border-box;
-      }
-      .page-dungeons .attic-stage-pixel--done {
-        background: rgba(232, 184, 75, 0.65);
-        border-color: rgba(232, 184, 75, 0.75);
-      }
-      .page-dungeons .attic-stage-pixel--active {
-        background: rgba(200, 146, 42, 0.95);
-        border-color: rgba(200, 146, 42, 0.95);
-        box-shadow: 0 0 6px rgba(200, 146, 42, 0.3);
-      }
       .page-dungeons #attic-expedition-chip {
         flex: 0 1 auto;
         min-width: 48px;
@@ -124,16 +97,60 @@
         border-color: rgba(200, 146, 42, 0.2) !important;
       }
       /* Вкладки подземелий — тёмная панель, янтарь у активной */
+      .page-dungeons .dungeon-tabs-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
       .page-dungeons #dungeon-tabs {
         display: flex !important;
         flex-direction: row !important;
         grid-template-columns: unset !important;
+        flex: 1;
+        min-width: 0;
         gap: 4px;
-        margin-bottom: 10px;
+        margin-bottom: 0;
         padding: 5px 8px;
         background: rgba(13, 10, 8, 0.97);
         border: 1px solid rgba(200, 146, 42, 0.15);
         border-radius: 12px;
+      }
+      .page-dungeons .dungeon-tabs-actions {
+        display: flex;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+      .page-dungeons .dungeon-admin-group {
+        display: flex;
+        gap: 4px;
+      }
+      .page-dungeons .dungeon-tab-sm {
+        flex: 0 0 32px;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        border-radius: 9px;
+        border: 1px solid rgba(200, 146, 42, 0.18);
+        background: rgba(26, 20, 14, 0.85);
+        color: #6a5a4a;
+        font-size: 14px;
+        line-height: 1;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+      }
+      .page-dungeons .dungeon-tab-sm:hover {
+        border-color: rgba(200, 146, 42, 0.4);
+        color: #e8b84b;
+      }
+      .page-dungeons .dungeon-tab-sm.solo-exit-btn {
+        border-color: rgba(248, 113, 113, 0.35);
+        color: #fca5a5;
+      }
+      .page-dungeons .dungeon-tab-sm.solo-exit-btn:hover {
+        border-color: rgba(248, 113, 113, 0.55);
+        color: #fecaca;
       }
       .page-dungeons #dungeon-tabs .tab {
         flex: 1 1 0;
@@ -183,9 +200,6 @@
       .page-dungeons .act-subtitle {
         color: rgba(232, 220, 200, 0.75);
         font-size: 12px;
-      }
-      .page-dungeons .solo-controls {
-        margin-bottom: 8px;
       }
       .page-dungeons .solo-dungeon-card.dungeon-tile {
         position: relative;
@@ -438,6 +452,12 @@
         font-size: 10px;
         color: var(--muted, #6a5a4a);
       }
+      .exp-daily-refresh-foot {
+        font-size: 10px;
+        color: var(--muted, #6a5a4a);
+        margin: 6px 0 0;
+        text-align: left;
+      }
       .exp-sec-header-right {
         display: flex;
         align-items: center;
@@ -559,14 +579,39 @@
       .exp-card-img--biome .exp-card-emoji {
         display: none;
       }
-      .exp-card-affix-icons {
+      .exp-card-affix-col {
         position: absolute;
         top: 5px;
         right: 5px;
+        z-index: 4;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 3px;
+      }
+      .exp-card-affix-icons {
         display: flex;
         flex-direction: column;
         gap: 3px;
-        z-index: 2;
+      }
+      .exp-card-gen-art {
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border-radius: 5px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(0, 0, 0, 0.78);
+        color: #fff;
+        font-size: 11px;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .exp-card-gen-art:disabled {
+        opacity: 0.55;
+        cursor: wait;
       }
       .exp-affix-ico {
         width: 20px;
@@ -579,17 +624,27 @@
         justify-content: center;
         font-size: 11px;
       }
-      .exp-card-name {
+      .exp-card-title-overlay {
         position: absolute;
         bottom: 0;
         left: 0;
         right: 0;
-        padding: 5px 6px 6px;
-        z-index: 2;
+        z-index: 3;
+        max-width: 100%;
+        padding: 6px 8px;
+        border-radius: 0 0 8px 8px;
+        background: rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(2px);
+        -webkit-backdrop-filter: blur(2px);
         font-size: 11px;
         font-weight: 700;
         color: #fff;
-        line-height: 1.2;
+        line-height: 1.25;
+        text-align: center;
+        pointer-events: none;
+      }
+      .exp-card-name {
+        display: none;
       }
       .exp-card-progbar {
         height: 3px;
@@ -687,6 +742,23 @@
         inset: 0;
         background: linear-gradient(to bottom, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.5));
       }
+      .exp-modal-close {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 5;
+        background: rgba(255, 255, 255, 0.08);
+        border: none;
+        border-radius: 8px;
+        color: #8a7a6a;
+        font-size: 14px;
+        width: 28px;
+        height: 28px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
       .exp-modal-emoji {
         font-size: 54px;
         position: relative;
@@ -768,6 +840,44 @@
         border-color: rgba(74, 222, 128, 0.55);
         color: #86efac;
         background: rgba(74, 222, 128, 0.14);
+      }
+      .exp-narr-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        justify-content: center;
+        margin-top: 4px;
+        padding: 0 6px 4px;
+      }
+      .exp-narr-meta--modal {
+        justify-content: flex-start;
+        padding: 0 0 8px;
+      }
+      .exp-card-img .exp-narr-meta--card {
+        position: absolute;
+        top: 6px;
+        left: 6px;
+        z-index: 2;
+        margin: 0;
+        padding: 0;
+        justify-content: flex-start;
+      }
+      .exp-narr-chip {
+        font-size: 9px;
+        line-height: 1.2;
+        padding: 2px 6px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background: rgba(0, 0, 0, 0.35);
+        color: #e2e8f0;
+      }
+      .exp-narr-mode {
+        border-color: rgba(96, 165, 250, 0.45);
+        color: #bfdbfe;
+      }
+      .exp-narr-arch {
+        border-color: rgba(251, 191, 36, 0.45);
+        color: #fde68a;
       }
       .exp-status-block {
         background: #221c16;
@@ -1249,6 +1359,246 @@
         font-weight: 600;
         color: #e8dcc8;
       }
+
+      /* ── Group dungeons tab (GD v1) — amber theme like expeditions ── */
+      .page-dungeons #tab-group .dungeons-gd-list {
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .page-dungeons #tab-group .gd-dungeon-card.dungeon-card {
+        background: #221c16;
+        border: 1px solid rgba(200, 146, 42, 0.15);
+        border-radius: 10px;
+        padding: 14px 16px;
+        color: #e8dcc8;
+        box-shadow: none;
+        transition: border-color 0.15s, transform 0.12s;
+      }
+      .page-dungeons #tab-group .gd-dungeon-card.dungeon-card:hover {
+        border-color: rgba(200, 146, 42, 0.4);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+      }
+      .page-dungeons #tab-group .gd-dungeon-card .dungeon-name {
+        color: #e8b84b;
+        font-size: 16px;
+      }
+      .page-dungeons #tab-group .gd-dungeon-card .dungeon-stage {
+        background: rgba(200, 146, 42, 0.15);
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        color: #d4c4b0;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 12px;
+      }
+      .page-dungeons #tab-group .gd-dungeon-card .monster-name {
+        color: #e8dcc8;
+        font-size: 14px;
+      }
+      .page-dungeons #tab-group .gd-dungeon-card .hp-bar {
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        height: 10px;
+      }
+      .page-dungeons #tab-group .gd-dungeon-card .hp-text {
+        color: #8a7a6a;
+        font-size: 11px;
+        opacity: 1;
+      }
+      .page-dungeons #tab-group .gd-dungeon-card .dungeon-stats {
+        border-top-color: rgba(200, 146, 42, 0.12);
+        color: #8a7a6a;
+        font-size: 12px;
+      }
+
+      .page-dungeons #tab-group .empty-state {
+        color: #8a7a6a;
+        padding: 40px 16px;
+      }
+      .page-dungeons #tab-group .empty-state h3 {
+        color: #e8dcc8;
+      }
+      .page-dungeons #tab-group .empty-state p {
+        color: #8a7a6a;
+      }
+
+      .page-dungeons #tab-group #gd-session-status.gd-session-card {
+        background: #221c16;
+        border: 1px solid rgba(200, 146, 42, 0.2);
+        border-radius: 12px;
+        padding: 14px 16px;
+        color: #e8dcc8;
+        max-width: none;
+      }
+      .page-dungeons #tab-group .gd-session-title {
+        color: #e8b84b;
+        font-size: 17px;
+        margin: 0 0 6px;
+      }
+      .page-dungeons #tab-group .gd-session-meta {
+        margin: 6px 0;
+        color: #8a7a6a;
+        font-size: 12px;
+      }
+      .page-dungeons #tab-group .gd-session-meta strong {
+        color: #e8dcc8;
+      }
+      .page-dungeons #tab-group .gd-session-meta--spaced {
+        margin-top: 8px;
+      }
+      .page-dungeons #tab-group .gd-session-foot {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #8a7a6a;
+      }
+      .page-dungeons #tab-group .gd-session-foot code {
+        background: rgba(200, 146, 42, 0.12);
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        padding: 1px 5px;
+        border-radius: 4px;
+        color: #e8dcc8;
+        font-size: 11px;
+      }
+      .page-dungeons #tab-group .gd-session-monster {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 10px;
+        font-size: 13px;
+        color: #e8dcc8;
+      }
+      .page-dungeons #tab-group .gd-session-hp-bar {
+        height: 8px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 4px;
+        overflow: hidden;
+        margin-top: 6px;
+      }
+
+      .page-dungeons #tab-group .gd-info.card {
+        background: #221c16;
+        border: 1px solid rgba(200, 146, 42, 0.18);
+        border-radius: 12px;
+        padding: 16px;
+        color: #e8dcc8;
+        max-width: none;
+      }
+      .page-dungeons #tab-group .gd-info-title {
+        color: #e8b84b;
+        font-size: 18px;
+      }
+      .page-dungeons #tab-group .gd-info p {
+        color: #d4c4b0;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .page-dungeons #tab-group .gd-info-list li {
+        color: #8a7a6a;
+        font-size: 13px;
+      }
+      .page-dungeons #tab-group .gd-info-how code,
+      .page-dungeons #tab-group .gd-info code {
+        background: rgba(200, 146, 42, 0.12);
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        color: #e8dcc8;
+      }
+      .page-dungeons #tab-group .gd-info-note {
+        color: #8a7a6a;
+      }
+
+      /* GD detail modal (appended to body) */
+      body.page-dungeons .gd-modal-overlay {
+        background: rgba(0, 0, 0, 0.78);
+        backdrop-filter: blur(4px);
+      }
+      body.page-dungeons .gd-modal-content.modal-content {
+        background: linear-gradient(165deg, rgba(28, 22, 16, 0.98), rgba(12, 9, 6, 0.99));
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        border-radius: 16px;
+        color: #e8dcc8;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+      }
+      body.page-dungeons .gd-modal-content .modal-close {
+        color: #8a7a6a;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(200, 146, 42, 0.2);
+        border-radius: 8px;
+        width: 32px;
+        height: 32px;
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      body.page-dungeons .gd-modal-content .modal-close:hover {
+        color: #e8dcc8;
+        border-color: rgba(200, 146, 42, 0.4);
+      }
+      body.page-dungeons .gd-modal-content .dungeon-details h2 {
+        color: #e8b84b;
+        font-size: 20px;
+      }
+      body.page-dungeons .gd-modal-content .details-section h3 {
+        color: #e8dcc8;
+      }
+      body.page-dungeons .gd-modal-content .muted {
+        color: #8a7a6a !important;
+      }
+      body.page-dungeons .gd-modal-content .hp-bar-large {
+        background: rgba(255, 255, 255, 0.08);
+      }
+      body.page-dungeons .gd-modal-content .hp-stats {
+        color: #8a7a6a;
+      }
+      body.page-dungeons .gd-modal-content .contribution-stats {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(200, 146, 42, 0.15);
+      }
+      body.page-dungeons .gd-modal-content .stat-row {
+        border-bottom-color: rgba(200, 146, 42, 0.12);
+        color: #d4c4b0;
+      }
+      body.page-dungeons .gd-modal-content .effect-badge {
+        background: rgba(200, 146, 42, 0.2);
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        color: #e8dcc8;
+      }
+      body.page-dungeons .gd-modal-content .stage-dot.active {
+        background: linear-gradient(135deg, #c8922a, #e8b84b);
+        color: #1a1410;
+        box-shadow: 0 0 0 2px rgba(200, 146, 42, 0.35);
+      }
+      body.page-dungeons .gd-modal-content .stage-dot.completed {
+        background: rgba(200, 146, 42, 0.35);
+        color: #e8dcc8;
+      }
+      body.page-dungeons .gd-modal-content .stage-dot.pending {
+        background: rgba(255, 255, 255, 0.06);
+        color: #8a7a6a;
+      }
+      body.page-dungeons .gd-modal-content .gd-battle-round {
+        border-color: rgba(200, 146, 42, 0.2);
+        background: rgba(255, 255, 255, 0.04);
+      }
+      body.page-dungeons .gd-modal-content .gd-battle-round summary {
+        color: #e8dcc8;
+      }
+      body.page-dungeons .gd-modal-content .gd-battle-narrative {
+        color: #d4c4b0;
+      }
+      body.page-dungeons .gd-modal-content .gd-battle-log-lines {
+        color: #c8b8a8;
+      }
+      body.page-dungeons .gd-modal-content .btn-primary {
+        background: linear-gradient(135deg, #a67c52, #7d5a3a);
+        border: 1px solid #5c3d24;
+        color: #fff8f0;
+        border-radius: 10px;
+      }
+      body.page-dungeons .gd-modal-content .btn-primary:hover {
+        opacity: 1;
+        box-shadow: 0 10px 24px rgba(61, 41, 20, 0.35);
+        transform: translateY(-1px);
+      }
     </style>
   </head>
   <body class="page-dungeons" onload="WaifuApp.bootstrapPage('dungeons', WaifuApp.populateDungeonsPage);">
@@ -1261,7 +1611,11 @@
           </div>
           <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)">
             <span id="attic-dungeon-label">Нет боя</span>
-            <span id="attic-dungeon-stages" class="attic-dungeon-stages" aria-hidden="true"></span>
+            <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden>
+              <div class="attic-dungeon-progress-track">
+                <div class="attic-dungeon-progress-fill" id="attic-dungeon-progress-fill"></div>
+              </div>
+            </div>
           </div>
           <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
           <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
@@ -1271,21 +1625,24 @@
       <main>
         <div id="dungeon-list-section" data-tutorial="dungeon-list">
           <div id="dungeons-error" class="banner" style="display:none;"></div>
-          <div class="tabs" id="dungeon-tabs" data-tutorial="dungeon-tabs">
-            <button class="tab active" data-tab="solo" onclick="WaifuApp.showTab('solo')">Одиночные</button>
-            <button class="tab" data-tab="expedition" onclick="WaifuApp.showTab('expedition')">Экспедиции</button>
-            <button class="tab" data-tab="group" onclick="WaifuApp.showTab('group')">Групповые</button>
+          <div class="dungeon-tabs-bar">
+            <div class="tabs" id="dungeon-tabs" data-tutorial="dungeon-tabs">
+              <button class="tab active" data-tab="solo" onclick="WaifuApp.showTab('solo')">Одиночные</button>
+              <button class="tab" data-tab="expedition" onclick="WaifuApp.showTab('expedition')">Экспедиции</button>
+              <button class="tab" data-tab="group" onclick="WaifuApp.showTab('group')">Групповые</button>
+            </div>
+            <div class="dungeon-tabs-actions">
+              <button type="button" id="solo-exit-btn" class="dungeon-tab-sm solo-exit-btn" style="display:none;" title="Покинуть подземелье" aria-label="Покинуть подземелье" onclick="WaifuApp.openExitDungeonConfirm()">🏳️</button>
+              <div class="dungeon-admin-group admin-only" id="dungeons-admin-buttons" style="display:none;">
+                <button type="button" class="dungeon-tab-sm" title="Убить монстра" aria-label="Убить монстра" onclick="WaifuApp.adminKillMonster()">💀</button>
+                <button type="button" class="dungeon-tab-sm" title="Пройти данж" aria-label="Пройти данж" onclick="WaifuApp.adminCompleteDungeon()">🏁</button>
+                <button type="button" class="dungeon-tab-sm" title="Восстановить HP и энергию" aria-label="Восстановить HP и энергию" onclick="WaifuApp.adminRestoreHpEnergy()" style="color:#22c55e;">➕</button>
+                <button type="button" class="dungeon-tab-sm" title="Сгенерировать изображение монстра (admin)" aria-label="Сгенерировать изображение монстра" onclick="WaifuApp.adminGenerateMonsterArt()">🖼</button>
+              </div>
+            </div>
           </div>
 
           <div id="tab-solo" class="tab-panel active">
-            <div class="solo-controls">
-              <div class="chip admin-only" id="dungeons-admin-buttons" style="display:none;">
-                <button class="secondary" title="Убить монстра" aria-label="Убить монстра" onclick="WaifuApp.adminKillMonster()">💀</button>
-                <button class="secondary" title="Пройти данж" aria-label="Пройти данж" onclick="WaifuApp.adminCompleteDungeon()">🏁</button>
-                <button class="secondary" title="Восстановить HP и энергию" aria-label="Восстановить HP и энергию" onclick="WaifuApp.adminRestoreHpEnergy()" style="color:#22c55e;">➕</button>
-                <button class="secondary" title="Сгенерировать изображение монстра (admin)" aria-label="Сгенерировать изображение монстра" onclick="WaifuApp.adminGenerateMonsterArt()">🖼</button>
-              </div>
-            </div>
             <!-- Карточка активного боя: заполняется через renderSoloBattleCard(); изображение — WebP fallback по family/slug/tier -->
             <div id="solo-active" style="display:none;">
               <div id="solo-active-content">
@@ -1301,6 +1658,10 @@
                    data-tier="1"
                    role="img"
                    aria-label="Изображение монстра">
+                <div class="monster-name-header">
+                  <span class="monster-name-text" id="monster-name-text">—</span>
+                  <span class="monster-name-level" id="monster-name-level"></span>
+                </div>
                 <div class="monster-placeholder" id="monster-placeholder">
                   <span id="monster-emoji" aria-hidden="true">👾</span>
                   <span class="monster-placeholder-label" id="monster-placeholder-label"></span>
@@ -1315,13 +1676,7 @@
                      decoding="async"
                      onload="WaifuApp.onMonsterImageLoad(this)"
                      onerror="WaifuApp.onMonsterImageError(this)" />
-                <div class="monster-name-overlay">
-                  <div class="monster-name-main">
-                    <span class="monster-name-text" id="monster-name-text">—</span>
-                    <span class="monster-name-type" id="monster-name-type" style="display:none;" aria-label="Тип монстра"></span>
-                  </div>
-                  <span class="monster-name-level" id="monster-name-level"></span>
-                </div>
+                <div class="monster-type-badge" id="monster-name-type" style="display:none;" aria-label="Тип монстра"></div>
               </div>
 
               <div class="hp-bar-wrap" aria-label="HP монстра">
@@ -1353,10 +1708,6 @@
               <div class="solo-active-meta" id="solo-active-meta"></div>
 
               <div id="solo-battle-log-host" class="solo-battle-log-wrap" style="display:none;" aria-live="polite"></div>
-
-              <button class="secondary solo-exit-btn" onclick="WaifuApp.openExitDungeonConfirm()" aria-label="Покинуть подземелье">
-                🏳️ Покинуть подземелье
-              </button>
               </div>
               <div id="solo-active-fallback" class="solo-active-card" style="display:none;"></div>
             </div>
@@ -1381,7 +1732,6 @@
               <div class="exp-sec-header">
                 <span class="exp-sec-title">Ежедневные экспедиции</span>
                 <div class="exp-sec-header-right">
-                  <span class="exp-sec-sub" id="exp-daily-refresh-label">Обновляются в 00:00 МСК</span>
                   <button type="button" class="exp-help-btn" onclick="WaifuApp.openExpeditionHelp()" aria-label="Справка по экспедициям" title="Справка">?</button>
                   <button type="button" class="secondary admin-only" id="expedition-admin-refresh" style="display:none;" title="Обновить слоты экспедиций (админ)" aria-label="Обновить слоты экспедиций" onclick="WaifuApp.adminRefreshExpeditions()">🔄</button>
                 </div>
@@ -1389,15 +1739,19 @@
               <div class="exp-card-grid" id="exp-daily-grid">
                 <div class="placeholder muted tiny">Загрузка слотов...</div>
               </div>
+              <p class="exp-daily-refresh-foot" id="exp-daily-refresh-label">Обновляются в 00:00 МСК</p>
             </div>
           </div>
 
           <div id="exp-active-modal" class="exp-overlay" style="display:none;" onclick="if(event.target===this)WaifuApp.closeActiveExpModal()">
             <div class="exp-sheet">
               <div class="exp-sheet-handle"></div>
-              <button type="button" class="exp-sheet-close" onclick="WaifuApp.closeActiveExpModal()">✕</button>
-              <div class="exp-modal-img" id="eam-img"><div class="exp-modal-emoji" id="eam-emoji"></div></div>
+              <div class="exp-modal-img" id="eam-img">
+                <button type="button" class="exp-modal-close" onclick="WaifuApp.closeActiveExpModal()" aria-label="Закрыть">✕</button>
+                <div class="exp-modal-emoji" id="eam-emoji"></div>
+              </div>
               <div class="exp-modal-title" id="eam-title"></div>
+              <div id="eam-narrative-meta" class="exp-narr-meta exp-narr-meta--modal"></div>
               <div class="exp-modal-affixes" id="eam-affixes"></div>
               <div class="exp-status-block">
                 <div class="exp-big-timer" id="eam-timer">—</div>
@@ -1421,9 +1775,12 @@
           <div id="exp-send-modal" class="exp-overlay" style="display:none;" onclick="if(event.target===this)WaifuApp.closeSendExpModal()">
             <div class="exp-sheet">
               <div class="exp-sheet-handle"></div>
-              <button type="button" class="exp-sheet-close" onclick="WaifuApp.closeSendExpModal()">✕</button>
-              <div class="exp-modal-img" id="esm-img"><div class="exp-modal-emoji" id="esm-emoji"></div></div>
+              <div class="exp-modal-img" id="esm-img">
+                <button type="button" class="exp-modal-close" onclick="WaifuApp.closeSendExpModal()" aria-label="Закрыть">✕</button>
+                <div class="exp-modal-emoji" id="esm-emoji"></div>
+              </div>
               <div class="exp-modal-title" id="esm-title"></div>
+              <div id="esm-narrative-meta" class="exp-narr-meta exp-narr-meta--modal"></div>
               <div class="exp-modal-affixes-wrap" style="position:relative">
                 <div class="exp-modal-affixes" id="esm-affixes"></div>
                 <div id="esm-affix-popover" class="exp-affix-popover" style="display:none" role="tooltip" aria-hidden="true"></div>
@@ -1431,7 +1788,7 @@
               <div id="esm-challenge-cats" class="muted tiny" style="margin:6px 0 0;display:none" aria-live="polite"></div>
               <div class="exp-opt-label" style="margin-top:8px">Типы сложности</div>
               <div id="esm-difficulty-tags" class="exp-difficulty-tags" aria-live="polite"></div>
-              <div id="esm-obstacle-level" class="exp-obstacle-level" aria-live="polite"></div>
+              <div id="esm-obstacle-level" class="exp-obstacle-level" aria-live="polite" style="display:none"></div>
               <div id="esm-tag-effectiveness" class="muted tiny" style="margin:4px 0 8px" aria-live="polite"></div>
               <div class="exp-opt-label">Уровень сложности</div>
               <div class="exp-opt-row" id="esm-diff-row">

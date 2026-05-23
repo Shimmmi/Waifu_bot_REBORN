@@ -8,10 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db.models import ActiveExpedition, ExpeditionAffix, ExpeditionSlot, HiredWaifu
+from waifu_bot.game.expedition_data import PERK_BY_ID
 from waifu_bot.game.expedition_difficulty_tags import (
     DIFFICULTY_TAG_LABEL_RU,
+    PERK_TAG_COVERAGE,
     challenge_categories_boosted_by_tags,
+    resolve_perk_id,
     squad_covered_tags,
+    unit_covered_tags,
     union_affix_tags,
     union_legacy_affix_tags,
 )
@@ -26,6 +30,7 @@ from waifu_bot.game.expedition_redesign import (
     union_challenge_categories_from_db_affix_rows,
     weighted_challenge_category,
 )
+from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
 from waifu_bot.services.expedition_events_ai import generate_expedition_tick_narrative
 
 
@@ -35,6 +40,77 @@ def _hp_bar(cur: int, max_hp: int, width: int = 10) -> str:
     filled = int(round(width * cur / max_hp))
     filled = max(0, min(width, filled))
     return "█" * filled + "░" * (width - filled)
+
+
+def _tag_labels(tag_ids: frozenset[str] | set[str]) -> list[str]:
+    return [
+        DIFFICULTY_TAG_LABEL_RU[t]
+        for t in sorted(tag_ids)
+        if t in DIFFICULTY_TAG_LABEL_RU
+    ]
+
+
+def _tick_pressure_label(*, squad_prepared: bool, tag_mult: float, uncovered_count: int) -> str:
+    if not squad_prepared or uncovered_count >= 2:
+        return "high"
+    if squad_prepared and tag_mult <= 0.92:
+        return "low"
+    return "medium"
+
+
+def _roll_narrative_outcome(rng: random.Random, *, squad_prepared: bool) -> str:
+    roll = rng.random()
+    if squad_prepared:
+        if roll < 0.55:
+            return "triumph"
+        if roll < 0.85:
+            return "struggle"
+        return "survived_barely"
+    if roll < 0.25:
+        return "triumph"
+    if roll < 0.65:
+        return "struggle"
+    return "survived_barely"
+
+
+def _relevant_perk_names_for_tags(unit: HiredWaifu, tag_ids: frozenset[str]) -> list[str]:
+    names: list[str] = []
+    for p in getattr(unit, "perks", None) or []:
+        pid = resolve_perk_id(str(p) if p is not None else "")
+        tags = PERK_TAG_COVERAGE.get(pid)
+        if tags and tags & tag_ids:
+            perk = PERK_BY_ID.get(pid)
+            names.append(getattr(perk, "name", None) or pid)
+    return names
+
+
+def _build_squad_snapshot_for_narrative(
+    squad: list[HiredWaifu],
+    *,
+    challenge_cat: str,
+    active_tags: frozenset[str],
+) -> list[dict]:
+    out: list[dict] = []
+    for u in squad:
+        unit_tags = unit_covered_tags(u)
+        counter_tags = active_tags & unit_tags
+        out.append(
+            {
+                "name": u.name or "Наёмница",
+                "class_id": int(u.class_ or 1),
+                "race_id": int(u.race or 1),
+                "hp_current": int(getattr(u, "current_hp", 0) or 0),
+                "hp_max": int(getattr(u, "max_hp", 1) or 1),
+                "matched_perks": [
+                    str(p)
+                    for p in (u.perks or [])
+                    if challenge_cat in PERK_CHALLENGE_CATEGORIES.get(str(p), frozenset())
+                ],
+                "counter_tags_ru": _tag_labels(counter_tags),
+                "relevant_perk_names": _relevant_perk_names_for_tags(u, active_tags),
+            }
+        )
+    return out
 
 
 def _active_tags_for_run(
@@ -170,13 +246,9 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
     affix_name = getattr(affix_row, "name", "") or ""
     challenge_label = f"{affix_name.strip()} {roman}".strip()
 
-    outcome_roll = rng.random()
-    if outcome_roll < 0.45:
-        outcome = "triumph"
-    elif outcome_roll < 0.78:
-        outcome = "struggle"
-    else:
-        outcome = "survived_barely"
+    uncovered_tags = active_tags - covered_tags
+    squad_prepared = not (uncovered_tags & active_tags)
+    outcome = _roll_narrative_outcome(rng, squad_prepared=squad_prepared)
 
     if silent:
         narrative = "…"
@@ -184,27 +256,68 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
         total_max_hp = sum(max(1, int(getattr(u, "max_hp", 1) or 1)) for u in squad)
         total_cur_hp = sum(max(0, int(getattr(u, "current_hp", 0) or 0)) for u in squad)
         squad_hp_ratio = (total_cur_hp / total_max_hp) if total_max_hp else 0.0
+
+        brief = getattr(active, "narrative_brief", None) or {}
+        arch = archetype_for_id(getattr(active, "location_archetype_id", None))
+        mode = mode_for_id(getattr(active, "expedition_mode_id", None))
+        beats = brief.get("event_beats") if isinstance(brief, dict) else []
+        current_beat = ""
+        if isinstance(beats, list) and events_done <= len(beats):
+            current_beat = str(beats[events_done - 1] or "")
+        affix_hints = [
+            str(getattr(a, "description_hint", "") or "").strip()
+            for a in slot_affix_rows
+            if getattr(a, "description_hint", None)
+        ]
+        tag_labels = _tag_labels(active_tags)
+        covered_on_active = active_tags & covered_tags
+        tick_pressure = _tick_pressure_label(
+            squad_prepared=squad_prepared,
+            tag_mult=float(tag_mult),
+            uncovered_count=len(uncovered_tags & active_tags),
+        )
+        slot_affix_names = [
+            str(getattr(a, "name", "") or "").strip()
+            for a in slot_affix_rows
+            if str(getattr(a, "name", "") or "").strip()
+        ]
+        if not slot_affix_names and affix_name:
+            slot_affix_names = [affix_name.strip()]
+        expedition_context = {
+            "title": (brief.get("title") if isinstance(brief, dict) else None) or loc,
+            "mode": mode.name_ru if mode else "",
+            "archetype": arch.name_ru if arch else "",
+            "setting": (brief.get("setting_summary") if isinstance(brief, dict) else "") or "",
+            "intro_narrative": (brief.get("intro_narrative") if isinstance(brief, dict) else "") or "",
+            "event_beat": current_beat,
+            "key_elements": (brief.get("key_elements") if isinstance(brief, dict) else []) or [],
+            "mode_rules": mode.prompt_rules_ru if mode else "",
+            "avoid_tropes": (brief.get("avoid_tropes") if isinstance(brief, dict) else []) or [],
+            "narrative_style_id": brief.get("narrative_style_id") if isinstance(brief, dict) else None,
+            "narrative_style_name": brief.get("narrative_style_name") if isinstance(brief, dict) else None,
+            "affix_hints": affix_hints[:4],
+            "difficulty_tags_ru": tag_labels[:6],
+            "tick_pressure": tick_pressure,
+            "threats": {
+                "slot_affixes_ru": slot_affix_names[:6],
+                "active_tags_ru": _tag_labels(active_tags),
+                "covered_tags_ru": _tag_labels(covered_on_active),
+                "uncovered_tags_ru": _tag_labels(uncovered_tags & active_tags),
+                "squad_prepared": squad_prepared,
+            },
+        }
+
         narrative = await generate_expedition_tick_narrative(
             location=loc,
             biome_tags=[active.display_biome_tag or ""],
             challenge_name=challenge_label,
             challenge_category=challenge_cat,
             challenge_level=affix_level,
-            squad_snapshot=[
-                {
-                    "name": u.name or "Наёмница",
-                    "class_id": int(u.class_ or 1),
-                    "race_id": int(u.race or 1),
-                    "hp_current": int(getattr(u, "current_hp", 0) or 0),
-                    "hp_max": int(getattr(u, "max_hp", 1) or 1),
-                    "matched_perks": [
-                        str(p)
-                        for p in (u.perks or [])
-                        if challenge_cat in PERK_CHALLENGE_CATEGORIES.get(str(p), frozenset())
-                    ],
-                }
-                for u in squad
-            ],
+            squad_snapshot=_build_squad_snapshot_for_narrative(
+                squad,
+                challenge_cat=challenge_cat,
+                active_tags=active_tags,
+            ),
             outcome=outcome,
             event_num=events_done,
             total_events=events_total,
@@ -212,9 +325,12 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
             twist=twist,
             prev_summary=prev,
             squad_hp_ratio=squad_hp_ratio,
+            expedition_context=expedition_context,
         )
     ts["last_narrative"] = (narrative or "") if not silent else (ts.get("last_narrative") or "")
     ts["last_challenge_category"] = challenge_cat
+    ts["last_outcome"] = outcome
+    ts["squad_prepared"] = squad_prepared
     ts["tag_mult"] = round(tag_mult, 4)
     ts["tick_adj"] = round(tick_adj, 4)
     ts["active_tags"] = sorted(active_tags)

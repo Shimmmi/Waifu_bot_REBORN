@@ -1235,6 +1235,25 @@ header.attic {
   transition: width 300ms ease;
 }
 
+.attic-dungeon-progress {
+  width: 100%;
+  margin-top: 3px;
+}
+.attic-dungeon-progress-track {
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.attic-dungeon-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(200, 146, 42, 0.85), rgba(232, 184, 75, 0.95));
+  transition: width 300ms ease;
+}
+
 /* Active state for dungeon / expedition chips */
 .chip-active {
   border-color: rgba(139, 92, 246, 0.55);
@@ -3574,6 +3593,61 @@ button.chip {
   margin-bottom: 10px;
 }
 
+.page-dungeons .dungeon-tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.page-dungeons #dungeon-tabs {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.page-dungeons .dungeon-tabs-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.page-dungeons .dungeon-admin-group {
+  display: flex;
+  gap: 4px;
+}
+
+.page-dungeons .dungeon-tab-sm {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9px;
+  border: 1px solid rgba(200, 146, 42, 0.18);
+  background: rgba(26, 20, 14, 0.85);
+  color: #6a5a4a;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.page-dungeons .dungeon-tab-sm:hover {
+  border-color: rgba(200, 146, 42, 0.4);
+  color: #e8b84b;
+}
+
+.page-dungeons .dungeon-tab-sm.solo-exit-btn {
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #fca5a5;
+}
+
+.page-dungeons .dungeon-tab-sm.solo-exit-btn:hover {
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fecaca;
+}
+
 .page-dungeons #dungeon-tabs .tab {
   color: #fff;
 }
@@ -4043,6 +4117,7 @@ button.chip {
   align-items: center;
   justify-content: center;
   transition: box-shadow 0.3s ease;
+  box-shadow: 0 0 0 2px rgba(200, 146, 42, 0.22);
 }
 .page-dungeons .monster-visual.elite-blue   { box-shadow: 0 0 0 2px #3b82f6, 0 0 18px 2px rgba(59,130,246,0.35); }
 .page-dungeons .monster-visual.elite-gold   { box-shadow: 0 0 0 2px #f59e0b, 0 0 18px 2px rgba(245,158,11,0.40); }
@@ -4080,45 +4155,48 @@ button.chip {
   letter-spacing: 0.05em;
 }
 
-.page-dungeons .monster-name-overlay {
+.page-dungeons .monster-name-header {
   position: absolute;
-  bottom: 0;
+  top: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(transparent, rgba(0,0,0,0.82));
-  padding: 24px 12px 10px;
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-}
-.page-dungeons .monster-name-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
+  z-index: 2;
+  text-align: center;
+  background: linear-gradient(rgba(0, 0, 0, 0.78), transparent);
+  padding: 10px 12px 20px;
+  pointer-events: none;
 }
 .page-dungeons .monster-name-text {
+  display: block;
   font-size: 15px;
   font-weight: 700;
   color: #fff;
   line-height: 1.2;
-  text-shadow: 0 1px 4px rgba(0,0,0,0.6);
-}
-.page-dungeons .monster-name-type {
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255,255,255,0.72);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  line-height: 1.2;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.55);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 .page-dungeons .monster-name-level {
+  display: block;
+  margin-top: 2px;
   font-size: 12px;
-  color: rgba(255,255,255,0.65);
-  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.65);
+}
+.page-dungeons .monster-type-badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 2;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: #e8b84b;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(232, 184, 75, 0.25);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
 }
 
 .page-dungeons .monster-affixes {
@@ -4181,8 +4259,7 @@ button.chip {
 .page-dungeons .hp-fill-waifu   { background: linear-gradient(90deg, #10b981, #34d399); }
 
 .page-dungeons .solo-exit-btn {
-  width: 100%;
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 .dungeon-card {
@@ -4466,14 +4543,14 @@ button.chip {
   background: color-mix(in srgb, var(--border) 35%, transparent);
   color: #e8dcc8;
 }
-.solo-battle-log-root > .solo-battle-log-root-sum {
+.solo-battle-log-root > summary.solo-battle-log-root-sum {
   cursor: pointer;
   font-weight: 600;
   font-size: 13px;
   list-style: none;
   color: #f0e6d8;
 }
-.solo-battle-log-root > .solo-battle-log-root-sum::-webkit-details-marker {
+.solo-battle-log-root > summary.solo-battle-log-root-sum::-webkit-details-marker {
   display: none;
 }
 .solo-battle-log-inner {

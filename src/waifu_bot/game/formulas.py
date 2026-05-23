@@ -5,6 +5,9 @@ import random
 from typing import Any
 
 from waifu_bot.game.constants import (
+    ARMOR_DR_CAP,
+    ARMOR_K_BASE,
+    ARMOR_K_PER_LEVEL,
     BASE_HP_PER_LEVEL,
     BASE_SKILL_DAMAGE,
     CRIT_CHANCE_AGILITY,
@@ -59,6 +62,16 @@ def calculate_max_energy(endurance: int) -> int:
 def calculate_damage_reduction(endurance: int) -> float:
     """Calculate incoming damage reduction from ВЫН. Capped at END_DAMAGE_REDUCTION_CAP."""
     return min(endurance * END_DAMAGE_REDUCTION_COEFF, END_DAMAGE_REDUCTION_CAP)
+
+
+def calculate_armor_damage_reduction(armor_total: float, waifu_level: int) -> float:
+    """Доля снижения от брони: A/(A+K(L)), кап ARMOR_DR_CAP."""
+    a = max(0.0, float(armor_total))
+    level = max(1, min(int(waifu_level or 1), int(MAX_LEVEL)))
+    k = float(ARMOR_K_BASE) + float(ARMOR_K_PER_LEVEL) * float(level)
+    if a + k <= 0:
+        return 0.0
+    return min(float(ARMOR_DR_CAP), a / (a + k))
 
 
 def calculate_crit_multiplier(strength: int) -> float:

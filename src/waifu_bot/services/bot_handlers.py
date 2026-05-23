@@ -25,6 +25,8 @@ from waifu_bot.services.gd_v1_worker import (
     process_gd_v1_admin_force_victory_cycle,
     send_gd_v1_group_start_narrative,
 )
+from waifu_bot.services.game_config_service import get_game_config_map
+from waifu_bot.services import chat_rewards as chat_rewards_svc
 from waifu_bot.services.telegram_trace import (
     log_outgoing_fail,
     log_outgoing_reply,
@@ -182,6 +184,21 @@ async def group_message_damage(message: Message) -> None:
 
     try:
         async for session in get_session():
+            try:
+                text_chars = len(message_text) if message_text else 0
+                cfg = await get_game_config_map(session)
+                await chat_rewards_svc.try_award_chat_message(
+                    session,
+                    redis_core.get_redis(),
+                    player_id=player_id,
+                    chat_id=chat_id,
+                    media_type=media_type,
+                    text_chars=text_chars,
+                    cfg=cfg,
+                )
+            except Exception:
+                logger.exception("chat_rewards hook failed pid=%s chat=%s", player_id, chat_id)
+
             v1 = (
                 await gd_v1_cycle_service.get_active_v1_cycle(session, chat_id)
                 if chat_id

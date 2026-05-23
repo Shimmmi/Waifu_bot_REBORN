@@ -34,7 +34,7 @@
 | 5 | + % к опыту | `exp_bonus_pct` | то же | `exp_bonus_pct` | `p_sec_exp_bonus_pct`, `s_sec_exp_bonus_pct` | Складывается с бонусом от ИНТ |
 | 6 | + к золоту (дроп) | `gold_bonus_pct` | то же | `gold_bonus_pct` | `p_sec_gold_bonus_pct`, `s_sec_gold_bonus_pct` | Складывается с бонусом от УДЧ |
 | **Уже есть на «Подробно», но через другие механики (не 6 колонок шаблона)** |
-| 7 | + к броне (от предметов) | суммарная броня с экипировки + зачар | Профиль `armor`, бой `_get_waifu_armor_and_secondary` | — (implicit `armor_base` + enchant) | **Нет** отдельной семьи в JSON | Не дублировать как `dmg_reduce_pct`; это отдельный пул |
+| 7 | + к броне (от предметов) | суммарная броня с экипировки + зачар | Профиль `armor`, бой: `armor_dr = A/(A+K(waifu.level))` в общем пуле `total_reduce` | — (implicit `armor_base` + enchant) | **Нет** отдельной семьи в JSON | Не дублировать как `dmg_reduce_pct`; отдельный вклад в пул снижения, не плоское вычитание |
 | 8 | + % урона ближнего боя | `melee_damage_flat` (в коде считается как flat-бонус к скору урона) | `calculate_item_bonuses` + `_compute_details` | — | **Нет** | Нужны семьи `p_/s_` + тиры в `diablo_affix_family_tiers.json` |
 | 9 | + % урона дальнего боя | `ranged_damage_flat` | то же | — | **Нет** | В дереве пассивов **нет** отдельного узла «лук» — только экипировка/аффиксы |
 | 10 | + % магического урона | `magic_damage_flat` | то же | — | **Нет** | |
@@ -137,7 +137,7 @@
 | w_iron | warrior | Железная кожа | dmg_reduce_pct |
 | w_blood | warrior | Кров. ярость | low_hp_dmg_pct |
 | w_berserk | warrior | Берсерк | hp_loss_dmg_pct |
-| w_fort | warrior | Крепость | armor_and_reduce |
+| w_fort | warrior | Крепость | armor_flat |
 | w_last | warrior | Последний рубеж | survive_chance |
 | w_wrath | warrior | Гнев героя | crit_dmg_melee_pct |
 | w_imm | warrior | Бессмертный | hp_on_kill_pct |

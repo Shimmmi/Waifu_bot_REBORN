@@ -46,7 +46,7 @@ import math
 
 
 SOLO_BATTLE_LOG_LIMIT = 40
-SOLO_BATTLE_LOG_DM_LIMIT = 500
+SOLO_BATTLE_LOG_MAX = 500
 
 
 def _solo_battle_log_summary_fallback(event_type: str, event_data: dict | None) -> str:
@@ -77,14 +77,14 @@ async def fetch_solo_battle_log_entries(
 ) -> list[dict]:
     """Журнал соло-данжа для WebApp: сводки + разбивка урона.
 
-    limit=None — до SOLO_BATTLE_LOG_DM_LIMIT записей (полный экспорт для DM).
+    limit=None — до SOLO_BATTLE_LOG_MAX записей.
     """
     stmt = (
         select(BattleLog)
         .where(BattleLog.player_id == player_id, BattleLog.dungeon_id == dungeon_id)
         .order_by(BattleLog.id.desc())
     )
-    eff_limit = SOLO_BATTLE_LOG_DM_LIMIT if limit is None else int(limit)
+    eff_limit = SOLO_BATTLE_LOG_MAX if limit is None else int(limit)
     stmt = stmt.limit(eff_limit)
     rows = (await session.execute(stmt)).scalars().all()
     chronological = list(reversed(rows))
@@ -407,6 +407,49 @@ class DungeonService:
 
         return candidates
 
+    async def _get_plus_cross_act_candidates(
+        self,
+        session: AsyncSession,
+        *,
+        is_boss: bool,
+        target_diff: int,
+        used_template_ids: set[int],
+        allow_reuse: bool = False,
+    ) -> list[tuple[MonsterTemplate, int]]:
+        """Plus runs: pick from acts 1–5 union; dedupe templates within a run."""
+        stmt = select(MonsterTemplate).where(
+            MonsterTemplate.act_min <= 5,
+            MonsterTemplate.act_max >= 1,
+        )
+        if is_boss:
+            stmt = stmt.where(MonsterTemplate.boss_allowed.is_(True))
+        res = await session.execute(stmt)
+        templates: list[MonsterTemplate] = list(res.scalars().all())
+        candidates: list[tuple[MonsterTemplate, int]] = []
+        for tmpl in templates:
+            tid = int(tmpl.id)
+            if tid in used_template_ids and not allow_reuse:
+                continue
+            base_diff = max(1, int(getattr(tmpl, "base_difficulty", 1) or 1))
+            closeness = max(1, 10 - min(9, abs(base_diff - int(target_diff or 1))))
+            weight = int(getattr(tmpl, "weight", 1) or 1) * closeness
+            if weight <= 0:
+                continue
+            candidates.append((tmpl, weight))
+        if not candidates and used_template_ids and not allow_reuse:
+            logger.warning(
+                "[dungeon plus] Cross-act pool exhausted (used=%s); allowing template reuse",
+                len(used_template_ids),
+            )
+            return await self._get_plus_cross_act_candidates(
+                session,
+                is_boss=is_boss,
+                target_diff=target_diff,
+                used_template_ids=used_template_ids,
+                allow_reuse=True,
+            )
+        return candidates
+
     async def _get_tier_only_candidates(
         self,
         session: AsyncSession,
@@ -664,6 +707,7 @@ class DungeonService:
                     per = [max(1, int(x * scale)) for x in per]
 
                 monsters: list[DungeonRunMonster] = []
+                used_template_ids: set[int] = set()
                 for pos in range(1, total + 1):
                     is_boss = pos == total
                     target_diff = per[pos - 1]
@@ -707,12 +751,20 @@ class DungeonService:
                         )
                         monsters.append(m)
                         session.add(m)
+                        used_template_ids.add(int(tmpl.id))
                         await session.flush()
                         continue
 
                     # Pick template with difficulty bounds + weighted randomness.
                     cand: list[tuple[MonsterTemplate, int]] = []
-                    if use_tags:
+                    if pl > 0:
+                        cand = await self._get_plus_cross_act_candidates(
+                            session,
+                            is_boss=is_boss,
+                            target_diff=target_diff,
+                            used_template_ids=used_template_ids,
+                        )
+                    elif use_tags:
                         cand = await self._get_tag_tier_candidates(
                             session,
                             dungeon,
@@ -745,7 +797,7 @@ class DungeonService:
                             cand.append((tmpl, w * closeness))
 
                     # Fallback 2: пул пуст или не дал кандидатов — тег/тир подбор из monster_templates (cursor_plan_8)
-                    if not cand and not use_tags:
+                    if not cand and pl <= 0 and not use_tags:
                         cand = await self._get_tag_tier_candidates(
                             session,
                             dungeon,
@@ -754,7 +806,7 @@ class DungeonService:
                             total_monsters=total,
                         )
                     # Fallback 3: тир-only — любые монстры нужного тира, без фильтра по тегам (WARNING в лог)
-                    if not cand:
+                    if not cand and pl <= 0:
                         cand = await self._get_tier_only_candidates(
                             session,
                             dungeon,
@@ -766,6 +818,8 @@ class DungeonService:
                     tmpl = self._pick_weighted(cand) if cand else None
                     if not tmpl:
                         return {"error": "dungeon_pool_invalid"}
+
+                    used_template_ids.add(int(tmpl.id))
 
                     # Level roll: around dungeon.level, clamped to template bounds
                     base_lvl = int(dungeon.level) if pl <= 0 else int(50 + (pl - 1) * 5)
@@ -972,16 +1026,22 @@ class DungeonService:
                 sb_id = getattr(cur, "story_boss_definition_id", None)
                 story_boss_payload: dict | None = None
                 is_story_boss = bool(sb_id)
+                monster_image_override: str | None = None
                 if sb_id:
                     sbd = await session.get(StoryBossDefinition, int(sb_id))
                     if sbd:
                         story_boss_payload = {
+                            "id": int(sbd.id),
                             "slug": sbd.slug,
                             "name": sbd.name,
                             "intro_text": (sbd.intro_text or "").strip(),
                             "short_lore": (sbd.short_lore or "").strip(),
                             "image_webp_path": sbd.image_webp_path,
                         }
+                        img_path = str(sbd.image_webp_path or "").strip()
+                        if img_path:
+                            monster_image_override = img_path
+                            monster_has_image = True
                 battle_log_entries = await fetch_solo_battle_log_entries(session, player_id, dungeon.id)
                 battle_log = (
                     [e["summary_ru"] for e in battle_log_entries]
@@ -1015,7 +1075,7 @@ class DungeonService:
                     "affix_count": affix_count,
                     "affixes": affixes_for_ui,
                     "monster_has_image": monster_has_image,
-                    "monster_image_override": None,
+                    "monster_image_override": monster_image_override,
                     "waifu_name": waifu.name,
                     "waifu_level": waifu.level,
                     "waifu_current_hp": waifu.current_hp,

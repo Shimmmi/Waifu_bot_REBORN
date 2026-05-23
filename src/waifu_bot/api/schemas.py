@@ -748,6 +748,10 @@ class ExpeditionSlotOut(BaseModel):
     base_experience: int
     trial: bool = False
     is_used: bool = False
+    location_archetype_id: Optional[str] = None
+    location_archetype_name: Optional[str] = None
+    expedition_mode_id: Optional[str] = None
+    expedition_mode_name: Optional[str] = None
 
 
 class ExpeditionPreviewRequest(BaseModel):
@@ -841,6 +845,11 @@ class ExpeditionActiveOut(BaseModel):
     events_total: Optional[int] = None
     progress_pct: Optional[int] = None
     squad_snapshot: List[ExpeditionSquadUnitOut] = []
+    location_archetype_id: Optional[str] = None
+    location_archetype_name: Optional[str] = None
+    expedition_mode_id: Optional[str] = None
+    expedition_mode_name: Optional[str] = None
+    narrative_title: Optional[str] = None
 
 
 class ExpeditionActiveResponse(BaseModel):
@@ -884,6 +893,7 @@ class ExpeditionStartResponse(BaseModel):
     affix_icon: Optional[str] = None
     affix_level_roman: Optional[str] = None
     events_total: Optional[int] = None
+    start_intro_narrative: Optional[str] = None
     error: Optional[str] = None
 
 

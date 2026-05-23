@@ -7,9 +7,11 @@ import json
 import logging
 import random
 import re
+from io import BytesIO
 from typing import Any, Optional
 
 import httpx
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,8 +19,53 @@ from waifu_bot.core.config import settings
 from waifu_bot.db.models.dungeon import MonsterTemplate
 from waifu_bot.db.models.skill import Skill, SkillType
 from waifu_bot.game.constants import AI_NARRATIVE_GROTESQUE_HUMOR_RU
+from waifu_bot.game.expedition_narrative_catalog import (
+    ExpeditionNarrativeStyle,
+    narrative_style_for_id,
+    narrative_style_prompt_block,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _expedition_style_prompt_from_brief(brief: dict | None) -> str:
+    if not isinstance(brief, dict):
+        return ""
+    style_id = brief.get("narrative_style_id")
+    style = narrative_style_for_id(style_id)
+    if style:
+        return f" {narrative_style_prompt_block(style)}"
+    name = str(brief.get("narrative_style_name") or "").strip()
+    if name:
+        return f" Стиль повествования «{name}» — сохраняй его на все эпизоды."
+    return ""
+
+
+def format_expedition_start_intro_telegram(
+    *,
+    title: str,
+    intro_narrative: str,
+    mode_name: str | None = None,
+    archetype_name: str | None = None,
+    squad_names: list[str] | None = None,
+    style_name: str | None = None,
+) -> str:
+    t = str(title or "Экспедиция").strip()
+    intro = str(intro_narrative or "").strip()
+    if not intro:
+        return ""
+    style_bit = f" · {style_name}" if style_name else ""
+    lines = [f"🗺 «{t}» · Брифинг{style_bit}", "", intro]
+    meta: list[str] = []
+    if mode_name and archetype_name:
+        meta.append(f"{mode_name} · {archetype_name}")
+    elif mode_name or archetype_name:
+        meta.append(mode_name or archetype_name or "")
+    if squad_names:
+        meta.append(f"Отряд: {', '.join(squad_names[:5])}")
+    if meta:
+        lines.extend(["", "\n".join(x for x in meta if x)])
+    return "\n".join(lines)
 
 
 def _openrouter_url() -> str:
@@ -112,6 +159,151 @@ def _warn_if_empty_assistant(caller: str, choice: object, extracted: str) -> Non
     )
 
 
+async def generate_expedition_narrative_brief(
+    *,
+    archetype_id: str,
+    archetype_name: str,
+    archetype_hints: list[str],
+    mode_id: str,
+    mode_name: str,
+    mode_focus: str,
+    mode_prompt_rules: str,
+    affix_names: list[str],
+    affix_hints: list[str],
+    events_total: int,
+    duration_minutes: int,
+    squad_names: list[str],
+    narrative_style: ExpeditionNarrativeStyle | None = None,
+) -> Optional[dict]:
+    """
+    Генерирует JSON-бриф экспедиции при старте: название, сеттинг, план эпизодов.
+    """
+    api_key = getattr(settings, "openrouter_api_key", None)
+    if not api_key:
+        return None
+
+    model = settings.openrouter_model
+    payload = {
+        "archetype": {
+            "id": archetype_id,
+            "name": archetype_name,
+            "hints": archetype_hints[:6],
+        },
+        "mode": {
+            "id": mode_id,
+            "name": mode_name,
+            "focus": mode_focus,
+            "rules": mode_prompt_rules,
+        },
+        "affixes": [
+            {"name": n, "hint": (affix_hints[i] if i < len(affix_hints) else "")}
+            for i, n in enumerate(affix_names)
+        ],
+        "events_total": int(events_total),
+        "duration_minutes": int(duration_minutes),
+        "squad_names": squad_names[:5],
+    }
+    style_block = narrative_style_prompt_block(narrative_style) if narrative_style else ""
+    prompt = (
+        "Ты — сценарист коротких фэнтезийных экспедиций для RPG. "
+        "Придумай уникальный сеттинг экспедиции по JSON-контексту. "
+        f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
+        f"{style_block} "
+        "Не используй шаблон «подземелье с гоблинами», если архетип — город, клуб, арктика и т.п. "
+        "Сеттинг должен соответствовать архетипу локации и режиму экспедиции. "
+        f"event_beats — ровно {int(events_total)} коротких строк (одна на эпизод), "
+        "логичная арка от начала до финала. "
+        "Каждый event_beat должен логично включать угрозы из affixes "
+        "(если есть «с пауками» — паутина/пауки в нужном эпизоде, «с нежитью» — нежить и т.д.). "
+        "intro_narrative — 3–5 предложений: брифинг перед выходом, сбор отряда, что впереди; "
+        "БЕЗ боевого действия, без урона, без «они уже сражаются» — это вступление, не первый эпизод.\n\n"
+        "Ответь СТРОГО JSON без markdown:\n"
+        '{"title":"...","setting_summary":"2-3 предложения","intro_narrative":"3-5 предложений брифинга",'
+        '"key_elements":["..."],'
+        f'"event_beats":["..."],"tone":"...","avoid_tropes":["..."]}}\n\n'
+        f"Контекст: {json.dumps(payload, ensure_ascii=False)}"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            r = await client.post(
+                _openrouter_url(),
+                headers=_openrouter_headers(),
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 650,
+                    "temperature": 0.88,
+                    **_openrouter_text_extra(),
+                },
+            )
+            if r.status_code != 200:
+                logger.warning(
+                    "OpenRouter expedition brief: HTTP %s body=%s",
+                    r.status_code,
+                    (r.text or "")[:400],
+                )
+                return None
+            data = r.json()
+            choices = data.get("choices") or []
+            if not isinstance(choices, list) or not choices:
+                return None
+            first = choices[0]
+            text = _extract_openrouter_assistant_text(first)
+            if not text:
+                _warn_if_empty_assistant("expedition brief", first, text)
+                return None
+            parsed = _parse_narrative_brief_json(text)
+            if parsed and narrative_style:
+                parsed.setdefault("narrative_style_id", narrative_style.id)
+                parsed.setdefault("narrative_style_name", narrative_style.name_ru)
+            if parsed and not parsed.get("intro_narrative"):
+                parsed["intro_narrative"] = parsed.get("setting_summary") or ""
+            if parsed and len(parsed.get("event_beats") or []) != int(events_total):
+                beats = list(parsed.get("event_beats") or [])
+                while len(beats) < int(events_total):
+                    beats.append(f"Эпизод {len(beats) + 1}: развитие сюжета")
+                parsed["event_beats"] = beats[: int(events_total)]
+            return parsed
+    except Exception as e:
+        logger.warning("OpenRouter expedition brief error: %s", e)
+        return None
+
+
+def _parse_narrative_brief_json(raw: str) -> Optional[dict]:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    fence = re.match(r"^```(?:json)?\s*([\s\S]*?)\s*```\s*$", raw, re.IGNORECASE)
+    if fence:
+        raw = fence.group(1).strip()
+    for candidate in (raw,):
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, dict) and data.get("title") and data.get("setting_summary"):
+                intro = str(data.get("intro_narrative") or data.get("setting_summary") or "").strip()[:800]
+                return {
+                    "title": str(data["title"]).strip()[:120],
+                    "setting_summary": str(data["setting_summary"]).strip()[:600],
+                    "intro_narrative": intro,
+                    "key_elements": [str(x).strip() for x in (data.get("key_elements") or []) if str(x).strip()][:8],
+                    "event_beats": [str(x).strip() for x in (data.get("event_beats") or []) if str(x).strip()],
+                    "tone": str(data.get("tone") or "fantasy-adventure").strip()[:64],
+                    "avoid_tropes": [str(x).strip() for x in (data.get("avoid_tropes") or []) if str(x).strip()][:6],
+                }
+        except json.JSONDecodeError:
+            pass
+    match = re.search(r"\{[\s\S]*\}", raw)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            if isinstance(data, dict) and data.get("title"):
+                return _parse_narrative_brief_json(json.dumps(data, ensure_ascii=False))
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
 async def generate_expedition_tick_narrative(
     *,
     location: str,
@@ -127,6 +319,7 @@ async def generate_expedition_tick_narrative(
     twist: dict | None,
     prev_summary: str,
     squad_hp_ratio: float = 0.0,
+    expedition_context: dict | None = None,
 ) -> Optional[str]:
     """
     Короткий нарратив одного тика экспедиции v1.3 (2–4 предложения, RU).
@@ -140,6 +333,7 @@ async def generate_expedition_tick_narrative(
     ctx = {
         "location": location,
         "biome_tags": [t for t in biome_tags if t],
+        "expedition": expedition_context or {},
         "challenge": {
             "name": challenge_name,
             "category": challenge_category,
@@ -154,14 +348,46 @@ async def generate_expedition_tick_narrative(
         "prev_summary": (prev_summary or "")[:500],
         "squad_hp_ratio": round(float(squad_hp_ratio), 3),
     }
+    mode_rules = ""
+    if expedition_context and expedition_context.get("mode_rules"):
+        mode_rules = f" Режим экспедиции: {expedition_context['mode_rules']}"
+    avoid = expedition_context.get("avoid_tropes") if expedition_context else None
+    avoid_block = ""
+    if avoid:
+        avoid_block = f" Избегай клише: {', '.join(avoid[:4])}."
+    beat_hint = ""
+    if expedition_context and expedition_context.get("event_beat"):
+        beat_hint = (
+            " Поле expedition.event_beat — обязательный сюжетный поворот этого эпизода; "
+            "не перескакивай к другим эпизодам."
+        )
+    threat_rules = (
+        " Обязательно отрази в сцене конкретные угрозы из expedition.threats.slot_affixes_ru "
+        "и expedition.threats.uncovered_tags_ru (например «с пауками» → паутина, клыки). "
+        "Не называй механики и проценты — покажи через действие и атмосферу. "
+        "Подготовка отряда (expedition.threats.squad_prepared): "
+        "если true и outcome triumph — уверенное противодействие, наёмница с relevant_perk_names блеснёт; "
+        "если false — отряд импровизирует, царапины и паника; при outcome triumph без контров — хрупкая удача, не мастерство; "
+        "при struggle/survived_barely без контров — усиленное ощущение перегруза. "
+        "Поле expedition.tick_pressure: high — больше хаоса, low — больше контроля."
+    )
+    style_block = _expedition_style_prompt_from_brief(expedition_context)
+    intro_hint = ""
+    if expedition_context and expedition_context.get("intro_narrative"):
+        intro_hint = (
+            " Это продолжение intro_narrative из брифинга — сохраняй тот же голос и стиль, "
+            "не перескакивай к другому типу повествования."
+        )
     prompt = (
         "Напиши короткое повествование (2–4 предложения, на русском) об одном эпизоде экспедиции в фэнтези-стиле. "
         f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
+        f"{style_block}{intro_hint} "
         "Это эпизод номер event_num из total_events — обязательно другая сцена, другой момент конфликта, чем раньше. "
         "Не повторяй дословно и не копируй структуру предыдущего текста из prev_summary: придумай новое развитие. "
         "Поле squad_hp_ratio — доля суммарного здоровья отряда (0..1), без названия чисел: при низком значении больше угрозы, ран, усталости; при высоком — можно увереннее. "
         "Если is_final true — это последний эпизод перед возвращением; передай напряжение и состояние отряда, без спойлера итога всей экспедиции. "
         "Следуй контексту JSON; не перечисляй числа и механики вслух, покажи действие и атмосферу. "
+        f"{mode_rules}{avoid_block}{beat_hint}{threat_rules} "
         "Исход outcome эпизода (не финал экспедиции): triumph — уверенный успех; struggle — с трудом; survived_barely — едва выстояли. "
         f"Контекст: {json.dumps(ctx, ensure_ascii=False)}"
     )
@@ -207,6 +433,12 @@ async def generate_expedition_event(
     squad_names: list[str],
     reward_gold: int,
     reward_experience: int,
+    *,
+    narrative_brief: dict | None = None,
+    mode_name: str | None = None,
+    archetype_name: str | None = None,
+    tick_summaries: list[str] | None = None,
+    squad_prepared: bool | None = None,
 ) -> Optional[str]:
     """
     Генерирует короткое описание исхода экспедиции (2–3 предложения) через OpenRouter.
@@ -220,11 +452,27 @@ async def generate_expedition_event(
 
     outcome = "успешно завершили" if success else "не справились и вернулись ни с чем"
     names = ", ".join(squad_names[:5]) if squad_names else "отряд"
+    extra = ""
+    if narrative_brief:
+        setting = (narrative_brief.get("setting_summary") or "")[:300]
+        if setting:
+            extra += f" Сеттинг экспедиции: {setting}."
+    if mode_name or archetype_name:
+        extra += f" Режим: {mode_name or '—'}. Локация-архетип: {archetype_name or '—'}."
+    if tick_summaries:
+        joined = " | ".join(s[:120] for s in tick_summaries[-3:] if s)
+        if joined:
+            extra += f" Кратко что было: {joined}."
+    if squad_prepared is not None:
+        prep = "отряд был подготовлен к угрозам слота" if squad_prepared else "отряд не имел нужных навыков против угроз слота"
+        extra += f" Подготовка: {prep}."
+    style_block = _expedition_style_prompt_from_brief(narrative_brief)
     prompt = (
         f"Напиши коротко (2–3 предложения, на русском) описание исхода экспедиции в фэнтези-стиле. "
         f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
+        f"{style_block} "
         f"Экспедиция: «{expedition_name}». {names} {outcome}. "
-        f"Длительность: {duration_minutes} мин. "
+        f"Длительность: {duration_minutes} мин.{extra} "
         + (f"Награда: {reward_gold} золота, {reward_experience} опыта." if success else "")
         + " Без вступления, только сам текст события."
     )
@@ -1166,14 +1414,164 @@ async def generate_main_waifu_portrait(
         return None
 
 
-_PAPERDOLL_POSES_EN: tuple[str, ...] = (
-    "waist-up, slight three-quarter view, confident battle-ready stance, weight on back foot, ready to strike",
-    "waist-up, dynamic mid-action pose with subtle motion in hair and cloth, energetic but controlled",
-    "waist-up, relaxed heroic standing pose, one hand on hip, friendly adventurer energy",
-    "waist-up, casting or channeling pose, off-hand raised with faint magical intent, focused expression",
-    "waist-up, alert guard stance, knees slightly bent, weapons or shield held naturally for equipped gear",
-    "waist-up, charismatic three-quarter pose, slight lean forward, expressive and lively",
+_PAPERDOLL_POSES_NEUTRAL_EN: tuple[str, ...] = (
+    "waist-up, relaxed heroic standing, arms at sides or one hand on hip, no weapons in hands",
+    "waist-up, slight three-quarter view, friendly adventurer stance, empty hands visible",
+    "waist-up, charismatic standing pose, slight lean, expressive but calm empty hands",
 )
+
+_PAPERDOLL_POSES_DUAL_WIELD_EN: tuple[str, ...] = (
+    "waist-up, three-quarter view: right hand primary grip on main-hand weapon; left hand holds off-hand item "
+    "(shield, orb, or dagger) — exactly two arms and two hands only",
+    "waist-up, battle-ready stance: main weapon raised in primary hand; off-hand item held low at side — "
+    "two arms, two hands, no extra limbs",
+    "waist-up, dynamic guard pose: weapon forward in main hand, off-hand orb or shield presented — "
+    "anatomically correct two arms only",
+)
+
+_PAPERDOLL_POSES_TWO_HAND_EN: tuple[str, ...] = (
+    "waist-up, two-handed weapon grip with both hands on the same polearm or staff — exactly two arms on one weapon",
+    "waist-up, heroic two-hand hold on great weapon, slight three-quarter angle, both hands visible on shaft",
+)
+
+_PAPERDOLL_POSES_ONE_HAND_EN: tuple[str, ...] = (
+    "waist-up, main-hand weapon at side in single-hand grip; other hand empty on hip or relaxed — two arms only",
+    "waist-up, confident one-hand weapon hold, off-hand free, slight three-quarter view",
+)
+
+_PAPERDOLL_POSES_ORB_CAST_EN: tuple[str, ...] = (
+    "waist-up, casting pose: off-hand palm up presenting a magical orb; main hand free or resting on weapon — two arms",
+    "waist-up, channeling stance: orb floating near off-hand, focused gaze, single orb in one hand only",
+)
+
+_PAPERDOLL_POSES_ARMOR_ONLY_EN: tuple[str, ...] = (
+    "waist-up, relaxed standing in armor, hands empty and visible, no weapon draw pose",
+    "waist-up, heroic showcase stance, arms relaxed at sides showing costume and jewelry",
+)
+
+
+def _paperdoll_slot_is_weapon(info: dict[str, str] | None) -> bool:
+    if not info:
+        return False
+    st = str(info.get("slot_type") or "").lower()
+    wt = str(info.get("weapon_type") or "").lower()
+    if st in ("weapon_1h", "weapon_2h") or st.startswith("weapon"):
+        return True
+    if wt and wt not in ("orb",):
+        return True
+    return st == "offhand" and bool(wt)
+
+
+def _paperdoll_slot_is_two_hand(info: dict[str, str] | None) -> bool:
+    if not info:
+        return False
+    st = str(info.get("slot_type") or "").lower()
+    wt = str(info.get("weapon_type") or "").lower()
+    return st == "weapon_2h" or wt in ("two_hand", "2h", "bow", "staff", "staff_wand")
+
+
+def _paperdoll_slot_is_orb(info: dict[str, str] | None) -> bool:
+    if not info:
+        return False
+    wt = str(info.get("weapon_type") or "").lower()
+    st = str(info.get("slot_type") or "").lower()
+    return wt == "orb" or (st == "offhand" and wt == "orb")
+
+
+def pick_paperdoll_pose_for_equipment(equipped_slots: dict[int, dict[str, str]]) -> str:
+    """Pick an English pose hint from equipped slot types (1=main, 2=off, 3=costume, …)."""
+    main = equipped_slots.get(1)
+    off = equipped_slots.get(2)
+    has_main = _paperdoll_slot_is_weapon(main)
+    has_off = bool(off) and (
+        _paperdoll_slot_is_weapon(off)
+        or str(off.get("slot_type") or "").lower() == "offhand"
+    )
+
+    if has_main and has_off:
+        if _paperdoll_slot_is_orb(off) or _paperdoll_slot_is_orb(main):
+            return random.choice(_PAPERDOLL_POSES_ORB_CAST_EN)
+        return random.choice(_PAPERDOLL_POSES_DUAL_WIELD_EN)
+
+    if has_main and _paperdoll_slot_is_two_hand(main):
+        return random.choice(_PAPERDOLL_POSES_TWO_HAND_EN)
+
+    if has_main:
+        return random.choice(_PAPERDOLL_POSES_ONE_HAND_EN)
+
+    if has_off and _paperdoll_slot_is_orb(off):
+        return random.choice(_PAPERDOLL_POSES_ORB_CAST_EN)
+
+    if equipped_slots:
+        return random.choice(_PAPERDOLL_POSES_ARMOR_ONLY_EN)
+
+    return random.choice(_PAPERDOLL_POSES_NEUTRAL_EN)
+
+
+# Waist-up portraits usually show hands below ~40% height; crop higher to keep arms out of the reference.
+_PAPERDOLL_IDENTITY_CROP_HEIGHT_RATIO = 0.38
+_PAPERDOLL_IDENTITY_CROP_HORIZONTAL_INSET = 0.04
+
+
+def _crop_portrait_identity_reference_for_paperdoll(raw_b64: str) -> tuple[str, str] | None:
+    """
+    Tight head/upper-neck crop so multimodal models cannot copy arm poses from the full portrait.
+    Returns (base64, mime) as PNG, or None on failure (caller keeps full portrait).
+    """
+    try:
+        raw = base64.b64decode(str(raw_b64 or "").strip(), validate=False)
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        img = Image.open(BytesIO(raw))
+        img.load()
+    except Exception:
+        logger.warning("[MAIN OV PAPERDOLL] identity crop: cannot decode portrait")
+        return None
+
+    w, h = img.size
+    if w < 16 or h < 16:
+        return None
+
+    crop_h = max(48, min(h, int(h * _PAPERDOLL_IDENTITY_CROP_HEIGHT_RATIO)))
+    inset_x = max(0, int(w * _PAPERDOLL_IDENTITY_CROP_HORIZONTAL_INSET))
+    left = inset_x
+    right = max(left + 16, w - inset_x)
+    box = (left, 0, right, crop_h)
+    try:
+        cropped = img.crop(box)
+    except Exception:
+        logger.warning("[MAIN OV PAPERDOLL] identity crop: crop failed")
+        return None
+
+    if cropped.mode in ("RGBA", "LA", "P"):
+        background = Image.new("RGB", cropped.size, (245, 240, 230))
+        if cropped.mode == "P":
+            cropped = cropped.convert("RGBA")
+        if cropped.mode in ("RGBA", "LA"):
+            background.paste(cropped, mask=cropped.split()[-1])
+            cropped = background
+        else:
+            cropped = cropped.convert("RGB")
+    elif cropped.mode != "RGB":
+        cropped = cropped.convert("RGB")
+
+    buf = BytesIO()
+    cropped.save(buf, format="PNG", optimize=True)
+    out = buf.getvalue()
+    if not out:
+        return None
+    logger.info(
+        "[MAIN OV PAPERDOLL] identity crop %dx%d -> %dx%d (ratio=%.2f)",
+        w,
+        h,
+        cropped.size[0],
+        cropped.size[1],
+        _PAPERDOLL_IDENTITY_CROP_HEIGHT_RATIO,
+    )
+    return base64.b64encode(out).decode("ascii"), "image/png"
 
 
 def _paperdoll_background_for_avg_tier(avg_tier: float) -> str:
@@ -1214,6 +1612,7 @@ async def generate_main_waifu_paperdoll_from_portrait(
     equipment_prompt_en: str | None = None,
     equipment_references: list[tuple[str, str]] | None = None,
     avg_equipment_tier: float = 1.0,
+    pose_hint_en: str | None = None,
 ) -> Optional[str]:
     """
     2D JRPG-style paperdoll (waist-up) from existing portrait: multimodal request to OPENROUTER_MODEL_IMAGE.
@@ -1232,27 +1631,46 @@ async def generate_main_waifu_paperdoll_from_portrait(
     mime = (portrait_mime or "image/png").strip() or "image/png"
     if ";" in mime or "/" not in mime:
         mime = "image/png"
-    data_url = f"data:{mime};base64,{raw_b64}"
+    identity_b64 = raw_b64
+    cropped = _crop_portrait_identity_reference_for_paperdoll(raw_b64)
+    identity_cropped = cropped is not None
+    if cropped:
+        identity_b64, mime = cropped
+    data_url = f"data:{mime};base64,{identity_b64}"
 
     model = settings.openrouter_model_image
     race_en = _MAIN_WAIFU_RACE_VISUAL_EN.get(int(race_id), "human girl")
     class_en = _MAIN_WAIFU_CLASS_VISUAL_EN.get(int(class_id), "female adventurer")
     raw_eq = str(equipment_prompt_en or "").strip()
     equip_extra = "\n\n" + raw_eq if raw_eq else ""
-    pose_en = random.choice(_PAPERDOLL_POSES_EN)
+    pose_en = str(pose_hint_en or "").strip() or random.choice(_PAPERDOLL_POSES_NEUTRAL_EN)
     bg_en = _paperdoll_background_for_avg_tier(avg_equipment_tier)
     gear_ref_note = ""
     refs = equipment_references or []
     if refs:
         gear_ref_note = (
-            f"\nAttached after the portrait: {len(refs)} reference image(s) of equipped gear — "
+            f"\nAttached after the identity portrait: {len(refs)} reference image(s) of equipped gear — "
             "integrate each item's design onto the character in the matching slot."
         )
+    identity_ref_note = (
+        "The attached identity image is a tight head-and-upper-neck crop only — it intentionally contains NO arms, "
+        "hands, torso below the collarbone, or full-body pose. Do not hallucinate extra arms from any other source."
+        if identity_cropped
+        else (
+            "The attached identity image must be used for face and hair only — ignore any visible arms or hands in it "
+            "and draw a completely new body pose."
+        )
+    )
     prompt = (
-        "Using the attached reference portrait, generate a single JRPG-style 2D full-color illustration of the "
-        "SAME character. CRITICAL: preserve the face exactly — same facial features, eyes, nose, mouth, expression, "
-        "hairstyle, hair color, skin tone, and overall identity as the reference; do not redesign the face."
-        f"\nBody framing: {pose_en}; hands positioned so equipped weapons or shields can be held naturally where applicable."
+        "Generate a single JRPG-style 2D full-color illustration of a fantasy heroine with the SAME identity as the "
+        "attached identity reference, but in a completely NEW full waist-up pose drawn from scratch."
+        f"\n{identity_ref_note}"
+        "\nIdentity (copy from identity reference ONLY): same face, facial features, eye colors (including heterochromia), "
+        "nose, mouth shape, hairstyle, hair color, skin tone, horns, ears, and general body type. Do not redesign the face."
+        "\nDraw ALL arms, hands, and fingers ONLY from the Pose requirement below — never copy limb positions from any reference."
+        "\nAnatomy (mandatory): exactly two arms and two hands total in the final image; anatomically correct; "
+        "each hand holds at most one item; no duplicate arms, no merged limbs, no third arm, no extra floating hands."
+        f"\nPose (mandatory — sole source for limb layout): {pose_en}"
         f"\nCharacter flavor: {race_en}, {class_en}."
         f"{equip_extra}"
         f"{gear_ref_note}"
@@ -1268,11 +1686,18 @@ async def generate_main_waifu_paperdoll_from_portrait(
         len(raw_eq),
         len(refs),
         float(avg_equipment_tier or 1.0),
-        pose_en[:48],
+        pose_en[:64],
     )
 
     user_content: list[dict[str, Any]] = [
         {"type": "text", "text": prompt},
+        {
+            "type": "text",
+            "text": (
+                "Identity reference — tight head/upper-neck crop ONLY (no arms or hands visible). "
+                "Copy face, hair, horns, ears, eye colors; IGNORE any limb pose hints:"
+            ),
+        },
         {"type": "image_url", "image_url": {"url": data_url}},
     ]
     for slot_label, ref_url in refs:

@@ -75,6 +75,9 @@ class ExpeditionSlot(Base):
     # Испытание: повышенная сложность и награда
     trial: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    location_archetype_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    expedition_mode_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("day", "slot", name="uq_expedition_slot_day"),)
@@ -127,4 +130,7 @@ class ActiveExpedition(Base):
     next_tick_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     tick_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     difficulty_tags_snapshot: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    location_archetype_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    expedition_mode_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    narrative_brief: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 

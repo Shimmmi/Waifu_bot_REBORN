@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.core.config import settings
 from waifu_bot.db.models.dungeon import DungeonRun, DungeonRunMonster, MonsterAffix, MonsterTemplate
+from waifu_bot.db.models.story_boss import StoryBossDefinition
 from waifu_bot.services.dungeon import _monster_slug_for_webp
 from waifu_bot.services.expedition_events_ai import (
     _extract_openrouter_image_b64,
@@ -318,3 +319,135 @@ async def generate_monster_art_webp(
     except Exception:
         logger.exception("[MONSTER ART] request failed")
         return None
+
+
+async def _openrouter_generate_webp(prompt: str, *, log_tag: str) -> Optional[bytes]:
+    """Shared OpenRouter image call → WEBP bytes."""
+    api_key = getattr(settings, "openrouter_api_key", None)
+    if not api_key:
+        logger.info("[%s] Skip: no OPENROUTER_API_KEY", log_tag)
+        return None
+
+    model = settings.openrouter_model_image
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
+            last_message: dict = {}
+            for modalities in attempts:
+                body = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "modalities": list(modalities),
+                    "image_config": {
+                        "aspect_ratio": "3:2",
+                        "image_size": "1K",
+                    },
+                }
+                r = await client.post(
+                    _openrouter_url(),
+                    headers=_openrouter_headers(),
+                    json=body,
+                )
+                if r.status_code in (401, 402):
+                    logger.error("[%s] OpenRouter %s", log_tag, r.status_code)
+                    return None
+                if not r.is_success:
+                    logger.error("[%s] HTTP %s %s", log_tag, r.status_code, (r.text or "")[:400])
+                    return None
+
+                data = r.json()
+                choices = data.get("choices") or []
+                if not isinstance(choices, list) or not choices:
+                    logger.warning("[%s] no choices modalities=%s", log_tag, modalities)
+                    continue
+                first = choices[0]
+                if not isinstance(first, dict):
+                    continue
+                message = first.get("message") or {}
+                last_message = message if isinstance(message, dict) else {}
+                b64_out = await _extract_openrouter_image_b64(last_message, client)
+                if b64_out:
+                    try:
+                        raw_png = base64.standard_b64decode(b64_out, validate=True)
+                    except Exception:
+                        raw_png = base64.b64decode(b64_out)
+                    webp = _image_bytes_to_webp(raw_png)
+                    if webp:
+                        return webp
+                    logger.warning("[%s] webp conversion returned empty", log_tag)
+                    return None
+
+            logger.warning(
+                "[%s] no image in response last_message=%s",
+                log_tag,
+                json.dumps(last_message, ensure_ascii=False)[:500],
+            )
+            return None
+    except httpx.TimeoutException:
+        logger.error("[%s] timeout", log_tag)
+        return None
+    except Exception:
+        logger.exception("[%s] request failed", log_tag)
+        return None
+
+
+async def generate_story_boss_art_webp(
+    session: AsyncSession,
+    story_boss_definition_id: int,
+) -> Optional[MonsterArtGenerationResult]:
+    """Generate anime portrait for a story boss; save path bosses/webp/{slug}.webp."""
+    sbd = await session.get(StoryBossDefinition, int(story_boss_definition_id))
+    if not sbd:
+        return None
+
+    tmpl = await session.get(MonsterTemplate, int(sbd.monster_template_id))
+    display_name = (sbd.name or "Story Boss").strip()
+    lore = (sbd.short_lore or "").strip()
+    if tmpl:
+        level, max_hp, damage = _template_reference_stats(tmpl)
+        family_raw = (tmpl.family or "unknown").strip().lower() or "unknown"
+        tier = int(tmpl.tier or 5)
+        try:
+            trait_ru = monster_template_dominant_trait_ru(tmpl)
+        except Exception:
+            trait_ru = ""
+        tags_hint = _tags_summary(getattr(tmpl, "tags", None))
+    else:
+        level, max_hp, damage = 50, 5000, 200
+        family_raw = "unknown"
+        tier = 5
+        trait_ru = ""
+        tags_hint = None
+
+    lore_block = lore or trait_ru
+    family_en = _family_gloss(family_raw)
+    prompt = build_monster_anime_prompt(
+        display_name=display_name,
+        family_en=family_en,
+        tier=tier,
+        level=level,
+        max_hp=max_hp,
+        damage=damage,
+        is_boss=True,
+        is_elite=False,
+        affix_names=[],
+        template_trait_ru=lore_block,
+        tags_hint=tags_hint,
+    )
+
+    slug = re.sub(r"[^a-z0-9_]+", "_", (sbd.slug or f"story_boss_{sbd.id}").lower()).strip("_")
+    if len(slug) > 128:
+        slug = slug[:128].rstrip("_")
+
+    logger.info("[STORY BOSS ART] story_boss_definition_id=%s slug=%s", story_boss_definition_id, slug)
+    webp = await _openrouter_generate_webp(prompt, log_tag="STORY BOSS ART")
+    if not webp:
+        return None
+
+    rel = f"bosses/webp/{slug}.webp"
+    return MonsterArtGenerationResult(
+        webp_bytes=webp,
+        family=family_raw,
+        slug=slug,
+        relative_path=rel,
+    )

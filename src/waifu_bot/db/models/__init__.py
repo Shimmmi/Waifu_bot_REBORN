@@ -1,4 +1,9 @@
 """Database models."""
+from waifu_bot.db.models.chat_reward import (
+    PlayerChatActivityDaily,
+    PlayerChatActivityTotal,
+    PlayerChatRewardWallet,
+)
 from waifu_bot.db.models.player import Player
 from waifu_bot.db.models.player_mail import PlayerMail, PlayerMailStatus
 from waifu_bot.db.models.hidden_skill import HiddenSkillDefinition, PlayerHiddenSkill
@@ -73,6 +78,9 @@ from waifu_bot.db.models.gd_cycle import (
 
 __all__ = [
     "Player",
+    "PlayerChatRewardWallet",
+    "PlayerChatActivityDaily",
+    "PlayerChatActivityTotal",
     "PlayerMail",
     "PlayerMailStatus",
     "HiddenSkillDefinition",

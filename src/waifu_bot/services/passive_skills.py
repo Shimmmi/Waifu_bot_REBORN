@@ -227,7 +227,7 @@ def extrapolate_passive_effect_value(
     over = level - n
     out = v_last + step * float(over)
 
-    if et in ("trade_flat", "nth_hit_crit"):
+    if et in ("trade_flat", "nth_hit_crit", "main_stats_flat", "armor_flat"):
         if et == "nth_hit_crit":
             return max(1, int(round(out)))
         return int(round(out))
@@ -657,6 +657,9 @@ def merge_passive_into_profile_details(
     передайте skip_all_stats_pct_on_damage=True, чтобы не умножать урон второй раз.
     """
     out = dict(details)
+    af = int(ps.get("armor_flat", 0) or 0)
+    if af > 0:
+        out["armor"] = int(out.get("armor", 0) or 0) + af
     ap = float(ps.get("armor_pct", 0) or 0)
     if ap > 0:
         out["armor"] = int(round(int(out.get("armor", 0) or 0) * (1.0 + ap)))
@@ -717,7 +720,7 @@ def _max_effect_display(node: PassiveSkillNode) -> str:
         return "—"
     mx = max(float(x) for x in vals if x is not None)
     # доли 0..2 → проценты; большие числа (trade_flat, nth_hit) — как есть
-    if node.effect_type in ("trade_flat", "nth_hit_crit", "main_stats_flat"):
+    if node.effect_type in ("trade_flat", "nth_hit_crit", "main_stats_flat", "armor_flat"):
         return str(int(mx)) if mx == int(mx) else f"{mx:g}"
     return f"+{round(mx * 100)}%"
 
