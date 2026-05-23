@@ -1782,10 +1782,11 @@ function compareProfileInventoryItems(a, b) {
   return result * dir;
 }
 
-const SELL_PAGE_SIZE = 9;
+const SELL_PAGE_SIZE = 12;
 
 const shopState = {
   act: 1,
+  size: 12,
   offers: [],
   selectedSlot: null,
   selectedOffer: null,
@@ -1797,8 +1798,9 @@ const shopState = {
   sellFilters: { weapon: true, armor: true, accessory: true },
   sellSort: "equipability",
   sellSortDir: "desc",
-  /** Активная вкладка магазина: buy | sell | gamble */
+  /** Активная вкладка магазина: buy | sell | gamble | smith */
   activeTab: "buy",
+  gambleOffers: [],
   /** Слот витрины (1–9), который ИИ выделил в реплике «купить» */
   merchantPickBuySlot: null,
   /** inventory_items.id предмета, который ИИ выделил в реплике «продать» */
@@ -1814,6 +1816,10 @@ const shopState = {
 };
 
 const SMITH_PICK_PAGE_SIZE = 9;
+
+const SMITH_PICK_LOADING_HTML = `<div class="shop-smith-pick-loading" aria-busy="true" aria-label="Загрузка инвентаря">
+  ${Array.from({ length: 9 }, () => '<div class="shop-smith-pick-loading-card"></div>').join("")}
+</div>`;
 
 function resolveShopOfferSlot(offer) {
   if (!offer) return null;
@@ -1963,7 +1969,7 @@ async function shopPageBootstrap(profile, merchantMeta) {
   shopState.act = act;
   shopState.activeTab = shopState.activeTab || "buy";
 
-  applyShopStageImages(act);
+  applyShopHeroImages(act);
 
   const errBox = document.getElementById("shop-profile-error");
   if (errBox) {
@@ -1977,15 +1983,15 @@ async function shopPageBootstrap(profile, merchantMeta) {
   }
 
   await loadShop(act);
-  updateShopGambleCost();
   return p;
 }
 
 async function loadShop(act) {
-  applyShopStageImages(act);
+  applyShopHeroImages(act);
   const shopSmithNavIntent = consumeShopSmithIntent();
   const data = await apiFetch(`/shop/inventory?act=${act}`);
   shopState.act = act;
+  shopState.size = safeInt(data?.size, 12);
   shopState.offers = Array.isArray(data?.items) ? data.items : [];
 
   if (typeof window !== "undefined") {
@@ -2006,7 +2012,7 @@ async function loadShop(act) {
       const slot = Number(o.slot || o.offer_slot || o.shop_slot || idx + 1);
       if (Number.isFinite(slot)) bySlot.set(slot, { ...o, __slot: slot });
     });
-    for (let s = 1; s <= 9; s += 1) {
+    for (let s = 1; s <= shopState.size; s += 1) {
       const offer = bySlot.get(s) || null;
       const card = document.createElement("div");
       const isSold = Boolean(offer?.sold);
@@ -2035,9 +2041,6 @@ async function loadShop(act) {
     generateMerchantLine(shopState.activeTab || "buy").catch(() => {});
     const sellBtn = document.getElementById("shop-sell-submit");
     if (sellBtn) sellBtn.style.display = (shopState.activeTab || "buy") === "sell" ? "" : "none";
-    if (typeof document !== "undefined" && document.body) {
-      document.body.classList.toggle("shop-tab-smith", (shopState.activeTab || "buy") === "smith");
-    }
     if ((shopState.activeTab || "buy") === "smith") {
       loadSmithTab().catch(() => {});
     }
@@ -4777,14 +4780,16 @@ async function exitBattle() {
 function switchShopTab(name) {
   shopState.merchantAdviceUnlocked = false;
   shopState.activeTab = name;
-  if (typeof document !== "undefined" && document.body) {
-    document.body.classList.toggle("shop-tab-smith", name === "smith");
-  }
+
+  document.querySelectorAll(".shop-hero[data-tab-hero]").forEach((hero) => {
+    const tab = hero.getAttribute("data-tab-hero");
+    hero.classList.toggle("active", tab === name);
+  });
 
   document.querySelectorAll(".tabs .tab, .shop-btab").forEach((btn) => {
     if (btn.dataset.tab) btn.classList.toggle("active", btn.dataset.tab === name);
   });
-  document.querySelectorAll(".tab-panel").forEach((panel) => {
+  document.querySelectorAll(".shop-tab-panel, .tab-panel").forEach((panel) => {
     if (panel.id?.startsWith("tab-")) {
       const active = panel.id === `tab-${name}`;
       panel.classList.toggle("active", active);
@@ -4805,10 +4810,12 @@ function switchShopTab(name) {
     } else if (name === "smith") {
       loadSmithTab().catch(console.error);
       generateMerchantLine("smith").catch(() => {});
+    } else if (name === "gamble") {
+      loadGambleTab(shopState.act || 1).catch(console.error);
+      generateMerchantLine("gamble").catch(() => {});
     } else {
       generateMerchantLine(name).catch(() => {});
     }
-    if (name === "gamble") updateShopGambleCost();
   }
 }
 
@@ -4962,6 +4969,20 @@ function smithPickNext() {
 }
 
 async function openSmithPickModal() {
+  const m = document.getElementById("shop-smith-pick-modal");
+  const grid = document.getElementById("shop-smith-pick-grid");
+  const nav = document.getElementById("shop-smith-pick-nav");
+  if (m) m.style.display = "grid";
+
+  const cached = Array.isArray(shopState.smithItems) && shopState.smithItems.length;
+  if (cached) {
+    shopState.smithPickPage = 0;
+    renderSmithPickPage();
+  } else if (grid) {
+    grid.innerHTML = SMITH_PICK_LOADING_HTML;
+    if (nav) nav.innerHTML = "";
+  }
+
   try {
     const data = await apiFetch("/inventory?limit=100&offset=0");
     const items = Array.isArray(data?.items) ? data.items : [];
@@ -4974,10 +4995,12 @@ async function openSmithPickModal() {
     }
     shopState.smithPickPage = 0;
     renderSmithPickPage();
-    const m = document.getElementById("shop-smith-pick-modal");
-    if (m) m.style.display = "grid";
   } catch (e) {
     console.error(e);
+    if (grid) {
+      grid.innerHTML = '<div class="muted tiny">Не удалось загрузить инвентарь.</div>';
+    }
+    if (nav) nav.innerHTML = "";
     showToast("Не удалось загрузить инвентарь", "error");
   }
 }
@@ -5073,16 +5096,14 @@ async function refreshSmithPreview() {
     }
 
     box.innerHTML = `
-      <div class="shop-smith-block">
-        <div class="muted tiny">Текущий уровень: <strong>+${cur}</strong> → цель: <strong>+${tgt}</strong></div>
-        <div class="muted tiny" style="margin-top:6px;">Стоимость: <strong>🪙 ${escapeHtml(String(cost))}</strong></div>
-        ${chanceLine}
-        ${
-          statRows.length
-            ? `<div style="margin-top:8px;font-size:12px;line-height:1.45;">${statRows.join("")}</div>`
-            : ""
-        }
-      </div>`;
+      <div><span class="muted">Уровень:</span> <strong>+${cur}</strong> → <strong>+${tgt}</strong></div>
+      <div style="margin-top:6px;"><span class="muted">Стоимость:</span> <strong>🪙 ${escapeHtml(String(cost))}</strong></div>
+      ${chanceLine}
+      ${
+        statRows.length
+          ? `<div style="margin-top:8px;font-size:12px;">${statRows.join("")}</div>`
+          : ""
+      }`;
     const btn = document.getElementById("shop-smith-enchant-btn");
     if (btn) btn.disabled = cur >= 10;
   } catch (e) {
@@ -6849,7 +6870,7 @@ function toggleShopSellFilter(category) {
 }
 
 function setShopSellSort(value) {
-  shopState.sellSort = ["level", "rarity", "equipability"].includes(value) ? value : "equipability";
+  shopState.sellSort = ["level", "rarity", "equipability", "price"].includes(value) ? value : "equipability";
   shopState.sellPage = 0;
   renderSellPage();
   renderSellPagination();
@@ -7056,6 +7077,75 @@ function closeShopGambleResultModal() {
     m.classList.remove("shop-modal--open");
     m.style.display = "none";
   }
+}
+
+async function loadGambleTab(act) {
+  const data = await apiFetch(`/shop/gamble/offers?act=${act}`);
+  shopState.gambleOffers = Array.isArray(data?.offers) ? data.offers : [];
+  renderGambleGrid();
+}
+
+function renderGambleGrid() {
+  const grid = document.getElementById("shop-gamble-grid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  for (let s = 1; s <= 12; s += 1) {
+    const offer = (shopState.gambleOffers || []).find((o) => Number(o.slot) === s);
+    const card = document.createElement("div");
+    const purchased = Boolean(offer?.purchased);
+    card.className = `shop-gamble-card shop-item-card item-card${purchased ? " purchased empty" : ""}`.trim();
+    const typeLabel = offer?.slot_type ? slotTypeLabel(offer.slot_type) : "Предмет";
+    const iconHtml =
+      offer && (offer.art_key || offer.image_url || offer.image_key)
+        ? itemArtHtml(offer)
+        : offer
+          ? itemArtEmoji(offer)
+          : "❓";
+    card.innerHTML = `
+      <div class="item-icon">${iconHtml}</div>
+      <div class="item-name">${escapeHtml(typeLabel)}</div>
+      <div class="item-price">${purchased ? "Куплено" : `🪙 ${offer?.price ?? "—"}`}</div>
+    `;
+    if (offer && !purchased) {
+      card.onclick = () => openGambleConfirm(s, offer.price, offer);
+    }
+    grid.appendChild(card);
+  }
+}
+
+async function openGambleConfirm(slot, price, offer) {
+  const typeLabel = offer?.slot_type ? slotTypeLabel(offer.slot_type) : "предмет";
+  if (
+    !confirm(
+      `Купить ${typeLabel} за ${price} 🪙?\nХарактеристики скрыты — узнаешь только после покупки.`
+    )
+  ) {
+    return;
+  }
+  try {
+    const res = await apiFetch(`/shop/gamble/buy?act=${shopState.act}&slot=${slot}`, { method: "POST" });
+    if (res?.error === "insufficient_gold" || String(res?.detail || "").includes("insufficient_gold")) {
+      showToast("Недостаточно золота.", "error");
+      return;
+    }
+    if (res?.success && res?.item) {
+      openShopGambleResultModal(res.item, res.price_paid, res.gold_remaining);
+      await loadProfile().catch(() => {});
+      await loadGambleTab(shopState.act);
+    } else if (res?.success) {
+      showToast("Предмет добавлен в инвентарь.", "success");
+      await loadGambleTab(shopState.act);
+    } else {
+      showToast(res?.error || "Не удалось купить", "error");
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || String(e?.message || e), "error");
+  }
+}
+
+function showShopGambleResultModal(item, pricePaid, goldRemaining) {
+  openShopGambleResultModal(item, pricePaid, goldRemaining);
 }
 
 async function gambleShop() {
@@ -11341,37 +11431,32 @@ function applyCaravanStageImages(currentAct) {
   }
 }
 
-/** Фон и портрет торговца по акту (см. static/game/ui/shop/README.md). */
-function applyShopStageImages(currentAct) {
+/** Hero banners per shop tab (merchant / gambler / blacksmith). */
+const SHOP_HERO_KIND = { buy: "merchant", sell: "merchant", gamble: "gambler", smith: "blacksmith" };
+
+function applyShopHeroImages(currentAct) {
   const a = Math.max(1, Math.min(5, safeInt(currentAct, 1)));
-  const bgImg = document.getElementById("shop-bg-img");
-  const merchantImg = document.getElementById("shop-merchant-img");
-  const fallback = document.querySelector(".shop-merchant-visual .fallback");
-
-  const bgUrls = [
-    `${SHOP_STATIC_BASE}/act-${a}/shop.background.webp`,
-    `${SHOP_STATIC_BASE}/bg_act${a}.webp`,
-    `${SHOP_STATIC_BASE}/background.webp`,
-  ];
-  const merchantUrls = [
-    `${SHOP_STATIC_BASE}/act-${a}/merchant.webp`,
-    `${SHOP_STATIC_BASE}/merchant_act${a}.webp`,
-    `${SHOP_STATIC_BASE}/merchant.webp`,
-  ];
-
-  if (bgImg) {
-    bgImg.style.display = "";
-    attachCaravanImage(bgImg, bgUrls, null);
+  for (const [tab, kind] of Object.entries(SHOP_HERO_KIND)) {
+    const img = document.getElementById(`shop-hero-img-${tab}`);
+    const fb = document.getElementById(`shop-hero-fb-${tab}`);
+    const heroUrls = [
+      `${SHOP_STATIC_BASE}/act-${a}/${kind}.webp`,
+      `${SHOP_STATIC_BASE}/${kind}_act${a}.webp`,
+      `${SHOP_STATIC_BASE}/${kind}.webp`,
+    ];
+    if (img) {
+      img.style.display = "";
+      if (fb) fb.style.display = "none";
+      attachCaravanImage(img, heroUrls, () => {
+        img.style.display = "none";
+        if (fb) fb.style.display = "";
+      });
+    }
   }
+}
 
-  if (merchantImg) {
-    merchantImg.style.display = "";
-    if (fallback) fallback.style.display = "none";
-    attachCaravanImage(merchantImg, merchantUrls, () => {
-      merchantImg.style.display = "none";
-      if (fallback) fallback.style.display = "";
-    });
-  }
+function applyShopStageImages(currentAct) {
+  applyShopHeroImages(currentAct);
 }
 
 function openCaravanTipModal(text) {
@@ -12311,6 +12396,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   setShopSellSort,
   toggleShopSellSortDir,
   gambleShop,
+  loadGambleTab,
+  openGambleConfirm,
+  showShopGambleResultModal,
   closeShopGambleResultModal,
   loadSkills,
   searchGuilds,

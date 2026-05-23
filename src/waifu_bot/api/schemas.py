@@ -23,6 +23,7 @@ class ItemOut(BaseModel):
 class ShopInventoryResponse(BaseModel):
     items: List[dict]
     count: int
+    size: int = 9
 
 
 class InventorySellRequest(BaseModel):
