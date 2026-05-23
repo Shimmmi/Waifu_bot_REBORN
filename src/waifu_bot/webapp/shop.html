@@ -854,7 +854,7 @@
     <img id="shop-bg-img" class="shop-stage-bg-img" src="" alt="" />
 
     <div class="shop-merchant-zone">
-      <button type="button" class="shop-merchant" id="shop-merchant" aria-label="Поговорить с торговцем"></button>
+      <button type="button" class="shop-merchant" id="shop-merchant" data-tutorial="shop-merchant" aria-label="Поговорить с торговцем"></button>
       <div class="shop-merchant-visual" aria-hidden="true">
         <img id="shop-merchant-img" src="" alt="" />
         <span class="fallback" style="display:none;">🧙‍♂️</span>
@@ -938,7 +938,7 @@
     <div class="shop-dialog-timer"><div class="shop-dialog-timer-fill" id="shop-dialog-timer-fill"></div></div>
   </div>
 
-  <div class="shop-btabs-wrap">
+  <div class="shop-btabs-wrap" data-tutorial="shop-tabs">
     <div class="shop-btabs">
       <button class="shop-btab active" id="shop-btab-buy" data-tab="buy" onclick="ShopPage.switchTab('buy')">🛒 Купить</button>
       <button class="shop-btab" id="shop-btab-sell" data-tab="sell" onclick="ShopPage.switchTab('sell')">💰 Продать</button>

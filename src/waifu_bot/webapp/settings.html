@@ -7,7 +7,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./assets/tutorial.css" />
     <script src="./vendor/telegram-web-app.js"></script>
+    <script defer src="./assets/tutorial.js"></script>
     <script defer src="./app.js"></script>
   </head>
   <body class="page-settings" onload="WaifuApp.bootstrapPage('settings');">
@@ -16,6 +18,14 @@
       <div class="settings-home-bar">
         <a href="./index.html" class="settings-home-btn">← Главное меню</a>
       </div>
+      <section class="section">
+        <h3>Обучение</h3>
+        <div class="list">
+          <button type="button" class="btn primary" style="width:100%" onclick="WaifuApp.Tutorial.replay()">
+            Пройти обучение заново
+          </button>
+        </div>
+      </section>
       <section class="section">
         <h3>Общие</h3>
         <div class="list">

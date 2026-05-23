@@ -1907,6 +1907,18 @@ async function bootstrapPage(page, afterLoad) {
     }
   }
 
+  try {
+    const forced = new URLSearchParams(window.location.search).get("tutorial");
+    const hasWaifu = Boolean(
+      profile?.main_waifu && (profile.main_waifu.id != null || profile.main_waifu.level != null),
+    );
+    if (hasWaifu || page !== "profile") {
+      window.WaifuApp?.Tutorial?.maybeRun(page, profile?.tutorial, forced);
+    }
+  } catch (err) {
+    console.warn("Tutorial bootstrap failed:", err);
+  }
+
   return profile;
 }
 

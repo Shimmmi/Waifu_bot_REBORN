@@ -906,6 +906,8 @@
       }
     </style>
     <script src="./vendor/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="./assets/tutorial.css" />
+    <script defer src="./assets/tutorial.js"></script>
     <script defer src="./app.js"></script>
   </head>
   <body class="page-profile" onload="WaifuApp.bootstrapPage('profile', WaifuApp.populateProfile);">
@@ -941,7 +943,7 @@
       </div>
       <div class="tabs profile-tabs">
         <button class="tab active" data-tab="profile" onclick="WaifuApp.switchProfileTab('profile')">Профиль</button>
-        <button class="tab" data-tab="inventory" onclick="WaifuApp.switchProfileTab('inventory')">Инвентарь</button>
+        <button class="tab" data-tab="inventory" data-tutorial="profile-inventory-tab" onclick="WaifuApp.switchProfileTab('inventory')">Инвентарь</button>
         <button class="tab" data-tab="info" onclick="WaifuApp.switchProfileTab('info')">Подробно</button>
         <button class="tab tab-reset admin-only" title="Сбросить вайфу" aria-label="Сбросить вайфу" onclick="WaifuApp.resetMainWaifu()" style="display:none">♻️</button>
         <button class="tab tab-levelup admin-only" title="Повысить уровень +1" aria-label="Повысить уровень ОВ на 1" onclick="WaifuApp.adminLevelUpWaifu()" style="display:none">⬆️</button>
@@ -959,7 +961,7 @@
             onerror="this.style.display='none'"
           />
           <div class="profile-mtg-wrap">
-            <article class="profile-mtg-card" aria-label="Основная вайфу">
+            <article class="profile-mtg-card" data-tutorial="profile-portrait" aria-label="Основная вайфу">
               <div class="profile-mtg-bg" id="profile-mtg-bg" aria-hidden="true">
                 <span class="profile-mtg-fallback" id="profile-mtg-fallback" aria-hidden="true"></span>
               </div>
@@ -980,6 +982,7 @@
                 <div
                   class="profile-stats-list profile-stats-list--mtg"
                   id="profile-stats-strip"
+                  data-tutorial="profile-stats"
                   aria-label="Основные характеристики"
                 ></div>
                 <div class="profile-mtg-xp-block" aria-label="Опыт">
@@ -1022,7 +1025,7 @@
         </button>
 
         <!-- Equipment (JS renders content here) -->
-        <div id="profile-gear" class="profile-gear-layout placeholder">Загрузка экипировки...</div>
+        <div id="profile-gear" class="profile-gear-layout placeholder" data-tutorial="profile-equipment">Загрузка экипировки...</div>
 
         <!-- Bag section -->
         <div class="inv-bag-wrap">

@@ -1,0 +1,222 @@
+/* Tutorial onboarding overlay — spotlight + waifu narrator bubble */
+
+.tutorial-root {
+  position: fixed;
+  inset: 0;
+  z-index: 99000;
+  pointer-events: auto;
+}
+
+.tutorial-root[hidden] {
+  display: none !important;
+}
+
+.tutorial-root.is-no-target .tutorial-spotlight-ring {
+  display: none;
+}
+
+.tutorial-overlay-svg {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.tutorial-overlay-svg rect.tutorial-dim {
+  fill: rgba(0, 0, 0, 0.72);
+}
+
+.tutorial-spotlight-ring {
+  position: fixed;
+  border: 2px solid rgba(232, 184, 75, 0.95);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 2px rgba(200, 146, 42, 0.35),
+    0 0 24px rgba(232, 184, 75, 0.45);
+  pointer-events: none;
+  z-index: 99001;
+  animation: tutorial-spotlight-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes tutorial-spotlight-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(200, 146, 42, 0.35),
+      0 0 18px rgba(232, 184, 75, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px rgba(200, 146, 42, 0.55),
+      0 0 32px rgba(232, 184, 75, 0.65);
+  }
+}
+
+.tutorial-bubble {
+  position: fixed;
+  z-index: 99002;
+  max-width: min(92vw, 360px);
+  min-width: 240px;
+  padding: 12px 14px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(200, 146, 42, 0.45);
+  background: linear-gradient(180deg, rgba(26, 20, 16, 0.98), rgba(13, 10, 8, 0.98));
+  color: #e8dcc8;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  transition: top 0.25s ease, left 0.25s ease, opacity 0.2s ease;
+}
+
+.tutorial-bubble.is-centered {
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%);
+}
+
+.tutorial-bubble-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.tutorial-waifu {
+  width: 72px;
+  height: 108px;
+  object-fit: contain;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.45));
+}
+
+.tutorial-bubble-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tutorial-progress {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #e8b84b;
+  margin-bottom: 4px;
+}
+
+.tutorial-text {
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.tutorial-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tutorial-btn {
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid rgba(200, 146, 42, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8dcc8;
+}
+
+.tutorial-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.tutorial-btn--primary {
+  background: linear-gradient(180deg, rgba(200, 146, 42, 0.45), rgba(160, 110, 30, 0.55));
+  color: #fff8ee;
+  border-color: rgba(232, 184, 75, 0.5);
+}
+
+.tutorial-btn--ghost {
+  opacity: 0.85;
+}
+
+.tutorial-step-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(200, 146, 42, 0.25);
+  background: rgba(255, 255, 255, 0.05);
+  color: #c8922a;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.tutorial-step-close:hover {
+  color: #e8b84b;
+}
+
+.tutorial-reward-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 99100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.tutorial-reward-modal[hidden] {
+  display: none !important;
+}
+
+.tutorial-reward-panel {
+  width: min(92vw, 320px);
+  padding: 20px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(200, 146, 42, 0.45);
+  background: linear-gradient(180deg, rgba(26, 20, 16, 0.98), rgba(13, 10, 8, 0.98));
+  color: #e8dcc8;
+  text-align: center;
+}
+
+.tutorial-reward-panel h3 {
+  margin: 0 0 8px;
+  color: #e8b84b;
+  font-family: "Cinzel", serif;
+}
+
+.tutorial-reward-panel p {
+  margin: 0 0 14px;
+  font-size: 14px;
+}
+
+body.tutorial-active {
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-spotlight-ring {
+    animation: none;
+  }
+
+  .tutorial-bubble {
+    transition: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .tutorial-waifu {
+    width: 60px;
+    height: 90px;
+  }
+
+  .tutorial-bubble {
+    max-width: 94vw;
+    min-width: 0;
+  }
+}

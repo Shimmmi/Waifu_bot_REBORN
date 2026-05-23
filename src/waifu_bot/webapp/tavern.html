@@ -6,6 +6,8 @@
     <title>Таверна</title>
     <link rel="stylesheet" href="./styles.css" />
     <script src="./vendor/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="./assets/tutorial.css" />
+    <script defer src="./assets/tutorial.js"></script>
     <script defer src="./app.js"></script>
     <style>
       .page-tavern {
@@ -1115,7 +1117,7 @@
       </div>
     </header>
 
-    <div class="tavern-tabs-wrap">
+    <div class="tavern-tabs-wrap" data-tutorial="tavern-tabs">
       <div class="tavern-tabs">
         <button type="button" class="tab active" data-tab="hire" onclick="WaifuApp.switchTavernTab('hire')">⚔ Найм</button>
         <button type="button" class="tab" data-tab="squad" onclick="WaifuApp.switchTavernTab('squad')">🛡 Отряд</button>
@@ -1181,6 +1183,7 @@
       <button
         type="button"
         id="tavern-hire-primary-btn"
+        data-tutorial="tavern-hire-btn"
         class="tavern-btn tavern-btn-primary tavern-hire-footer-btn"
         onclick="WaifuApp.onTavernHirePrimaryClick()"
       >

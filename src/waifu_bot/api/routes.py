@@ -67,6 +67,7 @@ from waifu_bot.api.tavern_routes import router as tavern_router
 from waifu_bot.api.dungeon_routes import router as dungeon_router
 from waifu_bot.api.skill_routes import router as skill_router
 from waifu_bot.api.mail_routes import router as mail_router
+from waifu_bot.api.tutorial_routes import router as tutorial_router
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ router.include_router(tavern_router)
 router.include_router(dungeon_router)
 router.include_router(skill_router)
 router.include_router(mail_router)
+router.include_router(tutorial_router)
 
 # Вторичные бонусы с предметов (шаблон + зачарование) и аффиксы с effect_key *_pct.
 # Значение в аффиксе — целое число в сотых долях процента: 150 => 1.50% => +0.015 к сумме.
@@ -1018,6 +1020,10 @@ async def get_profile(
         except Exception:
             logger.exception("touch_player_last_active in /profile failed player_id=%s", player_id)
 
+        from waifu_bot.services.tutorial import tutorial_state_from_player
+
+        tutorial_raw = tutorial_state_from_player(player)
+
         return schemas.ProfileResponse(
             player_id=player.id,
             act=player.current_act,
@@ -1029,6 +1035,12 @@ async def get_profile(
             main_waifu=main_payload,
             main_waifu_details=main_details,
             equipment=equipment_payload,
+            tutorial=schemas.TutorialStateResponse(
+                version=int(tutorial_raw.get("version") or 1),
+                completed=dict(tutorial_raw.get("completed") or {}),
+                skipped=bool(tutorial_raw.get("skipped")),
+                intro_reward_claimed=bool(tutorial_raw.get("intro_reward_claimed")),
+            ),
         )
     except Exception as e:
         logger.exception("Failed /profile for player_id=%s: %s", player_id, e)

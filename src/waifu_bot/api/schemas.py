@@ -452,6 +452,22 @@ class GearItemOut(BaseModel):
     equipment_slot: Optional[int] = None  # Номер слота, если предмет экипирован
 
 
+class TutorialStateResponse(BaseModel):
+    version: int = 1
+    completed: dict[str, str] = Field(default_factory=dict)
+    skipped: bool = False
+    intro_reward_claimed: bool = False
+
+
+class TutorialStepRequest(BaseModel):
+    step_id: str
+
+
+class TutorialCompleteResponse(BaseModel):
+    tutorial: TutorialStateResponse
+    gold_reward: Optional[int] = None
+
+
 class ProfileResponse(BaseModel):
     player_id: int
     act: int        # current_act — the act the player is currently in
@@ -463,6 +479,7 @@ class ProfileResponse(BaseModel):
     main_waifu: Optional[MainWaifuProfile] = None
     main_waifu_details: Optional[MainWaifuDetails] = None
     equipment: List[GearItemOut] = []
+    tutorial: TutorialStateResponse = Field(default_factory=TutorialStateResponse)
 
 
 class GuildMemberMainWaifuPreviewOut(BaseModel):
