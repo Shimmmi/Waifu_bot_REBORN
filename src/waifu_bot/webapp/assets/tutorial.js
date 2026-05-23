@@ -104,7 +104,7 @@
           id: "shop_tabs",
           target: "[data-tutorial='shop-tabs']",
           image: "explaining",
-          text: "Три вкладки: Купить — новое снаряжение, Продать — из инвентаря, Кузнец — заточка предметов.",
+          text: "Четыре вкладки: Купить — снаряжение, Продать — из инвентаря, Испытать удачу — случайный предмет за золото, Заточка — улучшение предметов.",
         },
         {
           id: "shop_merchant",
@@ -121,7 +121,7 @@
           id: "tavern_welcome",
           target: null,
           image: "greeting",
-          text: "Таверна — место отдыха и найма. Сильный отряд помогает в экспедициях и групповых данжах.",
+          text: "Таверна — место отдыха и найма. Сильный отряд наёмниц помогает в экспедициях: больше силы отряда — выше шанс успеха в длительных походах.",
         },
         {
           id: "tavern_tabs",
@@ -133,7 +133,7 @@
           id: "tavern_hire",
           target: "[data-tutorial='tavern-hire-btn']",
           image: "excited",
-          text: "Кнопка найма внизу экрана — открывает пул кандидатов. Выбирай по классу и перкам.",
+          text: "Кнопка «Нанять» внизу экрана — за золото получишь случайную наёмницу со случайной редкостью. Раса, класс и перки определяются автоматически.",
         },
       ],
     },
@@ -231,8 +231,7 @@
     waifuImg: null,
     progressEl: null,
     textEl: null,
-    nextBtn: null,
-    skipBtn: null,
+    hintEl: null,
     closeStepBtn: null,
     rewardModal: null,
     resizeObserver: null,
@@ -327,18 +326,17 @@
       </svg>
       <div class="tutorial-spotlight-ring" aria-hidden="true"></div>
       <div class="tutorial-bubble">
-        <button type="button" class="tutorial-step-close" aria-label="Следующий шаг">×</button>
-        <div class="tutorial-bubble-header">
-          <img class="tutorial-waifu" src="" alt="" decoding="async" />
-          <div class="tutorial-bubble-meta">
-            <div class="tutorial-progress"></div>
+        <button type="button" class="tutorial-step-close" aria-label="Завершить обучение" title="Завершить обучение">×</button>
+        <div class="tutorial-progress"></div>
+        <div class="tutorial-row">
+          <div class="tutorial-dialog">
             <p class="tutorial-text"></p>
           </div>
+          <div class="tutorial-waifu-wrap">
+            <img class="tutorial-waifu" src="" alt="" decoding="async" />
+          </div>
         </div>
-        <div class="tutorial-actions">
-          <button type="button" class="tutorial-btn tutorial-btn--ghost tutorial-skip">Пропустить</button>
-          <button type="button" class="tutorial-btn tutorial-btn--primary tutorial-next">Далее</button>
-        </div>
+        <div class="tutorial-hint">Нажмите, чтобы продолжить</div>
       </div>
     `;
 
@@ -363,21 +361,16 @@
     state.waifuImg = root.querySelector(".tutorial-waifu");
     state.progressEl = root.querySelector(".tutorial-progress");
     state.textEl = root.querySelector(".tutorial-text");
-    state.nextBtn = root.querySelector(".tutorial-next");
-    state.skipBtn = root.querySelector(".tutorial-skip");
+    state.hintEl = root.querySelector(".tutorial-hint");
     state.closeStepBtn = root.querySelector(".tutorial-step-close");
     state.rewardModal = rewardModal;
 
-    state.nextBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      advanceStep();
-    });
-    state.skipBtn.addEventListener("click", (e) => {
+    state.closeStepBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       skipAll();
     });
-    state.closeStepBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
+    state.bubble.addEventListener("click", (e) => {
+      if (e.target.closest(".tutorial-step-close")) return;
       advanceStep();
     });
     root.addEventListener("click", (e) => {
@@ -453,16 +446,29 @@
     const bubbleW = bubbleRect.width || 280;
     const bubbleH = bubbleRect.height || 160;
     const gap = 14;
+    const margin = 8;
 
-    let bubbleTop = y + h + gap;
-    let bubbleLeft = Math.max(8, Math.min(x + w / 2 - bubbleW / 2, vw - bubbleW - 8));
+    const spaceBelow = vh - (y + h) - gap - margin;
+    const spaceAbove = y - gap - margin;
 
-    if (bubbleTop + bubbleH > vh - 8) {
+    let bubbleTop;
+    if (spaceBelow >= bubbleH && spaceBelow >= spaceAbove) {
+      bubbleTop = y + h + gap;
+    } else if (spaceAbove >= bubbleH) {
       bubbleTop = y - bubbleH - gap;
+    } else {
+      const targetCenterY = y + h / 2;
+      if (targetCenterY > vh / 2) {
+        bubbleTop = margin;
+      } else {
+        bubbleTop = vh - bubbleH - margin;
+      }
     }
-    if (bubbleTop < 8) {
-      bubbleTop = Math.max(8, (vh - bubbleH) / 2);
-    }
+
+    const bubbleLeft = Math.max(
+      margin,
+      Math.min(x + w / 2 - bubbleW / 2, vw - bubbleW - margin),
+    );
 
     state.bubble.style.left = `${bubbleLeft}px`;
     state.bubble.style.top = `${bubbleTop}px`;
@@ -494,7 +500,11 @@
     state.textEl.textContent = step.text || "";
 
     const isLast = state.stepIndex >= state.steps.length - 1;
-    state.nextBtn.textContent = isLast ? "Готово" : "Далее";
+    if (state.hintEl) {
+      state.hintEl.textContent = isLast
+        ? "Нажмите, чтобы завершить"
+        : "Нажмите, чтобы продолжить";
+    }
 
     const targetEl = getTargetEl(step);
     if (scrollTarget !== false && targetEl) {
@@ -687,7 +697,9 @@
     try {
       await tutorialApiFetch("/tutorial/reset", { method: "POST" });
       try {
-        sessionStorage.removeItem(SESSION_SEEN_PREFIX + "intro");
+        for (const flowId of Object.keys(TUTORIAL_FLOWS)) {
+          sessionStorage.removeItem(SESSION_SEEN_PREFIX + flowId);
+        }
       } catch (e) {
         /* ignore */
       }

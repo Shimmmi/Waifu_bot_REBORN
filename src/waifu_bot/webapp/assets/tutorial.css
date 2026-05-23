@@ -56,15 +56,20 @@
 .tutorial-bubble {
   position: fixed;
   z-index: 99002;
-  max-width: min(92vw, 360px);
-  min-width: 240px;
-  padding: 12px 14px 14px;
+  max-width: min(94vw, 360px);
+  min-width: 260px;
+  padding: 12px 14px;
   border-radius: 16px;
   border: 1px solid rgba(200, 146, 42, 0.45);
   background: linear-gradient(180deg, rgba(26, 20, 16, 0.98), rgba(13, 10, 8, 0.98));
   color: #e8dcc8;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
-  transition: top 0.25s ease, left 0.25s ease, opacity 0.2s ease;
+  cursor: pointer;
+  transition: top 0.25s ease, left 0.25s ease, opacity 0.2s ease, border-color 0.2s ease;
+}
+
+.tutorial-bubble:hover {
+  border-color: rgba(232, 184, 75, 0.65);
 }
 
 .tutorial-bubble.is-centered {
@@ -73,46 +78,62 @@
   transform: translate(-50%, -50%);
 }
 
-.tutorial-bubble-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.tutorial-waifu {
-  width: 72px;
-  height: 108px;
-  object-fit: contain;
-  flex: 0 0 auto;
-  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.45));
-}
-
-.tutorial-bubble-meta {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
 .tutorial-progress {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: #e8b84b;
-  margin-bottom: 4px;
+  margin: 0 0 8px;
+}
+
+.tutorial-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.tutorial-waifu-wrap {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+}
+
+.tutorial-waifu {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.5));
+}
+
+.tutorial-dialog {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(200, 146, 42, 0.3);
+  background: rgba(13, 10, 8, 0.55);
+  box-shadow: inset 0 1px 0 rgba(255, 248, 238, 0.04);
 }
 
 .tutorial-text {
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.5;
   margin: 0;
+  color: #e8dcc8;
 }
 
-.tutorial-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 12px;
+.tutorial-hint {
+  margin-top: 10px;
+  text-align: right;
+  font-size: 11px;
+  font-style: italic;
+  color: rgba(232, 184, 75, 0.75);
+  letter-spacing: 0.02em;
 }
 
 .tutorial-btn {
@@ -211,8 +232,8 @@ body.tutorial-active {
 
 @media (max-width: 480px) {
   .tutorial-waifu {
-    width: 60px;
-    height: 90px;
+    width: 84px;
+    height: 84px;
   }
 
   .tutorial-bubble {
