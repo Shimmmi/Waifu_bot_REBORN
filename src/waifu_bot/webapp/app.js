@@ -2655,6 +2655,12 @@ function firstAvailableTavernSlot(available) {
   return null;
 }
 
+function formatTavernHirePrice(available) {
+  const price = Number(available?.price ?? 10000);
+  if (available?.first_hire_free || price === 0) return "Бесплатно";
+  return `🪙 ${price.toLocaleString("ru-RU")}`;
+}
+
 function onTavernHirePrimaryClick() {
   const slot = firstAvailableTavernSlot(tavernState.available);
   if (slot == null) {
@@ -2942,8 +2948,8 @@ function renderTavernHire(profile, available) {
   }
 
   const remaining = Number(available?.remaining ?? 0);
-  const price = Number(available?.price ?? 10000);
   const freeSlot = firstAvailableTavernSlot(available);
+  const priceLabel = formatTavernHirePrice(available);
 
   const pageBg = document.getElementById("tavern-page-bg");
   if (pageBg) {
@@ -2954,7 +2960,7 @@ function renderTavernHire(profile, available) {
   const hireBtn = document.getElementById("tavern-hire-primary-btn");
   if (hireBtn) {
     if (freeSlot != null) {
-      hireBtn.textContent = `Нанять — 🪙 ${price.toLocaleString("ru-RU")}`;
+      hireBtn.textContent = `Нанять — ${priceLabel}`;
       hireBtn.disabled = false;
       hireBtn.setAttribute("aria-label", `Нанять наёмницу. Осталось слотов: ${remaining}`);
     } else {
@@ -3118,10 +3124,10 @@ function openTavernConfirmHire(slot) {
   const id = Number(slot || 0);
   if (!Number.isFinite(id) || id < 1 || id > 4) return;
   const available = tavernState.available;
-  const price = Number(available?.price ?? 10000);
+  const priceLabel = formatTavernHirePrice(available);
   tavernState.pendingHireSlot = id;
   const priceEl = document.getElementById("confirm-price");
-  if (priceEl) priceEl.textContent = `🪙 ${price}`;
+  if (priceEl) priceEl.textContent = priceLabel;
   const modal = document.getElementById("modal-confirm-hire");
   if (modal) {
     modal.classList.remove("hidden");

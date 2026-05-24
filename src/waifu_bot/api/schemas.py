@@ -63,6 +63,8 @@ class TavernActionResponse(BaseModel):
     slot: Optional[int] = None
     bio: Optional[str] = None
     image_url: Optional[str] = None
+    hire_cost: Optional[int] = None
+    first_hire_free: Optional[bool] = None
     error: Optional[str] = None
 
 
@@ -78,6 +80,7 @@ class TavernAvailableResponse(BaseModel):
     remaining: int
     total: int
     price: int
+    first_hire_free: bool = False
     perks: Optional[List["ExpeditionPerkOut"]] = None  # для UI таверны, чтобы не вызывать /expeditions/perks
 
 

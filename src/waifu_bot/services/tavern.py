@@ -34,7 +34,41 @@ from waifu_bot.services.expedition_events_ai import (
     generate_hire_waifu_name_and_bio,
     generate_hire_waifu_image,
 )
-from waifu_bot.services.passive_skills import apply_passive_hire_cost, compute_tavern_hire_price
+from waifu_bot.services.passive_skills import (
+    apply_passive_hire_cost,
+    compute_tavern_hire_price,
+)
+
+
+async def is_first_hire_free(session: AsyncSession, player_id: int) -> bool:
+    """True if the player has never successfully hired a mercenary before."""
+    hired_waifus = int(
+        await session.scalar(
+            select(func.count()).select_from(HiredWaifu).where(HiredWaifu.player_id == player_id)
+        )
+        or 0
+    )
+    if hired_waifus > 0:
+        return False
+    used_slots = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(TavernHireSlot)
+            .where(
+                TavernHireSlot.player_id == player_id,
+                TavernHireSlot.hired_at.isnot(None),
+            )
+        )
+        or 0
+    )
+    return used_slots == 0
+
+
+async def compute_effective_tavern_hire_price(session: AsyncSession, player_id: int) -> int:
+    """First mercenary hire is free; subsequent hires use the normal discount formula."""
+    if await is_first_hire_free(session, player_id):
+        return 0
+    return await compute_tavern_hire_price(session, player_id, TAVERN_HIRE_COST)
 
 # Русские названия для шаблонной биографии (без OpenRouter)
 _RACE_NAMES_RU = {
@@ -128,9 +162,10 @@ class TavernService:
         if not player:
             return {"error": "player_not_found"}
 
-        hire_cost = await compute_tavern_hire_price(session, player_id, TAVERN_HIRE_COST)
-        # Check gold
-        if player.gold < hire_cost:
+        hire_cost = await compute_effective_tavern_hire_price(session, player_id)
+        first_hire_free = hire_cost == 0
+        # Check gold (skip for the first free hire)
+        if hire_cost > 0 and player.gold < hire_cost:
             return {
                 "error": "insufficient_gold",
                 "required": hire_cost,
@@ -170,8 +205,9 @@ class TavernService:
         chosen.hired_waifu_id = waifu.id
         chosen.hired_at = datetime.now(tz=timezone.utc)
 
-        # Deduct gold
-        player.gold -= hire_cost
+        # Deduct gold (first hire is free)
+        if hire_cost > 0:
+            player.gold -= hire_cost
 
         # Имя и био: OpenRouter возвращает JSON {name, bio}; при недоступности — fallback по расе + шаблон
         _, race_ru, class_ru, level, perk_names = self._waifu_bio_inputs(waifu)
@@ -205,6 +241,8 @@ class TavernService:
             "slot": int(chosen.slot),
             "bio": bio,
             "image_url": image_url,
+            "hire_cost": hire_cost,
+            "first_hire_free": first_hire_free,
         }
 
     def _apply_hired_regen(self, waifu: HiredWaifu, now: datetime) -> None:
