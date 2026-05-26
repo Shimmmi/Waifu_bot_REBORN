@@ -18,7 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from waifu_bot.core.config import settings
 from waifu_bot.db.models.dungeon import MonsterTemplate
 from waifu_bot.db.models.skill import Skill, SkillType
-from waifu_bot.game.constants import AI_NARRATIVE_GROTESQUE_HUMOR_RU
+from waifu_bot.game.constants import (
+    AI_NARRATIVE_ANTI_GENERIC_VERIFY_RU,
+    AI_NARRATIVE_FINAL_MARKER,
+    AI_NARRATIVE_GROTESQUE_HUMOR_RU,
+    AI_NARRATIVE_HUMAN_RHYTHM_RU,
+)
 from waifu_bot.game.expedition_narrative_catalog import (
     ExpeditionNarrativeStyle,
     narrative_style_for_id,
@@ -159,6 +164,83 @@ def _warn_if_empty_assistant(caller: str, choice: object, extracted: str) -> Non
     )
 
 
+def _extract_final_after_marker(text: str, marker: str = AI_NARRATIVE_FINAL_MARKER) -> str | None:
+    """Вырезает финальный текст после маркера ===ФИНАЛ===."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    idx = raw.find(marker)
+    if idx < 0:
+        return None
+    final = raw[idx + len(marker) :].strip()
+    return final or None
+
+
+async def refine_expedition_narrative_draft(
+    draft: str,
+    *,
+    caller: str,
+    length_hint: str,
+) -> str:
+    """
+    Второй проход OpenRouter: анти-generic проверка и переписывание черновика.
+    При сбое возвращает исходный draft.
+    """
+    source = (draft or "").strip()
+    if not source:
+        return draft
+    api_key = getattr(settings, "openrouter_api_key", None)
+    if not api_key:
+        return draft
+
+    model = settings.openrouter_model
+    prompt = (
+        AI_NARRATIVE_ANTI_GENERIC_VERIFY_RU.format(draft=source)
+        + f"\n\nСохрани смысл, тон и стиль экспедиции. Длина финала: {length_hint}."
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            r = await client.post(
+                _openrouter_url(),
+                headers=_openrouter_headers(),
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 450,
+                    "temperature": 0.75,
+                    **_openrouter_text_extra(),
+                },
+            )
+            if r.status_code != 200:
+                logger.warning(
+                    "OpenRouter expedition refine (%s): HTTP %s body=%s",
+                    caller,
+                    r.status_code,
+                    (r.text or "")[:400],
+                )
+                return draft
+            data = r.json()
+            choices = data.get("choices") or []
+            if not isinstance(choices, list) or not choices:
+                return draft
+            first = choices[0]
+            text = _extract_openrouter_assistant_text(first)
+            if not text:
+                _warn_if_empty_assistant(f"expedition refine {caller}", first, text)
+                return draft
+            final = _extract_final_after_marker(text)
+            if final:
+                return final
+            stripped = text.strip()
+            if stripped and stripped != source:
+                return stripped
+            return draft
+    except Exception as e:
+        logger.warning("OpenRouter expedition refine (%s) error: %s", caller, e)
+        return draft
+
+
 async def generate_expedition_narrative_brief(
     *,
     archetype_id: str,
@@ -208,6 +290,8 @@ async def generate_expedition_narrative_brief(
         "Ты — сценарист коротких фэнтезийных экспедиций для RPG. "
         "Придумай уникальный сеттинг экспедиции по JSON-контексту. "
         f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
+        f"{AI_NARRATIVE_HUMAN_RHYTHM_RU} "
+        "Применяй требования ритма к полям intro_narrative и setting_summary. "
         f"{style_block} "
         "Не используй шаблон «подземелье с гоблинами», если архетип — город, клуб, арктика и т.п. "
         "Сеттинг должен соответствовать архетипу локации и режиму экспедиции. "
@@ -264,6 +348,21 @@ async def generate_expedition_narrative_brief(
                 while len(beats) < int(events_total):
                     beats.append(f"Эпизод {len(beats) + 1}: развитие сюжета")
                 parsed["event_beats"] = beats[: int(events_total)]
+            if parsed:
+                setting = str(parsed.get("setting_summary") or "").strip()
+                if setting:
+                    parsed["setting_summary"] = await refine_expedition_narrative_draft(
+                        setting,
+                        caller="brief setting",
+                        length_hint="2–3 предложения",
+                    )
+                intro = str(parsed.get("intro_narrative") or "").strip()
+                if intro:
+                    parsed["intro_narrative"] = await refine_expedition_narrative_draft(
+                        intro,
+                        caller="brief intro",
+                        length_hint="3–5 предложений",
+                    )
             return parsed
     except Exception as e:
         logger.warning("OpenRouter expedition brief error: %s", e)
@@ -379,6 +478,7 @@ async def generate_expedition_tick_narrative(
             "не перескакивай к другому типу повествования."
         )
     prompt = (
+        f"{AI_NARRATIVE_HUMAN_RHYTHM_RU} "
         "Напиши короткое повествование (2–4 предложения, на русском) об одном эпизоде экспедиции в фэнтези-стиле. "
         f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
         f"{style_block}{intro_hint} "
@@ -420,7 +520,12 @@ async def generate_expedition_tick_narrative(
             text = _extract_openrouter_assistant_text(first)
             if not text:
                 _warn_if_empty_assistant("expedition tick", first, text)
-            return text or None
+                return None
+            return await refine_expedition_narrative_draft(
+                text,
+                caller="tick",
+                length_hint="2–4 предложения",
+            )
     except Exception as e:
         logger.warning("OpenRouter expedition tick error: %s", e)
         return None
@@ -468,6 +573,7 @@ async def generate_expedition_event(
         extra += f" Подготовка: {prep}."
     style_block = _expedition_style_prompt_from_brief(narrative_brief)
     prompt = (
+        f"{AI_NARRATIVE_HUMAN_RHYTHM_RU} "
         f"Напиши коротко (2–3 предложения, на русском) описание исхода экспедиции в фэнтези-стиле. "
         f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
         f"{style_block} "
@@ -505,7 +611,12 @@ async def generate_expedition_event(
             text = _extract_openrouter_assistant_text(first)
             if not text:
                 _warn_if_empty_assistant("expedition event", first, text)
-            return text or None
+                return None
+            return await refine_expedition_narrative_draft(
+                text,
+                caller="event",
+                length_hint="2–3 предложения",
+            )
     except Exception as e:
         logger.warning("OpenRouter expedition event error: %s", e)
         return None

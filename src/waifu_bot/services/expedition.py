@@ -1264,7 +1264,7 @@ class ExpeditionService:
             tick_summaries.append(str(ts["last_narrative"]))
         squad_prepared = ts.get("squad_prepared")
         try:
-            # Должно быть не меньше httpx-таймаута в generate_expedition_event (30s), иначе часто срывается ИИ-текст.
+            # 2× OpenRouter (генерация + refine): 30s + 25s httpx внутри generate_expedition_event.
             event_text = await asyncio.wait_for(
                 generate_expedition_event(
                     expedition_name=expedition_name,
@@ -1279,7 +1279,7 @@ class ExpeditionService:
                     tick_summaries=tick_summaries,
                     squad_prepared=squad_prepared if isinstance(squad_prepared, bool) else None,
                 ),
-                timeout=35.0,
+                timeout=65.0,
             )
         except asyncio.TimeoutError:
             event_text = f"Отряд вернулся из экспедиции «{expedition_name}». Награда: {gold} золота, {exp} опыта наёмницам."
