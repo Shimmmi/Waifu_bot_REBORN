@@ -143,6 +143,19 @@ async def _expedition_tick_loop_fn() -> None:
         break
 
 
+async def _chat_rewards_flush_fn() -> None:
+    from waifu_bot.db.session import get_session, init_engine
+    from waifu_bot.core import redis as redis_core
+    from waifu_bot.services import chat_rewards as chat_rewards_svc
+
+    init_engine()
+    redis_client = redis_core.get_redis()
+    async for session in get_session():
+        await chat_rewards_svc.flush_buffer_to_db(session, redis_client)
+        await session.commit()
+        break
+
+
 async def _guild_war_hourly_fn() -> None:
     from waifu_bot.db.session import get_session, init_engine
     from waifu_bot.services.guild_progress import hourly_war_online_bonus
@@ -189,6 +202,7 @@ async def _guild_war_narrative_fn() -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
+CHAT_REWARDS_FLUSH_INTERVAL = 60
 GD_V1_REG_POLL_SECONDS = 60
 GD_V1_ROUND_POLL_SECONDS = 20
 EXPEDITION_NOTIFY_INTERVAL = 30
@@ -200,6 +214,10 @@ GUILD_NARRATIVE_INTERVAL = 900
 
 def start_all_background_tasks() -> None:
     """Launch all background polling loops. Call once from FastAPI startup."""
+    _schedule(
+        _loop("chat_rewards_flush", CHAT_REWARDS_FLUSH_INTERVAL, _chat_rewards_flush_fn),
+        name="bg:chat_rewards_flush",
+    )
     _schedule(
         _loop("gd_v1_registration", GD_V1_REG_POLL_SECONDS, _gd_v1_registration_tick),
         name="bg:gd_v1_reg",

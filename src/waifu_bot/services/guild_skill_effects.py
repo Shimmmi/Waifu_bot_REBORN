@@ -32,7 +32,14 @@ async def effect_values_for_player(session: AsyncSession, player_id: int) -> dic
     ).scalars().all()
     out: dict[str, float] = {}
     glvl = int(guild.level)
-    stack_pct = {"gd_party_damage_pct", "monster_gold_pct", "dungeon_exp_pct", "max_hp_pct", "global_reward_pct"}
+    stack_pct = {
+        "gd_party_damage_pct",
+        "monster_gold_pct",
+        "dungeon_exp_pct",
+        "max_hp_pct",
+        "global_reward_pct",
+        "chat_reward_pct",
+    }
     for d in defs:
         if glvl < int(d.guild_level_req):
             continue

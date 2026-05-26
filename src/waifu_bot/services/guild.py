@@ -157,6 +157,9 @@ class GuildService:
         member = GuildMember(guild_id=guild_id, player_id=player_id, is_leader=False)
         session.add(member)
 
+        from waifu_bot.services.guild_activity import log_member_join
+
+        await log_member_join(session, guild_id, player_id)
         await session.commit()
 
         return {"success": True, "guild_id": guild_id}
@@ -222,9 +225,12 @@ class GuildService:
 
         from waifu_bot.services.guild_progress import add_gxp_from_bank_deposit, apply_war_bank_deposit
 
-        await add_gxp_from_bank_deposit(session, member.guild_id, amount)
+        await add_gxp_from_bank_deposit(session, member.guild_id, amount, player_id=player_id)
         await apply_war_bank_deposit(session, player_id, amount)
 
+        from waifu_bot.services.guild_activity import log_bank_deposit
+
+        await log_bank_deposit(session, member.guild_id, player_id, amount)
         await session.commit()
 
         return {"success": True, "guild_gold": guild.gold, "player_gold": player.gold}
@@ -253,6 +259,9 @@ class GuildService:
         guild.gold -= amount
         player.gold += amount
 
+        from waifu_bot.services.guild_activity import log_bank_withdraw_gold
+
+        await log_bank_withdraw_gold(session, member.guild_id, player_id, amount)
         await session.commit()
 
         return {"success": True, "guild_gold": guild.gold, "player_gold": player.gold}
@@ -286,8 +295,16 @@ class GuildService:
         # Move to bank
         bank_item = GuildBank(guild_id=member.guild_id, item_id=inv_item.item_id)
         session.add(bank_item)
+        item_name = "Предмет"
+        if inv_item.item_id:
+            item_row = await session.get(Item, inv_item.item_id)
+            if item_row and item_row.name:
+                item_name = item_row.name
         await session.delete(inv_item)
 
+        from waifu_bot.services.guild_activity import log_bank_deposit_item
+
+        await log_bank_deposit_item(session, member.guild_id, player_id, item_name)
         await session.commit()
 
         return {"success": True, "item_id": inv_item.item_id}
@@ -304,11 +321,20 @@ class GuildService:
         if not bank_item or bank_item.guild_id != member.guild_id:
             return {"error": "item_not_found"}
 
+        item_name = "Предмет"
+        if bank_item.item_id:
+            item_row = await session.get(Item, bank_item.item_id)
+            if item_row and item_row.name:
+                item_name = item_row.name
+
         # Add to player inventory
         inv_item = InventoryItem(player_id=player_id, item_id=bank_item.item_id)
         session.add(inv_item)
         await session.delete(bank_item)
 
+        from waifu_bot.services.guild_activity import log_bank_withdraw_item
+
+        await log_bank_withdraw_item(session, member.guild_id, player_id, item_name)
         await session.commit()
 
         return {"success": True, "item_id": bank_item.item_id}
@@ -518,15 +544,20 @@ class GuildService:
         result = await session.execute(stmt)
         return len(list(result.scalars().all()))
 
-    async def upload_guild_icon(
+    async def _upload_guild_image(
         self,
         session: AsyncSession,
         player_id: int,
         raw: bytes,
         content_type: Optional[str],
         static_root: Path,
+        *,
+        subdir_name: str,
+        path_prefix: str,
+        attr_name: str,
+        url_key: str,
     ) -> dict:
-        """Save guild emblem to static/guild_icons/{guild_id}.{ext}. Leader or officer only."""
+        """Save guild image; guild leader only."""
         ct = (content_type or "").split(";")[0].strip().lower()
         if ct not in GUILD_ICON_CONTENT_TYPES:
             return {"error": "invalid_type"}
@@ -535,13 +566,22 @@ class GuildService:
         member = await self.get_guild_member(session, player_id)
         if not member:
             return {"error": "not_in_guild"}
-        if not (member.is_leader or member.is_officer):
-            return {"error": "forbidden"}
+        if not member.is_leader:
+            cnt = await session.scalar(
+                select(func.count())
+                .select_from(GuildMember)
+                .where(GuildMember.guild_id == member.guild_id)
+            )
+            if int(cnt or 0) == 1:
+                member.is_leader = True
+                await session.flush()
+            else:
+                return {"error": "forbidden"}
         guild = await session.get(Guild, member.guild_id)
         if not guild:
             return {"error": "no_guild"}
         ext = GUILD_ICON_CONTENT_TYPES[ct]
-        subdir = static_root / "guild_icons"
+        subdir = static_root / subdir_name
         subdir.mkdir(parents=True, exist_ok=True)
         for p in subdir.glob(f"{guild.id}.*"):
             try:
@@ -550,7 +590,50 @@ class GuildService:
                 pass
         dest = subdir / f"{guild.id}{ext}"
         dest.write_bytes(raw)
-        guild.icon_path = f"guild_icons/{guild.id}{ext}"
+        rel_path = f"{path_prefix}/{guild.id}{ext}"
+        setattr(guild, attr_name, rel_path)
         await session.commit()
-        return {"success": True, "guild_icon_url": f"/static/{guild.icon_path}"}
+        return {"success": True, url_key: f"/static/{rel_path}"}
+
+    async def upload_guild_icon(
+        self,
+        session: AsyncSession,
+        player_id: int,
+        raw: bytes,
+        content_type: Optional[str],
+        static_root: Path,
+    ) -> dict:
+        """Save guild emblem to static/guild_icons/{guild_id}.{ext}. Leader only."""
+        return await self._upload_guild_image(
+            session,
+            player_id,
+            raw,
+            content_type,
+            static_root,
+            subdir_name="guild_icons",
+            path_prefix="guild_icons",
+            attr_name="icon_path",
+            url_key="guild_icon_url",
+        )
+
+    async def upload_guild_banner(
+        self,
+        session: AsyncSession,
+        player_id: int,
+        raw: bytes,
+        content_type: Optional[str],
+        static_root: Path,
+    ) -> dict:
+        """Save guild hero banner to static/guild_banners/{guild_id}.{ext}. Leader only."""
+        return await self._upload_guild_image(
+            session,
+            player_id,
+            raw,
+            content_type,
+            static_root,
+            subdir_name="guild_banners",
+            path_prefix="guild_banners",
+            attr_name="banner_path",
+            url_key="guild_banner_url",
+        )
 

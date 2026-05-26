@@ -1,5 +1,5 @@
 """Pydantic schemas for API responses/requests."""
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
@@ -23,6 +23,7 @@ class ItemOut(BaseModel):
 class ShopInventoryResponse(BaseModel):
     items: List[dict]
     count: int
+    size: int = 9
 
 
 class InventorySellRequest(BaseModel):
@@ -62,6 +63,8 @@ class TavernActionResponse(BaseModel):
     slot: Optional[int] = None
     bio: Optional[str] = None
     image_url: Optional[str] = None
+    hire_cost: Optional[int] = None
+    first_hire_free: Optional[bool] = None
     error: Optional[str] = None
 
 
@@ -77,6 +80,7 @@ class TavernAvailableResponse(BaseModel):
     remaining: int
     total: int
     price: int
+    first_hire_free: bool = False
     perks: Optional[List["ExpeditionPerkOut"]] = None  # для UI таверны, чтобы не вызывать /expeditions/perks
 
 
@@ -156,6 +160,10 @@ class HiddenSkillOut(BaseModel):
     next_threshold: Optional[int] = None
     max_level: int = 5
     revealed: bool
+    effect_types: List[str] = []
+    effect_values: List[Any] = []
+    current_effects: dict[str, float] = {}
+    next_effects: Optional[dict[str, float]] = None
 
 
 class HiddenSkillsResponse(BaseModel):
@@ -448,6 +456,22 @@ class GearItemOut(BaseModel):
     equipment_slot: Optional[int] = None  # Номер слота, если предмет экипирован
 
 
+class TutorialStateResponse(BaseModel):
+    version: int = 1
+    completed: dict[str, str] = Field(default_factory=dict)
+    skipped: bool = False
+    intro_reward_claimed: bool = False
+
+
+class TutorialStepRequest(BaseModel):
+    step_id: str
+
+
+class TutorialCompleteResponse(BaseModel):
+    tutorial: TutorialStateResponse
+    gold_reward: Optional[int] = None
+
+
 class ProfileResponse(BaseModel):
     player_id: int
     act: int        # current_act — the act the player is currently in
@@ -459,6 +483,7 @@ class ProfileResponse(BaseModel):
     main_waifu: Optional[MainWaifuProfile] = None
     main_waifu_details: Optional[MainWaifuDetails] = None
     equipment: List[GearItemOut] = []
+    tutorial: TutorialStateResponse = Field(default_factory=TutorialStateResponse)
 
 
 class GuildMemberMainWaifuPreviewOut(BaseModel):
@@ -473,11 +498,25 @@ class GuildMemberMainWaifuPreviewOut(BaseModel):
         populate_by_name = True
 
 
+class GuildMemberHiredWaifuPreviewOut(BaseModel):
+    id: int
+    name: str
+    level: int = 1
+    portrait_url: Optional[str] = None
+
+
 class GuildMemberPreviewOut(BaseModel):
     player_id: int
     telegram_username: Optional[str] = None
     first_name: Optional[str] = None
     main_waifu: Optional[GuildMemberMainWaifuPreviewOut] = None
+    online: bool = False
+    rank: str = "Участник"
+    member_power: int = 0
+    contribution_week: int = 0
+    contribution_week_cap: int = 200_000
+    hired_waifus: list[GuildMemberHiredWaifuPreviewOut] = Field(default_factory=list)
+    is_self: bool = False
 
 
 MainWaifuHairColor = Literal[
@@ -688,6 +727,7 @@ class ExpeditionAffixOut(BaseModel):
     description_hint: Optional[str] = None
     icon: Optional[str] = None
     paired_perks: List[str] = []  # id перков-контров из expedition_affixes
+    difficulty_tags: List[str] = []  # monsters, undead, dark_magic, …
 
 
 class ExpeditionSlotOut(BaseModel):
@@ -701,6 +741,7 @@ class ExpeditionSlotOut(BaseModel):
     required_perks: List[str] = []  # id перков, полезных для этого слота (контраффиксы)
     # Объединение категорий испытаний v1.3 по всем аффиксам слота (раса/класс/перки)
     challenge_categories: List[str] = []
+    difficulty_tags: List[str] = []  # union тегов сложности слота v1.4
     affixes: List[ExpeditionAffixOut] = []  # ТЗ v1.1: чипы аффиксов (если нет — пусто)
     base_location: Optional[str] = None  # «Пещера», «Руины» — для отображения
     biome_tag: Optional[str] = None  # cave, forest, ruins… — для CSS фона карточки
@@ -710,15 +751,28 @@ class ExpeditionSlotOut(BaseModel):
     base_experience: int
     trial: bool = False
     is_used: bool = False
+    location_archetype_id: Optional[str] = None
+    location_archetype_name: Optional[str] = None
+    expedition_mode_id: Optional[str] = None
+    expedition_mode_name: Optional[str] = None
 
 
 class ExpeditionPreviewRequest(BaseModel):
-    expedition_slot_id: int
+    expedition_slot_id: Optional[int] = None
     squad_waifu_ids: List[int] = []
     duration_minutes: Optional[int] = 60  # ТЗ v1.1: влияет на шанс и награды
+    difficulty_level: Optional[int] = None  # 1..5 — уровень препятствий I–V
     # альтернативные имена для совместимости с планом
     slot_id: Optional[int] = None
     unit_ids: Optional[List[int]] = None
+
+    @model_validator(mode="after")
+    def _merge_aliases(self):
+        if self.expedition_slot_id is None and self.slot_id is not None:
+            object.__setattr__(self, "expedition_slot_id", self.slot_id)
+        if not self.squad_waifu_ids and self.unit_ids:
+            object.__setattr__(self, "squad_waifu_ids", list(self.unit_ids))
+        return self
 
 
 class ExpeditionPreviewUnitOut(BaseModel):
@@ -745,6 +799,12 @@ class ExpeditionPreviewOut(BaseModel):
     success_chance: Optional[float] = None
     success_label: Optional[str] = None
     matched_perks: Optional[List[str]] = None
+    active_tags: List[str] = []
+    covered_tags: List[str] = []
+    tag_effectiveness_pct: float = 100.0
+    tag_effectiveness_mult: float = 1.0
+    perk_effectiveness_pct: Optional[float] = None
+    affix_level: Optional[int] = None
 
 
 class ExpeditionSlotsResponse(BaseModel):
@@ -788,6 +848,11 @@ class ExpeditionActiveOut(BaseModel):
     events_total: Optional[int] = None
     progress_pct: Optional[int] = None
     squad_snapshot: List[ExpeditionSquadUnitOut] = []
+    location_archetype_id: Optional[str] = None
+    location_archetype_name: Optional[str] = None
+    expedition_mode_id: Optional[str] = None
+    expedition_mode_name: Optional[str] = None
+    narrative_title: Optional[str] = None
 
 
 class ExpeditionActiveResponse(BaseModel):
@@ -831,6 +896,7 @@ class ExpeditionStartResponse(BaseModel):
     affix_icon: Optional[str] = None
     affix_level_roman: Optional[str] = None
     events_total: Optional[int] = None
+    start_intro_narrative: Optional[str] = None
     error: Optional[str] = None
 
 

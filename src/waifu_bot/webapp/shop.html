@@ -27,13 +27,81 @@
     /* Stage background to match the unified palette. */
     body.page-shop .shop-stage {
       background: var(--ink);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
     }
-    body.page-shop .shop-stage-bg {
-      background: linear-gradient(150deg, #2a1a08 0%, #15100a 55%, #0d0908 100%);
+    body.page-shop .shop-content {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    body.page-shop .shop-tab-panel {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      display: none;
+      flex-direction: column;
+    }
+    body.page-shop .shop-tab-panel.active {
+      display: flex;
     }
 
-    /* --- Fix: keep the stage column from scrolling --- */
-    .shop-items-col { overflow: hidden; }
+    /* Hero banner */
+    body.page-shop .shop-hero-layer {
+      flex-shrink: 0;
+      position: relative;
+      width: 100%;
+    }
+    body.page-shop .shop-hero {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 3 / 2;
+      max-height: 32vh;
+      border: none;
+      border-radius: 0 0 18px 18px;
+      overflow: hidden;
+      cursor: pointer;
+      background: linear-gradient(180deg, #15100a 0%, #0d0908 100%);
+      display: none;
+      padding: 0;
+    }
+    body.page-shop .shop-hero.active {
+      display: block;
+    }
+    body.page-shop .shop-hero-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      pointer-events: none;
+    }
+    body.page-shop .shop-hero-fallback {
+      position: absolute;
+      right: 16px;
+      bottom: 12px;
+      font-size: 56px;
+      line-height: 1;
+      pointer-events: none;
+      z-index: 1;
+    }
+    body.page-shop .shop-hero-hint {
+      position: absolute;
+      left: 12px;
+      bottom: 10px;
+      font-size: 11px;
+      color: rgba(232, 184, 75, 0.85);
+      font-style: italic;
+      pointer-events: none;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+      z-index: 2;
+    }
 
     /* ============================================================
        Атрик (header.attic) — привести к единому виду
@@ -90,15 +158,7 @@
       background: linear-gradient(90deg, rgba(200, 146, 42, .9), rgba(232, 184, 75, .9));
     }
 
-    /* --- Атрик: pixel indicators next to dungeon name --- */
-    body.page-shop .attic-dungeon-stages {
-      display: flex;
-      gap: 2px;
-      margin-left: 0;
-      margin-top: 2px;
-      align-items: center;
-      transform: none;
-    }
+    /* --- Атрик: progress bar under dungeon name --- */
     body.page-shop #attic-dungeon-chip {
       flex-direction: column;
       align-items: flex-start;
@@ -107,32 +167,29 @@
       padding-bottom: 4px;
     }
     body.page-shop #attic-dungeon-label { display: block; }
-    body.page-shop .attic-stage-pixel {
-      width: 6px;
-      height: 6px;
-      border-radius: 1px;
-      background: rgba(200, 146, 42, .18);
-      border: 1px solid rgba(200, 146, 42, .20);
-      box-sizing: border-box;
-    }
-    body.page-shop .attic-stage-pixel--done {
-      background: rgba(232, 184, 75, .65);
-      border-color: rgba(232, 184, 75, .75);
-    }
-    body.page-shop .attic-stage-pixel--active {
-      background: rgba(200, 146, 42, .95);
-      border-color: rgba(200, 146, 42, .95);
-      box-shadow: 0 0 6px rgba(200, 146, 42, .30);
-    }
-    body.page-shop .attic-dungeon-stages:empty { display: none; }
 
     /* ============================================================
        Карточки товаров — компактный вид
        ============================================================ */
-    body.page-shop .shop-items-grid {
-      grid-template-rows: unset;
-      grid-auto-rows: 1fr;
-      align-content: stretch;
+    body.page-shop .shop-buy-grid,
+    body.page-shop .shop-sell-grid,
+    body.page-shop .shop-gamble-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      padding: 8px;
+    }
+    body.page-shop .shop-gamble-card {
+      cursor: pointer;
+      min-height: 72px;
+    }
+    body.page-shop .shop-gamble-card.purchased {
+      opacity: 0.55;
+      cursor: default;
+    }
+    body.page-shop .shop-gamble-card .item-name {
+      font-size: 9px;
+      color: var(--ash);
     }
 
     body.page-shop .shop-item-card,
@@ -282,11 +339,11 @@
       margin: 0;
       background: rgba(13, 10, 8, .97);
       border-top: 1px solid rgba(200, 146, 42, .15);
+      border-bottom: 1px solid rgba(200, 146, 42, .12);
       padding: 5px 10px;
       position: relative;
       z-index: 120;
       height: auto;
-      margin-bottom: 40px; /* поднять панель вкладок на 40px */
     }
     body.page-shop .shop-btabs {
       display: flex;
@@ -298,12 +355,12 @@
     }
     body.page-shop .shop-btab {
       flex: 1;
-      padding: 7px 4px;
+      padding: 6px 3px;
       background: transparent;
       border: 1px solid transparent;
       border-radius: 9px;
+      font-size: 11px;
       color: var(--muted);
-      font-size: 10.5px;
       font-weight: 700;
       cursor: pointer;
       transition: all .18s;
@@ -527,97 +584,124 @@
       width: 100%;
     }
 
-    body.page-shop.shop-tab-smith .shop-merchant-zone {
-      display: none !important;
-    }
-    body.page-shop.shop-tab-smith .shop-items-col {
-      width: 100%;
-      flex: 1 1 100%;
-      max-width: 100%;
-    }
-    body.page-shop #tab-smith.shop-smith-wrap {
-      flex: 1;
-      min-height: 0;
+    body.page-shop .shop-smith-stage {
       display: flex;
-      flex-direction: column;
-      align-items: center;
+      flex-direction: row;
+      align-items: flex-start;
       justify-content: center;
-      padding: 12px 12px 80px;
-      overflow: hidden;
-      width: 100%;
+      gap: 16px;
+      padding: 16px 12px 80px;
+      flex: 1 1 auto;
     }
     body.page-shop .shop-smith-panel {
-      width: 100%;
-      max-width: min(380px, 94vw);
-      margin-top: 0;
-      margin-left: auto;
-      margin-right: auto;
-      padding: 14px 14px 16px;
-      border-radius: 14px;
-      background: rgba(26, 20, 16, 0.92);
-      border: 1px solid rgba(200, 146, 42, 0.35);
-      box-shadow: 0 10px 36px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      flex: 1;
+      max-width: 240px;
       display: flex;
       flex-direction: column;
-      align-items: stretch;
-      gap: 8px;
+      gap: 10px;
+      min-width: 0;
     }
-    body.page-shop .shop-smith-slot-btn {
-      width: 100%;
+    body.page-shop .shop-smith-anvil {
+      flex-shrink: 0;
+      width: 140px;
+      height: 140px;
+      border-radius: 16px;
+      background: radial-gradient(circle, rgba(200, 146, 42, 0.18), rgba(13, 10, 8, 0.92));
+      border: 1px solid rgba(200, 146, 42, 0.4);
+      cursor: pointer;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 8px;
-      padding: 10px 12px;
-      border-radius: 12px;
-      border: 1px solid rgba(200, 146, 42, 0.35);
-      background: rgba(0, 0, 0, 0.28);
+      justify-content: center;
+      overflow: hidden;
+      font-size: 56px;
       color: var(--cream);
-      cursor: pointer;
-      font: inherit;
-      text-align: center;
     }
-    body.page-shop .shop-smith-slot-btn:active {
-      transform: scale(0.99);
-    }
-    body.page-shop .shop-smith-slot-text {
-      text-align: center;
-      min-height: 2.2em;
-      line-height: 1.35;
+    body.page-shop .shop-smith-anvil-art {
       width: 100%;
-    }
-    body.page-shop .shop-smith-sigil {
-      align-self: center;
-      width: 56px;
-      height: 56px;
-      border-radius: 12px;
+      height: 72px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 26px;
-      background: rgba(200, 146, 42, 0.1);
-      border: 1px solid rgba(200, 146, 42, 0.45);
-      color: var(--amber-glow);
       overflow: hidden;
     }
-    body.page-shop #shop-smith-icon-wrap img {
-      max-width: 100%;
-      max-height: 100%;
-      width: auto;
-      height: auto;
+    body.page-shop .shop-smith-anvil-art img {
+      max-width: 90%;
+      max-height: 90%;
       object-fit: contain;
-      display: block;
     }
-    body.page-shop .shop-smith-title {
-      font-family: var(--font-title, Georgia, serif);
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      color: var(--amber-glow);
+    body.page-shop .shop-smith-anvil-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 6px;
       text-align: center;
-      text-transform: uppercase;
+      line-height: 1.3;
     }
-    body.page-shop .shop-smith-meta { text-align: center; }
+    body.page-shop .shop-smith-card {
+      width: 100%;
+      background: rgba(26, 20, 16, 0.92);
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    body.page-shop .shop-smith-hammer-btn {
+      background: linear-gradient(180deg, rgba(200, 146, 42, 0.55), rgba(160, 110, 30, 0.65));
+      color: #fff8ee;
+      border: 1px solid rgba(232, 184, 75, 0.6);
+      padding: 12px 28px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      width: 100%;
+    }
+    body.page-shop .shop-smith-hammer-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    body.page-shop .shop-smith-buy-stone {
+      width: 100%;
+      font-size: 11px;
+      padding: 8px 12px;
+    }
+    body.page-shop #shop-smith-pick-modal .modal-content {
+      background: rgba(26, 20, 16, 0.97);
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      color: var(--cream);
+    }
+    body.page-shop #shop-smith-pick-modal .modal-head {
+      border-bottom: 1px solid rgba(200, 146, 42, 0.15);
+      padding-bottom: 10px;
+      margin-bottom: 4px;
+    }
+    body.page-shop #shop-smith-pick-modal .modal-title {
+      color: var(--cream);
+    }
+    body.page-shop .shop-smith-pick-loading {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 4px 0 8px;
+    }
+    body.page-shop .shop-smith-pick-loading-card {
+      aspect-ratio: 1;
+      border-radius: 10px;
+      background: linear-gradient(
+        90deg,
+        rgba(200, 146, 42, 0.08) 0%,
+        rgba(200, 146, 42, 0.22) 50%,
+        rgba(200, 146, 42, 0.08) 100%
+      );
+      background-size: 200% 100%;
+      animation: shop-smith-pick-shimmer 1.2s ease-in-out infinite;
+    }
+    @keyframes shop-smith-pick-shimmer {
+      0% { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
     body.page-shop .shop-smith-pick-content {
       width: min(420px, 94vw);
       max-height: 88vh;
@@ -757,6 +841,23 @@
       gap: 6px;
       padding: 4px 2px 6px;
     }
+    body.page-shop .shop-sell-toolbar.shop-sell-toolbar--row {
+      flex-direction: row;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 5px;
+      overflow-x: auto;
+    }
+    body.page-shop .shop-sell-toolbar.shop-sell-toolbar--row .shop-sell-mode-label {
+      margin-left: auto;
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+    body.page-shop .shop-sell-toolbar.shop-sell-toolbar--row .shop-inv-sort-select {
+      flex: 0 0 auto;
+      width: 80px;
+      min-width: 80px;
+    }
     body.page-shop .shop-sell-mode-label {
       display: flex;
       align-items: center;
@@ -829,7 +930,9 @@
       font-weight: 600;
     }
   </style>
+  <link rel="stylesheet" href="./assets/tutorial.css" />
   <script src="./vendor/telegram-web-app.js"></script>
+  <script defer src="./assets/tutorial.js"></script>
   <script defer src="./app.js"></script>
 </head>
 <body class="page-shop">
@@ -841,7 +944,11 @@
       </div>
       <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)">
         <span id="attic-dungeon-label">Нет боя</span>
-        <span id="attic-dungeon-stages" class="attic-dungeon-stages" aria-hidden="true"></span>
+        <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden>
+          <div class="attic-dungeon-progress-track">
+            <div class="attic-dungeon-progress-fill" id="attic-dungeon-progress-fill"></div>
+          </div>
+        </div>
       </div>
       <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
       <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
@@ -850,43 +957,65 @@
 
   <main class="shop-stage" id="shop-stage">
     <div id="shop-profile-error" class="banner banner-danger" style="display: none; position: relative; z-index: 20; margin: 8px 12px 0"></div>
-    <div class="shop-stage-bg"></div>
-    <img id="shop-bg-img" class="shop-stage-bg-img" src="" alt="" />
 
-    <div class="shop-merchant-zone">
-      <button type="button" class="shop-merchant" id="shop-merchant" aria-label="Поговорить с торговцем"></button>
-      <div class="shop-merchant-visual" aria-hidden="true">
-        <img id="shop-merchant-img" src="" alt="" />
-        <span class="fallback" style="display:none;">🧙‍♂️</span>
+    <div class="shop-hero-layer" id="shop-hero-layer">
+      <button type="button" class="shop-hero active" id="shop-hero-buy" data-tab-hero="buy" data-tutorial="shop-merchant" aria-label="Совет торговца">
+        <img class="shop-hero-img" id="shop-hero-img-buy" alt="" />
+        <span class="shop-hero-fallback" id="shop-hero-fb-buy" style="display:none;">🧙</span>
+        <span class="shop-hero-hint">Нажми — совет</span>
+      </button>
+      <button type="button" class="shop-hero" id="shop-hero-sell" data-tab-hero="sell" aria-label="Совет торговца">
+        <img class="shop-hero-img" id="shop-hero-img-sell" alt="" />
+        <span class="shop-hero-fallback" id="shop-hero-fb-sell" style="display:none;">🧙</span>
+        <span class="shop-hero-hint">Нажми — совет</span>
+      </button>
+      <button type="button" class="shop-hero" id="shop-hero-gamble" data-tab-hero="gamble" aria-label="Совет барыги">
+        <img class="shop-hero-img" id="shop-hero-img-gamble" alt="" />
+        <span class="shop-hero-fallback" id="shop-hero-fb-gamble" style="display:none;">🎲</span>
+        <span class="shop-hero-hint">Нажми — совет</span>
+      </button>
+      <button type="button" class="shop-hero" id="shop-hero-smith" data-tab-hero="smith" aria-label="Совет кузнеца">
+        <img class="shop-hero-img" id="shop-hero-img-smith" alt="" />
+        <span class="shop-hero-fallback" id="shop-hero-fb-smith" style="display:none;">⚒</span>
+        <span class="shop-hero-hint">Нажми — совет</span>
+      </button>
+    </div>
+
+    <div class="shop-btabs-wrap" data-tutorial="shop-tabs">
+      <div class="shop-btabs">
+        <button class="shop-btab active" id="shop-btab-buy" data-tab="buy" onclick="ShopPage.switchTab('buy')">Купить</button>
+        <button class="shop-btab" id="shop-btab-sell" data-tab="sell" onclick="ShopPage.switchTab('sell')">Продать</button>
+        <button class="shop-btab" id="shop-btab-gamble" data-tab="gamble" onclick="ShopPage.switchTab('gamble')">Gamble</button>
+        <button class="shop-btab" id="shop-btab-smith" data-tab="smith" onclick="ShopPage.switchTab('smith')">Заточка</button>
+        <button type="button" class="shop-btab-sm" id="shop-sell-submit" style="display:none;" onclick="WaifuApp.sellSelected()" title="Продать выбранное" aria-label="Продать выбранное">🪙</button>
+        <button class="shop-btab-sm admin-only" id="shop-admin-refresh" style="display:none;" onclick="WaifuApp.refreshShopDebug()" title="Обновить витрину">🔄</button>
+        <button class="shop-btab-sm admin-only" id="shop-admin-add-gold" style="display:none;" onclick="WaifuApp.adminAddGold()" title="+10000 золота">💰</button>
       </div>
     </div>
 
-    <section class="shop-items-col">
-      <div class="shop-items-wrap tab-panel active" id="tab-buy">
-        <div class="shop-items-grid" id="shop-buy-grid">
+    <section class="shop-content">
+      <div class="shop-tab-panel active" id="tab-buy">
+        <div class="shop-buy-grid" id="shop-buy-grid">
           <div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0;">Загрузка ассортимента...</div>
         </div>
       </div>
 
-      <div class="shop-sell-wrap tab-panel" id="tab-sell" style="display:none;">
-        <div class="shop-sell-toolbar">
+      <div class="shop-tab-panel" id="tab-sell" style="display:none;">
+        <div class="shop-sell-toolbar shop-sell-toolbar--row">
+          <button type="button" class="shop-inv-filter-btn active" id="shop-sell-filter-weapon" onclick="WaifuApp.toggleShopSellFilter('weapon')">⚔</button>
+          <button type="button" class="shop-inv-filter-btn active" id="shop-sell-filter-armor" onclick="WaifuApp.toggleShopSellFilter('armor')">🛡</button>
+          <button type="button" class="shop-inv-filter-btn active" id="shop-sell-filter-accessory" onclick="WaifuApp.toggleShopSellFilter('accessory')">💍</button>
+          <select id="shop-sell-sort-select" class="shop-inv-sort-select" onchange="WaifuApp.setShopSellSort(this.value)">
+            <option value="equipability">Экип.</option>
+            <option value="level">Уровень</option>
+            <option value="rarity">Редкость</option>
+            <option value="price">Цена</option>
+          </select>
+          <button type="button" id="shop-sell-sort-dir" class="shop-inv-sort-dir" onclick="WaifuApp.toggleShopSellSortDir()">▼</button>
           <label class="shop-sell-mode-label">
             <input type="checkbox" id="shop-sell-select-mode" />
-            <span>Выбор для продажи (без окна предмета)</span>
+            <span>множ.</span>
           </label>
-          <div class="shop-sell-filters-row">
-            <button type="button" class="shop-inv-filter-btn active" id="shop-sell-filter-weapon" onclick="WaifuApp.toggleShopSellFilter('weapon')">⚔ Оружие</button>
-            <button type="button" class="shop-inv-filter-btn active" id="shop-sell-filter-armor" onclick="WaifuApp.toggleShopSellFilter('armor')">🛡 Броня</button>
-            <button type="button" class="shop-inv-filter-btn active" id="shop-sell-filter-accessory" onclick="WaifuApp.toggleShopSellFilter('accessory')">💍 Акс.</button>
-            <div class="shop-sell-sort-wrap">
-              <select id="shop-sell-sort-select" class="shop-inv-sort-select" onchange="WaifuApp.setShopSellSort(this.value)">
-                <option value="equipability">По экипировке</option>
-                <option value="level">По уровню</option>
-                <option value="rarity">По редкости</option>
-              </select>
-              <button type="button" id="shop-sell-sort-dir" class="shop-inv-sort-dir" onclick="WaifuApp.toggleShopSellSortDir()">▼</button>
-            </div>
-          </div>
         </div>
         <div class="shop-sell-grid" id="shop-sell-grid">
           <div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0;">Инвентарь загружается...</div>
@@ -897,58 +1026,31 @@
         </div>
       </div>
 
-      <div class="shop-gamble-wrap tab-panel" id="tab-gamble" style="display:none;">
-        <div class="shop-gamble-panel">
-          <div class="shop-gamble-sigil" aria-hidden="true">🎲</div>
-          <div class="shop-gamble-title">Мистическая гемба</div>
-          <div class="shop-gamble-desc">Случайный предмет в инвентарь. Редкость и уровень — на удачу.</div>
-          <button type="button" class="shop-gamble-btn" id="shop-gamble-btn" onclick="WaifuApp.gambleShop()">Испытать удачу</button>
-          <div class="shop-gamble-cost" id="shop-gamble-cost">🪙 — золота</div>
+      <div class="shop-tab-panel" id="tab-gamble" style="display:none;">
+        <div class="shop-gamble-grid" id="shop-gamble-grid">
+          <div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0;">Загрузка...</div>
         </div>
       </div>
 
-      <div class="shop-smith-wrap tab-panel" id="tab-smith" style="display:none;">
-        <div class="shop-smith-panel">
-          <div class="shop-smith-title">Кузнец</div>
-          <div class="shop-smith-meta muted tiny">
-            Золото: <strong id="shop-smith-gold-hint">—</strong>
-            · Камни: <strong id="shop-smith-stones">0</strong>
-          </div>
-          <button type="button" class="shop-smith-slot-btn" id="shop-smith-slot-btn" onclick="WaifuApp.openSmithPickModal()">
-            <div id="shop-smith-icon-wrap" class="shop-smith-sigil" aria-hidden="true"><span class="muted">—</span></div>
-            <div id="shop-smith-selected-label" class="muted tiny shop-smith-slot-text">выбор предмета</div>
+      <div class="shop-tab-panel" id="tab-smith" style="display:none;">
+        <div class="shop-smith-stage">
+          <button type="button" class="shop-smith-anvil" id="shop-smith-slot-btn" onclick="WaifuApp.openSmithPickModal()">
+            <div id="shop-smith-icon-wrap" class="shop-smith-anvil-art">⚒</div>
+            <div id="shop-smith-selected-label" class="shop-smith-anvil-label muted">Выберите предмет</div>
           </button>
-          <div id="shop-smith-preview" class="shop-smith-preview muted tiny"></div>
-          <div id="shop-smith-stone-row" class="shop-smith-stone-row" style="display:none;">
-            <label class="shop-smith-stone-label">
+          <div class="shop-smith-panel">
+            <div id="shop-smith-preview" class="shop-smith-card muted tiny">Выберите предмет из инвентаря.</div>
+            <button type="button" class="shop-smith-hammer-btn" id="shop-smith-enchant-btn" onclick="WaifuApp.smithTryEnchant()" disabled>Заточить</button>
+            <label class="shop-smith-stone-row" id="shop-smith-stone-row" style="display:none;">
               <input type="checkbox" id="shop-smith-use-stone" />
-              Камень защиты при неудаче (откат до +6, без поломки)
+              <span>Камень защиты (откат до +6)</span>
             </label>
+            <button type="button" class="secondary shop-smith-buy-stone" onclick="WaifuApp.buyProtectionStoneShop()">Купить камень защиты</button>
           </div>
-          <button type="button" class="shop-gamble-btn" id="shop-smith-enchant-btn" onclick="WaifuApp.smithTryEnchant()" disabled>Заточить</button>
-          <button type="button" class="secondary shop-smith-buy-stone" onclick="WaifuApp.buyProtectionStoneShop()">Купить камень защиты</button>
         </div>
       </div>
     </section>
   </main>
-
-  <div class="shop-dialog" id="shop-dialog">
-    <div class="shop-dialog-label">Торговец говорит</div>
-    <div class="shop-dialog-text" id="shop-dialog-text">...</div>
-    <div class="shop-dialog-timer"><div class="shop-dialog-timer-fill" id="shop-dialog-timer-fill"></div></div>
-  </div>
-
-  <div class="shop-btabs-wrap">
-    <div class="shop-btabs">
-      <button class="shop-btab active" id="shop-btab-buy" data-tab="buy" onclick="ShopPage.switchTab('buy')">🛒 Купить</button>
-      <button class="shop-btab" id="shop-btab-sell" data-tab="sell" onclick="ShopPage.switchTab('sell')">💰 Продать</button>
-      <button class="shop-btab" id="shop-btab-gamble" data-tab="gamble" onclick="ShopPage.switchTab('gamble')">🎲 Гемба</button>
-      <button class="shop-btab" id="shop-btab-smith" data-tab="smith" onclick="ShopPage.switchTab('smith')">⚒ Заточка</button>
-      <button type="button" class="shop-btab-sm" id="shop-sell-submit" style="display:none;" onclick="WaifuApp.sellSelected()" title="Продать выбранное" aria-label="Продать выбранное">🪙</button>
-      <button class="shop-btab-sm admin-only" id="shop-admin-refresh" style="display:none;" onclick="WaifuApp.refreshShopDebug()">🔄</button>
-      <button class="shop-btab-sm admin-only" id="shop-admin-add-gold" style="display:none;" onclick="WaifuApp.adminAddGold()">💰</button>
-    </div>
-  </div>
 
   <div id="shop-smith-pick-modal" class="modal" style="display:none;" onclick="if (event.target === this) WaifuApp.closeSmithPickModal()">
     <div class="modal-content shop-smith-pick-content" onclick="event.stopPropagation()">
@@ -1180,71 +1282,37 @@
 
   <script>
     const ShopPage = (() => {
-      let dialogTimer = null;
-      const DIALOG_MS = 10000;
-
       function switchTab(tab) { WaifuApp.switchShopTab(tab); }
 
-      function hideDialog() {
-        clearTimeout(dialogTimer);
-        const el = document.getElementById("shop-dialog");
-        if (el) el.classList.remove("show");
-      }
-
       const STUB_NO_AI = "Сейчас посмотрим, что тебе может подойти.";
-      async function onMerchantTap() {
-        const dialog = document.getElementById("shop-dialog");
-        const textEl = document.getElementById("shop-dialog-text");
-        const fill = document.getElementById("shop-dialog-timer-fill");
-        if (!dialog || !textEl || !fill) return;
 
-        const tab =
-          document.querySelector(".shop-btab.active")?.getAttribute("data-tab") || "buy";
+      async function onHeroTap(tab) {
         if (window.__shopMerchantTab !== tab && window.WaifuApp?.refreshMerchantLine) {
           await WaifuApp.refreshMerchantLine().catch(() => {});
         }
-
         const line = window.__shopMerchantLine || STUB_NO_AI;
-        textEl.innerHTML = String(line);
-        fill.style.transition = "none";
-        fill.style.width = "100%";
-        dialog.classList.add("show");
-        requestAnimationFrame(() =>
-          requestAnimationFrame(() => {
-            fill.style.transition = `width ${DIALOG_MS}ms linear`;
-            fill.style.width = "0%";
-          })
-        );
-        clearTimeout(dialogTimer);
-        if (window.WaifuApp?.revealMerchantAdvice) {
+        const plain = String(line).replace(/<[^>]+>/g, "");
+        if (typeof WaifuApp?.showToast === "function") {
+          WaifuApp.showToast(plain, "info");
+        }
+        if ((tab === "buy" || tab === "sell") && window.WaifuApp?.revealMerchantAdvice) {
           WaifuApp.revealMerchantAdvice();
         }
-        dialogTimer = setTimeout(() => {
-          hideDialog();
-          if (window.WaifuApp?.refreshMerchantLine) {
-            WaifuApp.refreshMerchantLine().catch(() => {});
-          }
-        }, DIALOG_MS);
       }
-      document.addEventListener("click", (e) => {
-        const t = e.target;
-        if (!(t instanceof Element)) return;
-        if (t.closest("#shop-merchant")) return;
-        hideDialog();
-      });
+
       window.addEventListener("DOMContentLoaded", () => {
-        const merchant = document.getElementById("shop-merchant");
-        if (merchant) {
-          merchant.addEventListener("click", (e) => {
+        document.querySelectorAll(".shop-hero[data-tab-hero]").forEach((btn) => {
+          btn.addEventListener("click", (e) => {
             e.stopPropagation();
-            onMerchantTap().catch(() => {});
+            const tab = btn.getAttribute("data-tab-hero") || "buy";
+            onHeroTap(tab).catch(() => {});
           });
-        }
+        });
         if (window.WaifuApp && typeof WaifuApp.bootstrapPage === "function") {
           WaifuApp.bootstrapPage("shop", WaifuApp.shopPageBootstrap);
         }
       });
-      return { switchTab, hideDialog, onMerchantTap };
+      return { switchTab, onHeroTap };
     })();
   </script>
 

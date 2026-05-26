@@ -186,7 +186,9 @@
         color: #ffe8a8 !important;
       }
     </style>
+    <link rel="stylesheet" href="./assets/tutorial.css" />
     <script src="./vendor/telegram-web-app.js"></script>
+    <script defer src="./assets/tutorial.js"></script>
     <script defer src="./app.js"></script>
   </head>
   <body class="page-training" onload="WaifuApp.bootstrapPage('training', WaifuApp.populateTrainingHall);">
@@ -204,7 +206,7 @@
 
     <main class="layout">
       <section class="section passive-skills-section" id="passive-skills-section">
-        <div class="passive-stats-line chip chip-ghost" aria-label="Очки по веткам и свободные">
+        <div class="passive-stats-line chip chip-ghost" data-tutorial="training-points" aria-label="Очки по веткам и свободные">
           <span>Воин / Тень / Мудрец</span>
           <span id="passive-branch-pts">—</span>
           <span class="passive-stats-sep" aria-hidden="true">·</span>
@@ -245,7 +247,7 @@
           </button>
         </div>
         <div id="training-passive-view">
-          <div id="passive-tree-root" class="passive-tree-root placeholder">Загрузка дерева…</div>
+          <div id="passive-tree-root" class="passive-tree-root placeholder" data-tutorial="training-tree">Загрузка дерева…</div>
           <button type="button" class="btn passive-reset-btn" id="passive-reset-branch">
             Сбросить очки текущей ветки
           </button>

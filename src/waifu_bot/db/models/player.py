@@ -2,6 +2,7 @@
 from datetime import datetime
 
 from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from waifu_bot.db.base import Base
@@ -37,6 +38,11 @@ class Player(Base):
     # Секретный босс «эха» (Maven-like) после 25 соло-данжей на +30
     secret_echo_boss_unlocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     secret_echo_boss_defeated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Прогресс обучения: {version, completed: {step_id: iso_ts}, skipped, intro_reward_claimed}
+    tutorial_progress: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
 
     # Relationships
     main_waifu: Mapped["MainWaifu"] = relationship(

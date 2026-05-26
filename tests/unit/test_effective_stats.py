@@ -78,3 +78,13 @@ def test_merge_passive_skips_duplicate_asp_when_flag() -> None:
     assert with_asp["melee_damage"] == 120
     skip = merge_passive_into_profile_details(dict(base), ps, skip_all_stats_pct_on_damage=True)
     assert skip["melee_damage"] == 100
+
+
+def test_merge_passive_armor_flat_before_armor_pct() -> None:
+    from waifu_bot.services.passive_skills import merge_passive_into_profile_details
+
+    base = {"armor": 100}
+    ps = {"armor_flat": 80, "armor_pct": 0.15}
+    out = merge_passive_into_profile_details(dict(base), ps)
+    # (100 + 80) * 1.15 = 207
+    assert out["armor"] == 207

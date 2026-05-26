@@ -1,0 +1,240 @@
+<style>
+:root{
+  --acc:#f59e0b;--acc-soft:rgba(245,158,11,.15);--acc-border:rgba(245,158,11,.30);
+  --gold:#fbbf24;--gold-dim:#d97706;
+  --card:#111827;--card-deep:#0d1117;--raised:#1a2236;
+  --brd:#1f2937;--txt:#e5e7eb;--muted:#9ca3af;--mdp:#4b5563;
+  --bg:#080e1a;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+.wrap{background:var(--bg);padding:14px;font-family:-apple-system,'Segoe UI',sans-serif;color:var(--txt)}
+
+/* header */
+.sdh{display:flex;justify-content:space-between;align-items:center;background:rgba(31,41,55,.4);padding:11px 14px;border-radius:12px;border:1px solid var(--brd);margin-bottom:12px}
+.smt{font-size:15px;font-weight:700;margin-bottom:3px}
+.spc{font-size:11px;color:var(--muted)}
+.spc strong{color:#a78bfa}
+.spc em{font-style:normal;font-size:10px;color:var(--mdp)}
+.btn-rst{background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.35);border-radius:8px;padding:5px 11px;font-size:11px;font-weight:600;color:#c084fc;cursor:pointer;font-family:inherit}
+
+/* branch tabs */
+.tabs{display:flex;gap:5px;background:var(--card);padding:4px;border-radius:10px;border:1px solid var(--brd);margin-bottom:12px}
+.tab{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;background:transparent;border:none;color:var(--muted);padding:7px 4px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;border-radius:7px;transition:all .15s}
+.tab:hover{color:var(--txt);background:rgba(255,255,255,.03)}
+.tab.active{background:#8b5cf6;color:#fff;box-shadow:0 2px 8px rgba(139,92,246,.35)}
+
+/* skill cards */
+.slist{display:flex;flex-direction:column;gap:9px}
+.scard{display:flex;align-items:center;justify-content:space-between;background:var(--card);border:1px solid var(--brd);border-radius:13px;padding:11px;gap:10px;cursor:pointer;transition:border-color .15s,transform .15s}
+.scard:hover{border-color:rgba(139,92,246,.4);transform:translateY(-1px)}
+.scard.maxed{border-color:rgba(245,158,11,.22);background:rgba(245,158,11,.01)}
+.scard.locked{opacity:.58;cursor:not-allowed}
+.scm{display:flex;align-items:center;gap:10px;flex:1}
+
+/* avatar */
+.sav{width:42px;height:42px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;border:1px solid rgba(255,255,255,.05)}
+.av-c{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.2)}
+.av-d{background:rgba(59,130,246,.1);border-color:rgba(59,130,246,.2)}
+.av-u{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.2)}
+.av-l{background:#1f2937;color:#6b7280}
+
+/* body */
+.sbody{display:flex;flex-direction:column;gap:3px;flex:1}
+.str{display:flex;align-items:baseline;gap:6px}
+.sname{font-size:13px;font-weight:600;color:var(--txt)}
+.slvl{font-size:11px;color:var(--muted)}
+.slvl-gold{font-size:11px;color:#f59e0b;font-weight:600}
+.sdesc{font-size:11px;color:var(--muted);line-height:1.3}
+.sdesc .grn{color:#10b981;font-weight:600}
+.sdesc .gld{color:#f59e0b;font-weight:600}
+
+/* pips */
+.pips{display:flex;gap:4px;margin-top:4px}
+.pip{width:13px;height:4px;background:#1f2937;border-radius:2px}
+.pip.f{background:#8b5cf6}
+.pip.fg{background:#f59e0b}
+
+/* req badge */
+.req{font-size:10px;color:#f87171;background:rgba(239,68,68,.1);padding:1px 6px;border-radius:4px;width:max-content;margin-top:3px}
+
+/* action zone */
+.saz{flex-shrink:0;display:flex;align-items:center}
+.bup{display:flex;flex-direction:column;align-items:center;justify-content:center;width:50px;height:42px;border-radius:9px;border:1px solid var(--brd);background:#1f2937;color:var(--txt);cursor:pointer;gap:1px;font-family:inherit}
+.bup.pri{background:rgba(139,92,246,.1);border-color:rgba(139,92,246,.4);color:#c084fc}
+.bup.pri:hover{background:#8b5cf6;border-color:#8b5cf6;color:#fff}
+.bup:disabled{background:var(--card);color:var(--mdp);border-color:var(--brd);cursor:not-allowed}
+.plus{font-size:16px;font-weight:700;line-height:1}
+.cost{font-size:10px;font-weight:600}
+.badge-max{font-size:11px;color:#f59e0b;font-weight:600;background:rgba(245,158,11,.1);padding:4px 8px;border-radius:6px;border:1px solid rgba(245,158,11,.22)}
+
+/* branch containers */
+.bc{display:none;flex-direction:column;gap:9px}
+.bc.active{display:flex}
+</style>
+
+<div class="wrap">
+  <h2 class="sr-only">Макет панели навыков гильдии с тематическими ветками: Боевые, Защитные, Мирные</h2>
+
+  <!-- шапка -->
+  <div class="sdh">
+    <div>
+      <div class="smt">Навыки гильдии</div>
+      <p class="spc">Доступно: <strong>3 ОПГ</strong> <em>(распределено: 4/7)</em></p>
+    </div>
+    <button class="btn-rst">🔄 Сбросить</button>
+  </div>
+
+  <!-- вкладки веток -->
+  <div class="tabs" role="tablist">
+    <button class="tab active" role="tab" onclick="switchBranch('combat',this)"><span>⚔️</span> Боевые</button>
+    <button class="tab" role="tab" onclick="switchBranch('defense',this)"><span>🛡️</span> Защитные</button>
+    <button class="tab" role="tab" onclick="switchBranch('utility',this)"><span>💰</span> Мирные</button>
+  </div>
+
+  <!-- ── БОЕВЫЕ ── -->
+  <div id="bc-combat" class="bc active" role="tabpanel">
+
+    <!-- Острые клинки — уровень 1/3 -->
+    <div class="scard">
+      <div class="scm">
+        <div class="sav av-c">⚔️</div>
+        <div class="sbody">
+          <div class="str">
+            <strong class="sname">Острые клинки</strong>
+            <span class="slvl">ур. 1/3</span>
+          </div>
+          <p class="sdesc">Базовая атака всех участников <span class="grn">+5%</span> <span style="color:var(--mdp)">➔ +10%</span></p>
+          <div class="pips"><div class="pip f"></div><div class="pip"></div><div class="pip"></div></div>
+        </div>
+      </div>
+      <div class="saz">
+        <button class="bup pri"><span class="plus">+</span><span class="cost">1 ОПГ</span></button>
+      </div>
+    </div>
+
+    <!-- Смертоносный крит — заблокировано -->
+    <div class="scard locked">
+      <div class="scm">
+        <div class="sav av-l">🔒</div>
+        <div class="sbody">
+          <div class="str">
+            <strong class="sname">Смертоносный крит</strong>
+            <span class="slvl">ур. 0/3</span>
+          </div>
+          <p class="sdesc">Критический урон отряда повышен на +8%</p>
+          <div class="req">Требуется 5 уровень гильдии</div>
+        </div>
+      </div>
+      <div class="saz">
+        <button class="bup" disabled>🔒</button>
+      </div>
+    </div>
+
+    <!-- Военный клич — уровень 0/3 -->
+    <div class="scard">
+      <div class="scm">
+        <div class="sav av-c">🗡️</div>
+        <div class="sbody">
+          <div class="str">
+            <strong class="sname">Военный клич</strong>
+            <span class="slvl">ур. 0/3</span>
+          </div>
+          <p class="sdesc">Скорость атаки в рейдах <span class="grn">+6%</span></p>
+          <div class="pips"><div class="pip"></div><div class="pip"></div><div class="pip"></div></div>
+        </div>
+      </div>
+      <div class="saz">
+        <button class="bup pri"><span class="plus">+</span><span class="cost">1 ОПГ</span></button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── ЗАЩИТНЫЕ ── -->
+  <div id="bc-defense" class="bc" role="tabpanel">
+
+    <!-- Крепкая броня — МАКСИМУМ -->
+    <div class="scard maxed">
+      <div class="scm">
+        <div class="sav av-d">🛡️</div>
+        <div class="sbody">
+          <div class="str">
+            <strong class="sname">Крепкая броня</strong>
+            <span class="slvl-gold">МАКС. ур.</span>
+          </div>
+          <p class="sdesc">Защита в GvG-сражениях <span class="gld">+15%</span></p>
+          <div class="pips"><div class="pip fg"></div><div class="pip fg"></div><div class="pip fg"></div></div>
+        </div>
+      </div>
+      <div class="saz"><span class="badge-max">Изучено</span></div>
+    </div>
+
+    <!-- Щит предков — уровень 2/3 -->
+    <div class="scard">
+      <div class="scm">
+        <div class="sav av-d">🗿</div>
+        <div class="sbody">
+          <div class="str">
+            <strong class="sname">Щит предков</strong>
+            <span class="slvl">ур. 2/3</span>
+          </div>
+          <p class="sdesc">Снижает входящий урон в осадах на <span class="grn">+10%</span> <span style="color:var(--mdp)">➔ +15%</span></p>
+          <div class="pips"><div class="pip f"></div><div class="pip f"></div><div class="pip"></div></div>
+        </div>
+      </div>
+      <div class="saz">
+        <button class="bup pri"><span class="plus">+</span><span class="cost">2 ОПГ</span></button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── МИРНЫЕ ── -->
+  <div id="bc-utility" class="bc" role="tabpanel">
+
+    <!-- Золотая жила — уровень 0/3 -->
+    <div class="scard">
+      <div class="scm">
+        <div class="sav av-u">🪙</div>
+        <div class="sbody">
+          <div class="str">
+            <strong class="sname">Золотая жила</strong>
+            <span class="slvl">ур. 0/3</span>
+          </div>
+          <p class="sdesc">Добыча золота в подземельях <span class="grn">+10%</span></p>
+          <div class="pips"><div class="pip"></div><div class="pip"></div><div class="pip"></div></div>
+        </div>
+      </div>
+      <div class="saz">
+        <button class="bup pri"><span class="plus">+</span><span class="cost">1 ОПГ</span></button>
+      </div>
+    </div>
+
+    <!-- Торговые пути — заблокировано -->
+    <div class="scard locked">
+      <div class="scm">
+        <div class="sav av-l">🔒</div>
+        <div class="sbody">
+          <div class="str">
+            <strong class="sname">Торговые пути</strong>
+            <span class="slvl">ур. 0/3</span>
+          </div>
+          <p class="sdesc">Снижает стоимость товаров в магазине на 5%</p>
+          <div class="req">Требуется 8 уровень гильдии</div>
+        </div>
+      </div>
+      <div class="saz"><button class="bup" disabled>🔒</button></div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+function switchBranch(id, btn) {
+  document.querySelectorAll('.bc').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('bc-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+</script>

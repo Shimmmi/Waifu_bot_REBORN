@@ -7,7 +7,8 @@ from sqlalchemy.orm import selectinload
 from waifu_bot.api.deps import get_db, get_player_id, require_admin
 from waifu_bot.api import schemas
 from waifu_bot.db import models as m
-from waifu_bot.services.shop import ShopService
+from waifu_bot.services.shop import ShopService, shop_size_for_act
+from waifu_bot.services.gamble import GambleService
 from waifu_bot.services.expedition_events_ai import generate_shop_merchant_line
 from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
 from waifu_bot.services.passive_skills import apply_passive_buy_price
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 shop_service = ShopService()
+gamble_service = GambleService()
 
 
 def _to_item(item: m.Item) -> schemas.ItemOut:
@@ -48,8 +50,9 @@ async def get_shop_inventory(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    items = await shop_service.get_shop_inventory(session, act, player_id=player_id)
-    return schemas.ShopInventoryResponse(items=items, count=len(items))
+    size = shop_size_for_act(act)
+    items = await shop_service.get_shop_inventory(session, act, size=size, player_id=player_id)
+    return schemas.ShopInventoryResponse(items=items, count=len(items), size=size)
 
 
 @router.post("/shop/merchant-line", tags=["shop"])
@@ -87,7 +90,7 @@ async def get_shop_merchant_line(
 @router.post("/shop/buy", tags=["shop"])
 async def buy_item(
     act: int = Query(..., ge=1, le=5),
-    slot: int = Query(..., ge=1, le=9),
+    slot: int = Query(..., ge=1, le=12),
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
@@ -190,13 +193,65 @@ async def gamble(
     return result
 
 
+@router.get("/shop/gamble/offers", tags=["shop"])
+async def gamble_offers(
+    act: int = Query(..., ge=1, le=5),
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    offers = await gamble_service.get_personal_offers(session, player_id, act)
+    return {"offers": offers, "size": GambleService.SIZE}
+
+
+@router.post("/shop/gamble/buy", tags=["shop"])
+async def gamble_buy_slot(
+    act: int = Query(..., ge=1, le=5),
+    slot: int = Query(..., ge=1, le=12),
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    result = await gamble_service.buy_slot(session, player_id, act, slot)
+    if result.get("error") == "insufficient_gold":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Недостаточно золота. Нужно {result.get('required')}, у вас {result.get('have')}",
+        )
+    if result.get("error") == "already_purchased":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="already_purchased")
+    if result.get("error") == "not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="offer_not_found")
+    if result.get("success") and result.get("inventory_item_id") is not None:
+        iid = int(result["inventory_item_id"])
+        try:
+            inv = await session.get(
+                m.InventoryItem,
+                iid,
+                options=[
+                    selectinload(m.InventoryItem.item),
+                    selectinload(m.InventoryItem.affixes),
+                ],
+            )
+            if inv and int(inv.player_id) == int(player_id):
+                await _enrich_items_with_template_stats(session, [inv])
+                item_payload = _to_inventory_item(inv)
+                try:
+                    await enrich_items_with_image_urls(session, [item_payload])
+                except Exception:
+                    pass
+                result["item"] = item_payload
+        except Exception:
+            logger.exception("shop/gamble/buy: failed to build item payload for id=%s", iid)
+    return result
+
+
 @router.post("/shop/refresh", tags=["shop"])
 async def refresh_shop_inventory(
     act: int = Query(..., ge=1, le=5),
     _: int = Depends(require_admin),
     session: AsyncSession = Depends(get_db),
 ):
-    offers = await shop_service.refresh_offers(session, act)
+    size = shop_size_for_act(act)
+    offers = await shop_service.refresh_offers(session, act, size=size)
     return {"refreshed": len(offers)}
 
 
@@ -206,5 +261,6 @@ async def refresh_shop_inventory_get(
     _: int = Depends(require_admin),
     session: AsyncSession = Depends(get_db),
 ):
-    offers = await shop_service.refresh_offers(session, act)
+    size = shop_size_for_act(act)
+    offers = await shop_service.refresh_offers(session, act, size=size)
     return {"refreshed": len(offers)}

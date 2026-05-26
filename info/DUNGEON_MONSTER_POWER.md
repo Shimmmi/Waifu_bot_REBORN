@@ -29,6 +29,14 @@
 
 **Сейчас:** при `plus_level > 0` после `_roll_monster_from_template` те же `max_hp` и `damage` дополнительно умножаются на `hp_dmg_mult` (см. `DungeonService._scale_rolled_stats_for_plus_level` в `dungeon.py`).
 
+## Пул шаблонов монстров (Dungeon+)
+
+- **Обычный данж** (`plus_level = 0`): шаблоны из пула акта/тегов данжа (`_get_tag_tier_candidates` или legacy pool).
+- **Dungeon+** (`plus_level > 0`, не финальный сюжетный босс): **cross-act пул** — все `monster_templates` с пересечением актов 1–5 (`act_min <= 5 AND act_max >= 1`), с dedupe `template_id` внутри одного забега (`_get_plus_cross_act_candidates`). Если пул исчерпан, допускается повтор с предупреждением в лог.
+- **Финальный босс +5…+30**: по-прежнему `StoryBossDefinition` + свой `image_webp_path` (`/static/game/bosses/webp/{slug}.webp`).
+
+Уровень монстров в D+ по-прежнему `50 + (plus_level - 1) * 5` ±2; меняется только разнообразие **шаблонов**, не формула уровня.
+
 Поле `difficulty_hint` по-прежнему влияет только на число `difficulty` в UI/аналитике, не на боевые формулы.
 
 ## Данные `monster_templates` (однотипность кривых)

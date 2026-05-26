@@ -71,8 +71,9 @@ class Guild(Base):
     required_race: Mapped[int | None] = mapped_column(Integer, nullable=True)  # WaifuRace
     required_class: Mapped[int | None] = mapped_column(Integer, nullable=True)  # WaifuClass
 
-    # Guild icon (path or URL)
+    # Guild icon and hero banner (paths under static/)
     icon_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    banner_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Bank settings
     max_bank_items: Mapped[int] = mapped_column(Integer, default=100, nullable=False)

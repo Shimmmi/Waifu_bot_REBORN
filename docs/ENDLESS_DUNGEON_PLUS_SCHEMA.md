@@ -92,6 +92,8 @@ UI выбирает:
 2) хранить `power_rank`/`scale_factor` на `DungeonRunMonster` (опционально)
 3) применять формулу при генерации (HP/урон/награды)
 
+**Выбор шаблона в коде (реализовано):** при `plus_level > 0` обычные слоты берут монстров из **cross-act пула** (акты 1–5), с dedupe `template_id` за забег; финальный сюжетный босс (+5…+30) — отдельный `StoryBossDefinition`. См. `DungeonService._get_plus_cross_act_candidates` и `info/DUNGEON_MONSTER_POWER.md`.
+
 ### 3.1. Monster scaling snapshot (опционально)
 
 Расширение `dungeon_run_monsters` (опционально):

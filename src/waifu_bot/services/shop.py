@@ -1,7 +1,9 @@
 """Shop service for buying, selling, and gambling (item templates + affixes)."""
 from typing import List, Dict, Any
+import logging
 import math
 import random
+from datetime import datetime, time, timezone, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
@@ -12,7 +14,12 @@ from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
 from waifu_bot.game.formulas import calculate_gamble_price, shop_buy_price_from_merchant_discount
 from waifu_bot.services.item_service import ItemService
 from waifu_bot.services.enchanting import get_effective_params
-from waifu_bot.services.hidden_skills import increment_skill_counter
+from waifu_bot.services.hidden_skills import (
+    get_hidden_skill_bonuses,
+    increment_skill_counter,
+    record_hidden_gold_spend,
+)
+from waifu_bot.services.item_service import RARITY_WEIGHTS, _pick_weighted
 from waifu_bot.services.passive_skills import (
     apply_passive_buy_price,
     merchant_discount_pct_for_player,
@@ -23,6 +30,15 @@ from waifu_bot.services.item_art import (
     derive_item_art_key,
     enrich_items_with_image_urls,
 )
+
+MSK = timezone(timedelta(hours=3))
+logger = logging.getLogger(__name__)
+
+ACT_SHOP_SIZE: dict[int, int] = {1: 8, 2: 9, 3: 10, 4: 11, 5: 12}
+
+
+def shop_size_for_act(act: int) -> int:
+    return ACT_SHOP_SIZE.get(int(act), 12)
 
 
 async def compute_player_shop_sell_price(session: AsyncSession, player_id: int, base_value: int) -> int:
@@ -47,13 +63,14 @@ class ShopService:
         session: AsyncSession,
         act: int,
         charm: int | None = None,
-        size: int = 9,
+        size: int | None = None,
         player_id: int | None = None,
     ) -> List[Dict[str, Any]]:
-        """Get or generate daily shop inventory for act (3x3), persisted in shop_offers."""
+        """Get or generate daily shop inventory for act (4x3 max), persisted in shop_offers."""
         from waifu_bot.game.constants import CHM_MERCHANT_DISCOUNT_COEFF
 
-        offers = await self._ensure_offers(session, act, size=size)
+        slot_count = int(size) if size is not None else shop_size_for_act(act)
+        offers = await self._ensure_offers(session, act, size=slot_count)
         if player_id is not None:
             merchant_disc = await merchant_discount_pct_for_player(session, player_id)
         elif charm is not None:
@@ -150,6 +167,7 @@ class ShopService:
             return {"error": "insufficient_gold", "required": price, "have": player.gold}
 
         player.gold -= price
+        await record_hidden_gold_spend(player_id)
         inv.player_id = player_id  # transfer ownership
         # Не удаляем offer, а помечаем как проданный (удалим при следующем обновлении)
         # Это позволит показывать заблокированную ячейку в UI
@@ -229,12 +247,25 @@ class ShopService:
 
         # Deduct gold
         player.gold -= price
+        await record_hidden_gold_spend(player_id)
+
+        rarity = None
+        try:
+            hs = await get_hidden_skill_bonuses(session, player_id)
+            gl = float(hs.get("gamble_legendary_pct", 0) or 0)
+            if gl > 0:
+                weights = [
+                    (r, int(w * (1.0 + gl / 100.0)) if r == 5 else w) for r, w in RARITY_WEIGHTS
+                ]
+                rarity = _pick_weighted(weights)
+        except Exception:
+            pass
 
         inv_item = await self.item_service.generate_inventory_item(
             session,
             player_id=player_id,
             act=act,
-            rarity=None,
+            rarity=rarity,
             level=None,
             is_shop=False,
         )
@@ -254,10 +285,22 @@ class ShopService:
             "gold_remaining": player.gold,
         }
 
-    async def _ensure_offers(self, session: AsyncSession, act: int, size: int) -> List[ShopOffer]:
+    @staticmethod
+    def _offers_cover_slots(offers: List[ShopOffer], size: int) -> bool:
+        expected = set(range(1, int(size) + 1))
+        actual = {int(o.slot) for o in offers}
+        return actual == expected
+
+    async def _ensure_offers(
+        self, session: AsyncSession, act: int, size: int, *, _retry: bool = True
+    ) -> List[ShopOffer]:
         offers = (await session.execute(select(ShopOffer).where(ShopOffer.act == act))).scalars().all()
-        if len(offers) >= size and not self._needs_refresh(offers):
-            return offers
+        if (
+            offers
+            and not self._needs_refresh(offers)
+            and self._offers_cover_slots(offers, size)
+        ):
+            return sorted(offers, key=lambda o: o.slot)[:size]
 
         # clear old
         for off in offers:
@@ -265,6 +308,7 @@ class ShopService:
         await session.flush()
 
         tier_cap = max(1, min(10, act * 2))
+        now = datetime.now(timezone.utc)
         for slot in range(1, size + 1):
             preview = await self._generate_item_for_offer(session, act, tier_cap)
             inv_item = await self.item_service.generate_inventory_item(
@@ -279,27 +323,48 @@ class ShopService:
                 act=act,
                 slot=slot,
                 inventory_item_id=inv_item.id,
-                # price_base must not trigger lazy loads (AsyncSession).
-                # Use computed value based on resulting ilvl so price matches power.
                 price_base=max(1, int(20 * int(getattr(inv_item, "total_level", None) or getattr(inv_item, "level", None) or preview["level"]) * int(preview["rarity"]))),
-                expires_at=None,  # TODO: 00:00 MSK refresh
+                expires_at=None,
+                refreshed_at=now,
             )
             session.add(offer)
         await session.commit()
         offers = (await session.execute(select(ShopOffer).where(ShopOffer.act == act))).scalars().all()
-        return offers
+        if len(offers) != size or not self._offers_cover_slots(offers, size):
+            logger.warning(
+                "shop _ensure_offers act=%s expected %s slots, got %s — regenerating",
+                act,
+                size,
+                len(offers),
+            )
+            if _retry:
+                for off in offers:
+                    await session.delete(off)
+                await session.flush()
+                return await self._ensure_offers(session, act, size, _retry=False)
+        return sorted(offers, key=lambda o: o.slot)[:size]
 
-    async def refresh_offers(self, session: AsyncSession, act: int, size: int = 9) -> List[ShopOffer]:
+    async def refresh_offers(self, session: AsyncSession, act: int, size: int | None = None) -> List[ShopOffer]:
         """Force refresh offers for debug/admin."""
+        slot_count = int(size) if size is not None else shop_size_for_act(act)
         existing = (await session.execute(select(ShopOffer).where(ShopOffer.act == act))).scalars().all()
         for off in existing:
             await session.delete(off)
         await session.flush()
-        return await self._ensure_offers(session, act, size=size)
+        return await self._ensure_offers(session, act, size=slot_count)
 
     def _needs_refresh(self, offers: List[ShopOffer]) -> bool:
-        # TODO: implement date check vs 00:00 MSK
-        return False
+        if not offers:
+            return True
+        timestamps = [o.refreshed_at for o in offers if getattr(o, "refreshed_at", None)]
+        if not timestamps:
+            return True
+        oldest = min(timestamps)
+        now_msk = datetime.now(MSK)
+        last_midnight = datetime.combine(now_msk.date(), time(0, 0), tzinfo=MSK)
+        if oldest.tzinfo is None:
+            oldest = oldest.replace(tzinfo=timezone.utc)
+        return oldest.astimezone(MSK) < last_midnight
 
     async def _generate_item_for_offer(self, session: AsyncSession, act: int, tier_cap: int) -> Dict[str, Any]:
         # Shop preview should not depend on legacy ItemTemplate stats, otherwise the shop can

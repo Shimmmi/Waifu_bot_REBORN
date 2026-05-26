@@ -1,21 +1,54 @@
-# Магазин — статика (`/static/game/ui/shop/`)
+# Магазин — hero-баннеры (`/static/game/ui/shop/`)
 
-Фон сцены и портрет торговца подменяются по **текущему акту** игрока (`act` 1…5), по той же логике, что и караван (см. [../caravan/README.md](../caravan/README.md)).
+Hero-баннер на странице магазина — **одно композитное изображение 3:2** (лавка + NPC за прилавком в одном кадре). Подменяется по **текущему акту** игрока (`act` 1…5) и **активной вкладке**.
 
-## Фон
+Код: [`applyShopHeroImages`](../../../src/waifu_bot/webapp/app.js) — контейнер `aspect-ratio: 3/2`, `object-fit: cover`.
 
-1. `/static/game/ui/shop/act-{N}/shop.background.webp`
-2. `/static/game/ui/shop/bg_act{N}.webp`
-3. `/static/game/ui/shop/background.webp` (общий fallback)
+## Файлы (15 штук + fallback)
 
-## Торговец
+По каждому акту `N` = 1…5:
 
-1. `/static/game/ui/shop/act-{N}/merchant.webp`
-2. `/static/game/ui/shop/merchant_act{N}.webp`
-3. `/static/game/ui/shop/merchant.webp` (общий fallback)
+| Файл | Вкладки | Сцена |
+|------|---------|-------|
+| `act-{N}/merchant.webp` | Купить, Продать | Лавка + торговец за прилавком |
+| `act-{N}/gambler.webp` | Gamble | Уголок барыги + барыга за столом |
+| `act-{N}/blacksmith.webp` | Заточка | Кузница + кузнец у наковальни |
 
-Если цепочка не дала файла, показывается эмодзи-заглушка в разметке страницы.
+Общие fallback в корне `shop/`:
+
+- `merchant.webp`
+- `gambler.webp`
+- `blacksmith.webp`
+
+## Цепочка загрузки (на вкладку)
+
+1. `/static/game/ui/shop/act-{N}/{kind}.webp`
+2. `/static/game/ui/shop/{kind}_act{N}.webp`
+3. `/static/game/ui/shop/{kind}.webp`
+
+Если цепочка не дала файла — эмодзи-заглушка в разметке (`🧙` / `🎲` / `⚒`).
+
+## Требования к ассетам
+
+- **Соотношение:** 3:2 landscape (например 1536×1024 или 1200×800)
+- **Формат:** WebP, **без alpha** (полноценный фон сцены)
+- **Композиция:** NPC **за прилавком/столом/наковальней**, виден **от груди/пояса вверх**; не full body, не cutout, не прозрачный фон
+- **Стиль:** anime illustration, cel shading, тёплые янтарные акценты
+
+Промпты для генерации: [PROMPTS.md](./PROMPTS.md)
 
 ## Папка на диске
 
-**`<корень проекта>/static/game/ui/shop/`** — рядом с этим README лежат общие `background.webp` и `merchant.webp`; для уникального вида по актам добавляйте `act-1` … `act-5` с файлами из цепочки выше или `bg_act1.webp` / `merchant_act1.webp` в корне `shop/`.
+```
+static/game/ui/shop/
+  merchant.webp          # общий fallback
+  gambler.webp
+  blacksmith.webp
+  act-1/
+    merchant.webp
+    gambler.webp
+    blacksmith.webp
+  act-2/ … act-5/
+```
+
+Legacy `shop.background.webp` и отдельные «портреты с alpha» **не используются** hero-баннером.

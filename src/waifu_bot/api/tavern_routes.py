@@ -10,11 +10,10 @@ from waifu_bot.api import schemas
 from waifu_bot.api.deps import get_db, get_player_id
 from waifu_bot.core.config import settings
 from waifu_bot.db import models as m
-from waifu_bot.game.constants import TAVERN_HIRE_COST, TAVERN_SLOTS_PER_DAY
+from waifu_bot.game.constants import TAVERN_SLOTS_PER_DAY
 from waifu_bot.services.expedition_events_ai import generate_tavern_keeper_banter
 from waifu_bot.services.narrative import build_narrative_prompt_context
-from waifu_bot.services.passive_skills import compute_tavern_hire_price
-from waifu_bot.services.tavern import TavernService
+from waifu_bot.services.tavern import TavernService, compute_effective_tavern_hire_price
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +93,8 @@ async def tavern_available(
         slots = await tavern_service.get_available_waifus(session, player_id)
     except SQLAlchemyError:
         slots = []
-    hire_price = int(await compute_tavern_hire_price(session, player_id, TAVERN_HIRE_COST))
+    hire_price = int(await compute_effective_tavern_hire_price(session, player_id))
+    first_hire_free = hire_price == 0
     out = []
     for s in slots:
         out.append(
@@ -111,6 +111,7 @@ async def tavern_available(
         remaining=int(remaining),
         total=int(TAVERN_SLOTS_PER_DAY),
         price=hire_price,
+        first_hire_free=first_hire_free,
         perks=_tavern_perks_for_response(),
     )
 

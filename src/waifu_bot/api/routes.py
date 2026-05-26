@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal, Optional
@@ -19,7 +20,14 @@ from waifu_bot.services.expedition import ExpeditionService
 from waifu_bot.services.webhook import process_update
 from waifu_bot.services import sse as sse_service
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
-from waifu_bot.services.item_art import derive_image_key, derive_item_art_key, enrich_items_with_image_urls
+from waifu_bot.services.item_art import (
+    derive_image_key,
+    derive_item_art_key,
+    enrich_items_with_image_urls,
+    normalize_tier,
+    read_game_asset_data_url,
+    resolve_item_art_relative_path,
+)
 from waifu_bot.services.enchanting import get_effective_params
 from waifu_bot.services.passive_skills import (
     get_passive_skill_bonuses,
@@ -33,6 +41,7 @@ from waifu_bot.services.expedition_events_ai import (
     generate_main_waifu_bio,
     generate_main_waifu_paperdoll_from_portrait,
     generate_main_waifu_portrait,
+    pick_paperdoll_pose_for_equipment,
 )
 from waifu_bot.services.narrative import build_narrative_prompt_context
 from waifu_bot.services.starter_gear import grant_main_waifu_starter_gear
@@ -58,6 +67,9 @@ from waifu_bot.api.shop_routes import router as shop_router
 from waifu_bot.api.tavern_routes import router as tavern_router
 from waifu_bot.api.dungeon_routes import router as dungeon_router
 from waifu_bot.api.skill_routes import router as skill_router
+from waifu_bot.api.mail_routes import router as mail_router
+from waifu_bot.api.chat_rewards_routes import router as chat_rewards_router
+from waifu_bot.api.tutorial_routes import router as tutorial_router
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +81,9 @@ router.include_router(shop_router)
 router.include_router(tavern_router)
 router.include_router(dungeon_router)
 router.include_router(skill_router)
+router.include_router(mail_router)
+router.include_router(chat_rewards_router)
+router.include_router(tutorial_router)
 
 # Вторичные бонусы с предметов (шаблон + зачарование) и аффиксы с effect_key *_pct.
 # Значение в аффиксе — целое число в сотых долях процента: 150 => 1.50% => +0.015 к сумме.
@@ -1008,6 +1023,10 @@ async def get_profile(
         except Exception:
             logger.exception("touch_player_last_active in /profile failed player_id=%s", player_id)
 
+        from waifu_bot.services.tutorial import tutorial_state_from_player
+
+        tutorial_raw = tutorial_state_from_player(player)
+
         return schemas.ProfileResponse(
             player_id=player.id,
             act=player.current_act,
@@ -1019,6 +1038,12 @@ async def get_profile(
             main_waifu=main_payload,
             main_waifu_details=main_details,
             equipment=equipment_payload,
+            tutorial=schemas.TutorialStateResponse(
+                version=int(tutorial_raw.get("version") or 1),
+                completed=dict(tutorial_raw.get("completed") or {}),
+                skipped=bool(tutorial_raw.get("skipped")),
+                intro_reward_claimed=bool(tutorial_raw.get("intro_reward_claimed")),
+            ),
         )
     except Exception as e:
         logger.exception("Failed /profile for player_id=%s: %s", player_id, e)
@@ -1305,12 +1330,37 @@ async def preview_main_waifu_portrait(
     )
 
 
-async def _build_paperdoll_equipment_prompt_en(
+@dataclass
+class PaperdollEquipmentContext:
+    prompt_text: str
+    item_references: list[tuple[str, str]]
+    avg_tier: float
+    pose_hint_en: str
+
+
+def _paperdoll_equipped_slots_summary(
+    equipped: list[m.InventoryItem],
+    gear_items: list[schemas.GearItemOut],
+) -> dict[int, dict[str, str]]:
+    """Slot index (1–6) → slot_type / weapon_type for pose selection."""
+    out: dict[int, dict[str, str]] = {}
+    for inv, g in zip(equipped, gear_items):
+        sl = int(inv.equipment_slot or 0)
+        if sl < 1:
+            continue
+        out[sl] = {
+            "slot_type": str(g.slot_type or inv.slot_type or "").strip().lower(),
+            "weapon_type": str(g.weapon_type or inv.weapon_type or "").strip().lower(),
+        }
+    return out
+
+
+async def _build_paperdoll_equipment_context(
     session: AsyncSession,
     player_id: int,
     main: m.MainWaifu,
-) -> str:
-    """English equipment summary for image model (current equipped slots)."""
+) -> PaperdollEquipmentContext:
+    """Equipment summary + item image refs + average tier for paperdoll generation."""
     result = await session.execute(
         select(m.InventoryItem)
         .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
@@ -1321,12 +1371,24 @@ async def _build_paperdoll_equipment_prompt_en(
     )
     equipped = list(result.scalars().all())
     if not equipped:
-        return (
+        pose_hint = pick_paperdoll_pose_for_equipment({})
+        prompt = (
             "Equipment state: no armor or weapons are currently equipped in the game. "
             "Use simple light adventurer base clothing appropriate to the class; avoid inventing heavy unrelated armor."
+            f"\nPose requirement: {pose_hint}. Rebuild arm positions for this pose; do not inherit arm positions from the portrait."
         )
+        return PaperdollEquipmentContext(
+            prompt_text=prompt,
+            item_references=[],
+            avg_tier=1.0,
+            pose_hint_en=pose_hint,
+        )
+
     await _enrich_items_with_template_stats(session, equipped)
     equipped.sort(key=lambda inv: int(inv.equipment_slot or 0))
+    gear_items = [_to_gear_item(inv, main) for inv in equipped]
+    await enrich_items_with_image_urls(session, gear_items)
+
     slot_label = {
         1: "Main hand",
         2: "Off hand (weapon, shield, or orb)",
@@ -1339,17 +1401,51 @@ async def _build_paperdoll_equipment_prompt_en(
         "Equipment state — show the character wearing and holding exactly this gear (fantasy JRPG, clear silhouettes). "
         "Match these items; do not add unrelated armor or weapons:",
     ]
-    for inv in equipped:
-        g = _to_gear_item(inv, main)
+    item_references: list[tuple[str, str]] = []
+    tier_sum = 0.0
+    tier_count = 0
+
+    for inv, g in zip(equipped, gear_items):
         sl = int(inv.equipment_slot or 0)
         label = slot_label.get(sl, f"Slot {sl}")
         name = (g.display_name or g.name or "item").strip()
         st = (g.slot_type or "").strip()
-        lines.append(f"- {label}: {name} (game type: {st})")
+        tier_sum += float(normalize_tier(g.tier))
+        tier_count += 1
+
+        art_key = str(g.art_key or "").strip()
+        rel = await resolve_item_art_relative_path(session, art_key, g.tier) if art_key else ""
+        data_url = read_game_asset_data_url(rel) if rel else None
+        if data_url:
+            item_references.append((label, data_url))
+            lines.append(
+                f"- {label}: {name} (game type: {st}; tier {normalize_tier(g.tier)}). "
+                f"Reference gear image attached for {label} — match its design on the character."
+            )
+        else:
+            lines.append(
+                f"- {label}: {name} (game type: {st}; tier {normalize_tier(g.tier)}; "
+                "no reference image — infer design from this name only)."
+            )
+
     lines.append(
         "Respect weapon grip for main/off hand; body slot shows armor or outfit; rings and amulet as visible jewelry when applicable."
     )
-    return "\n".join(lines)
+    lines.append(
+        "Main hand: primary weapon grip only. Off hand: at most one secondary item (shield, orb, or weapon) OR empty — never a third arm."
+    )
+    equipped_slots = _paperdoll_equipped_slots_summary(equipped, gear_items)
+    pose_hint = pick_paperdoll_pose_for_equipment(equipped_slots)
+    lines.append(
+        f"Pose requirement: {pose_hint}. Rebuild arm positions for this pose; do not inherit arm positions from the portrait."
+    )
+    avg_tier = tier_sum / tier_count if tier_count else 1.0
+    return PaperdollEquipmentContext(
+        prompt_text="\n".join(lines),
+        item_references=item_references,
+        avg_tier=avg_tier,
+        pose_hint_en=pose_hint,
+    )
 
 
 async def _run_paperdoll_generation_save(
@@ -1380,13 +1476,16 @@ async def _run_paperdoll_generation_save(
         )
 
     mime = (getattr(main, "image_mime", None) or "image/webp").strip() or "image/webp"
-    equip_prompt = await _build_paperdoll_equipment_prompt_en(session, player_id, main)
+    equip_ctx = await _build_paperdoll_equipment_context(session, player_id, main)
     b64 = await generate_main_waifu_paperdoll_from_portrait(
         portrait_b64=portrait_raw,
         portrait_mime=mime,
         race_id=int(main.race),
         class_id=int(main.class_),
-        equipment_prompt_en=equip_prompt,
+        equipment_prompt_en=equip_ctx.prompt_text,
+        equipment_references=equip_ctx.item_references,
+        avg_equipment_tier=equip_ctx.avg_tier,
+        pose_hint_en=equip_ctx.pose_hint_en,
     )
     if not b64:
         raise HTTPException(
@@ -1812,6 +1911,8 @@ async def _expedition_active_affixes(session: AsyncSession, active) -> list:
     rows = list((await session.execute(stmt)).scalars().all())
     order = {aid: i for i, aid in enumerate(aids)}
     rows.sort(key=lambda r: order.get(r.id, 99))
+    from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
+
     return [
         schemas.ExpeditionAffixOut(
             id=x.id,
@@ -1821,6 +1922,7 @@ async def _expedition_active_affixes(session: AsyncSession, active) -> list:
             description_hint=getattr(x, "description_hint", None),
             icon=affix_display_icon(x),
             paired_perks=normalize_expedition_paired_perk_ids(getattr(x, "paired_perks", None) or []),
+            difficulty_tags=sorted_tag_list(tags_for_db_affix_row(x)),
         )
         for x in rows
     ]
@@ -1853,15 +1955,38 @@ async def _expedition_squad_snapshot(session: AsyncSession, player_id: int, squa
 
 @router.get("/expeditions/catalog", tags=["expeditions"])
 async def expeditions_catalog(session: AsyncSession = Depends(get_db)):
-    """v1.3: базовые локации + аффиксы из БД + допустимые длительности (без дневных слотов)."""
+    """v1.3: архетипы локаций, режимы, аффиксы из БД + допустимые длительности."""
     from waifu_bot.game.constants import EXPEDITION_MAX_CONCURRENT, EXPEDITION_V13_DURATIONS
+    from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
+    from waifu_bot.game.expedition_narrative_catalog import EXPEDITION_LOCATION_ARCHETYPES, EXPEDITION_MODES
     from waifu_bot.game.expedition_redesign import affix_display_icon
-    from waifu_bot.services.expedition import BASE_LOCATIONS
 
     stmt = select(m.ExpeditionAffix).order_by(m.ExpeditionAffix.id)
     rows = list((await session.execute(stmt)).scalars().all())
     return {
-        "locations": [{"name": n, "biome_tag": b, "weight": w} for n, b, w in BASE_LOCATIONS],
+        "location_archetypes": [
+            {
+                "id": a.id,
+                "name": a.name_ru,
+                "biome_tag": a.biome_tag,
+                "weight": a.weight,
+                "narrative_hints": list(a.narrative_hints),
+            }
+            for a in EXPEDITION_LOCATION_ARCHETYPES
+        ],
+        "expedition_modes": [
+            {
+                "id": m.id,
+                "name": m.name_ru,
+                "weight": m.weight,
+                "narrative_focus": m.narrative_focus,
+            }
+            for m in EXPEDITION_MODES
+        ],
+        "locations": [
+            {"name": a.name_ru, "biome_tag": a.biome_tag, "weight": a.weight, "id": a.id}
+            for a in EXPEDITION_LOCATION_ARCHETYPES
+        ],
         "affixes": [
             {
                 "id": a.id,
@@ -1870,6 +1995,7 @@ async def expeditions_catalog(session: AsyncSession = Depends(get_db)):
                 "category": a.category,
                 "icon": affix_display_icon(a),
                 "description_hint": getattr(a, "description_hint", None),
+                "difficulty_tags": sorted_tag_list(tags_for_db_affix_row(a)),
             }
             for a in rows
         ],
@@ -1886,6 +2012,7 @@ async def expeditions_roster(
 ):
     """Все наёмницы пула для выбора в экспедиции; занятые помечены expedition_id (блокировка в UI)."""
     from waifu_bot.game.constants import EXPEDITION_HP_MIN_PCT_TO_START
+    from waifu_bot.game.expedition_difficulty_tags import unit_coverage_detail
 
     stmt = select(m.HiredWaifu).where(m.HiredWaifu.player_id == player_id)
     rows = list((await session.execute(stmt)).scalars().all())
@@ -1896,6 +2023,11 @@ async def expeditions_roster(
         ratio = cur / max_hp
         cid = int(w.class_ or 1)
         pl = getattr(w, "perk_levels", None) or {}
+        image_url = None
+        if getattr(w, "image_data", None):
+            mime = getattr(w, "image_mime", None) or "image/webp"
+            image_url = f"data:{mime};base64,{w.image_data}"
+        coverage = unit_coverage_detail(w)
         out.append({
             "id": w.id,
             "name": w.name,
@@ -1908,9 +2040,15 @@ async def expeditions_roster(
             "max_hp": max_hp,
             "hp_current": cur,
             "hp_max": max_hp,
+            "power": getattr(w, "power", None),
+            "image_url": image_url,
             "icon": _EXPEDITION_CLASS_ICONS.get(cid, "⚔️"),
             "expedition_id": w.expedition_id,
             "eligible": ratio >= EXPEDITION_HP_MIN_PCT_TO_START,
+            "covered_tags": coverage["covered_tags"],
+            "race_tags": coverage["race_tags"],
+            "class_tags": coverage["class_tags"],
+            "perk_tags": coverage["perk_tags"],
         })
     return {"waifus": out}
 
@@ -1929,8 +2067,10 @@ async def expeditions_slots(
         int(player.main_waifu.level or 1) if (player and player.main_waifu) else 1
     )
     from waifu_bot.game.expedition_perk_resolve import normalize_expedition_paired_perk_ids
+    from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
     from waifu_bot.game.expedition_redesign import affix_display_icon, biome_emoji_for_tag, union_challenge_categories_from_db_affix_rows
-    from waifu_bot.services.expedition import _slot_required_perks
+    from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
+    from waifu_bot.services.expedition import _slot_required_perks, slot_active_tags
     # Сложность: из slot.difficulty (аффиксы) или по номеру слота (старые слоты)
     def _diff_label(d: int | None, sn: int) -> tuple[int, str]:
         if d is not None:
@@ -1963,10 +2103,12 @@ async def expeditions_slots(
         required_perks = sorted(_slot_required_perks(s))
         affix_rows_for_slot = [affix_map[aid] for aid in (getattr(s, "affix_ids", None) or []) if aid in affix_map]
         ch_cats = sorted(union_challenge_categories_from_db_affix_rows(affix_rows_for_slot)) if affix_rows_for_slot else []
+        slot_tags = sorted_tag_list(slot_active_tags(s, affix_map))
         affix_out = []
         for aid in (getattr(s, "affix_ids", None) or []):
             aff = affix_map.get(aid)
             if aff:
+                aff_tags = sorted_tag_list(tags_for_db_affix_row(aff))
                 affix_out.append(schemas.ExpeditionAffixOut(
                     id=aff.id,
                     name=aff.name,
@@ -1975,8 +2117,11 @@ async def expeditions_slots(
                     description_hint=getattr(aff, "description_hint", None),
                     icon=affix_display_icon(aff),
                     paired_perks=normalize_expedition_paired_perk_ids(getattr(aff, "paired_perks", None) or []),
+                    difficulty_tags=aff_tags,
                 ))
         bt = getattr(s, "biome_tag", None)
+        arch = archetype_for_id(getattr(s, "location_archetype_id", None))
+        mode = mode_for_id(getattr(s, "expedition_mode_id", None))
         out_slots.append(
             schemas.ExpeditionSlotOut(
                 id=s.id,
@@ -1988,6 +2133,7 @@ async def expeditions_slots(
                 label=label,
                 required_perks=required_perks,
                 challenge_categories=ch_cats,
+                difficulty_tags=slot_tags,
                 affixes=affix_out,
                 base_location=getattr(s, "base_location", None),
                 biome_tag=bt,
@@ -1997,6 +2143,10 @@ async def expeditions_slots(
                 base_experience=int(s.base_experience),
                 trial=getattr(s, "trial", False),
                 is_used=(s.id in used_slot_ids),
+                location_archetype_id=getattr(s, "location_archetype_id", None),
+                location_archetype_name=arch.name_ru if arch else getattr(s, "base_location", None),
+                expedition_mode_id=getattr(s, "expedition_mode_id", None),
+                expedition_mode_name=mode.name_ru if mode else None,
             )
         )
     return schemas.ExpeditionSlotsResponse(
@@ -2021,6 +2171,7 @@ async def expeditions_active(
     from datetime import datetime, timezone
 
     from waifu_bot.game.expedition_redesign import biome_emoji_for_tag
+    from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
 
     active_list = await expedition_service.get_active(session, player_id)
     out = []
@@ -2035,6 +2186,12 @@ async def expeditions_active(
         affixes = await _expedition_active_affixes(session, a)
         squad_snap = await _expedition_squad_snapshot(session, player_id, list(a.squad_waifu_ids or []))
         prog = _expedition_active_progress_pct(a, now)
+        arch = archetype_for_id(getattr(a, "location_archetype_id", None))
+        mode = mode_for_id(getattr(a, "expedition_mode_id", None))
+        brief = getattr(a, "narrative_brief", None) or {}
+        narrative_title = None
+        if isinstance(brief, dict) and brief.get("title"):
+            narrative_title = str(brief["title"])
         out.append(
             schemas.ExpeditionActiveOut(
                 id=a.id,
@@ -2060,6 +2217,11 @@ async def expeditions_active(
                 events_total=int(getattr(a, "events_total", None) or 0),
                 progress_pct=prog,
                 squad_snapshot=squad_snap,
+                location_archetype_id=getattr(a, "location_archetype_id", None),
+                location_archetype_name=arch.name_ru if arch else None,
+                expedition_mode_id=getattr(a, "expedition_mode_id", None),
+                expedition_mode_name=mode.name_ru if mode else None,
+                narrative_title=narrative_title,
             )
         )
     return schemas.ExpeditionActiveResponse(active=out)
@@ -2075,6 +2237,9 @@ async def expeditions_preview(
     slot_id = payload.slot_id if payload.slot_id is not None else payload.expedition_slot_id
     unit_ids = payload.unit_ids if payload.unit_ids is not None else payload.squad_waifu_ids
     duration_minutes = payload.duration_minutes if getattr(payload, "duration_minutes", None) is not None else 60
+    affix_level = payload.difficulty_level if getattr(payload, "difficulty_level", None) is not None else 1
+    if affix_level is not None:
+        affix_level = max(1, min(5, int(affix_level)))
     slot = await session.get(m.ExpeditionSlot, slot_id)
     if not slot:
         raise HTTPException(status_code=404, detail="Слот не найден")
@@ -2085,7 +2250,12 @@ async def expeditions_preview(
         w = await session.get(m.HiredWaifu, wid)
         if w and w.player_id == player_id:
             squad.append(w)
-    from waifu_bot.services.expedition import calculate_squad_chance, get_duration_multipliers, slot_challenge_categories_union
+    from waifu_bot.services.expedition import (
+        calculate_squad_chance,
+        enrich_chance_with_tags,
+        get_duration_multipliers,
+        slot_challenge_categories_union,
+    )
     affix_by_id = {}
     if getattr(slot, "affix_ids", None):
         affix_stmt = select(m.ExpeditionAffix).where(m.ExpeditionAffix.id.in_(set(slot.affix_ids)))
@@ -2099,6 +2269,7 @@ async def expeditions_preview(
         duration_minutes=duration_minutes,
         challenge_union=ch_union,
     )
+    enrich_chance_with_tags(data, squad, slot, affix_by_id, affix_level=affix_level or 1)
     units_out = [
         schemas.ExpeditionPreviewUnitOut(
             unit_id=u["unit_id"],
@@ -2126,6 +2297,12 @@ async def expeditions_preview(
         success_chance=data["chance"],
         success_label=data["label"],
         matched_perks=[pid for u in data.get("units", []) for pid in u.get("matched_perks", [])],
+        active_tags=data.get("active_tags", []),
+        covered_tags=data.get("covered_tags", []),
+        tag_effectiveness_pct=float(data.get("tag_effectiveness_pct", 100.0)),
+        tag_effectiveness_mult=float(data.get("tag_effectiveness_mult", 1.0)),
+        perk_effectiveness_pct=data.get("perk_effectiveness_pct"),
+        affix_level=data.get("affix_level"),
     )
 
 
@@ -2213,6 +2390,9 @@ async def expeditions_start(
                 )]
             ])
             await bot.send_message(chat_id=player_id, text=text, reply_markup=keyboard)
+            intro = result.get("start_intro_narrative")
+            if intro:
+                await bot.send_message(chat_id=player_id, text=intro)
         except Exception:
             logger.exception("Expedition start DM to player_id=%s failed", player_id)
     return schemas.ExpeditionStartResponse(**result)

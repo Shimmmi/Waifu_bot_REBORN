@@ -1,5 +1,11 @@
 """Database models."""
+from waifu_bot.db.models.chat_reward import (
+    PlayerChatActivityDaily,
+    PlayerChatActivityTotal,
+    PlayerChatRewardWallet,
+)
 from waifu_bot.db.models.player import Player
+from waifu_bot.db.models.player_mail import PlayerMail, PlayerMailStatus
 from waifu_bot.db.models.hidden_skill import HiddenSkillDefinition, PlayerHiddenSkill
 from waifu_bot.db.models.passive_skill import PassiveSkillNode, PlayerPassiveSkill
 from waifu_bot.db.models.game_config import GameConfig
@@ -14,6 +20,7 @@ from waifu_bot.db.models.waifu import (
     WaifuRarity,
 )
 from waifu_bot.db.models.item import Item, InventoryItem, ItemRarity, ItemType, ItemTemplate, Affix, InventoryAffix, ShopOffer
+from waifu_bot.db.models.gamble_offer import GambleOffer
 from waifu_bot.db.models.story_boss import PlayerStoryBossFirstKill, StoryBossDefinition
 from waifu_bot.db.models.story_seen import PlayerDungeonStorySeen
 from waifu_bot.db.models.dungeon import (
@@ -40,11 +47,13 @@ from waifu_bot.db.models.guild_extended import (
     GuildRaid,
     GuildRaidParticipant,
     GuildWar,
+    GuildMemberContributionWeekly,
     GuildGxpBankDaily,
     GuildWarScoreBankDaily,
     GuildWarStatus,
     GuildRaidStatus,
     GuildWarRowStatus,
+    GuildActivityLog,
 )
 from waifu_bot.db.models.skill import Skill, WaifuSkill
 from waifu_bot.db.models.battle import BattleLog
@@ -69,6 +78,11 @@ from waifu_bot.db.models.gd_cycle import (
 
 __all__ = [
     "Player",
+    "PlayerChatRewardWallet",
+    "PlayerChatActivityDaily",
+    "PlayerChatActivityTotal",
+    "PlayerMail",
+    "PlayerMailStatus",
     "HiddenSkillDefinition",
     "PlayerHiddenSkill",
     "PassiveSkillNode",
@@ -90,6 +104,7 @@ __all__ = [
     "Affix",
     "InventoryAffix",
     "ShopOffer",
+    "GambleOffer",
     "Dungeon",
     "DungeonProgress",
     "Monster",
@@ -119,6 +134,7 @@ __all__ = [
     "GuildRaid",
     "GuildRaidParticipant",
     "GuildWar",
+    "GuildMemberContributionWeekly",
     "GuildGxpBankDaily",
     "GuildWarScoreBankDaily",
     "GuildWarStatus",

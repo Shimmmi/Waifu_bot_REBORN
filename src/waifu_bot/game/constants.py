@@ -9,6 +9,32 @@ AI_NARRATIVE_GROTESQUE_HUMOR_RU = (
     "Используй максимально гротескный и нишевый юмор, чтобы прям хрюкнуть с кеков."
 )
 
+# Экспедиции: требования «живого» ритма перед генерацией прозы.
+AI_NARRATIVE_HUMAN_RHYTHM_RU = (
+    "Большинство ИИ-текстов имеет предсказуемый ритм: предложения похожей длины, "
+    "повторяющаяся структура, механический темп. Пиши с естественным человеческим ритмом. "
+    "Требования: чередуй короткие и длинные предложения; иногда используй фрагменты; "
+    "меняй длину абзацев; избегай повторяющихся зачинов; создавай контраст и импульс; "
+    "убирай всё, что ощущается «оптимизированным под ИИ». "
+    "Текст должен звучать живым, а не сгенерированным."
+)
+
+# Экспедиции: второй проход — анти-generic проверка и переписывание ({draft} — черновик).
+AI_NARRATIVE_ANTI_GENERIC_VERIFY_RU = (
+    "Проанализируй текст ниже. Отметь каждое предложение, которое легко могло бы "
+    "встретиться в тысячах ИИ-статей. Для каждого: "
+    "1) объясни, почему оно кажется generic; "
+    "2) перепиши с более оригинальным наблюдением; "
+    "3) усиль конкретику; "
+    "4) добавь более ясную перспективу. "
+    "Затем дай полностью переписанную версию, которая звучит отличимо и запоминается.\n\n"
+    "Текст:\n{draft}\n\n"
+    "Помести только финальный переписанный текст на русском после строки ===ФИНАЛ=== "
+    "на отдельной строке. Анализ можно дать выше маркера."
+)
+
+AI_NARRATIVE_FINAL_MARKER = "===ФИНАЛ==="
+
 
 class MediaType(IntEnum):
     """Media type for message damage calculation."""
@@ -50,6 +76,11 @@ INT_EXP_BONUS_COEFF = 0.001       # bonus EXP gained per ИНТ (0.1%/point)
 END_ENERGY_COEFF = 0.5            # max energy bonus per ВЫН (ВЫН × 0.5)
 END_DAMAGE_REDUCTION_COEFF = 0.0008  # incoming damage reduction per ВЫН (0.08%/point)
 END_DAMAGE_REDUCTION_CAP = 0.35   # damage reduction cap: 35%
+
+# Armor DR: A/(A+K(L)), K(L)=ARMOR_K_BASE+ARMOR_K_PER_LEVEL×waifu_level; added to total_reduce pool
+ARMOR_K_BASE = 50
+ARMOR_K_PER_LEVEL = 9
+ARMOR_DR_CAP = 0.75
 
 # HP regeneration: HP_max × (1 − e^(−END/HP_REGEN_DIVISOR)) per hour
 HP_REGEN_END_DIVISOR = 100        # divisor in regen exponent formula

@@ -11,7 +11,11 @@ from sqlalchemy.orm import selectinload
 
 from waifu_bot.db import models as m
 from waifu_bot.services.game_config_service import cfg_float, cfg_int, get_game_config_map
-from waifu_bot.services.hidden_skills import increment_skill_counter
+from waifu_bot.services.hidden_skills import (
+    get_hidden_skill_bonuses,
+    increment_skill_counter,
+    record_hidden_gold_spend,
+)
 
 
 def secondary_bonus_value_for_enchant_step(
@@ -222,6 +226,14 @@ async def enchant_inventory_item(
         item_rarity=_inventory_rarity(inv),
         item_level=_inventory_item_level(inv),
     )
+    hs_enchant: dict[str, float] = {}
+    try:
+        hs_enchant = await get_hidden_skill_bonuses(session, int(player_id))
+        ec = float(hs_enchant.get("enchant_cost_pct", 0) or 0)
+        if ec:
+            cost = max(1, int(round(cost * (1.0 + ec / 100.0))))
+    except Exception:
+        hs_enchant = {}
     if int(player.gold or 0) < cost:
         return {"error": "insufficient_gold", "required": cost, "have": int(player.gold or 0)}
 
@@ -236,6 +248,7 @@ async def enchant_inventory_item(
 
     # Pay gold
     player.gold = int(player.gold or 0) - cost
+    await record_hidden_gold_spend(player_id)
 
     if cur < safe_max:
         inv.enchant_level = target
@@ -257,6 +270,9 @@ async def enchant_inventory_item(
         10: cfg_float(cfg, "enchant.chance_10", 0.30),
     }
     chance = float(chances.get(target, 0.30))
+    chb = float(hs_enchant.get("enchant_chance_pct", 0) or 0)
+    if chb:
+        chance = min(0.99, max(0.01, chance + chb / 100.0))
     roll = random.random()
 
     if roll < chance:
