@@ -16,7 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from waifu_bot.core.config import settings
 from waifu_bot.db.models.dungeon import MonsterTemplate
 from waifu_bot.db.models.skill import Skill, SkillType
-from waifu_bot.game.constants import AI_NARRATIVE_GROTESQUE_HUMOR_RU
+from waifu_bot.game.constants import (
+    AI_NARRATIVE_ANTI_GENERIC_REVIEW_PROMPT_RU,
+    AI_NARRATIVE_GROTESQUE_HUMOR_RU,
+    AI_NARRATIVE_HUMAN_RHYTHM_REQUIREMENTS_RU,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +116,155 @@ def _warn_if_empty_assistant(caller: str, choice: object, extracted: str) -> Non
     )
 
 
+async def _openrouter_user_chat(
+    *,
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+    caller: str,
+    timeout: float = 30.0,
+) -> Optional[str]:
+    """Один user-запрос к OpenRouter; None при ошибке или пустом ответе."""
+    api_key = getattr(settings, "openrouter_api_key", None)
+    if not api_key:
+        return None
+
+    model = settings.openrouter_model
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(
+                _openrouter_url(),
+                headers=_openrouter_headers(),
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    **_openrouter_text_extra(),
+                },
+            )
+            if r.status_code != 200:
+                logger.warning(
+                    "OpenRouter %s: HTTP %s body=%s",
+                    caller,
+                    r.status_code,
+                    (r.text or "")[:400],
+                )
+                return None
+            data = r.json()
+            choices = data.get("choices") or []
+            if not isinstance(choices, list) or not choices:
+                return None
+            first = choices[0]
+            text = _extract_openrouter_assistant_text(first)
+            if not text:
+                _warn_if_empty_assistant(caller, first, text)
+            return text or None
+    except Exception as e:
+        logger.warning("OpenRouter %s error: %s", caller, e)
+        return None
+
+
+_REVIEW_FINAL_MARKER = "===ИТОГ==="
+_REVIEW_FINAL_HEADINGS = (
+    "полностью переписанная версия",
+    "fully rewritten version",
+)
+
+
+def _extract_final_narrative_from_review(raw: str) -> Optional[str]:
+    """Достаёт финальный нарратив из ответа review-промпта."""
+    text = (raw or "").strip()
+    if not text:
+        return None
+
+    marker_idx = text.upper().find(_REVIEW_FINAL_MARKER)
+    if marker_idx >= 0:
+        final = text[marker_idx + len(_REVIEW_FINAL_MARKER) :].strip()
+        if final:
+            return final
+
+    lower = text.lower()
+    for heading in _REVIEW_FINAL_HEADINGS:
+        idx = lower.rfind(heading)
+        if idx >= 0:
+            tail = text[idx + len(heading) :].strip()
+            tail = re.sub(r"^[:\-—\s]+", "", tail)
+            if tail:
+                return tail
+
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    if paragraphs:
+        last = paragraphs[-1]
+        if len(last) <= 600:
+            return last
+    return None
+
+
+async def _refine_expedition_narrative(
+    draft: str,
+    *,
+    max_tokens: int,
+    caller: str,
+) -> str:
+    """Второй проход: anti-generic review; при сбое возвращает черновик."""
+    draft = (draft or "").strip()
+    if not draft:
+        return draft
+
+    review_prompt = f"{AI_NARRATIVE_ANTI_GENERIC_REVIEW_PROMPT_RU}\n\n{draft}"
+    review_raw = await _openrouter_user_chat(
+        prompt=review_prompt,
+        max_tokens=max_tokens,
+        temperature=0.65,
+        caller=f"{caller} review",
+    )
+    if not review_raw:
+        return draft
+
+    refined = _extract_final_narrative_from_review(review_raw)
+    return refined or draft
+
+
+def build_expedition_tick_prompt(ctx: dict[str, Any]) -> str:
+    """Сборка user-промпта для нарратива одного тика (тестируемая)."""
+    return (
+        f"{AI_NARRATIVE_HUMAN_RHYTHM_REQUIREMENTS_RU}\n\n"
+        "Напиши короткое повествование (2–4 предложения, на русском) об одном эпизоде экспедиции в фэнтези-стиле. "
+        f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
+        "Это эпизод номер event_num из total_events — обязательно другая сцена, другой момент конфликта, чем раньше. "
+        "Не повторяй дословно и не копируй структуру предыдущего текста из prev_summary: придумай новое развитие. "
+        "Поле squad_hp_ratio — доля суммарного здоровья отряда (0..1), без названия чисел: при низком значении больше угрозы, ран, усталости; при высоком — можно увереннее. "
+        "Если is_final true — это последний эпизод перед возвращением; передай напряжение и состояние отряда, без спойлера итога всей экспедиции. "
+        "Следуй контексту JSON; не перечисляй числа и механики вслух, покажи действие и атмосферу. "
+        "Исход outcome эпизода (не финал экспедиции): triumph — уверенный успех; struggle — с трудом; survived_barely — едва выстояли. "
+        f"Контекст: {json.dumps(ctx, ensure_ascii=False)}"
+    )
+
+
+def build_expedition_event_prompt(
+    *,
+    expedition_name: str,
+    success: bool,
+    duration_minutes: int,
+    squad_names: list[str],
+    reward_gold: int,
+    reward_experience: int,
+) -> str:
+    """Сборка user-промпта для финального нарратива экспедиции (тестируемая)."""
+    outcome = "успешно завершили" if success else "не справились и вернулись ни с чем"
+    names = ", ".join(squad_names[:5]) if squad_names else "отряд"
+    return (
+        f"{AI_NARRATIVE_HUMAN_RHYTHM_REQUIREMENTS_RU}\n\n"
+        f"Напиши коротко (2–3 предложения, на русском) описание исхода экспедиции в фэнтези-стиле. "
+        f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
+        f"Экспедиция: «{expedition_name}». {names} {outcome}. "
+        f"Длительность: {duration_minutes} мин. "
+        + (f"Награда: {reward_gold} золота, {reward_experience} опыта." if success else "")
+        + " Без вступления, только сам текст события."
+    )
+
+
 async def generate_expedition_tick_narrative(
     *,
     location: str,
@@ -136,7 +289,6 @@ async def generate_expedition_tick_narrative(
     if not api_key:
         return None
 
-    model = settings.openrouter_model
     ctx = {
         "location": location,
         "biome_tags": [t for t in biome_tags if t],
@@ -154,50 +306,22 @@ async def generate_expedition_tick_narrative(
         "prev_summary": (prev_summary or "")[:500],
         "squad_hp_ratio": round(float(squad_hp_ratio), 3),
     }
-    prompt = (
-        "Напиши короткое повествование (2–4 предложения, на русском) об одном эпизоде экспедиции в фэнтези-стиле. "
-        f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
-        "Это эпизод номер event_num из total_events — обязательно другая сцена, другой момент конфликта, чем раньше. "
-        "Не повторяй дословно и не копируй структуру предыдущего текста из prev_summary: придумай новое развитие. "
-        "Поле squad_hp_ratio — доля суммарного здоровья отряда (0..1), без названия чисел: при низком значении больше угрозы, ран, усталости; при высоком — можно увереннее. "
-        "Если is_final true — это последний эпизод перед возвращением; передай напряжение и состояние отряда, без спойлера итога всей экспедиции. "
-        "Следуй контексту JSON; не перечисляй числа и механики вслух, покажи действие и атмосферу. "
-        "Исход outcome эпизода (не финал экспедиции): triumph — уверенный успех; struggle — с трудом; survived_barely — едва выстояли. "
-        f"Контекст: {json.dumps(ctx, ensure_ascii=False)}"
-    )
+    prompt = build_expedition_tick_prompt(ctx)
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 320,
-                    "temperature": 0.82,
-                    **_openrouter_text_extra(),
-                },
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "OpenRouter expedition tick: HTTP %s body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("expedition tick", first, text)
-            return text or None
-    except Exception as e:
-        logger.warning("OpenRouter expedition tick error: %s", e)
+    draft = await _openrouter_user_chat(
+        prompt=prompt,
+        max_tokens=320,
+        temperature=0.82,
+        caller="expedition tick",
+    )
+    if not draft:
         return None
+
+    return await _refine_expedition_narrative(
+        draft,
+        max_tokens=900,
+        caller="expedition tick",
+    )
 
 
 async def generate_expedition_event(
@@ -216,51 +340,29 @@ async def generate_expedition_event(
     if not api_key:
         return None
 
-    model = settings.openrouter_model
-
-    outcome = "успешно завершили" if success else "не справились и вернулись ни с чем"
-    names = ", ".join(squad_names[:5]) if squad_names else "отряд"
-    prompt = (
-        f"Напиши коротко (2–3 предложения, на русском) описание исхода экспедиции в фэнтези-стиле. "
-        f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
-        f"Экспедиция: «{expedition_name}». {names} {outcome}. "
-        f"Длительность: {duration_minutes} мин. "
-        + (f"Награда: {reward_gold} золота, {reward_experience} опыта." if success else "")
-        + " Без вступления, только сам текст события."
+    prompt = build_expedition_event_prompt(
+        expedition_name=expedition_name,
+        success=success,
+        duration_minutes=duration_minutes,
+        squad_names=squad_names,
+        reward_gold=reward_gold,
+        reward_experience=reward_experience,
     )
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 200,
-                    "temperature": 0.7,
-                    **_openrouter_text_extra(),
-                },
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "OpenRouter expedition event: HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("expedition event", first, text)
-            return text or None
-    except Exception as e:
-        logger.warning("OpenRouter expedition event error: %s", e)
+    draft = await _openrouter_user_chat(
+        prompt=prompt,
+        max_tokens=200,
+        temperature=0.7,
+        caller="expedition event",
+    )
+    if not draft:
         return None
+
+    return await _refine_expedition_narrative(
+        draft,
+        max_tokens=700,
+        caller="expedition event",
+    )
 
 
 def _parse_name_bio_json(raw: str) -> Optional[tuple[str, str]]:

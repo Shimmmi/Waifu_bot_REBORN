@@ -1037,7 +1037,7 @@ class ExpeditionService:
         from waifu_bot.services.expedition_events_ai import generate_expedition_event
         import asyncio
         try:
-            # Должно быть не меньше httpx-таймаута в generate_expedition_event (30s), иначе часто срывается ИИ-текст.
+            # Два httpx-вызова по 30s в generate_expedition_event + запас на review.
             event_text = await asyncio.wait_for(
                 generate_expedition_event(
                     expedition_name=expedition_name,
@@ -1047,7 +1047,7 @@ class ExpeditionService:
                     reward_gold=gold,
                     reward_experience=exp,
                 ),
-                timeout=35.0,
+                timeout=70.0,
             )
         except asyncio.TimeoutError:
             event_text = f"Отряд вернулся из экспедиции «{expedition_name}». Награда: {gold} золота, {exp} опыта наёмницам."
@@ -1129,14 +1129,21 @@ class ExpeditionService:
             if w and w.player_id == player_id:
                 squad_names.append(w.name or "Вайфу")
         from waifu_bot.services.expedition_events_ai import generate_expedition_event
-        event_text = await generate_expedition_event(
-            expedition_name=expedition_name,
-            success=active.success,
-            duration_minutes=active.duration_minutes,
-            squad_names=squad_names,
-            reward_gold=gold,
-            reward_experience=exp,
-        )
+        import asyncio
+        try:
+            event_text = await asyncio.wait_for(
+                generate_expedition_event(
+                    expedition_name=expedition_name,
+                    success=active.success,
+                    duration_minutes=active.duration_minutes,
+                    squad_names=squad_names,
+                    reward_gold=gold,
+                    reward_experience=exp,
+                ),
+                timeout=70.0,
+            )
+        except asyncio.TimeoutError:
+            event_text = f"Отряд досрочно вернулся из экспедиции «{expedition_name}». Награда: {gold} золота, {exp} опыта наёмницам."
         if event_text:
             active.event_text = event_text
 
