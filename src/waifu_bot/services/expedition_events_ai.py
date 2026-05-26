@@ -32,6 +32,11 @@ from waifu_bot.game.expedition_narrative_catalog import (
 
 logger = logging.getLogger(__name__)
 
+_FINAL_MARKER_RE = re.compile(
+    r"===\s*(?:ФИНАЛ|FINAL)\s*===",
+    re.IGNORECASE,
+)
+
 
 def _expedition_style_prompt_from_brief(brief: dict | None) -> str:
     if not isinstance(brief, dict):
@@ -165,15 +170,41 @@ def _warn_if_empty_assistant(caller: str, choice: object, extracted: str) -> Non
 
 
 def _extract_final_after_marker(text: str, marker: str = AI_NARRATIVE_FINAL_MARKER) -> str | None:
-    """Вырезает финальный текст после маркера ===ФИНАЛ===."""
+    """Вырезает финальный текст после последнего маркера ===ФИНАЛ=== / ===FINAL===."""
     raw = (text or "").strip()
     if not raw:
         return None
-    idx = raw.find(marker)
-    if idx < 0:
+    matches = list(_FINAL_MARKER_RE.finditer(raw))
+    if matches:
+        final = raw[matches[-1].end() :].strip()
+        return final or None
+    if marker and marker in raw:
+        idx = raw.rfind(marker)
+        final = raw[idx + len(marker) :].strip()
+        return final or None
+    return None
+
+
+def _looks_like_refine_analysis(text: str) -> bool:
+    """Ответ без маркера, похожий на meta-разбор — не финальный нарратив."""
+    raw = (text or "").strip()
+    if not raw or _FINAL_MARKER_RE.search(raw):
+        return False
+    lower = raw.lower()
+    if "generic" not in lower:
+        return False
+    return bool(re.search(r"\b1\)", raw) or re.search(r"\b2\)", raw))
+
+
+def _resolve_refined_narrative(raw: str, *, source_draft: str) -> str | None:
+    """Возвращает финальный текст после маркера или None (никогда сырой analysis)."""
+    _ = source_draft
+    final = _extract_final_after_marker(raw)
+    if final:
+        return final
+    if _looks_like_refine_analysis(raw):
         return None
-    final = raw[idx + len(marker) :].strip()
-    return final or None
+    return None
 
 
 async def refine_expedition_narrative_draft(
@@ -207,7 +238,7 @@ async def refine_expedition_narrative_draft(
                 json={
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 450,
+                    "max_tokens": 320,
                     "temperature": 0.75,
                     **_openrouter_text_extra(),
                 },
@@ -229,12 +260,15 @@ async def refine_expedition_narrative_draft(
             if not text:
                 _warn_if_empty_assistant(f"expedition refine {caller}", first, text)
                 return draft
-            final = _extract_final_after_marker(text)
-            if final:
-                return final
-            stripped = text.strip()
-            if stripped and stripped != source:
-                return stripped
+            resolved = _resolve_refined_narrative(text, source_draft=source)
+            if resolved:
+                return resolved
+            logger.warning(
+                "OpenRouter expedition refine (%s): no %s in response, using draft; prefix=%s",
+                caller,
+                AI_NARRATIVE_FINAL_MARKER,
+                text[:120].replace("\n", " "),
+            )
             return draft
     except Exception as e:
         logger.warning("OpenRouter expedition refine (%s) error: %s", caller, e)
