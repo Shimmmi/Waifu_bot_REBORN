@@ -2753,6 +2753,8 @@ Object.assign(window.WaifuApp, {
   expSelDur,
   expPickUnit,
   expClosePicker,
+  closeRewardModal,
+  viewRewardItem,
   closeActiveExpModal,
   closeSendExpModal,
   abortExpedition,

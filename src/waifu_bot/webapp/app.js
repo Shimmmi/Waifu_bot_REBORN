@@ -8794,8 +8794,6 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   apiFetch,
   getInitData,
   spendStatPoint,
-  closeRewardModal,
-  viewRewardItem,
   populateCaravanPage,
   travelToAct,
   openCaravanModal,
