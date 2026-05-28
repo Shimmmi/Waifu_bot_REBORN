@@ -534,7 +534,23 @@ function itemIconForSlotType(slotType) {
 
 function hiredWaifuImageUrl(w) {
   const u = w?.imageUrl ?? w?.image_url;
-  return u ? String(u) : "";
+  if (!u) return "";
+  const url = String(u);
+  if (!url.startsWith("/api/")) return url;
+  const params = new URLSearchParams();
+  const initData = getInitData();
+  if (initData) {
+    params.set("initData", initData);
+  } else {
+    const devId = getDevPlayerIdFromQuery();
+    if (devId) {
+      params.set("devPlayerId", String(devId));
+      const devToken = new URLSearchParams(window.location.search).get("devToken");
+      if (devToken) params.set("devToken", devToken);
+    }
+  }
+  const qs = params.toString();
+  return qs ? `${url}${url.includes("?") ? "&" : "?"}${qs}` : url;
 }
 
 function waifuPortraitEmoji(w) {
@@ -3840,8 +3856,10 @@ function itemImageUrl(item) {
   return `${GAME_STATIC_BASE}/items/svg/${encodeURIComponent(key)}.svg`;
 }
 
-function itemArtHtml(item) {
+function itemArtHtml(item, options = {}) {
   if (!item) return `${itemArtEmoji(item)}`;
+  const adminGen = Boolean(options.adminGen);
+  const maybeWrap = (img) => (adminGen ? wrapItemImageWithAdminGen(item, img) : img);
   const tier = itemArtTierNormalized(item);
   const artKey = String(item?.art_key || "").trim();
   const svgKey = String(item?.image_key || "").trim();
@@ -3859,11 +3877,11 @@ function itemArtHtml(item) {
       ? `this.onerror=null;this.src='${svgUrl}';`
       : `this.onerror=null;this.remove();`;
     const img = `<img src="${webpUrl}" alt="" onerror="${onErr}" />`;
-    return wrapItemImageWithAdminGen(item, img);
+    return maybeWrap(img);
   }
 
   const url = itemImageUrl(item);
-  if (url) return wrapItemImageWithAdminGen(item, `<img src="${url}" alt="" />`);
+  if (url) return maybeWrap(`<img src="${url}" alt="" />`);
   return `${itemArtEmoji(item)}`;
 }
 
@@ -4497,8 +4515,8 @@ function renderProfileSlotCard(slot, item) {
     <button type="button" class="profile-slot-card profile-slot-card--mini ${item ? rarity : "empty"}" title="${escapeHtml(titleText)}" aria-label="${escapeHtml(slotName)}" onclick="WaifuApp.openProfileSlot(${slot})">
       <div class="profile-slot-media">
         ${mediaHtml}
+        ${item ? `<div class="profile-slot-mini-level profile-slot-mini-level--overlay">Ур. ${lvl}</div>` : ""}
       </div>
-      <div class="profile-slot-mini-level">Ур. ${lvl}</div>
     </button>
   `;
 }
@@ -4650,7 +4668,6 @@ function renderProfileInventory() {
           <div class="item-icon">${iconHtml}</div>
           ${upgrade ? `<div class="upgrade-arrow" title="Улучшение относительно экипировки">▲</div>` : ""}
           <div class="item-level">Ур. ${item?.level ?? "?"}</div>
-          <div class="item-name">${name}</div>
         </button>
       `);
     });
@@ -5148,7 +5165,7 @@ function openItemModal(item) {
   }
 
   const art = document.getElementById("item-modal-art");
-  if (art) art.innerHTML = itemArtHtml(item);
+  if (art) art.innerHTML = itemArtHtml(item, { adminGen: true });
 
   const enchRow = document.getElementById("item-modal-ench");
   if (enchRow) enchRow.innerHTML = buildItemModalEnchantRowHtml(item);
