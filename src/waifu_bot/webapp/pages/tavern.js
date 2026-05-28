@@ -64,11 +64,6 @@ function hiredWaifuHp(w) {
   return { cur, max };
 }
 
-function hiredWaifuImageUrl(w) {
-  const u = w?.imageUrl ?? w?.image_url;
-  return u ? String(u) : "";
-}
-
 function hiredWaifuNameLines(name) {
   const parts = String(name || "Наёмница").trim().split(/\s+/);
   if (parts.length <= 1) return { first: parts[0] || "Наёмница", last: "" };
@@ -674,12 +669,6 @@ function renderTavernHire(profile, available) {
       hireBtn.setAttribute("aria-label", "Все слоты найма на сегодня заняты");
     }
   }
-}
-
-function waifuPortraitEmoji(w) {
-  const race = raceIcon(w?.race);
-  const cls = classIcon(w?.class ?? w?.class_ ?? w?.["class"]);
-  return `${race}${cls}`;
 }
 
 function renderWaifuCardHtml(w, opts = {}) {

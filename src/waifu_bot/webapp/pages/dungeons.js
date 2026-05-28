@@ -58,11 +58,6 @@ function dungeonTypeLabel(type) {
   );
 }
 
-function safeInt(x, fallback = 0) {
-  const v = Number.parseInt(String(x), 10);
-  return Number.isFinite(v) ? v : fallback;
-}
-
 let dungeonsFinishBlockedMsg = null;
 let soloActiveMonsterTemplateId = null;
 let soloActiveStoryBossId = null;
@@ -80,74 +75,6 @@ function showDungeonsError(message, kind = "info") {
   box.textContent = String(message);
   if (kind === "danger") box.classList.add("danger");
   else box.classList.remove("danger");
-}
-
-/** FastAPI/Pydantic: detail может быть строкой, массивом {loc,msg,type} или объектом — не использовать String(arr). */
-function formatApiErrorDetail(detail) {
-  if (detail == null) return "";
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) {
-    return detail
-      .map((e) => {
-        if (e && typeof e === "object") {
-          const loc = Array.isArray(e.loc) ? e.loc.filter((x) => x !== "body").join(" → ") : "";
-          const msg = e.msg != null ? String(e.msg) : JSON.stringify(e);
-          return loc ? `${loc}: ${msg}` : msg;
-        }
-        return String(e);
-      })
-      .join("; ");
-  }
-  if (typeof detail === "object") {
-    try {
-      return JSON.stringify(detail);
-    } catch {
-      return String(detail);
-    }
-  }
-  return String(detail);
-}
-
-function parseHttpErrorDetail(err) {
-  const msg = String(err?.message || err || "");
-  // "HTTP 400: {json}" -> try to parse json and extract detail
-  const idx = msg.indexOf(":");
-  if (idx === -1) return { raw: msg, detail: msg };
-  const tail = msg.slice(idx + 1).trim();
-  try {
-    const obj = JSON.parse(tail);
-    const detail = obj?.detail != null ? formatApiErrorDetail(obj.detail) : tail;
-    return { raw: msg, detail };
-  } catch {
-    return { raw: msg, detail: tail || msg };
-  }
-}
-
-function isWebAppUnauthorizedError(err) {
-  const msg = String(err?.message || "");
-  if (!msg.includes("HTTP 401")) return false;
-  const { detail } = parseHttpErrorDetail(err);
-  const d = (detail || "").toLowerCase();
-  return (
-    d.includes("telegram") ||
-    d.includes("init data") ||
-    d.includes("hash missing") ||
-    d.includes("invalid init") ||
-    d.includes("expired")
-  );
-}
-
-/** Сообщение при открытии WebApp вне Telegram или без валидного initData. */
-function webAppAuthNoticeHtml() {
-  const devBlock = `<details class="webapp-auth-details"><summary>Для разработчиков</summary>
-    <p>При <code>APP_ENV=dev</code> на сервере можно открыть страницу с параметром <code>?devPlayerId=</code><em>id</em> (id игрока в БД) — тогда запросы пойдут с заголовком <code>X-Player-Id</code>. В production это отключено.</p>
-  </details>`;
-  return `<div class="webapp-auth-notice" role="alert">
-    <h3 class="webapp-auth-notice-title">Нужен вход через Telegram</h3>
-    <p>Откройте эту страницу из <strong>мини-приложения бота</strong> в Telegram. В обычном браузере не передаётся подпись <code>initData</code>, поэтому сервер отвечает 401.</p>
-    <p class="muted">Если вы уже внутри Telegram, закройте мини-приложение полностью и откройте снова — иногда устаревает сессия.</p>
-    ${devBlock}
-  </div>`;
 }
 
 function renderSoloDungeonTile(d, waifuLevel) {
@@ -745,48 +672,6 @@ window.WaifuApp.closePlusBottomSheet = () => {
   document.body.style.overflow = "";
 };
 
-function rarityLabel(r) {
-  const v = Number(r);
-  return (
-    {
-      1: "Обычный",
-      2: "Необычный",
-      3: "Редкий",
-      4: "Эпический",
-      5: "Легендарный",
-    }[v] || `Rarity ${v || "—"}`
-  );
-}
-
-function rarityClass(r) {
-  const v = Number(r);
-  return (
-    {
-      1: "rarity-common",
-      2: "rarity-uncommon",
-      3: "rarity-rare",
-      4: "rarity-epic",
-      5: "rarity-legendary",
-    }[v] || "rarity-common"
-  );
-}
-
-function slotTypeLabel(slotType) {
-  const st = String(slotType || "").toLowerCase();
-  if (!st) return "—";
-  return (
-    {
-      weapon_1h: "Оружие (1H)",
-      weapon_2h: "Оружие (2H)",
-      offhand: "Оффхенд / Щит",
-      costume: "Доспех",
-      armor: "Доспех",
-      ring: "Кольцо",
-      amulet: "Амулет",
-    }[st] || st
-  );
-}
-
 function attackTypeLabel(atk) {
   const a = String(atk || "").toLowerCase();
   if (!a) return "—";
@@ -797,33 +682,6 @@ function attackTypeLabel(atk) {
       magic: "Магия (ИНТ)",
     }[a] || a
   );
-}
-
-function weaponTypeLabel(wt) {
-  const w = String(wt || "").toLowerCase();
-  if (!w) return "—";
-  return (
-    {
-      axe: "Топор",
-      sword: "Меч",
-      bow: "Лук",
-      staff: "Посох",
-      wand: "Жезл",
-      dagger: "Кинжал",
-      mace: "Булава",
-      hammer: "Молот",
-    }[w] || w
-  );
-}
-
-function itemIconForSlotType(slotType) {
-  const st = String(slotType || "");
-  if (st.includes("weapon")) return "⚔️";
-  if (st.includes("offhand")) return "🛡️";
-  if (st.includes("costume")) return "🥋";
-  if (st.includes("ring")) return "💍";
-  if (st.includes("amulet")) return "🧿";
-  return "🎁";
 }
 
 function buildRewardItemCard(item) {
@@ -1276,12 +1134,6 @@ function createGdDungeonCard(dungeon) {
     </div>`;
   card.addEventListener("click", () => openDungeonDetails(dungeon));
   return card;
-}
-
-function escapeHtml(s) {
-  const div = document.createElement("div");
-  div.textContent = s;
-  return div.innerHTML;
 }
 
 function renderStageProgress(currentStage) {
