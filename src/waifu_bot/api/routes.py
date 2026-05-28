@@ -69,6 +69,7 @@ from waifu_bot.api.dungeon_routes import router as dungeon_router
 from waifu_bot.api.skill_routes import router as skill_router
 from waifu_bot.api.mail_routes import router as mail_router
 from waifu_bot.api.chat_rewards_routes import router as chat_rewards_router
+from waifu_bot.api.armory_routes import router as armory_router
 from waifu_bot.api.tutorial_routes import router as tutorial_router
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ router.include_router(skill_router)
 router.include_router(mail_router)
 router.include_router(chat_rewards_router)
 router.include_router(tutorial_router)
+router.include_router(armory_router)
 
 # Вторичные бонусы с предметов (шаблон + зачарование) и аффиксы с effect_key *_pct.
 # Значение в аффиксе — целое число в сотых долях процента: 150 => 1.50% => +0.015 к сумме.
@@ -809,6 +811,7 @@ async def get_profile(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
     x_telegram_init_data: str | None = Header(None, alias="X-Telegram-Init-Data"),
+    lite: bool = Query(False, description="Minimal payload for non-profile WebApp pages"),
 ):
     try:
         result = await session.execute(
@@ -865,155 +868,176 @@ async def get_profile(
                     await session.commit()
             except Exception:
                 logger.exception("apply_regen failed in /profile (player_id=%s)", player_id)
-            equipped_items = []
-            try:
-                inv_items = await session.execute(
-                    select(m.InventoryItem)
-                    .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
-                    .where(m.InventoryItem.player_id == player_id, m.InventoryItem.equipment_slot.isnot(None))
+
+            if lite:
+                main_payload = schemas.MainWaifuProfile(
+                    id=main_waifu.id,
+                    name=main_waifu.name,
+                    race=main_waifu.race,
+                    class_=main_waifu.class_,
+                    level=main_waifu.level,
+                    experience=main_waifu.experience,
+                    strength=main_waifu.strength,
+                    agility=main_waifu.agility,
+                    intelligence=main_waifu.intelligence,
+                    endurance=main_waifu.endurance,
+                    charm=main_waifu.charm,
+                    luck=main_waifu.luck,
+                    stat_points=int(getattr(main_waifu, "stat_points", 0) or 0),
+                    current_hp=main_waifu.current_hp,
+                    max_hp=main_waifu.max_hp,
+                    bio=getattr(main_waifu, "bio", None),
                 )
-                equipped_items = inv_items.scalars().all()
-                await _enrich_items_with_template_stats(session, equipped_items)
-            except Exception:
-                equipped_items = []
-
-            psb_profile: dict[str, float] = {}
-            try:
-                psb_profile = await get_passive_skill_bonuses(session, player_id)
-            except Exception:
-                logger.exception("passive fetch failed in /profile player_id=%s", player_id)
-
-            stat_flat = int(psb_profile.get("main_stats_flat", 0) or 0)
-
-            eff_four = None
-            try:
-                eff_four = await resolve_solo_combat_primary_four(
-                    session, player_id, main_waifu, ps=psb_profile
-                )
-            except Exception:
-                logger.exception("resolve_solo_combat_primary_four in /profile player_id=%s", player_id)
-
-            try:
-                if eff_four is not None:
-                    prim = (
-                        eff_four.strength,
-                        eff_four.agility,
-                        eff_four.intelligence,
-                        eff_four.luck,
-                    )
-                    raw_d = _compute_details(
-                        main_waifu,
-                        equipped_items,
-                        main_stats_flat=stat_flat,
-                        effective_primary_four=prim,
-                    )
-                    raw_d = merge_passive_into_profile_details(
-                        raw_d,
-                        psb_profile,
-                        skip_all_stats_pct_on_damage=True,
-                    )
-                else:
-                    raw_d = _compute_details(
-                        main_waifu,
-                        equipped_items,
-                        main_stats_flat=stat_flat,
-                    )
-                    raw_d = merge_passive_into_profile_details(raw_d, psb_profile)
-                main_details = schemas.MainWaifuDetails(**raw_d)
-            except Exception:
-                logger.exception("main_waifu_details build failed player_id=%s", player_id)
-                main_details = None
-
-            try:
-                equipment_payload = [_to_gear_item(inv, main_waifu) for inv in equipped_items]
-            except Exception:
-                equipment_payload = []
-            try:
-                await enrich_items_with_image_urls(session, equipment_payload)
-            except Exception:
-                logger.exception("Failed to enrich item images in /profile (player_id=%s)", player_id)
-
-            # Рассчитываем бонусы от экипировки для отображения в формате X (A+B)
-            total_bonuses = {
-                "strength": 0,
-                "agility": 0,
-                "intelligence": 0,
-                "endurance": 0,
-                "charm": 0,
-                "luck": 0,
-            }
-            for inv in equipped_items or []:
-                item_bonuses = calculate_item_bonuses(inv)
-                for key in total_bonuses.keys():
-                    total_bonuses[key] += item_bonuses.get(key, 0)
-
-            # Базовые значения = значения из БД (они не должны изменяться при экипировке)
-            base_strength = main_waifu.strength
-            base_agility = main_waifu.agility
-            base_intelligence = main_waifu.intelligence
-            base_endurance = main_waifu.endurance
-            base_charm = main_waifu.charm
-            base_luck = main_waifu.luck
-
-            # Четыре основные — как в соло-бое (экип + flat + all_stats_pct); ВЫН/ОБА — экип + flat.
-            if eff_four is not None:
-                current_strength = eff_four.strength
-                current_agility = eff_four.agility
-                current_intelligence = eff_four.intelligence
-                current_luck = eff_four.luck
             else:
-                current_strength = base_strength + total_bonuses["strength"] + stat_flat
-                current_agility = base_agility + total_bonuses["agility"] + stat_flat
-                current_intelligence = base_intelligence + total_bonuses["intelligence"] + stat_flat
-                current_luck = base_luck + total_bonuses["luck"] + stat_flat
-            current_endurance = base_endurance + total_bonuses["endurance"] + stat_flat
-            current_charm = base_charm + total_bonuses["charm"] + stat_flat
+                equipped_items = []
+                try:
+                    inv_items = await session.execute(
+                        select(m.InventoryItem)
+                        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+                        .where(m.InventoryItem.player_id == player_id, m.InventoryItem.equipment_slot.isnot(None))
+                    )
+                    equipped_items = inv_items.scalars().all()
+                    await _enrich_items_with_template_stats(session, equipped_items)
+                except Exception:
+                    equipped_items = []
 
-            portrait_url = None
-            if getattr(main_waifu, "image_data", None):
-                mime = getattr(main_waifu, "image_mime", None) or "image/webp"
-                portrait_url = f"data:{mime};base64,{main_waifu.image_data}"
+                psb_profile: dict[str, float] = {}
+                try:
+                    psb_profile = await get_passive_skill_bonuses(session, player_id)
+                except Exception:
+                    logger.exception("passive fetch failed in /profile player_id=%s", player_id)
 
-            paperdoll_url = None
-            if getattr(main_waifu, "paperdoll_image_data", None):
-                pm = getattr(main_waifu, "paperdoll_image_mime", None) or "image/png"
-                paperdoll_url = f"data:{pm};base64,{main_waifu.paperdoll_image_data}"
+                stat_flat = int(psb_profile.get("main_stats_flat", 0) or 0)
 
-            main_payload = schemas.MainWaifuProfile(
-                id=main_waifu.id,
-                name=main_waifu.name,
-                race=main_waifu.race,
-                class_=main_waifu.class_,
-                level=main_waifu.level,
-                experience=main_waifu.experience,
-                strength=current_strength,
-                agility=current_agility,
-                intelligence=current_intelligence,
-                endurance=current_endurance,
-                charm=current_charm,
-                luck=current_luck,
-                stat_points=int(getattr(main_waifu, "stat_points", 0) or 0),
-                current_hp=main_waifu.current_hp,
-                max_hp=main_waifu.max_hp,
-                base_strength=base_strength,
-                base_agility=base_agility,
-                base_intelligence=base_intelligence,
-                base_endurance=base_endurance,
-                base_charm=base_charm,
-                base_luck=base_luck,
-                bonus_strength=current_strength - int(base_strength or 0),
-                bonus_agility=current_agility - int(base_agility or 0),
-                bonus_intelligence=current_intelligence - int(base_intelligence or 0),
-                bonus_endurance=total_bonuses["endurance"] + stat_flat,
-                bonus_charm=total_bonuses["charm"] + stat_flat,
-                bonus_luck=current_luck - int(base_luck or 0),
-                passive_main_stats_flat=stat_flat,
-                race_flat_bonuses=race_flat_bonuses_for(main_waifu.race),
-                class_flat_bonuses=class_flat_bonuses_for(main_waifu.class_),
-                portrait_url=portrait_url,
-                paperdoll_url=paperdoll_url,
-                bio=getattr(main_waifu, "bio", None),
-            )
+                eff_four = None
+                try:
+                    eff_four = await resolve_solo_combat_primary_four(
+                        session, player_id, main_waifu, ps=psb_profile
+                    )
+                except Exception:
+                    logger.exception("resolve_solo_combat_primary_four in /profile player_id=%s", player_id)
+
+                try:
+                    if eff_four is not None:
+                        prim = (
+                            eff_four.strength,
+                            eff_four.agility,
+                            eff_four.intelligence,
+                            eff_four.luck,
+                        )
+                        raw_d = _compute_details(
+                            main_waifu,
+                            equipped_items,
+                            main_stats_flat=stat_flat,
+                            effective_primary_four=prim,
+                        )
+                        raw_d = merge_passive_into_profile_details(
+                            raw_d,
+                            psb_profile,
+                            skip_all_stats_pct_on_damage=True,
+                        )
+                    else:
+                        raw_d = _compute_details(
+                            main_waifu,
+                            equipped_items,
+                            main_stats_flat=stat_flat,
+                        )
+                        raw_d = merge_passive_into_profile_details(raw_d, psb_profile)
+                    main_details = schemas.MainWaifuDetails(**raw_d)
+                except Exception:
+                    logger.exception("main_waifu_details build failed player_id=%s", player_id)
+                    main_details = None
+
+                try:
+                    equipment_payload = [_to_gear_item(inv, main_waifu) for inv in equipped_items]
+                except Exception:
+                    equipment_payload = []
+                try:
+                    await enrich_items_with_image_urls(session, equipment_payload)
+                except Exception:
+                    logger.exception("Failed to enrich item images in /profile (player_id=%s)", player_id)
+
+                # Рассчитываем бонусы от экипировки для отображения в формате X (A+B)
+                total_bonuses = {
+                    "strength": 0,
+                    "agility": 0,
+                    "intelligence": 0,
+                    "endurance": 0,
+                    "charm": 0,
+                    "luck": 0,
+                }
+                for inv in equipped_items or []:
+                    item_bonuses = calculate_item_bonuses(inv)
+                    for key in total_bonuses.keys():
+                        total_bonuses[key] += item_bonuses.get(key, 0)
+
+                # Базовые значения = значения из БД (они не должны изменяться при экипировке)
+                base_strength = main_waifu.strength
+                base_agility = main_waifu.agility
+                base_intelligence = main_waifu.intelligence
+                base_endurance = main_waifu.endurance
+                base_charm = main_waifu.charm
+                base_luck = main_waifu.luck
+
+                # Четыре основные — как в соло-бое (экип + flat + all_stats_pct); ВЫН/ОБА — экип + flat.
+                if eff_four is not None:
+                    current_strength = eff_four.strength
+                    current_agility = eff_four.agility
+                    current_intelligence = eff_four.intelligence
+                    current_luck = eff_four.luck
+                else:
+                    current_strength = base_strength + total_bonuses["strength"] + stat_flat
+                    current_agility = base_agility + total_bonuses["agility"] + stat_flat
+                    current_intelligence = base_intelligence + total_bonuses["intelligence"] + stat_flat
+                    current_luck = base_luck + total_bonuses["luck"] + stat_flat
+                current_endurance = base_endurance + total_bonuses["endurance"] + stat_flat
+                current_charm = base_charm + total_bonuses["charm"] + stat_flat
+
+                portrait_url = None
+                if getattr(main_waifu, "image_data", None):
+                    mime = getattr(main_waifu, "image_mime", None) or "image/webp"
+                    portrait_url = f"data:{mime};base64,{main_waifu.image_data}"
+
+                paperdoll_url = None
+                if getattr(main_waifu, "paperdoll_image_data", None):
+                    pm = getattr(main_waifu, "paperdoll_image_mime", None) or "image/png"
+                    paperdoll_url = f"data:{pm};base64,{main_waifu.paperdoll_image_data}"
+
+                main_payload = schemas.MainWaifuProfile(
+                    id=main_waifu.id,
+                    name=main_waifu.name,
+                    race=main_waifu.race,
+                    class_=main_waifu.class_,
+                    level=main_waifu.level,
+                    experience=main_waifu.experience,
+                    strength=current_strength,
+                    agility=current_agility,
+                    intelligence=current_intelligence,
+                    endurance=current_endurance,
+                    charm=current_charm,
+                    luck=current_luck,
+                    stat_points=int(getattr(main_waifu, "stat_points", 0) or 0),
+                    current_hp=main_waifu.current_hp,
+                    max_hp=main_waifu.max_hp,
+                    base_strength=base_strength,
+                    base_agility=base_agility,
+                    base_intelligence=base_intelligence,
+                    base_endurance=base_endurance,
+                    base_charm=base_charm,
+                    base_luck=base_luck,
+                    bonus_strength=current_strength - int(base_strength or 0),
+                    bonus_agility=current_agility - int(base_agility or 0),
+                    bonus_intelligence=current_intelligence - int(base_intelligence or 0),
+                    bonus_endurance=total_bonuses["endurance"] + stat_flat,
+                    bonus_charm=total_bonuses["charm"] + stat_flat,
+                    bonus_luck=current_luck - int(base_luck or 0),
+                    passive_main_stats_flat=stat_flat,
+                    race_flat_bonuses=race_flat_bonuses_for(main_waifu.race),
+                    class_flat_bonuses=class_flat_bonuses_for(main_waifu.class_),
+                    portrait_url=portrait_url,
+                    paperdoll_url=paperdoll_url,
+                    bio=getattr(main_waifu, "bio", None),
+                )
 
         try:
             from waifu_bot.services.player_activity import touch_player_last_active
@@ -1158,6 +1182,10 @@ async def equip_item(
     if player_pre and player_pre.main_waifu:
         await _sync_waifu_max_hp(session, player_id, player_pre.main_waifu)
 
+    item_name = getattr(getattr(inv, "item", None), "name", "item")
+    from waifu_bot.services.event_log import log_event
+
+    await log_event(session, player_id, "item_equipped", {"item_name": item_name, "slot": slot})
     await session.commit()
     await session.refresh(inv)
     player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
@@ -1180,6 +1208,11 @@ async def unequip_item(
     if not inv or inv.player_id != player_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item not found")
     inv.equipment_slot = None
+
+    item_name = getattr(getattr(inv, "item", None), "name", "item")
+    from waifu_bot.services.event_log import log_event
+
+    await log_event(session, player_id, "item_unequipped", {"item_name": item_name})
 
     # Sync waifu.max_hp with remaining equipment bonuses
     player_pre = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
@@ -1662,6 +1695,14 @@ async def create_main_waifu(
         if not bio_text:
             bio_text = fallback_main_waifu_bio(main.name, race_ru, class_ru)
         main.bio = bio_text
+        from waifu_bot.services.event_log import log_event
+
+        await log_event(
+            session,
+            player_id,
+            "account_created",
+            {"character_name": main.name, "race": int(main.race), "class": int(main.class_)},
+        )
         await session.commit()
         await session.refresh(main)
     except Exception as e:

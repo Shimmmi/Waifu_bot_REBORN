@@ -379,9 +379,12 @@ async def start_dungeon(
 async def active_dungeon(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
+    include_log: bool = Query(False, description="Include solo battle log entries (heavier payload)"),
 ):
     try:
-        data = await dungeon_service.get_active_dungeon(session, player_id)
+        data = await dungeon_service.get_active_dungeon(
+            session, player_id, include_battle_log=include_log
+        )
         if data is None:
             return {"active": False}
 

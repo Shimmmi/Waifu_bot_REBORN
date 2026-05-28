@@ -65,6 +65,8 @@ def _solo_battle_log_summary_fallback(event_type: str, event_data: dict | None) 
         if dt is not None:
             return f"Ответный удар: {dt} урона по вайфу."
         return "Ответный удар монстра."
+    if event_type == "monster_reward":
+        return (ed.get("summary_ru") or "").strip() or "Награда за монстра."
     return event_type or "Событие боя."
 
 
@@ -123,6 +125,10 @@ async def fetch_solo_battle_log_entries(
             entry["damage_taken"] = ed.get("damage_taken")
         elif r.event_type == "no_damage":
             entry["reason"] = ed.get("reason")
+        elif r.event_type == "monster_reward":
+            entry["exp"] = ed.get("exp")
+            entry["gold"] = ed.get("gold")
+            entry["guild_bonus_lines"] = ed.get("guild_bonus_lines") or []
         entry["monster_hp_before"] = r.monster_hp_before
         entry["monster_hp_after"] = r.monster_hp_after
         entry["player_hp_before"] = r.player_hp_before
@@ -220,7 +226,12 @@ class DungeonService:
 
     async def _get_active_run(self, session: AsyncSession, player_id: int) -> DungeonRun | None:
         try:
-            stmt = select(DungeonRun).where(DungeonRun.player_id == player_id, DungeonRun.status == "active")
+            stmt = (
+                select(DungeonRun)
+                .where(DungeonRun.player_id == player_id, DungeonRun.status == "active")
+                .order_by(DungeonRun.started_at.desc(), DungeonRun.id.desc())
+                .limit(1)
+            )
             res = await session.execute(stmt)
             return res.scalar_one_or_none()
         except SQLAlchemyError:
@@ -974,9 +985,24 @@ class DungeonService:
         return out
 
     async def get_active_dungeon(
-        self, session: AsyncSession, player_id: int
+        self,
+        session: AsyncSession,
+        player_id: int,
+        *,
+        include_battle_log: bool = True,
     ) -> Optional[dict]:
         """Get active dungeon info."""
+
+        async def _battle_log_fields(dungeon_id: int) -> tuple[list[str], list[dict]]:
+            if not include_battle_log:
+                return [], []
+            battle_log_entries = await fetch_solo_battle_log_entries(session, player_id, dungeon_id)
+            battle_log = (
+                [e["summary_ru"] for e in battle_log_entries]
+                if battle_log_entries
+                else ["Битва начата!"]
+            )
+            return battle_log, battle_log_entries
         try:
             # Prefer new run-based active dungeon
             run = await self._get_active_run(session, player_id)
@@ -1042,12 +1068,9 @@ class DungeonService:
                         if img_path:
                             monster_image_override = img_path
                             monster_has_image = True
-                battle_log_entries = await fetch_solo_battle_log_entries(session, player_id, dungeon.id)
-                battle_log = (
-                    [e["summary_ru"] for e in battle_log_entries]
-                    if battle_log_entries
-                    else ["Битва начата!"]
-                )
+                battle_log, battle_log_entries = await _battle_log_fields(dungeon.id)
+                if not battle_log and not include_battle_log:
+                    battle_log = ["Битва начата!"]
                 return {
                     "dungeon_id": dungeon.id,
                     "dungeon_name": dungeon.name,
@@ -1111,12 +1134,9 @@ class DungeonService:
         # so frontend can show "active dungeon" + allow exit.
         if not monster:
             cur_hp = progress.current_monster_hp or 100
-            battle_log_entries = await fetch_solo_battle_log_entries(session, player_id, dungeon.id)
-            battle_log = (
-                [e["summary_ru"] for e in battle_log_entries]
-                if battle_log_entries
-                else ["Активный данж найден, но текущий монстр не определён."]
-            )
+            battle_log, battle_log_entries = await _battle_log_fields(dungeon.id)
+            if not battle_log and not include_battle_log:
+                battle_log = ["Активный данж найден, но текущий монстр не определён."]
             return {
                 "dungeon_id": dungeon.id,
                 "dungeon_name": dungeon.name,
@@ -1154,12 +1174,9 @@ class DungeonService:
         legacy_slug = _monster_slug_for_webp(
             None, None, monster.name or "", legacy_monster_id=monster.id
         )
-        battle_log_entries = await fetch_solo_battle_log_entries(session, player_id, dungeon.id)
-        battle_log = (
-            [e["summary_ru"] for e in battle_log_entries]
-            if battle_log_entries
-            else ["Битва начата!"]
-        )
+        battle_log, battle_log_entries = await _battle_log_fields(dungeon.id)
+        if not battle_log and not include_battle_log:
+            battle_log = ["Битва начата!"]
         return {
             "dungeon_id": dungeon.id,
             "dungeon_name": dungeon.name,

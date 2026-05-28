@@ -1,7 +1,7 @@
 import logging
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,11 +55,12 @@ def _hired_waifu_status(w: m.HiredWaifu) -> Literal["expedition", "wounded", "sq
     return "ready"
 
 
+def _hired_waifu_portrait_path(waifu_id: int) -> str:
+    return f"/api/tavern/hired-waifus/{int(waifu_id)}/portrait"
+
+
 def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
-    image_url = None
-    if getattr(w, "image_data", None):
-        mime = getattr(w, "image_mime", None) or "image/webp"
-        image_url = f"data:{mime};base64,{w.image_data}"
+    image_url = _hired_waifu_portrait_path(w.id) if getattr(w, "image_data", None) else None
     return schemas.HiredWaifuOut(
         id=w.id,
         name=w.name,
@@ -198,6 +199,33 @@ async def tavern_reserve(
     except Exception:
         logger.exception("tavern_reserve failed for player %s", player_id)
         return {"reserve": []}
+
+
+@router.get("/tavern/hired-waifus/{waifu_id}/portrait", tags=["tavern"])
+async def hired_waifu_portrait(
+    waifu_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Binary portrait for a hired waifu (avoids base64 in JSON list responses)."""
+    import base64
+
+    waifu = await session.get(m.HiredWaifu, waifu_id)
+    if not waifu or int(waifu.player_id) != int(player_id):
+        raise HTTPException(status_code=404, detail="Waifu not found")
+    raw = getattr(waifu, "image_data", None)
+    if not raw:
+        raise HTTPException(status_code=404, detail="Portrait not available")
+    try:
+        body = base64.b64decode(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Invalid portrait data") from exc
+    mime = getattr(waifu, "image_mime", None) or "image/webp"
+    return Response(
+        content=body,
+        media_type=mime,
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 @router.post("/tavern/squad/add", tags=["tavern"])
