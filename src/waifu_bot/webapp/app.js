@@ -1987,6 +1987,13 @@ function waifuGenRefreshGenerateButton() {
   genBtn.disabled = waifuGenGensUsed() >= 3;
 }
 
+function setWaifuGenMagicLoading(on) {
+  if (typeof document === "undefined" || !document.body) return;
+  const modal = document.getElementById("waifu-gen-magic-modal");
+  if (modal) modal.hidden = !on;
+  document.body.classList.toggle("waifu-gen-magic-busy", Boolean(on));
+}
+
 function waifuGenApplyPortraitPreview(dataUrl) {
   const img = document.getElementById("waifu-portrait-preview");
   const ph = document.getElementById("waifu-portrait-placeholder");
@@ -2383,14 +2390,28 @@ function openSettingsNotifyModal() {
   if (!modal) return;
   if (settingsState.dmPrefs) applyDmPrefsToModal(settingsState.dmPrefs);
   modal.hidden = false;
+  modal.classList.add("settings-notify-modal--open");
 }
 
 function closeSettingsNotifyModal() {
   const modal = document.getElementById("settings-notify-modal");
-  if (modal) modal.hidden = true;
+  if (!modal) return;
+  modal.hidden = true;
+  modal.classList.remove("settings-notify-modal--open");
 }
 
 async function initSettingsPage() {
+  closeSettingsNotifyModal();
+
+  if (!window.__waifuSettingsPageshowBound) {
+    window.__waifuSettingsPageshowBound = true;
+    window.addEventListener("pageshow", () => {
+      if (document.body.classList.contains("page-settings")) {
+        closeSettingsNotifyModal();
+      }
+    });
+  }
+
   syncAdminUiVisibility();
   const adminRow = document.getElementById("settings-admin-row");
   const adminToggle = document.getElementById("settings-admin-toggle");
@@ -5909,6 +5930,7 @@ function waifuGenGoStep1() {
 async function waifuGenPreviewPortrait() {
   const errP = document.getElementById("waifu-gen-portrait-err");
   const genBtn = document.getElementById("waifu-generate-btn");
+  const createBtn = document.getElementById("waifu-create-btn");
   if (waifuGenGensUsed() >= 3) {
     if (errP) errP.textContent = "Достигнут лимит трёх генераций.";
     return;
@@ -5916,6 +5938,8 @@ async function waifuGenPreviewPortrait() {
 
   if (errP) errP.textContent = "";
   if (genBtn) genBtn.disabled = true;
+  if (createBtn) createBtn.disabled = true;
+  setWaifuGenMagicLoading(true);
 
   const body = waifuGenPortraitRequestBody();
 
@@ -5944,7 +5968,6 @@ async function waifuGenPreviewPortrait() {
     waifuGenApplyPortraitPreview(dataUrl);
     waifuGenRenderVariants();
     waifuGenRefreshHint();
-    waifuGenRefreshGenerateButton();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     const lim = (detail || "").includes("portrait_preview_limit");
@@ -5954,8 +5977,11 @@ async function waifuGenPreviewPortrait() {
         : detail || String(e?.message || e);
     }
     if (lim) waifuGenSetGensUsed(3);
-    waifuGenRefreshGenerateButton();
     waifuGenRefreshHint();
+  } finally {
+    setWaifuGenMagicLoading(false);
+    waifuGenRefreshGenerateButton();
+    if (createBtn) createBtn.disabled = false;
   }
 }
 
@@ -9190,6 +9216,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   waifuGenGoStep1,
   waifuGenGoStep2,
   waifuGenPreviewPortrait,
+  setWaifuGenMagicLoading,
   submitWaifuCreation,
   closeShopModal,
   confirmBuy,
