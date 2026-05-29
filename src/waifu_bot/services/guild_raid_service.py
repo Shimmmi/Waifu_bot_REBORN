@@ -18,6 +18,7 @@ from waifu_bot.db.models import (
     GuildRaidTemplate,
     InventoryItem,
     MainWaifu,
+    Player,
 )
 from waifu_bot.game.constants import MediaType
 from waifu_bot.game.formulas import calculate_message_damage
@@ -130,6 +131,35 @@ async def leave_raid(session: AsyncSession, player_id: int) -> dict:
     return {"success": True}
 
 
+async def _raid_online_member_count(session: AsyncSession, guild_id: int) -> int:
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=5)
+    mids = (
+        await session.execute(select(GuildMember.player_id).where(GuildMember.guild_id == guild_id))
+    ).scalars().all()
+    cnt = 0
+    for pid in mids:
+        pl = await session.get(Player, pid)
+        if not pl or not pl.last_active:
+            continue
+        la = pl.last_active
+        la_utc = la.replace(tzinfo=timezone.utc) if la.tzinfo is None else la.astimezone(timezone.utc)
+        if (now - la_utc) <= timedelta(minutes=5):
+            cnt += 1
+    return cnt
+
+
+async def _current_stage_kind(session: AsyncSession, raid: GuildRaid) -> str:
+    tpl = await session.get(GuildRaidTemplate, raid.template_id)
+    if not tpl:
+        return "trash"
+    stages = list(tpl.stages_json or [])
+    idx = int(raid.current_stage or 1) - 1
+    if idx < 0 or idx >= len(stages):
+        return "trash"
+    return str(stages[idx].get("kind") or "trash")
+
+
 async def apply_raid_message_damage(
     session: AsyncSession,
     chat_id: int,
@@ -170,10 +200,48 @@ async def apply_raid_message_damage(
     if media_types:
         dmg += 5 * len(media_types)
     dmg = max(1, int(dmg * random.uniform(0.9, 1.1)))
+    guild_skill_lines: list[str] = []
+    try:
+        from waifu_bot.services.guild_skill_effects import (
+            effect_values_for_guild,
+            guild_skill_contributions_for_guild,
+            pct_bonus_lines_ru,
+        )
+
+        gfx = await effect_values_for_guild(session, g.id)
+        flat = int(gfx.get("raid_attack_flat", 0) or 0)
+        if flat:
+            dmg += flat
+        mult = 1.0
+        online_n = await _raid_online_member_count(session, g.id)
+        online_pct = float(gfx.get("damage_per_online_member_pct", 0) or 0)
+        if online_n > 0 and online_pct > 0:
+            mult += online_pct * online_n
+        stage_kind = await _current_stage_kind(session, raid)
+        if stage_kind in ("miniboss", "final"):
+            boss_pct = float(gfx.get("raid_boss_damage_pct", 0) or 0)
+            if boss_pct > 0:
+                mult += boss_pct
+        dmg = max(1, int(dmg * mult))
+        guild_skill_lines = pct_bonus_lines_ru(
+            await guild_skill_contributions_for_guild(
+                session,
+                g.id,
+                params={
+                    "raid_attack_flat",
+                    "raid_boss_damage_pct",
+                    "damage_per_online_member_pct",
+                },
+            )
+        )
+    except Exception:
+        logger.exception("raid guild skill bonus failed guild_id=%s player_id=%s", g.id, player_id)
     raid.stage_monster_hp_current = max(0, int(raid.stage_monster_hp_current) - dmg)
     part.message_count = int(part.message_count or 0) + 1
     part.damage_dealt = int(part.damage_dealt or 0) + dmg
     out = {"ok": True, "damage": dmg, "hp_left": raid.stage_monster_hp_current}
+    if guild_skill_lines:
+        out["guild_skill_lines"] = guild_skill_lines
     if raid.stage_monster_hp_current <= 0:
         await _advance_or_complete_raid(session, raid, g)
     await session.commit()
@@ -208,7 +276,20 @@ async def _advance_or_complete_raid(session: AsyncSession, raid: GuildRaid, guil
         return
     raid.status = "victory"
     guild.raid_active_id = None
-    await add_gxp(session, guild.id, int(raid.gxp_reward), reason="raid_win")
+    gxp = int(raid.gxp_reward)
+    try:
+        from waifu_bot.services.guild_skill_effects import effect_values_for_guild
+
+        gfx = await effect_values_for_guild(session, guild.id)
+        gxp_mult = float(gfx.get("raid_gxp_multiplier", 0) or 0)
+        if gxp_mult > 0:
+            gxp = max(1, int(round(gxp * (1.0 + gxp_mult))))
+        completion_pct = float(gfx.get("raid_completion_reward_pct", 0) or 0)
+        if completion_pct > 0:
+            gxp = max(1, int(round(gxp * (1.0 + completion_pct))))
+    except Exception:
+        logger.exception("raid completion guild bonus failed guild_id=%s", guild.id)
+    await add_gxp(session, guild.id, gxp, reason="raid_win")
     await _grant_raid_victory_loot(session, raid, guild)
 
 

@@ -25,6 +25,8 @@
 | speedster | Молния | 10…5000 fast | `first_hit_crit_pct` 5→50% | `fast_kill` (1–3 msg) | OK |
 | stoic | Стоик | 10…5000 slow | `final_armor_pct` 5→50% | `slow_kill` (7+ msg) | OK |
 
+Примечание: после фикса «Марафонец» увеличивается только за завершённые сессии через `marathon_complete` (а не за каждое `dungeon_message`/`group_message`).
+
 ---
 
 ## Медиа (5)
@@ -113,8 +115,11 @@
 
 ## API и UI
 
-- `GET /skills/hidden` — прогресс + `effect_types`, `effect_values`, `current_effects`, `next_effects`.
+- `GET /skills/hidden` — прогресс + `effect_types`, `effect_values`, `current_effects`, `next_effects`, `bonus_summary`, `image_url`.
+- Подписи бонусов: [`hidden_effect_labels.py`](../src/waifu_bot/game/hidden_effect_labels.py).
+- Иконки: `/static/game/hidden-skills/webp/<id>.webp` (1:1).
 - `training_hall.html` вкладка «?» — карточки открытых навыков, клик → `#hidden-skill-modal`.
+- Подробные `description` в БД: миграция `0078_hidden_skill_descriptions`.
 
 ---
 

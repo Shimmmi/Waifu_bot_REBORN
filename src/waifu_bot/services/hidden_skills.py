@@ -12,14 +12,17 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db.models import (
-    GDCycle,
-    GDRegistration,
     HiredWaifu,
     HiddenSkillDefinition,
     Player,
-    PlayerGameAction,
     PlayerHiddenSkill,
 )
+from waifu_bot.game.hidden_effect_labels import (
+    bonus_summary_from_dict,
+    hidden_skill_image_url,
+    labeled_effects_from_dict,
+)
+from waifu_bot.services.player_chats import forget_player_chat_seen, resolve_player_group_chats
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +30,8 @@ logger = logging.getLogger(__name__)
 COUNTER_EVENTS: dict[str, list[str]] = {
     "story_boss_total_kills": ["echo_atlas"],
     "story_boss_unique_kills": ["echo_catalog"],
-    "dungeon_message": ["chatterbox", "marathon"],
-    "group_message": ["team_player", "chatterbox", "marathon"],
+    "dungeon_message": ["chatterbox"],
+    "group_message": ["team_player", "chatterbox"],
     "dungeon_kill": ["executioner"],
     "boss_kill": ["boss_slayer"],
     "elite_kill": ["elite_hunter"],
@@ -119,32 +122,6 @@ async def _group_announce_mention_html(bot: Any, player_id: int, player: Player 
     return _player_mention_html(int(player_id), player)
 
 
-async def _active_group_chat_ids(session: AsyncSession, player_id: int) -> list[int]:
-    """Групповые чаты с активным или открытым к регистрации GD v1, где записан игрок."""
-    q = (
-        select(GDCycle.chat_id)
-        .join(GDRegistration, GDRegistration.cycle_id == GDCycle.id)
-        .where(
-            GDRegistration.user_id == int(player_id),
-            GDCycle.status.in_(("registration", "active")),
-        )
-        .distinct()
-    )
-    rows = (await session.execute(q)).all()
-    return [int(r[0]) for r in rows]
-
-
-async def _fallback_group_chat_id(session: AsyncSession, player_id: int) -> int | None:
-    """Последний известный групповой чат (отрицательный chat_id) по действиям в игре."""
-    cid = await session.scalar(
-        select(PlayerGameAction.chat_id)
-        .where(PlayerGameAction.player_id == int(player_id), PlayerGameAction.chat_id < 0)
-        .order_by(PlayerGameAction.created_at.desc())
-        .limit(1)
-    )
-    return int(cid) if cid is not None else None
-
-
 async def _notify_group_hidden_skill_unlock(
     session: AsyncSession,
     player_id: int,
@@ -152,11 +129,7 @@ async def _notify_group_hidden_skill_unlock(
     _new_level: int,
 ) -> None:
     """Сообщение в группу(ы) при первом открытии навыка (флаг announce_in_group)."""
-    chat_ids = await _active_group_chat_ids(session, player_id)
-    if not chat_ids:
-        fb = await _fallback_group_chat_id(session, player_id)
-        if fb is not None:
-            chat_ids = [fb]
+    chat_ids = await resolve_player_group_chats(session, player_id)
     if not chat_ids:
         return
 
@@ -164,6 +137,8 @@ async def _notify_group_hidden_skill_unlock(
     skill_name = html.escape(defn.name or defn.id)
 
     try:
+        from aiogram.exceptions import TelegramForbiddenError
+
         from waifu_bot.services.webhook import get_bot
 
         bot = get_bot()
@@ -172,6 +147,17 @@ async def _notify_group_hidden_skill_unlock(
         for cid in chat_ids:
             try:
                 await bot.send_message(chat_id=cid, text=text)
+            except TelegramForbiddenError:
+                logger.warning(
+                    "hidden skill group announce forbidden chat_id=%s player_id=%s",
+                    cid,
+                    player_id,
+                )
+                try:
+                    await forget_player_chat_seen(session, int(player_id), int(cid))
+                    await session.commit()
+                except Exception:
+                    logger.debug("forget_player_chat_seen failed", exc_info=True)
             except Exception:
                 logger.exception("hidden skill group announce failed chat_id=%s player_id=%s", cid, player_id)
     except Exception:
@@ -285,6 +271,25 @@ async def _apply_level_for_skill(session: AsyncSession, player_id: int, skill_id
                 await log_hidden_skill_unlock(session, int(player_id), defn.name or skill_id)
             except Exception:
                 pass
+        try:
+            from waifu_bot.services.event_log import log_event
+
+            if old_level == 0 and nl >= 1:
+                await log_event(
+                    session,
+                    int(player_id),
+                    "hidden_skill_unlock",
+                    {"skill_id": skill_id, "name": defn.name or skill_id, "level": nl},
+                )
+            elif old_level >= 1:
+                await log_event(
+                    session,
+                    int(player_id),
+                    "hidden_skill_level_up",
+                    {"skill_id": skill_id, "name": defn.name or skill_id, "level": nl},
+                )
+        except Exception:
+            pass
 
 
 async def check_level_up(session: AsyncSession, player_id: int, skill_id: str) -> None:
@@ -386,6 +391,7 @@ async def list_hidden_skills_payload(session: AsyncSession, player_id: int) -> l
             next_th = int(th[-1])
         cur_eff = effects_for_level(d, lvl) if lvl > 0 else {}
         next_eff = effects_for_level(d, lvl + 1) if lvl < 5 else {}
+        next_eff_out = next_eff if next_eff else None
         out.append(
             {
                 "id": d.id,
@@ -403,7 +409,12 @@ async def list_hidden_skills_payload(session: AsyncSession, player_id: int) -> l
                 "effect_types": list(d.effect_types or []),
                 "effect_values": d.effect_values if d.effect_values is not None else [],
                 "current_effects": cur_eff,
-                "next_effects": next_eff if next_eff else None,
+                "next_effects": next_eff_out,
+                "image_url": hidden_skill_image_url(d.id),
+                "current_effects_labeled": labeled_effects_from_dict(cur_eff),
+                "next_effects_labeled": labeled_effects_from_dict(next_eff_out) if next_eff_out else [],
+                "bonus_summary": bonus_summary_from_dict(cur_eff),
+                "next_bonus_summary": bonus_summary_from_dict(next_eff_out) if next_eff_out else None,
             }
         )
     return out

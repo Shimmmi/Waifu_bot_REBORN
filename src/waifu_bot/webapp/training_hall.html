@@ -55,20 +55,15 @@
       body.page-training .muted {
         color: var(--muted) !important;
       }
-      body.page-training .passive-stats-line {
+      body.page-training .passive-tabs-row {
         display: flex;
-        flex-wrap: wrap;
         align-items: center;
-        gap: 8px 10px;
-        margin-bottom: 12px;
-        font-size: 13px;
-        color: var(--text);
-      }
-      body.page-training .passive-stats-sep {
-        opacity: 0.45;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
       }
       body.page-training .passive-free-pts-wrap {
-        margin-left: auto;
+        flex-shrink: 0;
         display: inline-flex;
         align-items: center;
         gap: 6px;
@@ -97,15 +92,11 @@
         opacity: 0.45;
         cursor: not-allowed;
       }
-      body.page-training .passive-tabs {
-        border-bottom-color: rgba(200, 146, 42, 0.22);
-      }
       body.page-training .passive-tab {
         color: rgba(243, 235, 224, 0.82);
       }
       body.page-training .passive-tab.active {
         color: var(--amber-glow);
-        border-bottom-color: var(--amber-glow);
       }
       body.page-training .section-head {
         margin: 0 0 10px;
@@ -140,14 +131,8 @@
         border-color: rgba(200, 146, 42, 0.15);
         color: var(--text);
       }
-      body.page-training .hidden-skill-meta {
-        color: var(--muted) !important;
-      }
-      body.page-training .hidden-skill-bar {
-        background: rgba(255, 255, 255, 0.08);
-      }
-      body.page-training .hidden-skill-bar-fill {
-        background: linear-gradient(90deg, rgba(200, 146, 42, 0.85), rgba(232, 184, 75, 0.9));
+      body.page-training .hidden-skill-card-lv {
+        color: var(--muted);
       }
       body.page-training .passive-reset-btn {
         border-color: rgba(200, 146, 42, 0.45);
@@ -206,12 +191,31 @@
 
     <main class="layout">
       <section class="section passive-skills-section" id="passive-skills-section">
-        <div class="passive-stats-line chip chip-ghost" data-tutorial="training-points" aria-label="Очки по веткам и свободные">
-          <span>Воин / Тень / Мудрец</span>
-          <span id="passive-branch-pts">—</span>
-          <span class="passive-stats-sep" aria-hidden="true">·</span>
-          <span class="passive-free-pts-wrap">
-            <strong id="passive-free-pts" title="Свободные очки навыков">—</strong>
+        <div class="passive-tabs-row" data-tutorial="training-points" aria-label="Ветки и свободные очки">
+          <div class="passive-tabs" role="tablist" aria-label="Пассивные и скрытые навыки">
+            <button type="button" class="passive-tab active" data-training-tab="warrior" role="tab" aria-selected="true">
+              <span class="passive-tab-text" id="passive-tab-label-warrior">Воин 0</span>
+            </button>
+            <button type="button" class="passive-tab" data-training-tab="shadow" role="tab" aria-selected="false">
+              <span class="passive-tab-text" id="passive-tab-label-shadow">Тень 0</span>
+            </button>
+            <button type="button" class="passive-tab" data-training-tab="sage" role="tab" aria-selected="false">
+              <span class="passive-tab-text" id="passive-tab-label-sage">Мудрец 0</span>
+            </button>
+            <button
+              type="button"
+              class="passive-tab passive-tab--help"
+              data-training-tab="hidden"
+              role="tab"
+              aria-selected="false"
+              aria-label="Скрытые навыки"
+              title="Скрытые навыки"
+            >
+              <span class="passive-tab-ico passive-tab-ico--q" aria-hidden="true">?</span>
+            </button>
+          </div>
+          <div class="passive-free-pts-wrap" id="passive-free-pts-wrap" hidden>
+            <strong id="passive-free-pts" title="Свободные очки навыков">0</strong>
             <button
               type="button"
               id="passive-admin-max-all"
@@ -222,29 +226,7 @@
             >
               ⏫
             </button>
-          </span>
-        </div>
-        <div class="passive-tabs" role="tablist" aria-label="Пассивные и скрытые навыки">
-          <button type="button" class="passive-tab active" data-training-tab="warrior" role="tab" aria-selected="true">
-            <span class="passive-tab-ico" aria-hidden="true">⚔️</span> Воин
-          </button>
-          <button type="button" class="passive-tab" data-training-tab="shadow" role="tab" aria-selected="false">
-            <span class="passive-tab-ico" aria-hidden="true">🗡️</span> Тень
-          </button>
-          <button type="button" class="passive-tab" data-training-tab="sage" role="tab" aria-selected="false">
-            <span class="passive-tab-ico" aria-hidden="true">✨</span> Мудрец
-          </button>
-          <button
-            type="button"
-            class="passive-tab passive-tab--help"
-            data-training-tab="hidden"
-            role="tab"
-            aria-selected="false"
-            aria-label="Скрытые навыки"
-            title="Скрытые навыки"
-          >
-            <span class="passive-tab-ico passive-tab-ico--q" aria-hidden="true">?</span>
-          </button>
+          </div>
         </div>
         <div id="training-passive-view">
           <div id="passive-tree-root" class="passive-tree-root placeholder" data-tutorial="training-tree">Загрузка дерева…</div>
@@ -286,7 +268,6 @@
       <div class="modal-content passive-skill-modal-panel" onclick="event.stopPropagation()">
         <div class="modal-head passive-modal-head--skill">
           <div class="modal-title passive-modal-title-row">
-            <span id="hidden-skill-modal-icon" class="passive-modal-icon" aria-hidden="true"></span>
             <span id="hidden-skill-modal-title">—</span>
           </div>
           <button

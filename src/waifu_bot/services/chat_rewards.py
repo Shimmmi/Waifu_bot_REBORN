@@ -20,7 +20,12 @@ from waifu_bot.db.models import (
 from waifu_bot.game.constants import INT_EXP_BONUS_COEFF, LCK_GOLD_COEFF, MediaType
 from waifu_bot.game.main_waifu_base_stats import chat_exp_pct_for, chat_gold_pct_for
 from waifu_bot.services.game_config_service import cfg_int, get_game_config_map
-from waifu_bot.services.guild_skill_effects import effect_values_for_player
+from waifu_bot.services.guild_skill_effects import (
+    GUILD_SKILL_PARAM_LABELS,
+    effect_values_for_player,
+    guild_skill_contributions,
+    pct_bonus_lines_ru,
+)
 from waifu_bot.services.passive_skills import get_passive_skill_bonuses
 
 logger = logging.getLogger(__name__)
@@ -101,6 +106,29 @@ class ChatRewardBreakdown:
     gold_mult: float = 1.0
     exp_mult: float = 1.0
     sources: dict[str, float] = field(default_factory=dict)
+    source_labels_ru: dict[str, str] = field(default_factory=dict)
+    guild_bonus_lines: list[str] = field(default_factory=list)
+
+
+_CHAT_SOURCE_LABELS_RU: dict[str, str] = {
+    "luck_gold": "Удача",
+    "int_exp": "Интеллект",
+    "charm_social": "Обаяние",
+    "race_class_gold": "Раса/класс",
+    "race_class_exp": "Раса/класс",
+    "passive_chat_gold": "Пассивка",
+    "passive_chat_exp": "Пассивка",
+}
+
+
+def _source_label_ru(key: str) -> str:
+    if key in GUILD_SKILL_PARAM_LABELS:
+        return GUILD_SKILL_PARAM_LABELS[key]
+    if key.startswith("guild_"):
+        param = key.replace("guild_", "", 1)
+        if param in GUILD_SKILL_PARAM_LABELS:
+            return GUILD_SKILL_PARAM_LABELS[param]
+    return _CHAT_SOURCE_LABELS_RU.get(key, key)
 
 
 async def resolve_multipliers(
@@ -155,6 +183,7 @@ async def resolve_multipliers(
     except Exception:
         logger.exception("resolve_multipliers: passive bonuses failed player_id=%s", player_id)
 
+    guild_lines: list[str] = []
     try:
         gfx = await effect_values_for_player(session, player_id)
         chat_guild = float(gfx.get("chat_reward_pct", 0) or 0)
@@ -162,15 +191,27 @@ async def resolve_multipliers(
         if chat_guild > 0:
             gold_mult += chat_guild
             exp_mult += chat_guild
-            sources["guild_chat_reward"] = chat_guild
+            sources["chat_reward_pct"] = chat_guild
         if global_pct > 0:
             gold_mult += global_pct
             exp_mult += global_pct
-            sources["guild_global_reward"] = global_pct
+            sources["global_reward_pct"] = global_pct
+        guild_lines = pct_bonus_lines_ru(
+            await guild_skill_contributions(
+                session, player_id, params={"chat_reward_pct", "global_reward_pct"}
+            )
+        )
     except Exception:
         logger.exception("resolve_multipliers: guild effects failed player_id=%s", player_id)
 
-    return ChatRewardBreakdown(gold_mult=gold_mult, exp_mult=exp_mult, sources=sources)
+    source_labels_ru = {k: _source_label_ru(k) for k, v in sources.items() if v}
+    return ChatRewardBreakdown(
+        gold_mult=gold_mult,
+        exp_mult=exp_mult,
+        sources=sources,
+        source_labels_ru=source_labels_ru,
+        guild_bonus_lines=guild_lines,
+    )
 
 
 def _points_to_rewards(points: int, cfg: dict[str, str], br: ChatRewardBreakdown) -> tuple[int, int]:
@@ -422,7 +463,7 @@ async def flush_buffer_to_db(session: AsyncSession, redis: Any) -> int:
                 player_id = int(suffix)
             except ValueError:
                 continue
-            if await _flush_player_buffer(session, player_id, redis, cfg):
+            if await _flush_player_buffer(session, redis, player_id, cfg):
                 flushed += 1
     except Exception:
         logger.exception("flush_buffer_to_db scan failed")
@@ -443,6 +484,7 @@ class ClaimResult:
     level_before: int = 1
     level_after: int = 1
     items: list[dict[str, Any]] = field(default_factory=list)
+    guild_bonus_lines: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -473,6 +515,7 @@ async def claim_wallet(session: AsyncSession, redis: Any, player_id: int) -> Cla
 
     level_before = int(waifu.level or 1)
     items_out: list[dict[str, Any]] = []
+    br = await resolve_multipliers(session, player_id)
 
     if gold > 0:
         player.gold = int(player.gold or 0) + gold
@@ -533,6 +576,7 @@ async def claim_wallet(session: AsyncSession, redis: Any, player_id: int) -> Cla
         level_before=level_before,
         level_after=level_after,
         items=items_out,
+        guild_bonus_lines=list(br.guild_bonus_lines),
     )
 
 
@@ -587,6 +631,8 @@ async def get_status(session: AsyncSession, redis: Any, player_id: int) -> dict[
             "gold_mult": round(br.gold_mult, 4),
             "exp_mult": round(br.exp_mult, 4),
             "sources": {k: round(v, 4) for k, v in br.sources.items()},
+            "source_labels_ru": br.source_labels_ru,
         },
+        "guild_bonus_lines": br.guild_bonus_lines,
         "claimable": wallet_gold > 0 or wallet_exp > 0 or pending_chests > 0,
     }

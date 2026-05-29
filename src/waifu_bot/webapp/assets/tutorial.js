@@ -9,6 +9,88 @@
   const SESSION_SEEN_PREFIX = "waifu_tutorial_seen_";
 
   const TUTORIAL_FLOWS = {
+    waifu_gen: {
+      page: "waifu_generator",
+      steps: [
+        {
+          id: "wg_welcome",
+          target: null,
+          image: "greeting",
+          text: "Создадим твою основную вайфу. Сначала имя, затем раса и класс — это определит стартовые характеристики и пассивные навыки.",
+        },
+        {
+          id: "wg_name",
+          target: "[data-tutorial='waifu-gen-name']",
+          image: "explaining",
+          text: "Введи имя — оно отобразится в профиле и сообщениях боёв.",
+        },
+        {
+          id: "wg_race",
+          target: "[data-tutorial='waifu-gen-race']",
+          image: "excited",
+          text: "Раса задаёт стартовые бонусы характеристик и уникальный расовый пассив. Иконки слева направо: Человек, Эльф, Зверолюд, Ангел, Вампир, Демон, Фея.",
+        },
+        {
+          id: "wg_class",
+          target: "[data-tutorial='waifu-gen-class']",
+          image: "explaining",
+          text: "Класс — боевой стиль и второй уникальный пассив. От класса зависят бонусы к ключевым характеристикам.",
+        },
+        {
+          id: "wg_stats",
+          target: "[data-tutorial='waifu-gen-stats']",
+          image: "thinking",
+          text: "Радар-диаграмма показывает баланс шести характеристик: СИЛ, ЛОВ, ИНТ, ВЫН, ОБА, УДЧ. Они влияют на урон, защиту и шансы в бою.",
+        },
+        {
+          id: "wg_passives",
+          target: "[data-tutorial='waifu-gen-passives']",
+          image: "excited",
+          text: "Здесь — твои уникальные пассивы. Нажми на карточку, чтобы прочитать формулы и условия срабатывания.",
+        },
+        {
+          id: "wg_next",
+          target: "#waifu-next-btn",
+          image: "waving",
+          text: "Готов? Жми «Далее» — настроим внешность и сгенерируем портрет.",
+        },
+      ],
+    },
+    waifu_gen_step2: {
+      page: "waifu_generator_step2",
+      steps: [
+        {
+          id: "wgs2_welcome",
+          target: null,
+          image: "greeting",
+          text: "Шаг 2 — внешность и портрет. Настрой облик и сгенерируй до трёх вариантов.",
+        },
+        {
+          id: "wgs2_cos",
+          target: "[data-tutorial='waifu-gen-cos-bar']",
+          image: "explaining",
+          text: "Волосы, глаза, одежда и аксессуары — открываются модалками. Выбор отражается в промте генерации.",
+        },
+        {
+          id: "wgs2_portrait",
+          target: "#waifu-portrait-frame",
+          image: "thinking",
+          text: "Здесь появится сгенерированный портрет. Можно выбрать один из вариантов внизу.",
+        },
+        {
+          id: "wgs2_generate",
+          target: "#waifu-generate-btn",
+          image: "excited",
+          text: "«Сгенерировать» — создаёт новый вариант. Доступно до 3 попыток.",
+        },
+        {
+          id: "wgs2_create",
+          target: "#waifu-create-btn",
+          image: "waving",
+          text: "Когда вариант понравится — «В игру». Вайфу будет создана и появится в профиле.",
+        },
+      ],
+    },
     intro: {
       page: "profile",
       steps: [
@@ -653,7 +735,7 @@
       if (flow.page === page) return forced;
       return null;
     }
-    if (page === "index" || page === "settings" || page === "waifu_generator" || page === "battle" || page === "mail") {
+    if (page === "index" || page === "settings" || page === "battle" || page === "mail") {
       return null;
     }
     const ts = normalizeTutorialState(tutorialState);

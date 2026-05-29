@@ -47,6 +47,39 @@ def test_base_trace_steps_contain_media_and_stat_labels():
     assert "СИЛ" not in labels
 
 
+def test_base_trace_weapon_breakdown_label():
+    # Dual-wield components surface as "= {base} ({mh}MH+{oh}OH)".
+    _, steps = build_message_damage_base_trace_ru(
+        MediaType.TEXT,
+        10,
+        10,
+        10,
+        "melee",
+        0,
+        20,
+        weapon_main=15,
+        weapon_offhand=5,
+    )
+    base_label = next(s["label_ru"] for s in steps if s.get("source") == "message_base")
+    assert base_label == "База: урон оружия = 20 (15MH+5OH)"
+
+
+def test_base_trace_weapon_breakdown_mainhand_only():
+    _, steps = build_message_damage_base_trace_ru(
+        MediaType.TEXT,
+        10,
+        10,
+        10,
+        "melee",
+        0,
+        20,
+        weapon_main=20,
+        weapon_offhand=0,
+    )
+    base_label = next(s["label_ru"] for s in steps if s.get("source") == "message_base")
+    assert base_label == "База: урон оружия = 20 (20MH)"
+
+
 def test_text_length_step_when_long():
     _, steps = build_message_damage_base_trace_ru(
         MediaType.TEXT,

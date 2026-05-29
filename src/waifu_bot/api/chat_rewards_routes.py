@@ -45,4 +45,5 @@ async def chat_rewards_claim(
         "level_after": result.level_after,
         "level_up": result.level_after > result.level_before,
         "items": result.items,
+        "guild_bonus_lines": result.guild_bonus_lines,
     }

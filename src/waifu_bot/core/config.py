@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     # Базовый URL Bot API через Cloudflare Worker (путь включает секретный префикс). Имеет приоритет над TELEGRAM_BOT_PROXY.
     # Пример: https://my-worker.xxx.workers.dev/myRandomPrefix
     telegram_api_base_url: str | None = Field(None, alias="TELEGRAM_API_BASE_URL")
+    # JWKS для Armory OIDC login; если не задан — берётся TELEGRAM_API_BASE_URL/oauth/.well-known/jwks.json
+    telegram_oidc_jwks_url: str | None = Field(None, alias="TELEGRAM_OIDC_JWKS_URL")
     # Исходящие запросы Bot API только через прокси (SOCKS5/HTTP). Пример: socks5://user:pass@host:1080
     telegram_bot_proxy: str | None = Field(None, alias="TELEGRAM_BOT_PROXY")
     webhook_drop_pending: bool = Field(True, alias="WEBHOOK_DROP_PENDING")
@@ -101,6 +103,14 @@ class Settings(BaseSettings):
     # Legacy GD (удалён): переменные оставлены, чтобы старые .env не ломали загрузку настроек
     gd_skip_activity_check: bool = Field(False, alias="GD_SKIP_ACTIVITY_CHECK")
     gd_dev_admin_any_chat: bool = Field(False, alias="GD_DEV_ADMIN_ANY_CHAT")
+
+    # Armory web portal (browser, not Telegram WebApp)
+    armory_session_secret: str | None = Field(None, alias="ARMORY_SESSION_SECRET")
+    armory_cookie_domain: str | None = Field(None, alias="ARMORY_COOKIE_DOMAIN")
+    armory_public_origin: str = Field("https://shimmirpgbot.ru", alias="ARMORY_PUBLIC_ORIGIN")
+    armory_oidc_redirect_uri: str | None = Field(None, alias="ARMORY_OIDC_REDIRECT_URI")
+    bot_username: str | None = Field(None, alias="BOT_USERNAME")
+    telegram_oidc_client_id: str | None = Field(None, alias="TELEGRAM_OIDC_CLIENT_ID")
 
     @field_validator("admin_ids", mode="before")
     @classmethod
@@ -163,6 +173,20 @@ class Settings(BaseSettings):
             if short_id in allowed:
                 return True
         return False
+
+    def is_admin(self, tg_id: int) -> bool:
+        """Check if Telegram user id is an administrator."""
+        legacy_admin = 305174198
+        return tg_id in self.admin_ids or tg_id == legacy_admin
+
+    @property
+    def armory_session_key(self) -> str:
+        """Secret for Armory JWT sessions; falls back to webhook_secret in dev."""
+        if self.armory_session_secret:
+            return self.armory_session_secret
+        if self.environment in ("dev", "testing"):
+            return self.webhook_secret
+        raise ValueError("ARMORY_SESSION_SECRET is required in production")
 
 settings = Settings()
 

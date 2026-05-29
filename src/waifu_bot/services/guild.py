@@ -15,6 +15,7 @@ from waifu_bot.db.models import (
     GuildLevelThreshold,
     MainWaifu,
     InventoryItem,
+    InventoryAffix,
     Item,
     ItemType,
 )
@@ -289,25 +290,37 @@ class GuildService:
         # Check bank space
         guild = await session.get(Guild, member.guild_id)
         bank_count = await self._get_bank_item_count(session, member.guild_id)
-        if bank_count >= guild.max_bank_items:
+        from waifu_bot.services.guild_skill_effects import effective_max_bank_items
+
+        max_items = await effective_max_bank_items(session, member.guild_id, int(guild.max_bank_items))
+        if bank_count >= max_items:
             return {"error": "bank_full"}
 
-        # Move to bank
-        bank_item = GuildBank(guild_id=member.guild_id, item_id=inv_item.item_id)
+        # Park instance in bank (player_id=None), keep affixes/enchant data
+        inv_item.player_id = None
+        inv_item.equipment_slot = None
+        bank_item = GuildBank(
+            guild_id=member.guild_id,
+            item_id=inv_item.item_id,
+            inventory_item_id=inv_item.id,
+        )
         session.add(bank_item)
         item_name = "Предмет"
         if inv_item.item_id:
             item_row = await session.get(Item, inv_item.item_id)
             if item_row and item_row.name:
                 item_name = item_row.name
-        await session.delete(inv_item)
 
         from waifu_bot.services.guild_activity import log_bank_deposit_item
 
         await log_bank_deposit_item(session, member.guild_id, player_id, item_name)
         await session.commit()
 
-        return {"success": True, "item_id": inv_item.item_id}
+        return {
+            "success": True,
+            "item_id": inv_item.item_id,
+            "inventory_item_id": inv_item.id,
+        }
 
     async def withdraw_item(
         self, session: AsyncSession, player_id: int, bank_item_id: int
@@ -327,9 +340,28 @@ class GuildService:
             if item_row and item_row.name:
                 item_name = item_row.name
 
-        # Add to player inventory
-        inv_item = InventoryItem(player_id=player_id, item_id=bank_item.item_id)
-        session.add(inv_item)
+        out_inventory_item_id: int | None = None
+        if bank_item.inventory_item_id:
+            stmt = (
+                select(InventoryItem)
+                .where(InventoryItem.id == bank_item.inventory_item_id)
+                .options(selectinload(InventoryItem.item))
+            )
+            parked = (await session.execute(stmt)).scalar_one_or_none()
+            if not parked or parked.player_id is not None:
+                return {"error": "item_not_found"}
+            parked.player_id = player_id
+            parked.equipment_slot = None
+            out_inventory_item_id = int(parked.id)
+        else:
+            item_row = await session.get(Item, bank_item.item_id)
+            if not item_row:
+                return {"error": "item_not_found"}
+            parked = await self._create_inventory_from_item_template(
+                session, player_id=player_id, item_row=item_row, item_id=bank_item.item_id
+            )
+            out_inventory_item_id = int(parked.id)
+
         await session.delete(bank_item)
 
         from waifu_bot.services.guild_activity import log_bank_withdraw_item
@@ -337,7 +369,11 @@ class GuildService:
         await log_bank_withdraw_item(session, member.guild_id, player_id, item_name)
         await session.commit()
 
-        return {"success": True, "item_id": bank_item.item_id}
+        return {
+            "success": True,
+            "item_id": bank_item.item_id,
+            "inventory_item_id": out_inventory_item_id,
+        }
 
 
     def _slot_type_for_guild_bank_item(self, item: Item) -> str:
@@ -356,6 +392,111 @@ class GuildService:
         if it == int(ItemType.AMULET):
             return "amulet"
         return "other"
+
+    async def _create_inventory_from_item_template(
+        self,
+        session: AsyncSession,
+        *,
+        player_id: int,
+        item_row: Item,
+        item_id: int,
+    ) -> InventoryItem:
+        """Legacy bank rows: rebuild a minimal inventory instance from items template."""
+        from waifu_bot.services.passive_skills import normalize_passive_level_affix_value
+
+        slot_type = self._slot_type_for_guild_bank_item(item_row)
+        dmg = int(item_row.damage) if item_row.damage is not None else None
+        inv_item = InventoryItem(
+            player_id=player_id,
+            item_id=item_id,
+            rarity=int(item_row.rarity),
+            tier=int(item_row.tier),
+            level=int(item_row.level),
+            is_legendary=bool(item_row.is_legendary),
+            damage_min=dmg,
+            damage_max=dmg,
+            attack_speed=item_row.attack_speed,
+            attack_type=item_row.attack_type,
+            weapon_type=item_row.weapon_type,
+            slot_type=slot_type if slot_type != "other" else None,
+            requirements={
+                k: v
+                for k, v in {
+                    "level": item_row.required_level,
+                    "strength": item_row.required_strength,
+                    "agility": item_row.required_agility,
+                    "intelligence": item_row.required_intelligence,
+                }.items()
+                if v is not None
+            }
+            or None,
+        )
+        session.add(inv_item)
+        await session.flush()
+
+        raw_aff = getattr(item_row, "affixes", None)
+        if isinstance(raw_aff, list):
+            for a in raw_aff:
+                if not isinstance(a, dict):
+                    continue
+                st = str(a.get("stat") or "")
+                try:
+                    raw_v = int(str(a.get("value", "0")))
+                except Exception:
+                    raw_v = 0
+                v = normalize_passive_level_affix_value(st, raw_v)
+                kind = str(a.get("kind") or "affix")
+                inv_item.affixes.append(
+                    InventoryAffix(
+                        inventory_item_id=inv_item.id,
+                        name=str(a.get("name") or ""),
+                        stat=st,
+                        value=str(v),
+                        is_percent=bool(a.get("is_percent", False)),
+                        kind=kind,
+                        tier=int(a.get("tier") or 1),
+                    )
+                )
+        await session.flush()
+        return inv_item
+
+    def _bank_preview_entry(
+        self,
+        *,
+        bank_row: GuildBank,
+        item_id: int,
+        serialized: dict[str, Any],
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "bank_item_id": int(bank_row.id),
+            "item_id": int(item_id),
+            "name": serialized.get("name"),
+            "display_name": serialized.get("display_name"),
+            "description": description,
+            "rarity": serialized.get("rarity"),
+            "level": serialized.get("level"),
+            "tier": serialized.get("tier"),
+            "damage_min": serialized.get("damage_min"),
+            "damage_max": serialized.get("damage_max"),
+            "damage_min_effective": serialized.get("damage_min_effective"),
+            "damage_max_effective": serialized.get("damage_max_effective"),
+            "attack_speed": serialized.get("attack_speed"),
+            "attack_type": serialized.get("attack_type"),
+            "weapon_type": serialized.get("weapon_type"),
+            "armor_base": serialized.get("armor_base"),
+            "armor_effective": serialized.get("armor_effective"),
+            "secondary_bonus_type": serialized.get("secondary_bonus_type"),
+            "secondary_bonus_value": serialized.get("secondary_bonus_value"),
+            "secondary_bonus_effective": serialized.get("secondary_bonus_effective"),
+            "enchant_level": serialized.get("enchant_level", 0),
+            "slot_type": serialized.get("slot_type"),
+            "affixes": serialized.get("affixes") or [],
+            "requirements": serialized.get("requirements"),
+            "image_key": serialized.get("image_key"),
+            "art_key": serialized.get("art_key"),
+            "image_url": serialized.get("image_url"),
+        }
 
     async def _guild_bank_template_stats_map(
         self, session: AsyncSession, items: list[Item]
@@ -395,6 +536,10 @@ class GuildService:
     async def list_bank_items_preview(self, session: AsyncSession, player_id: int) -> dict[str, Any]:
         """Слоты банка гильдии в формате, близком к инвентарю / магазину (для WebApp)."""
         from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
+        from waifu_bot.services.inventory_payload import (
+            enrich_inventory_items_with_template_stats,
+            serialize_inventory_item,
+        )
         from waifu_bot.services.item_art import derive_image_key, derive_item_art_key
         from waifu_bot.services.enchanting import get_effective_params
         from waifu_bot.services.passive_skills import normalize_passive_level_affix_value
@@ -405,14 +550,40 @@ class GuildService:
         stmt = (
             select(GuildBank)
             .where(GuildBank.guild_id == member.guild_id)
-            .options(selectinload(GuildBank.item))
+            .options(
+                selectinload(GuildBank.item),
+                selectinload(GuildBank.inventory_item).selectinload(InventoryItem.item),
+                selectinload(GuildBank.inventory_item).selectinload(InventoryItem.affixes),
+            )
             .order_by(GuildBank.id.desc())
         )
         rows = (await session.execute(stmt)).scalars().all()
-        item_objs = [r.item for r in rows if r.item is not None]
-        stats_map = await self._guild_bank_template_stats_map(session, item_objs)
+
+        parked: list[InventoryItem] = [
+            r.inventory_item for r in rows if r.inventory_item is not None
+        ]
+        if parked:
+            await enrich_inventory_items_with_template_stats(session, parked)
+
+        legacy_items = [r.item for r in rows if r.inventory_item is None and r.item is not None]
+        stats_map = await self._guild_bank_template_stats_map(session, legacy_items)
         payload: list[dict[str, Any]] = []
         for row in rows:
+            if row.inventory_item is not None:
+                inv = row.inventory_item
+                serialized = serialize_inventory_item(inv)
+                item_id = int(inv.item_id or row.item_id)
+                desc = inv.item.description if inv.item else None
+                payload.append(
+                    self._bank_preview_entry(
+                        bank_row=row,
+                        item_id=item_id,
+                        serialized=serialized,
+                        description=desc,
+                    )
+                )
+                continue
+
             item = row.item
             if not item:
                 continue

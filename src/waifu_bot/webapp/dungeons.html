@@ -9,6 +9,7 @@
     <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
     <script defer src="/webapp/app.js"></script>
+    <script defer src="/webapp/pages/dungeons.js"></script>
     <style>
       /* ОЧ — палитра как в магазине / таверне, читаемый текст */
       body.page-dungeons {
@@ -121,9 +122,56 @@
         gap: 4px;
         flex-shrink: 0;
       }
-      .page-dungeons .dungeon-admin-group {
+      .page-dungeons .dungeon-admin-group,
+      .page-dungeons .solo-dungeon-admin {
         display: flex;
         gap: 4px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      .page-dungeons .solo-dungeon-admin {
+        margin: 8px 0 4px;
+        padding: 0 4px;
+      }
+      .page-dungeons #admin-deal-damage-modal .admin-media-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+      .page-dungeons #admin-deal-damage-modal .admin-media-btn {
+        padding: 10px 8px;
+        border-radius: 10px;
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        background: rgba(255, 255, 255, 0.04);
+        color: #d4c4b0;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: center;
+      }
+      .page-dungeons #admin-deal-damage-modal .admin-media-btn:hover {
+        border-color: rgba(200, 146, 42, 0.5);
+        color: #e8b84b;
+        background: rgba(200, 146, 42, 0.12);
+      }
+      .page-dungeons #admin-deal-damage-modal .admin-text-len-row {
+        margin-top: 12px;
+      }
+      .page-dungeons #admin-deal-damage-modal .admin-text-len-row label {
+        display: block;
+        font-size: 12px;
+        color: #9a8a7a;
+        margin-bottom: 6px;
+      }
+      .page-dungeons #admin-deal-damage-modal .admin-text-len-row input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.2);
+        background: rgba(0, 0, 0, 0.25);
+        color: #e8dcc8;
+        font-size: 14px;
       }
       .page-dungeons .dungeon-tab-sm {
         flex: 0 0 32px;
@@ -402,6 +450,33 @@
         white-space: pre-wrap;
       }
 
+      /* Админ: выбор типа урона — тёмная тема (как reward-modal) */
+      .page-dungeons #admin-deal-damage-modal .modal-content {
+        max-width: 320px;
+        background: linear-gradient(165deg, rgba(28, 22, 16, 0.98), rgba(12, 9, 6, 0.99));
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        color: #e8dcc8;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+      }
+      .page-dungeons #admin-deal-damage-modal .modal-title {
+        color: #e8b84b;
+      }
+      .page-dungeons #admin-deal-damage-modal .modal-body .muted {
+        color: rgba(232, 220, 200, 0.72) !important;
+      }
+      .page-dungeons #admin-deal-damage-modal .modal-head button.secondary,
+      .page-dungeons #admin-deal-damage-modal .modal-footer .secondary {
+        background: rgba(26, 20, 14, 0.9);
+        border: 1px solid rgba(200, 146, 42, 0.28);
+        color: #d4c4b0;
+      }
+      .page-dungeons #admin-deal-damage-modal .modal-head button.secondary:hover,
+      .page-dungeons #admin-deal-damage-modal .modal-footer .secondary:hover {
+        border-color: rgba(200, 146, 42, 0.5);
+        color: #e8b84b;
+        background: rgba(200, 146, 42, 0.12);
+      }
+
       /* Сюжет при первом входе в подземелье — пергамент: бежевый фон, коричневая рамка, коричневый текст */
       .page-dungeons #dungeon-story-modal .modal-content {
         max-width: 420px;
@@ -540,6 +615,23 @@
         background: #221c16;
         transition: border-color 0.15s, transform 0.12s;
         position: relative;
+      }
+      /* Цветная рамка по количеству «сложностей»: от зелёной (1) до фиолетовой (5).
+         Объявлено до :hover/.exp-is-active, чтобы те состояния перекрывали цвет. */
+      .exp-card-item.exp-diff-count-1 {
+        border-color: rgba(74, 222, 128, 0.6);
+      }
+      .exp-card-item.exp-diff-count-2 {
+        border-color: rgba(45, 212, 191, 0.6);
+      }
+      .exp-card-item.exp-diff-count-3 {
+        border-color: rgba(96, 165, 250, 0.6);
+      }
+      .exp-card-item.exp-diff-count-4 {
+        border-color: rgba(167, 139, 250, 0.65);
+      }
+      .exp-card-item.exp-diff-count-5 {
+        border-color: rgba(217, 70, 239, 0.72);
       }
       .exp-card-item:hover {
         border-color: rgba(200, 146, 42, 0.4);
@@ -1633,12 +1725,6 @@
             </div>
             <div class="dungeon-tabs-actions">
               <button type="button" id="solo-exit-btn" class="dungeon-tab-sm solo-exit-btn" style="display:none;" title="Покинуть подземелье" aria-label="Покинуть подземелье" onclick="WaifuApp.openExitDungeonConfirm()">🏳️</button>
-              <div class="dungeon-admin-group admin-only" id="dungeons-admin-buttons" style="display:none;">
-                <button type="button" class="dungeon-tab-sm" title="Убить монстра" aria-label="Убить монстра" onclick="WaifuApp.adminKillMonster()">💀</button>
-                <button type="button" class="dungeon-tab-sm" title="Пройти данж" aria-label="Пройти данж" onclick="WaifuApp.adminCompleteDungeon()">🏁</button>
-                <button type="button" class="dungeon-tab-sm" title="Восстановить HP и энергию" aria-label="Восстановить HP и энергию" onclick="WaifuApp.adminRestoreHpEnergy()" style="color:#22c55e;">➕</button>
-                <button type="button" class="dungeon-tab-sm" title="Сгенерировать изображение монстра (admin)" aria-label="Сгенерировать изображение монстра" onclick="WaifuApp.adminGenerateMonsterArt()">🖼</button>
-              </div>
             </div>
           </div>
 
@@ -1658,9 +1744,8 @@
                    data-tier="1"
                    role="img"
                    aria-label="Изображение монстра">
-                <div class="monster-name-header">
-                  <span class="monster-name-text" id="monster-name-text">—</span>
-                  <span class="monster-name-level" id="monster-name-level"></span>
+                <div class="monster-overlay-top">
+                  <span class="monster-name-badge monster-name-level" id="monster-name-level"></span>
                 </div>
                 <div class="monster-placeholder" id="monster-placeholder">
                   <span id="monster-emoji" aria-hidden="true">👾</span>
@@ -1676,7 +1761,10 @@
                      decoding="async"
                      onload="WaifuApp.onMonsterImageLoad(this)"
                      onerror="WaifuApp.onMonsterImageError(this)" />
-                <div class="monster-type-badge" id="monster-name-type" style="display:none;" aria-label="Тип монстра"></div>
+                <div class="monster-overlay-bottom">
+                  <span class="monster-name-badge monster-name-text" id="monster-name-text">—</span>
+                  <div class="monster-type-badge" id="monster-name-type" style="display:none;" aria-label="Тип монстра"></div>
+                </div>
               </div>
 
               <div class="hp-bar-wrap" aria-label="HP монстра">
@@ -1699,6 +1787,15 @@
                 <div class="hp-bar">
                   <div id="solo-waifu-hp-fill" class="hp-fill hp-fill-waifu" style="width:100%"></div>
                 </div>
+              </div>
+
+              <div class="solo-dungeon-admin admin-only" id="solo-dungeons-admin-buttons" style="display:none;" aria-label="Админ: соло-бой">
+                <button type="button" class="dungeon-tab-sm" title="Убить монстра" aria-label="Убить монстра" onclick="WaifuApp.adminKillMonster()">💀</button>
+                <button type="button" class="dungeon-tab-sm" title="Пройти данж" aria-label="Пройти данж" onclick="WaifuApp.adminCompleteDungeon()">🏁</button>
+                <button type="button" class="dungeon-tab-sm" title="Восстановить HP и энергию" aria-label="Восстановить HP и энергию" onclick="WaifuApp.adminRestoreHpEnergy()" style="color:#22c55e;">➕</button>
+                <button type="button" class="dungeon-tab-sm" title="Сгенерировать изображение монстра (admin)" aria-label="Сгенерировать изображение монстра" onclick="WaifuApp.adminGenerateMonsterArt()">🖼</button>
+                <button type="button" class="dungeon-tab-sm" title="Нанести урон (тип сообщения)" aria-label="Нанести урон" onclick="WaifuApp.openAdminDealDamageModal()">⚔️</button>
+                <button type="button" class="dungeon-tab-sm" title="Получить урон (реторс монстра; при смерти HP→1, данж не завершается)" aria-label="Получить урон" onclick="WaifuApp.adminTakeDamage()">🛡️</button>
               </div>
 
               <div id="unconscious-banner" class="banner banner-danger" style="display:none;" role="alert">
@@ -1896,6 +1993,37 @@
         <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
         <a href="./index.html" data-page="menu" title="Главное меню"><span aria-hidden="true">🏠</span></a>
       </nav>
+
+      <!-- Admin: simulate outgoing damage by media type -->
+      <div id="admin-deal-damage-modal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-label="Нанести урон">
+        <div class="modal-content">
+          <div class="modal-head">
+            <div class="modal-title">Нанести урон</div>
+            <button type="button" class="secondary" onclick="WaifuApp.closeAdminDealDamageModal()" aria-label="Закрыть">✖</button>
+          </div>
+          <div class="modal-body">
+            <p class="muted tiny" style="margin:0 0 10px;">Тип сообщения (как в групповом чате)</p>
+            <div class="admin-media-grid">
+              <button type="button" class="admin-media-btn" data-media-type="1" onclick="WaifuApp.adminDealDamage(1)">Текст</button>
+              <button type="button" class="admin-media-btn" data-media-type="8" onclick="WaifuApp.adminDealDamage(8)">Ссылки</button>
+              <button type="button" class="admin-media-btn" data-media-type="2" onclick="WaifuApp.adminDealDamage(2)">Стикеры</button>
+              <button type="button" class="admin-media-btn" data-media-type="3" onclick="WaifuApp.adminDealDamage(3)">Фото</button>
+              <button type="button" class="admin-media-btn" data-media-type="4" onclick="WaifuApp.adminDealDamage(4)">GIF</button>
+              <button type="button" class="admin-media-btn" data-media-type="5" onclick="WaifuApp.adminDealDamage(5)">Аудио</button>
+              <button type="button" class="admin-media-btn" data-media-type="7" onclick="WaifuApp.adminDealDamage(7)">Голосовые</button>
+              <button type="button" class="admin-media-btn" data-media-type="6" onclick="WaifuApp.adminDealDamage(6)">Видео</button>
+            </div>
+            <div class="admin-text-len-row" id="admin-deal-damage-text-len-row">
+              <label for="admin-deal-damage-text-len">Длина сообщения (текст / ссылка)</label>
+              <input type="number" id="admin-deal-damage-text-len" min="1" max="500" value="50" />
+              <p class="muted tiny" style="margin:6px 0 0;">Должна быть ≥ мин. длины оружия</p>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="secondary" onclick="WaifuApp.closeAdminDealDamageModal()">Отмена</button>
+          </div>
+        </div>
+      </div>
 
       <!-- Exit dungeon confirmation modal -->
       <div id="exit-dungeon-modal" class="modal" style="display:none;">

@@ -148,6 +148,98 @@ class SoloCombatPrimaryFourResult:
     hidden_skill_bonuses: dict[str, float]
 
 
+@dataclass
+class EquippedWeaponProfile:
+    """Deterministic weapon base for profile damage indicators (no RNG)."""
+
+    attack_type: str | None  # melee / ranged / magic; None when unarmed
+    damage_min: int | None
+    damage_max: int | None
+    damage_avg: float
+
+
+def infer_weapon_attack_type(inv: InventoryItem) -> str:
+    """Map attack_type / weapon_type / slot_type to melee|ranged|magic."""
+    at = (getattr(inv, "attack_type", None) or "").lower()
+    if at in ("melee", "ranged", "magic"):
+        return at
+    wt = (getattr(inv, "weapon_type", None) or "").lower()
+    if wt in ("bow", "crossbow"):
+        return "ranged"
+    if wt in ("staff", "wand", "orb"):
+        return "magic"
+    if wt in ("sword", "dagger", "axe", "mace", "hammer"):
+        return "melee"
+    st = (getattr(inv, "slot_type", None) or "").lower()
+    if "weapon" in st:
+        return "melee"
+    return "melee"
+
+
+def _weapon_damage_bounds(inv: InventoryItem) -> tuple[int | None, int | None]:
+    """Effective enchanted damage min/max for a single inventory item."""
+    try:
+        ep = get_effective_params(inv, armor_base=0, secondary_bonus_value=0.0)
+        dmin = ep.get("damage_min")
+        dmax = ep.get("damage_max")
+    except Exception:
+        dmin = getattr(inv, "damage_min", None)
+        dmax = getattr(inv, "damage_max", None)
+    if dmin is None and dmax is None:
+        return None, None
+    lo = int(dmin if dmin is not None else dmax)
+    hi = int(dmax if dmax is not None else dmin)
+    if hi < lo:
+        lo, hi = hi, lo
+    if hi <= 0 and lo <= 0:
+        return None, None
+    return lo, hi
+
+
+def resolve_equipped_weapon_for_profile(equipped: list[InventoryItem]) -> EquippedWeaponProfile:
+    """
+    Weapon base min/max/avg for profile «Урон ближний/дальний/магич.».
+    Dual-wield: main-hand bounds + off-hand bounds // 2 (weapon_1h in slot 2 only).
+    """
+    unarmed = EquippedWeaponProfile(None, None, None, 0.0)
+    if not equipped:
+        return unarmed
+
+    mainhand = None
+    offhand = None
+    for inv in equipped:
+        slot = int(getattr(inv, "equipment_slot", 0) or 0)
+        if slot == 1:
+            mainhand = inv
+        elif slot == 2:
+            offhand = inv
+
+    mh_min, mh_max = _weapon_damage_bounds(mainhand) if mainhand is not None else (None, None)
+    oh_min, oh_max = _weapon_damage_bounds(offhand) if offhand is not None else (None, None)
+
+    if mh_min is not None or mh_max is not None:
+        lo = int(mh_min if mh_min is not None else mh_max)
+        hi = int(mh_max if mh_max is not None else mh_min)
+        attack_type = infer_weapon_attack_type(mainhand)
+        if (
+            offhand is not None
+            and str(getattr(offhand, "slot_type", "") or "") == "weapon_1h"
+            and (oh_min is not None or oh_max is not None)
+        ):
+            oh_lo = int(oh_min if oh_min is not None else oh_max)
+            oh_hi = int(oh_max if oh_max is not None else oh_min)
+            lo += oh_lo // 2
+            hi += oh_hi // 2
+        return EquippedWeaponProfile(attack_type, lo, hi, (lo + hi) / 2.0)
+
+    if oh_min is not None or oh_max is not None:
+        lo = int(oh_min if oh_min is not None else oh_max)
+        hi = int(oh_max if oh_max is not None else oh_min)
+        return EquippedWeaponProfile(infer_weapon_attack_type(offhand), lo, hi, (lo + hi) / 2.0)
+
+    return unarmed
+
+
 async def resolve_solo_combat_primary_four(
     session: AsyncSession,
     player_id: int,
@@ -225,6 +317,12 @@ def roll_weapon_damage_and_meta(
         except Exception:
             return None
 
+    # Components of the base weapon damage, for combat-log breakdown
+    # ("Базовый урон = 20 (15MH+5OH)"). None => unarmed (no breakdown).
+    wpn_main: int | None = None
+    wpn_off: int | None = None
+    primary_is_offhand = False
+
     if mainhand is not None:
         try:
             min_chars = max(1, min(10, int(getattr(mainhand, "attack_speed", 1) or 1)))
@@ -243,18 +341,39 @@ def roll_weapon_damage_and_meta(
         if at in ("melee", "ranged", "magic"):
             attack_type = at
         weapon_damage = _roll_damage(offhand)
+        primary_is_offhand = weapon_damage is not None
 
     if weapon_damage is None:
         weapon_damage = 1
         min_chars = 1
+    else:
+        # A weapon provided the primary roll. Attribute it to MH, unless the
+        # off-hand is the sole weapon.
+        if primary_is_offhand:
+            wpn_off = int(weapon_damage)
+            wpn_main = 0
+        else:
+            wpn_main = int(weapon_damage)
+            wpn_off = 0
 
-    if offhand is not None and str(getattr(offhand, "slot_type", "") or "") == "weapon_1h":
+    # Dual wield: add half the off-hand roll ONLY when a main hand exists. If the off-hand
+    # is the sole weapon, it already provided the full primary roll above — adding the bonus
+    # here too would double-count its damage.
+    if (
+        mainhand is not None
+        and offhand is not None
+        and str(getattr(offhand, "slot_type", "") or "") == "weapon_1h"
+    ):
         off = _roll_damage(offhand)
         if off is not None:
-            weapon_damage = int(weapon_damage) + int(off // 2)
+            bonus = int(off // 2)
+            weapon_damage = int(weapon_damage) + bonus
+            wpn_off = int(wpn_off or 0) + bonus
 
     return {
         "attack_type": attack_type,
         "weapon_damage": weapon_damage,
         "min_chars": min_chars,
+        "weapon_damage_main": wpn_main,
+        "weapon_damage_offhand": wpn_off,
     }

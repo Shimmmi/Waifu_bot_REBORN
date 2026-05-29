@@ -73,6 +73,17 @@ async def hidden_skills(
                 effect_values=list(x.get("effect_values") or []),
                 current_effects=dict(x.get("current_effects") or {}),
                 next_effects=x.get("next_effects"),
+                image_url=x.get("image_url"),
+                current_effects_labeled=[
+                    schemas.HiddenEffectLabeledOut(**row)
+                    for row in (x.get("current_effects_labeled") or [])
+                ],
+                next_effects_labeled=[
+                    schemas.HiddenEffectLabeledOut(**row)
+                    for row in (x.get("next_effects_labeled") or [])
+                ],
+                bonus_summary=x.get("bonus_summary"),
+                next_bonus_summary=x.get("next_bonus_summary"),
             )
             for x in raw
         ]
