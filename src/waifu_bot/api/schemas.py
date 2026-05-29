@@ -492,6 +492,20 @@ class TutorialCompleteResponse(BaseModel):
     gold_reward: Optional[int] = None
 
 
+class DmNotificationPrefsOut(BaseModel):
+    solo_dungeon: bool = True
+    expedition_result: bool = True
+    group_dungeon: bool = True
+    raid: bool = True
+
+
+class DmNotificationPrefsPatch(BaseModel):
+    solo_dungeon: Optional[bool] = None
+    expedition_result: Optional[bool] = None
+    group_dungeon: Optional[bool] = None
+    raid: Optional[bool] = None
+
+
 class ProfileResponse(BaseModel):
     player_id: int
     act: int        # current_act — the act the player is currently in

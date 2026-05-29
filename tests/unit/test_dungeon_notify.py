@@ -44,7 +44,14 @@ def test_build_solo_dungeon_outcome_text_fail():
 async def test_notify_solo_dungeon_outcome_sends_dm():
     session = AsyncMock()
     bot = AsyncMock()
-    with patch("waifu_bot.services.webhook.get_bot", return_value=bot):
+    with (
+        patch("waifu_bot.services.webhook.get_bot", return_value=bot),
+        patch(
+            "waifu_bot.services.player_notification_prefs.should_send_dm",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+    ):
         await notify_solo_dungeon_outcome(
             session,
             777,
@@ -55,6 +62,29 @@ async def test_notify_solo_dungeon_outcome_sends_dm():
         )
     bot.send_message.assert_awaited_once()
     assert bot.send_message.await_args.kwargs["chat_id"] == 777
+
+
+@pytest.mark.asyncio
+async def test_notify_solo_dungeon_outcome_skips_when_pref_disabled():
+    session = AsyncMock()
+    bot = AsyncMock()
+    with (
+        patch("waifu_bot.services.webhook.get_bot", return_value=bot),
+        patch(
+            "waifu_bot.services.player_notification_prefs.should_send_dm",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+    ):
+        await notify_solo_dungeon_outcome(
+            session,
+            777,
+            completed=True,
+            dungeon_name="Test",
+            gold=10,
+            exp=5,
+        )
+    bot.send_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio

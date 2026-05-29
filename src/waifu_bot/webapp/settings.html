@@ -18,14 +18,31 @@
       <div class="settings-home-bar">
         <a href="./index.html" class="settings-home-btn">← Главное меню</a>
       </div>
+
       <section class="section">
-        <h3>Обучение</h3>
-        <div class="list">
-          <button type="button" class="btn primary" style="width:100%" onclick="WaifuApp.Tutorial.replay()">
-            Пройти обучение заново
+        <h3>Геймплей</h3>
+        <div class="list settings-gameplay-list">
+          <button type="button" class="list-item settings-list-btn" onclick="WaifuApp.Tutorial.replay()">
+            Пройти заново
           </button>
+          <button
+            type="button"
+            class="list-item settings-list-btn settings-list-btn--chevron"
+            id="settings-open-notify"
+            onclick="WaifuApp.openSettingsNotifyModal()"
+          >
+            Уведомления
+          </button>
+          <div class="list-item settings-toggle-row" id="settings-admin-row" style="display:none">
+            <span class="settings-toggle-label">Админ</span>
+            <label class="settings-switch">
+              <input type="checkbox" id="settings-admin-toggle" checked />
+              <span class="settings-switch-slider" aria-hidden="true"></span>
+            </label>
+          </div>
         </div>
       </section>
+
       <section class="section">
         <h3>Общие</h3>
         <div class="list">
@@ -40,5 +57,50 @@
         <div class="placeholder">FAQ, ссылка на поддержку, версия клиента.</div>
       </section>
     </main>
+
+    <div id="settings-notify-modal" class="modal settings-notify-modal" hidden role="dialog" aria-modal="true" aria-labelledby="settings-notify-title">
+      <div class="modal-content settings-notify-panel">
+        <div class="modal-head">
+          <div class="modal-title" id="settings-notify-title">Уведомления в ЛС</div>
+          <button type="button" class="secondary" onclick="WaifuApp.closeSettingsNotifyModal()" aria-label="Закрыть">✖</button>
+        </div>
+        <div class="modal-body settings-notify-body">
+          <p class="muted tiny settings-notify-hint">Сообщения от бота в личные сообщения Telegram.</p>
+          <div class="settings-notify-options">
+            <label class="settings-notify-option">
+              <span class="settings-notify-option-label">Прохождение соло-подземелий</span>
+              <span class="settings-switch">
+                <input type="checkbox" data-notify-key="solo_dungeon" checked />
+                <span class="settings-switch-slider" aria-hidden="true"></span>
+              </span>
+            </label>
+            <label class="settings-notify-option">
+              <span class="settings-notify-option-label">Результаты экспедиций</span>
+              <span class="settings-switch">
+                <input type="checkbox" data-notify-key="expedition_result" checked />
+                <span class="settings-switch-slider" aria-hidden="true"></span>
+              </span>
+            </label>
+            <label class="settings-notify-option">
+              <span class="settings-notify-option-label">Результаты групповых подземелий</span>
+              <span class="settings-switch">
+                <input type="checkbox" data-notify-key="group_dungeon" checked />
+                <span class="settings-switch-slider" aria-hidden="true"></span>
+              </span>
+            </label>
+            <label class="settings-notify-option">
+              <span class="settings-notify-option-label">Рейды</span>
+              <span class="settings-switch">
+                <input type="checkbox" data-notify-key="raid" checked />
+                <span class="settings-switch-slider" aria-hidden="true"></span>
+              </span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn primary" onclick="WaifuApp.closeSettingsNotifyModal()">Готово</button>
+        </div>
+      </div>
+    </div>
   </body>
 </html>

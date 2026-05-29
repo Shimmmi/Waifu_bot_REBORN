@@ -50,6 +50,17 @@ class Player(Base):
         JSONB, default=dict, server_default="{}", nullable=False
     )
 
+    # Telegram DM toggles: solo_dungeon, expedition_result, group_dungeon, raid
+    dm_notification_prefs: Mapped[dict] = mapped_column(
+        JSONB,
+        default=dict,
+        server_default=(
+            '{"solo_dungeon": true, "expedition_result": true, '
+            '"group_dungeon": true, "raid": true}'
+        ),
+        nullable=False,
+    )
+
     # Relationships
     main_waifu: Mapped["MainWaifu"] = relationship(
         "MainWaifu", back_populates="player", uselist=False, cascade="all, delete-orphan"
