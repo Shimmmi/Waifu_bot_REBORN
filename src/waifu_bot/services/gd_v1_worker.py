@@ -888,11 +888,14 @@ async def finalize_gd_v1_rewards_and_notify(session: AsyncSession, cycle: GDCycl
             f"{item_lines}"
         )
         if bot:
-            for attempt in range(3):
-                try:
-                    await bot.send_message(chat_id=uid, text=text_dm)
-                    rew.dm_sent = True
-                    break
-                except Exception:
-                    logger.warning("GD reward DM attempt %s failed uid=%s", attempt, uid)
+            from waifu_bot.services.player_notification_prefs import should_send_dm
+
+            if await should_send_dm(session, int(uid), "group_dungeon"):
+                for attempt in range(3):
+                    try:
+                        await bot.send_message(chat_id=uid, text=text_dm)
+                        rew.dm_sent = True
+                        break
+                    except Exception:
+                        logger.warning("GD reward DM attempt %s failed uid=%s", attempt, uid)
     await session.commit()

@@ -1955,7 +1955,10 @@ function renderExpeditionGrids() {
   wireExpeditionCardBiomes(activeGrid);
   wireExpeditionCardBiomes(dailyGrid);
 
-  if (isAdminUser()) {
+  const adminUiOn = typeof isAdminUiEnabled === "function"
+    ? isAdminUiEnabled()
+    : Boolean(window.WaifuApp?.isAdminUiEnabled?.());
+  if (adminUiOn) {
     document.querySelectorAll("#exp-active-grid .admin-only, #exp-daily-grid .admin-only").forEach((el) => {
       el.style.display = "";
     });

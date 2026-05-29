@@ -2304,6 +2304,128 @@ function isAdminUser() {
   }
 }
 
+const ADMIN_UI_STORAGE_KEY = "waifu_admin_ui_enabled";
+
+function isAdminUiEnabled() {
+  if (!isAdminUser()) return false;
+  try {
+    return localStorage.getItem(ADMIN_UI_STORAGE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function setAdminUiEnabled(on) {
+  try {
+    localStorage.setItem(ADMIN_UI_STORAGE_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  syncAdminUiVisibility();
+}
+
+function syncAdminUiVisibility() {
+  const show = isAdminUiEnabled();
+  document.querySelectorAll(".admin-only").forEach((el) => {
+    el.style.display = show ? "" : "none";
+  });
+}
+
+const settingsState = {
+  dmPrefs: null,
+  notifySaveTimer: null,
+};
+
+async function loadDmNotificationPrefs() {
+  const data = await apiFetch("/player/dm-notification-prefs");
+  settingsState.dmPrefs = data;
+  return data;
+}
+
+function applyDmPrefsToModal(prefs) {
+  document.querySelectorAll("#settings-notify-modal [data-notify-key]").forEach((input) => {
+    const key = input.getAttribute("data-notify-key");
+    if (key && prefs && Object.prototype.hasOwnProperty.call(prefs, key)) {
+      input.checked = Boolean(prefs[key]);
+    }
+  });
+}
+
+function scheduleSaveDmNotificationPrefs() {
+  if (settingsState.notifySaveTimer) clearTimeout(settingsState.notifySaveTimer);
+  settingsState.notifySaveTimer = setTimeout(() => {
+    settingsState.notifySaveTimer = null;
+    saveDmNotificationPrefsFromModal();
+  }, 400);
+}
+
+async function saveDmNotificationPrefsFromModal() {
+  const patch = {};
+  document.querySelectorAll("#settings-notify-modal [data-notify-key]").forEach((input) => {
+    const key = input.getAttribute("data-notify-key");
+    if (key) patch[key] = input.checked;
+  });
+  try {
+    const data = await apiFetch("/player/dm-notification-prefs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    settingsState.dmPrefs = data;
+  } catch (e) {
+    console.warn("saveDmNotificationPrefs failed:", e);
+    showToast("Не удалось сохранить уведомления", "error");
+  }
+}
+
+function openSettingsNotifyModal() {
+  const modal = document.getElementById("settings-notify-modal");
+  if (!modal) return;
+  if (settingsState.dmPrefs) applyDmPrefsToModal(settingsState.dmPrefs);
+  modal.hidden = false;
+}
+
+function closeSettingsNotifyModal() {
+  const modal = document.getElementById("settings-notify-modal");
+  if (modal) modal.hidden = true;
+}
+
+async function initSettingsPage() {
+  syncAdminUiVisibility();
+  const adminRow = document.getElementById("settings-admin-row");
+  const adminToggle = document.getElementById("settings-admin-toggle");
+  if (isAdminUser() && adminRow) {
+    adminRow.style.display = "";
+    if (adminToggle) {
+      adminToggle.checked = isAdminUiEnabled();
+      if (!adminToggle.__waifuBound) {
+        adminToggle.__waifuBound = true;
+        adminToggle.addEventListener("change", () => {
+          setAdminUiEnabled(adminToggle.checked);
+        });
+      }
+    }
+  }
+
+  const modal = document.getElementById("settings-notify-modal");
+  if (modal && !modal.__waifuBound) {
+    modal.__waifuBound = true;
+    modal.addEventListener("click", (ev) => {
+      if (ev.target === modal) closeSettingsNotifyModal();
+    });
+    document.querySelectorAll("#settings-notify-modal [data-notify-key]").forEach((input) => {
+      input.addEventListener("change", scheduleSaveDmNotificationPrefs);
+    });
+  }
+
+  try {
+    const prefs = await loadDmNotificationPrefs();
+    applyDmPrefsToModal(prefs);
+  } catch (e) {
+    console.warn("loadDmNotificationPrefs failed:", e);
+  }
+}
+
 async function loadProfile(options = {}) {
   const lite = options.lite ?? !isProfilePage();
   const initData = getInitData();
@@ -2367,6 +2489,14 @@ async function bootstrapPage(page, afterLoad) {
     }
   } catch (err) {
     console.warn("Tutorial bootstrap failed:", err);
+  }
+
+  if (page === "settings") {
+    try {
+      await initSettingsPage();
+    } catch (err) {
+      console.warn("initSettingsPage failed:", err);
+    }
   }
 
   return profile;
@@ -2439,10 +2569,7 @@ async function loadShop(act) {
   shopState.offers = Array.isArray(data?.items) ? data.items : [];
 
   if (typeof window !== "undefined") {
-    const adminBtns = document.querySelectorAll(".admin-only");
-    adminBtns.forEach((el) => {
-      el.style.display = isAdminUser() ? "" : "none";
-    });
+    syncAdminUiVisibility();
   }
 
   // New shop v1.3 layout
@@ -3941,7 +4068,7 @@ function itemArtDisplayLabel(item) {
 
 /** Admin: wrap <img> for items under /static/game/items/ with pixel-art generate control. */
 function wrapItemImageWithAdminGen(item, imgHtml) {
-  if (!isAdminUser() || !item || !imgHtml || !String(imgHtml).includes("<img")) return imgHtml;
+  if (!isAdminUiEnabled() || !item || !imgHtml || !String(imgHtml).includes("<img")) return imgHtml;
   const artKey = String(item.art_key || "").trim();
   if (!artKey) return imgHtml;
   const m = String(imgHtml).match(/src="([^"]*)"/);
@@ -4717,7 +4844,7 @@ function renderProfilePaperDoll(waifu) {
     waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
   ).trim();
   const hasPortrait = Boolean(portraitUrl);
-  const admin = isAdminUser();
+  const admin = isAdminUiEnabled();
   const name = escapeHtml(String(waifu?.name || "Основная вайфу"));
   const meta = `${escapeHtml(className(waifu?.class ?? waifu?.class_))} · ${escapeHtml(raceName(waifu?.race))}`;
 
@@ -7963,12 +8090,7 @@ async function initPage(page) {
     navigator.serviceWorker.register("/webapp/sw.js").catch(() => {});
   }
 
-  // Reveal admin-only controls for the admin Telegram ID.
-  if (isAdminUser()) {
-    document.querySelectorAll(".admin-only").forEach((el) => {
-      el.style.display = "";
-    });
-  }
+  syncAdminUiVisibility();
 
   // Passive UI refresh: regen is time-based but applied on API calls.
   // Keep numbers fresh without forcing full-page reload.
@@ -9059,6 +9181,12 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   showToast,
   initWaifuGenerator,
   initTitleScreen,
+  initSettingsPage,
+  openSettingsNotifyModal,
+  closeSettingsNotifyModal,
+  isAdminUiEnabled,
+  syncAdminUiVisibility,
+  setAdminUiEnabled,
   waifuGenGoStep1,
   waifuGenGoStep2,
   waifuGenPreviewPortrait,

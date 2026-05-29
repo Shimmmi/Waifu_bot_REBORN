@@ -106,6 +106,10 @@ async def _expedition_notify_tick() -> None:
                 "Заберите награду: Подземелья → Экспедиции."
             )
             try:
+                from waifu_bot.services.player_notification_prefs import should_send_dm
+
+                if not await should_send_dm(session, int(active.player_id), "expedition_result"):
+                    continue
                 redis_client = redis_core.get_redis()
                 dedup_key = f"exp_notified:{active.id}:final"
                 if redis_client:

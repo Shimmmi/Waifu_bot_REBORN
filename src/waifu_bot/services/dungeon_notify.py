@@ -77,7 +77,10 @@ async def notify_solo_dungeon_outcome(
     guild_bonus_lines: list[str] | None = None,
 ) -> None:
     """Send DM to player about solo dungeon result. Never raises."""
-    _ = session  # reserved for future dedup / prefs
+    from waifu_bot.services.player_notification_prefs import should_send_dm
+
+    if not await should_send_dm(session, player_id, "solo_dungeon"):
+        return
     text = build_solo_dungeon_outcome_text(
         completed=completed,
         dungeon_name=dungeon_name,
