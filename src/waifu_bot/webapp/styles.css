@@ -525,6 +525,22 @@ header.attic {
   display: block;
 }
 
+.page-profile .profile-bag-grid .item-card.profile-inv-placeholder {
+  cursor: default;
+  pointer-events: none;
+  opacity: 0.45;
+  background: rgba(22, 18, 14, 0.55);
+  border-style: dashed;
+}
+
+.page-profile .profile-bag-grid .item-card.profile-inv-placeholder .item-icon {
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  color: rgba(232, 220, 200, 0.35);
+  background: rgba(0, 0, 0, 0.15);
+}
+
 .page-profile .profile-bag-grid .item-card.profile-inv-item .item-level {
   top: 4px;
   left: 4px;

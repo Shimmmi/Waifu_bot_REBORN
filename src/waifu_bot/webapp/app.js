@@ -733,6 +733,17 @@ function profileDamageRange(score) {
   return `${min}–${max}`;
 }
 
+function profileDamageRangeFromDetails(d, prefix, fallbackScore) {
+  const minKey = `${prefix}_damage_min`;
+  const maxKey = `${prefix}_damage_max`;
+  const min = d?.[minKey];
+  const max = d?.[maxKey];
+  if (min != null && max != null) {
+    return `${Math.max(0, safeInt(min, 0))}–${Math.max(0, safeInt(max, 0))}`;
+  }
+  return profileDamageRange(fallbackScore);
+}
+
 function profileFormatPercent(value, digits = 1) {
   const num = safeNumber(value, 0);
   const fixed = Number(num.toFixed(digits));
@@ -774,9 +785,9 @@ function getProfileIndicators(waifu, details = null) {
 
   return {
     hpMax,
-    meleeRange: profileDamageRange(melee),
-    rangedRange: profileDamageRange(ranged),
-    magicRange: profileDamageRange(magic),
+    meleeRange: profileDamageRangeFromDetails(d, "melee", melee),
+    rangedRange: profileDamageRangeFromDetails(d, "ranged", ranged),
+    magicRange: profileDamageRangeFromDetails(d, "magic", magic),
     critChance: profileFormatPercent(crit, 2),
     dodgeChance: profileFormatPercent(dodge, 2),
     expBonus: profileFormatPercent(expBonus, 1),
@@ -2102,6 +2113,10 @@ const profileState = {
   inventoryFilters: { weapon: true, armor: true, accessory: true },
   activeAccordion: null,
   infoTab: "indicators",
+  slotSort: "level",
+  slotSortDir: "desc",
+  slotPickerItems: [],
+  slotPickerEquipped: null,
 };
 
 const EQUIPMENT_SLOT_NAMES = {
@@ -3403,7 +3418,7 @@ function openShopOffer(slot) {
     upHint.textContent = "";
     upHint.setAttribute("aria-hidden", "true");
   }
-  if (art) art.innerHTML = itemArtHtml(offer);
+  if (art) art.innerHTML = itemArtHtml(offer, { adminGen: true });
 
   if (contentEl) {
     ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) => contentEl.classList.remove(c));
@@ -3746,7 +3761,7 @@ function openShopGambleResultModal(item, pricePaid, goldRemaining) {
   setText("shop-gamble-result-level", item.level != null ? `lvl ${item.level}` : "—");
 
   const art = document.getElementById("shop-gamble-result-art");
-  if (art) art.innerHTML = itemArtHtml(item);
+  if (art) art.innerHTML = itemArtHtml(item, { adminGen: true });
 
   const body = document.getElementById("shop-gamble-result-body");
   if (body) {
@@ -3900,6 +3915,10 @@ function closeSlotModal() {
   const m = document.getElementById("slot-modal");
   if (m) m.style.display = "none";
   profileState.selectedSlot = null;
+  profileState.slotPickerItems = [];
+  profileState.slotPickerEquipped = null;
+  const sortWrap = document.getElementById("slot-sort-wrap");
+  if (sortWrap) sortWrap.style.display = "none";
 }
 
 function closeItemSellConfirmOverlay() {
@@ -4859,39 +4878,62 @@ function renderProfileSlotCard(slot, item) {
   `;
 }
 
+let paperdollMenuOutsideBound = false;
+
+function closePaperdollMenuOnOutside(ev) {
+  const menu = document.getElementById("profile-paperdoll-menu");
+  if (!menu || menu.style.display === "none") return;
+  if (ev.target.closest?.(".profile-paperdoll-menu-btn") || ev.target.closest?.(".profile-paperdoll-menu")) {
+    return;
+  }
+  menu.style.display = "none";
+}
+
+function togglePaperdollMenu(ev) {
+  if (ev) ev.stopPropagation();
+  const menu = document.getElementById("profile-paperdoll-menu");
+  if (!menu) return;
+  const willOpen = menu.style.display === "none" || !menu.style.display;
+  menu.style.display = willOpen ? "block" : "none";
+  if (willOpen && !paperdollMenuOutsideBound) {
+    paperdollMenuOutsideBound = true;
+    document.addEventListener("click", closePaperdollMenuOnOutside, true);
+  }
+}
+
 function renderProfilePaperDoll(waifu) {
   const paperdollUrl = String(waifu?.paperdoll_url || "").trim();
   const portraitUrl = String(
     waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
   ).trim();
   const hasPortrait = Boolean(portraitUrl);
-  const admin = isAdminUiEnabled();
+  const admin = isAdminUser();
+  const remaining = admin ? "безлимит" : paperdollUrl ? "0" : "1";
+  const canGenerate = hasPortrait && (admin || !paperdollUrl);
   const name = escapeHtml(String(waifu?.name || "Основная вайфу"));
   const meta = `${escapeHtml(className(waifu?.class ?? waifu?.class_))} · ${escapeHtml(raceName(waifu?.race))}`;
 
   let bodyInner = "";
-  let bodyClass = "profile-paperdoll-body";
+  let bodyClass = "profile-paperdoll-body profile-paperdoll-body--stage";
   if (paperdollUrl) {
-    bodyClass += " profile-paperdoll-body--stage";
     bodyInner = `<img class="profile-paperdoll-img" src="${escapeHtml(paperdollUrl)}" alt="${name}" />`;
-    if (admin) {
-      bodyInner += `<button type="button" class="profile-paperdoll-regenerate" title="Перегенерировать образ (admin)" aria-label="Перегенерировать образ" onclick="WaifuApp.adminGenerateMainWaifuPaperdoll()">${ITEM_ART_GEN_SVG}</button>`;
-    }
   } else {
     bodyInner = escapeHtml(waifuPortraitEmoji(waifu) || "👤");
-    if (admin) {
-      const dis = hasPortrait ? "" : " disabled";
-      const title = hasPortrait
-        ? "Сгенерировать образ с экипировкой (admin)"
-        : "Нужен портрет основной вайфу";
-      bodyInner += `<button type="button" class="btn profile-paperdoll-generate"${dis} title="${escapeHtml(title)}" onclick="WaifuApp.adminGenerateMainWaifuPaperdoll()">Сгенерировать образ</button>`;
-    }
   }
 
-  const ariaHidden = paperdollUrl || admin ? "" : ' aria-hidden="true"';
+  const menuBtn = `<button type="button" class="profile-paperdoll-menu-btn" title="Действия с образом" aria-label="Меню образа" onclick="event.stopPropagation();WaifuApp.togglePaperdollMenu(event)">⋯</button>`;
+  const menuBlock = `
+    <div id="profile-paperdoll-menu" class="profile-paperdoll-menu" style="display:none" role="menu">
+      <button type="button" class="profile-paperdoll-menu-item" role="menuitem"${canGenerate ? "" : " disabled"}
+        onclick="event.stopPropagation();WaifuApp.generateMainWaifuPaperdoll()">
+        <span class="profile-paperdoll-menu-title">Сгенерировать изображение</span>
+        <span class="profile-paperdoll-menu-meta">Осталось генераций: ${escapeHtml(remaining)}</span>
+      </button>
+    </div>`;
+
   return `
     <div class="profile-paperdoll">
-      <div class="${bodyClass}"${ariaHidden}>${bodyInner}</div>
+      <div class="${bodyClass}">${bodyInner}${menuBtn}${menuBlock}</div>
       <div class="profile-paperdoll-caption">
         <strong>${name}</strong>
         <span class="muted tiny">${meta}</span>
@@ -4900,8 +4942,7 @@ function renderProfilePaperDoll(waifu) {
   `;
 }
 
-async function adminGenerateMainWaifuPaperdoll() {
-  if (!isAdminUser()) return;
+async function generateMainWaifuPaperdoll() {
   const waifu = profileState.currentProfile?.main_waifu;
   if (!waifu) {
     showToast("Нет основной вайфу", "error");
@@ -4914,9 +4955,20 @@ async function adminGenerateMainWaifuPaperdoll() {
     showToast("Сначала нужен портрет вайфу", "error");
     return;
   }
+  const admin = isAdminUser();
+  const paperdollUrl = String(waifu?.paperdoll_url || "").trim();
+  if (!admin && paperdollUrl) {
+    showToast("Генерация образа уже использована", "error");
+    return;
+  }
+  const menu = document.getElementById("profile-paperdoll-menu");
+  if (menu) menu.style.display = "none";
   setItemArtGenBusy(true);
   try {
-    const payload = await apiFetch("/profile/main-waifu/paperdoll/regenerate", { method: "POST" });
+    const path = admin
+      ? "/profile/main-waifu/paperdoll/regenerate"
+      : "/profile/main-waifu/paperdoll";
+    const payload = await apiFetch(path, { method: "POST" });
     const url = String(payload?.paperdoll_url || "").trim();
     if (url && profileState.currentProfile?.main_waifu) {
       profileState.currentProfile.main_waifu.paperdoll_url = url;
@@ -4928,13 +4980,19 @@ async function adminGenerateMainWaifuPaperdoll() {
     const msg =
       detail === "portrait_required_for_paperdoll"
         ? "Сначала нужен портрет вайфу"
-        : detail === "paperdoll_generation_failed"
-          ? "Не удалось сгенерировать образ"
-          : detail || "Ошибка генерации";
+        : detail === "paperdoll_already_generated"
+          ? "Генерация образа уже использована"
+          : detail === "paperdoll_generation_failed"
+            ? "Не удалось сгенерировать образ"
+            : detail || "Ошибка генерации";
     showToast(msg, "error");
   } finally {
     setItemArtGenBusy(false);
   }
+}
+
+async function adminGenerateMainWaifuPaperdoll() {
+  return generateMainWaifuPaperdoll();
 }
 
 function renderProfileEquipment() {
@@ -5010,7 +5068,9 @@ function renderProfileInventory() {
       `);
     });
     for (let i = pageItems.length; i < pageSize; i += 1) {
-      cells.push(`<div class="item-card empty" aria-hidden="true"><div class="item-icon">—</div></div>`);
+      cells.push(
+        `<div class="item-card profile-inv-item profile-inv-placeholder empty" aria-hidden="true"><div class="item-icon">—</div></div>`
+      );
     }
     box.innerHTML = cells.join("");
   }
@@ -5238,6 +5298,27 @@ async function populateProfile(profile) {
   }
 }
 
+const SLOT_MAIN_STAT_KEYS = new Set([
+  "strength",
+  "agility",
+  "intelligence",
+  "endurance",
+  "charm",
+  "luck",
+]);
+
+function mainStatSum(item) {
+  if (!item) return 0;
+  let sum = 0;
+  const bs = String(item.base_stat || "").trim().toLowerCase();
+  if (SLOT_MAIN_STAT_KEYS.has(bs)) sum += safeNumber(item.base_stat_value, 0);
+  (item.affixes || []).forEach((a) => {
+    const sk = String(a?.stat || "").trim().toLowerCase();
+    if (SLOT_MAIN_STAT_KEYS.has(sk)) sum += safeNumber(a?.value, 0);
+  });
+  return sum;
+}
+
 function averageWeaponDamageForCompare(item) {
   if (!item) return null;
   const a =
@@ -5336,25 +5417,55 @@ function buildSlotReplaceCompareHtml(candidate, equipped) {
   return `<span class="slot-replace-compare">${chips.join(" ")}</span>`;
 }
 
-async function openSlotModal(slot) {
-  profileState.selectedSlot = slot;
-  const modal = document.getElementById("slot-modal");
+function renderSlotPickerList() {
   const body = document.getElementById("slot-modal-body");
-  if (!modal || !body) return;
+  const slot = profileState.selectedSlot;
+  if (!body || slot == null) return;
 
-  setText("slot-modal-title", `Замена: ${EQUIPMENT_SLOT_NAMES[slot] || `Слот ${slot}`}`);
-  setText("slot-modal-subtitle", "Нажмите на предмет, чтобы экипировать его в этот слот.");
-  body.innerHTML = `<div class="placeholder">Загрузка...</div>`;
-  modal.style.display = "grid";
+  const items = Array.isArray(profileState.slotPickerItems) ? profileState.slotPickerItems.slice() : [];
+  const equipped = profileState.slotPickerEquipped;
 
-  const data = await apiFetch(`/waifu/equipment/available?slot=${slot}`);
-  const items = Array.isArray(data?.items) ? data.items : [];
   if (!items.length) {
     body.innerHTML = `<div class="placeholder">Нет подходящих предметов для этого слота.</div>`;
     return;
   }
 
-  const equipped = getProfileEquippedItem(slot);
+  const dir = profileState.slotSortDir === "asc" ? 1 : -1;
+  const sortKey = profileState.slotSort;
+  items.sort((a, b) => {
+    let va = 0;
+    let vb = 0;
+    if (sortKey === "level") {
+      va = safeNumber(a?.level, 0);
+      vb = safeNumber(b?.level, 0);
+    } else if (sortKey === "damage") {
+      va = averageWeaponDamageForCompare(a) ?? 0;
+      vb = averageWeaponDamageForCompare(b) ?? 0;
+      if (equipped) {
+        const base = averageWeaponDamageForCompare(equipped) ?? 0;
+        va -= base;
+        vb -= base;
+      }
+    } else if (sortKey === "stats") {
+      va = mainStatSum(a);
+      vb = mainStatSum(b);
+      if (equipped) {
+        const base = mainStatSum(equipped);
+        va -= base;
+        vb -= base;
+      }
+    }
+    if (va !== vb) return (va - vb) * dir;
+    return String(a?.display_name || a?.name || "").localeCompare(
+      String(b?.display_name || b?.name || ""),
+      "ru"
+    );
+  });
+
+  const sortSelect = document.getElementById("slot-sort-select");
+  if (sortSelect) sortSelect.value = profileState.slotSort;
+  const dirBtn = document.getElementById("slot-sort-direction");
+  if (dirBtn) dirBtn.textContent = profileState.slotSortDir === "asc" ? "▲" : "▼";
 
   body.innerHTML = `<div class="slot-replace-list">${items
     .map((item) => {
@@ -5381,6 +5492,42 @@ async function openSlotModal(slot) {
       `;
     })
     .join("")}</div>`;
+}
+
+function setSlotSort(value) {
+  profileState.slotSort = ["level", "damage", "stats"].includes(value) ? value : "level";
+  renderSlotPickerList();
+}
+
+function toggleSlotSortDir() {
+  profileState.slotSortDir = profileState.slotSortDir === "asc" ? "desc" : "asc";
+  renderSlotPickerList();
+}
+
+async function openSlotModal(slot) {
+  profileState.selectedSlot = slot;
+  const modal = document.getElementById("slot-modal");
+  const body = document.getElementById("slot-modal-body");
+  if (!modal || !body) return;
+
+  setText("slot-modal-title", `Замена: ${EQUIPMENT_SLOT_NAMES[slot] || `Слот ${slot}`}`);
+  setText("slot-modal-subtitle", "Нажмите на предмет, чтобы экипировать его в этот слот.");
+  body.innerHTML = `<div class="placeholder">Загрузка...</div>`;
+  modal.style.display = "grid";
+  const sortWrap = document.getElementById("slot-sort-wrap");
+  if (sortWrap) sortWrap.style.display = "";
+
+  const data = await apiFetch(`/waifu/equipment/available?slot=${slot}`);
+  const items = Array.isArray(data?.items) ? data.items : [];
+  profileState.slotPickerItems = items;
+  profileState.slotPickerEquipped = getProfileEquippedItem(slot);
+
+  if (!items.length) {
+    body.innerHTML = `<div class="placeholder">Нет подходящих предметов для этого слота.</div>`;
+    return;
+  }
+
+  renderSlotPickerList();
 }
 
 async function equipItemToProfileSlot(itemId, slot) {
@@ -9099,6 +9246,41 @@ let passiveTreeListenersBound = false;
 let hiddenSkillsCache = [];
 let hiddenSkillsListenersBound = false;
 const PASSIVE_SKILL_PLACEHOLDER = `${GAME_STATIC_BASE}/passive-skill-placeholder.svg`;
+const PASSIVE_SKILL_WEBP_BASE = `${GAME_STATIC_BASE}/passive-skills/webp`;
+
+function passiveNodeArtUrl(nodeId) {
+  const id = String(nodeId || "").trim();
+  if (!id) return "";
+  return `${PASSIVE_SKILL_WEBP_BASE}/${encodeURIComponent(id)}.webp`;
+}
+
+function bindPassiveNodeArt(imgEl, artWrapEl, nodeId) {
+  if (!imgEl) return;
+  const url = passiveNodeArtUrl(nodeId);
+  if (!url) {
+    imgEl.src = PASSIVE_SKILL_PLACEHOLDER;
+    artWrapEl?.classList.remove("passive-skill-cell-art--has-art");
+    if (artWrapEl?.classList.contains("passive-modal-dota-icon-wrap")) {
+      artWrapEl.classList.remove("passive-modal-dota-icon-wrap--has-art");
+    }
+    return;
+  }
+  imgEl.onerror = () => {
+    imgEl.onerror = null;
+    imgEl.src = PASSIVE_SKILL_PLACEHOLDER;
+    artWrapEl?.classList.remove("passive-skill-cell-art--has-art");
+    if (artWrapEl?.classList.contains("passive-modal-dota-icon-wrap")) {
+      artWrapEl.classList.remove("passive-modal-dota-icon-wrap--has-art");
+    }
+  };
+  imgEl.onload = () => {
+    artWrapEl?.classList.add("passive-skill-cell-art--has-art");
+    if (artWrapEl?.classList.contains("passive-modal-dota-icon-wrap")) {
+      artWrapEl.classList.add("passive-modal-dota-icon-wrap--has-art");
+    }
+  };
+  imgEl.src = url;
+}
 
 /** Иконки узлов пассивного дерева (совпадают с id в БД). */
 const PASSIVE_NODE_ICONS = {
@@ -9271,6 +9453,11 @@ function openPassiveSkillModal(nodeId) {
       ${learnBlock}
     </div>
   `;
+  bindPassiveNodeArt(
+    body.querySelector(".passive-modal-dota-placeholder"),
+    body.querySelector(".passive-modal-dota-icon-wrap"),
+    node.id
+  );
   const learnBtn = body.querySelector("[data-passive-modal-learn]");
   if (learnBtn) {
     learnBtn.addEventListener("click", (ev) => {
@@ -9468,9 +9655,10 @@ function renderPassiveTree() {
     btn.addEventListener("click", onPassiveLearnClick);
   });
   root.querySelectorAll(".passive-skill-cell[data-node-id]").forEach((el) => {
+    const id = el.getAttribute("data-node-id");
+    bindPassiveNodeArt(el.querySelector(".passive-skill-cell-img"), el.querySelector(".passive-skill-cell-art"), id);
     el.addEventListener("click", (ev) => {
       if (ev.target.closest("[data-stop-modal]") || ev.target.closest("[data-passive-learn]")) return;
-      const id = el.getAttribute("data-node-id");
       if (id) openPassiveSkillModal(id);
     });
     el.addEventListener("keydown", (ev) => {
@@ -9807,6 +9995,10 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   openProfileSlot,
   openItemById,
   closeSlotModal,
+  setSlotSort,
+  toggleSlotSortDir,
+  togglePaperdollMenu,
+  generateMainWaifuPaperdoll,
   closeItemModal,
   equipItemToProfileSlot,
   unequipItemFromModal,
