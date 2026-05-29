@@ -1298,24 +1298,36 @@ function connectSSE() {
   };
 }
 
+const WAIFU_GEN_BASE = `${GAME_STATIC_BASE}/waifu-gen`;
+const WAIFU_GEN_PLACEHOLDER = `${WAIFU_GEN_BASE}/placeholder.svg`;
+const WAIFU_GEN_STAT_ORDER = ["strength", "agility", "intelligence", "endurance", "charm", "luck"];
+const WAIFU_GEN_STAT_LABELS = {
+  strength: "СИЛ",
+  agility: "ЛОВ",
+  intelligence: "ИНТ",
+  endurance: "ВЫН",
+  charm: "ОБА",
+  luck: "УДЧ",
+};
+
 const WAIFU_RACES = [
-  { id: 1, name: "Человек", icon: "🧑" },
-  { id: 2, name: "Эльф", icon: "🧝" },
-  { id: 3, name: "Зверолюд", icon: "🐾" },
-  { id: 4, name: "Ангел", icon: "😇" },
-  { id: 5, name: "Вампир", icon: "🦇" },
-  { id: 6, name: "Демон", icon: "😈" },
-  { id: 7, name: "Фея", icon: "🧚" },
+  { id: 1, name: "Человек", icon: "🧑", slug: "human" },
+  { id: 2, name: "Эльф", icon: "🧝", slug: "elf" },
+  { id: 3, name: "Зверолюд", icon: "🐾", slug: "beastman" },
+  { id: 4, name: "Ангел", icon: "😇", slug: "angel" },
+  { id: 5, name: "Вампир", icon: "🦇", slug: "vampire" },
+  { id: 6, name: "Демон", icon: "😈", slug: "demon" },
+  { id: 7, name: "Фея", icon: "🧚", slug: "fey" },
 ];
 
 const WAIFU_CLASSES = [
-  { id: 1, name: "Рыцарь", icon: "🛡️" },
-  { id: 2, name: "Воин", icon: "⚔️" },
-  { id: 3, name: "Лучник", icon: "🏹" },
-  { id: 4, name: "Маг", icon: "🔮" },
-  { id: 5, name: "Ассасин", icon: "🗡️" },
-  { id: 6, name: "Хилер", icon: "💚" },
-  { id: 7, name: "Торговец", icon: "💰" },
+  { id: 1, name: "Рыцарь", icon: "🛡️", slug: "knight" },
+  { id: 2, name: "Воин", icon: "⚔️", slug: "warrior" },
+  { id: 3, name: "Лучник", icon: "🏹", slug: "archer" },
+  { id: 4, name: "Маг", icon: "🔮", slug: "mage" },
+  { id: 5, name: "Ассасин", icon: "🗡️", slug: "assassin" },
+  { id: 6, name: "Хилер", icon: "💚", slug: "healer" },
+  { id: 7, name: "Торговец", icon: "💰", slug: "merchant" },
 ];
 
 const WAIFU_RACE_BONUSES = {
@@ -1584,83 +1596,251 @@ function waifuGenSyncHiddenSelects() {
   if (cs) cs.value = String(waifuGeneratorState.selectedClassId);
 }
 
-function waifuGenRefreshPassiveBonuses() {
-  const root = document.getElementById("waifu-passive-modal-body");
-  if (!root) return;
-  const r = waifuGeneratorState.selectedRaceId;
-  const c = waifuGeneratorState.selectedClassId;
-  const raceLines = WAIFU_GEN_RACE_PASSIVES[r] || [];
-  const classLines = WAIFU_GEN_CLASS_PASSIVES[c] || [];
-  const ulRace = raceLines.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
-  const ulClass = classLines.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
-  root.innerHTML =
-    `<div class="waifu-gen-passive-sub">Раса</div><ul>${ulRace}</ul>` +
-    `<div class="waifu-gen-passive-sub">Класс</div><ul>${ulClass}</ul>`;
+function waifuGenRaceAssetUrl(slug) {
+  return `${WAIFU_GEN_BASE}/races/${slug}.webp`;
 }
 
-function waifuGenBuildRaceClassPickers() {
-  const raceRoot = document.getElementById("waifu-race-pick");
-  const classRoot = document.getElementById("waifu-class-pick");
-  if (raceRoot) {
-    raceRoot.innerHTML = WAIFU_RACES.map(
-      (r) =>
-        `<button type="button" class="waifu-gen-pick-btn${r.id === waifuGeneratorState.selectedRaceId ? " waifu-gen-pick-btn--on" : ""}" data-kind="race" data-id="${r.id}" aria-pressed="${r.id === waifuGeneratorState.selectedRaceId}" aria-label="${escapeHtml(r.name)}">
-        <span class="waifu-gen-pick-ico" aria-hidden="true">${escapeHtml(r.icon || "•")}</span>
-      </button>`
-    ).join("");
-    raceRoot.querySelectorAll('[data-kind="race"]').forEach((btn) => {
-      btn.addEventListener("click", () => {
-        waifuGeneratorState.selectedRaceId = Number(btn.getAttribute("data-id"));
-        waifuGenSyncHiddenSelects();
-        waifuGenBuildRaceClassPickers();
-        if (typeof window.__waifuGenRecalc === "function") window.__waifuGenRecalc();
-      });
-    });
+function waifuGenClassAssetUrl(slug) {
+  return `${WAIFU_GEN_BASE}/classes/${slug}.webp`;
+}
+
+function waifuGenCosmeticAssetUrl(group, slug) {
+  return `${WAIFU_GEN_BASE}/cosmetic/${group}/${slug}.webp`;
+}
+
+function waifuGenImgHtml(src, alt, className) {
+  const cls = className || "waifu-gen-card-ico";
+  const s = escapeHtml(src);
+  const a = escapeHtml(alt || "");
+  const ph = escapeHtml(WAIFU_GEN_PLACEHOLDER);
+  return `<img class="${cls}" src="${s}" alt="${a}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='${ph}'" />`;
+}
+
+function waifuGenPassiveTitle(lines, fallback) {
+  const first = (lines || [])[0] || "";
+  const m = first.match(/«([^»]+)»/);
+  return m ? m[1] : fallback;
+}
+
+function waifuGenRenderRadar(el, stats) {
+  if (!el) return;
+  const size = 240;
+  const cx = size / 2;
+  const cy = size / 2;
+  const rOuter = 92;
+  const scale = 20;
+  const entries = WAIFU_GEN_STAT_ORDER.map((k) => [WAIFU_GEN_STAT_LABELS[k], Number(stats[k] ?? 0)]);
+  const n = entries.length;
+
+  function angle(i) {
+    return -Math.PI / 2 + (i * Math.PI * 2) / n;
   }
-  if (classRoot) {
-    classRoot.innerHTML = WAIFU_CLASSES.map(
-      (c) =>
-        `<button type="button" class="waifu-gen-pick-btn${c.id === waifuGeneratorState.selectedClassId ? " waifu-gen-pick-btn--on" : ""}" data-kind="class" data-id="${c.id}" aria-pressed="${c.id === waifuGeneratorState.selectedClassId}" aria-label="${escapeHtml(c.name)}">
-        <span class="waifu-gen-pick-ico" aria-hidden="true">${escapeHtml(c.icon || "•")}</span>
-      </button>`
-    ).join("");
-    classRoot.querySelectorAll('[data-kind="class"]').forEach((btn) => {
-      btn.addEventListener("click", () => {
-        waifuGeneratorState.selectedClassId = Number(btn.getAttribute("data-id"));
-        waifuGenSyncHiddenSelects();
-        waifuGenBuildRaceClassPickers();
-        if (typeof window.__waifuGenRecalc === "function") window.__waifuGenRecalc();
-      });
-    });
+
+  const rings = [0.25, 0.5, 0.75, 1].map((f) => {
+    const r = f * rOuter;
+    return entries
+      .map((_, i) => {
+        const a = angle(i);
+        return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`;
+      })
+      .join(" ");
+  });
+
+  const axes = entries.map((_, i) => {
+    const a = angle(i);
+    return { x2: (cx + rOuter * Math.cos(a)).toFixed(1), y2: (cy + rOuter * Math.sin(a)).toFixed(1) };
+  });
+
+  const valuePoints = entries
+    .map(([, v], i) => {
+      const a = angle(i);
+      const r = (Math.max(0, Math.min(scale, v)) / scale) * rOuter;
+      return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`;
+    })
+    .join(" ");
+
+  const vertices = entries.map(([, v], i) => {
+    const a = angle(i);
+    const r = (Math.max(0, Math.min(scale, v)) / scale) * rOuter;
+    return { cx: (cx + r * Math.cos(a)).toFixed(1), cy: (cy + r * Math.sin(a)).toFixed(1) };
+  });
+
+  const rLabel = rOuter + 18;
+  const labelTexts = entries
+    .map(([label, v], i) => {
+      const a = angle(i);
+      const lx = (cx + rLabel * Math.cos(a)).toFixed(1);
+      const ly = (cy + rLabel * Math.sin(a)).toFixed(1);
+      return (
+        `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle">` +
+        `<tspan class="stat-value">${escapeHtml(String(v))}</tspan>` +
+        `<tspan> ${escapeHtml(label)}</tspan>` +
+        `</text>`
+      );
+    })
+    .join("");
+
+  el.innerHTML = `<svg viewBox="0 -22 240 272" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Радар характеристик">
+    ${rings.map((pts) => `<polygon class="ring" points="${pts}" />`).join("")}
+    ${axes.map((ax) => `<line class="axis" x1="${cx}" y1="${cy}" x2="${ax.x2}" y2="${ax.y2}" />`).join("")}
+    <polygon class="area" points="${valuePoints}" />
+    ${vertices.map((v) => `<circle class="vertex" cx="${v.cx}" cy="${v.cy}" r="2.5" />`).join("")}
+    ${labelTexts}
+  </svg>`;
+}
+
+function waifuGenSyncTriggerIco(kind, entry) {
+  const img = document.getElementById(`waifu-trigger-${kind}-img`);
+  const emoji = document.getElementById(`waifu-trigger-${kind}-emoji`);
+  if (!entry) return;
+  const src = kind === "race" ? waifuGenRaceAssetUrl(entry.slug) : waifuGenClassAssetUrl(entry.slug);
+  if (img) {
+    img.onerror = () => {
+      img.hidden = true;
+      if (emoji) emoji.textContent = entry.icon || "•";
+    };
+    img.onload = () => {
+      img.hidden = false;
+      if (emoji) emoji.textContent = "";
+    };
+    img.src = src;
+    img.alt = entry.name;
+  } else if (emoji) {
+    emoji.textContent = entry.icon || "•";
   }
 }
 
-function waifuGenRenderChipGrid(containerId, pairs, currentVal, mode, onPick) {
+function waifuGenSyncTriggers() {
+  const race = WAIFU_RACES.find((r) => r.id === waifuGeneratorState.selectedRaceId);
+  const cls = WAIFU_CLASSES.find((c) => c.id === waifuGeneratorState.selectedClassId);
+  const raceNameEl = document.getElementById("waifu-trigger-race-name");
+  const classNameEl = document.getElementById("waifu-trigger-class-name");
+  if (raceNameEl) raceNameEl.textContent = race?.name || "—";
+  if (classNameEl) classNameEl.textContent = cls?.name || "—";
+  waifuGenSyncTriggerIco("race", race);
+  waifuGenSyncTriggerIco("class", cls);
+}
+
+function waifuGenRenderRaceClassGrid(containerId, entries, selectedId, kind) {
   const root = document.getElementById(containerId);
   if (!root) return;
-  const curSet =
-    mode === "multi" || mode === "multi2" ? new Set(currentVal || []) : null;
+  const cards = entries.map((e) => {
+    const on = e.id === selectedId;
+    const src = kind === "race" ? waifuGenRaceAssetUrl(e.slug) : waifuGenClassAssetUrl(e.slug);
+    return `<button type="button" class="waifu-gen-card${on ? " waifu-gen-card--on" : ""}" data-id="${e.id}" aria-pressed="${on}" aria-label="${escapeHtml(e.name)}">
+      <span class="waifu-gen-card-media">${waifuGenImgHtml(src, e.name)}</span>
+      <span class="waifu-gen-card-caption">${escapeHtml(e.name)}</span>
+    </button>`;
+  });
+  while (cards.length < 9) {
+    cards.push(`<div class="waifu-gen-card waifu-gen-card--coming" aria-hidden="true"></div>`);
+  }
+  root.innerHTML = cards.join("");
+  root.querySelectorAll(".waifu-gen-card:not(.waifu-gen-card--coming)").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.getAttribute("data-id"));
+      if (kind === "race") waifuGeneratorState.selectedRaceId = id;
+      else waifuGeneratorState.selectedClassId = id;
+      waifuGenSyncHiddenSelects();
+      waifuGenBuildRaceClassPickers();
+      waifuGenSyncTriggers();
+      if (typeof window.__waifuGenRecalc === "function") window.__waifuGenRecalc();
+      waifuGenCloseModal(kind === "race" ? "waifu-modal-race" : "waifu-modal-class");
+    });
+  });
+}
+
+function waifuGenRenderAssetCardGrid(containerId, pairs, assetGroup, currentVal, mode, onPick) {
+  const root = document.getElementById(containerId);
+  if (!root) return;
+  const curSet = mode === "multi" || mode === "multi2" ? new Set(currentVal || []) : null;
   root.innerHTML = pairs
     .map(([v, l]) => {
       const on =
         mode === "multi" || mode === "multi2"
           ? curSet && curSet.has(v)
           : String(currentVal) === String(v);
-      return `<button type="button" class="waifu-gen-chip${on ? " waifu-gen-chip--on" : ""}" data-val="${String(v).replace(/"/g, "&quot;")}">${escapeHtml(l)}</button>`;
+      const src = waifuGenCosmeticAssetUrl(assetGroup, v);
+      return `<button type="button" class="waifu-gen-card${on ? " waifu-gen-card--on" : ""}" data-val="${String(v).replace(/"/g, "&quot;")}" aria-pressed="${on}" aria-label="${escapeHtml(l)}">
+      <span class="waifu-gen-card-media">${waifuGenImgHtml(src, l)}</span>
+      <span class="waifu-gen-card-caption">${escapeHtml(l)}</span>
+    </button>`;
     })
     .join("");
-  root.querySelectorAll(".waifu-gen-chip").forEach((btn) => {
+  root.querySelectorAll(".waifu-gen-card").forEach((btn) => {
     btn.addEventListener("click", () => onPick(btn.getAttribute("data-val") || ""));
   });
 }
 
+function waifuGenOpenPassiveModal(kind) {
+  const raceId = waifuGeneratorState.selectedRaceId;
+  const clsId = waifuGeneratorState.selectedClassId;
+  const lines =
+    kind === "race" ? WAIFU_GEN_RACE_PASSIVES[raceId] || [] : WAIFU_GEN_CLASS_PASSIVES[clsId] || [];
+  const fallback = kind === "race" ? "Расовый бонус" : "Классовый бонус";
+  const title = waifuGenPassiveTitle(lines, fallback);
+  const titleEl = document.getElementById("waifu-modal-passive-title");
+  const body = document.getElementById("waifu-passive-modal-body");
+  if (titleEl) titleEl.textContent = title;
+  if (body) {
+    const ul = lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+    body.innerHTML = `<ul>${ul || `<li class="muted tiny">—</li>`}</ul>`;
+  }
+  waifuGenOpenModal("waifu-modal-passive");
+}
+
+function waifuGenRenderPassiveList() {
+  const root = document.getElementById("waifu-gen-passive-list");
+  if (!root) return;
+  const raceId = waifuGeneratorState.selectedRaceId;
+  const clsId = waifuGeneratorState.selectedClassId;
+  const race = WAIFU_RACES.find((r) => r.id === raceId);
+  const cls = WAIFU_CLASSES.find((c) => c.id === clsId);
+  const raceLines = WAIFU_GEN_RACE_PASSIVES[raceId] || [];
+  const classLines = WAIFU_GEN_CLASS_PASSIVES[clsId] || [];
+  const raceTitle = waifuGenPassiveTitle(raceLines, "Расовый бонус");
+  const classTitle = waifuGenPassiveTitle(classLines, "Классовый бонус");
+
+  const cardHtml = (kind, entry, title, tag) => {
+    const src =
+      kind === "race" ? waifuGenRaceAssetUrl(entry?.slug || "human") : waifuGenClassAssetUrl(entry?.slug || "knight");
+    return `<button type="button" class="waifu-gen-passive-card" data-passive-kind="${kind}" aria-label="${escapeHtml(title)}">
+      ${waifuGenImgHtml(src, title, "waifu-gen-passive-ico")}
+      <span class="waifu-gen-passive-card-body">
+        <span class="waifu-gen-passive-tag">${escapeHtml(tag)}</span>
+        <span class="waifu-gen-passive-name">${escapeHtml(title)}</span>
+      </span>
+    </button>`;
+  };
+
+  root.innerHTML = cardHtml("race", race, raceTitle, "Раса") + cardHtml("class", cls, classTitle, "Класс");
+  root.querySelectorAll(".waifu-gen-passive-card").forEach((btn) => {
+    btn.addEventListener("click", () => waifuGenOpenPassiveModal(btn.getAttribute("data-passive-kind") || ""));
+  });
+}
+
+function waifuGenBuildRaceClassPickers() {
+  waifuGenRenderRaceClassGrid(
+    "waifu-modal-race-grid",
+    WAIFU_RACES,
+    waifuGeneratorState.selectedRaceId,
+    "race"
+  );
+  waifuGenRenderRaceClassGrid(
+    "waifu-modal-class-grid",
+    WAIFU_CLASSES,
+    waifuGeneratorState.selectedClassId,
+    "class"
+  );
+}
+
 function waifuGenRefreshHairModal() {
   const c = waifuGeneratorState.cosmetics;
-  waifuGenRenderChipGrid("waifu-modal-hair-colors", WAIFU_GEN_COSMETIC.hair, c.hair_color, "single", (v) => {
+  waifuGenRenderAssetCardGrid("waifu-modal-hair-colors", WAIFU_GEN_COSMETIC.hair, "hair-colors", c.hair_color, "single", (v) => {
     waifuGeneratorState.cosmetics.hair_color = v;
     waifuGenRefreshHairModal();
   });
-  waifuGenRenderChipGrid("waifu-modal-hair-styles", WAIFU_GEN_COSMETIC.hairstyle, c.hairstyle, "single", (v) => {
+  waifuGenRenderAssetCardGrid("waifu-modal-hair-styles", WAIFU_GEN_COSMETIC.hairstyle, "hair-styles", c.hairstyle, "single", (v) => {
     waifuGeneratorState.cosmetics.hairstyle = v;
     waifuGenRefreshHairModal();
   });
@@ -1670,7 +1850,7 @@ function waifuGenRefreshEyesModal() {
   const c = waifuGeneratorState.cosmetics;
   let colors = Array.isArray(c.eye_colors) ? c.eye_colors.filter(Boolean) : [];
   if (colors.length === 0) colors = ["amber"];
-  waifuGenRenderChipGrid("waifu-modal-eye-colors", WAIFU_GEN_COSMETIC.eyes, colors, "multi2", (v) => {
+  waifuGenRenderAssetCardGrid("waifu-modal-eye-colors", WAIFU_GEN_COSMETIC.eyes, "eye-colors", colors, "multi2", (v) => {
     let next = [...(Array.isArray(waifuGeneratorState.cosmetics.eye_colors) ? waifuGeneratorState.cosmetics.eye_colors : [])].filter(Boolean);
     if (next.length === 0) next = ["amber"];
     const i = next.indexOf(v);
@@ -1685,7 +1865,7 @@ function waifuGenRefreshEyesModal() {
     waifuGeneratorState.cosmetics.eye_colors = next;
     waifuGenRefreshEyesModal();
   });
-  waifuGenRenderChipGrid("waifu-modal-eye-shapes", WAIFU_GEN_EYE_SHAPES, c.eye_shape, "single", (v) => {
+  waifuGenRenderAssetCardGrid("waifu-modal-eye-shapes", WAIFU_GEN_EYE_SHAPES, "eye-shapes", c.eye_shape, "single", (v) => {
     waifuGeneratorState.cosmetics.eye_shape = v;
     waifuGenRefreshEyesModal();
   });
@@ -1693,7 +1873,7 @@ function waifuGenRefreshEyesModal() {
 
 function waifuGenRefreshOutfitModal() {
   const c = waifuGeneratorState.cosmetics;
-  waifuGenRenderChipGrid("waifu-modal-outfits", WAIFU_GEN_OUTFITS, c.outfit, "single", (v) => {
+  waifuGenRenderAssetCardGrid("waifu-modal-outfits", WAIFU_GEN_OUTFITS, "outfits", c.outfit, "single", (v) => {
     waifuGeneratorState.cosmetics.outfit = v;
     waifuGenRefreshOutfitModal();
   });
@@ -1702,7 +1882,7 @@ function waifuGenRefreshOutfitModal() {
 function waifuGenRefreshAccModal() {
   const c = waifuGeneratorState.cosmetics;
   let acc = Array.isArray(c.accessories) ? [...c.accessories] : [];
-  waifuGenRenderChipGrid("waifu-modal-accs", WAIFU_GEN_ACCS_MULTI, acc, "multi", (v) => {
+  waifuGenRenderAssetCardGrid("waifu-modal-accs", WAIFU_GEN_ACCS_MULTI, "accessories", acc, "multi", (v) => {
     if (v === "none") {
       waifuGeneratorState.cosmetics.accessories = [];
     } else {
@@ -1720,11 +1900,11 @@ function waifuGenOpenModal(id) {
   if (!el) return;
   el.hidden = false;
   el.removeAttribute("hidden");
+  if (id === "waifu-modal-race" || id === "waifu-modal-class") waifuGenBuildRaceClassPickers();
   if (id === "waifu-modal-hair") waifuGenRefreshHairModal();
   if (id === "waifu-modal-eyes") waifuGenRefreshEyesModal();
   if (id === "waifu-modal-outfit") waifuGenRefreshOutfitModal();
   if (id === "waifu-modal-acc") waifuGenRefreshAccModal();
-  if (id === "waifu-modal-passive") waifuGenRefreshPassiveBonuses();
 }
 
 function waifuGenCloseModal(id) {
@@ -1734,20 +1914,30 @@ function waifuGenCloseModal(id) {
   el.setAttribute("hidden", "");
 }
 
-function waifuGenBindCosmeticModalsOnce() {
+function waifuGenBindModalsOnce() {
   if (window.__waifuGenModalsBound) return;
   window.__waifuGenModalsBound = true;
+  const openRace = document.getElementById("waifu-open-race");
+  if (openRace) openRace.addEventListener("click", () => waifuGenOpenModal("waifu-modal-race"));
+  const openClass = document.getElementById("waifu-open-class");
+  if (openClass) openClass.addEventListener("click", () => waifuGenOpenModal("waifu-modal-class"));
   ["waifu-open-hair", "waifu-open-eyes", "waifu-open-outfit", "waifu-open-acc"].forEach((bid, i) => {
     const ids = ["waifu-modal-hair", "waifu-modal-eyes", "waifu-modal-outfit", "waifu-modal-acc"];
     const b = document.getElementById(bid);
     if (b) b.addEventListener("click", () => waifuGenOpenModal(ids[i]));
   });
-  const openPassive = document.getElementById("waifu-open-passive");
-  if (openPassive) openPassive.addEventListener("click", () => waifuGenOpenModal("waifu-modal-passive"));
   document.querySelectorAll("[data-waifu-close-modal]").forEach((btn) => {
     btn.addEventListener("click", () => waifuGenCloseModal(btn.getAttribute("data-waifu-close-modal") || ""));
   });
-  ["waifu-modal-hair", "waifu-modal-eyes", "waifu-modal-outfit", "waifu-modal-acc", "waifu-modal-passive"].forEach((mid) => {
+  [
+    "waifu-modal-race",
+    "waifu-modal-class",
+    "waifu-modal-hair",
+    "waifu-modal-eyes",
+    "waifu-modal-outfit",
+    "waifu-modal-acc",
+    "waifu-modal-passive",
+  ].forEach((mid) => {
     const m = document.getElementById(mid);
     if (!m) return;
     m.addEventListener("click", (ev) => {
@@ -5492,7 +5682,6 @@ async function initWaifuGenerator(profile) {
   const classSel = document.getElementById("waifu-class-select");
   const raceSel = document.getElementById("waifu-race-select");
   const statsBox = document.getElementById("waifu-stats");
-  const summary = document.getElementById("waifu-summary");
   const nextBtn = document.getElementById("waifu-next-btn");
 
   if (!nameInput || !classSel || !raceSel || !statsBox || !nextBtn) return;
@@ -5506,7 +5695,7 @@ async function initWaifuGenerator(profile) {
   if (!classIds.has(waifuGeneratorState.selectedClassId)) waifuGeneratorState.selectedClassId = WAIFU_CLASSES[0].id;
   waifuGenSyncHiddenSelects();
   waifuGenBuildRaceClassPickers();
-  waifuGenBindCosmeticModalsOnce();
+  waifuGenBindModalsOnce();
 
   const recalc = () => {
     const name = nameInput.value.trim();
@@ -5519,20 +5708,11 @@ async function initWaifuGenerator(profile) {
     Object.entries(rb).forEach(([k, v]) => (cur[k] = (cur[k] || 0) + v));
     Object.entries(cb).forEach(([k, v]) => (cur[k] = (cur[k] || 0) + v));
 
-    if (summary) summary.textContent = `${className(cls)} / ${raceName(race)}`;
-    statsBox.innerHTML = [
-      ["СИЛ", cur.strength],
-      ["ЛОВ", cur.agility],
-      ["ИНТ", cur.intelligence],
-      ["ВЫН", cur.endurance],
-      ["ОБА", cur.charm],
-      ["УДЧ", cur.luck],
-    ]
-      .map(([k, v]) => `<div class="stat-card"><span class="muted">${k}</span><strong>${v}</strong></div>`)
-      .join("");
+    waifuGenRenderRadar(statsBox, cur);
+    waifuGenSyncTriggers();
+    waifuGenRenderPassiveList();
 
     nextBtn.disabled = !name;
-    waifuGenRefreshPassiveBonuses();
   };
 
   window.__waifuGenRecalc = recalc;
