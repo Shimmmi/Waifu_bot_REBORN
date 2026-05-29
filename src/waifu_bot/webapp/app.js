@@ -8162,6 +8162,17 @@ async function adminRestoreHpEnergy() {
   await loadProfile().catch(() => {});
 }
 
+async function _generateMonsterArtByTemplateId(templateId) {
+  if (!isAdminUser()) return null;
+  const tid = Number(templateId);
+  if (!Number.isFinite(tid) || tid < 1) {
+    throw new Error("invalid_template");
+  }
+  return apiFetch(`/admin/monster-art/generate?template_id=${encodeURIComponent(tid)}`, {
+    method: "POST",
+  });
+}
+
 async function adminGenerateMonsterArt() {
   if (!isAdminUser()) return;
   const storyBossId = Number(soloActiveStoryBossId);
@@ -8197,10 +8208,7 @@ async function adminGenerateMonsterArt() {
   }
   setItemArtGenBusy(true);
   try {
-    const payload = await apiFetch(
-      `/admin/monster-art/generate?template_id=${encodeURIComponent(templateId)}`,
-      { method: "POST" }
-    );
+    const payload = await _generateMonsterArtByTemplateId(templateId);
     const visual = document.getElementById("monster-visual");
     const family = payload?.family || visual?.dataset?.family || "unknown";
     const slug = payload?.slug || visual?.dataset?.slug || "unknown";
@@ -8210,6 +8218,41 @@ async function adminGenerateMonsterArt() {
       override = override + (override.includes("?") ? "&" : "?") + "v=" + Date.now();
     }
     loadMonsterImage(family, slug, tier, override || null);
+    showToast("Изображение монстра сохранено");
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Ошибка генерации", "error");
+  } finally {
+    setItemArtGenBusy(false);
+  }
+}
+
+async function adminGenerateLibraryMonsterArt(templateId) {
+  if (!isAdminUser()) return;
+  const tid = Number(templateId);
+  if (!Number.isFinite(tid) || tid < 1) return;
+  setItemArtGenBusy(true);
+  try {
+    const payload = await _generateMonsterArtByTemplateId(tid);
+    libraryArtVersionByTemplate[tid] = Date.now();
+    if (libraryCatalogCache?.monsters) {
+      const row = libraryCatalogCache.monsters.find((m) => Number(m.template_id) === tid);
+      if (row) {
+        row.seen = true;
+        row.has_image = true;
+        row.family = payload?.family || row.family || "unknown";
+        row.slug = payload?.slug || row.slug || "unknown";
+        row.image_updated_at = new Date().toISOString();
+        if (!row.name_known) {
+          row.name_known = true;
+        }
+      }
+    }
+    if (libraryState.detailId === tid) {
+      libraryRenderDetail(tid);
+    } else if (libraryState.tab === "bestiary" && !libraryState.detailId) {
+      libraryRenderGrid();
+    }
     showToast("Изображение монстра сохранено");
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -8380,7 +8423,8 @@ async function populateCaravanPage(profile) {
       ? rawCosts.map((x) => safeInt(x, 0))
       : [50, 200, 500, 1200, 2500];
 
-  pinsLayer.innerHTML = ACT_META.map(({ act, short, emoji, levelRange }) => {
+  pinsLayer.innerHTML =
+    ACT_META.map(({ act, short, emoji, levelRange }) => {
     const unlocked = act <= maxAct;
     const isCurrent = act === currentAct;
     const cost = costs[act - 1] ?? 0;
@@ -8396,7 +8440,12 @@ async function populateCaravanPage(profile) {
         ${icoBlock}
         <div class="caravan-pin-title" title="Ур. ${escapeHtml(levelRange)}">${escapeHtml(short)}</div>
       </div>`;
-  }).join("");
+    }).join("") +
+    `
+    <div class="caravan-pin caravan-pin--library" role="group" aria-label="Библиотека">
+      <button type="button" class="caravan-pin-ico-btn" onclick="WaifuApp.openLibrary()" aria-label="Библиотека">📖</button>
+      <div class="caravan-pin-title">Кодекс</div>
+    </div>`;
 
   ACT_META.forEach(({ act }) => {
     const wrap = pinsLayer.querySelector(`[data-act-pin="${act}"]`);
@@ -8468,6 +8517,578 @@ async function confirmTravelToAct() {
   const act = caravanPendingAct;
   caravanPendingAct = null;
   await travelToAct(act);
+}
+
+/* ===================================================================== */
+/* Библиотека (Кодекс) + Бестиарий                                        */
+/* ===================================================================== */
+
+const LIBRARY_MONSTER_BASE = `${GAME_STATIC_BASE}/monsters`;
+
+let libraryCatalogCache = null;
+let libraryFilters = { search: "", act: "all", family: "all", tier: "all" };
+let librarySort = "act";
+let libraryState = { tab: "bestiary", detailId: null };
+const libraryArtVersionByTemplate = {};
+
+const LIBRARY_ACT_OPTIONS = [1, 2, 3, 4, 5];
+
+const LIBRARY_TABS = [
+  { id: "bestiary", icon: "👹", label: "Монстры", enabled: true },
+  { id: "mechanics", icon: "📜", label: "Механики", enabled: true },
+  { id: "items", icon: "🎒", label: "Предметы", enabled: false },
+  { id: "classes", icon: "🛡️", label: "Классы", enabled: false },
+  { id: "races", icon: "🧝", label: "Расы", enabled: false },
+];
+
+const LIBRARY_TIER_BORDER = {
+  0: "#5a5248",
+  1: "#9ca3af",
+  2: "#22c55e",
+  3: "#3b82f6",
+  4: "#a855f7",
+  5: "#f59e0b",
+  6: "#ef4444",
+};
+
+function libraryTierClass(tier) {
+  const t = Math.max(0, Math.min(6, Number(tier) || 0));
+  return `lib-tier-${t}`;
+}
+
+function libraryArtCacheBust(templateId, imageUpdatedAt) {
+  let v = 0;
+  const tid = Number(templateId);
+  if (Number.isFinite(tid) && libraryArtVersionByTemplate[tid]) {
+    v = Math.max(v, Number(libraryArtVersionByTemplate[tid]) || 0);
+  }
+  if (imageUpdatedAt) {
+    const t = Date.parse(imageUpdatedAt);
+    if (!Number.isNaN(t)) v = Math.max(v, t);
+  }
+  return v > 0 ? String(v) : null;
+}
+
+function libraryMonsterImageUrls(e) {
+  if (!e?.seen || !e.family || !e.slug) return [];
+  const ver = libraryArtCacheBust(e.template_id, e.image_updated_at);
+  const q = ver ? `?v=${encodeURIComponent(ver)}` : "";
+  const family = e.family || "unknown";
+  const slug = e.slug || "unknown";
+  const tier = e.monster_tier ?? 1;
+  return [
+    `${LIBRARY_MONSTER_BASE}/${family}/${slug}.webp${q}`,
+    `${LIBRARY_MONSTER_BASE}/${family}/_family_t${tier}.webp${q}`,
+    `${LIBRARY_MONSTER_BASE}/${family}/_family.webp${q}`,
+    `${LIBRARY_MONSTER_BASE}/_unknown.webp`,
+  ];
+}
+
+function libraryOnArtError(img) {
+  const urls = JSON.parse(img?.dataset?.fallbackUrls || "[]");
+  let index = parseInt(img?.dataset?.fallbackIndex || "0", 10) + 1;
+  if (index < urls.length) {
+    img.dataset.fallbackIndex = String(index);
+    img.src = urls[index];
+  } else {
+    img.style.display = "none";
+    const wrap = img.closest(".lib-card-art, .lib-mtg-art");
+    if (wrap) wrap.classList.add("silhouette");
+  }
+}
+
+function libraryAttachArt(wrap, e) {
+  if (!wrap) return;
+  const img = wrap.querySelector("[data-lib-art]");
+  const emoji = wrap.querySelector(".lib-art-emoji");
+  const seen = Boolean(e?.seen);
+  wrap.classList.toggle("silhouette", !seen);
+  if (!seen) {
+    if (img) {
+      img.style.display = "none";
+      img.removeAttribute("src");
+    }
+    if (emoji) {
+      emoji.textContent = "👾";
+      emoji.style.display = "";
+    }
+    return;
+  }
+  const urls = libraryMonsterImageUrls(e);
+  if (!img || !urls.length) {
+    if (emoji) {
+      emoji.textContent = e?.emoji || "👾";
+      emoji.style.display = "";
+    }
+    return;
+  }
+  if (emoji) emoji.style.display = "none";
+  img.style.display = "";
+  img.dataset.fallbackUrls = JSON.stringify(urls);
+  img.dataset.fallbackIndex = "0";
+  img.dataset.family = e.family || "unknown";
+  img.dataset.slug = e.slug || "unknown";
+  img.onerror = () => libraryOnArtError(img);
+  if (img.getAttribute("src") === urls[0] && img.complete && img.naturalWidth > 0) {
+    wrap.classList.remove("silhouette");
+    return;
+  }
+  img.src = urls[0];
+  img.onload = () => wrap.classList.remove("silhouette");
+}
+
+function libraryFmtActRange(mm) {
+  const a = Number(mm?.act_min) || 1;
+  const b = Number(mm?.act_max) || a;
+  return a === b ? `Акт ${a}` : `Акт ${a}–${b}`;
+}
+
+function libraryStudyProgressHtml(e, tiers) {
+  const kills = Number(e?.kills) || 0;
+  const tierRows = Array.isArray(tiers) ? tiers : libraryCatalogCache?.tiers || [];
+  const maxKills = tierRows.length
+    ? Math.max(...tierRows.map((t) => Number(t.kills_required) || 0), 100)
+    : 100;
+  const fillPct = maxKills > 0 ? Math.min(100, (kills / maxKills) * 100) : 0;
+  const ticks = tierRows
+    .filter((t) => Number(t.kills_required) > 0)
+    .map((t) => {
+      const req = Number(t.kills_required);
+      const left = maxKills > 0 ? (req / maxKills) * 100 : 0;
+      const reached = kills >= req;
+      return `<span class="lib-study-tick ${reached ? "reached" : ""}" style="left:${left}%"><span class="lib-study-tick-dot"></span><span class="lib-study-tick-k">${req}</span></span>`;
+    })
+    .join("");
+  const bonusRows = tierRows
+    .filter((t) => Number(t.tier) > 0 && Number(e?.tier) >= Number(t.tier))
+    .map((t) => {
+      const parts = [];
+      if (Array.isArray(t.bonuses) && t.bonuses.length) parts.push(...t.bonuses);
+      if (Array.isArray(t.reveals) && t.reveals.length) {
+        parts.push(`откр.: ${t.reveals.join(", ")}`);
+      }
+      if (!parts.length) return "";
+      return `<div class="lib-study-bonus-row">${escapeHtml(String(t.kills_required))} уб. · ${escapeHtml(parts.join(" · "))}</div>`;
+    })
+    .filter(Boolean)
+    .join("");
+  const bonusesBlock = bonusRows
+    ? `<div class="lib-study-bonuses"><div class="lib-study-bonuses-title">Бонусы изучения</div>${bonusRows}</div>`
+    : "";
+  return `
+    <div class="lib-study">
+      <div class="lib-study-status">${escapeHtml(e?.tier_name || "—")} · ${kills} уб.</div>
+      <div class="lib-study-track-wrap">
+        <div class="lib-study-track">
+          <div class="lib-study-fill" style="width:${fillPct}%"></div>
+          ${ticks}
+        </div>
+      </div>
+      ${bonusesBlock}
+    </div>`;
+}
+
+function libraryBuildDetailStats(e) {
+  const rows = [];
+  rows.push(
+    `<div class="lib-kv"><span>Убито</span><strong>${Number(e?.kills) || 0}</strong></div>`
+  );
+  rows.push(
+    `<div class="lib-kv"><span>Локация</span><strong>${escapeHtml(libraryFmtActRange(e))}</strong></div>`
+  );
+  if (e?.name_known && e?.type) {
+    const typeLabel = formatMonsterTypeLabelRu(e.type) || e.type;
+    rows.push(`<div class="lib-kv"><span>Тип</span><strong>${escapeHtml(typeLabel)}</strong></div>`);
+  }
+  if (e.hp_base != null) {
+    rows.push(
+      `<div class="lib-kv"><span>HP (база)</span><strong>${escapeHtml(String(e.hp_base))}+${escapeHtml(String(e.hp_per_level || 0))}/ур.</strong></div>`
+    );
+  }
+  if (e.dmg_base != null) {
+    rows.push(
+      `<div class="lib-kv"><span>Урон (база)</span><strong>${escapeHtml(String(e.dmg_base))}+${escapeHtml(String(e.dmg_per_level || 0))}/ур.</strong></div>`
+    );
+  }
+  if (e.exp_base != null) {
+    rows.push(
+      `<div class="lib-kv"><span>Опыт</span><strong>${escapeHtml(String(e.exp_base))}+${escapeHtml(String(e.exp_per_level || 0))}/ур.</strong></div>`
+    );
+  }
+  if (e.gold_base != null) {
+    rows.push(
+      `<div class="lib-kv"><span>Золото</span><strong>${escapeHtml(String(e.gold_base))}+${escapeHtml(String(e.gold_per_level || 0))}/ур.</strong></div>`
+    );
+  }
+  if (e.level_min != null) {
+    rows.push(
+      `<div class="lib-kv"><span>Уровень</span><strong>${escapeHtml(String(e.level_min))}–${escapeHtml(String(e.level_max))}</strong></div>`
+    );
+  }
+  if (e.next_tier_kills != null && Number(e.tier) < Number(e.max_tier)) {
+    rows.push(
+      `<div class="lib-kv"><span>До след. уровня</span><strong>${escapeHtml(String(e.next_tier_kills))} уб.</strong></div>`
+    );
+  }
+  return rows.join("");
+}
+
+function libraryMechanicsHtml() {
+  return `
+    <div class="lib-mechanics">
+      <h3>Бой в подземельях</h3>
+      <p>Атакуйте монстра сообщениями в чате. Урон зависит от статов, оружия и пассивов. Монстр отвечает, когда его HP падает ниже порога.</p>
+      <h3>Типы урона</h3>
+      <p>Физический, магический и чистый урон по-разному взаимодействуют с защитой и аффиксами элитных монстров.</p>
+      <h3>Статы</h3>
+      <p>СИЛ, ЛОВ, ИНТ, ВЫН, ОБА и УДЧ влияют на урон, защиту, крит и награды. Подробности — в профиле и древе пассивов.</p>
+      <h3>Бестиарий</h3>
+      <p>Убивайте одного и того же монстра, чтобы открывать имя, HP, тип и бонусы против него. Прогресс привязан к шаблону монстра.</p>
+      <h3>Акты</h3>
+      <p>Караван перемещается между актами. В каждом акте свой пул монстров и уровней.</p>
+    </div>`;
+}
+
+function ensureLibraryStyles() {
+  if (document.getElementById("lib-styles")) return;
+  const style = document.createElement("style");
+  style.id = "lib-styles";
+  style.textContent = `
+#library-modal.lib-overlay{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.72);display:flex;align-items:flex-end;justify-content:center;padding:0}
+#library-modal.lib-overlay.hidden{display:none!important}
+.lib-panel{width:100%;max-width:480px;max-height:92vh;background:#16100b;border-radius:14px 14px 0 0;border:1px solid rgba(200,146,42,.35);display:flex;flex-direction:column;overflow:hidden}
+.lib-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgba(200,146,42,.2)}
+.lib-head h2{margin:0;font-size:16px;color:#e8b84b}
+.lib-close{background:transparent;border:0;color:#c9b8a8;font-size:22px;cursor:pointer;padding:4px 8px}
+.lib-tabs{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:nowrap;overflow-x:auto}
+.lib-tab{display:inline-flex;align-items:center;justify-content:center;min-width:36px;padding:8px 10px;border:1px solid rgba(200,146,42,.25);border-radius:8px;background:rgba(0,0,0,.25);font-size:18px;line-height:1;cursor:pointer}
+.lib-tab.active{border-color:rgba(232,184,75,.7);background:rgba(200,146,42,.15)}
+.lib-tab[disabled]{opacity:.35;cursor:not-allowed}
+.lib-body{flex:1;overflow-y:auto;padding:10px 12px 16px;-webkit-overflow-scrolling:touch}
+.lib-summary{font-size:11px;color:rgba(201,184,168,.85);margin-bottom:8px}
+.lib-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.lib-filters select,.lib-filters input{flex:1;min-width:100px;font-size:12px;padding:6px 8px;border-radius:8px;border:1px solid rgba(200,146,42,.3);background:#1f1812;color:#e5e2e1}
+.lib-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.lib-card{border:2px solid #5a5248;border-radius:10px;background:rgba(0,0,0,.35);cursor:pointer;overflow:hidden;text-align:center}
+.lib-card.lib-tier-1{border-color:#9ca3af}.lib-card.lib-tier-2{border-color:#22c55e}.lib-card.lib-tier-3{border-color:#3b82f6}
+.lib-card.lib-tier-4{border-color:#a855f7}.lib-card.lib-tier-5{border-color:#f59e0b}.lib-card.lib-tier-6{border-color:#ef4444}
+.lib-card-art{position:relative;aspect-ratio:1;background:#0d0a08;display:flex;align-items:center;justify-content:center}
+.lib-card-art.silhouette{filter:brightness(.35) contrast(.9)}
+.lib-card-art img{width:100%;height:100%;object-fit:cover}
+.lib-art-emoji{font-size:28px}
+.lib-card-meta{padding:4px 6px 6px;font-size:10px;line-height:1.2}
+.lib-card-name{font-weight:700;color:#e8dcc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lib-card-tier{color:rgba(201,184,168,.8)}
+.lib-detail-back{margin-bottom:8px}
+.lib-detail-back button{font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid rgba(200,146,42,.35);background:rgba(0,0,0,.3);color:#e8b84b;cursor:pointer}
+.lib-mtg{border:2px solid #5a5248;border-radius:12px;background:#f0e6d8;color:#3d2e1f;overflow:hidden;margin-bottom:10px}
+.lib-mtg.lib-tier-1{border-color:#9ca3af}.lib-mtg.lib-tier-2{border-color:#22c55e}.lib-mtg.lib-tier-3{border-color:#3b82f6}
+.lib-mtg.lib-tier-4{border-color:#a855f7}.lib-mtg.lib-tier-5{border-color:#f59e0b}.lib-mtg.lib-tier-6{border-color:#ef4444}
+.lib-mtg-name{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:#e5d9c8;font-weight:700;color:#5c4030}
+.lib-mtg-name-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lib-mtg-admin-art{flex-shrink:0;width:32px;height:32px;border-radius:8px;border:1px solid rgba(92,64,48,.35);background:#f5ebe0;cursor:pointer;font-size:16px;line-height:1}
+.lib-mtg-art{position:relative;width:100%;aspect-ratio:4/3;background:#d8cbb8;display:flex;align-items:center;justify-content:center}
+.lib-mtg-art.silhouette img{filter:brightness(.4)}
+.lib-mtg-art img{width:100%;height:100%;object-fit:contain}
+.lib-mtg-stats{padding:10px 12px 12px;font-size:12px}
+.lib-kv{display:flex;justify-content:space-between;gap:8px;margin-bottom:4px}
+.lib-kv span{color:rgba(61,46,31,.65)}
+.lib-study{margin-top:8px;padding-top:8px;border-top:1px solid rgba(61,46,31,.15)}
+.lib-study-status{font-weight:600;margin-bottom:6px;color:#5c4030}
+.lib-study-track-wrap{position:relative;padding-bottom:24px}
+.lib-study-track{position:relative;height:10px;background:rgba(61,46,31,.12);border-radius:6px;overflow:visible}
+.lib-study-fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#c9a227,#e8b84b);border-radius:6px}
+.lib-study-tick{position:absolute;top:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center}
+.lib-study-tick-dot{width:8px;height:8px;border-radius:50%;background:#9ca3af;border:2px solid #f0e6d8}
+.lib-study-tick.reached .lib-study-tick-dot{background:#e8b84b;border-color:#5c4030}
+.lib-study-tick-k{font-size:9px;margin-top:2px;color:rgba(61,46,31,.75)}
+.lib-study-bonuses{margin-top:8px}
+.lib-study-bonuses-title{font-size:11px;font-weight:600;margin-bottom:4px}
+.lib-study-bonus-row{font-size:11px;color:rgba(61,46,31,.85);margin-bottom:2px}
+.lib-mechanics h3{font-size:13px;color:#e8b84b;margin:12px 0 6px}
+.lib-mechanics p{font-size:12px;color:rgba(201,184,168,.9);line-height:1.45;margin:0 0 8px}
+.lib-soon{text-align:center;padding:32px 16px;color:rgba(201,184,168,.7);font-size:13px}
+.lib-loading{text-align:center;padding:24px;color:rgba(201,184,168,.8)}
+`;
+  document.head.appendChild(style);
+}
+
+function libraryBindFilterHandlers() {
+  const search = document.getElementById("lib-f-search");
+  const act = document.getElementById("lib-f-act");
+  const family = document.getElementById("lib-f-family");
+  const tier = document.getElementById("lib-f-tier");
+  const sort = document.getElementById("lib-f-sort");
+  if (search) {
+    search.oninput = () => {
+      libraryFilters.search = search.value.trim().toLowerCase();
+      libraryRenderGrid();
+    };
+  }
+  if (act) {
+    act.onchange = () => {
+      libraryFilters.act = act.value;
+      libraryRenderGrid();
+    };
+  }
+  if (family) {
+    family.onchange = () => {
+      libraryFilters.family = family.value;
+      libraryRenderGrid();
+    };
+  }
+  if (tier) {
+    tier.onchange = () => {
+      libraryFilters.tier = tier.value;
+      libraryRenderGrid();
+    };
+  }
+  if (sort) {
+    sort.onchange = () => {
+      librarySort = sort.value;
+      libraryRenderGrid();
+    };
+  }
+}
+
+function libraryRenderGrid() {
+  const body = document.getElementById("lib-body");
+  if (!body || !libraryCatalogCache) return;
+  libraryState.detailId = null;
+  const monsters = libraryCatalogCache.monsters || [];
+  const f = libraryFilters;
+  const families = [...new Set(monsters.map((m) => m.type || m.family).filter(Boolean))].sort();
+
+  let filtered = monsters.filter((mm) => {
+    if (f.search) {
+      const hay = `${mm.name || ""} ${mm.type || ""} ${mm.family || ""}`.toLowerCase();
+      if (!hay.includes(f.search)) return false;
+    }
+    if (f.act !== "all") {
+      const act = Number(f.act);
+      if (act < Number(mm.act_min) || act > Number(mm.act_max)) return false;
+    }
+    if (f.family !== "all") {
+      const fam = mm.type || mm.family || "";
+      if (fam !== f.family) return false;
+    }
+    if (f.tier === "undiscovered") {
+      if (mm.seen) return false;
+    } else if (f.tier !== "all") {
+      if (Number(mm.tier) !== Number(f.tier)) return false;
+    }
+    return true;
+  });
+
+  filtered = [...filtered].sort((a, b) => {
+    if (librarySort === "name") {
+      return String(a.name || "").localeCompare(String(b.name || ""), "ru");
+    }
+    if (librarySort === "kills") {
+      return (Number(b.kills) || 0) - (Number(a.kills) || 0);
+    }
+    if (librarySort === "tier") {
+      return (Number(b.tier) || 0) - (Number(a.tier) || 0);
+    }
+    const actA = Number(a.act_min) || 0;
+    const actB = Number(b.act_min) || 0;
+    if (actA !== actB) return actA - actB;
+    return Number(a.template_id) - Number(b.template_id);
+  });
+
+  const summary = libraryCatalogCache.summary || {};
+  const actOpts = LIBRARY_ACT_OPTIONS.map(
+    (a) => `<option value="${a}" ${String(f.act) === String(a) ? "selected" : ""}>Акт ${a}</option>`
+  ).join("");
+  const famOpts =
+    `<option value="all">Все типы</option>` +
+    families.map((fam) => {
+      const label = formatMonsterTypeLabelRu(fam) || fam;
+      return `<option value="${escapeHtml(fam)}" ${f.family === fam ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("");
+  const tierOpts = `
+    <option value="all" ${f.tier === "all" ? "selected" : ""}>Все уровни</option>
+    <option value="undiscovered" ${f.tier === "undiscovered" ? "selected" : ""}>Не встречены</option>
+    ${[0, 1, 2, 3, 4, 5, 6]
+      .map((t) => `<option value="${t}" ${String(f.tier) === String(t) ? "selected" : ""}>Тир ${t}</option>`)
+      .join("")}`;
+
+  const cards = filtered
+    .map((mm) => {
+      const tid = Number(mm.template_id);
+      const known = mm.name_known !== false && mm.name !== "???";
+      const label = known ? mm.name : "???";
+      const artInner = `<img data-lib-art alt="" /><span class="lib-art-emoji" aria-hidden="true">👾</span>`;
+      return `
+        <div class="lib-card ${libraryTierClass(mm.tier)}" role="button" tabindex="0" data-template-id="${tid}"
+          onclick="WaifuApp.libraryOpenMonster(${tid})"
+          aria-label="${escapeHtml(label)}">
+          <div class="lib-card-art">${artInner}</div>
+          <div class="lib-card-meta">
+            <div class="lib-card-name">${escapeHtml(label)}</div>
+            <div class="lib-card-tier">${Number(mm.kills) || 0} уб.</div>
+          </div>
+        </div>`;
+    })
+    .join("");
+
+  body.innerHTML = `
+    <div class="lib-summary">Встречено: ${summary.seen ?? 0} / ${summary.total ?? 0} · Покорено: ${summary.completed ?? 0}</div>
+    <div class="lib-filters">
+      <input id="lib-f-search" type="search" placeholder="Поиск…" value="${escapeHtml(f.search)}" />
+      <select id="lib-f-act"><option value="all">Все акты</option>${actOpts}</select>
+      <select id="lib-f-family">${famOpts}</select>
+      <select id="lib-f-tier">${tierOpts}</select>
+      <select id="lib-f-sort">
+        <option value="act" ${librarySort === "act" ? "selected" : ""}>По акту</option>
+        <option value="name" ${librarySort === "name" ? "selected" : ""}>По имени</option>
+        <option value="kills" ${librarySort === "kills" ? "selected" : ""}>По убийствам</option>
+        <option value="tier" ${librarySort === "tier" ? "selected" : ""}>По тиру</option>
+      </select>
+    </div>
+    <div class="lib-grid" id="lib-grid">${cards || '<p class="muted tiny">Ничего не найдено.</p>'}</div>`;
+
+  libraryBindFilterHandlers();
+  body.querySelectorAll(".lib-card[data-template-id]").forEach((card) => {
+    const tid = Number(card.dataset.templateId);
+    const mm = filtered.find((m) => Number(m.template_id) === tid);
+    if (mm) libraryAttachArt(card.querySelector(".lib-card-art"), mm);
+  });
+}
+
+function libraryRenderDetail(templateId) {
+  const body = document.getElementById("lib-body");
+  if (!body || !libraryCatalogCache) return;
+  const tid = Number(templateId);
+  libraryState.detailId = tid;
+  let e = (libraryCatalogCache.monsters || []).find((m) => Number(m.template_id) === tid);
+  if (!e) {
+    body.innerHTML = '<p class="muted">Монстр не найден.</p>';
+    return;
+  }
+  const known = e.name_known !== false && e.name !== "???";
+  const tiers = libraryCatalogCache.tiers || [];
+  const adminBtn = isAdminUser()
+    ? `<button type="button" class="lib-mtg-admin-art" title="Сгенерировать изображение (admin)" aria-label="Сгенерировать изображение" onclick="event.stopPropagation();WaifuApp.adminGenerateLibraryMonsterArt(${tid})">🖼</button>`
+    : "";
+  const artInner = `<img data-lib-art alt="" /><span class="lib-art-emoji" aria-hidden="true">${escapeHtml(e.emoji || "👾")}</span>`;
+
+  body.innerHTML = `
+    <div class="lib-detail-back"><button type="button" onclick="WaifuApp.libraryBackToGrid()">← К каталогу</button></div>
+    <div class="lib-mtg ${libraryTierClass(e.tier)}">
+      <div class="lib-mtg-name">
+        <span class="lib-mtg-name-text">${escapeHtml(known ? e.name : "Неизвестный монстр")}</span>
+        ${adminBtn}
+      </div>
+      <div class="lib-mtg-art">${artInner}</div>
+      <div class="lib-mtg-stats">
+        ${libraryBuildDetailStats(e)}
+        <h4 style="margin:10px 0 4px;font-size:12px;color:#5c4030">Уровни изучения</h4>
+        ${libraryStudyProgressHtml(e, tiers)}
+      </div>
+    </div>`;
+  libraryAttachArt(body.querySelector(".lib-mtg-art"), e);
+}
+
+function libraryBackToGrid() {
+  libraryState.detailId = null;
+  libraryRenderGrid();
+}
+
+function libraryOpenMonster(templateId) {
+  libraryRenderDetail(templateId);
+}
+
+function librarySwitchTab(tabId) {
+  libraryState.tab = tabId;
+  libraryState.detailId = null;
+  const tabs = document.querySelectorAll("#lib-tabs .lib-tab");
+  tabs.forEach((btn) => {
+    const active = btn.dataset.libTab === tabId;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  const body = document.getElementById("lib-body");
+  if (!body) return;
+  if (tabId === "bestiary") {
+    libraryRenderGrid();
+    return;
+  }
+  if (tabId === "mechanics") {
+    body.innerHTML = libraryMechanicsHtml();
+    return;
+  }
+  body.innerHTML = '<div class="lib-soon">Этот раздел появится позже.</div>';
+}
+
+function closeLibrary() {
+  const modal = document.getElementById("library-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
+}
+
+async function loadLibraryCatalog(force) {
+  if (libraryCatalogCache && !force) return libraryCatalogCache;
+  const data = await apiFetch("/library/bestiary");
+  libraryCatalogCache = data;
+  return data;
+}
+
+async function openLibrary(opts) {
+  opts = opts || {};
+  ensureLibraryStyles();
+  let modal = document.getElementById("library-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "library-modal";
+    modal.className = "lib-overlay hidden";
+    modal.innerHTML = `
+      <div class="lib-panel" role="dialog" aria-labelledby="lib-title">
+        <div class="lib-head">
+          <h2 id="lib-title">Библиотека</h2>
+          <button type="button" class="lib-close" aria-label="Закрыть" onclick="WaifuApp.closeLibrary()">×</button>
+        </div>
+        <div class="lib-tabs" id="lib-tabs"></div>
+        <div class="lib-body" id="lib-body"><div class="lib-loading">Загрузка…</div></div>
+      </div>`;
+    modal.addEventListener("click", (ev) => {
+      if (ev.target === modal) closeLibrary();
+    });
+    document.body.appendChild(modal);
+  }
+
+  const tabsEl = document.getElementById("lib-tabs");
+  if (tabsEl) {
+    tabsEl.innerHTML = LIBRARY_TABS.map((t) => {
+      const dis = t.enabled ? "" : " disabled";
+      const click = t.enabled ? ` onclick="WaifuApp.librarySwitchTab('${t.id}')"` : "";
+      return `<button type="button" class="lib-tab${t.id === (opts.tab || "bestiary") ? " active" : ""}" data-lib-tab="${t.id}" aria-label="${escapeHtml(t.label)}" title="${escapeHtml(t.label)}"${dis}${click}>${t.icon}</button>`;
+    }).join("");
+  }
+
+  modal.classList.remove("hidden");
+  modal.style.display = "flex";
+  const body = document.getElementById("lib-body");
+  if (body) body.innerHTML = '<div class="lib-loading">Загрузка…</div>';
+
+  const tab = opts.tab || "bestiary";
+  libraryState.tab = tab;
+  libraryState.detailId = null;
+
+  try {
+    await loadLibraryCatalog(false);
+    librarySwitchTab(tab);
+    if (opts.templateId != null) {
+      libraryOpenMonster(Number(opts.templateId));
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    if (body) {
+      body.innerHTML = `<p class="muted" style="color:#f87171">${escapeHtml(detail || "Не удалось загрузить библиотеку")}</p>`;
+    }
+  }
 }
 
 let passiveTreeCache = null;
@@ -9228,6 +9849,12 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   adminCompleteDungeon,
   adminRestoreHpEnergy,
   adminGenerateMonsterArt,
+  adminGenerateLibraryMonsterArt,
+  openLibrary,
+  closeLibrary,
+  librarySwitchTab,
+  libraryOpenMonster,
+  libraryBackToGrid,
   adminGenerateMainWaifuPaperdoll,
   sellSelected,
   toggleShopSellFilter,
