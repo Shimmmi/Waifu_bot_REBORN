@@ -7831,35 +7831,8 @@ body.page-waifu-gen .waifu-gen-raceclass-row .waifu-gen-trigger-btn {
   margin-top: 0;
   padding: 10px 10px;
   gap: 8px;
-}
-
-body.page-waifu-gen .waifu-gen-raceclass-row .waifu-gen-trigger-ico {
-  width: 36px;
-  height: 36px;
-  font-size: 18px;
-  position: relative;
   overflow: hidden;
-}
-
-body.page-waifu-gen .waifu-gen-trigger-ico .waifu-gen-trigger-img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: inherit;
-  display: block;
-}
-
-body.page-waifu-gen .waifu-gen-trigger-ico .waifu-gen-trigger-img[hidden] {
-  display: none !important;
-}
-
-body.page-waifu-gen .waifu-gen-trigger-ico .waifu-gen-trigger-emoji {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
+  min-height: 52px;
 }
 
 body.page-waifu-gen .waifu-gen-raceclass-row .waifu-gen-trigger-name {
@@ -8208,6 +8181,10 @@ body.page-waifu-gen .waifu-gen-trigger-btn:hover {
 }
 
 body.page-waifu-gen .waifu-gen-trigger-ico {
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  min-width: 0;
   width: 40px;
   height: 40px;
   border-radius: 10px;
@@ -8215,7 +8192,6 @@ body.page-waifu-gen .waifu-gen-trigger-ico {
   place-items: center;
   font-size: 22px;
   background: rgba(200, 146, 42, 0.15);
-  flex-shrink: 0;
 }
 
 body.page-waifu-gen .waifu-gen-trigger-body {
@@ -8247,6 +8223,38 @@ body.page-waifu-gen .waifu-gen-trigger-chevron {
   font-size: 20px;
   color: rgba(232, 184, 75, 0.65);
   flex-shrink: 0;
+}
+
+body.page-waifu-gen .waifu-gen-raceclass-row .waifu-gen-trigger-ico {
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+}
+
+body.page-waifu-gen .waifu-gen-trigger-ico .waifu-gen-trigger-img {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  display: block;
+}
+
+body.page-waifu-gen .waifu-gen-trigger-ico .waifu-gen-trigger-img[hidden] {
+  display: none !important;
+}
+
+body.page-waifu-gen .waifu-gen-trigger-ico .waifu-gen-trigger-emoji {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
 }
 
 body.page-waifu-gen .waifu-gen-pick-btn {
