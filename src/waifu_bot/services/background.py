@@ -203,7 +203,7 @@ async def _guild_war_narrative_fn() -> None:
 # ---------------------------------------------------------------------------
 
 CHAT_REWARDS_FLUSH_INTERVAL = 60
-GD_V1_REG_POLL_SECONDS = 60
+GD_V1_REG_POLL_SECONDS = 30
 GD_V1_ROUND_POLL_SECONDS = 20
 EXPEDITION_NOTIFY_INTERVAL = 30
 EXPEDITION_TICK_INTERVAL = 30

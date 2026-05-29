@@ -79,6 +79,41 @@ async def admin_complete_dungeon(
     return result
 
 
+@router.post("/admin/dungeons/simulate-damage", tags=["admin"])
+async def admin_simulate_damage(
+    media_type: int = Query(..., ge=1, le=8),
+    message_length: int = Query(0, ge=0, le=500),
+    message_text: str | None = Query(None),
+    player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: simulate one outgoing hit by media type (balance testing)."""
+    from waifu_bot.game.constants import MediaType
+
+    result = await combat_service.admin_simulate_message_damage(
+        session,
+        player_id,
+        MediaType(media_type),
+        message_length=message_length,
+        message_text=message_text,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result["error"])
+    return result
+
+
+@router.post("/admin/dungeons/simulate-retaliation", tags=["admin"])
+async def admin_simulate_retaliation(
+    player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: simulate monster retaliation without defeating the monster."""
+    result = await combat_service.admin_simulate_retaliation(session, player_id)
+    if result.get("error"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result["error"])
+    return result
+
+
 @router.post("/admin/waifu/restore", tags=["admin"])
 async def admin_restore_waifu(
     player_id: int = Depends(require_admin),

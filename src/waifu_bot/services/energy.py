@@ -31,6 +31,7 @@ def apply_regen(
     now: datetime | None = None,
     *,
     extra_hp_per_min: int = 0,
+    suppress: bool = False,
 ) -> bool:
     """
     Regen HP (5/min + END bonus) in discrete minute ticks.
@@ -38,6 +39,9 @@ def apply_regen(
 
     - HP: cap at max_hp; if current_hp <= 0, skip (no revive from regen);
       if already at cap, only refresh hp_updated_at.
+    - suppress: when True, grant NO HP but advance hp_updated_at to ``now`` so the
+      idle/offline interval is forfeited (used to block in-dungeon regen while the
+      player is offline). Out-of-dungeon callers leave this False.
     """
     if not waifu:
         return False
@@ -54,6 +58,12 @@ def apply_regen(
         raw_hp = now
         modified = True
     last_hp = _normalize_ts(raw_hp, now)
+    if suppress:
+        # Offline inside a dungeon: forfeit accrued time, grant nothing.
+        if waifu.current_hp < waifu.max_hp:
+            waifu.hp_updated_at = now
+            modified = True
+        return modified
     if waifu.current_hp <= 0:
         # Не оживляем только за счёт регена; просто обновляем метку.
         waifu.hp_updated_at = now

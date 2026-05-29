@@ -416,9 +416,38 @@ async def active_dungeon(
             dmg_done = None
 
         total_monsters = data.get("total_monsters", None)
+
+        # Bestiary: how much of this monster is known to the player.
+        from waifu_bot.game import bestiary as bestiary_cfg
+        from waifu_bot.services import bestiary as bestiary_service
+
+        codex_template_id = data.get("monster_template_id")
+        codex_tier = 0
+        try:
+            # The monster is in front of the player right now -> mark it "seen"
+            # so its art unlocks in the library even before the first kill.
+            if codex_template_id:
+                await bestiary_service.mark_seen(session, player_id, codex_template_id)
+                await session.commit()
+            codex_tier = await bestiary_service.get_tier(
+                session, player_id, codex_template_id, redis=get_redis()
+            )
+        except Exception:
+            codex_tier = 0
+        reveal = bestiary_cfg.reveal_flags_for_tier(codex_tier)
+        monster_real_name = data.get("monster_name", "Монстр")
+        monster_display_name = monster_real_name if reveal["name"] else "Неизвестный монстр"
+
         return {
             "active": True,
             "dungeon_id": dungeon_id,
+            "monster_codex_tier": int(codex_tier),
+            "monster_codex_max_tier": int(bestiary_cfg.MAX_TIER),
+            "monster_name_known": bool(reveal["name"]),
+            "monster_hp_known": bool(reveal["hp"]),
+            "monster_type_known": bool(reveal["type"]),
+            "monster_damage_known": bool(reveal["damage"]),
+            "monster_display_name": monster_display_name,
             "dungeon_name": data.get("dungeon_name", "Неизвестное подземелье"),
             "plus_level": data.get("plus_level", 0),
             "total_rooms": total_monsters,
@@ -445,6 +474,7 @@ async def active_dungeon(
             "affix_count": data.get("affix_count", 0),
             "affixes": data.get("affixes", []),
             "monster_has_image": data.get("monster_has_image", False),
+            "monster_image_updated_at": data.get("monster_image_updated_at"),
             "monster_image_override": data.get("monster_image_override"),
             "damage_done": dmg_done,
             "last_damage": last_damage,

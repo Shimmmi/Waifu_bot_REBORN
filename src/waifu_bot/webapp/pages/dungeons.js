@@ -212,23 +212,41 @@ function buildStageDots(pos, total) {
 const MONSTER_STATIC_BASE =
   (typeof window !== "undefined" && window.APP_CONFIG?.staticBase) || `${GAME_STATIC_BASE}/monsters`;
 
-function buildMonsterImageUrls(family, slug, tier, imageOverride) {
+// Cache-bust version for a monster's generated art: prefer the freshest of the
+// session-generated timestamp and the API's image_updated_at.
+function monsterArtCacheBust(templateId, imageUpdatedAt) {
+  let v = 0;
+  try {
+    const sess = templateId != null ? monsterArtVersion[templateId] : 0;
+    if (sess) v = Math.max(v, Number(sess) || 0);
+  } catch (e) {
+    /* monsterArtVersion may be undefined in isolation; ignore */
+  }
+  if (imageUpdatedAt) {
+    const t = Date.parse(imageUpdatedAt);
+    if (!Number.isNaN(t)) v = Math.max(v, t);
+  }
+  return v > 0 ? String(v) : null;
+}
+
+function buildMonsterImageUrls(family, slug, tier, imageOverride, version) {
   if (imageOverride) return [imageOverride, `${MONSTER_STATIC_BASE}/_unknown.webp`];
+  const q = version ? `?v=${encodeURIComponent(version)}` : "";
   return [
-    `${MONSTER_STATIC_BASE}/${family}/${slug}.webp`,
+    `${MONSTER_STATIC_BASE}/${family}/${slug}.webp${q}`,
     `${MONSTER_STATIC_BASE}/${family}/_family_t${tier}.webp`,
     `${MONSTER_STATIC_BASE}/${family}/_family.webp`,
     `${MONSTER_STATIC_BASE}/_unknown.webp`,
   ];
 }
 
-function loadMonsterImage(family, slug, tier, imageOverride) {
+function loadMonsterImage(family, slug, tier, imageOverride, version) {
   const visual = document.getElementById("monster-visual");
   const img = document.getElementById("monster-img");
   const placeholder = document.getElementById("monster-placeholder");
   if (!visual || !img || !placeholder) return;
 
-  const urls = buildMonsterImageUrls(family, slug, tier, imageOverride);
+  const urls = buildMonsterImageUrls(family, slug, tier, imageOverride, version);
   img.dataset.fallbackUrls = JSON.stringify(urls);
   img.dataset.fallbackIndex = "0";
 
@@ -240,8 +258,14 @@ function loadMonsterImage(family, slug, tier, imageOverride) {
   visual.dataset.tier = String(tier || 1);
 
   img.style.display = "";
-  img.src = urls[0];
   img.alt = `Монстр ${slug}`;
+  // If the same URL is already loaded, onload may not refire — reveal it manually
+  // so the emoji overlay does not stay stuck over a valid image.
+  if (img.getAttribute("src") === urls[0] && img.complete && img.naturalWidth > 0) {
+    onMonsterImageLoad(img);
+    return;
+  }
+  img.src = urls[0];
 }
 
 function onMonsterImageLoad(img) {
@@ -329,6 +353,10 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
   const progressEl = document.getElementById("solo-dungeon-progress");
   if (progressEl) progressEl.textContent = progressDots;
 
+  const nameKnown = monster.name_known !== false;
+  const hpKnown = monster.hp_known !== false;
+  const typeKnown = monster.type_known !== false;
+
   const visual = document.getElementById("monster-visual");
   if (visual) {
     visual.className = "monster-visual";
@@ -337,13 +365,23 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
       const glow = monster.affix_count >= 4 ? "elite-red" : monster.affix_count >= 3 ? "elite-gold" : "elite-blue";
       visual.classList.add(glow);
     }
+    // The monster is in front of the player, so always show its real art;
+    // only the name/HP/type text is redacted until the relevant kill-tier.
+    // Open this monster's bestiary page when tapping the card.
+    visual.style.cursor = "pointer";
+    visual.title = "Открыть в библиотеке";
+    visual.onclick = () => {
+      if (monster.template_id != null && window.WaifuApp?.openLibrary) {
+        window.WaifuApp.openLibrary({ tab: "bestiary", templateId: monster.template_id });
+      }
+    };
   }
 
-  setText("monster-name-text", monster.name ?? "—");
+  setText("monster-name-text", nameKnown ? (monster.name ?? "—") : (monster.display_name || "Неизвестный монстр"));
   setText("monster-name-level", `Ур. ${monster.level ?? "—"}`);
 
   const typeEl = document.getElementById("monster-name-type");
-  const typeLabel = formatMonsterTypeLabelRu(monster.monster_type);
+  const typeLabel = typeKnown ? formatMonsterTypeLabelRu(monster.monster_type) : "";
   if (typeEl) {
     typeEl.textContent = typeLabel;
     typeEl.style.display = typeLabel ? "block" : "none";
@@ -352,21 +390,25 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
   const emojiEl = document.getElementById("monster-emoji");
   if (emojiEl) emojiEl.textContent = monster.emoji ?? "👾";
   const placeholderLabel = document.getElementById("monster-placeholder-label");
-  if (placeholderLabel) placeholderLabel.textContent = monster.family ?? "";
+  if (placeholderLabel) placeholderLabel.textContent = typeKnown ? (monster.family ?? "") : "";
 
   const img = document.getElementById("monster-img");
   if (img) img.classList.add("fading");
+  const monsterArtVersionStr = monster.has_image
+    ? monsterArtCacheBust(monster.template_id, monster.image_updated_at)
+    : null;
   setTimeout(() => {
     loadMonsterImage(
       monster.family || "unknown",
       monster.slug || "unknown",
       monster.tier ?? 1,
-      monster.image_override ?? null
+      monster.image_override ?? null,
+      monsterArtVersionStr
     );
   }, 150);
 
   const monsterPct = monster.max_hp > 0 ? Math.max(0, Math.min(100, (monster.current_hp / monster.max_hp) * 100)) : 0;
-  setText("monster-hp-text", `${monster.current_hp} / ${monster.max_hp}`);
+  setText("monster-hp-text", hpKnown ? `${monster.current_hp} / ${monster.max_hp}` : "??? / ???");
   const hpFill = document.getElementById("monster-hp-fill");
   if (hpFill) hpFill.style.width = monsterPct + "%";
 
@@ -450,7 +492,9 @@ function renderSoloActiveProgress(active) {
     family: active.monster_family || "unknown",
     slug: active.monster_slug || "unknown",
     tier: active.monster_tier ?? 1,
+    template_id: active.monster_template_id ?? null,
     has_image: active.monster_has_image === true,
+    image_updated_at: active.monster_image_updated_at || null,
     image_override: active.monster_image_override || storyBossImg || null,
     emoji: active.monster_emoji || "👾",
     is_boss: active.is_boss === true,
@@ -458,6 +502,11 @@ function renderSoloActiveProgress(active) {
     affix_count: active.affix_count ?? 0,
     affixes: Array.isArray(active.affixes) ? active.affixes : [],
     monster_type: active.monster_type || active.monster_family || "",
+    codex_tier: active.monster_codex_tier ?? 0,
+    name_known: active.monster_name_known !== false,
+    hp_known: active.monster_hp_known !== false,
+    type_known: active.monster_type_known !== false,
+    display_name: active.monster_display_name || active.monster_name,
   };
   const dungeon = {
     name: active.dungeon_name,
@@ -1369,7 +1418,7 @@ async function updateGdSessionUI() {
             : ""
         }
         </div>
-        <p class="gd-session-foot muted tiny">Команда в чате: <code>/gd_join</code>. Сообщения в чат попадают в буфер текущего раунда; закрытие по таймеру (~30 мин) или админ-команде.</p>
+        <p class="gd-session-foot muted tiny">Команды в чате: <code>/gd_join</code>, <code>/gd_party</code>. Сообщения в чат попадают в буфер текущего раунда; закрытие по таймеру (~15 мин) или админ-команде.</p>
       `;
       return;
     }
@@ -1812,6 +1861,14 @@ function expeditionAffixChipsHtml(affixes, affixLevel, withLevelOnFirst) {
     .join("");
 }
 
+function expeditionDiffCountClass(item) {
+  // Цветная рамка по количеству «сложностей» (от зелёной до фиолетовой).
+  let count = Array.isArray(item?.affixes) ? item.affixes.length : 0;
+  if (!count && Array.isArray(item?.difficulty_tags)) count = item.difficulty_tags.length;
+  count = Math.max(1, Math.min(5, count || 1));
+  return `exp-diff-count-${count}`;
+}
+
 function renderExpeditionGrids() {
   const activeSection = document.getElementById("exp-active-section");
   const activeGrid = document.getElementById("exp-active-grid");
@@ -1837,7 +1894,8 @@ function renderExpeditionGrids() {
           const biomeTag = escapeHtml(a.biome_tag || "");
           const archId = escapeHtml(a.location_archetype_id || "");
           const genBtn = expeditionCardGenArtButton("active", a);
-          return `<div class="exp-card-item exp-is-active" data-exp-kind="active" data-exp-id="${a.id}">
+          const diffCls = expeditionDiffCountClass(a);
+          return `<div class="exp-card-item exp-is-active ${diffCls}" data-exp-kind="active" data-exp-id="${a.id}">
             <div class="exp-card-img" data-biome-tag="${biomeTag}" data-archetype-id="${archId}">
               <div class="exp-card-emoji">${emoji}</div>
               <div class="exp-card-affix-col">
@@ -1875,10 +1933,11 @@ function renderExpeditionGrids() {
         const archId = escapeHtml(s.location_archetype_id || "");
         const genBtn = expeditionCardGenArtButton("daily", s);
         const cls = used ? " exp-card-used" : "";
+        const diffCls = expeditionDiffCountClass(s);
         const foot = used
           ? `<div class="exp-card-foot"><span class="exp-foot-muted">● Отправлена</span></div>`
           : `<div class="exp-card-foot"><span class="exp-foot-ready">● Доступна</span></div>`;
-        return `<div class="exp-card-item${cls}" data-exp-kind="daily" data-exp-id="${s.id}" data-exp-used="${used ? "1" : "0"}">
+        return `<div class="exp-card-item${cls} ${diffCls}" data-exp-kind="daily" data-exp-id="${s.id}" data-exp-used="${used ? "1" : "0"}">
             <div class="exp-card-img" data-biome-tag="${biomeTag}" data-archetype-id="${archId}">
               <div class="exp-card-emoji">${emoji}</div>
               <div class="exp-card-affix-col">

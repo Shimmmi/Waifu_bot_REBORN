@@ -51,7 +51,7 @@ from waifu_bot.game.constants import (
     WAIFU_CLASS_LABEL_RU,
     WAIFU_RACE_LABEL_RU,
 )
-from waifu_bot.game.effective_stats import resolve_solo_combat_primary_four
+from waifu_bot.game.effective_stats import resolve_equipped_weapon_for_profile, resolve_solo_combat_primary_four
 from waifu_bot.game.main_waifu_base_stats import (
     class_flat_bonuses_for,
     compute_main_waifu_base_stats,
@@ -71,6 +71,7 @@ from waifu_bot.api.mail_routes import router as mail_router
 from waifu_bot.api.chat_rewards_routes import router as chat_rewards_router
 from waifu_bot.api.armory_routes import router as armory_router
 from waifu_bot.api.tutorial_routes import router as tutorial_router
+from waifu_bot.api.library_routes import router as library_router
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ router.include_router(mail_router)
 router.include_router(chat_rewards_router)
 router.include_router(tutorial_router)
 router.include_router(armory_router)
+router.include_router(library_router)
 
 # Вторичные бонусы с предметов (шаблон + зачарование) и аффиксы с effect_key *_pct.
 # Значение в аффиксе — целое число в сотых долях процента: 150 => 1.50% => +0.015 к сумме.
@@ -145,6 +147,10 @@ def calculate_item_bonuses(inv: m.InventoryItem) -> dict:
     # Бонусы от аффиксов
     for aff in (inv.affixes or []):
         stat = aff.stat.lower()
+        # Family-specific damage (e.g. damage_vs_monster_type_flat:construct) is combat-only
+        # situational — never counted in general profile «Урон ближний/дальний/магич.».
+        if stat.startswith("damage_vs_monster_type_"):
+            continue
         try:
             value = float(aff.value) if aff.is_percent else int(aff.value)
         except (ValueError, TypeError):
@@ -342,23 +348,51 @@ def _compute_details(
         calculate_dodge_chance,
     )
 
-    def _damage_score(attack_type: str, flat_bonus: float) -> int:
-        base = float(BASE_SKILL_DAMAGE) + float(total_bonuses.get("damage_flat", 0) or 0) + float(flat_bonus or 0)
+    weapon_profile = resolve_equipped_weapon_for_profile(equipped_items or [])
+
+    def _damage_bounds(attack_type: str, type_flat: float) -> tuple[int, int]:
+        if weapon_profile.attack_type == attack_type and weapon_profile.damage_min is not None:
+            base_min = float(weapon_profile.damage_min)
+            base_max = float(
+                weapon_profile.damage_max if weapon_profile.damage_max is not None else weapon_profile.damage_min
+            )
+        else:
+            base_min = base_max = float(BASE_SKILL_DAMAGE)
+        flat_add = float(total_bonuses.get("damage_flat", 0) or 0) + float(type_flat or 0)
+        base_min += flat_add
+        base_max += flat_add
         if (total_bonuses.get("damage_percent", 0) or 0) > 0:
-            base = base * (1 + float(total_bonuses["damage_percent"]) / 100.0)
-        return int(
+            pct = 1.0 + float(total_bonuses["damage_percent"]) / 100.0
+            base_min *= pct
+            base_max *= pct
+        score_min = int(
             calculate_damage(
-                int(base),
+                int(base_min),
                 strength=int(strength),
                 agility=int(agility),
                 intelligence=int(intelligence),
                 attack_type=attack_type,
             )
         )
+        score_max = int(
+            calculate_damage(
+                int(base_max),
+                strength=int(strength),
+                agility=int(agility),
+                intelligence=int(intelligence),
+                attack_type=attack_type,
+            )
+        )
+        if score_min > score_max:
+            score_min, score_max = score_max, score_min
+        return score_min, score_max
 
-    melee_damage = _damage_score("melee", total_bonuses.get("melee_damage_flat", 0))
-    ranged_damage = _damage_score("ranged", total_bonuses.get("ranged_damage_flat", 0))
-    magic_damage = _damage_score("magic", total_bonuses.get("magic_damage_flat", 0))
+    melee_min, melee_max = _damage_bounds("melee", total_bonuses.get("melee_damage_flat", 0))
+    ranged_min, ranged_max = _damage_bounds("ranged", total_bonuses.get("ranged_damage_flat", 0))
+    magic_min, magic_max = _damage_bounds("magic", total_bonuses.get("magic_damage_flat", 0))
+    melee_damage = (melee_min + melee_max) // 2
+    ranged_damage = (ranged_min + ranged_max) // 2
+    magic_damage = (magic_min + magic_max) // 2
 
     # Crit/Dodge chances from combat formulas (convert to percent for UI)
     from waifu_bot.game.constants import (
@@ -438,8 +472,14 @@ def _compute_details(
         "hp_max": hp_max,
         "armor": int(armor_total),
         "melee_damage": max(0, melee_damage),
+        "melee_damage_min": max(0, melee_min),
+        "melee_damage_max": max(0, melee_max),
         "ranged_damage": max(0, ranged_damage),
+        "ranged_damage_min": max(0, ranged_min),
+        "ranged_damage_max": max(0, ranged_max),
         "magic_damage": max(0, magic_damage),
+        "magic_damage_min": max(0, magic_min),
+        "magic_damage_max": max(0, magic_max),
         "crit_chance": round(crit_chance, 2),
         "dodge_chance": round(dodge_chance, 2),
         "damage_reduction": round(damage_reduction_pct, 2),
@@ -863,7 +903,29 @@ async def get_profile(
                 pre_max = int(main_waifu.max_hp or 0)
                 await _sync_waifu_max_hp(session, player_id, main_waifu)
                 post_max = int(main_waifu.max_hp or 0)
-                regen_changed = apply_regen(main_waifu)
+                # If the player has an ACTIVE dungeon run, in-dungeon regen only
+                # applies while online (real action within ONLINE_WINDOW_SECONDS).
+                # This passive poll never updates last_combat_action_at.
+                from waifu_bot.game.constants import ONLINE_WINDOW_SECONDS
+
+                suppress_regen = False
+                active_run = (
+                    await session.execute(
+                        select(m.DungeonRun.id).where(
+                            m.DungeonRun.player_id == player_id,
+                            m.DungeonRun.status == "active",
+                        )
+                    )
+                ).first()
+                if active_run is not None:
+                    prev_action = getattr(player, "last_combat_action_at", None)
+                    if prev_action is not None and prev_action.tzinfo is None:
+                        prev_action = prev_action.replace(tzinfo=timezone.utc)
+                    online = prev_action is not None and (
+                        datetime.now(timezone.utc) - prev_action
+                    ) <= timedelta(seconds=ONLINE_WINDOW_SECONDS)
+                    suppress_regen = not online
+                regen_changed = apply_regen(main_waifu, suppress=suppress_regen)
                 if regen_changed or post_max != pre_max:
                     await session.commit()
             except Exception:
@@ -1204,7 +1266,11 @@ async def unequip_item(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    inv = await session.get(m.InventoryItem, inventory_item_id)
+    inv = await session.get(
+        m.InventoryItem,
+        inventory_item_id,
+        options=[selectinload(m.InventoryItem.item)],
+    )
     if not inv or inv.player_id != player_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item not found")
     inv.equipment_slot = None

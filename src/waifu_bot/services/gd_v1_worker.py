@@ -21,6 +21,7 @@ from waifu_bot.db.models import (
 )
 from waifu_bot.db.session import get_session
 from waifu_bot.game.constants import (
+    GD_ROUND_DURATION_MINUTES_DEFAULT,
     GD_V1_START_CHAT_MESSAGE,
     MAX_LEVEL,
     WAIFU_CLASS_LABEL_RU,
@@ -68,6 +69,30 @@ def gd_v1_end_round_processing(cycle_id: int) -> None:
     _gd_v1_processing_cycle_ids.discard(cycle_id)
 
 
+def _chunk_text(text: str, limit: int = 3900) -> list[str]:
+    """Разбить длинный текст на сообщения <= limit, по возможности по границам строк."""
+    if len(text) <= limit:
+        return [text]
+    chunks: list[str] = []
+    cur = ""
+    for line in text.split("\n"):
+        if len(line) > limit:
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            for i in range(0, len(line), limit):
+                chunks.append(line[i : i + limit])
+            continue
+        if len(cur) + len(line) + 1 > limit:
+            chunks.append(cur)
+            cur = line
+        else:
+            cur = f"{cur}\n{line}" if cur else line
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
 def format_gd_battle_hp_system_message(battle_state: dict[str, Any] | None) -> str:
     """Текст системного сообщения: HP отряда и монстров после раунда (состояние из battle_state_json)."""
     st = battle_state or {}
@@ -106,6 +131,54 @@ def format_gd_battle_hp_system_message(battle_state: dict[str, Any] | None) -> s
                 pct = int(100 * cur / mx)
                 lines.append(f"• {name}{boss} — {cur} / {mx} HP (~{pct}%)")
     return "\n".join(lines)
+
+
+def _compute_round_mvp(state: dict[str, Any] | None) -> tuple[int, str] | None:
+    """MVP по накопленному вкладу/активности на момент раунда (для победного нарратива)."""
+    st = state or {}
+    contrib = st.get("contribution") or {}
+    activity = st.get("activity_totals") or {}
+    party = st.get("party") or []
+    name_by_uid: dict[int, str] = {}
+    for p in party:
+        uid = p.get("user_id")
+        if uid is not None:
+            name_by_uid[int(uid)] = str(p.get("name") or f"Игрок {uid}")
+    scores: dict[int, float] = {}
+    for uid_str in set(list(contrib.keys()) + list(activity.keys())):
+        try:
+            uid = int(uid_str)
+        except (TypeError, ValueError):
+            continue
+        sc = float(activity.get(uid_str, 0.0))
+        if sc < 1.0:
+            c = contrib.get(uid_str, {}) or {}
+            sc = (
+                float(c.get("text") or 0) * 1.0
+                + float(c.get("skill") or 0) * 1.5
+                + float(c.get("heal") or 0) * 1.2
+                + float(c.get("rounds") or 0) * 10.0
+            )
+        scores[uid] = sc
+    if not scores:
+        return None
+    mvp_uid = max(scores, key=lambda u: scores[u])
+    return mvp_uid, name_by_uid.get(mvp_uid, f"Игрок {mvp_uid}")
+
+
+def format_gd_round_battle_log_message(
+    result: dict[str, Any], ctx: dict[str, Any]
+) -> str:
+    """Полный лог боя за раунд (по циклам, с цифрами) для отправки в чат."""
+    from waifu_bot.services.gd_battle_log import format_gd_round_log_lines_ru
+
+    resolved = (result.get("actions_json") or {}).get("resolved")
+    lines = format_gd_round_log_lines_ru(resolved, ctx, result.get("outcomes_json"))
+    rnd = result.get("round_number", "?")
+    header = f"🧾 Журнал боя — раунд {rnd}"
+    if not lines:
+        return header + "\n• (нет зафиксированных действий)"
+    return header + "\n" + "\n".join(lines)
 
 
 async def _refresh_party_display_from_main_waifu(
@@ -246,11 +319,29 @@ async def process_gd_registration_deadlines(
 ) -> None:
     closed = await gd_cycle.process_due_registration_closures(session)
     await session.commit()
+    if closed:
+        logger.info(
+            "GD v1 registration auto-close: %s cycle(s) processed (%s)",
+            len(closed),
+            ", ".join(f"#{c.id}:{c.status}" for c in closed),
+        )
     for c in closed:
         if bot and c.status == "active":
+            logger.info(
+                "GD v1 auto-start cycle_id=%s chat_id=%s — отправляю стартовый нарратив",
+                c.id,
+                c.chat_id,
+            )
             fresh = await session.get(GDCycle, c.id)
             if fresh:
                 await send_gd_v1_group_start_narrative(bot, session, fresh)
+        elif not bot and c.status == "active":
+            logger.warning(
+                "GD v1 auto-start cycle_id=%s chat_id=%s: bot=None — поход активен, "
+                "но стартовое сообщение не отправлено (проверьте get_bot()/webhook).",
+                c.id,
+                c.chat_id,
+            )
         elif bot and c.status == "cancelled":
             try:
                 await bot.send_message(
@@ -320,6 +411,10 @@ async def _gd_v1_execute_round_resolution_after_simulation(
     }
     battle_party = list((cycle.battle_state_json or {}).get("party") or ctx.get("party") or [])
     ctx["party"] = await _refresh_party_display_from_main_waifu(session, battle_party)
+    if result["round_outcome"] == "victory":
+        mvp = _compute_round_mvp(cycle.battle_state_json or {})
+        if mvp:
+            ctx["mvp_name"] = mvp[1]
     timeout = float(
         (await get_game_config_map(session)).get("gd_ai_timeout_seconds") or "15"
     )
@@ -346,6 +441,12 @@ async def _gd_v1_execute_round_resolution_after_simulation(
                 logger.exception("GD round fallback send failed cycle_id=%s", cycle_id)
 
     if bot and chat_id is not None:
+        try:
+            battle_log_text = format_gd_round_battle_log_message(result, ctx)
+            for chunk in _chunk_text(battle_log_text, 3900):
+                await bot.send_message(chat_id=chat_id, text=chunk)
+        except Exception:
+            logger.exception("GD round battle log message failed cycle_id=%s", cycle_id)
         try:
             hp_text = format_gd_battle_hp_system_message(cycle.battle_state_json)
             await bot.send_message(chat_id=chat_id, text=hp_text)
@@ -400,7 +501,7 @@ async def _gd_v1_execute_round_resolution_after_simulation(
 async def heal_gd_active_cycles_missing_deadline(session: AsyncSession) -> None:
     """Активные циклы без дедлайна (миграция / сбой): выставить дедлайн от now."""
     cfg = await get_game_config_map(session)
-    dur_m = int(float(cfg.get("gd_round_duration_minutes", "30")))
+    dur_m = int(float(cfg.get("gd_round_duration_minutes", str(GD_ROUND_DURATION_MINUTES_DEFAULT))))
     now = datetime.now(timezone.utc)
     r = await session.execute(
         select(GDCycle).where(
@@ -502,7 +603,7 @@ async def _process_gd_v1_admin_force_victory_locked(
     async for session in get_session():
         try:
             cfg = await get_game_config_map(session)
-            dur_m = int(float(cfg.get("gd_round_duration_minutes", "30")))
+            dur_m = int(float(cfg.get("gd_round_duration_minutes", str(GD_ROUND_DURATION_MINUTES_DEFAULT))))
             dur_td = timedelta(minutes=dur_m)
 
             cycle = await session.get(GDCycle, cycle_id)
@@ -579,7 +680,7 @@ async def _process_gd_v1_round_for_cycle_locked(
     async for session in get_session():
         try:
             cfg = await get_game_config_map(session)
-            dur_m = int(float(cfg.get("gd_round_duration_minutes", "30")))
+            dur_m = int(float(cfg.get("gd_round_duration_minutes", str(GD_ROUND_DURATION_MINUTES_DEFAULT))))
             dur_td = timedelta(minutes=dur_m)
 
             if not force:

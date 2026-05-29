@@ -8,7 +8,7 @@ import logging
 import random
 import re
 from io import BytesIO
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import httpx
 from PIL import Image
@@ -19,23 +19,18 @@ from waifu_bot.core.config import settings
 from waifu_bot.db.models.dungeon import MonsterTemplate
 from waifu_bot.db.models.skill import Skill, SkillType
 from waifu_bot.game.constants import (
-    AI_NARRATIVE_ANTI_GENERIC_VERIFY_RU,
-    AI_NARRATIVE_FINAL_MARKER,
+    AI_HIRE_MOMENT_MODERN_HUMOR_RU,
     AI_NARRATIVE_GROTESQUE_HUMOR_RU,
-    AI_NARRATIVE_HUMAN_RHYTHM_RU,
 )
+from waifu_bot.game.expedition_data import PERK_BY_ID
 from waifu_bot.game.expedition_narrative_catalog import (
     ExpeditionNarrativeStyle,
     narrative_style_for_id,
     narrative_style_prompt_block,
 )
+from waifu_bot.services.ai_narrative_rewrite import rhythm_rewrite_narrative
 
 logger = logging.getLogger(__name__)
-
-_FINAL_MARKER_RE = re.compile(
-    r"===\s*(?:ФИНАЛ|FINAL)\s*===",
-    re.IGNORECASE,
-)
 
 
 def _expedition_style_prompt_from_brief(brief: dict | None) -> str:
@@ -169,110 +164,19 @@ def _warn_if_empty_assistant(caller: str, choice: object, extracted: str) -> Non
     )
 
 
-def _extract_final_after_marker(text: str, marker: str = AI_NARRATIVE_FINAL_MARKER) -> str | None:
-    """Вырезает финальный текст после последнего маркера ===ФИНАЛ=== / ===FINAL===."""
-    raw = (text or "").strip()
-    if not raw:
-        return None
-    matches = list(_FINAL_MARKER_RE.finditer(raw))
-    if matches:
-        final = raw[matches[-1].end() :].strip()
-        return final or None
-    if marker and marker in raw:
-        idx = raw.rfind(marker)
-        final = raw[idx + len(marker) :].strip()
-        return final or None
-    return None
-
-
-def _looks_like_refine_analysis(text: str) -> bool:
-    """Ответ без маркера, похожий на meta-разбор — не финальный нарратив."""
-    raw = (text or "").strip()
-    if not raw or _FINAL_MARKER_RE.search(raw):
-        return False
-    lower = raw.lower()
-    if "generic" not in lower:
-        return False
-    return bool(re.search(r"\b1\)", raw) or re.search(r"\b2\)", raw))
-
-
-def _resolve_refined_narrative(raw: str, *, source_draft: str) -> str | None:
-    """Возвращает финальный текст после маркера или None (никогда сырой analysis)."""
-    _ = source_draft
-    final = _extract_final_after_marker(raw)
-    if final:
-        return final
-    if _looks_like_refine_analysis(raw):
-        return None
-    return None
-
-
 async def refine_expedition_narrative_draft(
     draft: str,
     *,
     caller: str,
     length_hint: str,
 ) -> str:
-    """
-    Второй проход OpenRouter: анти-generic проверка и переписывание черновика.
-    При сбое возвращает исходный draft.
-    """
-    source = (draft or "").strip()
-    if not source:
-        return draft
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        return draft
-
-    model = settings.openrouter_model
-    prompt = (
-        AI_NARRATIVE_ANTI_GENERIC_VERIFY_RU.format(draft=source)
-        + f"\n\nСохрани смысл, тон и стиль экспедиции. Длина финала: {length_hint}."
+    """Второй проход OpenRouter: rhythm-rewrite. При сбое — исходный draft."""
+    return await rhythm_rewrite_narrative(
+        draft,
+        caller=caller,
+        length_hint=length_hint,
+        preserve_html=False,
     )
-
-    try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 320,
-                    "temperature": 0.75,
-                    **_openrouter_text_extra(),
-                },
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "OpenRouter expedition refine (%s): HTTP %s body=%s",
-                    caller,
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return draft
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return draft
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant(f"expedition refine {caller}", first, text)
-                return draft
-            resolved = _resolve_refined_narrative(text, source_draft=source)
-            if resolved:
-                return resolved
-            logger.warning(
-                "OpenRouter expedition refine (%s): no %s in response, using draft; prefix=%s",
-                caller,
-                AI_NARRATIVE_FINAL_MARKER,
-                text[:120].replace("\n", " "),
-            )
-            return draft
-    except Exception as e:
-        logger.warning("OpenRouter expedition refine (%s) error: %s", caller, e)
-        return draft
 
 
 async def generate_expedition_narrative_brief(
@@ -324,8 +228,6 @@ async def generate_expedition_narrative_brief(
         "Ты — сценарист коротких фэнтезийных экспедиций для RPG. "
         "Придумай уникальный сеттинг экспедиции по JSON-контексту. "
         f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
-        f"{AI_NARRATIVE_HUMAN_RHYTHM_RU} "
-        "Применяй требования ритма к полям intro_narrative и setting_summary. "
         f"{style_block} "
         "Не используй шаблон «подземелье с гоблинами», если архетип — город, клуб, арктика и т.п. "
         "Сеттинг должен соответствовать архетипу локации и режиму экспедиции. "
@@ -512,7 +414,6 @@ async def generate_expedition_tick_narrative(
             "не перескакивай к другому типу повествования."
         )
     prompt = (
-        f"{AI_NARRATIVE_HUMAN_RHYTHM_RU} "
         "Напиши короткое повествование (2–4 предложения, на русском) об одном эпизоде экспедиции в фэнтези-стиле. "
         f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
         f"{style_block}{intro_hint} "
@@ -607,7 +508,6 @@ async def generate_expedition_event(
         extra += f" Подготовка: {prep}."
     style_block = _expedition_style_prompt_from_brief(narrative_brief)
     prompt = (
-        f"{AI_NARRATIVE_HUMAN_RHYTHM_RU} "
         f"Напиши коротко (2–3 предложения, на русском) описание исхода экспедиции в фэнтези-стиле. "
         f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
         f"{style_block} "
@@ -696,8 +596,8 @@ async def generate_hire_waifu_name_and_bio(
 ) -> Optional[tuple[str, str]]:
     """
     Генерирует имя и биографию наёмницы через OpenRouter.
-    ИИ придумывает короткое фэнтезийное женское имя (1–2 слога) по расе/классу и 2–3 предложения био.
-    Возвращает (name, bio) или None при ошибке/недоступности.
+    ИИ придумывает уникальное фэнтезийное женское имя (любой длины, с разнообразной фонетикой)
+    по расе/классу и 2–3 предложения био. Возвращает (name, bio) или None при ошибке/недоступности.
     """
     api_key = getattr(settings, "openrouter_api_key", None)
     if not api_key:
@@ -713,7 +613,7 @@ async def generate_hire_waifu_name_and_bio(
 Уровень: {level}
 Умения: {skills_str}
 
-Требования к имени: фэнтезийное женское имя, подходящее под расу и класс (длина любая). Не используй имена из популярных аниме.
+Требования к имени: уникальное фэнтезийное женское имя, подходящее под расу и класс (длина любая — от короткого до составного с прозвищем). Сильно варьируй фонетику, происхождение и культурный колорит между расами и наёмницами, чтобы имена не были похожи друг на друга. Не используй имена из популярных аниме и избегай заезженных шаблонов вроде «Аэль/Лира/Нэли/Кира/Сия/Мира».
 Требования к биографии: 2–3 предложения, русский язык, живо и с характером, без механик и чисел. Упомяни умения через образы и действия.
 {AI_NARRATIVE_GROTESQUE_HUMOR_RU} Имя и био — в том же духе.
 
@@ -729,7 +629,7 @@ async def generate_hire_waifu_name_and_bio(
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 300,
-                    "temperature": 0.85,
+                    "temperature": 1.0,
                     **_openrouter_text_extra(),
                 },
             )
@@ -1197,6 +1097,75 @@ _RACE_VISUAL = {
     "демоница": "demon girl, small curved horns, dark aura",
     "фея": "fairy girl, small iridescent wings, magical glow",
 }
+
+# English scene hints for hired waifu portrait (one random perk from waifu.perks)
+_PERK_PORTRAIT_VISUAL_EN: dict[str, str] = {
+    "gas_mask": "wearing a tactical gas mask half-raised, hazmat straps, cautious eyes",
+    "diver": "wetsuit collar, snorkel mask on forehead, water droplets on skin",
+    "fireproof": "heat shimmer aura, light soot smudges, calm near embers",
+    "frostproof": "frosty breath mist, ice crystal sparkles in hair",
+    "navigator": "holding a brass compass, rolled sea chart at belt",
+    "desert_walker": "sun scarf, desert wind, sand dust on cloak",
+    "gas_filter": "heavy-duty respirator filters visible, steampunk tubes",
+    "snow_warrior": "fur-lined hood, snowflakes on lashes, ruddy cheeks",
+    "acid_proof": "rubberized gear edges, protective goggles hanging on neck",
+    "wind_walker": "scarf whipping in strong wind, dynamic hair motion",
+    "elf_slayer": "battle-worn blade hilt, subtle elven rune trophy charm",
+    "orc_hunter": "heavy crossbow strap, tribal war paint streak",
+    "priest": "holy symbol pendant, soft golden light between hands",
+    "demon_slayer": "blessed steel glint, faint holy seal pattern on gauntlet",
+    "dragonslayer": "scorched scale fragment on pauldron, heroic upward gaze",
+    "goblin_shaker": "mischievous grin, small bomb pouch at hip",
+    "troll_slayer": "wooden club on shoulder, moss and mud stains",
+    "vampire_hunter": "wooden stakes on bandolier, silver cross glint",
+    "entomologist": "magnifying glass, pinned colorful beetle on lapel",
+    "bat_hunter": "night sky cape, small bat charm earring",
+    "mushroom_expert": "woven basket of glowing mushrooms, forest floor moss",
+    "scout": "crouching among dense bushes, binoculars raised, stealthy focus",
+    "archaeologist": "dusty gloves, ancient stone tablet fragment, fine brush",
+    "swamp_walker": "knee-high waders, misty fen reeds behind",
+    "spider_hunter": "torch glow, sticky web strands on sleeve",
+    "chemist": "glass vials on belt, faint green vapor wisps",
+    "magic_researcher": "floating arcane notes and tiny rune diagrams",
+    "exorcist": "rosary wrapped around fist, faint ectoplasm mist",
+    "mountain_engineer": "pickaxe handle visible, rock dust on cheeks",
+    "anti_magnet": "copper coil jewelry, broken compass needle spinning",
+    "curse_removal": "shattered chain motif, soft cleansing white aura",
+    "anti_mage": "null-magic cuff on wrist, dispelling hand gesture",
+    "spatial_mage": "slightly warped perspective echo around fingertips",
+    "light_protection": "dark visor up on forehead, suppressed lens flare",
+    "magic_resistance": "shimmering barrier-like skin sheen, defiant stance",
+    "chronomancer": "floating clock gear fragments, frozen dust motes",
+    "accelerator": "motion blur streaks, hair whipped to one side",
+    "spatial_navigator": "bending corridor illusion grid reflected in eyes",
+    "mana_shield": "crystalline mana shards orbiting one shoulder",
+    "lucky": "four-leaf clover hair clip, golden lucky spark motes",
+    "mental_shield": "psychic ripple halo blocking inward, focused brow",
+    "strong_spirit": "iron-willed stance, inner fire reflected in pupils",
+    "mental_clarity": "serene sharp gaze, single clean rim light",
+    "sleepless": "stylized tired eyes, steam from mug at belt",
+    "trusting": "warm open smile, hand extended in greeting",
+    "photographic_memory": "faint glowing film-strip frames around temples",
+    "calm": "meditative mudra, perfectly still hair despite wind",
+    "optimist": "sunflower brooch, bright hopeful expression",
+    "anger_control": "slow exhale pose, opening clenched fist gently",
+    "passionate": "leaning forward energetically, lively spark in eyes",
+}
+
+_HIRE_PORTRAIT_POSE_EN: tuple[str, ...] = (
+    "dynamic action-ready pose, slight torso twist",
+    "three-quarter view turning toward camera",
+    "slight crouch as if about to move, weight on front foot",
+    "confident contrapposto stance, hand on hip",
+    "looking over shoulder with alert expression",
+    "low heroic angle, chin slightly lifted",
+    "leaning on weapon or staff, relaxed but ready",
+    "one knee raised on rock, wind in hair",
+    "arms crossed with subtle smirk, strong silhouette",
+    "mid-step freeze, cloak mid-swing for motion",
+    "reaching toward viewer, engaging eye contact",
+    "head tilted, playful asymmetrical composition",
+)
 
 
 _MAIN_WAIFU_RACE_VISUAL_EN: dict[int, str] = {
@@ -1915,14 +1884,100 @@ async def generate_main_waifu_paperdoll_from_portrait(
         return None
 
 
+_HIRE_PERK_MOMENT_MAX_CHARS = 200
+
+
+def _sanitize_hire_perk_moment_ru(raw: str) -> str:
+    """Одно предложение, без лишних пробелов, не длиннее лимита."""
+    t = (raw or "").strip()
+    t = re.sub(r"[\r\n]+", " ", t)
+    t = re.sub(r"\s+", " ", t)
+    for sep in (".", "!", "?", "…"):
+        pos = t.find(sep)
+        if pos != -1:
+            t = t[: pos + 1].strip()
+            break
+    if len(t) > _HIRE_PERK_MOMENT_MAX_CHARS:
+        t = t[:_HIRE_PERK_MOMENT_MAX_CHARS].rstrip()
+    return t
+
+
+async def generate_hire_waifu_perk_moment_ru(
+    *,
+    perk_id: str,
+    perk_name_ru: str,
+    name: str,
+    race_ru: str,
+    class_ru: str,
+    bio: str,
+) -> Optional[str]:
+    """
+    Одно короткое предложение на русском: визуальный момент для аниме-портрета, связанный с перком.
+    """
+    api_key = getattr(settings, "openrouter_api_key", None)
+    if not api_key:
+        return None
+
+    model = settings.openrouter_model_hire or settings.openrouter_model
+    bio_short = (bio or "").strip()
+    if len(bio_short) > 400:
+        bio_short = bio_short[:400].rstrip() + "…"
+
+    user_prompt = f"""Персонаж: наёмница «{name}», раса: {race_ru}, класс: {class_ru}.
+Умение (перк) для сцены: «{perk_name_ru}» (внутренний id: {perk_id}).
+Краткая био (контекст, не цитируй дословно): {bio_short or "нет"}
+
+Напиши РОВНО ОДНО короткое предложение на русском языке — конкретный визуальный момент для аниме-портрета верхней части тела: что она делает, что видно вокруг, настроение. Сцена должна буквально и с юмором обыгрывать суть умения «{perk_name_ru}».
+{AI_HIRE_MOMENT_MODERN_HUMOR_RU}
+Без markdown, без кавычек, без списков, без чисел и игровых механик, без обращения к зрителю. Только текст предложения."""
+
+    try:
+        async with httpx.AsyncClient(timeout=40.0) as client:
+            r = await client.post(
+                _openrouter_url(),
+                headers=_openrouter_headers(),
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": user_prompt}],
+                    "max_tokens": 120,
+                    "temperature": 1.05,
+                    **_openrouter_text_extra(),
+                },
+            )
+            if r.status_code != 200:
+                logger.warning(
+                    "[HIRE PORTRAIT MOMENT] HTTP %s body=%s",
+                    r.status_code,
+                    (r.text or "")[:300],
+                )
+                return None
+            data = r.json()
+            choices = data.get("choices") or []
+            if not isinstance(choices, list) or not choices:
+                return None
+            first = choices[0]
+            text = _extract_openrouter_assistant_text(first)
+            if not text:
+                _warn_if_empty_assistant("hire perk moment", first, text)
+                return None
+            out = _sanitize_hire_perk_moment_ru(text)
+            return out or None
+    except Exception as e:
+        logger.warning("[HIRE PORTRAIT MOMENT] error: %s", e)
+        return None
+
+
 async def generate_hire_waifu_image(
     race_ru: str,
     class_ru: str,
     bio: str,
     name: str = "",
+    perk_ids: Sequence[str] | None = None,
 ) -> Optional[str]:
     """
     Генерирует портрет наёмницы через OpenRouter image API (cursor_plan_7).
+    Случайный перк из perk_ids: статический EN-фрагмент + при успехе ИИ — одно RU-предложение
+    момента вместо случайной позы; иначе поза из пула.
     Возвращает base64-строку изображения или None при ошибке.
     Парсинг: message.images[0].image_url.url, не content.
     """
@@ -1934,14 +1989,59 @@ async def generate_hire_waifu_image(
     model = settings.openrouter_model_image
     race_key = (race_ru or "человек").strip().lower()
     class_key = (class_ru or "маг").strip().lower()
-    prompt = (
-        f"anime style portrait, {_RACE_VISUAL.get(race_key, 'human girl')}, "
-        f"{_CLASS_VISUAL.get(class_key, 'adventurer')}, "
+    race_visual = _RACE_VISUAL.get(race_key, "human girl")
+    class_visual = _CLASS_VISUAL.get(class_key, "adventurer")
+
+    candidates = [str(p).strip() for p in (perk_ids or ()) if str(p).strip()]
+    chosen_perk_id: str | None = None
+    perk_snippet = ""
+    if candidates:
+        chosen_perk_id = random.choice(candidates)
+        perk_snippet = (_PERK_PORTRAIT_VISUAL_EN.get(chosen_perk_id) or "").strip()
+
+    pose_snippet = random.choice(_HIRE_PORTRAIT_POSE_EN)
+    if chosen_perk_id:
+        perk_row = PERK_BY_ID.get(chosen_perk_id)
+        perk_name_ru = (perk_row.name if perk_row else chosen_perk_id).strip()
+        moment_ru = await generate_hire_waifu_perk_moment_ru(
+            perk_id=chosen_perk_id,
+            perk_name_ru=perk_name_ru,
+            name=(name or "Наёмница").strip(),
+            race_ru=race_ru,
+            class_ru=class_ru,
+            bio=bio,
+        )
+        if moment_ru:
+            pose_snippet = moment_ru
+            logger.info(
+                "[HIRE PORTRAIT MOMENT] perk_id=%s source=ai preview=%s",
+                chosen_perk_id,
+                moment_ru[:120].replace("\n", " "),
+            )
+        else:
+            logger.warning(
+                "[HIRE PORTRAIT MOMENT] perk_id=%s source=fallback_pool (AI empty or failed)",
+                chosen_perk_id,
+            )
+    base_tail = (
         "fantasy RPG character, upper body, detailed face, "
         "dark atmospheric background, dramatic lighting, "
         "high quality illustration, 1girl"
     )
+    parts: list[str] = [
+        "anime style portrait",
+        race_visual,
+        class_visual,
+    ]
+    if perk_snippet:
+        parts.append(perk_snippet)
+    parts.append(pose_snippet)
+    parts.append(base_tail)
+    prompt = ", ".join(parts)
+
     logger.info("[IMAGE GEN] Starting for %s (%s), model: %s", name or "waifu", race_ru, model)
+    if chosen_perk_id:
+        logger.info("[IMAGE GEN] Chosen perk for portrait: %s", chosen_perk_id)
     logger.info("[IMAGE GEN] Prompt: %s...", prompt[:100])
 
     try:

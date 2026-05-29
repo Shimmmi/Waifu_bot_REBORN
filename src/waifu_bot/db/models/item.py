@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
     CheckConstraint,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -236,15 +237,22 @@ class InventoryAffix(Base):
 
 
 class ShopOffer(Base):
-    """Daily shop offer for an act."""
+    """Daily personal shop offer for a player and act."""
 
     __tablename__ = "shop_offers"
+    __table_args__ = (
+        UniqueConstraint("player_id", "act", "slot", name="uq_shop_offers_player_act_slot"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id", ondelete="CASCADE"), index=True, nullable=False
+    )
     act: Mapped[int] = mapped_column(Integer, nullable=False)
     slot: Mapped[int] = mapped_column(Integer, nullable=False)
     inventory_item_id: Mapped[int] = mapped_column(Integer, ForeignKey("inventory_items.id", ondelete="CASCADE"))
     price_base: Mapped[int] = mapped_column(Integer, nullable=False)
+    purchased: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     refreshed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

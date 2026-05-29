@@ -11,6 +11,12 @@
  *   (без слэша в конце; TELEGRAM_BOT_PROXY не задавать)
  */
 
+const OAUTH_UPSTREAM = {
+  "/oauth/.well-known/jwks.json": "https://oauth.telegram.org/.well-known/jwks.json",
+  "/oauth/.well-known/openid-configuration":
+    "https://oauth.telegram.org/.well-known/openid-configuration",
+};
+
 export default {
   async fetch(request, env) {
     return handleRequest(request, env);
@@ -30,6 +36,7 @@ async function handleRequest(request, env) {
         status: "ok",
         service: "telegram-api-proxy",
         hint: "Set ALLOWED_TOKENS; use TELEGRAM_API_BASE_URL=https://this-host",
+        oauth_jwks: "/oauth/.well-known/jwks.json",
       }),
       {
         headers: { "Content-Type": "application/json", ...corsHeaders() },
@@ -38,6 +45,30 @@ async function handleRequest(request, env) {
   }
 
   const pathname = url.pathname;
+  const oauthTarget = OAUTH_UPSTREAM[pathname];
+  if (oauthTarget) {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return jsonError(405, "Method not allowed");
+    }
+    try {
+      const response = await fetch(oauthTarget, {
+        method: request.method,
+        redirect: "manual",
+      });
+      const responseHeaders = new Headers(response.headers);
+      for (const [k, v] of Object.entries(corsHeaders())) {
+        responseHeaders.set(k, v);
+      }
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+      });
+    } catch (err) {
+      return jsonError(502, "Failed to proxy OIDC", err.message);
+    }
+  }
+
   if (
     !pathname.startsWith("/bot") &&
     !pathname.startsWith("/file/bot")

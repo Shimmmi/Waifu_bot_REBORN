@@ -10,9 +10,12 @@ import httpx
 from waifu_bot.core.config import settings
 from waifu_bot.game.constants import (
     AI_NARRATIVE_GROTESQUE_HUMOR_RU,
+    GD_EFFECT_TYPE_LABEL_RU,
+    GD_NARRATIVE_FORMATTING_RU,
     WAIFU_CLASS_LABEL_RU,
     WAIFU_RACE_LABEL_RU,
 )
+from waifu_bot.services.ai_narrative_rewrite import escape_telegram_html, rhythm_rewrite_narrative
 from waifu_bot.services.gd_round_engine import _attack_type_for_class
 
 logger = logging.getLogger(__name__)
@@ -251,6 +254,8 @@ def _party_names_by_uid(party: list[dict[str, Any]]) -> dict[int, str]:
 
 
 def _format_gd_action_line(a: dict[str, Any], names: dict[int, str]) -> str | None:
+    if a.get("kind") == "cycle_start":
+        return None
     uid = a.get("user_id")
     if uid is None and not a.get("skill"):
         return None
@@ -259,18 +264,64 @@ def _format_gd_action_line(a: dict[str, Any], names: dict[int, str]) -> str | No
     if a.get("kind") == "silent":
         return f"- {label}{uid_bit}: молчала"
     if a.get("kind") == "text":
-        return f"- {label}{uid_bit}: текстовые атаки, суммарный урон условный"
+        dmg = int(a.get("damage") or 0)
+        series = int(a.get("series") or 1)
+        series_bit = f" (серия из {series} сообщений)" if series > 1 else ""
+        return f"- {label}{uid_bit}: текстовая атака{series_bit}, урон {dmg}"
     if a.get("skill"):
         who = label or "отряд"
-        return f"- {who}{uid_bit}: навык effect_type={a.get('skill')}"
+        eff = GD_EFFECT_TYPE_LABEL_RU.get(str(a.get("skill")), "эффект")
+        parts = [eff]
+        if a.get("damage") is not None:
+            parts.append(f"урон {int(a['damage'])}")
+        if a.get("heal") is not None:
+            parts.append(f"лечение {int(a['heal'])}")
+        return f"- {who}{uid_bit}: навык {', '.join(parts)}"
     return None
+
+
+def build_gd_actions_format_block(ctx: dict[str, Any]) -> str:
+    """Подсказки для HTML-вёрстки навыков по действиям раунда."""
+    party = list(ctx.get("party") or [])
+    actions = list(ctx.get("actions") or [])
+    names = _party_names_by_uid(party)
+    lines = ["НАВЫКИ И ЭФФЕКТЫ (для вёрстки):"]
+    has_skill = False
+    for a in actions:
+        uid = a.get("user_id")
+        skill = a.get("skill")
+        if skill:
+            has_skill = True
+            who = names.get(int(uid or 0), f"user {uid}") if uid is not None else "отряд"
+            effect_label = GD_EFFECT_TYPE_LABEL_RU.get(str(skill), "эффект")
+            amount = ""
+            if a.get("damage") is not None:
+                amount = f", урон {int(a['damage'])}"
+            elif a.get("heal") is not None:
+                amount = f", лечение {int(a['heal'])}"
+            lines.append(
+                f"- {who}: придумай название навыка (1–3 слова) → "
+                f"<b>Название</b> ({effect_label}{amount}); имя вайфу в <b>{who}</b>"
+            )
+        elif a.get("kind") == "text" and uid is not None:
+            who = names.get(int(uid), f"user {uid}")
+            dmg = int(a.get("damage") or 0)
+            series = int(a.get("series") or 1)
+            series_bit = " серия ударов," if series > 1 else ""
+            lines.append(
+                f"- {who}: текстовая атака → имя в <b>{who}</b>,{series_bit} эффект (урон {dmg})"
+            )
+    if not has_skill and not any(a.get("kind") == "text" for a in actions):
+        lines.append("- Нет навыков и текстовых атак — опиши общий ход боя.")
+    return "\n".join(lines)
 
 
 GD_SYSTEM_PROMPT = f"""Ты рассказчик в фэнтезийной RPG-игре про вайфу.
 Пишешь о событиях групповых походов в Telegram-группе.
 Стиль: ярко, с юмором, с характером персонажей. {AI_NARRATIVE_GROTESQUE_HUMOR_RU}
-3–5 предложений на раунд.
-Язык: русский. Без markdown. Без чисел и игровых механик в тексте.
+3–5 предложений на раунд, 2–3 абзаца с пустой строкой между ними.
+{GD_NARRATIVE_FORMATTING_RU}
+Язык: русский. Без markdown (#, *, списки). Без чисел и игровых механик в тексте.
 Персонажи — девушки с именами и характерами.
 Состав отряда и правила, кого упоминать, заданы в user-сообщении — следуй им строго.
 Для каждого применённого навыка придумай органичное название (1–3 слова),
@@ -334,7 +385,7 @@ def build_user_prompt_round(ctx: dict[str, Any]) -> str:
     names = _party_names_by_uid(party)
     lines = [
         f"Подземелье: {dungeon} (биом: {biome})",
-        f"Раунд {n} из ~{total_est}, следующий через 30 мин.",
+        f"Раунд {n} из ~{total_est}, следующий через 15 мин.",
         f"Статус раунда: {outcome}",
         "СОСТАВ ОТРЯДА:",
     ]
@@ -362,6 +413,16 @@ def build_user_prompt_round(ctx: dict[str, Any]) -> str:
         line = _format_gd_action_line(a, names)
         if line:
             lines.append(line)
+    lines.append(build_gd_actions_format_block(ctx))
+    if outcome == "victory":
+        mvp_name = ctx.get("mvp_name")
+        victory_line = (
+            "ПОБЕДА: все монстры повержены — это финальный, победный раунд. "
+            "Заверши сцену триумфально, опиши добивающий удар и гибель противника."
+        )
+        if mvp_name:
+            victory_line += f" Отдельно отметь MVP похода — <b>{mvp_name}</b> (похвали за вклад)."
+        lines.append(victory_line)
     fl = ctx.get("flags") or {}
     if fl.get("revive_no_target"):
         lines.append("Особое: воскрешение — целей не было, обыграй.")
@@ -400,10 +461,11 @@ def build_user_prompt_start(
     for p in party:
         lines.append(format_gd_party_member_line(p, for_start=True))
     lines.append(build_gd_composition_instructions(party, phase="start"))
+    lines.append(GD_NARRATIVE_FORMATTING_RU)
     lines.append(
-        "Напиши 4–6 предложений на русском: отряд собирается у входа, "
+        "Напиши 4–6 предложений на русском в 2 абзаца: отряд собирается у входа, "
         "настрой, короткие реплики или мысли в духе персонажей, ощущение угрозы впереди. "
-        "Без markdown. Не повторяй дословно системные фразы про «30 минут»."
+        "Не повторяй дословно системные фразы про «15 минут»."
     )
     return "\n".join(lines)
 
@@ -442,10 +504,11 @@ def build_user_prompt_finale(ctx: dict[str, Any]) -> str:
             contrib_lines.append(f"- {nm} (user {uid}): относительный вклад {score:.1f}")
         lines.append("ВКЛАД УЧАСТНИКОВ (для MVP и аутсайдера, не выводи числа в ответе):")
         lines.extend(contrib_lines)
+    lines.append(GD_NARRATIVE_FORMATTING_RU)
     lines.append(
-        "Напиши эпичный короткий итог похода (4–6 предложений). "
+        "Напиши эпичный короткий итог похода (4–6 предложений, 2 абзаца). "
         "Выдели MVP и одного с наименьшим вкладом — шутливо, без оскорблений. "
-        "Без markdown. Без цифр."
+        "Без цифр."
     )
     return "\n".join(lines)
 
@@ -487,7 +550,14 @@ async def generate_gd_start_narrative(
             text = _assistant_text(choices[0])
             if not text:
                 return None, stub
-            return text, text
+            final = await rhythm_rewrite_narrative(
+                text,
+                caller="gd-start",
+                length_hint="4–6 предложений, 2 абзаца",
+                preserve_html=True,
+            )
+            out = final or escape_telegram_html(text)
+            return out, out
     except Exception:
         logger.exception("GD start narrative OpenRouter failed")
         return None, stub
@@ -528,7 +598,14 @@ async def generate_gd_round_narrative(
             text = _assistant_text(choices[0])
             if not text:
                 return None, stub
-            return text, text
+            final = await rhythm_rewrite_narrative(
+                text,
+                caller="gd-round",
+                length_hint="3–5 предложений, 2–3 абзаца",
+                preserve_html=True,
+            )
+            out = final or escape_telegram_html(text)
+            return out, out
     except Exception:
         logger.exception("GD narrative OpenRouter failed")
         return None, stub
@@ -561,7 +638,14 @@ async def generate_gd_finale_narrative(ctx: dict[str, Any], *, timeout_sec: floa
             text = _assistant_text(choices[0])
             if not text:
                 return None, stub
-            return text, text
+            final = await rhythm_rewrite_narrative(
+                text,
+                caller="gd-finale",
+                length_hint="4–6 предложений, 2 абзаца",
+                preserve_html=True,
+            )
+            out = final or escape_telegram_html(text)
+            return out, out
     except Exception:
         logger.exception("GD finale narrative failed")
         return None, stub

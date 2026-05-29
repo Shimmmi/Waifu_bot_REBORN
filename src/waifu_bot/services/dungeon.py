@@ -615,6 +615,11 @@ class DungeonService:
             await sync_waifu_max_hp(session, player_id, waifu)
             post_m = int(waifu.max_hp or 0)
             regen_changed = apply_regen(waifu)
+            # Entering a dungeon is a real gameplay action: mark online so the
+            # first in-run hit counts and in-dungeon regen is allowed.
+            from datetime import timezone as _tz
+
+            player.last_combat_action_at = datetime.now(_tz.utc)
             if post_m != pre_m or regen_changed:
                 await session.commit()
 
@@ -1047,6 +1052,8 @@ class DungeonService:
                     monster_emoji = tmpl.emoji or monster_emoji
                 monster_slug = _monster_slug_for_webp(tmpl, cur.template_id, cur.name)
                 monster_has_image = bool(getattr(tmpl, "has_image", False)) if tmpl else False
+                _img_upd = getattr(tmpl, "image_updated_at", None) if tmpl else None
+                monster_image_updated_at = _img_upd.isoformat() if _img_upd else None
 
                 affix_count = len(applied_affix_names)
                 sb_id = getattr(cur, "story_boss_definition_id", None)
@@ -1098,6 +1105,7 @@ class DungeonService:
                     "affix_count": affix_count,
                     "affixes": affixes_for_ui,
                     "monster_has_image": monster_has_image,
+                    "monster_image_updated_at": monster_image_updated_at,
                     "monster_image_override": monster_image_override,
                     "waifu_name": waifu.name,
                     "waifu_level": waifu.level,

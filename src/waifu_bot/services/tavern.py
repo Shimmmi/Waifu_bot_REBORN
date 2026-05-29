@@ -68,7 +68,15 @@ async def compute_effective_tavern_hire_price(session: AsyncSession, player_id: 
     """First mercenary hire is free; subsequent hires use the normal discount formula."""
     if await is_first_hire_free(session, player_id):
         return 0
-    return await compute_tavern_hire_price(session, player_id, TAVERN_HIRE_COST)
+    cost = await compute_tavern_hire_price(session, player_id, TAVERN_HIRE_COST)
+    try:
+        from waifu_bot.services.guild_skill_effects import apply_price_discount_pct, effect_values_for_player
+
+        gfx = await effect_values_for_player(session, player_id)
+        cost = apply_price_discount_pct(cost, float(gfx.get("tavern_hire_discount_pct", 0) or 0))
+    except Exception:
+        pass
+    return int(cost)
 
 # Русские названия для шаблонной биографии (без OpenRouter)
 _RACE_NAMES_RU = {
@@ -92,19 +100,21 @@ _CLASS_NAMES_RU = {
 
 # Запасные имена по расе, если ИИ недоступен (без Waifu_xxxx)
 _FALLBACK_NAMES_BY_RACE: dict[int, list[str]] = {
-    1: ["Мира", "Лена", "Ада", "Соль"],
-    2: ["Аэль", "Нэли", "Сиэль", "Ирэн"],
-    3: ["Рэй", "Кора", "Яра", "Тэйн"],
-    4: ["Лира", "Аэра", "Нэль", "Сия"],
-    5: ["Вэра", "Нокс", "Дэйн", "Рива"],
-    6: ["Зэль", "Кира", "Асха", "Вэл"],
-    7: ["Пик", "Дэви", "Нии", "Фэй"],
+    1: ["Мира", "Лена", "Ада", "Соль", "Дарья", "Иволга", "Снежана", "Власта", "Млада", "Заряна", "Берёзка", "Радмила"],
+    2: ["Аэль", "Нэли", "Сиэль", "Ирэн", "Элестрин", "Фейлинн", "Аэвенир", "Лютиэль", "Сильвэ", "Тинувэль", "Эовин", "Карасэль"],
+    3: ["Рэй", "Кора", "Яра", "Тэйн", "Грюнхильда", "Брунн", "Хельга", "Тордис", "Сигрид", "Рагна", "Ульфхильд", "Боргильда"],
+    4: ["Лира", "Аэра", "Нэль", "Сия", "Мейлин", "Сакура-но", "Цзинь", "Юкико", "Ханами", "Аои", "Рэйка", "Цубаки"],
+    5: ["Вэра", "Нокс", "Дэйн", "Рива", "Мортисса", "Лилит", "Карна", "Эреш", "Морриган", "Невея", "Тенебра", "Сумрана"],
+    6: ["Зэль", "Кира", "Асха", "Вэл", "Шаррхан", "Зафира", "Лейла-дюн", "Самира", "Назиля", "Раксана", "Джамиля", "Аиша-кан"],
+    7: ["Пик", "Дэви", "Нии", "Фэй", "Тильда", "Бузина", "Чубрик", "Пеппа", "Мармора", "Глюк", "Финтик", "Кнопа"],
 }
 
 
 def _fallback_name_by_race(race_id: int) -> str:
     import random
-    pool = _FALLBACK_NAMES_BY_RACE.get(race_id, ["Аира", "Мика", "Нэли", "Ки"])
+    pool = _FALLBACK_NAMES_BY_RACE.get(
+        race_id, ["Аира", "Мика", "Нэли", "Ки", "Орла", "Вестра", "Лумина", "Тэсса"]
+    )
     return random.choice(pool)
 
 
@@ -221,18 +231,28 @@ class TavernService:
         waifu.bio = bio
 
         # Портрет через OpenRouter image API (cursor_plan_7): modalities ["image"], ответ в message.images[]
-        image_b64 = await generate_hire_waifu_image(race_ru, class_ru, bio, waifu.name)
+        image_b64 = await generate_hire_waifu_image(
+            race_ru, class_ru, bio, waifu.name, perk_ids=waifu.perks
+        )
         if image_b64:
             waifu.image_data = image_b64
             waifu.image_mime = "image/webp"
             waifu.image_generated_at = datetime.now(tz=timezone.utc)
 
+        from waifu_bot.services.event_log import log_event
+
+        await log_event(
+            session,
+            player_id,
+            "tavern_hired",
+            {"waifu_name": waifu.name, "rarity": waifu.rarity},
+        )
         await session.commit()
         image_url = None
         if getattr(waifu, "image_data", None):
             mime = getattr(waifu, "image_mime", None) or "image/webp"
             image_url = f"data:{mime};base64,{waifu.image_data}"
-        return {
+        out = {
             "success": True,
             "waifu_id": waifu.id,
             "waifu_name": waifu.name,
@@ -244,6 +264,26 @@ class TavernService:
             "hire_cost": hire_cost,
             "first_hire_free": first_hire_free,
         }
+        if not first_hire_free:
+            try:
+                from waifu_bot.services.guild_skill_effects import (
+                    effect_values_for_player,
+                    guild_skill_contributions,
+                    pct_bonus_lines_ru,
+                )
+
+                gfx = await effect_values_for_player(session, player_id)
+                if float(gfx.get("tavern_hire_discount_pct", 0) or 0) > 0:
+                    lines = pct_bonus_lines_ru(
+                        await guild_skill_contributions(
+                            session, player_id, params={"tavern_hire_discount_pct"}
+                        )
+                    )
+                    if lines:
+                        out["guild_bonus_hint"] = lines[0]
+            except Exception:
+                pass
+        return out
 
     def _apply_hired_regen(self, waifu: HiredWaifu, now: datetime) -> None:
         """Применить реген HP со временем (на месте)."""
@@ -332,19 +372,45 @@ class TavernService:
         mult = 2 if current_hp == 0 else 1
         cost = need_heal * TAVERN_HEAL_GOLD_PER_HP * mult
         cost = await apply_passive_hire_cost(session, player_id, int(cost))
+        guild_heal_hint: str | None = None
+        try:
+            from waifu_bot.services.guild_skill_effects import (
+                apply_price_discount_pct,
+                effect_values_for_player,
+                pct_bonus_lines_ru,
+                guild_skill_contributions,
+            )
+
+            gfx = await effect_values_for_player(session, player_id)
+            disc = float(gfx.get("tavern_heal_discount_pct", 0) or 0)
+            if disc > 0:
+                before = int(cost)
+                cost = apply_price_discount_pct(before, disc)
+                lines = pct_bonus_lines_ru(
+                    await guild_skill_contributions(
+                        session, player_id, params={"tavern_heal_discount_pct"}
+                    )
+                )
+                if lines:
+                    guild_heal_hint = lines[0]
+        except Exception:
+            pass
         if player.gold < cost:
             return {"error": "not_enough_gold", "required": cost, "gold": player.gold}
         player.gold -= cost
         waifu.current_hp = max_hp
         waifu.hp_updated_at = datetime.now(timezone.utc)
         await session.commit()
-        return {
+        out = {
             "success": True,
             "gold_spent": cost,
             "gold_total": player.gold,
             "current_hp": max_hp,
             "max_hp": max_hp,
         }
+        if guild_heal_hint:
+            out["guild_bonus_hint"] = guild_heal_hint
+        return out
 
     async def add_to_squad(
         self, session: AsyncSession, player_id: int, waifu_id: int, slot: Optional[int] = None

@@ -35,6 +35,7 @@ from waifu_bot.db.models.dungeon import (
     DungeonRun,
     DungeonRunMonster,
     DropRule,
+    PlayerMonsterCodex,
 )
 from waifu_bot.db.models.endless import PlayerDungeonPlus, ItemBase, AffixFamily, AffixFamilyTier
 from waifu_bot.db.models.art import ItemArt
@@ -58,6 +59,7 @@ from waifu_bot.db.models.guild_extended import (
 from waifu_bot.db.models.skill import Skill, WaifuSkill
 from waifu_bot.db.models.battle import BattleLog
 from waifu_bot.db.models.tavern import TavernHireSlot, TavernState
+from waifu_bot.db.models.tavern_audio import ChatAudioTrack
 from waifu_bot.db.models.expedition import ExpeditionAffix, ExpeditionSlot, ActiveExpedition
 from waifu_bot.db.models.group_dungeon import (
     GDDungeonTemplate,
@@ -66,6 +68,7 @@ from waifu_bot.db.models.group_dungeon import (
     GDEventTemplate,
     GDCompletion,
 )
+from waifu_bot.db.models.armory import ArmoryAdminActionLog, PlayerBan, PlayerEventLog
 from waifu_bot.db.models.gd_cycle import (
     GDClassSkill,
     GDCycle,
@@ -77,6 +80,9 @@ from waifu_bot.db.models.gd_cycle import (
 )
 
 __all__ = [
+    "PlayerEventLog",
+    "ArmoryAdminActionLog",
+    "PlayerBan",
     "Player",
     "PlayerChatRewardWallet",
     "PlayerChatActivityDaily",
@@ -116,6 +122,7 @@ __all__ = [
     "DungeonRun",
     "DungeonRunMonster",
     "DropRule",
+    "PlayerMonsterCodex",
     "StoryBossDefinition",
     "PlayerStoryBossFirstKill",
     "PlayerDungeonStorySeen",
@@ -145,6 +152,7 @@ __all__ = [
     "BattleLog",
     "TavernHireSlot",
     "TavernState",
+    "ChatAudioTrack",
     "ExpeditionAffix",
     "ExpeditionSlot",
     "ActiveExpedition",

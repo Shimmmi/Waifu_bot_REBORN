@@ -8,6 +8,8 @@ from waifu_bot.game.effective_stats import (
     accumulate_primary_four_from_gear,
     apply_combined_stat_mult_to_four,
     apply_main_stats_flat_to_four,
+    infer_weapon_attack_type,
+    resolve_equipped_weapon_for_profile,
     roll_weapon_damage_and_meta,
     stat_multipliers_from_passive_hidden,
 )
@@ -56,6 +58,211 @@ def test_roll_weapon_damage_unarmed() -> None:
     assert out["weapon_damage"] == 1
     assert out["min_chars"] == 1
     assert out["attack_type"] == "melee"
+    # No weapon => no breakdown components.
+    assert out["weapon_damage_main"] is None
+    assert out["weapon_damage_offhand"] is None
+
+
+def _weapon(slot: int, dmg: int, *, slot_type: str = "weapon_1h", attack_type: str = "melee"):
+    return SimpleNamespace(
+        equipment_slot=slot,
+        slot_type=slot_type,
+        attack_type=attack_type,
+        weapon_type=attack_type,
+        attack_speed=1,
+        damage_min=dmg,
+        damage_max=dmg,
+        enchant_level=0,
+        is_broken=False,
+        enchant_dmg_step=0,
+        enchant_arm_step=0,
+        enchant_sec_step=0.0,
+    )
+
+
+def test_roll_weapon_damage_offhand_sole_no_double_count() -> None:
+    # Off-hand weapon_1h as the SOLE weapon: full roll, no +off//2 bonus on top.
+    out = roll_weapon_damage_and_meta([_weapon(2, 20)])
+    assert out["weapon_damage"] == 20
+    assert out["weapon_damage_main"] == 0
+    assert out["weapon_damage_offhand"] == 20
+
+
+def test_roll_weapon_damage_mainhand_only() -> None:
+    out = roll_weapon_damage_and_meta([_weapon(1, 30)])
+    assert out["weapon_damage"] == 30
+    assert out["weapon_damage_main"] == 30
+    assert out["weapon_damage_offhand"] == 0
+
+
+def test_roll_weapon_damage_dual_wield_adds_half_offhand() -> None:
+    # MH 30 + OH 20 (weapon_1h) => 30 + 20//2 = 40, components 30MH + 10OH.
+    out = roll_weapon_damage_and_meta([_weapon(1, 30), _weapon(2, 20)])
+    assert out["weapon_damage"] == 40
+    assert out["weapon_damage_main"] == 30
+    assert out["weapon_damage_offhand"] == 10
+
+
+def _detail_item(slot: int, dmg: int, *, slot_type: str = "weapon_1h", attack_type: str = "melee"):
+    return SimpleNamespace(
+        equipment_slot=slot,
+        slot_type=slot_type,
+        attack_type=attack_type,
+        weapon_type=attack_type,
+        damage_min=dmg,
+        damage_max=dmg,
+        base_stat=None,
+        base_stat_value=None,
+        affixes=[],
+        enchant_level=0,
+        is_broken=False,
+        enchant_dmg_step=0,
+        enchant_arm_step=0,
+        enchant_sec_step=0.0,
+    )
+
+
+def _detail_item_range(
+    slot: int,
+    dmin: int,
+    dmax: int,
+    *,
+    slot_type: str = "weapon_2h",
+    weapon_type: str = "axe",
+    attack_type: str | None = None,
+    base_stat: str | None = None,
+    base_stat_value: int | None = None,
+    affixes: list | None = None,
+):
+    return SimpleNamespace(
+        equipment_slot=slot,
+        slot_type=slot_type,
+        attack_type=attack_type,
+        weapon_type=weapon_type,
+        damage_min=dmin,
+        damage_max=dmax,
+        base_stat=base_stat,
+        base_stat_value=base_stat_value,
+        affixes=affixes or [],
+        enchant_level=0,
+        is_broken=False,
+        enchant_dmg_step=0,
+        enchant_arm_step=0,
+        enchant_sec_step=0.0,
+    )
+
+
+def test_infer_weapon_attack_type_axe_is_melee() -> None:
+    inv = SimpleNamespace(attack_type=None, weapon_type="axe", slot_type="weapon_2h")
+    assert infer_weapon_attack_type(inv) == "melee"
+
+
+def test_resolve_equipped_weapon_for_profile_2h_axe() -> None:
+    axe = _detail_item_range(1, 25, 32, slot_type="weapon_2h", weapon_type="axe")
+    prof = resolve_equipped_weapon_for_profile([axe])
+    assert prof.attack_type == "melee"
+    assert prof.damage_min == 25
+    assert prof.damage_max == 32
+
+
+def test_resolve_equipped_weapon_for_profile_dual_wield() -> None:
+    mh = _detail_item_range(1, 30, 30, slot_type="weapon_1h", weapon_type="sword")
+    oh = _detail_item_range(2, 20, 20, slot_type="weapon_1h", weapon_type="dagger")
+    prof = resolve_equipped_weapon_for_profile([mh, oh])
+    assert prof.damage_min == 40
+    assert prof.damage_max == 40
+
+
+def test_compute_details_axe_25_32_with_str_bonus() -> None:
+    """User example: STR 14 +7 from axe, weapon 25-32 → melee 46-53."""
+    from waifu_bot.api.routes import _compute_details
+
+    waifu = SimpleNamespace(
+        strength=14, agility=10, intelligence=11, endurance=74, charm=10, luck=12,
+        level=1, current_hp=100,
+    )
+    axe = _detail_item_range(
+        1, 25, 32, slot_type="weapon_2h", weapon_type="axe", base_stat="strength", base_stat_value=7
+    )
+    details = _compute_details(waifu, [axe])
+    assert details["melee_damage_min"] == 46
+    assert details["melee_damage_max"] == 53
+    assert details["melee_damage"] == 49
+
+
+def test_compute_details_hammer_melee_flat_excludes_construct() -> None:
+    """War hammer 15-31, +2 STR, +65 melee flat; construct +51 must not affect general melee."""
+    from waifu_bot.api.routes import _compute_details
+
+    waifu = SimpleNamespace(
+        strength=14, agility=10, intelligence=11, endurance=74, charm=10, luck=12,
+        level=1, current_hp=100,
+    )
+    affixes = [
+        SimpleNamespace(stat="melee_damage_flat", value=65, is_percent=False),
+        SimpleNamespace(stat="damage_vs_monster_type_flat:construct", value=51, is_percent=False),
+    ]
+    hammer = _detail_item_range(
+        1,
+        15,
+        31,
+        slot_type="weapon_2h",
+        weapon_type="hammer",
+        base_stat="strength",
+        base_stat_value=2,
+        affixes=affixes,
+    )
+    details = _compute_details(waifu, [hammer])
+    assert details["melee_damage_min"] == 96
+    assert details["melee_damage_max"] == 112
+    assert details["melee_damage"] == 104
+
+
+def test_compute_details_unarmed_str_14() -> None:
+    from waifu_bot.api.routes import _compute_details
+
+    waifu = SimpleNamespace(
+        strength=14, agility=10, intelligence=11, endurance=74, charm=10, luck=12,
+        level=1, current_hp=100,
+    )
+    details = _compute_details(waifu, [])
+    # BASE_SKILL_DAMAGE 10 + STR 14
+    assert details["melee_damage_min"] == 24
+    assert details["melee_damage_max"] == 24
+
+
+def test_compute_details_reflects_equipped_weapon_damage() -> None:
+    from waifu_bot.api.routes import _compute_details
+
+    waifu = SimpleNamespace(
+        strength=10, agility=10, intelligence=10, endurance=10, charm=10, luck=10,
+        level=1, current_hp=100,
+    )
+    # Melee weapon 20-30 (avg 25) should lift "Урон ближний" above the unarmed estimate,
+    # while ranged/magic stay at the skill base.
+    unarmed = _compute_details(waifu, [])
+    mace = _detail_item(1, 25, attack_type="melee")  # avg of 25-25 = 25
+    armed = _compute_details(waifu, [mace])
+
+    assert armed["melee_damage"] > unarmed["melee_damage"]
+    assert armed["melee_damage_min"] > unarmed["melee_damage_min"]
+    assert armed["magic_damage"] == unarmed["magic_damage"]
+    assert armed["ranged_damage"] == unarmed["ranged_damage"]
+
+
+def test_compute_details_offhand_sole_weapon_reflected() -> None:
+    from waifu_bot.api.routes import _compute_details
+
+    waifu = SimpleNamespace(
+        strength=10, agility=10, intelligence=10, endurance=10, charm=10, luck=10,
+        level=1, current_hp=100,
+    )
+    unarmed = _compute_details(waifu, [])
+    # Sole off-hand magic weapon should lift magic damage only.
+    off = _detail_item(2, 30, attack_type="magic")
+    armed = _compute_details(waifu, [off])
+    assert armed["magic_damage"] > unarmed["magic_damage"]
+    assert armed["melee_damage"] == unarmed["melee_damage"]
 
 
 def test_merge_passive_skips_duplicate_asp_when_flag() -> None:

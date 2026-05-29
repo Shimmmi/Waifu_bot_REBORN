@@ -12,12 +12,10 @@ from typing import Optional
 
 import httpx
 from PIL import Image
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.core.config import settings
-from waifu_bot.db.models.expedition import ExpeditionAffix, ExpeditionSlot
-from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
+from waifu_bot.game.expedition_narrative_catalog import archetype_for_id
 from waifu_bot.services.expedition_events_ai import (
     _extract_openrouter_image_b64,
     _openrouter_headers,
@@ -61,23 +59,18 @@ def build_expedition_watercolor_prompt(
     archetype_name: str,
     biome_tag: str,
     narrative_hints: tuple[str, ...] | list[str],
-    mode_name: str | None = None,
-    affix_names: list[str] | None = None,
 ) -> str:
+    # NOTE: deliberately does NOT include expedition difficulties/affixes ("сложности")
+    # or mode mood. Art is reused for every expedition sharing this archetype_id, so the
+    # image must stay generic to the location archetype only.
     hints = ", ".join(str(h).strip() for h in (narrative_hints or []) if str(h).strip())[:4]
-    affix_line = ""
-    if affix_names:
-        safe = ", ".join(a.replace("\n", " ")[:80] for a in affix_names[:6])
-        affix_line = f"\nExpedition threats / atmosphere modifiers: {safe}."
-    mode_line = f"\nExpedition mode mood: {mode_name}." if mode_name else ""
     return (
         "Generate ONE fantasy RPG expedition location landscape illustration.\n"
         "Art style: watercolor painting — soft translucent washes, subtle paper grain within "
         "the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.\n"
         f"Location archetype: «{archetype_name.replace(chr(10), ' ')[:80]}» (id: {archetype_id}).\n"
         f"Biome tag: {biome_tag or 'fantasy'}.\n"
-        f"Visual atmosphere hints: {hints or 'mysterious fantasy environment'}."
-        f"{mode_line}{affix_line}\n"
+        f"Visual atmosphere hints: {hints or 'mysterious fantasy environment'}.\n"
         "Composition: wide establishing shot of the location — environment and mood only. "
         "Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. "
         "No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. "
@@ -85,16 +78,6 @@ def build_expedition_watercolor_prompt(
         "SFW only.\n"
         "Output aspect: landscape 3:2."
     )
-
-
-async def _slot_affix_names(session: AsyncSession, slot: ExpeditionSlot) -> list[str]:
-    affix_ids = list(getattr(slot, "affix_ids", None) or [])
-    if not affix_ids:
-        legacy = list(getattr(slot, "affixes", None) or [])
-        return [str(x) for x in legacy if str(x).strip()]
-    stmt = select(ExpeditionAffix).where(ExpeditionAffix.id.in_(affix_ids))
-    rows = list((await session.execute(stmt)).scalars().all())
-    return [str(getattr(a, "name", "") or "").strip() for a in rows if str(getattr(a, "name", "") or "").strip()]
 
 
 async def generate_expedition_archetype_art_webp(
@@ -114,22 +97,13 @@ async def generate_expedition_archetype_art_webp(
         logger.warning("[EXPEDITION ART] unknown archetype_id=%s", archetype_id)
         return None
 
-    mode_name: str | None = None
-    affix_names: list[str] = []
-    if slot_id is not None:
-        slot = await session.get(ExpeditionSlot, int(slot_id))
-        if slot:
-            mode = mode_for_id(getattr(slot, "expedition_mode_id", None))
-            mode_name = mode.name_ru if mode else None
-            affix_names = await _slot_affix_names(session, slot)
-
+    # Art is keyed only by archetype and reused across all expeditions of this type,
+    # so the prompt intentionally ignores the slot's difficulties/affixes and mode.
     prompt = build_expedition_watercolor_prompt(
         archetype_id=arch.id,
         archetype_name=arch.name_ru,
         biome_tag=arch.biome_tag,
         narrative_hints=arch.narrative_hints,
-        mode_name=mode_name,
-        affix_names=affix_names,
     )
     slug = _safe_archetype_slug(arch.id)
     model = settings.openrouter_model_image

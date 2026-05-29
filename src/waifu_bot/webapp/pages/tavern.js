@@ -139,6 +139,28 @@ let tavernBgmFadeRaf = null;
 let tavernBgmLastIndex = -1;
 let tavernBgmHooksBound = false;
 let tavernBgmGestureArmed = false;
+let tavernChatBgmUrls = [];
+
+async function loadTavernChatBgm() {
+  try {
+    const res = await apiFetch("/tavern/bgm/tracks");
+    const tracks = Array.isArray(res?.tracks) ? res.tracks : [];
+    tavernChatBgmUrls = tracks
+      .map((t) => t?.url)
+      .filter((u) => typeof u === "string" && u.length > 0);
+  } catch (e) {
+    tavernChatBgmUrls = [];
+  }
+}
+
+function getTavernBgmPlaylist() {
+  // Group-chat audio first; bundled static tracks as fallback.
+  const staticUrls = (TAVERN_BGM_TRACKS || []).map(
+    (name) => `${TAVERN_STATIC_BASE}/audio/${name}`
+  );
+  const chat = Array.isArray(tavernChatBgmUrls) ? tavernChatBgmUrls.slice() : [];
+  return chat.concat(staticUrls);
+}
 
 function isTavernBgmMuted() {
   try {
@@ -177,7 +199,9 @@ function syncTavernBgmMuteButton() {
 function toggleTavernBgmMuted() {
   if (isTavernBgmMuted()) {
     setTavernBgmMuted(false);
-    startTavernBgm();
+    loadTavernChatBgm().then(() => {
+      if (!isTavernBgmMuted()) startTavernBgm();
+    });
   } else {
     setTavernBgmMuted(true);
     stopTavernBgm(400);
@@ -259,8 +283,7 @@ function fadeInTavernBgm(audio, durationMs) {
   tavernBgmFadeRaf = requestAnimationFrame(tick);
 }
 
-function pickTavernBgmStartIndex() {
-  const n = TAVERN_BGM_TRACKS.length;
+function pickTavernBgmStartIndex(n) {
   if (n <= 0) return -1;
   if (n === 1) return 0;
   let i = Math.floor(Math.random() * n);
@@ -283,12 +306,13 @@ function armTavernBgmUserGesture() {
 function startTavernBgm() {
   if (typeof document === "undefined" || !document.body?.classList?.contains("page-tavern")) return;
   if (isTavernBgmMuted()) return;
-  if (!TAVERN_BGM_TRACKS.length) return;
+  const playlist = getTavernBgmPlaylist();
+  if (!playlist.length) return;
   ensureTavernBgmPageHooks();
   stopTavernBgm(0);
 
-  const n = TAVERN_BGM_TRACKS.length;
-  const startIdx = pickTavernBgmStartIndex();
+  const n = playlist.length;
+  const startIdx = pickTavernBgmStartIndex(n);
   if (startIdx < 0) return;
   const order = [];
   for (let k = 0; k < n; k += 1) {
@@ -299,9 +323,10 @@ function startTavernBgm() {
   function tryNext() {
     if (i >= order.length) return;
     const idx = order[i++];
-    const url = `${TAVERN_STATIC_BASE}/audio/${TAVERN_BGM_TRACKS[idx]}`;
+    const url = playlist[idx];
     const a = new Audio();
-    a.loop = true;
+    // A single track loops forever; a multi-track playlist advances on "ended".
+    a.loop = n === 1;
     a.preload = "auto";
     a.volume = 0;
     const fail = () => {
@@ -315,6 +340,13 @@ function startTavernBgm() {
       tryNext();
     };
     a.addEventListener("error", fail, { once: true });
+    if (n > 1) {
+      a.addEventListener("ended", () => {
+        if (tavernBgmAudio !== a) return;
+        if (i >= order.length) i = 0; // wrap the playlist on natural end
+        tryNext();
+      });
+    }
     a.src = url;
     a.load();
     a.play()
@@ -634,7 +666,11 @@ async function loadTavernWithProfile(profile, opts = {}) {
     if (!inner) {
       setTavernPageLoading(false);
       syncTavernBgmMuteButton();
-      if (loadOk && !isTavernBgmMuted()) startTavernBgm();
+      if (loadOk && !isTavernBgmMuted()) {
+        loadTavernChatBgm().then(() => {
+          if (!isTavernBgmMuted()) startTavernBgm();
+        });
+      }
     }
   }
 }

@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from waifu_bot.db.models import GDCycle, GDClassSkill, GDActiveEffect, MonsterTemplate, GDSkillCooldown
 from waifu_bot.services import gd_effects as gd_fx
 from waifu_bot.services.gd_loot import pick_loot_recipient_user_id, try_award_item_on_monster_kill
-from waifu_bot.game.constants import MediaType
+from waifu_bot.game.constants import GD_ROUND_CYCLE_CAP_DEFAULT, MediaType
 from waifu_bot.game.formulas import calculate_message_damage, calculate_damage_reduction
-from waifu_bot.services.game_config_service import get_game_config_map, cfg_float
+from waifu_bot.services.game_config_service import get_game_config_map, cfg_float, cfg_int
 
 from waifu_bot.services.gd_scaling import (
     compute_challenge_level,
@@ -470,27 +470,66 @@ def _build_initiative_queue(party: list[dict], monsters: list[dict]) -> list[tup
     return actors
 
 
-async def _execute_player_turn(
+def _player_action_sequence(ubuf: dict[str, Any]) -> list[dict[str, Any]]:
+    """Упорядоченный список действий игрока за раунд (для мульти-циклового реплея).
+
+    Берём `actions` из буфера (с анти-спам склейкой в серии). Для обратной совместимости
+    со старым форматом буфера (`text_len`/`media`) собираем одно текстовое действие + по
+    одному действию на каждый медиа-элемент.
+    """
+    acts = ubuf.get("actions")
+    if isinstance(acts, list) and acts:
+        out: list[dict[str, Any]] = []
+        for a in acts:
+            if not isinstance(a, dict):
+                continue
+            kind = a.get("kind")
+            if kind == "text" and int(a.get("len") or 0) > 0:
+                out.append(
+                    {"kind": "text", "len": int(a["len"]), "count": int(a.get("count") or 1)}
+                )
+            elif kind == "media" and a.get("media_kind"):
+                out.append(
+                    {
+                        "kind": "media",
+                        "media_kind": a.get("media_kind"),
+                        "count": int(a.get("count") or 1),
+                    }
+                )
+        return out
+    # legacy fallback
+    out = []
+    if int(ubuf.get("text_len") or 0) > 0:
+        out.append({"kind": "text", "len": int(ubuf["text_len"]), "count": 1})
+    for mk in ubuf.get("media") or []:
+        out.append({"kind": "media", "media_kind": mk, "count": 1})
+    return out
+
+
+async def _execute_player_action(
     session: AsyncSession,
     cycle: GDCycle,
     round_num: int,
     p: dict,
+    action: dict[str, Any],
     party: list[dict],
     monsters: list[dict],
-    users_buf: dict[str, Any],
     state: dict[str, Any],
     outcomes: dict[str, Any],
     actions_log: list[dict[str, Any]],
     contrib: dict,
     fx: list[GDActiveEffect],
+    cycle_no: int,
 ) -> None:
+    """Одно действие игрока в текущем цикле раунда: текстовая атака или навык (по медиа)."""
     uid = int(p.get("user_id", 0))
-    if str(uid) not in users_buf:
-        actions_log.append({"user_id": uid, "kind": "silent"})
-        return
-    ubuf = users_buf.get(str(uid), {})
-    text_len = int(ubuf.get("text_len") or 0)
-    if text_len > 0:
+    kind = action.get("kind")
+    count = max(1, int(action.get("count") or 1))
+
+    if kind == "text":
+        text_len = int(action.get("len") or 0)
+        if text_len <= 0:
+            return
         atk = _attack_type_for_class(int(p.get("class_id") or 1))
         wd = _weapon_dmg_from_level(int(p.get("level") or 1))
         td = calculate_message_damage(
@@ -504,10 +543,21 @@ async def _execute_player_turn(
         )
         crit_m = await _consume_buff_crit_next(session, fx, uid)
         td = int(td * crit_m * _party_damage_mult(fx, uid))
+        guild_mult = 1.0
+        guild_skill_lines: list[str] = []
         try:
-            from waifu_bot.services.guild_skill_effects import gd_party_damage_multiplier
+            from waifu_bot.services.guild_skill_effects import (
+                gd_party_damage_multiplier,
+                guild_skill_contributions,
+                pct_bonus_lines_ru,
+            )
 
-            td = max(1, int(td * await gd_party_damage_multiplier(session, uid)))
+            guild_mult = await gd_party_damage_multiplier(session, uid)
+            td = max(1, int(td * guild_mult))
+            guild_skill_contribs = await guild_skill_contributions(
+                session, uid, params={"gd_party_damage_pct"}
+            )
+            guild_skill_lines = pct_bonus_lines_ru(guild_skill_contribs)
         except Exception:
             pass
         m = _highest_hp_monster(monsters)
@@ -515,23 +565,34 @@ async def _execute_player_turn(
             mult = _monster_armor_debuff_mult(fx, int(m["id"]))
             td = max(1, int(td * mult))
             delta = await _apply_player_damage_to_monster(session, m, td, p, party)
-            actions_log.append({"user_id": uid, "kind": "text", "damage": int(delta)})
+            actions_log.append(
+                {
+                    "user_id": uid,
+                    "kind": "text",
+                    "cycle": cycle_no,
+                    "series": count,
+                    "damage": int(delta),
+                    "guild_damage_pct": guild_mult - 1.0,
+                    "guild_skill_lines": guild_skill_lines,
+                }
+            )
             c = contrib.setdefault(str(uid), {"text": 0, "skill": 0, "heal": 0, "rounds": 0})
             c["text"] = int(c.get("text") or 0) + int(delta)
             outcomes["hits"].append({"target": m["id"], "damage": int(delta), "from": uid})
             await _grant_loot_if_monster_died(session, state, party, m, outcomes)
+        return
 
-    skill_applied = False
-    for mk in ubuf.get("media") or []:
+    if kind == "media":
+        mk = action.get("media_kind")
         sk = MEDIA_TO_SKILL_KEY.get(mk)
         if not sk:
-            continue
+            return
         if not await _cooldown_ok(session, cycle.id, uid, sk, round_num):
             outcomes["flags"]["skill_on_cooldown"].append(uid)
-            continue
+            return
         row = await _load_skill_row(session, int(p.get("class_id") or 1), sk)
         if not row:
-            continue
+            return
         await _apply_skill_effect(
             session,
             cycle.id,
@@ -547,14 +608,6 @@ async def _execute_player_turn(
             fx,
         )
         await _set_cooldown(session, cycle.id, uid, sk, round_num, int(row.cooldown_rounds or 2))
-        skill_applied = True
-        break
-
-    if not text_len and not skill_applied and not ubuf.get("media"):
-        actions_log.append({"user_id": uid, "kind": "silent"})
-    elif text_len > 0 or skill_applied or ubuf.get("media"):
-        c = contrib.setdefault(str(uid), {"text": 0, "skill": 0, "heal": 0, "rounds": 0})
-        c["rounds"] = int(c.get("rounds") or 0) + 1
 
 
 async def _execute_monster_turn(
@@ -567,12 +620,13 @@ async def _execute_monster_turn(
     outcomes: dict[str, Any],
     actions_log: list[dict[str, Any]],
     fx: list[GDActiveEffect],
+    cycle_no: int = 1,
 ) -> None:
     if m["hp"] <= 0:
         return
     if m.get("skip_next"):
         m["skip_next"] = False
-        actions_log.append({"monster": m["id"], "skipped": True})
+        actions_log.append({"monster": m["id"], "skipped": True, "cycle": cycle_no})
         return
     tid = int(m.get("template_id") or 0)
     mt = await session.get(MonsterTemplate, tid)
@@ -591,7 +645,9 @@ async def _execute_monster_turn(
 
     evp = _party_evasion_pct(fx)
     if evp > 0 and random.uniform(0, 100) < evp:
-        actions_log.append({"monster": m["id"], "target": tgt.get("user_id"), "evaded": True})
+        actions_log.append(
+            {"monster": m["id"], "target": tgt.get("user_id"), "evaded": True, "cycle": cycle_no}
+        )
         return
 
     ref_pct = _party_reflect_pct(fx)
@@ -608,7 +664,9 @@ async def _execute_monster_turn(
     _, to_player = await _consume_party_shields(session, fx, pre_shield)
     final_dmg = max(0, to_player)
     if final_dmg <= 0:
-        actions_log.append({"monster": m["id"], "target": tgt.get("user_id"), "shielded": True})
+        actions_log.append(
+            {"monster": m["id"], "target": tgt.get("user_id"), "shielded": True, "cycle": cycle_no}
+        )
         return
     chp = int(tgt.get("current_hp") or 0) - final_dmg
     tgt["current_hp"] = max(0, chp)
@@ -620,6 +678,7 @@ async def _execute_monster_turn(
             "monster_id": int(m["id"]),
             "target_user_id": int(tgt.get("user_id") or 0),
             "damage": int(final_dmg),
+            "cycle": cycle_no,
         }
     )
     outcomes["hits"].append({"monster": m["id"], "target": tgt.get("user_id"), "damage": final_dmg})
@@ -749,6 +808,26 @@ async def process_gd_round(
     fx: list[GDActiveEffect] = await gd_fx.load_effects(session, cycle.id, round_num)
     await _migrate_legacy_dot_state(session, cycle.id, round_num, state, fx)
 
+    # Учитываем КАЖДОЕ сообщение: собираем упорядоченные действия каждого игрока,
+    # затем «реплеим» их по циклам в порядке инициативы (брошенной один раз на раунд).
+    seqs: dict[int, list[dict[str, Any]]] = {}
+    max_actions = 0
+    for p in party:
+        uid = int(p.get("user_id") or 0)
+        seq = _player_action_sequence(users_buf.get(str(uid)) or {})
+        seqs[uid] = seq
+        if len(seq) > max_actions:
+            max_actions = len(seq)
+
+    cap = cfg_int(cfg, "gd_round_cycle_cap", GD_ROUND_CYCLE_CAP_DEFAULT)
+    n_cycles = max(1, min(max(1, cap), max_actions if max_actions > 0 else 1))
+
+    # Молчавшие за весь раунд (нет ни одного действия) — отметить один раз для нарратива.
+    for p in party:
+        uid = int(p.get("user_id") or 0)
+        if not seqs.get(uid):
+            actions_log.append({"user_id": uid, "kind": "silent"})
+
     queue = _build_initiative_queue(party, monsters)
     actions_log.append(
         {
@@ -760,62 +839,94 @@ async def process_gd_round(
         }
     )
 
-    for kind, ref, _sc, _tie in queue:
-        if kind == "player":
-            if ref.get("fallen") or int(ref.get("current_hp") or 0) <= 0:
+    round_outcome: str | None = None
+    for ci in range(n_cycles):
+        cycle_no = ci + 1
+        actions_log.append({"kind": "cycle_start", "cycle": cycle_no})
+        for kind, ref, _sc, _tie in queue:
+            if kind == "player":
+                if ref.get("fallen") or int(ref.get("current_hp") or 0) <= 0:
+                    continue
+                seq = seqs.get(int(ref.get("user_id") or 0)) or []
+                if ci < len(seq):
+                    await _execute_player_action(
+                        session,
+                        cycle,
+                        round_num,
+                        ref,
+                        seq[ci],
+                        party,
+                        monsters,
+                        state,
+                        outcomes,
+                        actions_log,
+                        contrib,
+                        fx,
+                        cycle_no,
+                    )
+            else:
+                if ref["hp"] <= 0:
+                    continue
+                await _execute_monster_turn(
+                    session,
+                    state,
+                    party,
+                    monsters,
+                    ref,
+                    state.get("taunt_user_id"),
+                    outcomes,
+                    actions_log,
+                    fx,
+                    cycle_no,
+                )
+
+        # Проверка состояния после цикла: вайп, зачистка волны, победа.
+        alive_p = [p for p in party if not p.get("fallen") and int(p.get("current_hp") or 0) > 0]
+        if not alive_p:
+            round_outcome = "party_wiped"
+            break
+        alive_m = [m for m in monsters if m["hp"] > 0]
+        if not alive_m:
+            if state.get("wave") == "trash":
+                await gd_fx.delete_monster_targeted_effects(session, cycle.id)
+                state["wave"] = "boss"
+                state["monsters"] = await _init_boss(session, party, challenge_level)
+                monsters = state["monsters"]
+                queue = _build_initiative_queue(party, monsters)
                 continue
-            await _execute_player_turn(
-                session,
-                cycle,
-                round_num,
-                ref,
-                party,
-                monsters,
-                users_buf,
-                state,
-                outcomes,
-                actions_log,
-                contrib,
-                fx,
-            )
-        else:
-            if ref["hp"] <= 0:
-                continue
-            await _execute_monster_turn(
-                session,
-                state,
-                party,
-                monsters,
-                ref,
-                state.get("taunt_user_id"),
-                outcomes,
-                actions_log,
-                fx,
-            )
+            if state.get("wave") == "boss":
+                round_outcome = "victory"
+                state["wave"] = "done"
+                break
 
     await _apply_dot_phase(session, round_num, monsters, fx, outcomes, contrib, state, party, actions_log)
     await _apply_regen_phase(session, round_num, party, fx, outcomes, actions_log)
 
-    # Advance wave if trash cleared
+    # Зачёт активного раунда для каждого, кто хоть раз действовал.
+    for p in party:
+        uid = int(p.get("user_id") or 0)
+        if seqs.get(uid):
+            c = contrib.setdefault(str(uid), {"text": 0, "skill": 0, "heal": 0, "rounds": 0})
+            c["rounds"] = int(c.get("rounds") or 0) + 1
+
+    # Advance wave if trash cleared at end of cycles (без победы внутри цикла).
     alive_m = [m for m in monsters if m["hp"] > 0]
-    if not alive_m and state.get("wave") == "trash":
+    if round_outcome is None and not alive_m and state.get("wave") == "trash":
         await gd_fx.delete_monster_targeted_effects(session, cycle.id)
         state["wave"] = "boss"
         state["monsters"] = await _init_boss(session, party, challenge_level)
         monsters = state["monsters"]
 
-    alive_m = [m for m in state.get("monsters") or [] if m["hp"] > 0]
-    alive_p = [p for p in party if not p.get("fallen") and int(p.get("current_hp") or 0) > 0]
-
-    if not alive_p:
-        round_outcome = "party_wiped"
-    elif not alive_m and state.get("wave") == "boss":
-        round_outcome = "victory"
-        state["wave"] = "done"
-    elif not alive_m:
-        round_outcome = "ongoing"
-    else:
-        round_outcome = "ongoing"
+    if round_outcome is None:
+        alive_m = [m for m in state.get("monsters") or [] if m["hp"] > 0]
+        alive_p = [p for p in party if not p.get("fallen") and int(p.get("current_hp") or 0) > 0]
+        if not alive_p:
+            round_outcome = "party_wiped"
+        elif not alive_m and state.get("wave") == "boss":
+            round_outcome = "victory"
+            state["wave"] = "done"
+        else:
+            round_outcome = "ongoing"
 
     state["collecting_for_round"] = round_num + 1
 

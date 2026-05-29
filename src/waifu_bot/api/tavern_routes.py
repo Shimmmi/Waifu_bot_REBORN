@@ -117,6 +117,22 @@ async def tavern_available(
     )
 
 
+@router.get("/tavern/bgm/tracks", tags=["tavern"])
+async def tavern_bgm_tracks(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Cached group-chat audio tracks for tavern background music (all of the player's chats)."""
+    from waifu_bot.services.tavern_audio import list_tracks_for_player
+
+    try:
+        tracks = await list_tracks_for_player(session, player_id)
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_tracks failed for player %s", player_id)
+        tracks = []
+    return {"tracks": tracks}
+
+
 @router.post("/tavern/keeper-banter", tags=["tavern"])
 async def tavern_keeper_banter(
     player_id: int = Depends(get_player_id),

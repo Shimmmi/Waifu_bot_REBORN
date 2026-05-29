@@ -185,6 +185,8 @@ def build_message_damage_base_trace_ru(
     attack_type: str,
     message_length: int,
     weapon_damage: int | None,
+    weapon_main: int | None = None,
+    weapon_offhand: int | None = None,
 ) -> tuple[int, list[dict[str, Any]]]:
     """Шаги базы урона сообщения в формате damage_breakdown; итог = calculate_message_damage(...)."""
     media_coef = float(MEDIA_COEFFICIENTS.get(media_type, 1.0))
@@ -201,7 +203,17 @@ def build_message_damage_base_trace_ru(
     )
     mt = _media_type_label_ru(media_type)
     steps: list[dict[str, Any]] = []
-    wpn_lbl = "База: урон оружия" if weapon_damage is not None else "База: урон без оружия (навык)"
+    if weapon_damage is not None:
+        # Breakdown of the weapon base by hand, e.g. "= 20 (15MH+5OH)".
+        parts: list[str] = []
+        if weapon_main:
+            parts.append(f"{int(weapon_main)}MH")
+        if weapon_offhand:
+            parts.append(f"{int(weapon_offhand)}OH")
+        suffix = f" = {base} ({'+'.join(parts)})" if parts else f" = {base}"
+        wpn_lbl = "База: урон оружия" + suffix
+    else:
+        wpn_lbl = "База: урон без оружия (навык)"
     steps.append(
         {
             "kind": "base",

@@ -90,6 +90,10 @@ def format_gd_round_log_lines_ru(
     for entry in resolved:
         kind = entry.get("kind")
 
+        if kind == "cycle_start":
+            lines.append(f"— Цикл {int(entry.get('cycle') or 0)} —")
+            continue
+
         if kind == "initiative_order":
             q = entry.get("queue") or []
             parts: list[str] = []
@@ -139,7 +143,17 @@ def format_gd_round_log_lines_ru(
                 continue
             if entry.get("kind") == "text":
                 dmg = int(entry.get("damage") or 0)
-                lines.append(f"• {ov}: урон от сообщения в чате — {dmg}.")
+                series = int(entry.get("series") or 1)
+                guild_lines = entry.get("guild_skill_lines") or []
+                suffix = ""
+                if guild_lines:
+                    suffix = " (" + ", ".join(str(x) for x in guild_lines) + ")"
+                elif entry.get("guild_damage_pct"):
+                    pct = float(entry["guild_damage_pct"]) * 100
+                    shown = int(pct) if pct == int(pct) else round(pct, 1)
+                    suffix = f" (Боевой клич +{shown}%)"
+                series_bit = f" серия из {series} сообщений," if series > 1 else ""
+                lines.append(f"• {ov}:{series_bit} урон от сообщений в чате — {dmg}{suffix}.")
                 continue
             sk = entry.get("skill")
             if sk == "REGEN_TICK":

@@ -1301,6 +1301,14 @@ class ExpeditionService:
             except Exception:
                 pass
 
+        from waifu_bot.services.event_log import log_event
+
+        await log_event(
+            session,
+            player_id,
+            "expedition_completed",
+            {"name": expedition_name, "outcome": outcome, "gold": gold, "exp": exp},
+        )
         await session.commit()
         return {
             "success": True,
@@ -1603,6 +1611,20 @@ class ExpeditionService:
                     chosen.append(affix)
                     remaining_fb -= affix.difficulty_add
                 chosen = chosen[:max_affixes]
+
+            # Инвариант: у КАЖДОЙ экспедиции есть хотя бы одна «сложность» (включая лёгкий слот 1,
+            # где target_difficulty=1 раньше давал пустой набор). Берём самую лёгкую доступную
+            # по биому сложность, чтобы лёгкий слот оставался посильным, но всё же имел 1 affix.
+            if not chosen and all_affixes:
+                biome_ok = [
+                    a
+                    for a in all_affixes
+                    if not (a.forbidden_biomes and biome_tag in (a.forbidden_biomes or []))
+                    and not (a.allowed_biomes and biome_tag not in (a.allowed_biomes or []))
+                ]
+                pool = biome_ok or list(all_affixes)
+                pool_sorted = sorted(pool, key=lambda a: (a.difficulty_add, a.id))
+                chosen = [pool_sorted[0]]
 
             # 3. Детерминированная сборка имени
             computed_name = _build_expedition_name(base_name, chosen)

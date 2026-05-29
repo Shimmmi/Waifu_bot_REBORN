@@ -245,6 +245,9 @@ async def guilds_me(
         await session.commit()
     except Exception:
         logger.exception("touch_player_last_active in /guilds/me failed player_id=%s", player_id)
+    from waifu_bot.services.guild_skill_effects import effective_max_bank_items
+
+    max_bank = await effective_max_bank_items(session, guild.id, int(guild.max_bank_items))
     return {
         **snap,
         "viewer_player_id": player_id,
@@ -257,7 +260,7 @@ async def guilds_me(
         "member_slots": int(thr.member_slots) if thr else 10,
         "bank_gold": guild.gold,
         "bank_items_count": int(bank_n or 0),
-        "max_bank_items": guild.max_bank_items,
+        "max_bank_items": max_bank,
         "raid": raid,
         "war": war.get("war"),
         "wars_unlocked": bool(thr.wars_unlocked) if thr else False,

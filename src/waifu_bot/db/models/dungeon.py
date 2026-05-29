@@ -368,6 +368,30 @@ class MonsterAffix(Base):
     max_per_monster: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
 
+class PlayerMonsterCodex(Base):
+    """Per-player bestiary progress for a monster template (pokedex-style).
+
+    Kill count drives the discovery tier (see waifu_bot.game.bestiary). The tier
+    itself is derived on read and not stored, so thresholds can be re-tuned.
+    """
+
+    __tablename__ = "player_monster_codex"
+
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id", ondelete="CASCADE"), primary_key=True
+    )
+    monster_template_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("monster_templates.id", ondelete="CASCADE"), primary_key=True
+    )
+    kills: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    first_kill_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_kill_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class DropRule(Base):
     """Item drop rule (boss / act / location)."""
 

@@ -183,13 +183,75 @@
       cursor: pointer;
       min-height: 72px;
     }
+    body.page-shop .shop-gamble-card.shop-item-card {
+      padding: 0;
+      gap: 0;
+      aspect-ratio: 1;
+    }
     body.page-shop .shop-gamble-card.purchased {
       opacity: 0.55;
       cursor: default;
     }
     body.page-shop .shop-gamble-card .item-name {
-      font-size: 9px;
-      color: var(--ash);
+      position: absolute;
+      top: 4px;
+      left: 50%;
+      right: auto;
+      bottom: auto;
+      transform: translateX(-50%);
+      max-width: calc(100% - 8px);
+      height: auto;
+      max-height: none;
+      box-sizing: border-box;
+      z-index: 3;
+      font-size: 8.5px;
+      font-weight: 700;
+      color: #e8e0d4;
+      text-align: center;
+      line-height: 1.25;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+      width: max-content;
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: rgba(20, 16, 12, 0.72);
+      border: 1px solid rgba(200, 146, 42, 0.28);
+      -webkit-line-clamp: unset;
+      -webkit-box-orient: unset;
+      pointer-events: none;
+    }
+    body.page-shop .shop-gamble-card .item-icon {
+      position: absolute;
+      inset: 0;
+      padding: 0;
+      flex: none;
+      min-height: 0;
+      width: auto;
+      z-index: 1;
+      display: block;
+      background: var(--surface2);
+    }
+    body.page-shop .shop-gamble-card .item-icon img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      max-height: none;
+      object-fit: cover;
+      object-position: center;
+      display: block;
+    }
+    body.page-shop .shop-gamble-card .item-icon:not(:has(img)) {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.75rem;
+    }
+    body.page-shop .shop-gamble-card .item-price {
+      z-index: 3;
     }
 
     body.page-shop .shop-item-card,
@@ -209,7 +271,7 @@
       overflow: hidden;
     }
     /* Remove the global flex-fill on icon, so cards become shorter. */
-    body.page-shop .shop-item-card .item-icon,
+    body.page-shop .shop-item-card:not(.shop-gamble-card) .item-icon,
     body.page-shop .shop-sell-card .item-icon {
       position: relative;
       width: 100%;
@@ -220,7 +282,7 @@
       justify-content: center;
       z-index: 1;
     }
-    body.page-shop .shop-item-card .item-icon img,
+    body.page-shop .shop-item-card:not(.shop-gamble-card) .item-icon img,
     body.page-shop .shop-sell-card .item-icon img {
       width: 100%;
       height: 100%;
@@ -276,8 +338,9 @@
     body.page-shop .shop-sell-card.rarity-legendary .item-level { color: #ffe08a; }
 
     /* Цена — правый нижний угол */
-    body.page-shop .shop-item-card .item-price,
-    body.page-shop .shop-sell-card .item-price {
+    body.page-shop .shop-item-card:not(.shop-gamble-card) .item-price,
+    body.page-shop .shop-sell-card .item-price,
+    body.page-shop .shop-gamble-card .item-price {
       position: absolute;
       top: auto;
       bottom: 4px;
@@ -295,7 +358,7 @@
       white-space: nowrap;
     }
 
-    /* Подсветка ячейки, на которую ссылается ИИ-совет торговца */
+    /* Подсветка ячейки, на которую ссылается совет торговца */
     body.page-shop .shop-item-card.shop-merchant-pick,
     body.page-shop .shop-sell-card.shop-merchant-pick {
       box-shadow:
@@ -303,8 +366,8 @@
         0 0 18px rgba(255, 200, 80, 0.4);
     }
 
-    /* Название под иконкой */
-    body.page-shop .shop-item-card .item-name,
+    /* Название под иконкой (не gamble — там тип сверху) */
+    body.page-shop .shop-item-card:not(.shop-gamble-card) .item-name,
     body.page-shop .shop-sell-card .item-name {
       font-size: 9.5px;
       color: var(--amber-glow);
@@ -378,17 +441,83 @@
       border-radius: 9px;
       color: var(--muted);
     }
-    body.page-shop #shop-sell-submit {
-      flex: 0 0 36px;
-      border-color: rgba(232, 184, 75, .45);
+    body.page-shop .shop-sell-toolbar-end {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+    body.page-shop .shop-sell-toolbar-btn {
+      flex-shrink: 0;
+      min-width: 32px;
+      padding: 5px 8px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      border-radius: 8px;
+      cursor: pointer;
+      line-height: 1;
+    }
+    body.page-shop .shop-sell-toolbar-btn:active:not(:disabled) {
+      transform: scale(0.96);
+    }
+    body.page-shop .shop-sell-toolbar-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    body.page-shop .shop-sell-trash-btn {
+      border: 1px solid rgba(220, 100, 100, .4);
+      background: rgba(120, 40, 40, .15);
+      color: #f0a8a8;
+    }
+    body.page-shop .shop-sell-submit-btn {
+      border: 1px solid rgba(232, 184, 75, .45);
       background: rgba(200, 146, 42, .12);
       color: var(--amber-glow);
-      font-size: 1.1rem;
-      line-height: 1;
-      padding: 7px 0;
     }
-    body.page-shop #shop-sell-submit:active {
-      transform: scale(0.96);
+    body.page-shop.shop-sell-busy {
+      overflow: hidden;
+    }
+    body.page-shop .shop-sell-busy-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 2147482000;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      box-sizing: border-box;
+      background: rgba(8, 6, 12, 0.72);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    body.page-shop .shop-sell-busy-modal.shop-sell-busy--open {
+      display: flex;
+    }
+    body.page-shop .shop-sell-busy-sheet {
+      max-width: 280px;
+      text-align: center;
+      padding: 28px 24px;
+      border-radius: 16px;
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      background: rgba(22, 18, 28, 0.96);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+    }
+    body.page-shop .shop-sell-coin-spin {
+      font-size: 2.25rem;
+      line-height: 1;
+      margin-bottom: 14px;
+      display: inline-block;
+      animation: shop-sell-coin-rotate 0.9s linear infinite;
+    }
+    @keyframes shop-sell-coin-rotate {
+      to { transform: rotate(360deg); }
+    }
+    body.page-shop .shop-sell-busy-label {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--cream);
     }
 
     /* ============================================================
@@ -410,41 +539,74 @@
     }
 
     /* ============================================================
-       Dialog — позиция справа снизу + анимация снизу
+       Dialog bubble — левая часть hero banner
        ============================================================ */
     body.page-shop .shop-dialog {
-      position: fixed;
-      bottom: 156px; /* над btabs + nav + зазор (btabs подняты на 40px) */
-      top: auto;
-      left: 108px;   /* правее колонны торговца */
-      right: 10px;
+      position: absolute;
+      top: 10px;
+      left: 12px;
+      right: auto;
+      max-width: 58%;
       background: rgba(255, 248, 215, .97);
       border: 2px solid #c8922a;
       border-radius: 14px;
       padding: 10px 12px 9px;
-      z-index: 1100;
+      z-index: 3;
       pointer-events: none;
       opacity: 0;
-      transform: translateY(6px) scale(.97);
+      transform: translateY(-6px) scale(.97);
       transition: opacity .22s ease, transform .22s ease;
     }
     body.page-shop .shop-dialog.show {
       opacity: 1;
       transform: translateY(0) scale(1);
-      pointer-events: auto;
     }
-    /* Хвостик — вниз-влево к торговцу */
+    body.page-shop .shop-dialog-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #8a5a1a;
+      font-weight: 700;
+      margin-bottom: 3px;
+    }
+    body.page-shop .shop-dialog-text {
+      color: #3a2010;
+      font-size: 12px;
+      line-height: 1.35;
+      font-style: italic;
+    }
+    body.page-shop .shop-dialog-text b {
+      color: #8a3010;
+      font-style: normal;
+    }
+    body.page-shop .shop-dialog-timer {
+      height: 2px;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 7px;
+      background: rgba(200, 146, 42, 0.2);
+    }
+    body.page-shop .shop-dialog-timer-fill {
+      width: 100%;
+      height: 100%;
+      background: #c8922a;
+    }
+    /* Хвостик — вниз-вправо к NPC на composite hero */
     body.page-shop .shop-dialog::before {
       content: '';
       position: absolute;
-      bottom: -11px; left: 18px;
+      bottom: -11px;
+      left: auto;
+      right: 24px;
       border: 6px solid transparent;
       border-top-color: rgba(255, 248, 215, .97);
     }
     body.page-shop .shop-dialog::after {
       content: '';
       position: absolute;
-      bottom: -15px; left: 16px;
+      bottom: -15px;
+      left: auto;
+      right: 22px;
       border: 7px solid transparent;
       border-top-color: #c8922a;
     }
@@ -849,7 +1011,6 @@
       overflow-x: auto;
     }
     body.page-shop .shop-sell-toolbar.shop-sell-toolbar--row .shop-sell-mode-label {
-      margin-left: auto;
       font-size: 10px;
       flex-shrink: 0;
     }
@@ -963,31 +1124,50 @@
         <img class="shop-hero-img" id="shop-hero-img-buy" alt="" />
         <span class="shop-hero-fallback" id="shop-hero-fb-buy" style="display:none;">🧙</span>
         <span class="shop-hero-hint">Нажми — совет</span>
+        <div class="shop-dialog" id="shop-dialog-buy" role="status" aria-live="polite">
+          <div class="shop-dialog-label" id="shop-dialog-label-buy">Торговец говорит</div>
+          <div class="shop-dialog-text" id="shop-dialog-text-buy"></div>
+          <div class="shop-dialog-timer"><div class="shop-dialog-timer-fill" id="shop-dialog-timer-fill-buy"></div></div>
+        </div>
       </button>
       <button type="button" class="shop-hero" id="shop-hero-sell" data-tab-hero="sell" aria-label="Совет торговца">
         <img class="shop-hero-img" id="shop-hero-img-sell" alt="" />
         <span class="shop-hero-fallback" id="shop-hero-fb-sell" style="display:none;">🧙</span>
         <span class="shop-hero-hint">Нажми — совет</span>
+        <div class="shop-dialog" id="shop-dialog-sell" role="status" aria-live="polite">
+          <div class="shop-dialog-label" id="shop-dialog-label-sell">Торговец говорит</div>
+          <div class="shop-dialog-text" id="shop-dialog-text-sell"></div>
+          <div class="shop-dialog-timer"><div class="shop-dialog-timer-fill" id="shop-dialog-timer-fill-sell"></div></div>
+        </div>
       </button>
       <button type="button" class="shop-hero" id="shop-hero-gamble" data-tab-hero="gamble" aria-label="Совет барыги">
         <img class="shop-hero-img" id="shop-hero-img-gamble" alt="" />
         <span class="shop-hero-fallback" id="shop-hero-fb-gamble" style="display:none;">🎲</span>
         <span class="shop-hero-hint">Нажми — совет</span>
+        <div class="shop-dialog" id="shop-dialog-gamble" role="status" aria-live="polite">
+          <div class="shop-dialog-label" id="shop-dialog-label-gamble">Барыга шепчет</div>
+          <div class="shop-dialog-text" id="shop-dialog-text-gamble"></div>
+          <div class="shop-dialog-timer"><div class="shop-dialog-timer-fill" id="shop-dialog-timer-fill-gamble"></div></div>
+        </div>
       </button>
       <button type="button" class="shop-hero" id="shop-hero-smith" data-tab-hero="smith" aria-label="Совет кузнеца">
         <img class="shop-hero-img" id="shop-hero-img-smith" alt="" />
         <span class="shop-hero-fallback" id="shop-hero-fb-smith" style="display:none;">⚒</span>
         <span class="shop-hero-hint">Нажми — совет</span>
+        <div class="shop-dialog" id="shop-dialog-smith" role="status" aria-live="polite">
+          <div class="shop-dialog-label" id="shop-dialog-label-smith">Кузнец говорит</div>
+          <div class="shop-dialog-text" id="shop-dialog-text-smith"></div>
+          <div class="shop-dialog-timer"><div class="shop-dialog-timer-fill" id="shop-dialog-timer-fill-smith"></div></div>
+        </div>
       </button>
     </div>
 
     <div class="shop-btabs-wrap" data-tutorial="shop-tabs">
       <div class="shop-btabs">
-        <button class="shop-btab active" id="shop-btab-buy" data-tab="buy" onclick="ShopPage.switchTab('buy')">Купить</button>
-        <button class="shop-btab" id="shop-btab-sell" data-tab="sell" onclick="ShopPage.switchTab('sell')">Продать</button>
+        <button class="shop-btab active" id="shop-btab-buy" data-tab="buy" onclick="ShopPage.switchTab('buy')">Покупка</button>
+        <button class="shop-btab" id="shop-btab-sell" data-tab="sell" onclick="ShopPage.switchTab('sell')">Продажа</button>
         <button class="shop-btab" id="shop-btab-gamble" data-tab="gamble" onclick="ShopPage.switchTab('gamble')">Gamble</button>
         <button class="shop-btab" id="shop-btab-smith" data-tab="smith" onclick="ShopPage.switchTab('smith')">Заточка</button>
-        <button type="button" class="shop-btab-sm" id="shop-sell-submit" style="display:none;" onclick="WaifuApp.sellSelected()" title="Продать выбранное" aria-label="Продать выбранное">🪙</button>
         <button class="shop-btab-sm admin-only" id="shop-admin-refresh" style="display:none;" onclick="WaifuApp.refreshShopDebug()" title="Обновить витрину">🔄</button>
         <button class="shop-btab-sm admin-only" id="shop-admin-add-gold" style="display:none;" onclick="WaifuApp.adminAddGold()" title="+10000 золота">💰</button>
       </div>
@@ -1012,10 +1192,14 @@
             <option value="price">Цена</option>
           </select>
           <button type="button" id="shop-sell-sort-dir" class="shop-inv-sort-dir" onclick="WaifuApp.toggleShopSellSortDir()">▼</button>
-          <label class="shop-sell-mode-label">
-            <input type="checkbox" id="shop-sell-select-mode" />
-            <span>множ.</span>
-          </label>
+          <div class="shop-sell-toolbar-end">
+            <button type="button" class="shop-sell-toolbar-btn shop-sell-trash-btn" id="shop-sell-trash-btn" style="display:none;" onclick="WaifuApp.sellAllCommonItems()" title="Продать все обычные" aria-label="Продать все обычные">🗑</button>
+            <button type="button" class="shop-sell-toolbar-btn shop-sell-submit-btn" id="shop-sell-submit" style="display:none;" onclick="WaifuApp.sellSelected()" title="Продать выбранное" aria-label="Продать выбранное">🪙</button>
+            <label class="shop-sell-mode-label">
+              <input type="checkbox" id="shop-sell-select-mode" />
+              <span>множ.</span>
+            </label>
+          </div>
         </div>
         <div class="shop-sell-grid" id="shop-sell-grid">
           <div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0;">Инвентарь загружается...</div>
@@ -1284,19 +1468,9 @@
     const ShopPage = (() => {
       function switchTab(tab) { WaifuApp.switchShopTab(tab); }
 
-      const STUB_NO_AI = "Сейчас посмотрим, что тебе может подойти.";
-
       async function onHeroTap(tab) {
-        if (window.__shopMerchantTab !== tab && window.WaifuApp?.refreshMerchantLine) {
-          await WaifuApp.refreshMerchantLine().catch(() => {});
-        }
-        const line = window.__shopMerchantLine || STUB_NO_AI;
-        const plain = String(line).replace(/<[^>]+>/g, "");
-        if (typeof WaifuApp?.showToast === "function") {
-          WaifuApp.showToast(plain, "info");
-        }
-        if ((tab === "buy" || tab === "sell") && window.WaifuApp?.revealMerchantAdvice) {
-          WaifuApp.revealMerchantAdvice();
+        if (typeof WaifuApp?.onShopHeroAdvice === "function") {
+          await WaifuApp.onShopHeroAdvice(tab);
         }
       }
 
@@ -1315,6 +1489,13 @@
       return { switchTab, onHeroTap };
     })();
   </script>
+
+  <div id="shop-sell-busy-modal" class="shop-sell-busy-modal" hidden aria-hidden="true" aria-live="polite" role="status">
+    <div class="shop-sell-busy-sheet">
+      <div class="shop-sell-coin-spin" aria-hidden="true">🪙</div>
+      <p class="shop-sell-busy-label">Продаём предметы…</p>
+    </div>
+  </div>
 
   <div class="item-art-gen-busy-overlay" aria-hidden="true" aria-live="polite">
     <div class="item-art-gen-busy-panel">

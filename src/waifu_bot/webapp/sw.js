@@ -1,5 +1,5 @@
 /** Service worker: cache static game assets and WebApp shell on repeat visits. */
-const CACHE_VERSION = "waifu-webapp-v4";
+const CACHE_VERSION = "waifu-webapp-v5";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
@@ -60,13 +60,18 @@ self.addEventListener("fetch", (event) => {
       url.pathname.endsWith(".png") ||
       url.pathname.endsWith(".mp3"))
   ) {
+    // Stale-while-revalidate: serve cached immediately but always refresh in the
+    // background so JS/CSS edits self-heal on the next reload.
     event.respondWith(
       caches.open(SHELL_CACHE).then(async (cache) => {
         const cached = await cache.match(req);
-        if (cached) return cached;
-        const res = await fetch(req);
-        if (res.ok) cache.put(req, res.clone());
-        return res;
+        const network = fetch(req)
+          .then((res) => {
+            if (res.ok) cache.put(req, res.clone());
+            return res;
+          })
+          .catch(() => cached);
+        return cached || network;
       })
     );
   }

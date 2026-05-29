@@ -104,6 +104,8 @@ async def buy_item(
             )
         if err == "no_waifu":
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Сначала создайте вайфу")
+        if err == "already_purchased":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="already_purchased")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Оффер не найден")
     return result
 
@@ -247,20 +249,22 @@ async def gamble_buy_slot(
 @router.post("/shop/refresh", tags=["shop"])
 async def refresh_shop_inventory(
     act: int = Query(..., ge=1, le=5),
+    player_id: int = Depends(get_player_id),
     _: int = Depends(require_admin),
     session: AsyncSession = Depends(get_db),
 ):
     size = shop_size_for_act(act)
-    offers = await shop_service.refresh_offers(session, act, size=size)
+    offers = await shop_service.refresh_offers(session, player_id, act, size=size)
     return {"refreshed": len(offers)}
 
 
 @router.get("/shop/refresh", tags=["shop"])
 async def refresh_shop_inventory_get(
     act: int = Query(..., ge=1, le=5),
+    player_id: int = Depends(get_player_id),
     _: int = Depends(require_admin),
     session: AsyncSession = Depends(get_db),
 ):
     size = shop_size_for_act(act)
-    offers = await shop_service.refresh_offers(session, act, size=size)
+    offers = await shop_service.refresh_offers(session, player_id, act, size=size)
     return {"refreshed": len(offers)}

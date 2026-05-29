@@ -19,6 +19,16 @@ echo "==> git fetch && checkout ${BRANCH}"
 git fetch origin "${BRANCH}"
 git checkout "${BRANCH}"
 git pull --ff-only origin "${BRANCH}"
+if [ -f armory_frontend/package.json ]; then
+  echo "==> build armory frontend"
+  if command -v npm >/dev/null 2>&1; then
+    (cd armory_frontend && npm install && npm run build)
+  else
+    echo "WARN: npm not found — skip armory frontend build"
+  fi
+fi
+echo "==> apply migrations"
+PYTHONPATH=${REPO_DIR}/src python3 -m waifu_bot.cli migrate || true
 echo "==> restart service"
 sudo systemctl restart waifu-bot.service
 sleep 2

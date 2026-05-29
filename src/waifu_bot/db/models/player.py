@@ -27,6 +27,12 @@ class Player(Base):
     last_active: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )
+    # Dedicated "real gameplay action" timestamp (combat hits, dungeon start).
+    # Used to gate in-dungeon HP regen on being online; NOT touched by passive
+    # /profile polling, so idling with the WebApp open does not count as online.
+    last_combat_action_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Hidden skills: streaks updated from combat / expeditions
     perfect_dungeon_streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

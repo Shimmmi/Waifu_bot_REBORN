@@ -127,14 +127,16 @@
       </section>
     </main>
 
-    <div id="guild-skill-modal" class="modal guild-skill-modal-root" style="display: none" aria-hidden="true">
-      <div class="modal-content guild-skill-modal-panel">
-        <div class="modal-head">
-          <h2 id="guild-skill-modal-title" class="modal-title"></h2>
-          <button type="button" class="modal-close" id="guild-skill-modal-close" aria-label="Закрыть">✕</button>
-        </div>
-        <div id="guild-skill-modal-body" class="modal-body"></div>
-        <div class="modal-footer" id="guild-skill-modal-footer"></div>
+    <div
+      id="guild-skill-modal"
+      class="modal guild-skill-modal-root"
+      style="display: none"
+      aria-hidden="true"
+      onclick="if (event.target === this) WaifuApp.closeGuildSkillModal()"
+    >
+      <div class="modal-content guild-skill-modal-panel" onclick="event.stopPropagation()">
+        <button type="button" class="guild-skill-modal-close" id="guild-skill-modal-close" aria-label="Закрыть">✕</button>
+        <div id="guild-skill-modal-body" class="guild-skill-modal-body"></div>
       </div>
     </div>
 
@@ -149,85 +151,79 @@
       onclick="if (event.target === this) WaifuApp.closeGuildMemberPreviewModal()"
     >
       <div class="guild-member-preview-box" onclick="event.stopPropagation()">
-        <div class="guild-member-preview-hero">
-          <svg class="guild-member-preview-hero-bg" viewBox="0 0 320 280" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-            <defs>
-              <radialGradient id="gmpRg1" cx="50%" cy="60%" r="60%">
-                <stop offset="0%" stop-color="#1a0d3a" stop-opacity="1"/>
-                <stop offset="100%" stop-color="#050810" stop-opacity="1"/>
-              </radialGradient>
-              <radialGradient id="gmpRg2" cx="50%" cy="40%" r="45%">
-                <stop offset="0%" stop-color="#2d1a5e" stop-opacity="0.8"/>
-                <stop offset="100%" stop-color="transparent"/>
-              </radialGradient>
-              <radialGradient id="gmpRg3" cx="50%" cy="70%" r="40%">
-                <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.12"/>
-                <stop offset="100%" stop-color="transparent"/>
-              </radialGradient>
-              <radialGradient id="gmpCenter" cx="50%" cy="50%" r="35%">
-                <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.2"/>
-                <stop offset="100%" stop-color="transparent"/>
-              </radialGradient>
-            </defs>
-            <rect width="320" height="280" fill="url(#gmpRg1)"/>
-            <rect width="320" height="280" fill="url(#gmpRg2)"/>
-            <rect width="320" height="280" fill="url(#gmpCenter)"/>
-            <rect width="320" height="280" fill="url(#gmpRg3)"/>
-            <polygon points="0,280 30,180 60,280" fill="#0a0618" opacity="0.9"/>
-            <polygon points="20,280 55,150 90,280" fill="#0d0820" opacity="0.85"/>
-            <polygon points="250,280 285,160 320,280" fill="#0a0618" opacity="0.9"/>
-            <polygon points="240,280 270,175 300,280" fill="#0d0820" opacity="0.85"/>
-            <polygon points="10,280 38,190 66,280" fill="#080514" opacity="0.7"/>
-            <polygon points="265,280 290,185 315,280" fill="#080514" opacity="0.7"/>
-            <ellipse cx="35" cy="195" rx="22" ry="12" fill="#0d0825" opacity="0.8"/>
-            <ellipse cx="280" cy="200" rx="22" ry="12" fill="#0d0825" opacity="0.8"/>
-            <ellipse cx="75" cy="55" r="1.5" fill="#a855f7" opacity="0.6"/>
-            <ellipse cx="245" cy="45" r="1" fill="#f59e0b" opacity="0.7"/>
-            <ellipse cx="160" cy="130" rx="35" ry="55" fill="rgba(120,60,220,0.07)"/>
-            <rect x="0" y="230" width="320" height="50" fill="rgba(8,14,26,0.95)"/>
-          </svg>
-          <img id="guild-member-preview-hero-img" class="guild-member-preview-hero-img" alt="" hidden />
-          <div class="guild-member-preview-status-bar">
-            <div class="guild-member-preview-status-badge">
-              <div id="guild-member-preview-status-dot" class="guild-member-preview-status-dot"></div>
-              <span id="guild-member-preview-status-label">Офлайн</span>
+        <div class="guild-member-preview-card">
+          <div class="guild-member-preview-hero">
+            <svg class="guild-member-preview-hero-bg" viewBox="0 0 320 280" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <defs>
+                <radialGradient id="gmpRg1" cx="50%" cy="60%" r="60%">
+                  <stop offset="0%" stop-color="#1a0d3a" stop-opacity="1"/>
+                  <stop offset="100%" stop-color="#050810" stop-opacity="1"/>
+                </radialGradient>
+                <radialGradient id="gmpRg2" cx="50%" cy="40%" r="45%">
+                  <stop offset="0%" stop-color="#2d1a5e" stop-opacity="0.8"/>
+                  <stop offset="100%" stop-color="transparent"/>
+                </radialGradient>
+                <radialGradient id="gmpRg3" cx="50%" cy="70%" r="40%">
+                  <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.12"/>
+                  <stop offset="100%" stop-color="transparent"/>
+                </radialGradient>
+                <radialGradient id="gmpCenter" cx="50%" cy="50%" r="35%">
+                  <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.2"/>
+                  <stop offset="100%" stop-color="transparent"/>
+                </radialGradient>
+              </defs>
+              <rect width="320" height="280" fill="url(#gmpRg1)"/>
+              <rect width="320" height="280" fill="url(#gmpRg2)"/>
+              <rect width="320" height="280" fill="url(#gmpCenter)"/>
+              <rect width="320" height="280" fill="url(#gmpRg3)"/>
+              <polygon points="0,280 30,180 60,280" fill="#0a0618" opacity="0.9"/>
+              <polygon points="20,280 55,150 90,280" fill="#0d0820" opacity="0.85"/>
+              <polygon points="250,280 285,160 320,280" fill="#0a0618" opacity="0.9"/>
+              <polygon points="240,280 270,175 300,280" fill="#0d0820" opacity="0.85"/>
+              <polygon points="10,280 38,190 66,280" fill="#080514" opacity="0.7"/>
+              <polygon points="265,280 290,185 315,280" fill="#080514" opacity="0.7"/>
+              <ellipse cx="35" cy="195" rx="22" ry="12" fill="#0d0825" opacity="0.8"/>
+              <ellipse cx="280" cy="200" rx="22" ry="12" fill="#0d0825" opacity="0.8"/>
+              <ellipse cx="75" cy="55" r="1.5" fill="#a855f7" opacity="0.6"/>
+              <ellipse cx="245" cy="45" r="1" fill="#f59e0b" opacity="0.7"/>
+              <ellipse cx="160" cy="130" rx="35" ry="55" fill="rgba(120,60,220,0.07)"/>
+              <rect x="0" y="230" width="320" height="50" fill="rgba(8,14,26,0.95)"/>
+            </svg>
+            <img id="guild-member-preview-hero-img" class="guild-member-preview-hero-img" alt="" hidden />
+            <div class="guild-member-preview-status-bar">
+              <div class="guild-member-preview-status-badge">
+                <div id="guild-member-preview-status-dot" class="guild-member-preview-status-dot"></div>
+                <span id="guild-member-preview-status-label">Офлайн</span>
+              </div>
+              <div class="guild-member-preview-status-actions">
+                <button type="button" id="guild-member-preview-mail" class="guild-member-preview-mail-btn" aria-label="Написать игроку">✉</button>
+                <div id="guild-member-preview-rank" class="guild-member-preview-rank-badge">Участник</div>
+              </div>
             </div>
-            <div class="guild-member-preview-status-actions">
-              <button type="button" id="guild-member-preview-mail" class="guild-member-preview-mail-btn" aria-label="Написать игроку">✉</button>
-              <div id="guild-member-preview-rank" class="guild-member-preview-rank-badge">Участник</div>
+            <div class="guild-member-preview-char-name">
+              <div id="guild-member-preview-char-name" class="guild-member-preview-char-name-text">—</div>
             </div>
           </div>
-          <div class="guild-member-preview-char-name">
-            <div id="guild-member-preview-char-name" class="guild-member-preview-char-name-text">—</div>
+          <div class="guild-member-preview-stats">
+            <div class="guild-member-preview-stat-row">
+              <span class="guild-member-preview-stat-icon">⭐</span>
+              <span class="guild-member-preview-stat-key">Уровень:</span>
+              <span id="guild-member-preview-level" class="guild-member-preview-stat-value gold">—</span>
+            </div>
+            <div class="guild-member-preview-stat-row">
+              <span class="guild-member-preview-stat-icon">🟡</span>
+              <span class="guild-member-preview-stat-key">Боевая мощь:</span>
+              <span id="guild-member-preview-power" class="guild-member-preview-stat-value gold">—</span>
+            </div>
+            <div class="guild-member-preview-stat-row">
+              <span class="guild-member-preview-stat-icon">📋</span>
+              <span class="guild-member-preview-stat-key">Вклад (неделя):</span>
+              <span id="guild-member-preview-contrib" class="guild-member-preview-stat-value">—</span>
+            </div>
+            <div class="guild-member-preview-contrib-bar-wrap">
+              <div id="guild-member-preview-contrib-bar" class="guild-member-preview-contrib-bar-fill" style="width: 0%"></div>
+            </div>
           </div>
-        </div>
-
-        <div class="guild-member-preview-stats">
-          <div class="guild-member-preview-stat-row">
-            <span class="guild-member-preview-stat-icon">⭐</span>
-            <span class="guild-member-preview-stat-key">Уровень:</span>
-            <span id="guild-member-preview-level" class="guild-member-preview-stat-value gold">—</span>
-          </div>
-          <div class="guild-member-preview-stat-row">
-            <span class="guild-member-preview-stat-icon">🟡</span>
-            <span class="guild-member-preview-stat-key">Боевая мощь:</span>
-            <span id="guild-member-preview-power" class="guild-member-preview-stat-value gold">—</span>
-          </div>
-          <div class="guild-member-preview-stat-row">
-            <span class="guild-member-preview-stat-icon">📋</span>
-            <span class="guild-member-preview-stat-key">Вклад (неделя):</span>
-            <span id="guild-member-preview-contrib" class="guild-member-preview-stat-value">—</span>
-          </div>
-          <div class="guild-member-preview-contrib-bar-wrap">
-            <div id="guild-member-preview-contrib-bar" class="guild-member-preview-contrib-bar-fill" style="width: 0%"></div>
-          </div>
-        </div>
-
-        <div class="guild-member-preview-divider"></div>
-
-        <div class="guild-member-preview-heroes">
-          <div class="guild-member-preview-heroes-label">Наёмницы</div>
-          <div id="guild-member-preview-heroes-row" class="guild-member-preview-heroes-row"></div>
         </div>
       </div>
     </div>

@@ -12,6 +12,8 @@ TUTORIAL_VERSION = 1
 
 # Flow ids shown in the client (must match TUTORIAL_FLOWS keys in tutorial.js)
 KNOWN_TUTORIAL_STEPS: tuple[str, ...] = (
+    "waifu_gen",
+    "waifu_gen_step2",
     "intro",
     "shop",
     "tavern",

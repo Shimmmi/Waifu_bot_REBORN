@@ -70,7 +70,9 @@ class ShopService:
         from waifu_bot.game.constants import CHM_MERCHANT_DISCOUNT_COEFF
 
         slot_count = int(size) if size is not None else shop_size_for_act(act)
-        offers = await self._ensure_offers(session, act, size=slot_count)
+        if player_id is None:
+            raise ValueError("player_id is required for shop inventory")
+        offers = await self._ensure_offers(session, player_id, act, size=slot_count)
         if player_id is not None:
             merchant_disc = await merchant_discount_pct_for_player(session, player_id)
         elif charm is not None:
@@ -100,8 +102,8 @@ class ShopService:
                     "rarity": 0,
                 })
                 continue
-            # Проверяем, продан ли предмет (если у него есть player_id, значит куплен)
-            is_sold = inv.player_id is not None
+            # Проверяем, купил ли этот игрок предмет
+            is_sold = bool(off.purchased)
             await self._enrich_inv_with_template_stats(session, inv)
             preview = self._offer_to_preview(off, inv, act=act, merchant_discount_pct=merchant_disc)
             preview["sold"] = is_sold
@@ -147,10 +149,16 @@ class ShopService:
             return {"error": "not_found"}
 
         offer = await session.scalar(
-            select(ShopOffer).where(ShopOffer.act == act, ShopOffer.slot == slot)
+            select(ShopOffer).where(
+                ShopOffer.player_id == player_id,
+                ShopOffer.act == act,
+                ShopOffer.slot == slot,
+            )
         )
         if not offer:
             return {"error": "not_found"}
+        if offer.purchased:
+            return {"error": "already_purchased"}
         inv = await session.scalar(
             select(InventoryItem)
             .options(selectinload(InventoryItem.item), selectinload(InventoryItem.affixes))
@@ -169,9 +177,7 @@ class ShopService:
         player.gold -= price
         await record_hidden_gold_spend(player_id)
         inv.player_id = player_id  # transfer ownership
-        # Не удаляем offer, а помечаем как проданный (удалим при следующем обновлении)
-        # Это позволит показывать заблокированную ячейку в UI
-        # await session.delete(offer)  # Удаляем только при обновлении магазина
+        offer.purchased = True
         await increment_skill_counter(session, player_id, "shop_purchase", 1)
         await session.commit()
 
@@ -292,9 +298,13 @@ class ShopService:
         return actual == expected
 
     async def _ensure_offers(
-        self, session: AsyncSession, act: int, size: int, *, _retry: bool = True
+        self, session: AsyncSession, player_id: int, act: int, size: int, *, _retry: bool = True
     ) -> List[ShopOffer]:
-        offers = (await session.execute(select(ShopOffer).where(ShopOffer.act == act))).scalars().all()
+        offers = (
+            await session.execute(
+                select(ShopOffer).where(ShopOffer.player_id == player_id, ShopOffer.act == act)
+            )
+        ).scalars().all()
         if (
             offers
             and not self._needs_refresh(offers)
@@ -302,9 +312,14 @@ class ShopService:
         ):
             return sorted(offers, key=lambda o: o.slot)[:size]
 
-        # clear old
+        # clear old offers for this player
         for off in offers:
+            inv_id = off.inventory_item_id
             await session.delete(off)
+            await session.flush()
+            inv = await session.get(InventoryItem, inv_id)
+            if inv and inv.player_id is None:
+                await session.delete(inv)
         await session.flush()
 
         tier_cap = max(1, min(10, act * 2))
@@ -320,38 +335,61 @@ class ShopService:
                 is_shop=True,
             )
             offer = ShopOffer(
+                player_id=player_id,
                 act=act,
                 slot=slot,
                 inventory_item_id=inv_item.id,
                 price_base=max(1, int(20 * int(getattr(inv_item, "total_level", None) or getattr(inv_item, "level", None) or preview["level"]) * int(preview["rarity"]))),
+                purchased=False,
                 expires_at=None,
                 refreshed_at=now,
             )
             session.add(offer)
         await session.commit()
-        offers = (await session.execute(select(ShopOffer).where(ShopOffer.act == act))).scalars().all()
+        offers = (
+            await session.execute(
+                select(ShopOffer).where(ShopOffer.player_id == player_id, ShopOffer.act == act)
+            )
+        ).scalars().all()
         if len(offers) != size or not self._offers_cover_slots(offers, size):
             logger.warning(
-                "shop _ensure_offers act=%s expected %s slots, got %s — regenerating",
+                "shop _ensure_offers player_id=%s act=%s expected %s slots, got %s — regenerating",
+                player_id,
                 act,
                 size,
                 len(offers),
             )
             if _retry:
                 for off in offers:
+                    inv_id = off.inventory_item_id
                     await session.delete(off)
+                    await session.flush()
+                    inv = await session.get(InventoryItem, inv_id)
+                    if inv and inv.player_id is None:
+                        await session.delete(inv)
                 await session.flush()
-                return await self._ensure_offers(session, act, size, _retry=False)
+                return await self._ensure_offers(session, player_id, act, size, _retry=False)
         return sorted(offers, key=lambda o: o.slot)[:size]
 
-    async def refresh_offers(self, session: AsyncSession, act: int, size: int | None = None) -> List[ShopOffer]:
+    async def refresh_offers(
+        self, session: AsyncSession, player_id: int, act: int, size: int | None = None
+    ) -> List[ShopOffer]:
         """Force refresh offers for debug/admin."""
         slot_count = int(size) if size is not None else shop_size_for_act(act)
-        existing = (await session.execute(select(ShopOffer).where(ShopOffer.act == act))).scalars().all()
+        existing = (
+            await session.execute(
+                select(ShopOffer).where(ShopOffer.player_id == player_id, ShopOffer.act == act)
+            )
+        ).scalars().all()
         for off in existing:
+            inv_id = off.inventory_item_id
             await session.delete(off)
+            await session.flush()
+            inv = await session.get(InventoryItem, inv_id)
+            if inv and inv.player_id is None:
+                await session.delete(inv)
         await session.flush()
-        return await self._ensure_offers(session, act, size=slot_count)
+        return await self._ensure_offers(session, player_id, act, size=slot_count)
 
     def _needs_refresh(self, offers: List[ShopOffer]) -> bool:
         if not offers:

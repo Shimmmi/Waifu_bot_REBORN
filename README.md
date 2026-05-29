@@ -37,6 +37,36 @@ python scripts/check_secrets.py
 
 Подробности: см. [SECURITY.md](SECURITY.md)
 
+## Armory (браузерная статистика)
+
+Портал WoW Armory-подобной статистики: **https://shimmirpgbot.ru/armory**
+
+- Публичные профили, рейтинги, поиск игроков
+- Telegram Login (OIDC popup через `telegram-login.js`) для приватных данных (инвентарь, история, характеристики)
+- Админ-панель: `/armory/admin` (список игроков, вайп, бан, выдача gold)
+
+### Настройка
+
+1. В `.env` добавьте (см. `.env.example`):
+   - `ARMORY_SESSION_SECRET` — `python -c "import secrets; print(secrets.token_hex(32))"`
+   - `ARMORY_COOKIE_DOMAIN=.shimmirpgbot.ru`
+   - `ARMORY_PUBLIC_ORIGIN=https://shimmirpgbot.ru`
+   - `BOT_USERNAME=YourBotName` (без @)
+2. В @BotFather: **Bot Settings → Web Login** (режим Telegram Login Library / OpenID):
+   - **Trusted Origins** — только origin: `https://shimmirpgbot.ru` (путь после `.ru` сюда не добавляется)
+   - **Redirect URIs** — полный URL страницы логина: `https://shimmirpgbot.ru/armory/login` (должен совпадать с URL в браузере 1:1)
+   На странице `/armory/login` показан точный Redirect URI для копирования в BotFather.
+   Client Secret для popup/post_message не нужен.
+   На VPS без прямого доступа к `oauth.telegram.org` задайте `TELEGRAM_API_BASE_URL` (Cloudflare Worker) — JWKS для проверки JWT подтянется через Worker автоматически. Обновите код Worker и задеployьте (см. `scripts/cloudflare-telegram-proxy/`).
+3. Миграции: `python -m waifu_bot.cli migrate`
+4. Сборка фронта:
+   ```bash
+   cd armory_frontend && npm ci && npm run build
+   ```
+   Результат в `static/armory/`.
+
+API: `/api/armory/*` (отдельно от Telegram WebApp `/webapp`).
+
 ## Что есть
 - FastAPI приложение с роутером `/api`.
 - Webhook endpoint `/api/webhook` с проверкой `X-Webhook-Secret`.

@@ -1,0 +1,6 @@
+# Dashboard-style worker (ALLOWED_TOKENS, no SECRET_PREFIX in URL).
+# Deploy: cd scripts/cloudflare-telegram-proxy && npx wrangler deploy -c wrangler-dashboard.toml
+# Target host example: https://waifu.timurkhazarzhan.workers.dev
+name = "waifu"
+main = "worker-cf-dashboard.js"
+compatibility_date = "2025-01-01"

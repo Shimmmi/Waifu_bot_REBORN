@@ -10,6 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
+from waifu_bot.services.tutorial import TUTORIAL_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -89,5 +90,14 @@ async def reset_player_to_new_game(session: AsyncSession, player_id: int) -> Non
             player.secret_echo_boss_defeated = False
         except Exception:
             pass
+        player.tutorial_progress = {
+            "version": TUTORIAL_VERSION,
+            "completed": {},
+            "skipped": False,
+            "intro_reward_claimed": False,
+        }
 
+    from waifu_bot.services.event_log import log_event
+
+    await log_event(session, pid, "account_wiped", {})
     await session.flush()

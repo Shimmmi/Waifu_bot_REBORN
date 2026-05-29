@@ -670,25 +670,68 @@ def merge_passive_into_profile_details(
     md = int(out.get("melee_damage", 0) or 0)
     rd = int(out.get("ranged_damage", 0) or 0)
     mgd = int(out.get("magic_damage", 0) or 0)
+    md_min = out.get("melee_damage_min")
+    md_max = out.get("melee_damage_max")
+    rd_min = out.get("ranged_damage_min")
+    rd_max = out.get("ranged_damage_max")
+    mgd_min = out.get("magic_damage_min")
+    mgd_max = out.get("magic_damage_max")
+    has_melee_bounds = md_min is not None and md_max is not None
+    has_ranged_bounds = rd_min is not None and rd_max is not None
+    has_magic_bounds = mgd_min is not None and mgd_max is not None
+
+    def _apply_dmg_mult(val: int, mult: float) -> int:
+        return int(round(val * mult))
+
     mm = float(ps.get("melee_dmg_pct", 0) or 0)
     if mm > 0:
-        md = int(round(md * (1.0 + mm)))
+        m = 1.0 + mm
+        md = _apply_dmg_mult(md, m)
+        if has_melee_bounds:
+            md_min = _apply_dmg_mult(int(md_min), m)
+            md_max = _apply_dmg_mult(int(md_max), m)
     pr = float(ps.get("ranged_dmg_pct", 0) or 0)
     if pr > 0:
-        rd = int(round(rd * (1.0 + pr)))
+        m = 1.0 + pr
+        rd = _apply_dmg_mult(rd, m)
+        if has_ranged_bounds:
+            rd_min = _apply_dmg_mult(int(rd_min), m)
+            rd_max = _apply_dmg_mult(int(rd_max), m)
     mg = float(ps.get("magic_dmg_pct", 0) or 0)
     if mg > 0:
-        mgd = int(round(mgd * (1.0 + mg)))
+        m = 1.0 + mg
+        mgd = _apply_dmg_mult(mgd, m)
+        if has_magic_bounds:
+            mgd_min = _apply_dmg_mult(int(mgd_min), m)
+            mgd_max = _apply_dmg_mult(int(mgd_max), m)
     if not skip_all_stats_pct_on_damage:
         asp = float(ps.get("all_stats_pct", 0) or 0)
         if asp > 0:
             m = 1.0 + asp
-            md, rd, mgd = int(round(md * m)), int(round(rd * m)), int(round(mgd * m))
+            md, rd, mgd = _apply_dmg_mult(md, m), _apply_dmg_mult(rd, m), _apply_dmg_mult(mgd, m)
+            if has_melee_bounds:
+                md_min, md_max = _apply_dmg_mult(int(md_min), m), _apply_dmg_mult(int(md_max), m)
+            if has_ranged_bounds:
+                rd_min, rd_max = _apply_dmg_mult(int(rd_min), m), _apply_dmg_mult(int(rd_max), m)
+            if has_magic_bounds:
+                mgd_min, mgd_max = _apply_dmg_mult(int(mgd_min), m), _apply_dmg_mult(int(mgd_max), m)
     act = float(ps.get("active_skill_dmg_pct", 0) or 0)
     if act > 0:
         m = 1.0 + act
-        md, rd, mgd = int(round(md * m)), int(round(rd * m)), int(round(mgd * m))
+        md, rd, mgd = _apply_dmg_mult(md, m), _apply_dmg_mult(rd, m), _apply_dmg_mult(mgd, m)
+        if has_melee_bounds:
+            md_min, md_max = _apply_dmg_mult(int(md_min), m), _apply_dmg_mult(int(md_max), m)
+        if has_ranged_bounds:
+            rd_min, rd_max = _apply_dmg_mult(int(rd_min), m), _apply_dmg_mult(int(rd_max), m)
+        if has_magic_bounds:
+            mgd_min, mgd_max = _apply_dmg_mult(int(mgd_min), m), _apply_dmg_mult(int(mgd_max), m)
     out["melee_damage"], out["ranged_damage"], out["magic_damage"] = md, rd, mgd
+    if has_melee_bounds:
+        out["melee_damage_min"], out["melee_damage_max"] = md_min, md_max
+    if has_ranged_bounds:
+        out["ranged_damage_min"], out["ranged_damage_max"] = rd_min, rd_max
+    if has_magic_bounds:
+        out["magic_damage_min"], out["magic_damage_max"] = mgd_min, mgd_max
 
     cc = float(ps.get("crit_chance_pct", 0) or 0)
     if cc > 0:

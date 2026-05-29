@@ -119,6 +119,8 @@ class BattleMessageResponse(BaseModel):
     monster_defeated: Optional[bool] = None
     dungeon_completed: Optional[bool] = None
     experience_gained: Optional[int] = None
+    gold_gained: Optional[int] = None
+    guild_reward_bonus: Optional[List[dict]] = None
     next_monster: Optional[str] = None
     error: Optional[str] = None
     reward_why_next: Optional[str] = None
@@ -142,9 +144,16 @@ class GuildActionResponse(BaseModel):
     guild_gold: Optional[int] = None
     player_gold: Optional[int] = None
     item_id: Optional[int] = None
+    inventory_item_id: Optional[int] = None
     reason: Optional[str] = None
     max_members: Optional[int] = None
     guild_id: Optional[int] = None
+
+
+class HiddenEffectLabeledOut(BaseModel):
+    type: str
+    label: str
+    value_text: str
 
 
 class HiddenSkillOut(BaseModel):
@@ -164,6 +173,11 @@ class HiddenSkillOut(BaseModel):
     effect_values: List[Any] = []
     current_effects: dict[str, float] = {}
     next_effects: Optional[dict[str, float]] = None
+    image_url: Optional[str] = None
+    current_effects_labeled: List[HiddenEffectLabeledOut] = []
+    next_effects_labeled: List[HiddenEffectLabeledOut] = []
+    bonus_summary: Optional[str] = None
+    next_bonus_summary: Optional[str] = None
 
 
 class HiddenSkillsResponse(BaseModel):
@@ -395,8 +409,14 @@ class MainWaifuDetails(BaseModel):
     hp_max: int
     armor: int = 0
     melee_damage: int
+    melee_damage_min: Optional[int] = None
+    melee_damage_max: Optional[int] = None
     ranged_damage: int
+    ranged_damage_min: Optional[int] = None
+    ranged_damage_max: Optional[int] = None
     magic_damage: int
+    magic_damage_min: Optional[int] = None
+    magic_damage_max: Optional[int] = None
     crit_chance: float
     dodge_chance: float
     defense: int
