@@ -3494,7 +3494,8 @@ button.chip {
 /* Shop purchase modal: base .modal is always display:grid — hide until opened */
 #shop-modal.modal:not(.shop-modal--open),
 #guild-bank-item-modal.modal:not(.shop-modal--open),
-#guild-bank-deposit-item-modal.modal:not(.shop-modal--open) {
+#guild-bank-deposit-item-modal.modal:not(.shop-modal--open),
+#settings-notify-modal.modal:not(.settings-notify-modal--open) {
   display: none !important;
   pointer-events: none;
 }
@@ -3502,6 +3503,10 @@ button.chip {
 #guild-bank-item-modal.modal.shop-modal--open,
 #guild-bank-deposit-item-modal.modal.shop-modal--open {
   display: grid !important;
+  pointer-events: auto;
+}
+
+#settings-notify-modal.modal.settings-notify-modal--open {
   pointer-events: auto;
 }
 
@@ -7700,43 +7705,86 @@ body.page-settings .settings-switch input:checked + .settings-switch-slider::bef
   background: #fff8e8;
 }
 
-body.page-settings .settings-notify-modal {
+body.page-settings #settings-notify-modal.modal.settings-notify-modal--open {
   position: fixed;
   inset: 0;
   z-index: 1200;
-  display: flex;
-  align-items: flex-end;
+  display: flex !important;
+  align-items: center;
   justify-content: center;
   padding: 12px;
   padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  place-items: center;
 }
 
 body.page-settings .settings-notify-modal[hidden] {
   display: none !important;
 }
 
-body.page-settings .settings-notify-panel {
+body.page-settings .settings-notify-modal .modal-content.settings-notify-panel {
   width: 100%;
   max-width: 420px;
   max-height: min(85vh, 520px);
   overflow: auto;
   border-radius: 14px;
   border: 1px solid rgba(200, 146, 42, 0.35);
-  background: rgba(22, 18, 14, 0.98);
+  background: rgba(22, 18, 14, 0.98) !important;
+  color: #d0c2b0;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
 }
 
-body.page-settings .settings-notify-hint {
+body.page-settings .settings-notify-modal .modal-title {
+  font-family: "Cinzel", "Inter", serif;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #e8b84b !important;
+  letter-spacing: 0.03em;
+}
+
+body.page-settings .settings-notify-modal .modal-head .secondary {
+  border: 1px solid rgba(200, 146, 42, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8dcc8;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+body.page-settings .settings-notify-modal .modal-head .secondary:hover {
+  border-color: rgba(232, 184, 75, 0.55);
+  background: rgba(200, 146, 42, 0.12);
+}
+
+body.page-settings .settings-notify-modal .modal-footer .btn.primary {
+  width: 100%;
+  border: 1px solid rgba(200, 146, 42, 0.45);
+  background: linear-gradient(180deg, rgba(200, 146, 42, 0.35), rgba(160, 110, 30, 0.5));
+  color: #fff8e8;
+  font-weight: 700;
+  border-radius: 10px;
+}
+
+body.page-settings .settings-notify-modal .modal-footer .btn.primary:hover {
+  border-color: rgba(232, 184, 75, 0.7);
+  background: linear-gradient(180deg, rgba(232, 184, 75, 0.4), rgba(200, 146, 42, 0.55));
+}
+
+body.page-settings .settings-notify-modal .settings-notify-hint {
   margin: 0 0 12px;
+  color: rgba(208, 194, 176, 0.72) !important;
 }
 
-body.page-settings .settings-notify-options {
+body.page-settings .settings-notify-modal .settings-notify-options {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-body.page-settings .settings-notify-option {
+body.page-settings .settings-notify-modal .settings-notify-option {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -7748,10 +7796,11 @@ body.page-settings .settings-notify-option {
   cursor: pointer;
 }
 
-body.page-settings .settings-notify-option-label {
+body.page-settings .settings-notify-modal .settings-notify-option-label {
   font-size: 0.9rem;
   line-height: 1.35;
   flex: 1;
+  color: #d0c2b0;
 }
 
 /* ---- Main waifu generator: бронзово-золотая линия как .nav.basement ---- */
@@ -8255,6 +8304,129 @@ body.page-waifu-gen .waifu-gen-trigger-ico .waifu-gen-trigger-emoji {
   place-items: center;
   width: 100%;
   height: 100%;
+}
+
+body.waifu-gen-magic-busy {
+  overflow: hidden;
+}
+
+body.page-waifu-gen .waifu-gen-magic-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  background: rgba(8, 6, 12, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+body.page-waifu-gen .waifu-gen-magic-modal[hidden] {
+  display: none !important;
+}
+
+body.page-waifu-gen .waifu-gen-magic-panel {
+  width: min(300px, 92vw);
+  text-align: center;
+  padding: 24px 20px 22px;
+  border-radius: 16px;
+  border: 1px solid rgba(200, 146, 42, 0.35);
+  background: rgba(22, 18, 14, 0.96);
+  color: #e8dcc8;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+body.page-waifu-gen .waifu-gen-magic-visual {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 140px;
+  margin: 0 auto 14px;
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(30, 22, 16, 0.95) 0%, rgba(18, 12, 8, 0.98) 100%);
+}
+
+body.page-waifu-gen .waifu-gen-magic-visual::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 55%, rgba(232, 184, 75, 0.28) 0%, transparent 68%);
+  animation: waifu-gen-magic-pulse 2s ease-in-out infinite;
+}
+
+body.page-waifu-gen .waifu-gen-magic-orbit {
+  position: absolute;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 2px solid rgba(232, 184, 75, 0.35);
+  border-top-color: rgba(232, 184, 75, 0.9);
+  animation: waifu-gen-magic-orbit-spin 2.5s linear infinite;
+}
+
+body.page-waifu-gen .waifu-gen-magic-spark {
+  position: relative;
+  z-index: 1;
+  font-size: 40px;
+  line-height: 1;
+  animation: waifu-gen-magic-spark-bounce 1.4s ease-in-out infinite;
+}
+
+body.page-waifu-gen .waifu-gen-magic-title {
+  margin: 0;
+  font-family: "Cinzel", "Inter", serif;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #e8b84b;
+  letter-spacing: 0.03em;
+}
+
+body.page-waifu-gen .waifu-gen-magic-hint {
+  margin: 8px 0 0;
+}
+
+@keyframes waifu-gen-magic-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes waifu-gen-magic-orbit-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes waifu-gen-magic-spark-bounce {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translateY(-5px) scale(1.06);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.page-waifu-gen .waifu-gen-magic-visual::before,
+  body.page-waifu-gen .waifu-gen-magic-orbit,
+  body.page-waifu-gen .waifu-gen-magic-spark {
+    animation: none;
+  }
 }
 
 body.page-waifu-gen .waifu-gen-pick-btn {
