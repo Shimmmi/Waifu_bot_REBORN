@@ -463,7 +463,7 @@ async def flush_buffer_to_db(session: AsyncSession, redis: Any) -> int:
                 player_id = int(suffix)
             except ValueError:
                 continue
-            if await _flush_player_buffer(session, player_id, redis, cfg):
+            if await _flush_player_buffer(session, redis, player_id, cfg):
                 flushed += 1
     except Exception:
         logger.exception("flush_buffer_to_db scan failed")
