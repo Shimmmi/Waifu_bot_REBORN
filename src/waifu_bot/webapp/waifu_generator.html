@@ -7,45 +7,54 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./assets/tutorial.css" />
     <script src="./vendor/telegram-web-app.js"></script>
+    <script defer src="./assets/tutorial.js"></script>
     <script defer src="./app.js"></script>
   </head>
   <body class="page-waifu-gen" onload="WaifuApp.bootstrapPage('waifu_generator', WaifuApp.initWaifuGenerator);">
     <div id="waifu-gen-load-error" class="waifu-gen-load-error-root" hidden></div>
     <main class="layout waifu-gen-layout">
       <section id="waifu-step-1" class="section waifu-gen-panel">
-        <label class="form-field">
+        <label class="form-field" data-tutorial="waifu-gen-name">
           <div class="muted tiny">Имя</div>
           <input id="waifu-name-input" type="text" maxlength="30" placeholder="Имя вайфу" />
         </label>
 
-        <div class="muted tiny" style="margin-top: 14px">Раса</div>
-        <div id="waifu-race-pick" class="waifu-gen-pick-grid" role="group" aria-label="Раса"></div>
+        <div class="waifu-gen-raceclass-row">
+          <button type="button" id="waifu-open-race" class="waifu-gen-trigger-btn" data-tutorial="waifu-gen-race">
+            <span class="waifu-gen-trigger-ico" id="waifu-trigger-race-ico" aria-hidden="true">
+              <img class="waifu-gen-trigger-img" id="waifu-trigger-race-img" alt="" hidden decoding="async" />
+              <span class="waifu-gen-trigger-emoji" id="waifu-trigger-race-emoji">•</span>
+            </span>
+            <span class="waifu-gen-trigger-body">
+              <span class="waifu-gen-trigger-tag">Раса</span>
+              <span class="waifu-gen-trigger-name" id="waifu-trigger-race-name">—</span>
+            </span>
+            <span class="waifu-gen-trigger-chevron" aria-hidden="true">›</span>
+          </button>
 
-        <div class="muted tiny" style="margin-top: 14px">Класс</div>
-        <div id="waifu-class-pick" class="waifu-gen-pick-grid" role="group" aria-label="Класс"></div>
+          <button type="button" id="waifu-open-class" class="waifu-gen-trigger-btn" data-tutorial="waifu-gen-class">
+            <span class="waifu-gen-trigger-ico" id="waifu-trigger-class-ico" aria-hidden="true">
+              <img class="waifu-gen-trigger-img" id="waifu-trigger-class-img" alt="" hidden decoding="async" />
+              <span class="waifu-gen-trigger-emoji" id="waifu-trigger-class-emoji">•</span>
+            </span>
+            <span class="waifu-gen-trigger-body">
+              <span class="waifu-gen-trigger-tag">Класс</span>
+              <span class="waifu-gen-trigger-name" id="waifu-trigger-class-name">—</span>
+            </span>
+            <span class="waifu-gen-trigger-chevron" aria-hidden="true">›</span>
+          </button>
+        </div>
 
         <select id="waifu-race-select" hidden aria-hidden="true" tabindex="-1"></select>
         <select id="waifu-class-select" hidden aria-hidden="true" tabindex="-1"></select>
 
-        <div class="waifu-gen-stats-head">
-          <div class="chip waifu-gen-summary-chip" id="waifu-summary">—</div>
-        </div>
-        <div id="waifu-stats" class="stats-grid"></div>
+        <div id="waifu-stats" class="waifu-gen-stats-radar" data-tutorial="waifu-gen-stats"></div>
 
-        <section class="section waifu-gen-passive-block" aria-label="Пассивные бонусы">
-          <div class="waifu-gen-passive-row">
-            <h3 class="waifu-gen-passive-heading">Пассивные бонусы</h3>
-            <button
-              type="button"
-              class="waifu-gen-passive-fab"
-              id="waifu-open-passive"
-              title="Подробности"
-              aria-label="Открыть описание пассивных бонусов расы и класса"
-            >
-              📜
-            </button>
-          </div>
+        <section class="section waifu-gen-passive-block" aria-label="Пассивные навыки" data-tutorial="waifu-gen-passives">
+          <h3 class="waifu-gen-passive-heading">Пассивные навыки</h3>
+          <div id="waifu-gen-passive-list" class="waifu-gen-passive-list"></div>
         </section>
       </section>
 
@@ -54,7 +63,7 @@
         <p class="muted tiny" style="margin: 0 0 14px">Настройте внешность и сгенерируйте до трёх вариантов портрета.</p>
 
         <div class="waifu-gen-step2-visual">
-          <div class="waifu-gen-cos-bar" role="toolbar" aria-label="Настройка внешности">
+          <div class="waifu-gen-cos-bar" role="toolbar" aria-label="Настройка внешности" data-tutorial="waifu-gen-cos-bar">
             <div class="waifu-gen-cos-item">
               <button type="button" class="waifu-gen-cos-fab" id="waifu-open-hair" title="Волосы">💇</button>
               <span class="waifu-gen-cos-label">Волосы</span>
@@ -89,13 +98,27 @@
       </section>
     </main>
 
+    <div id="waifu-modal-race" class="waifu-gen-modal" role="dialog" aria-modal="true" aria-labelledby="waifu-modal-race-title" hidden>
+      <div class="waifu-gen-modal-panel" data-stop-close="">
+        <h2 class="waifu-gen-modal-title" id="waifu-modal-race-title">Раса</h2>
+        <div id="waifu-modal-race-grid" class="waifu-gen-pick-grid waifu-gen-pick-grid--cards"></div>
+      </div>
+    </div>
+
+    <div id="waifu-modal-class" class="waifu-gen-modal" role="dialog" aria-modal="true" aria-labelledby="waifu-modal-class-title" hidden>
+      <div class="waifu-gen-modal-panel" data-stop-close="">
+        <h2 class="waifu-gen-modal-title" id="waifu-modal-class-title">Класс</h2>
+        <div id="waifu-modal-class-grid" class="waifu-gen-pick-grid waifu-gen-pick-grid--cards"></div>
+      </div>
+    </div>
+
     <div id="waifu-modal-hair" class="waifu-gen-modal" role="dialog" aria-modal="true" aria-labelledby="waifu-modal-hair-title" hidden>
       <div class="waifu-gen-modal-panel" data-stop-close="">
         <h2 class="waifu-gen-modal-title" id="waifu-modal-hair-title">Волосы</h2>
         <div class="waifu-gen-modal-row-label">Цвет</div>
-        <div id="waifu-modal-hair-colors" class="waifu-gen-chip-grid"></div>
+        <div id="waifu-modal-hair-colors" class="waifu-gen-card-grid"></div>
         <div class="waifu-gen-modal-row-label">Причёска</div>
-        <div id="waifu-modal-hair-styles" class="waifu-gen-chip-grid waifu-gen-chip-grid--dense"></div>
+        <div id="waifu-modal-hair-styles" class="waifu-gen-card-grid"></div>
         <div class="waifu-gen-modal-actions">
           <button type="button" class="waifu-gen-back-btn" data-waifu-close-modal="waifu-modal-hair">Готово</button>
         </div>
@@ -107,9 +130,9 @@
         <h2 class="waifu-gen-modal-title" id="waifu-modal-eyes-title">Глаза</h2>
         <div class="waifu-gen-modal-row-label">Цвет глаз</div>
         <p class="muted tiny" style="margin: 0 0 6px">До 2 цветов. Два разных — гетерохромия в портрете.</p>
-        <div id="waifu-modal-eye-colors" class="waifu-gen-chip-grid waifu-gen-chip-grid--colors"></div>
+        <div id="waifu-modal-eye-colors" class="waifu-gen-card-grid"></div>
         <div class="waifu-gen-modal-row-label">Тип глаз</div>
-        <div id="waifu-modal-eye-shapes" class="waifu-gen-chip-grid waifu-gen-chip-grid--dense"></div>
+        <div id="waifu-modal-eye-shapes" class="waifu-gen-card-grid"></div>
         <div class="waifu-gen-modal-actions">
           <button type="button" class="waifu-gen-back-btn" data-waifu-close-modal="waifu-modal-eyes">Готово</button>
         </div>
@@ -119,7 +142,7 @@
     <div id="waifu-modal-outfit" class="waifu-gen-modal" role="dialog" aria-modal="true" aria-labelledby="waifu-modal-outfit-title" hidden>
       <div class="waifu-gen-modal-panel" data-stop-close="">
         <h2 class="waifu-gen-modal-title" id="waifu-modal-outfit-title">Одежда</h2>
-        <div id="waifu-modal-outfits" class="waifu-gen-chip-grid"></div>
+        <div id="waifu-modal-outfits" class="waifu-gen-card-grid"></div>
         <div class="waifu-gen-modal-actions">
           <button type="button" class="waifu-gen-back-btn" data-waifu-close-modal="waifu-modal-outfit">Готово</button>
         </div>
@@ -130,7 +153,7 @@
       <div class="waifu-gen-modal-panel" data-stop-close="">
         <h2 class="waifu-gen-modal-title" id="waifu-modal-acc-title">Аксессуары</h2>
         <p class="muted tiny" style="margin: 0 0 8px">Можно выбрать несколько (до 6).</p>
-        <div id="waifu-modal-accs" class="waifu-gen-chip-grid"></div>
+        <div id="waifu-modal-accs" class="waifu-gen-card-grid"></div>
         <div class="waifu-gen-modal-actions">
           <button type="button" class="waifu-gen-back-btn" data-waifu-close-modal="waifu-modal-acc">Готово</button>
         </div>
@@ -139,8 +162,7 @@
 
     <div id="waifu-modal-passive" class="waifu-gen-modal" role="dialog" aria-modal="true" aria-labelledby="waifu-modal-passive-title" hidden>
       <div class="waifu-gen-modal-panel" data-stop-close="">
-        <h2 class="waifu-gen-modal-title" id="waifu-modal-passive-title">Пассивные бонусы</h2>
-        <p class="muted tiny" style="margin: 0 0 12px">Расовые и классовые эффекты (по ТЗ); числа X, Y, Z из настроек БД.</p>
+        <h2 class="waifu-gen-modal-title" id="waifu-modal-passive-title">Пассивный навык</h2>
         <div id="waifu-passive-modal-body" class="waifu-gen-passive-body"></div>
         <div class="waifu-gen-modal-actions">
           <button type="button" class="waifu-gen-back-btn" data-waifu-close-modal="waifu-modal-passive">Готово</button>

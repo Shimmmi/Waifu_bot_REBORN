@@ -7677,15 +7677,54 @@ body.page-waifu-gen .waifu-gen-layout {
   padding-bottom: 8px;
 }
 
-body.page-waifu-gen .waifu-gen-stats-head {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  margin-top: 18px;
+body.page-waifu-gen .waifu-gen-raceclass-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 14px;
 }
 
-body.page-waifu-gen .waifu-gen-summary-chip {
-  font-weight: 700;
+body.page-waifu-gen .waifu-gen-raceclass-row .waifu-gen-trigger-btn {
+  margin-top: 0;
+  padding: 10px 10px;
+  gap: 8px;
+}
+
+body.page-waifu-gen .waifu-gen-raceclass-row .waifu-gen-trigger-ico {
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+  position: relative;
+  overflow: hidden;
+}
+
+body.page-waifu-gen .waifu-gen-trigger-ico .waifu-gen-trigger-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  display: block;
+}
+
+body.page-waifu-gen .waifu-gen-trigger-ico .waifu-gen-trigger-img[hidden] {
+  display: none !important;
+}
+
+body.page-waifu-gen .waifu-gen-trigger-ico .waifu-gen-trigger-emoji {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+body.page-waifu-gen .waifu-gen-raceclass-row .waifu-gen-trigger-name {
+  font-size: 12px;
+}
+
+body.page-waifu-gen .waifu-gen-raceclass-row .waifu-gen-trigger-chevron {
+  font-size: 16px;
 }
 
 body.page-waifu-gen .waifu-gen-portrait-layout {
@@ -8171,13 +8210,15 @@ body.page-waifu-gen .waifu-gen-sticky {
 body.page-waifu-gen .waifu-gen-stats-radar {
   display: flex;
   justify-content: center;
-  padding: 6px 0 10px;
+  padding: 6px 0 20px;
+  overflow: visible;
 }
 
 body.page-waifu-gen .waifu-gen-stats-radar svg {
-  max-width: 280px;
+  max-width: 220px;
   width: 100%;
   height: auto;
+  overflow: visible;
 }
 
 body.page-waifu-gen .waifu-gen-stats-radar .ring {
@@ -8207,13 +8248,14 @@ body.page-waifu-gen .waifu-gen-stats-radar text {
   fill: #e8dcc8;
 }
 
-body.page-waifu-gen .waifu-gen-stats-radar .stat-value {
+body.page-waifu-gen .waifu-gen-stats-radar .stat-value,
+body.page-waifu-gen .waifu-gen-stats-radar text .stat-value {
   fill: #e8b84b;
   font-size: 12px;
 }
 
 body.page-waifu-gen .waifu-gen-passive-block {
-  margin-top: 14px;
+  margin-top: 18px;
   padding: 8px 10px;
   border-radius: 12px;
   border: 1px solid rgba(200, 146, 42, 0.22);
