@@ -341,15 +341,18 @@ def upgrade() -> None:
                     (name, affix_group, tier, type, category, level_add,
                      behavior_flag, behavior_params, allowed_families,
                      forbidden_families, max_per_monster)
-                SELECT :name, :group, :tier, :atype, :category, :level_add,
-                       :flag, CAST(:bparams AS JSON), CAST(:allowed AS JSON),
+                SELECT CAST(:name AS VARCHAR), CAST(:group AS VARCHAR),
+                       :tier, CAST(:atype AS VARCHAR), CAST(:category AS VARCHAR),
+                       :level_add, CAST(:flag AS VARCHAR),
+                       CAST(:bparams AS JSON), CAST(:allowed AS JSON),
                        CAST(:forbidden AS JSON), :max_per
                 WHERE NOT EXISTS (
-                    SELECT 1 FROM monster_affixes WHERE affix_group = :group
+                    SELECT 1 FROM monster_affixes WHERE affix_group = :group_chk
                 )"""
             ),
             {
-                "name": name, "group": group, "tier": tier, "atype": atype,
+                "name": name, "group": group, "group_chk": group,
+                "tier": tier, "atype": atype,
                 "category": category, "level_add": level_add, "flag": flag,
                 "bparams": json.dumps(bparams),
                 "allowed": json.dumps(allowed) if allowed is not None else None,
