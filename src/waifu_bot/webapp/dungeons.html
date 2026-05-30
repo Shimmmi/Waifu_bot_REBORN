@@ -1722,6 +1722,7 @@
               <button class="tab active" data-tab="solo" onclick="WaifuApp.showTab('solo')">Одиночные</button>
               <button class="tab" data-tab="expedition" onclick="WaifuApp.showTab('expedition')">Экспедиции</button>
               <button class="tab" data-tab="group" onclick="WaifuApp.showTab('group')">Групповые</button>
+              <button class="tab" data-tab="abyss" onclick="WaifuApp.showTab('abyss')">🕳️ Бездна</button>
             </div>
             <div class="dungeon-tabs-actions">
               <button type="button" id="solo-exit-btn" class="dungeon-tab-sm solo-exit-btn" style="display:none;" title="Покинуть подземелье" aria-label="Покинуть подземелье" onclick="WaifuApp.openExitDungeonConfirm()">🏳️</button>
@@ -1980,8 +1981,58 @@
               <p class="gd-info-note muted">Запись в поход и бой — в Telegram; веб-приложение показывает список ваших циклов и опционально снимок по <code>chat_id</code>.</p>
             </div>
           </div>
+
+          <div id="tab-abyss" class="tab-panel" style="display: none;">
+            <div id="abyss-root">
+              <div class="muted" style="padding:24px;text-align:center;">Загрузка Бездны…</div>
+            </div>
+          </div>
         </div>
       </main>
+
+      <!-- Бездна: выбор Благодати после чекпоинта -->
+      <div id="abyss-grace-modal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-label="Выбор Благодати">
+        <div class="modal-content">
+          <div class="modal-head">
+            <div class="modal-title">✨ Выберите Благодать</div>
+          </div>
+          <div class="modal-body">
+            <p class="muted tiny" style="margin:0 0 10px;">Действует следующие 10 этажей.</p>
+            <div id="abyss-grace-options" class="abyss-grace-options"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Бездна: награды чекпоинта -->
+      <div id="abyss-checkpoint-modal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-label="Награды чекпоинта">
+        <div class="modal-content">
+          <div class="modal-head">
+            <div class="modal-title" id="abyss-checkpoint-title">🏛 Чекпоинт пройден!</div>
+            <button type="button" class="secondary" onclick="WaifuApp.closeAbyssCheckpointModal()" aria-label="Закрыть">✖</button>
+          </div>
+          <div class="modal-body" id="abyss-checkpoint-body"></div>
+          <div class="modal-footer">
+            <button type="button" class="primary" onclick="WaifuApp.closeAbyssCheckpointModal()">Продолжить</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Бездна: подтверждение выхода -->
+      <div id="abyss-exit-modal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-label="Выход из Бездны">
+        <div class="modal-content">
+          <div class="modal-head">
+            <div class="modal-title">🏳️ Покинуть Бездну?</div>
+            <button type="button" class="secondary" onclick="WaifuApp.closeAbyssExitModal()" aria-label="Закрыть">✖</button>
+          </div>
+          <div class="modal-body">
+            <p id="abyss-exit-text" class="muted" style="margin:0;">Прогресс текущего блока сбросится до последнего чекпоинта. Осколки и опыт остаются с вами.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="secondary" onclick="WaifuApp.closeAbyssExitModal()">Отмена</button>
+            <button type="button" class="danger" onclick="WaifuApp.confirmAbyssExit()">Выйти</button>
+          </div>
+        </div>
+      </div>
 
       <nav class="nav basement">
         <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
