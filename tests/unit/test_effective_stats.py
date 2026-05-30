@@ -174,7 +174,7 @@ def test_resolve_equipped_weapon_for_profile_dual_wield() -> None:
 
 
 def test_compute_details_axe_25_32_with_str_bonus() -> None:
-    """User example: STR 14 +7 from axe, weapon 25-32 → melee 46-53."""
+    """STR 14 +7 from axe, weapon 25-32 → core(10, STR 21)=31 + weapon 25-32 → 56-63."""
     from waifu_bot.api.routes import _compute_details
 
     waifu = SimpleNamespace(
@@ -185,9 +185,9 @@ def test_compute_details_axe_25_32_with_str_bonus() -> None:
         1, 25, 32, slot_type="weapon_2h", weapon_type="axe", base_stat="strength", base_stat_value=7
     )
     details = _compute_details(waifu, [axe])
-    assert details["melee_damage_min"] == 46
-    assert details["melee_damage_max"] == 53
-    assert details["melee_damage"] == 49
+    assert details["melee_damage_min"] == 56
+    assert details["melee_damage_max"] == 63
+    assert details["melee_damage"] == 59
 
 
 def test_compute_details_hammer_melee_flat_excludes_construct() -> None:
@@ -213,9 +213,9 @@ def test_compute_details_hammer_melee_flat_excludes_construct() -> None:
         affixes=affixes,
     )
     details = _compute_details(waifu, [hammer])
-    assert details["melee_damage_min"] == 96
-    assert details["melee_damage_max"] == 112
-    assert details["melee_damage"] == 104
+    assert details["melee_damage_min"] == 106
+    assert details["melee_damage_max"] == 122
+    assert details["melee_damage"] == 114
 
 
 def test_compute_details_unarmed_str_14() -> None:
@@ -263,6 +263,58 @@ def test_compute_details_offhand_sole_weapon_reflected() -> None:
     armed = _compute_details(waifu, [off])
     assert armed["magic_damage"] > unarmed["magic_damage"]
     assert armed["melee_damage"] == unarmed["melee_damage"]
+
+
+def test_compute_details_magic_staff_additive() -> None:
+    """INT 20 → magic 30-30; staff 3-6 +1 INT → core(10, INT 21)=31 + weapon 3-6 → 34-37."""
+    from waifu_bot.api.routes import _compute_details
+
+    waifu = SimpleNamespace(
+        strength=10, agility=10, intelligence=20, endurance=10, charm=10, luck=10,
+        level=1, current_hp=100,
+    )
+    unarmed = _compute_details(waifu, [])
+    assert unarmed["magic_damage_min"] == 30
+    assert unarmed["magic_damage_max"] == 30
+
+    staff = _detail_item_range(
+        1,
+        3,
+        6,
+        slot_type="weapon_2h",
+        weapon_type="staff",
+        attack_type="magic",
+        base_stat="intelligence",
+        base_stat_value=1,
+    )
+    armed = _compute_details(waifu, [staff])
+    assert armed["magic_damage_min"] == 34
+    assert armed["magic_damage_max"] == 37
+    assert armed["magic_damage"] == 35
+    assert armed["melee_damage_min"] == unarmed["melee_damage_min"]
+    assert armed["ranged_damage_min"] == unarmed["ranged_damage_min"]
+
+
+def test_compute_details_weapon_type_only_affects_matching_line() -> None:
+    from waifu_bot.api.routes import _compute_details
+
+    waifu = SimpleNamespace(
+        strength=10, agility=10, intelligence=10, endurance=10, charm=10, luck=10,
+        level=1, current_hp=100,
+    )
+    unarmed = _compute_details(waifu, [])
+
+    melee_w = _detail_item(1, 15, attack_type="melee")
+    melee_d = _compute_details(waifu, [melee_w])
+    assert melee_d["melee_damage_min"] > unarmed["melee_damage_min"]
+    assert melee_d["ranged_damage_min"] == unarmed["ranged_damage_min"]
+    assert melee_d["magic_damage_min"] == unarmed["magic_damage_min"]
+
+    bow = _detail_item_range(1, 12, 18, slot_type="weapon_2h", weapon_type="bow", attack_type="ranged")
+    ranged_d = _compute_details(waifu, [bow])
+    assert ranged_d["ranged_damage_min"] > unarmed["ranged_damage_min"]
+    assert ranged_d["melee_damage_min"] == unarmed["melee_damage_min"]
+    assert ranged_d["magic_damage_min"] == unarmed["magic_damage_min"]
 
 
 def test_merge_passive_skips_duplicate_asp_when_flag() -> None:

@@ -138,6 +138,10 @@ async def _expedition_tick_loop_fn() -> None:
         pending = await svc.process_due_ticks(session)
         for chat_id, narr_text, status_text in pending:
             try:
+                from waifu_bot.services.player_notification_prefs import should_send_dm
+
+                if not await should_send_dm(session, int(chat_id), "expedition_result"):
+                    continue
                 if narr_text:
                     await bot.send_message(chat_id=chat_id, text=narr_text)
                 if status_text:
