@@ -4,7 +4,15 @@ import { RouterLink } from 'vue-router'
 import { apiGet, apiPost } from '../../api/client'
 
 const props = defineProps<{ id: string }>()
-const full = ref<Record<string, unknown> | null>(null)
+interface AdminPlayerFull {
+  summary: Record<string, unknown>
+  target_is_bot_admin: boolean
+  stats?: unknown
+  inventory?: unknown
+  events?: unknown
+}
+
+const full = ref<AdminPlayerFull | null>(null)
 const message = ref('')
 
 async function load() {
@@ -30,6 +38,11 @@ onMounted(load)
     <RouterLink to="/admin/players">← К списку</RouterLink>
     <h1 v-if="full">Игрок {{ id }}</h1>
     <div v-if="full" class="card" style="margin-top: 1rem">
+      <p>
+        <strong>Админ бота:</strong>
+        {{ full.target_is_bot_admin ? 'да' : 'нет' }}
+        <span class="muted">(viewer_access_level в summary — права вашей сессии, не игрока)</span>
+      </p>
       <pre style="font-size: 0.75rem; overflow: auto; max-height: 200px">{{ JSON.stringify(full.summary, null, 2) }}</pre>
     </div>
     <div class="card" style="margin-top: 1rem">
@@ -45,3 +58,7 @@ onMounted(load)
     </div>
   </div>
 </template>
+
+<style scoped>
+.muted { color: var(--muted); font-size: 0.85rem; }
+</style>

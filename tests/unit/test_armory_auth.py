@@ -214,3 +214,15 @@ def test_armory_access_admin():
     admin_id = settings.admin_ids[0] if settings.admin_ids else 305174198
     assert armory_access_level(admin_id, 999) == "admin"
     assert can_view_private(admin_id, 999) is True
+
+
+def test_armory_api_field_names():
+    """Summary uses viewer_access_level; admin full dump exposes target_is_bot_admin."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    routes_src = (root / "src/waifu_bot/api/armory_routes.py").read_text(encoding="utf-8")
+    service_src = (root / "src/waifu_bot/services/armory_service.py").read_text(encoding="utf-8")
+    assert '"viewer_access_level": access' in service_src
+    assert '"access_level": access' not in service_src
+    assert '"target_is_bot_admin": settings.is_admin(tg_id)' in routes_src

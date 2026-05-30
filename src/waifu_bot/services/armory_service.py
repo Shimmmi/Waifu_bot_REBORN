@@ -116,7 +116,7 @@ async def build_public_summary(
         "telegram_id": tg_id,
         "username": player.username,
         "first_name": player.first_name,
-        "access_level": access,
+        "viewer_access_level": access,
         "banned": banned,
         "created_at": player.created_at.isoformat() if player.created_at else None,
         "last_active": player.last_active.isoformat() if player.last_active else None,
