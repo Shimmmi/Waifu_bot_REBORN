@@ -9,13 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db.models.player import Player
 
-DM_PREF_KEYS = frozenset({"solo_dungeon", "expedition_result", "group_dungeon", "raid"})
+DM_PREF_KEYS = frozenset({"solo_dungeon", "expedition_result", "group_dungeon", "raid", "abyss"})
 
 DEFAULT_DM_NOTIFICATION_PREFS: dict[str, bool] = {
     "solo_dungeon": True,
     "expedition_result": True,
     "group_dungeon": True,
     "raid": True,
+    "abyss": True,
 }
 
 

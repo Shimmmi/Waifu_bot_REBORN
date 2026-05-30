@@ -356,6 +356,32 @@ async def group_message_damage(message: Message, bot: Bot) -> None:
                     "group combat hit: player=%s chat_id=%s dmg=%s",
                     player_id, chat_id, result.get("damage"),
                 )
+
+            # Бездна: взаимоисключимо с соло-данжем — no-op, если нет активной сессии.
+            try:
+                from waifu_bot.services.abyss_combat import handle_abyss_attack
+                from waifu_bot.services import abyss_notify
+
+                abyss_res = await handle_abyss_attack(
+                    session,
+                    player_id=player_id,
+                    media_type=media_type,
+                    message_text=message_text,
+                    message_length=msg_len,
+                )
+                if abyss_res and not abyss_res.get("error"):
+                    logger.info(
+                        "group abyss hit: player=%s chat_id=%s floor=%s dmg=%s killed=%s",
+                        player_id, chat_id, abyss_res.get("floor"),
+                        abyss_res.get("damage_dealt"), abyss_res.get("monster_killed"),
+                    )
+                    await abyss_notify.notify_abyss_event(
+                        bot, session, player_id, chat_id, abyss_res
+                    )
+            except Exception:
+                logger.exception(
+                    "abyss attack failed pid=%s chat=%s", player_id, chat_id
+                )
             break
     except Exception:
         logger.exception("Failed to process group message for player %s", player_id)

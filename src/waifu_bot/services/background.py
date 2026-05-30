@@ -206,6 +206,106 @@ async def _guild_war_narrative_fn() -> None:
         break
 
 
+# Track last observed MSK day/week so resets fire on the transition, not on a
+# fixed interval (and never on a fresh restart mid-day/mid-week).
+_last_abyss_daily_reset = None
+_last_abyss_weekly_reset = None
+
+
+async def _abyss_daily_reset_fn() -> None:
+    """Reset the per-player daily checkpoint counter at MSK midnight."""
+    global _last_abyss_daily_reset
+    from waifu_bot.services.abyss_service import msk_today
+
+    today = msk_today()
+    if _last_abyss_daily_reset is None:
+        _last_abyss_daily_reset = today
+        return
+    if _last_abyss_daily_reset == today:
+        return
+
+    from sqlalchemy import update
+
+    from waifu_bot.db.models import AbyssProgress
+    from waifu_bot.db.session import get_session, init_engine
+
+    init_engine()
+    async for session in get_session():
+        await session.execute(
+            update(AbyssProgress)
+            .where(AbyssProgress.checkpoints_today != 0)
+            .values(checkpoints_today=0, last_checkpoint_date=today)
+        )
+        await session.commit()
+        break
+    _last_abyss_daily_reset = today
+    logger.info("abyss daily checkpoint reset applied for %s (MSK)", today)
+
+
+async def _abyss_weekly_reset_fn() -> None:
+    """On MSK week rollover, rank the finished week and award the top 3."""
+    global _last_abyss_weekly_reset
+    from waifu_bot.services.abyss_service import week_start_msk
+
+    cur_week = week_start_msk()
+    if _last_abyss_weekly_reset is None:
+        _last_abyss_weekly_reset = cur_week
+        return
+    if _last_abyss_weekly_reset == cur_week:
+        return
+
+    ended_week = _last_abyss_weekly_reset
+    _last_abyss_weekly_reset = cur_week
+
+    from sqlalchemy import select
+
+    from waifu_bot.db.models import AbyssProgress, AbyssWeeklyLeaderboard
+    from waifu_bot.db.session import get_session, init_engine
+    from waifu_bot.services.game_config_service import cfg_int, get_game_config_map
+    from waifu_bot.services.webhook import get_bot
+
+    init_engine()
+    bot = get_bot()
+    async for session in get_session():
+        cfg = await get_game_config_map(session)
+        reward_by_rank = {
+            1: cfg_int(cfg, "abyss_weekly_reward_rank1", 500),
+            2: cfg_int(cfg, "abyss_weekly_reward_rank2", 250),
+            3: cfg_int(cfg, "abyss_weekly_reward_rank3", 100),
+        }
+        rows = (
+            await session.execute(
+                select(AbyssWeeklyLeaderboard)
+                .where(AbyssWeeklyLeaderboard.week_start == ended_week)
+                .order_by(AbyssWeeklyLeaderboard.max_floor.desc())
+            )
+        ).scalars().all()
+        for idx, row in enumerate(rows, start=1):
+            row.rank = idx
+            if idx <= 3 and not row.reward_claimed:
+                shards = reward_by_rank.get(idx, 0)
+                progress = await session.scalar(
+                    select(AbyssProgress).where(AbyssProgress.player_id == row.player_id)
+                )
+                if progress is not None and shards > 0:
+                    progress.abyss_shards = int(progress.abyss_shards or 0) + shards
+                row.reward_claimed = True
+                try:
+                    await bot.send_message(
+                        chat_id=int(row.player_id),
+                        text=(
+                            f"🏆 Бездна: вы заняли {idx}-е место в недельном лидерборде!\n"
+                            f"🕳️ Лучший этаж: {int(row.max_floor or 0)}\n"
+                            f"🔮 Награда: +{shards} Осколков Бездны."
+                        ),
+                    )
+                except Exception:
+                    logger.exception("abyss weekly DM failed player_id=%s", row.player_id)
+        await session.commit()
+        break
+    logger.info("abyss weekly reset processed week=%s (%d players)", ended_week, len(rows))
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -218,6 +318,7 @@ EXPEDITION_TICK_INTERVAL = 30
 GUILD_WAR_HOUR = 3600
 GUILD_TICK_INTERVAL = 60
 GUILD_NARRATIVE_INTERVAL = 900
+ABYSS_RESET_POLL_INTERVAL = 300
 
 
 def start_all_background_tasks() -> None:
@@ -258,6 +359,14 @@ def start_all_background_tasks() -> None:
             skip_in_dev=True,
         ),
         name="bg:guild_war_narrative",
+    )
+    _schedule(
+        _loop("abyss_daily_reset", ABYSS_RESET_POLL_INTERVAL, _abyss_daily_reset_fn),
+        name="bg:abyss_daily_reset",
+    )
+    _schedule(
+        _loop("abyss_weekly_reset", ABYSS_RESET_POLL_INTERVAL, _abyss_weekly_reset_fn),
+        name="bg:abyss_weekly_reset",
     )
     logger.info("Started %d background task loops", len(_tasks))
 

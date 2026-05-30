@@ -1049,6 +1049,20 @@ function renderAtticDungeon(active) {
   const progressWrap = document.getElementById("attic-dungeon-progress");
   const progressFill = document.getElementById("attic-dungeon-progress-fill");
   if (!chip || !label) return;
+  if (active?.abyss_active) {
+    const hpPct = active.monster_max_hp > 0
+      ? Math.round((active.monster_current_hp / active.monster_max_hp) * 100)
+      : 0;
+    label.textContent = `🕳️ Бездна · эт. ${Number(active.abyss_floor || 0)}`;
+    chip.classList.remove("chip-ghost");
+    chip.classList.add("chip-active");
+    if (progressWrap && progressFill) {
+      progressFill.style.width = `${Math.max(0, Math.min(100, 100 - hpPct))}%`;
+      progressWrap.setAttribute("aria-label", `Бездна, этаж ${Number(active.abyss_floor || 0)}`);
+      progressWrap.hidden = false;
+    }
+    return;
+  }
   if (active?.active) {
     const hpPct = active.monster_max_hp > 0
       ? Math.round((active.monster_current_hp / active.monster_max_hp) * 100)
@@ -4840,6 +4854,40 @@ async function renderProfileStatistics() {
       .join("");
   } catch (e) {
     box.innerHTML = `<div class="profile-detail-cell profile-detail-cell--full"><span class="profile-detail-label">Ошибка загрузки</span></div>`;
+  }
+  renderProfileAbyssStats().catch(() => {});
+}
+
+async function renderProfileAbyssStats() {
+  const section = document.getElementById("profile-abyss-section");
+  const box = document.getElementById("profile-abyss-stats");
+  if (!section || !box) return;
+  try {
+    const st = await apiFetch("/abyss/status");
+    const record = Number(st.max_floor_reached || 0);
+    if (record <= 0 && !st.session_active) {
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+    const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("ru-RU"));
+    const rows = [
+      ["Рекорд (этаж)", fmt(record)],
+      ["Чекпоинт", fmt(st.current_checkpoint)],
+      ["Осколки", fmt(st.abyss_shards)],
+      ["Чекпоинтов сегодня", `${fmt(st.checkpoints_today)} / ${fmt(st.daily_limit)}`],
+    ];
+    if (st.session_active) {
+      rows.unshift(["Сейчас на этаже", fmt(st.current_floor)]);
+    }
+    box.innerHTML = rows
+      .map(
+        ([label, value]) =>
+          `<div class="profile-detail-cell"><span class="profile-detail-label">${escapeHtml(label)}</span><strong class="profile-detail-value">${escapeHtml(String(value))}</strong></div>`
+      )
+      .join("");
+  } catch (e) {
+    section.hidden = true;
   }
 }
 

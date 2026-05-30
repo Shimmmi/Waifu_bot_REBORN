@@ -78,6 +78,13 @@ from waifu_bot.db.models.gd_cycle import (
     GDSkillCooldown,
     GDRewardRow,
 )
+from waifu_bot.db.models.abyss import (
+    AbyssProgress,
+    AbyssCheckpointBoss,
+    AbyssGrace,
+    AbyssWeeklyLeaderboard,
+    AbyssShardsShopItem,
+)
 
 __all__ = [
     "PlayerEventLog",
@@ -168,4 +175,9 @@ __all__ = [
     "GDActiveEffect",
     "GDSkillCooldown",
     "GDRewardRow",
+    "AbyssProgress",
+    "AbyssCheckpointBoss",
+    "AbyssGrace",
+    "AbyssWeeklyLeaderboard",
+    "AbyssShardsShopItem",
 ]
