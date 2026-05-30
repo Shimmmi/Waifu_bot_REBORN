@@ -127,6 +127,21 @@ function showToast(message, type = "success") {
   }
 }
 
+/** Подтверждение действия: Telegram showConfirm в WebApp, иначе window.confirm. */
+function confirmAction(message) {
+  const tgConfirm = window.Telegram?.WebApp?.showConfirm;
+  if (typeof tgConfirm === "function") {
+    return new Promise((resolve) => {
+      try {
+        tgConfirm(String(message), (ok) => resolve(Boolean(ok)));
+      } catch (_) {
+        resolve(window.confirm(String(message)));
+      }
+    });
+  }
+  return Promise.resolve(window.confirm(String(message)));
+}
+
 function setText(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
@@ -9634,9 +9649,12 @@ function formatPassiveEffectValue(effectType, raw) {
 function passiveNodeStateClass(node) {
   const cur = Number(node.current_level) || 0;
   const max = Number(node.max_level) || 1;
-  if (node.is_locked && cur === 0) return "passive-skill-cell--locked";
-  if (cur >= max) return "passive-skill-cell--maxed";
-  if (cur > 0) return "passive-skill-cell--partial";
+  const eq = Number(node.equipment_level_bonus) || 0;
+  const effLvRaw = Number(node.effective_level);
+  const effLv = (Number.isFinite(effLvRaw) && effLvRaw > 0 ? effLvRaw : 0) || cur + eq;
+  if (node.is_locked && effLv === 0) return "passive-skill-cell--locked";
+  if (effLv >= max) return "passive-skill-cell--maxed";
+  if (effLv > 0) return "passive-skill-cell--partial";
   return "passive-skill-cell--available";
 }
 
@@ -9645,6 +9663,19 @@ function passiveBranchPointsInCache(branch) {
   const arr = passiveTreeCache.branches[branch];
   if (!Array.isArray(arr)) return 0;
   return arr.reduce((s, n) => s + (Number(n.current_level) || 0), 0);
+}
+
+function updatePassiveTabLabels(branchPoints) {
+  const bp = branchPoints || {};
+  const labels = [
+    ["warrior", "passive-tab-label-warrior", "Воин"],
+    ["shadow", "passive-tab-label-shadow", "Тень"],
+    ["sage", "passive-tab-label-sage", "Мудрец"],
+  ];
+  for (const [key, id, title] of labels) {
+    const n = Number(bp[key]) || 0;
+    setText(id, `${title} ${n}`);
+  }
 }
 
 function updatePassiveResetButtonLabel() {
@@ -9657,23 +9688,24 @@ function updatePassiveResetButtonLabel() {
     pts > 0 ? `Сбросить ветку (~${cost} 🪙)` : "Сбросить очки текущей ветки";
 }
 
-/** Одна ячейка дерева: картинка-заглушка, эффективный уровень одной цифрой, оверлей +/стоимость. */
+/** Одна ячейка дерева: бейдж уровня на art, оверлей +/стоимость. */
 function renderPassiveNodeCard(node) {
   const esc = passiveEscHtml;
   const cur = Number(node.current_level) || 0;
-  const max = Number(node.max_level) || 1;
   const eq = Number(node.equipment_level_bonus) || 0;
   const effLvRaw = Number(node.effective_level);
   const displayEffLv =
     (Number.isFinite(effLvRaw) && effLvRaw > 0 ? effLvRaw : 0) || cur + eq;
   const hasEquipLift = eq > 0 || displayEffLv > cur;
   const st = `${passiveNodeStateClass(node)}${hasEquipLift ? " passive-skill-cell--equip-bonus" : ""}`;
+  const artEquipClass = hasEquipLift ? " passive-skill-cell-art--equip-bonus" : "";
   const ico = getPassiveNodeIcon(node);
   const reqHint =
-    node.is_locked && cur === 0
+    node.is_locked && displayEffLv === 0
       ? `ур.${node.waifu_level_req}, в ветке ≥${node.branch_points_req} оч.`
       : "";
-  const titleAttr = (reqHint ? `${node.name} — ${reqHint}` : node.name)
+  const levelHint = displayEffLv > 0 ? ` · ур. ${displayEffLv}` : "";
+  const titleAttr = (reqHint ? `${node.name} — ${reqHint}` : `${node.name}${levelHint}`)
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;");
   const upgradeOverlay = node.can_learn
@@ -9684,24 +9716,29 @@ function renderPassiveNodeCard(node) {
         <span class="passive-cell-upgrade-cost">🪙&nbsp;${esc(String(node.cost_gold || 0))}</span>
       </button>`
     : "";
+  const badgeEquip = hasEquipLift;
+  const levelBadge =
+    displayEffLv > 0
+      ? `<span class="passive-skill-cell-lv-badge${
+          badgeEquip ? " passive-skill-cell-lv-badge--equip" : ""
+        }" aria-label="Уровень ${displayEffLv}${
+          badgeEquip ? ", есть бонус от предметов" : ""
+        }">${esc(String(displayEffLv))}</span>`
+      : "";
   return `<div class="passive-skill-cell ${st}" data-node-id="${esc(node.id)}" role="button" tabindex="0" title="${titleAttr}">
     <div class="passive-skill-cell-inner">
-      <div class="passive-skill-cell-art">
+      <div class="passive-skill-cell-art${artEquipClass}">
         <img class="passive-skill-cell-img" src="${PASSIVE_SKILL_PLACEHOLDER}" alt="" decoding="async" />
         <span class="passive-skill-cell-emoji" aria-hidden="true">${ico}</span>
-        ${node.is_locked && cur === 0 ? `<span class="passive-skill-cell-lock" aria-hidden="true">🔒</span>` : ""}
+        ${levelBadge}
+        ${
+          node.is_locked && cur === 0 && displayEffLv === 0
+            ? `<span class="passive-skill-cell-lock" aria-hidden="true">🔒</span>`
+            : ""
+        }
         ${upgradeOverlay}
       </div>
       <div class="passive-skill-cell-title">${esc(node.name)}</div>
-      <div class="passive-skill-cell-levels" aria-label="Эффективный уровень ${displayEffLv}, очки ${cur} из ${max}${
-        hasEquipLift ? ", есть бонус от предметов" : ""
-      }">
-        <span class="passive-skill-cell-lv-single${
-          displayEffLv === 0 ? " passive-skill-cell-lv-single--zero" : ""
-        }${hasEquipLift && displayEffLv > 0 ? " passive-skill-cell-lv-single--equip" : ""}">${esc(
-          String(displayEffLv),
-        )}</span>
-      </div>
     </div>
   </div>`;
 }
@@ -9710,7 +9747,6 @@ function renderPassiveEmptyCell() {
   return `<div class="passive-skill-cell passive-skill-cell--empty" aria-hidden="true">
     <div class="passive-skill-cell-inner">
       <div class="passive-skill-cell-art passive-skill-cell-art--empty"></div>
-      <div class="passive-skill-cell-levels passive-skill-cell-levels--empty" aria-hidden="true"></div>
     </div>
   </div>`;
 }
@@ -9772,6 +9808,7 @@ function renderPassiveTree() {
       if (id) openPassiveSkillModal(id);
     });
   });
+  updatePassiveTabLabels(passiveTreeCache.branch_points);
   updatePassiveResetButtonLabel();
 }
 
@@ -9835,7 +9872,8 @@ function bindPassiveTreeListenersOnce() {
           : passiveActiveBranch === "shadow"
             ? "Тень"
             : "Мудрец";
-      if (!window.confirm(`Сбросить ветку «${branchRu}»? Примерно ${cost} 🪙.`)) return;
+      const confirmed = await confirmAction(`Сбросить ветку «${branchRu}»? Примерно ${cost} 🪙.`);
+      if (!confirmed) return;
       resetBtn.disabled = true;
       try {
         const out = await apiFetch(`/skills/passive/reset/${encodeURIComponent(passiveActiveBranch)}`, {
@@ -9848,6 +9886,8 @@ function bindPassiveTreeListenersOnce() {
           showToast(msg, "error");
           return;
         }
+        const refunded = Number(out.points_refunded) || pts;
+        showToast(`Ветка «${branchRu}» сброшена. Возвращено ${refunded} очк.`, "success");
         await loadPassiveSkillTree();
         if (typeof refreshAtticChips === "function") refreshAtticChips();
       } catch (e) {
@@ -9868,8 +9908,7 @@ async function loadPassiveSkillTree() {
     const data = await apiFetch("/skills/passive/tree");
     passiveTreeCache = data;
     setText("passive-free-pts", data.skill_points);
-    const bp = data.branch_points || {};
-    setText("passive-branch-pts", `${bp.warrior ?? 0} / ${bp.shadow ?? 0} / ${bp.sage ?? 0}`);
+    updatePassiveTabLabels(data.branch_points || {});
     renderPassiveTree();
   } catch (e) {
     if (isWebAppUnauthorizedError(e)) {

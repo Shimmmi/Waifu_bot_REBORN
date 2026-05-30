@@ -542,6 +542,7 @@ async def admin_player_full(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="player not found")
     return {
         "summary": summary,
+        "target_is_bot_admin": settings.is_admin(tg_id),
         "stats": await build_stats_detail(session, tg_id),
         "inventory": await build_inventory_list(session, tg_id),
         "events": (await build_event_feed(session, tg_id, public_only=False))["items"][:20],

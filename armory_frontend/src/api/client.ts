@@ -109,7 +109,7 @@ export interface PlayerSummary {
   telegram_id: number
   username?: string
   first_name?: string
-  access_level: 'public' | 'owner' | 'admin'
+  viewer_access_level: 'public' | 'owner' | 'admin'
   gear_score: number
   gold: number
   current_act: number

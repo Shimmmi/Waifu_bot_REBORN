@@ -30,7 +30,11 @@ const modalOpen = ref(false)
 const modalItem = ref<ArmoryItem | null>(null)
 const activeTab = ref<ProfileTab>('stats')
 
-const isOwner = computed(() => summary.value?.access_level === 'owner' || summary.value?.access_level === 'admin')
+const isOwner = computed(
+  () =>
+    summary.value?.viewer_access_level === 'owner' ||
+    summary.value?.viewer_access_level === 'admin',
+)
 
 const tabs = computed(() => {
   const items: Array<{ id: ProfileTab; label: string; count?: number }> = [
@@ -111,7 +115,7 @@ onMounted(() => loadSummary().then(loadExtra))
       @item-click="openModal"
     />
 
-    <p v-if="summary.access_level === 'public'" class="login-hint card card-compact">
+    <p v-if="summary.viewer_access_level === 'public'" class="login-hint card card-compact">
       <a href="/armory/login">Войдите</a>, чтобы видеть полный инвентарь и приватную историю.
     </p>
 
