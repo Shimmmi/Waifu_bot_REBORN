@@ -8725,7 +8725,7 @@ async function confirmTravelToAct() {
 const LIBRARY_MONSTER_BASE = `${GAME_STATIC_BASE}/monsters`;
 
 let libraryCatalogCache = null;
-let libraryFilters = { search: "", act: "all", family: "all", tier: "all" };
+let libraryFilters = { search: "", act: "all", family: "all", tier: "all", seen: "all" };
 let librarySort = "act";
 let libraryState = { tab: "bestiary", detailId: null };
 const libraryArtVersionByTemplate = {};
@@ -8949,21 +8949,28 @@ function libraryMechanicsHtml() {
 }
 
 function ensureLibraryStyles() {
-  if (document.getElementById("lib-styles")) return;
-  const style = document.createElement("style");
-  style.id = "lib-styles";
+  let style = document.getElementById("lib-styles");
+  if (!style) {
+    style = document.createElement("style");
+    style.id = "lib-styles";
+    document.head.appendChild(style);
+  }
   style.textContent = `
 #library-modal.lib-overlay{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.72);display:flex;align-items:flex-end;justify-content:center;padding:0}
 #library-modal.lib-overlay.hidden{display:none!important}
 .lib-panel{width:100%;max-width:480px;max-height:92vh;background:#16100b;border-radius:14px 14px 0 0;border:1px solid rgba(200,146,42,.35);display:flex;flex-direction:column;overflow:hidden}
-.lib-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgba(200,146,42,.2)}
+.lib-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgba(200,146,42,.2);flex-shrink:0}
 .lib-head h2{margin:0;font-size:16px;color:#e8b84b}
 .lib-close{background:transparent;border:0;color:#c9b8a8;font-size:22px;cursor:pointer;padding:4px 8px}
-.lib-tabs{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:nowrap;overflow-x:auto}
-.lib-tab{display:inline-flex;align-items:center;justify-content:center;min-width:36px;padding:8px 10px;border:1px solid rgba(200,146,42,.25);border-radius:8px;background:rgba(0,0,0,.25);font-size:18px;line-height:1;cursor:pointer}
+.lib-tabs{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:nowrap;width:100%;box-sizing:border-box;flex-shrink:0;position:relative;z-index:2;background:#16100b}
+.lib-tab{display:inline-flex;align-items:center;justify-content:center;flex:1;min-width:0;padding:8px 6px;border:1px solid rgba(200,146,42,.25);border-radius:8px;background:rgba(0,0,0,.25);font-size:18px;line-height:1;cursor:pointer}
 .lib-tab.active{border-color:rgba(232,184,75,.7);background:rgba(200,146,42,.15)}
 .lib-tab[disabled]{opacity:.35;cursor:not-allowed}
-.lib-body{flex:1;overflow-y:auto;padding:10px 12px 16px;-webkit-overflow-scrolling:touch}
+.lib-body{flex:1;min-height:0;overflow-y:auto;padding:10px 12px 16px;-webkit-overflow-scrolling:touch;position:relative;z-index:1}
+#library-monster-modal.lib-monster-overlay{position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box}
+#library-monster-modal.lib-monster-overlay.hidden{display:none!important}
+.lib-monster-panel{position:relative;width:min(420px,94vw);max-height:88vh;overflow-y:auto;-webkit-overflow-scrolling:touch;border-radius:12px}
+.lib-monster-close{position:absolute;top:8px;right:8px;z-index:2;width:32px;height:32px;border-radius:8px;border:1px solid rgba(200,146,42,.4);background:rgba(22,16,11,.92);color:#e8b84b;font-size:20px;line-height:1;cursor:pointer;padding:0}
 .lib-summary{font-size:11px;color:rgba(201,184,168,.85);margin-bottom:8px}
 .lib-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .lib-filters select,.lib-filters input{flex:1;min-width:100px;font-size:12px;padding:6px 8px;border-radius:8px;border:1px solid rgba(200,146,42,.3);background:#1f1812;color:#e5e2e1}
@@ -8978,12 +8985,11 @@ function ensureLibraryStyles() {
 .lib-card-meta{padding:4px 6px 6px;font-size:10px;line-height:1.2}
 .lib-card-name{font-weight:700;color:#e8dcc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lib-card-tier{color:rgba(201,184,168,.8)}
-.lib-detail-back{margin-bottom:8px}
-.lib-detail-back button{font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid rgba(200,146,42,.35);background:rgba(0,0,0,.3);color:#e8b84b;cursor:pointer}
-.lib-mtg{border:2px solid #5a5248;border-radius:12px;background:#f0e6d8;color:#3d2e1f;overflow:hidden;margin-bottom:10px}
+.lib-mtg{border:2px solid #5a5248;border-radius:12px;background:#f0e6d8;color:#3d2e1f;overflow:hidden;margin:0}
 .lib-mtg.lib-tier-1{border-color:#9ca3af}.lib-mtg.lib-tier-2{border-color:#22c55e}.lib-mtg.lib-tier-3{border-color:#3b82f6}
 .lib-mtg.lib-tier-4{border-color:#a855f7}.lib-mtg.lib-tier-5{border-color:#f59e0b}.lib-mtg.lib-tier-6{border-color:#ef4444}
-.lib-mtg-name{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:#e5d9c8;font-weight:700;color:#5c4030}
+.lib-mtg-name{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:10px 12px;background:#e5d9c8;font-weight:700;color:#5c4030}
+.lib-monster-panel .lib-mtg-name{padding-right:44px}
 .lib-mtg-name-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lib-mtg-admin-art{flex-shrink:0;width:32px;height:32px;border-radius:8px;border:1px solid rgba(92,64,48,.35);background:#f5ebe0;cursor:pointer;font-size:16px;line-height:1}
 .lib-mtg-art{position:relative;width:100%;aspect-ratio:4/3;background:#d8cbb8;display:flex;align-items:center;justify-content:center}
@@ -9009,7 +9015,32 @@ function ensureLibraryStyles() {
 .lib-soon{text-align:center;padding:32px 16px;color:rgba(201,184,168,.7);font-size:13px}
 .lib-loading{text-align:center;padding:24px;color:rgba(201,184,168,.8)}
 `;
-  document.head.appendChild(style);
+}
+
+function ensureLibraryMonsterModal() {
+  let modal = document.getElementById("library-monster-modal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "library-monster-modal";
+  modal.className = "lib-monster-overlay hidden";
+  modal.setAttribute("aria-modal", "true");
+  modal.innerHTML = `
+    <div class="lib-monster-panel" role="dialog" aria-label="Карточка монстра" onclick="event.stopPropagation()">
+      <button type="button" class="lib-monster-close" aria-label="Закрыть" onclick="WaifuApp.libraryCloseMonster()">×</button>
+      <div id="library-monster-body"></div>
+    </div>`;
+  modal.addEventListener("click", () => libraryCloseMonster());
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function libraryCloseMonster() {
+  libraryState.detailId = null;
+  const modal = document.getElementById("library-monster-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
 }
 
 function libraryBindFilterHandlers() {
@@ -9017,6 +9048,7 @@ function libraryBindFilterHandlers() {
   const act = document.getElementById("lib-f-act");
   const family = document.getElementById("lib-f-family");
   const tier = document.getElementById("lib-f-tier");
+  const seen = document.getElementById("lib-f-seen");
   const sort = document.getElementById("lib-f-sort");
   if (search) {
     search.oninput = () => {
@@ -9042,6 +9074,12 @@ function libraryBindFilterHandlers() {
       libraryRenderGrid();
     };
   }
+  if (seen) {
+    seen.onchange = () => {
+      libraryFilters.seen = seen.value;
+      libraryRenderGrid();
+    };
+  }
   if (sort) {
     sort.onchange = () => {
       librarySort = sort.value;
@@ -9053,7 +9091,6 @@ function libraryBindFilterHandlers() {
 function libraryRenderGrid() {
   const body = document.getElementById("lib-body");
   if (!body || !libraryCatalogCache) return;
-  libraryState.detailId = null;
   const monsters = libraryCatalogCache.monsters || [];
   const f = libraryFilters;
   const families = [...new Set(monsters.map((m) => m.type || m.family).filter(Boolean))].sort();
@@ -9071,11 +9108,9 @@ function libraryRenderGrid() {
       const fam = mm.type || mm.family || "";
       if (fam !== f.family) return false;
     }
-    if (f.tier === "undiscovered") {
-      if (mm.seen) return false;
-    } else if (f.tier !== "all") {
-      if (Number(mm.tier) !== Number(f.tier)) return false;
-    }
+    if (f.seen === "seen" && !mm.seen) return false;
+    if (f.seen === "undiscovered" && mm.seen) return false;
+    if (f.tier !== "all" && Number(mm.tier) !== Number(f.tier)) return false;
     return true;
   });
 
@@ -9107,10 +9142,13 @@ function libraryRenderGrid() {
     }).join("");
   const tierOpts = `
     <option value="all" ${f.tier === "all" ? "selected" : ""}>Все уровни</option>
-    <option value="undiscovered" ${f.tier === "undiscovered" ? "selected" : ""}>Не встречены</option>
     ${[0, 1, 2, 3, 4, 5, 6]
       .map((t) => `<option value="${t}" ${String(f.tier) === String(t) ? "selected" : ""}>Тир ${t}</option>`)
       .join("")}`;
+  const seenOpts = `
+    <option value="all" ${f.seen === "all" ? "selected" : ""}>Все</option>
+    <option value="seen" ${f.seen === "seen" ? "selected" : ""}>Встречено</option>
+    <option value="undiscovered" ${f.seen === "undiscovered" ? "selected" : ""}>Не встречены</option>`;
 
   const cards = filtered
     .map((mm) => {
@@ -9138,6 +9176,7 @@ function libraryRenderGrid() {
       <select id="lib-f-act"><option value="all">Все акты</option>${actOpts}</select>
       <select id="lib-f-family">${famOpts}</select>
       <select id="lib-f-tier">${tierOpts}</select>
+      <select id="lib-f-seen">${seenOpts}</select>
       <select id="lib-f-sort">
         <option value="act" ${librarySort === "act" ? "selected" : ""}>По акту</option>
         <option value="name" ${librarySort === "name" ? "selected" : ""}>По имени</option>
@@ -9156,7 +9195,8 @@ function libraryRenderGrid() {
 }
 
 function libraryRenderDetail(templateId) {
-  const body = document.getElementById("lib-body");
+  ensureLibraryMonsterModal();
+  const body = document.getElementById("library-monster-body");
   if (!body || !libraryCatalogCache) return;
   const tid = Number(templateId);
   libraryState.detailId = tid;
@@ -9173,11 +9213,10 @@ function libraryRenderDetail(templateId) {
   const artInner = `<img data-lib-art alt="" /><span class="lib-art-emoji" aria-hidden="true">${escapeHtml(e.emoji || "👾")}</span>`;
 
   body.innerHTML = `
-    <div class="lib-detail-back"><button type="button" onclick="WaifuApp.libraryBackToGrid()">← К каталогу</button></div>
     <div class="lib-mtg ${libraryTierClass(e.tier)}">
       <div class="lib-mtg-name">
-        <span class="lib-mtg-name-text">${escapeHtml(known ? e.name : "Неизвестный монстр")}</span>
         ${adminBtn}
+        <span class="lib-mtg-name-text">${escapeHtml(known ? e.name : "Неизвестный монстр")}</span>
       </div>
       <div class="lib-mtg-art">${artInner}</div>
       <div class="lib-mtg-stats">
@@ -9190,17 +9229,22 @@ function libraryRenderDetail(templateId) {
 }
 
 function libraryBackToGrid() {
-  libraryState.detailId = null;
-  libraryRenderGrid();
+  libraryCloseMonster();
 }
 
 function libraryOpenMonster(templateId) {
+  ensureLibraryMonsterModal();
   libraryRenderDetail(templateId);
+  const modal = document.getElementById("library-monster-modal");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+  }
 }
 
 function librarySwitchTab(tabId) {
+  libraryCloseMonster();
   libraryState.tab = tabId;
-  libraryState.detailId = null;
   const tabs = document.querySelectorAll("#lib-tabs .lib-tab");
   tabs.forEach((btn) => {
     const active = btn.dataset.libTab === tabId;
@@ -9221,6 +9265,7 @@ function librarySwitchTab(tabId) {
 }
 
 function closeLibrary() {
+  libraryCloseMonster();
   const modal = document.getElementById("library-modal");
   if (modal) {
     modal.classList.add("hidden");
@@ -9253,10 +9298,16 @@ async function openLibrary(opts) {
         <div class="lib-body" id="lib-body"><div class="lib-loading">Загрузка…</div></div>
       </div>`;
     modal.addEventListener("click", (ev) => {
-      if (ev.target === modal) closeLibrary();
+      if (ev.target !== modal) return;
+      if (libraryState.detailId != null) {
+        libraryCloseMonster();
+        return;
+      }
+      closeLibrary();
     });
     document.body.appendChild(modal);
   }
+  ensureLibraryMonsterModal();
 
   const tabsEl = document.getElementById("lib-tabs");
   if (tabsEl) {
@@ -10098,6 +10149,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   closeLibrary,
   librarySwitchTab,
   libraryOpenMonster,
+  libraryCloseMonster,
   libraryBackToGrid,
   adminGenerateMainWaifuPaperdoll,
   sellSelected,
