@@ -342,7 +342,8 @@ def _compute_details(
         str_for_hp = strength
 
     # --- Боевые параметры (приведены к game/formulas.py) ---
-    # NOTE: это "оценка" урона для UI на базе BASE_SKILL_DAMAGE и текущих статов + бонусов экипировки.
+    # NOTE: UI «Урон ближний/дальний/магич.» = BASE_SKILL_DAMAGE + статы + плоский урон с экипа
+    # + диапазон оружия (только если тип атаки оружия совпадает с линией урона).
     from waifu_bot.game.formulas import (
         BASE_SKILL_DAMAGE,
         calculate_damage,
@@ -353,41 +354,30 @@ def _compute_details(
     weapon_profile = resolve_equipped_weapon_for_profile(equipped_items or [])
 
     def _damage_bounds(attack_type: str, type_flat: float) -> tuple[int, int]:
-        if weapon_profile.attack_type == attack_type and weapon_profile.damage_min is not None:
-            base_min = float(weapon_profile.damage_min)
-            base_max = float(
-                weapon_profile.damage_max if weapon_profile.damage_max is not None else weapon_profile.damage_min
-            )
-        else:
-            base_min = base_max = float(BASE_SKILL_DAMAGE)
         flat_add = float(total_bonuses.get("damage_flat", 0) or 0) + float(type_flat or 0)
-        base_min += flat_add
-        base_max += flat_add
+        core_base = float(BASE_SKILL_DAMAGE) + flat_add
         if (total_bonuses.get("damage_percent", 0) or 0) > 0:
             pct = 1.0 + float(total_bonuses["damage_percent"]) / 100.0
-            base_min *= pct
-            base_max *= pct
-        score_min = int(
+            core_base *= pct
+        core_score = int(
             calculate_damage(
-                int(base_min),
+                int(core_base),
                 strength=int(strength),
                 agility=int(agility),
                 intelligence=int(intelligence),
                 attack_type=attack_type,
             )
         )
-        score_max = int(
-            calculate_damage(
-                int(base_max),
-                strength=int(strength),
-                agility=int(agility),
-                intelligence=int(intelligence),
-                attack_type=attack_type,
+        core_min = core_max = core_score
+        if weapon_profile.attack_type == attack_type and weapon_profile.damage_min is not None:
+            wmin = int(weapon_profile.damage_min)
+            wmax = int(
+                weapon_profile.damage_max
+                if weapon_profile.damage_max is not None
+                else weapon_profile.damage_min
             )
-        )
-        if score_min > score_max:
-            score_min, score_max = score_max, score_min
-        return score_min, score_max
+            return core_min + wmin, core_max + wmax
+        return core_min, core_max
 
     melee_min, melee_max = _damage_bounds("melee", total_bonuses.get("melee_damage_flat", 0))
     ranged_min, ranged_max = _damage_bounds("ranged", total_bonuses.get("ranged_damage_flat", 0))
@@ -2474,36 +2464,39 @@ async def expeditions_start(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Аффиксы слота не найдены")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
     if result.get("success") and result.get("active_id"):
-        try:
-            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-            from waifu_bot.services.webhook import get_bot
-            bot = get_bot()
-            name = result.get("expedition_name", "Экспедиция")
-            gold = result.get("reward_gold", 0)
-            exp = result.get("reward_experience", 0)
-            g_half = max(0, gold // 2)
-            e_half = max(0, exp // 2)
-            chip = ""
-            if result.get("affix_icon") and result.get("affix_level_roman"):
-                chip = f"{result.get('affix_icon')} Уровень {result.get('affix_level_roman')}\n"
-            text = (
-                f"🗺 «{name}» начата.\n{chip}\n"
-                f"🪙 Награда: {gold} золота · ✨ {exp} опыта\n\n"
-                "События каждые 15 мин — отчёт придёт в ЛС. "
-                "Досрочное завершение — около 50% награды."
-            )
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text=f"🏳 Завершить досрочно (~{g_half}🪙, ~{e_half}✨)",
-                    callback_data=f"expedition_abort_{result['active_id']}",
-                )]
-            ])
-            await bot.send_message(chat_id=player_id, text=text, reply_markup=keyboard)
-            intro = result.get("start_intro_narrative")
-            if intro:
-                await bot.send_message(chat_id=player_id, text=intro)
-        except Exception:
-            logger.exception("Expedition start DM to player_id=%s failed", player_id)
+        from waifu_bot.services.player_notification_prefs import should_send_dm
+
+        if await should_send_dm(session, player_id, "expedition_result"):
+            try:
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                from waifu_bot.services.webhook import get_bot
+                bot = get_bot()
+                name = result.get("expedition_name", "Экспедиция")
+                gold = result.get("reward_gold", 0)
+                exp = result.get("reward_experience", 0)
+                g_half = max(0, gold // 2)
+                e_half = max(0, exp // 2)
+                chip = ""
+                if result.get("affix_icon") and result.get("affix_level_roman"):
+                    chip = f"{result.get('affix_icon')} Уровень {result.get('affix_level_roman')}\n"
+                text = (
+                    f"🗺 «{name}» начата.\n{chip}\n"
+                    f"🪙 Награда: {gold} золота · ✨ {exp} опыта\n\n"
+                    "События каждые 15 мин — отчёт придёт в ЛС. "
+                    "Досрочное завершение — около 50% награды."
+                )
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"🏳 Завершить досрочно (~{g_half}🪙, ~{e_half}✨)",
+                        callback_data=f"expedition_abort_{result['active_id']}",
+                    )]
+                ])
+                await bot.send_message(chat_id=player_id, text=text, reply_markup=keyboard)
+                intro = result.get("start_intro_narrative")
+                if intro:
+                    await bot.send_message(chat_id=player_id, text=intro)
+            except Exception:
+                logger.exception("Expedition start DM to player_id=%s failed", player_id)
     return schemas.ExpeditionStartResponse(**result)
 
 

@@ -2356,7 +2356,16 @@ function syncAdminUiVisibility() {
 const settingsState = {
   dmPrefs: null,
   notifySaveTimer: null,
+  notifyModalReadyAt: 0,
+  notifyBackHandler: null,
 };
+
+function resetSettingsNotifyModalDom() {
+  const modal = document.getElementById("settings-notify-modal");
+  if (!modal) return;
+  modal.classList.remove("settings-notify-modal--open");
+  modal.style.display = "none";
+}
 
 async function loadDmNotificationPrefs() {
   const data = await apiFetch("/player/dm-notification-prefs");
@@ -2401,27 +2410,52 @@ async function saveDmNotificationPrefsFromModal() {
 }
 
 function openSettingsNotifyModal() {
+  if (Date.now() < settingsState.notifyModalReadyAt) return;
   const modal = document.getElementById("settings-notify-modal");
   if (!modal) return;
   if (settingsState.dmPrefs) applyDmPrefsToModal(settingsState.dmPrefs);
-  modal.hidden = false;
+  modal.style.display = "";
   modal.classList.add("settings-notify-modal--open");
+  if (tg?.BackButton) {
+    if (!settingsState.notifyBackHandler) {
+      settingsState.notifyBackHandler = () => closeSettingsNotifyModal();
+    }
+    tg.BackButton.onClick(settingsState.notifyBackHandler);
+    tg.BackButton.show();
+  }
 }
 
 function closeSettingsNotifyModal() {
   const modal = document.getElementById("settings-notify-modal");
   if (!modal) return;
-  modal.hidden = true;
   modal.classList.remove("settings-notify-modal--open");
+  modal.style.display = "none";
+  if (tg?.BackButton && settingsState.notifyBackHandler) {
+    tg.BackButton.offClick(settingsState.notifyBackHandler);
+    tg.BackButton.hide();
+  }
 }
 
 async function initSettingsPage() {
+  resetSettingsNotifyModalDom();
   closeSettingsNotifyModal();
 
   if (!window.__waifuSettingsPageshowBound) {
     window.__waifuSettingsPageshowBound = true;
     window.addEventListener("pageshow", () => {
       if (document.body.classList.contains("page-settings")) {
+        closeSettingsNotifyModal();
+      }
+    });
+  }
+
+  if (!window.__waifuSettingsEscapeBound) {
+    window.__waifuSettingsEscapeBound = true;
+    window.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Escape") return;
+      const modal = document.getElementById("settings-notify-modal");
+      if (modal?.classList.contains("settings-notify-modal--open")) {
+        ev.preventDefault();
         closeSettingsNotifyModal();
       }
     });
@@ -2443,16 +2477,34 @@ async function initSettingsPage() {
     }
   }
 
+  const openBtn = document.getElementById("settings-open-notify");
+  if (openBtn && !openBtn.__waifuBound) {
+    openBtn.__waifuBound = true;
+    openBtn.addEventListener("click", () => openSettingsNotifyModal());
+  }
+
   const modal = document.getElementById("settings-notify-modal");
   if (modal && !modal.__waifuBound) {
     modal.__waifuBound = true;
     modal.addEventListener("click", (ev) => {
       if (ev.target === modal) closeSettingsNotifyModal();
     });
+    const panel = modal.querySelector(".settings-notify-panel");
+    if (panel) {
+      panel.addEventListener("click", (ev) => ev.stopPropagation());
+    }
+    document.getElementById("settings-notify-close")?.addEventListener("click", () => {
+      closeSettingsNotifyModal();
+    });
+    document.getElementById("settings-notify-done")?.addEventListener("click", () => {
+      closeSettingsNotifyModal();
+    });
     document.querySelectorAll("#settings-notify-modal [data-notify-key]").forEach((input) => {
       input.addEventListener("change", scheduleSaveDmNotificationPrefs);
     });
   }
+
+  settingsState.notifyModalReadyAt = Date.now() + 300;
 
   try {
     const prefs = await loadDmNotificationPrefs();

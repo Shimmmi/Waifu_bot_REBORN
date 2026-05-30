@@ -114,6 +114,7 @@ def _moscow_today():
 
 
 async def _apply_narrative_at_start(
+    session: AsyncSession,
     active: ActiveExpedition,
     *,
     location_archetype_id: str | None,
@@ -129,6 +130,9 @@ async def _apply_narrative_at_start(
         format_expedition_start_intro_telegram,
         generate_expedition_narrative_brief,
     )
+    from waifu_bot.services.player_notification_prefs import should_send_dm
+
+    dm_narratives = await should_send_dm(session, int(active.player_id), "expedition_result")
 
     style_rng = random.Random(int(active.id))
     narrative_style = pick_narrative_style(style_rng)
@@ -142,21 +146,23 @@ async def _apply_narrative_at_start(
     affix_hints = [str(getattr(a, "description_hint", "") or "").strip() for a in affix_rows]
     squad_names = [w.name or "Наёмница" for w in squad]
 
-    brief = await generate_expedition_narrative_brief(
-        archetype_id=arch.id,
-        archetype_name=arch.name_ru,
-        archetype_hints=list(arch.narrative_hints),
-        mode_id=mode.id,
-        mode_name=mode.name_ru,
-        mode_focus=mode.narrative_focus,
-        mode_prompt_rules=mode.prompt_rules_ru,
-        affix_names=affix_names,
-        affix_hints=affix_hints,
-        events_total=max(1, int(events_total or 1)),
-        duration_minutes=int(duration_minutes),
-        squad_names=squad_names,
-        narrative_style=narrative_style,
-    )
+    brief = None
+    if dm_narratives:
+        brief = await generate_expedition_narrative_brief(
+            archetype_id=arch.id,
+            archetype_name=arch.name_ru,
+            archetype_hints=list(arch.narrative_hints),
+            mode_id=mode.id,
+            mode_name=mode.name_ru,
+            mode_focus=mode.narrative_focus,
+            mode_prompt_rules=mode.prompt_rules_ru,
+            affix_names=affix_names,
+            affix_hints=affix_hints,
+            events_total=max(1, int(events_total or 1)),
+            duration_minutes=int(duration_minutes),
+            squad_names=squad_names,
+            narrative_style=narrative_style,
+        )
     if not brief:
         brief = fallback_narrative_brief(
             arch,
@@ -178,6 +184,9 @@ async def _apply_narrative_at_start(
     active.narrative_brief = brief
     active.display_base_location = (brief.get("title") or slot_preview_name(mode, arch)).strip()[:120]
     active.display_biome_tag = arch.biome_tag
+
+    if not dm_narratives:
+        return None
 
     return format_expedition_start_intro_telegram(
         title=active.display_base_location or brief.get("title") or "Экспедиция",
@@ -753,11 +762,14 @@ class ExpeditionService:
         )
         actives = list((await session.execute(stmt)).scalars().all())
         out: list[tuple[int, str | None, str | None]] = []
+        from waifu_bot.services.player_notification_prefs import should_send_dm
+
         for active in actives:
             if int(active.events_done or 0) >= int(active.events_total or 0):
                 active.next_tick_at = None
                 continue
-            res = await run_one_tick(session, active, silent=False)
+            silent = not await should_send_dm(session, int(active.player_id), "expedition_result")
+            res = await run_one_tick(session, active, silent=silent)
             if not res.get("ok"):
                 continue
             narr = (res.get("telegram_narrative") or "").strip()
@@ -984,6 +996,7 @@ class ExpeditionService:
         start_intro_narrative: str | None = None
         if events_total > 0:
             start_intro_narrative = await _apply_narrative_at_start(
+                session,
                 active,
                 location_archetype_id=None,
                 expedition_mode_id=None,
@@ -1122,6 +1135,7 @@ class ExpeditionService:
         start_intro_narrative: str | None = None
         if has_affix and events_total > 0:
             start_intro_narrative = await _apply_narrative_at_start(
+                session,
                 active,
                 location_archetype_id=getattr(slot, "location_archetype_id", None),
                 expedition_mode_id=getattr(slot, "expedition_mode_id", None),

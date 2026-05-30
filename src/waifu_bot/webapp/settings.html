@@ -9,6 +9,22 @@
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./assets/tutorial.css" />
     <script src="./vendor/telegram-web-app.js"></script>
+    <script>
+      (function () {
+        function resetSettingsNotifyModalEarly() {
+          var modal = document.getElementById("settings-notify-modal");
+          if (!modal) return;
+          modal.classList.remove("settings-notify-modal--open");
+          modal.style.display = "none";
+        }
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", resetSettingsNotifyModalEarly);
+        } else {
+          resetSettingsNotifyModalEarly();
+        }
+        window.addEventListener("pageshow", resetSettingsNotifyModalEarly);
+      })();
+    </script>
     <script defer src="./assets/tutorial.js"></script>
     <script defer src="./app.js"></script>
   </head>
@@ -29,7 +45,6 @@
             type="button"
             class="list-item settings-list-btn settings-list-btn--chevron"
             id="settings-open-notify"
-            onclick="WaifuApp.openSettingsNotifyModal()"
           >
             Уведомления
           </button>
@@ -58,11 +73,11 @@
       </section>
     </main>
 
-    <div id="settings-notify-modal" class="modal settings-notify-modal" hidden role="dialog" aria-modal="true" aria-labelledby="settings-notify-title">
+    <div id="settings-notify-modal" class="modal settings-notify-modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="settings-notify-title">
       <div class="modal-content settings-notify-panel">
         <div class="modal-head">
           <div class="modal-title" id="settings-notify-title">Уведомления в ЛС</div>
-          <button type="button" class="secondary" onclick="WaifuApp.closeSettingsNotifyModal()" aria-label="Закрыть">✖</button>
+          <button type="button" class="secondary" id="settings-notify-close" aria-label="Закрыть">✖</button>
         </div>
         <div class="modal-body settings-notify-body">
           <p class="muted tiny settings-notify-hint">Сообщения от бота в личные сообщения Telegram.</p>
@@ -75,7 +90,7 @@
               </span>
             </label>
             <label class="settings-notify-option">
-              <span class="settings-notify-option-label">Результаты экспедиций</span>
+              <span class="settings-notify-option-label">Экспедиции</span>
               <span class="settings-switch">
                 <input type="checkbox" data-notify-key="expedition_result" checked />
                 <span class="settings-switch-slider" aria-hidden="true"></span>
@@ -98,7 +113,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn primary" onclick="WaifuApp.closeSettingsNotifyModal()">Готово</button>
+          <button type="button" class="btn primary" id="settings-notify-done">Готово</button>
         </div>
       </div>
     </div>
