@@ -4721,8 +4721,18 @@ function rarityPillModifierClass(r) {
   return "";
 }
 
-function buildItemModalEnchantRowHtml(item) {
+function itemEnchantOverlayHtml(item, context = "bag") {
+  const ctx = ["bag", "slot", "modal"].includes(context) ? context : "bag";
   const br = Boolean(item?.is_broken);
+  const en = safeNumber(item?.enchant_level, 0);
+  if (br) {
+    return `<span class="item-enchant-overlay item-enchant-overlay--${ctx} item-enchant-overlay--broken" title="Сломан">—</span>`;
+  }
+  if (en <= 0) return "";
+  return `<span class="item-enchant-overlay item-enchant-overlay--${ctx}">+${en}</span>`;
+}
+
+function buildItemModalEnchantRowHtml(item) {
   const en = safeNumber(item?.enchant_level, 0);
   const mx = ITEM_MODAL_ENCHANT_PIP_MAX;
   const pips = Array.from({ length: mx }, (_, i) => {
@@ -4731,14 +4741,7 @@ function buildItemModalEnchantRowHtml(item) {
     const cls = mxf ? " item-modal-v2-pip--mx" : f ? " item-modal-v2-pip--f" : "";
     return `<div class="item-modal-v2-pip${cls}" aria-hidden="true"></div>`;
   }).join("");
-  if (br) {
-    return `<span class="item-modal-v2-ench-val item-modal-v2-ench-val--muted" title="Сломан">—</span><div class="item-modal-v2-pips">${pips}</div>`;
-  }
-  const valCell =
-    en > 0
-      ? `<span class="item-modal-v2-ench-val">+${en}</span>`
-      : `<span class="item-modal-v2-ench-val item-modal-v2-ench-val--empty" aria-hidden="true"></span>`;
-  return `${valCell}<div class="item-modal-v2-pips">${pips}</div>`;
+  return `<div class="item-modal-v2-pips">${pips}</div>`;
 }
 
 function renderItemModalV2CharacteristicsHtml(item) {
@@ -5326,10 +5329,12 @@ function renderProfileSlotCard(slot, item) {
     ? itemArtHtml(item)
     : `<span class="profile-slot-fallback">${itemIconForSlotType("")}</span>`;
 
+  const enchantOverlay = item ? itemEnchantOverlayHtml(item, "slot") : "";
   return `
     <button type="button" class="profile-slot-card profile-slot-card--mini ${item ? rarity : "empty"}" title="${escapeHtml(titleText)}" aria-label="${escapeHtml(slotName)}" onclick="WaifuApp.openProfileSlot(${slot})">
       <div class="profile-slot-media">
         ${mediaHtml}
+        ${enchantOverlay}
         ${item ? `<div class="profile-slot-mini-level profile-slot-mini-level--overlay">Ур. ${lvl}</div>` : ""}
       </div>
     </button>
@@ -5515,11 +5520,12 @@ function renderProfileInventory() {
       const iconHtml = itemArtHtml(item);
       const upgrade = isProfileUpgradeItem(item);
       const locked = item?.can_equip === false;
+      const enchantOverlay = itemEnchantOverlayHtml(item, "bag");
       cells.push(`
         <button type="button" class="item-card profile-inv-item ${rarity} ${locked ? "empty" : ""}" title="${name}" onclick="WaifuApp.openItemById(${Number(
           item?.id || 0
         )})">
-          <div class="item-icon">${iconHtml}</div>
+          <div class="item-icon">${iconHtml}${enchantOverlay}</div>
           ${upgrade ? `<div class="upgrade-arrow" title="Улучшение относительно экипировки">▲</div>` : ""}
           <div class="item-level">Ур. ${item?.level ?? "?"}</div>
         </button>
@@ -5708,6 +5714,11 @@ async function ensureProfileEquipmentLoaded() {
   } finally {
     profileState.equipmentLoading = false;
   }
+}
+
+async function reloadProfileEquipment() {
+  profileState.equipmentLoaded = false;
+  await ensureProfileEquipmentLoaded();
 }
 
 async function populateProfile(profile) {
@@ -6016,6 +6027,7 @@ async function equipItemToProfileSlot(itemId, slot) {
   await apiFetch(`/waifu/equipment/equip?inventory_item_id=${itemId}&slot=${slot}`, { method: "POST" });
   closeSlotModal();
   closeItemModal();
+  profileState.equipmentLoaded = false;
   await bootstrapPage("profile", populateProfile);
   switchProfileTab("inventory");
 }
@@ -6133,6 +6145,12 @@ function openItemModal(item) {
 
   const art = document.getElementById("item-modal-art");
   if (art) art.innerHTML = itemArtHtml(item, { adminGen: true });
+  const artFrame = document.getElementById("item-modal-art-frame");
+  if (artFrame) {
+    artFrame.querySelectorAll(".item-enchant-overlay").forEach((el) => el.remove());
+    const overlayHtml = itemEnchantOverlayHtml(item, "modal");
+    if (overlayHtml) artFrame.insertAdjacentHTML("beforeend", overlayHtml);
+  }
 
   const enchRow = document.getElementById("item-modal-ench");
   if (enchRow) enchRow.innerHTML = buildItemModalEnchantRowHtml(item);
@@ -6222,7 +6240,7 @@ function openItemModal(item) {
   if (replaceBtn && replaceBtn.style.display !== "none") visibleFooter += 1;
   if (equipBtn && equipBtn.style.display !== "none") visibleFooter += 1;
   if (actionsRow) {
-    actionsRow.setAttribute("data-cols", visibleFooter <= 2 ? "2" : "3");
+    actionsRow.setAttribute("data-cols", String(Math.max(1, Math.min(visibleFooter, 4))));
   }
 
   modal.style.display = "grid";
@@ -6244,6 +6262,7 @@ async function refreshAfterInventoryModalAction() {
     }
     return;
   }
+  profileState.equipmentLoaded = false;
   await bootstrapPage("profile", populateProfile);
 }
 
@@ -9177,7 +9196,11 @@ const LIBRARY_MONSTER_BASE = `${GAME_STATIC_BASE}/monsters`;
 let libraryCatalogCache = null;
 let libraryFilters = { search: "", act: "all", family: "all", tier: "all", seen: "all" };
 let librarySort = "act";
-let libraryState = { tab: "bestiary", detailId: null };
+let libraryState = { tab: "bestiary", detailId: null, itemsSubtab: "items", itemDetailId: null, affixDetailKey: null };
+let libraryItemsCatalogCache = null;
+let libraryAffixesCatalogCache = null;
+let libraryItemsFilters = { search: "", tier: "all", seen: "all", slot: "all" };
+let libraryAffixFilters = { search: "", kind: "all", seen: "all" };
 const libraryArtVersionByTemplate = {};
 
 const LIBRARY_ACT_OPTIONS = [1, 2, 3, 4, 5];
@@ -9185,7 +9208,7 @@ const LIBRARY_ACT_OPTIONS = [1, 2, 3, 4, 5];
 const LIBRARY_TABS = [
   { id: "bestiary", icon: "👹", label: "Монстры", enabled: true },
   { id: "mechanics", icon: "📜", label: "Механики", enabled: true },
-  { id: "items", icon: "🎒", label: "Предметы", enabled: false },
+  { id: "items", icon: "🎒", label: "Предметы", enabled: true },
   { id: "classes", icon: "🛡️", label: "Классы", enabled: false },
   { id: "races", icon: "🧝", label: "Расы", enabled: false },
 ];
@@ -9393,22 +9416,476 @@ function statsGuideContentHtml() {
     <p><strong>Заточка</strong> — усиливает урон/броню на оружии и доспехах; на аксессуарах — вторичные бонусы (крит, уклонение…). Предметы с бонусом к пассивному навыку заточкой не усиливаются.</p>`;
 }
 
-function libraryMechanicsHtml() {
-  return `
-    <div class="lib-mechanics">
-      <h3>Бой в подземельях</h3>
+const LIBRARY_MECHANICS_SUBTABS = [
+  { id: "waifu", label: "Основная Вайфу" },
+  { id: "dungeons", label: "Подземелья" },
+  { id: "shop", label: "Магазин" },
+  { id: "guilds", label: "Гильдии" },
+  { id: "skills", label: "Навыки" },
+  { id: "tavern", label: "Таверна" },
+];
+
+let libraryMechanicsSubtab = "waifu";
+
+function libraryMechanicsSectionHtml(subtabId) {
+  const id = subtabId || "waifu";
+  if (id === "waifu") {
+    return `
+      <h3>Характеристики</h3>
+      <p>СИЛ, ЛОВ, ИНТ, ВЫН, ОБА и УДЧ влияют на урон, защиту, крит и награды. Итоговые значения видны в профиле основной вайфу.</p>
+      <h3 id="lib-stats-guide">Как считаются статы</h3>
+      <div class="lib-stats-guide-body">${statsGuideContentHtml()}</div>
+      <h3>Бестиарий и кодекс</h3>
+      <p>Встречайте монстров и предметы в игре — в библиотеке открываются карточки с подробностями. У монстров прогресс идёт по убийствам одного шаблона.</p>`;
+  }
+  if (id === "dungeons") {
+    return `
+      <h3>Соло-подземелья</h3>
       <p>Атакуйте монстра сообщениями в чате. Урон зависит от статов, оружия и пассивов. Монстр отвечает, когда его HP падает ниже порога.</p>
       <h3>Типы урона</h3>
       <p>Физический, магический и чистый урон по-разному взаимодействуют с защитой и аффиксами элитных монстров.</p>
-      <h3>Статы</h3>
-      <p>СИЛ, ЛОВ, ИНТ, ВЫН, ОБА и УДЧ влияют на урон, защиту, крит и награды. Подробности — в разделе ниже и в древе пассивов.</p>
-      <h3 id="lib-stats-guide">Как считаются статы</h3>
-      <div class="lib-stats-guide-body">${statsGuideContentHtml()}</div>
-      <h3>Бестиарий</h3>
-      <p>Убивайте одного и того же монстра, чтобы открывать имя, HP, тип и бонусы против него. Прогресс привязан к шаблону монстра.</p>
+      <h3>Экспедиции</h3>
+      <p>Отправляйте отряд на слот экспедиции: сложность, теги препятствий и аффиксы слота влияют на шанс успеха и награды. Перки наёмниц могут перекрывать теги.</p>
+      <h3>Групповые подземелья</h3>
+      <p>В групповом чате игроки бьют общего монстра раундами. Награды и прогресс зависят от вклада и настроек цикла.</p>
+      <h3>Бездна</h3>
+      <p>Отдельный режим с чекпоинтами и усилением врагов. Используйте вкладку «Бездна» на странице подземелий.</p>
       <h3>Акты</h3>
-      <p>Караван перемещается между актами. В каждом акте свой пул монстров и уровней.</p>
+      <p>Караван перемещается между актами. В каждом акте свой пул монстров, уровней лута и цен в магазине.</p>`;
+  }
+  if (id === "shop") {
+    return `
+      <h3>Магазин</h3>
+      <p>Ежедневные офферы привязаны к акту. Цена зависит от уровня предмета, редкости и скидок (обаяние, пассивы). Имя на витрине уже включает выпавшие префиксы и суффиксы.</p>
+      <h3>Gamble</h3>
+      <p>Случайный предмет повышенной редкости за золото. Шансы и уровень зависят от акта и уровня вайфу.</p>
+      <h3>Кузнец: заточка</h3>
+      <p>Усиливает урон и броню на оружии и доспехах; на аксессуарах — вторичные бонусы. Есть риск поломки на высоких уровнях заточки.</p>
+      <h3>Кузнец: зачарование</h3>
+      <p>Отдельная система шагов зачарования, записанных при создании предмета. Предметы с бонусом к пассивному навыку заточкой не усиливаются.</p>`;
+  }
+  if (id === "guilds") {
+    return `
+      <h3>Гильдии</h3>
+      <p>Объединение игроков: общий банк, навыки гильдии, рейды и войны. Вклад участников влияет на развитие и награды.</p>
+      <h3>Рейды</h3>
+      <p>Совместный урон по боссу в окне рейда. Бонусы гильдии могут усиливать урон или награды в бою.</p>
+      <h3>Войны</h3>
+      <p>Соревнование гильдий по очкам за период. Следите за статусом войны в зале гильдии.</p>`;
+  }
+  if (id === "skills") {
+    return `
+      <h3>Пассивные навыки</h3>
+      <p>Дерево веток (воин, тень, мудрец): узлы дают плоские бонусы, множители урона, скидки и особые эффекты. Одинаковые типы эффектов суммируются, разные — перемножаются в бою.</p>
+      <h3>Скрытые навыки</h3>
+      <p>Открываются за особые действия (марафоны, серии побед и т.д.). Не отображаются в основном дереве до разблокировки.</p>
+      <h3>Сброс</h3>
+      <p>Сброс дерева возвращает очки навыков; скрытые навыки и прогресс аккуратно обрабатываются отдельными правилами.</p>
+      <h3>Предметы и навыки</h3>
+      <p>Аффиксы «+N к уровню навыка» повышают эффективный уровень. Для части навыков действует потолок таблицы — смотрите предупреждение в модалке навыка.</p>`;
+  }
+  if (id === "tavern") {
+    return `
+      <h3>Найм</h3>
+      <p>Слоты найма обновляются по расписанию. Наёмницы участвуют в экспедициях; у каждой раса, класс, статы и перки.</p>
+      <h3>Прокачка</h3>
+      <p>Опыт и уровень наёмниц растут от экспедиций и событий. Перки усиливают подходящие теги слотов.</p>
+      <h3>Лечение</h3>
+      <p>Восстановление HP наёмниц за золото в таверне. Скидки могут давать пассивы и предметы.</p>`;
+  }
+  return "";
+}
+
+function libraryMechanicsShellHtml() {
+  const subTabs = LIBRARY_MECHANICS_SUBTABS.map((t) => {
+    const active = t.id === libraryMechanicsSubtab ? " active" : "";
+    return `<button type="button" class="lib-mechanics-subtab${active}" data-mech-sub="${t.id}" onclick="WaifuApp.librarySwitchMechanicsSubtab('${t.id}')">${escapeHtml(t.label)}</button>`;
+  }).join("");
+  return `
+    <div class="lib-mechanics">
+      <div class="lib-mechanics-subtabs" role="tablist">${subTabs}</div>
+      <div id="lib-mechanics-body" class="lib-mechanics-body">${libraryMechanicsSectionHtml(libraryMechanicsSubtab)}</div>
     </div>`;
+}
+
+function librarySwitchMechanicsSubtab(subtabId) {
+  libraryMechanicsSubtab = subtabId || "waifu";
+  const body = document.getElementById("lib-mechanics-body");
+  if (body) body.innerHTML = libraryMechanicsSectionHtml(libraryMechanicsSubtab);
+  document.querySelectorAll(".lib-mechanics-subtab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.mechSub === libraryMechanicsSubtab);
+  });
+}
+
+function libraryRenderMechanics() {
+  const body = document.getElementById("lib-body");
+  if (!body) return;
+  body.innerHTML = libraryMechanicsShellHtml();
+}
+
+function libraryItemCardArtHtml(entry) {
+  if (!entry?.seen) {
+    return `<div class="lib-card-art silhouette"><span class="lib-art-emoji">🎒</span></div>`;
+  }
+  const fakeItem = {
+    art_key: entry.art_key,
+    tier: entry.tier,
+    slot_type: entry.slot_type,
+    weapon_type: entry.subtype,
+  };
+  return `<div class="lib-card-art">${itemArtHtml(fakeItem)}</div>`;
+}
+
+function libraryBindItemsFilterHandlers() {
+  const search = document.getElementById("lib-items-search");
+  const tier = document.getElementById("lib-items-tier");
+  const seen = document.getElementById("lib-items-seen");
+  const slot = document.getElementById("lib-items-slot");
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = "1";
+    search.addEventListener("input", () => {
+      libraryItemsFilters.search = search.value.trim().toLowerCase();
+      libraryRenderItemsGrid();
+    });
+  }
+  if (tier && !tier.dataset.bound) {
+    tier.dataset.bound = "1";
+    tier.addEventListener("change", () => {
+      libraryItemsFilters.tier = tier.value;
+      libraryRenderItemsGrid();
+    });
+  }
+  if (seen && !seen.dataset.bound) {
+    seen.dataset.bound = "1";
+    seen.addEventListener("change", () => {
+      libraryItemsFilters.seen = seen.value;
+      libraryRenderItemsGrid();
+    });
+  }
+  if (slot && !slot.dataset.bound) {
+    slot.dataset.bound = "1";
+    slot.addEventListener("change", () => {
+      libraryItemsFilters.slot = slot.value;
+      libraryRenderItemsGrid();
+    });
+  }
+}
+
+function libraryRenderItemsGrid() {
+  const grid = document.getElementById("lib-items-grid");
+  if (!grid || !libraryItemsCatalogCache) return;
+  const f = libraryItemsFilters;
+  let items = libraryItemsCatalogCache.items || [];
+  if (f.search) {
+    items = items.filter((it) => String(it.name || "").toLowerCase().includes(f.search));
+  }
+  if (f.tier !== "all") {
+    const t = Number(f.tier);
+    items = items.filter((it) => Number(it.tier) === t);
+  }
+  if (f.seen === "seen") items = items.filter((it) => it.seen);
+  if (f.seen === "unseen") items = items.filter((it) => !it.seen);
+  if (f.slot !== "all") {
+    items = items.filter((it) => String(it.slot_type || "") === f.slot);
+  }
+  const summary = libraryItemsCatalogCache.summary || {};
+  const sumEl = document.getElementById("lib-items-summary");
+  if (sumEl) {
+    sumEl.textContent = `Открыто ${summary.seen || 0} из ${summary.total || 0} (${summary.seen_pct || 0}%)`;
+  }
+  grid.innerHTML = items
+    .map((it) => {
+      const tid = Number(it.base_template_id);
+      const tierCls = libraryTierClass(Math.min(6, Math.max(1, Number(it.tier) || 1)));
+      const label = escapeHtml(it.name || "???");
+      return `
+        <div class="lib-card ${tierCls}" role="button" tabindex="0" data-base-template-id="${tid}"
+          onclick="WaifuApp.libraryOpenItem(${tid})">
+          ${libraryItemCardArtHtml(it)}
+          <div class="lib-card-meta">
+            <div class="lib-card-name">${label}</div>
+            <div class="lib-card-tier">T${Number(it.tier) || "?"}</div>
+          </div>
+        </div>`;
+    })
+    .join("");
+}
+
+function libraryBindAffixFilterHandlers() {
+  const search = document.getElementById("lib-affix-search");
+  const kind = document.getElementById("lib-affix-kind-filter");
+  const seen = document.getElementById("lib-affix-seen");
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = "1";
+    search.addEventListener("input", () => {
+      libraryAffixFilters.search = search.value.trim().toLowerCase();
+      libraryRenderAffixesGrid();
+    });
+  }
+  if (kind && !kind.dataset.bound) {
+    kind.dataset.bound = "1";
+    kind.addEventListener("change", () => {
+      libraryAffixFilters.kind = kind.value;
+      libraryRenderAffixesGrid();
+    });
+  }
+  if (seen && !seen.dataset.bound) {
+    seen.dataset.bound = "1";
+    seen.addEventListener("change", () => {
+      libraryAffixFilters.seen = seen.value;
+      libraryRenderAffixesGrid();
+    });
+  }
+}
+
+function libraryAffixDetailKey(entry) {
+  return `${entry.catalog_kind}:${entry.catalog_id}`;
+}
+
+function libraryRenderAffixesGrid() {
+  const grid = document.getElementById("lib-affix-grid");
+  if (!grid || !libraryAffixesCatalogCache) return;
+  const f = libraryAffixFilters;
+  let rows = libraryAffixesCatalogCache.affixes || [];
+  if (f.search) {
+    rows = rows.filter((a) => String(a.name || "").toLowerCase().includes(f.search));
+  }
+  if (f.kind !== "all") {
+    const k = f.kind === "prefix" ? "affix" : f.kind;
+    rows = rows.filter((a) => String(a.kind || "") === k || (f.kind === "prefix" && a.kind === "prefix"));
+  }
+  if (f.seen === "seen") rows = rows.filter((a) => a.seen);
+  if (f.seen === "unseen") rows = rows.filter((a) => !a.seen);
+  const summary = libraryAffixesCatalogCache.summary || {};
+  const sumEl = document.getElementById("lib-affix-summary");
+  if (sumEl) {
+    sumEl.textContent = `Открыто ${summary.seen || 0} из ${summary.total || 0} (${summary.seen_pct || 0}%)`;
+  }
+  grid.innerHTML = rows
+    .map((a) => {
+      const key = libraryAffixDetailKey(a);
+      const kindLabel = a.kind === "suffix" ? "Суфф." : a.kind === "affix" || a.kind === "prefix" ? "Преф." : "—";
+      return `
+        <div class="lib-card lib-tier-2" role="button" tabindex="0"
+          onclick='WaifuApp.libraryOpenAffix(${JSON.stringify(key)})'>
+          <div class="lib-card-art silhouette" style="filter:none">
+            <span class="lib-art-emoji">${a.kind === "suffix" ? "✨" : "⚔️"}</span>
+          </div>
+          <div class="lib-card-meta">
+            <div class="lib-card-name">${escapeHtml(a.name || "???")}</div>
+            <div class="lib-affix-kind">${escapeHtml(kindLabel)}</div>
+          </div>
+        </div>`;
+    })
+    .join("");
+}
+
+function libraryItemsSubtabShellHtml() {
+  const sub = libraryState.itemsSubtab || "items";
+  const itemsActive = sub === "items" ? " active" : "";
+  const affActive = sub === "affixes" ? " active" : "";
+  if (sub === "affixes") {
+    return `
+      <div class="lib-items-subtabs">
+        <button type="button" class="lib-items-subtab${itemsActive}" onclick="WaifuApp.librarySwitchItemsSubtab('items')">Предметы</button>
+        <button type="button" class="lib-items-subtab${affActive}" onclick="WaifuApp.librarySwitchItemsSubtab('affixes')">Аффиксы</button>
+      </div>
+      <div id="lib-affix-summary" class="lib-summary"></div>
+      <div class="lib-filters">
+        <input id="lib-affix-search" type="search" placeholder="Поиск…" />
+        <select id="lib-affix-kind-filter">
+          <option value="all">Все</option>
+          <option value="prefix">Префиксы</option>
+          <option value="suffix">Суффиксы</option>
+        </select>
+        <select id="lib-affix-seen">
+          <option value="all">Все</option>
+          <option value="seen">Открытые</option>
+          <option value="unseen">Скрытые</option>
+        </select>
+      </div>
+      <div id="lib-affix-grid" class="lib-grid"></div>`;
+  }
+  return `
+    <div class="lib-items-subtabs">
+      <button type="button" class="lib-items-subtab${itemsActive}" onclick="WaifuApp.librarySwitchItemsSubtab('items')">Предметы</button>
+      <button type="button" class="lib-items-subtab${affActive}" onclick="WaifuApp.librarySwitchItemsSubtab('affixes')">Аффиксы</button>
+    </div>
+    <div id="lib-items-summary" class="lib-summary"></div>
+    <div class="lib-filters">
+      <input id="lib-items-search" type="search" placeholder="Поиск…" />
+      <select id="lib-items-tier">
+        <option value="all">Все тиры</option>
+        ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((t) => `<option value="${t}">T${t}</option>`).join("")}
+      </select>
+      <select id="lib-items-slot">
+        <option value="all">Все слоты</option>
+        <option value="weapon_1h">Оружие 1H</option>
+        <option value="weapon_2h">Оружие 2H</option>
+        <option value="offhand">Offhand</option>
+        <option value="costume">Доспех</option>
+        <option value="ring">Кольцо</option>
+        <option value="amulet">Амулет</option>
+      </select>
+      <select id="lib-items-seen">
+        <option value="all">Все</option>
+        <option value="seen">Открытые</option>
+        <option value="unseen">Скрытые</option>
+      </select>
+    </div>
+    <div id="lib-items-grid" class="lib-grid"></div>`;
+}
+
+function librarySwitchItemsSubtab(subtab) {
+  libraryState.itemsSubtab = subtab || "items";
+  libraryRenderItemsTab();
+}
+
+function libraryRenderItemsTab() {
+  const body = document.getElementById("lib-body");
+  if (!body) return;
+  body.innerHTML = libraryItemsSubtabShellHtml();
+  if (libraryState.itemsSubtab === "affixes") {
+    libraryBindAffixFilterHandlers();
+    libraryRenderAffixesGrid();
+  } else {
+    libraryBindItemsFilterHandlers();
+    libraryRenderItemsGrid();
+  }
+}
+
+function ensureLibraryItemModal() {
+  let modal = document.getElementById("library-item-modal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "library-item-modal";
+  modal.className = "lib-monster-overlay hidden";
+  modal.setAttribute("aria-modal", "true");
+  modal.innerHTML = `
+    <div class="lib-monster-panel" role="dialog" aria-label="Карточка предмета" onclick="event.stopPropagation()">
+      <button type="button" class="lib-monster-close" aria-label="Закрыть" onclick="WaifuApp.libraryCloseItem()">×</button>
+      <div id="library-item-body"></div>
+    </div>`;
+  modal.addEventListener("click", () => libraryCloseItem());
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function libraryCloseItem() {
+  libraryState.itemDetailId = null;
+  libraryState.affixDetailKey = null;
+  const modal = document.getElementById("library-item-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
+}
+
+function libraryBuildItemDetailHtml(e) {
+  const rows = [];
+  if (e.level_min != null) {
+    rows.push(
+      `<div class="lib-kv"><span>Уровень</span><strong>${escapeHtml(String(e.level_min))}–${escapeHtml(String(e.level_max))}</strong></div>`
+    );
+  }
+  rows.push(`<div class="lib-kv"><span>Тир</span><strong>T${escapeHtml(String(e.tier))}</strong></div>`);
+  if (e.damage_min != null) {
+    rows.push(
+      `<div class="lib-kv"><span>Урон</span><strong>${escapeHtml(String(e.damage_min))}–${escapeHtml(String(e.damage_max))}</strong></div>`
+    );
+  }
+  if (e.armor_base != null) {
+    rows.push(`<div class="lib-kv"><span>Броня</span><strong>${escapeHtml(String(e.armor_base))}</strong></div>`);
+  }
+  if (e.attack_speed != null) {
+    rows.push(`<div class="lib-kv"><span>Скорость</span><strong>${escapeHtml(String(e.attack_speed))}</strong></div>`);
+  }
+  if (e.base_stat) {
+    const m = statMeta(e.base_stat);
+    rows.push(
+      `<div class="lib-kv"><span>${escapeHtml(m.short)}</span><strong>+${escapeHtml(String(e.base_stat_value))}</strong></div>`
+    );
+  }
+  const fakeItem = { art_key: e.art_key, tier: e.tier, slot_type: e.slot_type, weapon_type: e.subtype };
+  const artBlock = e.seen
+    ? `<div class="lib-mtg-art">${itemArtHtml(fakeItem)}</div>`
+    : `<div class="lib-mtg-art silhouette"><span class="lib-art-emoji">🎒</span></div>`;
+  return `
+    <div class="lib-mtg ${libraryTierClass(Math.min(6, Number(e.tier) || 1))}">
+      <div class="lib-mtg-name"><span class="lib-mtg-name-text">${escapeHtml(e.name || "???")}</span></div>
+      ${artBlock}
+      <div class="lib-mtg-stats">${rows.join("")}</div>
+    </div>`;
+}
+
+function libraryOpenItem(baseTemplateId) {
+  const tid = Number(baseTemplateId);
+  if (!Number.isFinite(tid)) return;
+  libraryCloseMonster();
+  libraryState.itemDetailId = tid;
+  libraryState.affixDetailKey = null;
+  let e = (libraryItemsCatalogCache?.items || []).find((it) => Number(it.base_template_id) === tid);
+  const body = document.getElementById("library-item-body");
+  if (!body) return;
+  if (!e) {
+    body.innerHTML = '<p class="muted">Нет данных</p>';
+  } else {
+    body.innerHTML = libraryBuildItemDetailHtml(e);
+  }
+  ensureLibraryItemModal();
+  const modal = document.getElementById("library-item-modal");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+  }
+}
+
+function libraryBuildAffixDetailHtml(a) {
+  if (!a?.seen) {
+    return `<div class="lib-mtg"><div class="lib-mtg-name">???</div><p class="muted">Встретьте предмет с этим аффиксом в игре.</p></div>`;
+  }
+  const desc = a.description_ru || statMeta(a.stat || "").short;
+  const range = a.range_label ? ` · ${a.range_label}` : "";
+  const effectLine = `${escapeHtml(desc)}${escapeHtml(range)}`;
+  const kindRu = a.kind === "suffix" ? "Суффикс" : "Префикс";
+  return `
+    <div class="lib-mtg lib-tier-3">
+      <div class="lib-mtg-name"><span class="lib-mtg-name-text">${escapeHtml(a.name || "—")}</span></div>
+      <div class="lib-mtg-stats">
+        <div class="lib-kv"><span>Тип</span><strong>${escapeHtml(kindRu)}</strong></div>
+        <div class="lib-kv"><span>Эффект</span><strong>${effectLine}</strong></div>
+      </div>
+    </div>`;
+}
+
+function libraryOpenAffix(key) {
+  libraryCloseMonster();
+  libraryState.affixDetailKey = key;
+  libraryState.itemDetailId = null;
+  const entry = (libraryAffixesCatalogCache?.affixes || []).find((a) => libraryAffixDetailKey(a) === key);
+  const body = document.getElementById("library-item-body");
+  if (!body) return;
+  body.innerHTML = entry ? libraryBuildAffixDetailHtml(entry) : '<p class="muted">Нет данных</p>';
+  ensureLibraryItemModal();
+  const modal = document.getElementById("library-item-modal");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+  }
+}
+
+async function loadLibraryItemsCatalog(force) {
+  if (libraryItemsCatalogCache && !force) return libraryItemsCatalogCache;
+  const data = await apiFetch("/library/items");
+  libraryItemsCatalogCache = data;
+  return data;
+}
+
+async function loadLibraryAffixesCatalog(force) {
+  if (libraryAffixesCatalogCache && !force) return libraryAffixesCatalogCache;
+  const data = await apiFetch("/library/affixes");
+  libraryAffixesCatalogCache = data;
+  return data;
 }
 
 function ensureLibraryStyles() {
@@ -9475,7 +9952,15 @@ function ensureLibraryStyles() {
 .lib-study-bonus-row{font-size:11px;color:rgba(61,46,31,.85);margin-bottom:2px}
 .lib-mechanics h3{font-size:13px;color:#e8b84b;margin:12px 0 6px}
 .lib-mechanics p{font-size:12px;color:rgba(201,184,168,.9);line-height:1.45;margin:0 0 8px}
+.lib-mechanics-subtabs{display:flex;gap:4px;overflow-x:auto;margin-bottom:10px;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.lib-mechanics-subtab{flex:0 0 auto;font-size:10px;padding:6px 8px;border-radius:8px;border:1px solid rgba(200,146,42,.25);background:rgba(0,0,0,.25);color:#c9b8a8;cursor:pointer;white-space:nowrap}
+.lib-mechanics-subtab.active{border-color:rgba(232,184,75,.7);background:rgba(200,146,42,.15);color:#e8b84b}
+.lib-mechanics-body{min-height:40px}
 .lib-stats-guide-body p{font-size:12px;color:rgba(201,184,168,.9);line-height:1.45;margin:0 0 8px}
+.lib-items-subtabs{display:flex;gap:6px;margin-bottom:10px}
+.lib-items-subtab{flex:1;font-size:12px;padding:8px;border-radius:8px;border:1px solid rgba(200,146,42,.25);background:rgba(0,0,0,.25);color:#c9b8a8;cursor:pointer}
+.lib-items-subtab.active{border-color:rgba(232,184,75,.7);background:rgba(200,146,42,.15);color:#e8b84b}
+.lib-affix-kind{font-size:9px;color:rgba(201,184,168,.75)}
 .lib-soon{text-align:center;padding:32px 16px;color:rgba(201,184,168,.7);font-size:13px}
 .lib-loading{text-align:center;padding:24px;color:rgba(201,184,168,.8)}
 `;
@@ -9708,6 +10193,7 @@ function libraryOpenMonster(templateId) {
 
 function librarySwitchTab(tabId) {
   libraryCloseMonster();
+  libraryCloseItem();
   libraryState.tab = tabId;
   const tabs = document.querySelectorAll("#lib-tabs .lib-tab");
   tabs.forEach((btn) => {
@@ -9722,7 +10208,11 @@ function librarySwitchTab(tabId) {
     return;
   }
   if (tabId === "mechanics") {
-    body.innerHTML = libraryMechanicsHtml();
+    libraryRenderMechanics();
+    return;
+  }
+  if (tabId === "items") {
+    libraryRenderItemsTab();
     return;
   }
   body.innerHTML = '<div class="lib-soon">Этот раздел появится позже.</div>';
@@ -9767,6 +10257,10 @@ async function openLibrary(opts) {
         libraryCloseMonster();
         return;
       }
+      if (libraryState.itemDetailId != null || libraryState.affixDetailKey != null) {
+        libraryCloseItem();
+        return;
+      }
       closeLibrary();
     });
     document.body.appendChild(modal);
@@ -9791,11 +10285,27 @@ async function openLibrary(opts) {
   libraryState.tab = tab;
   libraryState.detailId = null;
 
+  if (opts.itemsSubtab) {
+    libraryState.itemsSubtab = opts.itemsSubtab;
+  }
+
   try {
-    await loadLibraryCatalog(false);
+    if (tab === "items") {
+      await Promise.all([loadLibraryItemsCatalog(false), loadLibraryAffixesCatalog(false)]);
+    } else {
+      await loadLibraryCatalog(false);
+    }
     librarySwitchTab(tab);
     if (opts.templateId != null) {
       libraryOpenMonster(Number(opts.templateId));
+    }
+    if (opts.baseTemplateId != null) {
+      libraryOpenItem(Number(opts.baseTemplateId));
+    }
+    if (opts.affixKey) {
+      libraryState.itemsSubtab = "affixes";
+      librarySwitchItemsSubtab("affixes");
+      libraryOpenAffix(String(opts.affixKey));
     }
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -10708,8 +11218,13 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   openLibrary,
   closeLibrary,
   librarySwitchTab,
+  librarySwitchMechanicsSubtab,
+  librarySwitchItemsSubtab,
   libraryOpenMonster,
   libraryCloseMonster,
+  libraryOpenItem,
+  libraryCloseItem,
+  libraryOpenAffix,
   libraryBackToGrid,
   adminGenerateMainWaifuPaperdoll,
   sellSelected,

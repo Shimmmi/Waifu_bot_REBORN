@@ -1,19 +1,22 @@
-"""Library / Codex API: the monster bestiary (pokedex).
+"""Library / Codex API: bestiary, item templates, and affix catalog.
 
-Returns the full monster catalog joined with the player's per-monster discovery
-progress. Information is *redacted on the server* based on the discovery tier so
-the payload itself never leaks hidden stats (anti-datamining).
+Player discovery progress is joined server-side; hidden fields are redacted in the
+response (anti-datamining).
 """
 
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.api.deps import get_db, get_player_id
 from waifu_bot.db import models as m
+from waifu_bot.db.models.item import PlayerAffixCodex, PlayerItemCodex
 from waifu_bot.game import bestiary as bcfg
+from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
+from waifu_bot.services.item_art import derive_item_art_key
+from waifu_bot.services.item_codex import CATALOG_DIABLO, CATALOG_LEGACY
 
 logger = logging.getLogger(__name__)
 
@@ -204,3 +207,241 @@ async def bestiary_monster(
     entry = _build_entry(tmpl, kills, seen, detailed=True)
     entry["tiers"] = _tier_catalog()
     return entry
+
+
+def _slot_type_from_ibt(item_type: str | None, subtype: str | None) -> str:
+    it = (item_type or "").lower()
+    st = (subtype or "").lower()
+    if it == "weapon":
+        if st == "one_hand":
+            return "weapon_1h"
+        if st in {"two_hand", "bow", "staff"}:
+            return "weapon_2h"
+        if st in {"offhand", "orb"}:
+            return "offhand"
+        return "weapon_1h"
+    if it == "armor":
+        return "costume"
+    if it == "ring":
+        return "ring"
+    if it == "amulet":
+        return "amulet"
+    return "other"
+
+
+def _fmt_affix_range(value_min: int | float | None, value_max: int | float | None, is_percent: bool) -> str:
+    vmin = int(value_min or 0)
+    vmax = int(value_max or 0)
+    if is_percent:
+        return f"{vmin}–{vmax}%"
+    return f"{vmin}–{vmax}"
+
+
+def _build_item_entry(row: object, seen: bool) -> dict:
+    tid = int(getattr(row, "id", 0) or 0)
+    tier = int(getattr(row, "tier", 1) or 1)
+    item_type = str(getattr(row, "item_type", "") or "")
+    subtype = str(getattr(row, "subtype", "") or "")
+    base_name = str(getattr(row, "name", "") or "")
+    slot_type = _slot_type_from_ibt(item_type, subtype)
+    weapon_type = subtype if item_type.lower() == "weapon" else None
+
+    entry: dict = {
+        "base_template_id": tid,
+        "tier": tier,
+        "seen": bool(seen),
+        "name": base_name if seen else _HIDDEN_NAME,
+        "name_known": bool(seen),
+        "item_type": item_type if seen else None,
+        "subtype": subtype if seen else None,
+        "slot_type": slot_type if seen else None,
+        "level_min": int(getattr(row, "level_min", 0) or 0) if seen else None,
+        "level_max": int(getattr(row, "level_max", 0) or 0) if seen else None,
+    }
+    if seen:
+        entry["art_key"] = derive_item_art_key(slot_type, weapon_type, base_name)
+        dmg_min = int(getattr(row, "dmg_min", 0) or 0)
+        dmg_max = int(getattr(row, "dmg_max", 0) or 0)
+        if dmg_min > 0 or dmg_max > 0:
+            entry["damage_min"] = dmg_min
+            entry["damage_max"] = dmg_max
+        atk = int(getattr(row, "attack_speed", 0) or 0)
+        if atk > 0:
+            entry["attack_speed"] = atk
+        armor = int(getattr(row, "armor_base", 0) or 0)
+        if armor > 0:
+            entry["armor_base"] = armor
+        st1 = getattr(row, "stat1_type", None)
+        if st1:
+            entry["base_stat"] = str(st1)
+            entry["base_stat_value"] = int(getattr(row, "stat1_value", 0) or 0)
+    return entry
+
+
+@router.get("/library/items", tags=["library"])
+async def items_catalog(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Base item templates with per-player discovery (seen / hidden)."""
+    try:
+        templates = list(
+            (await session.execute(text("SELECT * FROM item_base_templates ORDER BY tier, name"))).all()
+        )
+        codex_rows = list(
+            (
+                await session.execute(
+                    select(PlayerItemCodex).where(PlayerItemCodex.player_id == player_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        seen_set = {int(r.base_template_id) for r in codex_rows}
+        entries = [_build_item_entry(t, int(t.id) in seen_set) for t in templates]
+        total = len(entries)
+        seen_count = len(seen_set)
+        return {
+            "items": entries,
+            "summary": {
+                "total": total,
+                "seen": seen_count,
+                "seen_pct": round(100.0 * seen_count / total) if total else 0,
+            },
+        }
+    except Exception as e:
+        logger.exception("Failed /library/items for player_id=%s: %s", player_id, e)
+        return {"items": [], "summary": {"total": 0, "seen": 0, "seen_pct": 0}}
+
+
+@router.get("/library/items/{base_template_id}", tags=["library"])
+async def item_detail(
+    base_template_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    row = (
+        await session.execute(
+            text("SELECT * FROM item_base_templates WHERE id = :id"),
+            {"id": int(base_template_id)},
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item_not_found")
+    codex = await session.get(PlayerItemCodex, (int(player_id), int(base_template_id)))
+    seen = codex is not None
+    return _build_item_entry(row, seen)
+
+
+@router.get("/library/affixes", tags=["library"])
+async def affixes_catalog(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Affix / suffix catalog (legacy + diablo families) with discovery."""
+    try:
+        codex_rows = list(
+            (
+                await session.execute(
+                    select(PlayerAffixCodex).where(PlayerAffixCodex.player_id == player_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        seen_legacy = {
+            int(r.catalog_id)
+            for r in codex_rows
+            if r.catalog_kind == CATALOG_LEGACY
+        }
+        seen_diablo = {
+            int(r.catalog_id)
+            for r in codex_rows
+            if r.catalog_kind == CATALOG_DIABLO
+        }
+
+        entries: list[dict] = []
+        legacy = list((await session.execute(select(m.Affix).order_by(m.Affix.name))).scalars().all())
+        for aff in legacy:
+            seen = int(aff.id) in seen_legacy
+            stat = str(aff.stat or "")
+            desc = effect_stat_description_ru(stat)
+            entries.append(
+                {
+                    "catalog_kind": CATALOG_LEGACY,
+                    "catalog_id": int(aff.id),
+                    "seen": seen,
+                    "name": aff.name if seen else _HIDDEN_NAME,
+                    "kind": aff.kind if seen else None,
+                    "stat": stat if seen else None,
+                    "description_ru": desc if seen else None,
+                    "value_min": int(aff.value_min) if seen else None,
+                    "value_max": int(aff.value_max) if seen else None,
+                    "is_percent": bool(aff.is_percent) if seen else None,
+                    "range_label": (
+                        _fmt_affix_range(aff.value_min, aff.value_max, aff.is_percent)
+                        if seen
+                        else None
+                    ),
+                    "tier": int(aff.tier) if seen else None,
+                }
+            )
+
+        families = list(
+            (await session.execute(select(m.AffixFamily).order_by(m.AffixFamily.family_id))).scalars().all()
+        )
+        for fam in families:
+            seen = int(fam.id) in seen_diablo
+            tier_rows = list(
+                (
+                    await session.execute(
+                        select(m.AffixFamilyTier).where(m.AffixFamilyTier.family_id == fam.id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            vmin = vmax = None
+            if tier_rows:
+                mins = [float(t.value_min) for t in tier_rows if t.value_min is not None]
+                maxs = [float(t.value_max) for t in tier_rows if t.value_max is not None]
+                if mins:
+                    vmin = int(min(mins))
+                if maxs:
+                    vmax = int(max(maxs))
+            effect_key = str(fam.effect_key or "")
+            is_pct = "pct" in effect_key.lower() or "percent" in effect_key.lower()
+            display_name = str(fam.family_id or "").replace("_", " ").strip().title() or effect_key
+            entries.append(
+                {
+                    "catalog_kind": CATALOG_DIABLO,
+                    "catalog_id": int(fam.id),
+                    "seen": seen,
+                    "name": display_name if seen else _HIDDEN_NAME,
+                    "kind": fam.kind if seen else None,
+                    "stat": effect_key if seen else None,
+                    "description_ru": effect_stat_description_ru(effect_key) if seen else None,
+                    "value_min": vmin if seen else None,
+                    "value_max": vmax if seen else None,
+                    "is_percent": is_pct if seen else None,
+                    "range_label": (
+                        _fmt_affix_range(vmin, vmax, is_pct) if seen and vmin is not None else None
+                    ),
+                    "family_id": fam.family_id if seen else None,
+                }
+            )
+
+        entries.sort(key=lambda e: (e.get("kind") or "", e.get("name") or ""))
+        total = len(entries)
+        seen_count = sum(1 for e in entries if e.get("seen"))
+        return {
+            "affixes": entries,
+            "summary": {
+                "total": total,
+                "seen": seen_count,
+                "seen_pct": round(100.0 * seen_count / total) if total else 0,
+            },
+        }
+    except Exception as e:
+        logger.exception("Failed /library/affixes for player_id=%s: %s", player_id, e)
+        return {"affixes": [], "summary": {"total": 0, "seen": 0, "seen_pct": 0}}

@@ -351,6 +351,9 @@ class ShopService:
                 refreshed_at=now,
             )
             session.add(offer)
+            from waifu_bot.services.item_codex import register_inventory_codex
+
+            await register_inventory_codex(session, int(player_id), inv_item)
         await session.commit()
         offers = (
             await session.execute(

@@ -19,7 +19,18 @@ from waifu_bot.db.models.waifu import (
     WaifuClass,
     WaifuRarity,
 )
-from waifu_bot.db.models.item import Item, InventoryItem, ItemRarity, ItemType, ItemTemplate, Affix, InventoryAffix, ShopOffer
+from waifu_bot.db.models.item import (
+    Item,
+    InventoryItem,
+    ItemRarity,
+    ItemType,
+    ItemTemplate,
+    Affix,
+    InventoryAffix,
+    PlayerItemCodex,
+    PlayerAffixCodex,
+    ShopOffer,
+)
 from waifu_bot.db.models.gamble_offer import GambleOffer
 from waifu_bot.db.models.story_boss import PlayerStoryBossFirstKill, StoryBossDefinition
 from waifu_bot.db.models.story_seen import PlayerDungeonStorySeen
@@ -116,6 +127,8 @@ __all__ = [
     "ItemTemplate",
     "Affix",
     "InventoryAffix",
+    "PlayerItemCodex",
+    "PlayerAffixCodex",
     "ShopOffer",
     "GambleOffer",
     "Dungeon",

@@ -885,7 +885,20 @@ class ItemService:
         await session.flush()
         inv._display_name = item.name  # type: ignore[attr-defined]
         await apply_enchant_steps_to_inventory_item(session, inv)
+        await self._register_inventory_codex(session, player_id, inv)
         return inv
+
+    async def _register_inventory_codex(
+        self,
+        session: AsyncSession,
+        player_id: Optional[int],
+        inv: m.InventoryItem,
+    ) -> None:
+        if player_id is None:
+            return
+        from waifu_bot.services.item_codex import register_inventory_codex
+
+        await register_inventory_codex(session, int(player_id), inv)
 
     async def _generate_inventory_item_from_base_templates(
         self,
@@ -1587,7 +1600,7 @@ class ItemService:
         # Prefer imported item_base_templates first (10-tier content source).
         try:
             if await self._item_base_templates_has_content(session):
-                return await self._generate_inventory_item_from_base_templates(
+                inv = await self._generate_inventory_item_from_base_templates(
                     session,
                     player_id=player_id,
                     act=act,
@@ -1595,6 +1608,8 @@ class ItemService:
                     level=int(level) if level is not None else None,
                     plus_level=pl_src,
                 )
+                await self._register_inventory_codex(session, player_id, inv)
+                return inv
         except Exception:
             # keep current behavior if the table is absent/incompatible
             pass
@@ -1602,13 +1617,15 @@ class ItemService:
         # Then prefer Diablo-style generator if content exists; finally fall back to legacy templates/affixes.
         try:
             if await self._diablo_has_content(session):
-                return await self._generate_inventory_item_diablo(
+                inv = await self._generate_inventory_item_diablo(
                     session,
                     player_id=player_id,
                     act=act,
                     rarity=int(rarity),
                     level=int(level) if level is not None else None,
                 )
+                await self._register_inventory_codex(session, player_id, inv)
+                return inv
         except Exception:
             # keep legacy behavior on any Diablo error
             pass
@@ -1705,6 +1722,7 @@ class ItemService:
         # Attach display name so callers don't need to lazy-load inv.item in async context
         inv._display_name = item.name  # type: ignore[attr-defined]
         await apply_enchant_steps_to_inventory_item(session, inv)
+        await self._register_inventory_codex(session, player_id, inv)
         return inv
 
     async def generate_gamble_item(self, session: AsyncSession, act: int, player_level: int) -> m.InventoryItem:
