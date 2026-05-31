@@ -165,6 +165,22 @@
         border-color: rgba(120, 180, 255, 0.55);
         box-shadow: 0 0 12px rgba(90, 150, 240, 0.35);
       }
+      .page-caravan .caravan-map-bg-label {
+        position: absolute;
+        z-index: 1;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        user-select: none;
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--cv-cream);
+        opacity: 0.26;
+      }
+      .page-caravan .caravan-map-bg-label--library {
+        left: 72%;
+        top: 40%;
+      }
       .page-caravan .caravan-pin {
         display: flex;
         flex-direction: column;
@@ -303,6 +319,7 @@
     <div class="caravan-stage" id="caravan-stage" data-tutorial="caravan-map">
       <div class="caravan-stage-bg" aria-hidden="true"></div>
       <img id="caravan-bg-img" class="caravan-bg-full" src="" alt="" />
+      <div class="caravan-map-bg-label caravan-map-bg-label--library" aria-hidden="true">Библиотека</div>
       <div id="caravan-pins-layer" class="caravan-pins-layer"></div>
       <div id="caravan-error" class="banner caravan-error-banner" style="display: none;"></div>
     </div>

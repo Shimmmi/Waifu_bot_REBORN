@@ -2316,6 +2316,7 @@ const shopState = {
 };
 
 const SMITH_PICK_PAGE_SIZE = 9;
+const SMITH_SAFE_MAX = 7;
 
 const SMITH_PICK_LOADING_HTML = `<div class="shop-smith-pick-loading" aria-busy="true" aria-label="Загрузка инвентаря">
   ${Array.from({ length: 9 }, () => '<div class="shop-smith-pick-loading-card"></div>').join("")}
@@ -3127,6 +3128,8 @@ function switchSmithSubTab(name) {
     if (btn) btn.classList.toggle("active", t === tab);
     const panel = document.getElementById(`shop-smith-panel-${t}`);
     if (panel) panel.style.display = t === tab ? "" : "none";
+    const controls = document.getElementById(`shop-smith-controls-${t}`);
+    if (controls) controls.style.display = t === tab ? "" : "none";
   });
   if (tab === "craft") {
     refreshSmithCraftPreview().catch(console.error);
@@ -3155,15 +3158,15 @@ function updateSmithSelectionUI() {
 }
 
 function syncSmithProtectionStoneCheckbox(targetLevel) {
-  const stoneRow = document.getElementById("shop-smith-stone-row");
+  const stoneCheck = document.getElementById("shop-smith-stone-check-wrap");
   const stoneCb = document.getElementById("shop-smith-use-stone");
   if (!stoneCb) return;
   const t = Number(targetLevel);
   if (!Number.isFinite(t) || t < 8) {
     stoneCb.checked = false;
-    if (stoneRow) stoneRow.style.display = "none";
-  } else if (stoneRow) {
-    stoneRow.style.display = "";
+    if (stoneCheck) stoneCheck.hidden = true;
+  } else if (stoneCheck) {
+    stoneCheck.hidden = false;
   }
 }
 
@@ -3309,8 +3312,6 @@ async function refreshSmithPreview() {
     const autoBtn = document.getElementById("shop-smith-auto-btn");
     if (autoBtn) autoBtn.disabled = true;
     syncSmithEnchantBadge(0, false);
-    const st = document.getElementById("shop-smith-stone-row");
-    if (st) st.style.display = "none";
     syncSmithProtectionStoneCheckbox(0);
     return;
   }
@@ -3348,8 +3349,6 @@ async function refreshSmithPreview() {
         : `<div class="shop-smith-risk">⚠️ Шанс успеха: <strong>${Math.round(Number(ch) * 100)}%</strong></div>
            <div class="muted tiny">${escapeHtml(String(prev.on_fail_hint || ""))}</div>`;
 
-    const stoneRow = document.getElementById("shop-smith-stone-row");
-    if (stoneRow) stoneRow.style.display = tgt >= 8 ? "" : "none";
     syncSmithProtectionStoneCheckbox(tgt);
 
     const statRows = [];
@@ -3414,7 +3413,7 @@ async function refreshSmithPreview() {
     const btn = document.getElementById("shop-smith-enchant-btn");
     if (btn) btn.disabled = cur >= 10 || broken;
     const autoBtn = document.getElementById("shop-smith-auto-btn");
-    if (autoBtn) autoBtn.disabled = cur >= 6 || Boolean(prev.is_risky) || broken;
+    if (autoBtn) autoBtn.disabled = cur >= SMITH_SAFE_MAX || Boolean(prev.is_risky) || broken;
   } catch (e) {
     console.error(e);
     box.innerHTML = `<div class="muted tiny">Ошибка превью.</div>`;
@@ -3500,7 +3499,7 @@ async function smithAutoSafeEnchant() {
   }
   setSmithSharpenControlsDisabled(true);
   try {
-    for (let step = 0; step < 6; step += 1) {
+    for (let step = 0; step < SMITH_SAFE_MAX; step += 1) {
       const prev = await apiFetch(`/inventory/${id}/enchant-preview`);
       if (prev?.error) {
         showToast(String(prev.error), "error");
@@ -3509,7 +3508,7 @@ async function smithAutoSafeEnchant() {
       const cur = Number(prev.current_level ?? 0);
       const tgt = Number(prev.target_level ?? cur + 1);
       if (prev.is_risky || tgt >= 8) break;
-      if (cur >= 6) break;
+      if (cur >= SMITH_SAFE_MAX) break;
 
       const res = await apiFetch(`/inventory/${id}/enchant`, {
         method: "POST",
@@ -3548,7 +3547,7 @@ async function smithAutoSafeEnchant() {
           "success"
         );
       }
-      if (Number(nl) >= 6) break;
+      if (Number(nl) >= SMITH_SAFE_MAX) break;
     }
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -3592,24 +3591,27 @@ async function refreshSmithCraftPreview() {
       ${cap > 0 ? `<div class="muted tiny">Максимум для tier: ${(cap * 100).toFixed(2)}%</div>` : ""}`;
     if (addBtn) {
       addBtn.disabled = costs.add == null;
+      addBtn.title = "Случайная вторичка, если её ещё нет";
       addBtn.innerHTML =
         costs.add != null
-          ? `Добавить<span class="shop-smith-craft-btn-cost">✨ ${costs.add}</span>`
-          : "Добавить";
+          ? `Выдать бонус<span class="shop-smith-craft-btn-cost">✨ ${costs.add}</span>`
+          : "Выдать бонус";
     }
     if (rerollBtn) {
       rerollBtn.disabled = costs.reroll == null;
+      rerollBtn.title = "Другой тип и сила вторички";
       rerollBtn.innerHTML =
         costs.reroll != null
-          ? `Перекат<span class="shop-smith-craft-btn-cost">✨ ${costs.reroll}</span>`
-          : "Перекат";
+          ? `Сменить бонус<span class="shop-smith-craft-btn-cost">✨ ${costs.reroll}</span>`
+          : "Сменить бонус";
     }
     if (upBtn) {
       upBtn.disabled = costs.upgrade == null;
+      upBtn.title = "+шаг к текущей вторичке";
       upBtn.innerHTML =
         costs.upgrade != null
-          ? `Усилить<span class="shop-smith-craft-btn-cost">✨ ${costs.upgrade}</span>`
-          : "Усилить";
+          ? `Усилить бонус<span class="shop-smith-craft-btn-cost">✨ ${costs.upgrade}</span>`
+          : "Усилить бонус";
     }
   } catch (e) {
     console.error(e);
@@ -9092,7 +9094,6 @@ async function populateCaravanPage(profile) {
     `
     <div class="caravan-pin caravan-pin--library" role="group" aria-label="Библиотека">
       <button type="button" class="caravan-pin-ico-btn" onclick="WaifuApp.openLibrary()" aria-label="Библиотека">📖</button>
-      <div class="caravan-pin-title">Кодекс</div>
     </div>`;
 
   ACT_META.forEach(({ act }) => {
@@ -9381,6 +9382,17 @@ function libraryBuildDetailStats(e) {
   return rows.join("");
 }
 
+function statsGuideContentHtml() {
+  return `
+    <p><strong>Основные характеристики</strong> — база персонажа + раса/класс + экипировка + плоский бонус «Трансценд.»; затем множители «+% ко всем статам» с предметов и пассивов.</p>
+    <p><strong>Урон</strong> — отдельно ближний (СИЛ), дальний (ЛОВ), магический (ИНТ); пассивы с одинаковым типом эффекта <em>суммируются</em>, разные типы — перемножаются по цепочке боя.</p>
+    <p><strong>Уклонение</strong> (строка в профиле) — один общий шанс: ЛОВ × 0,1% + вторички на предметах + пассивы вроде «Проворство». Потолок 40%. Удача в уклонение не входит.</p>
+    <p><strong>Полное уклонение</strong> — отдельная строка и отдельный бросок в бою (например «Шаг тени»). Срабатывает после обычного уклонения, если оно не сработало.</p>
+    <p><strong>Снижение урона</strong> — ВЫН + вторички + броня складываются в один пул (до 90%).</p>
+    <p><strong>Пассивы с предметов</strong> — «+N к уровню навыка» повышает эффективный уровень. Для части навыков (полное уклонение, instakill и др.) эффект не растёт выше максимума таблицы — смотрите предупреждение в модалке навыка.</p>
+    <p><strong>Заточка</strong> — усиливает урон/броню на оружии и доспехах; на аксессуарах — вторичные бонусы (крит, уклонение…). Предметы с бонусом к пассивному навыку заточкой не усиливаются.</p>`;
+}
+
 function libraryMechanicsHtml() {
   return `
     <div class="lib-mechanics">
@@ -9389,7 +9401,9 @@ function libraryMechanicsHtml() {
       <h3>Типы урона</h3>
       <p>Физический, магический и чистый урон по-разному взаимодействуют с защитой и аффиксами элитных монстров.</p>
       <h3>Статы</h3>
-      <p>СИЛ, ЛОВ, ИНТ, ВЫН, ОБА и УДЧ влияют на урон, защиту, крит и награды. Подробности — в профиле и древе пассивов.</p>
+      <p>СИЛ, ЛОВ, ИНТ, ВЫН, ОБА и УДЧ влияют на урон, защиту, крит и награды. Подробности — в разделе ниже и в древе пассивов.</p>
+      <h3 id="lib-stats-guide">Как считаются статы</h3>
+      <div class="lib-stats-guide-body">${statsGuideContentHtml()}</div>
       <h3>Бестиарий</h3>
       <p>Убивайте одного и того же монстра, чтобы открывать имя, HP, тип и бонусы против него. Прогресс привязан к шаблону монстра.</p>
       <h3>Акты</h3>
@@ -9461,6 +9475,7 @@ function ensureLibraryStyles() {
 .lib-study-bonus-row{font-size:11px;color:rgba(61,46,31,.85);margin-bottom:2px}
 .lib-mechanics h3{font-size:13px;color:#e8b84b;margin:12px 0 6px}
 .lib-mechanics p{font-size:12px;color:rgba(201,184,168,.9);line-height:1.45;margin:0 0 8px}
+.lib-stats-guide-body p{font-size:12px;color:rgba(201,184,168,.9);line-height:1.45;margin:0 0 8px}
 .lib-soon{text-align:center;padding:32px 16px;color:rgba(201,184,168,.7);font-size:13px}
 .lib-loading{text-align:center;padding:24px;color:rgba(201,184,168,.8)}
 `;
@@ -10570,7 +10585,7 @@ const SMITH_HELP_HTML = `
   <h4>Заточка +N</h4>
   <p>Оплачивается золотом. Оружие усиливает урон, броня — броню, аксессуары — вторичный бонус (крит, уклонение и т.д.). Уровни +1…+7 без риска; с +8 возможна неудача. Камень защиты смягчает откат до +6. При первой успешной заточке +1 на подходящем предмете может пробудиться случайная вторичка.</p>
   <h4>Зачарование</h4>
-  <p>Оплачивается пылью. Можно добавить, перекатить или усилить вторичный бонус на любом предмете. Пассивный бонус предмета зачарованием не меняется.</p>
+  <p>Оплачивается пылью. Можно выдать, сменить (другой тип и значение) или усилить вторичный бонус на любом предмете. Пассивный бонус предмета зачарованием не меняется.</p>
   <h4>Пыль</h4>
   <p>Получается распылением предметов в инвентаре. Продажа предметов пыль не даёт.</p>
   <h4>Ресурсы</h4>
@@ -10588,34 +10603,6 @@ function openSmithHelpModal() {
 
 function closeSmithHelpModal() {
   const modal = document.getElementById("smith-help-modal");
-  if (!modal) return;
-  modal.style.display = "none";
-  modal.setAttribute("aria-hidden", "true");
-}
-
-const STATS_GUIDE_HTML = `
-  <div class="stats-guide-body">
-    <p><strong>Основные характеристики</strong> — база персонажа + раса/класс + экипировка + плоский бонус «Трансценд.»; затем множители «+% ко всем статам» с предметов и пассивов.</p>
-    <p><strong>Урон</strong> — отдельно ближний (СИЛ), дальний (ЛОВ), магический (ИНТ); пассивы с одинаковым типом эффекта <em>суммируются</em>, разные типы — перемножаются по цепочке боя.</p>
-    <p><strong>Уклонение</strong> (строка в профиле) — один общий шанс: ЛОВ × 0,1% + вторички на предметах + пассивы вроде «Проворство». Потолок 40%. Удача в уклонение не входит.</p>
-    <p><strong>Полное уклонение</strong> — отдельная строка и отдельный бросок в бою (например «Шаг тени»). Срабатывает после обычного уклонения, если оно не сработало.</p>
-    <p><strong>Снижение урона</strong> — ВЫН + вторички + броня складываются в один пул (до 90%).</p>
-    <p><strong>Пассивы с предметов</strong> — «+N к уровню навыка» повышает эффективный уровень. Для части навыков (полное уклонение, instakill и др.) эффект не растёт выше максимума таблицы — смотрите предупреждение в модалке навыка.</p>
-    <p><strong>Заточка</strong> — усиливает урон/броню на оружии и доспехах; на аксессуарах — вторичные бонусы (крит, уклонение…). Предметы с бонусом к пассивному навыку заточкой не усиливаются.</p>
-  </div>
-`;
-
-function openStatsGuideModal() {
-  const modal = document.getElementById("stats-guide-modal");
-  const body = document.getElementById("stats-guide-body");
-  if (!modal || !body) return;
-  body.innerHTML = STATS_GUIDE_HTML;
-  modal.style.display = "flex";
-  modal.setAttribute("aria-hidden", "false");
-}
-
-function closeStatsGuideModal() {
-  const modal = document.getElementById("stats-guide-modal");
   if (!modal) return;
   modal.style.display = "none";
   modal.setAttribute("aria-hidden", "true");
@@ -10659,8 +10646,6 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   closeChatRewardClaimModal,
   openProfileStatInfoModal,
   closeProfileStatInfoModal,
-  openStatsGuideModal,
-  closeStatsGuideModal,
   toggleProfileStatAccordion,
   toggleProfileInventoryMode,
   toggleProfileInventoryFilter,

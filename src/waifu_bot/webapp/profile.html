@@ -1213,10 +1213,7 @@
         <div class="section">
           <div class="section-head">
             <h3>Характеристики</h3>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <button type="button" class="secondary tiny" onclick="WaifuApp.openStatsGuideModal()">Как считаются статы?</button>
-              <div class="tag" id="profile-stat-points">ОХ: —</div>
-            </div>
+            <div class="tag" id="profile-stat-points">ОХ: —</div>
           </div>
           <div id="profile-stats-breakdown" class="profile-stats-breakdown-root"></div>
         </div>
@@ -1249,21 +1246,6 @@
         </div>
       </section>
     </main>
-
-    <div
-      id="stats-guide-modal"
-      class="modal profile-stat-info-modal"
-      style="display:none;"
-      onclick="WaifuApp.closeStatsGuideModal()"
-      aria-hidden="true"
-    >
-      <div class="profile-stat-info-panel" role="dialog" aria-modal="true" aria-labelledby="stats-guide-title" onclick="event.stopPropagation()">
-        <div class="profile-stat-info-head">
-          <div class="modal-title profile-stat-info-title" id="stats-guide-title">Как считаются статы</div>
-        </div>
-        <div class="profile-stat-info-body stats-guide-body-wrap" id="stats-guide-body"></div>
-      </div>
-    </div>
 
     <div
       id="profile-stat-info-modal"
