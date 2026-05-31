@@ -1128,6 +1128,50 @@ header.attic {
   line-height: 1.2;
 }
 
+/* Enchant level (+N) overlay on item art — bag / slot / modal */
+.item-enchant-overlay {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  z-index: 2;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fcd34d;
+  font-weight: 800;
+  line-height: 1.2;
+  border-radius: 6px;
+  border: 1px solid rgba(252, 211, 77, 0.35);
+  padding: 1px 5px;
+}
+.item-enchant-overlay--bag {
+  left: 3px;
+  bottom: 3px;
+  font-size: 8px;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+#tab-inventory .profile-bag-grid.mode-compact .item-enchant-overlay--bag {
+  font-size: 7px;
+  padding: 1px 3px;
+}
+.item-enchant-overlay--slot {
+  font-size: 11px;
+  padding: 1px 5px;
+  border-color: rgba(252, 211, 77, 0.4);
+}
+.item-enchant-overlay--modal {
+  left: 6px;
+  bottom: 6px;
+  font-size: 14px;
+  padding: 2px 7px;
+  border-radius: 8px;
+}
+.item-enchant-overlay--broken {
+  color: #999077;
+  border-color: rgba(153, 144, 119, 0.35);
+  font-weight: 700;
+}
+
 /* Pagination row */
 #tab-inventory .inv-pagination {
   display: flex;
@@ -1894,7 +1938,6 @@ button.chip {
 .item-modal-v2-ench {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   background: rgba(53, 53, 52, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 12px;
@@ -1925,10 +1968,14 @@ button.chip {
   display: flex;
   gap: 4px;
   align-items: center;
-  flex-shrink: 0;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
 }
 .item-modal-v2-pip {
-  width: 18px;
+  flex: 1;
+  width: auto;
+  min-width: 0;
   height: 5px;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.08);
@@ -2186,8 +2233,25 @@ button.chip {
 .item-modal-v2-actions[data-cols="2"] {
   grid-template-columns: 1fr 1fr;
 }
+.item-modal-v2-actions[data-cols="1"] {
+  grid-template-columns: 1fr;
+}
 .item-modal-v2-actions[data-cols="3"] {
   grid-template-columns: 1fr 1fr 1fr;
+}
+.item-modal-v2-actions[data-cols="4"] {
+  grid-template-columns: repeat(4, 1fr);
+}
+@media (max-width: 360px) {
+  .item-modal-v2-actions[data-cols="4"] .item-modal-v2-btn {
+    padding: 10px 2px;
+    font-size: 8px;
+    letter-spacing: 0.04em;
+  }
+  .item-modal-v2-actions[data-cols="4"] .item-modal-v2-btn--icon {
+    font-size: 16px;
+    padding: 10px 4px;
+  }
 }
 .item-modal-v2-btn {
   padding: 12px 6px;
@@ -2200,6 +2264,13 @@ button.chip {
   cursor: pointer;
   text-align: center;
   transition: transform 0.12s ease, filter 0.12s ease;
+}
+.item-modal-v2-btn--icon {
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 12px 8px;
 }
 .item-modal-v2-btn:active {
   transform: scale(0.97);

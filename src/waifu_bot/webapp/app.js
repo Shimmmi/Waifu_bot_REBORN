@@ -4721,8 +4721,18 @@ function rarityPillModifierClass(r) {
   return "";
 }
 
-function buildItemModalEnchantRowHtml(item) {
+function itemEnchantOverlayHtml(item, context = "bag") {
+  const ctx = ["bag", "slot", "modal"].includes(context) ? context : "bag";
   const br = Boolean(item?.is_broken);
+  const en = safeNumber(item?.enchant_level, 0);
+  if (br) {
+    return `<span class="item-enchant-overlay item-enchant-overlay--${ctx} item-enchant-overlay--broken" title="Сломан">—</span>`;
+  }
+  if (en <= 0) return "";
+  return `<span class="item-enchant-overlay item-enchant-overlay--${ctx}">+${en}</span>`;
+}
+
+function buildItemModalEnchantRowHtml(item) {
   const en = safeNumber(item?.enchant_level, 0);
   const mx = ITEM_MODAL_ENCHANT_PIP_MAX;
   const pips = Array.from({ length: mx }, (_, i) => {
@@ -4731,14 +4741,7 @@ function buildItemModalEnchantRowHtml(item) {
     const cls = mxf ? " item-modal-v2-pip--mx" : f ? " item-modal-v2-pip--f" : "";
     return `<div class="item-modal-v2-pip${cls}" aria-hidden="true"></div>`;
   }).join("");
-  if (br) {
-    return `<span class="item-modal-v2-ench-val item-modal-v2-ench-val--muted" title="Сломан">—</span><div class="item-modal-v2-pips">${pips}</div>`;
-  }
-  const valCell =
-    en > 0
-      ? `<span class="item-modal-v2-ench-val">+${en}</span>`
-      : `<span class="item-modal-v2-ench-val item-modal-v2-ench-val--empty" aria-hidden="true"></span>`;
-  return `${valCell}<div class="item-modal-v2-pips">${pips}</div>`;
+  return `<div class="item-modal-v2-pips">${pips}</div>`;
 }
 
 function renderItemModalV2CharacteristicsHtml(item) {
@@ -5326,10 +5329,12 @@ function renderProfileSlotCard(slot, item) {
     ? itemArtHtml(item)
     : `<span class="profile-slot-fallback">${itemIconForSlotType("")}</span>`;
 
+  const enchantOverlay = item ? itemEnchantOverlayHtml(item, "slot") : "";
   return `
     <button type="button" class="profile-slot-card profile-slot-card--mini ${item ? rarity : "empty"}" title="${escapeHtml(titleText)}" aria-label="${escapeHtml(slotName)}" onclick="WaifuApp.openProfileSlot(${slot})">
       <div class="profile-slot-media">
         ${mediaHtml}
+        ${enchantOverlay}
         ${item ? `<div class="profile-slot-mini-level profile-slot-mini-level--overlay">Ур. ${lvl}</div>` : ""}
       </div>
     </button>
@@ -5515,11 +5520,12 @@ function renderProfileInventory() {
       const iconHtml = itemArtHtml(item);
       const upgrade = isProfileUpgradeItem(item);
       const locked = item?.can_equip === false;
+      const enchantOverlay = itemEnchantOverlayHtml(item, "bag");
       cells.push(`
         <button type="button" class="item-card profile-inv-item ${rarity} ${locked ? "empty" : ""}" title="${name}" onclick="WaifuApp.openItemById(${Number(
           item?.id || 0
         )})">
-          <div class="item-icon">${iconHtml}</div>
+          <div class="item-icon">${iconHtml}${enchantOverlay}</div>
           ${upgrade ? `<div class="upgrade-arrow" title="Улучшение относительно экипировки">▲</div>` : ""}
           <div class="item-level">Ур. ${item?.level ?? "?"}</div>
         </button>
@@ -5708,6 +5714,11 @@ async function ensureProfileEquipmentLoaded() {
   } finally {
     profileState.equipmentLoading = false;
   }
+}
+
+async function reloadProfileEquipment() {
+  profileState.equipmentLoaded = false;
+  await ensureProfileEquipmentLoaded();
 }
 
 async function populateProfile(profile) {
@@ -6016,6 +6027,7 @@ async function equipItemToProfileSlot(itemId, slot) {
   await apiFetch(`/waifu/equipment/equip?inventory_item_id=${itemId}&slot=${slot}`, { method: "POST" });
   closeSlotModal();
   closeItemModal();
+  profileState.equipmentLoaded = false;
   await bootstrapPage("profile", populateProfile);
   switchProfileTab("inventory");
 }
@@ -6133,6 +6145,12 @@ function openItemModal(item) {
 
   const art = document.getElementById("item-modal-art");
   if (art) art.innerHTML = itemArtHtml(item, { adminGen: true });
+  const artFrame = document.getElementById("item-modal-art-frame");
+  if (artFrame) {
+    artFrame.querySelectorAll(".item-enchant-overlay").forEach((el) => el.remove());
+    const overlayHtml = itemEnchantOverlayHtml(item, "modal");
+    if (overlayHtml) artFrame.insertAdjacentHTML("beforeend", overlayHtml);
+  }
 
   const enchRow = document.getElementById("item-modal-ench");
   if (enchRow) enchRow.innerHTML = buildItemModalEnchantRowHtml(item);
@@ -6222,7 +6240,7 @@ function openItemModal(item) {
   if (replaceBtn && replaceBtn.style.display !== "none") visibleFooter += 1;
   if (equipBtn && equipBtn.style.display !== "none") visibleFooter += 1;
   if (actionsRow) {
-    actionsRow.setAttribute("data-cols", visibleFooter <= 2 ? "2" : "3");
+    actionsRow.setAttribute("data-cols", String(Math.max(1, Math.min(visibleFooter, 4))));
   }
 
   modal.style.display = "grid";
@@ -6244,6 +6262,7 @@ async function refreshAfterInventoryModalAction() {
     }
     return;
   }
+  profileState.equipmentLoaded = false;
   await bootstrapPage("profile", populateProfile);
 }
 
