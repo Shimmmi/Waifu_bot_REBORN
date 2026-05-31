@@ -60,8 +60,8 @@ from waifu_bot.game.main_waifu_base_stats import (
 from waifu_bot.api.admin_routes import router as admin_router
 from waifu_bot.api.inventory_routes import (
     router as inventory_router,
-    _enrich_items_with_template_stats,
 )
+from waifu_bot.services.inventory_payload import enrich_inventory_items_with_template_stats as _enrich_items_with_template_stats
 from waifu_bot.api.guild_routes import router as guild_router
 from waifu_bot.api.shop_routes import router as shop_router
 from waifu_bot.api.tavern_routes import router as tavern_router
@@ -189,52 +189,23 @@ def calculate_item_bonuses(inv: m.InventoryItem) -> dict:
     return bonuses
 
 
-async def _enrich_items_with_template_stats(
-    session: AsyncSession,
-    items: list[m.InventoryItem] | None,
+def _apply_fraction_secondary_to_total(
+    total_bonuses: dict,
+    sec_type: str,
+    sec_eff: float,
 ) -> None:
-    """Attach armor and secondary bonus attrs from item_base_templates."""
-    if not items:
-        return
-    keys: set[tuple[str, int]] = set()
-    for inv in items:
-        item_name = str(getattr(getattr(inv, "item", None), "name", "") or "").strip()
-        tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 0)
-        if item_name and tier > 0:
-            keys.add((item_name, tier))
-    if not keys:
-        return
-    try:
-        stmt = (
-            select(
-                text("name"),
-                text("tier"),
-                text("armor_base"),
-                text("secondary_bonus_type"),
-                text("secondary_bonus_value"),
-            )
-            .select_from(text("item_base_templates"))
-            .where(tuple_(text("name"), text("tier")).in_(list(keys)))
-        )
-        rows = (await session.execute(stmt)).all()
-    except Exception:
-        return
-
-    stats_map: dict[tuple[str, int], tuple[int, str | None, float]] = {}
-    for row in rows:
-        key = (str(getattr(row, "name", "") or ""), int(getattr(row, "tier", 0) or 0))
-        stats_map[key] = (
-            int(getattr(row, "armor_base", 0) or 0),
-            getattr(row, "secondary_bonus_type", None),
-            float(getattr(row, "secondary_bonus_value", 0.0) or 0.0),
-        )
-    for inv in items:
-        item_name = str(getattr(getattr(inv, "item", None), "name", "") or "").strip()
-        tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 0)
-        armor, sec_type, sec_val = stats_map.get((item_name, tier), (0, None, 0.0))
-        setattr(inv, "_armor_base", armor)
-        setattr(inv, "_secondary_bonus_type", sec_type)
-        setattr(inv, "_secondary_bonus_value", sec_val)
+    key_map = {
+        "crit_chance_pct": "secondary_crit_chance_pct",
+        "evade_pct": "secondary_evade_pct",
+        "dmg_reduce_pct": "secondary_dmg_reduce_pct",
+        "hp_max_pct": "secondary_hp_max_pct",
+        "exp_bonus_pct": "secondary_exp_bonus_pct",
+        "gold_bonus_pct": "secondary_gold_bonus_pct",
+        "magic_find_pct": "secondary_magic_find_pct",
+    }
+    mapped = key_map.get(sec_type)
+    if mapped:
+        total_bonuses[mapped] = float(total_bonuses.get(mapped, 0.0) or 0.0) + float(sec_eff or 0.0)
 
 
 def _compute_details(
@@ -297,25 +268,21 @@ def _compute_details(
                 else:
                     total_bonuses[key] = total_bonuses.get(key, 0) + value
             armor_base = int(getattr(inv, "_armor_base", 0) or 0)
-            sec_val = float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0)
-            eff = get_effective_params(inv, armor_base=armor_base, secondary_bonus_value=sec_val)
+            eff = get_effective_params(inv, armor_base=armor_base, secondary_bonus_value=0.0)
             armor_total += int(eff.get("armor", 0) or 0)
-            sec_type = str(getattr(inv, "_secondary_bonus_type", "") or "")
-            sec_eff = float(eff.get("secondary", 0.0) or 0.0)
-            if sec_type == "crit_chance_pct":
-                total_bonuses["secondary_crit_chance_pct"] += sec_eff
-            elif sec_type == "evade_pct":
-                total_bonuses["secondary_evade_pct"] += sec_eff
-            elif sec_type == "dmg_reduce_pct":
-                total_bonuses["secondary_dmg_reduce_pct"] += sec_eff
-            elif sec_type == "hp_max_pct":
-                total_bonuses["secondary_hp_max_pct"] += sec_eff
-            elif sec_type == "exp_bonus_pct":
-                total_bonuses["secondary_exp_bonus_pct"] += sec_eff
-            elif sec_type == "gold_bonus_pct":
-                total_bonuses["secondary_gold_bonus_pct"] += sec_eff
-            elif sec_type == "magic_find_pct":
-                total_bonuses["secondary_magic_find_pct"] += sec_eff
+            from waifu_bot.game.item_secondary import effective_fraction_combat, resolve_item_secondaries
+
+            resolved = getattr(inv, "_resolved_secondaries", None) or resolve_item_secondaries(inv, None)
+            frac_type, frac_eff = effective_fraction_combat(inv, resolved)
+            if frac_type:
+                _apply_fraction_secondary_to_total(total_bonuses, frac_type, frac_eff)
+            legacy_type = str(getattr(inv, "_secondary_bonus_type", "") or "")
+            if legacy_type and not frac_type:
+                sec_eff = float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0)
+                sec_eff += float(inv.enchant_sec_step or 0.0) * (
+                    0 if bool(inv.is_broken) else int(inv.enchant_level or 0)
+                )
+                _apply_fraction_secondary_to_total(total_bonuses, legacy_type, sec_eff)
 
     # Применяем бонусы к статам
     strength += total_bonuses["strength"]
@@ -682,8 +649,11 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
         can_equip, requirement_errors = check_item_requirements(inv, waifu)
     
     armor_b = int(getattr(inv, "_armor_base", 0) or 0)
-    sec_v = float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0)
-    eff = get_effective_params(inv, armor_base=armor_b, secondary_bonus_value=sec_v)
+    from waifu_bot.game.item_secondary import effective_fraction_combat, resolve_item_secondaries
+
+    resolved = getattr(inv, "_resolved_secondaries", None) or resolve_item_secondaries(inv, None)
+    frac_type, frac_val = effective_fraction_combat(inv, resolved)
+    eff = get_effective_params(inv, armor_base=armor_b, secondary_bonus_value=frac_val or 0.0)
     return schemas.GearItemOut(
         id=inv.id,
         slot=slot,
@@ -701,7 +671,11 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
         base_stat_value=inv.base_stat_value,
         armor_base=armor_b or None,
         secondary_bonus_type=getattr(inv, "_secondary_bonus_type", None),
-        secondary_bonus_value=sec_v or None,
+        secondary_bonus_value=float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0) or None,
+        secondary_fraction_type=frac_type,
+        secondary_fraction_value=float(resolved.fraction_value) or None,
+        secondary_fraction_effective=float(frac_val) if frac_val else None,
+        secondary_awakened=bool(getattr(inv, "_secondary_awakened", False)),
         damage_min_effective=eff.get("damage_min"),
         damage_max_effective=eff.get("damage_max"),
         armor_effective=int(eff.get("armor", 0) or 0) or None,
@@ -1114,6 +1088,7 @@ async def get_profile(
             gold=player.gold,
             skill_points=int(getattr(player, "skill_points", 0) or 0),
             protection_stones=int(getattr(player, "protection_stones", 0) or 0),
+            enchant_dust=int(getattr(player, "enchant_dust", 0) or 0),
             caravan_travel_costs=list(CARAVAN_TRAVEL_GOLD_TO_ACT),
             main_waifu=main_payload,
             main_waifu_details=main_details,
@@ -1134,6 +1109,7 @@ async def get_profile(
             gold=0,
             skill_points=0,
             protection_stones=0,
+            enchant_dust=0,
             caravan_travel_costs=list(CARAVAN_TRAVEL_GOLD_TO_ACT),
             main_waifu=None,
             main_waifu_details=None,

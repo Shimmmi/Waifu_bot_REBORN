@@ -11,6 +11,10 @@
     <script defer src="/webapp/app.js"></script>
     <script defer src="/webapp/pages/dungeons.js"></script>
     <style>
+      .hp-fill-monster.monster-hp-fill--unknown {
+        opacity: 0.35;
+        filter: grayscale(1);
+      }
       /* ОЧ — палитра как в магазине / таверне, читаемый текст */
       body.page-dungeons {
         background: #0d0a08;
@@ -1776,6 +1780,7 @@
                 <div class="hp-bar">
                   <div id="monster-hp-fill" class="hp-fill hp-fill-monster" style="width:100%"></div>
                 </div>
+                <p id="monster-hp-codex-hint" class="muted tiny" style="display:none;margin:4px 0 0;"></p>
               </div>
 
               <div id="monster-affixes" class="monster-affixes" style="display:none;" aria-label="Аффиксы монстра"></div>

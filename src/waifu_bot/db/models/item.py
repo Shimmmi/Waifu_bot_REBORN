@@ -133,6 +133,13 @@ class InventoryItem(Base):
     enchant_sec_step: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     is_broken: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # Instance secondary snapshot (template / awaken / craft)
+    secondary_bonus_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    secondary_bonus_value: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    secondary_awakened: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    secondary_fraction_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    secondary_fraction_value: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+
     # Relationships
     player: Mapped["Player"] = relationship("Player", back_populates="inventory_items")
     item: Mapped["Item"] = relationship("Item")

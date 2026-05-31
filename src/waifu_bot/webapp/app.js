@@ -780,6 +780,7 @@ function getProfileIndicators(waifu, details = null) {
   const magic = safeNumber(d?.magic_damage, 0);
   const crit = safeNumber(d?.crit_chance, 0);
   const dodge = safeNumber(d?.dodge_chance, 0);
+  const fullEvade = safeNumber(d?.full_evade_chance, 0);
   // Use server-computed values when available, fallback to client formulas
   const expBonus = d ? safeNumber(d.exp_bonus, intelligence * 0.1) : intelligence * 0.1;
   const goldBonus = d ? safeNumber(d.gold_bonus, luck * 0.2) : luck * 0.2;
@@ -805,6 +806,7 @@ function getProfileIndicators(waifu, details = null) {
     magicRange: profileDamageRangeFromDetails(d, "magic", magic),
     critChance: profileFormatPercent(crit, 2),
     dodgeChance: profileFormatPercent(dodge, 2),
+    fullEvadeChance: profileFormatPercent(fullEvade, 2),
     expBonus: profileFormatPercent(expBonus, 1),
     goldBonus: profileFormatPercent(goldBonus, 1),
     damageReduction: profileFormatPercent(damageReduction, 1),
@@ -1222,6 +1224,7 @@ function populateFromProfile(profile) {
   // Shared ОЧ badges — populated on every page that has these IDs in its DOM
   if (profile.act != null) setText("badge-act", profile.act);
   if (profile.gold != null) setText("badge-gold", profile.gold);
+  if (profile.enchant_dust != null) setText("badge-dust", profile.enchant_dust);
 
   const w = profile.main_waifu;
   if (w) {
@@ -1390,7 +1393,7 @@ const WAIFU_CLASS_BONUSES = {
   7: { charm: 2, luck: 2 },
 };
 
-/** Тексты пассивов расы — ТЗ «Пассивные навыки и расовые бонусы» (числа X,Y,N — из skill_config в БД). */
+/** Тексты пассивов расы — ориентировочные значения для экрана создания персонажа. */
 const WAIFU_GEN_RACE_PASSIVES = {
   1: [
     "«Адаптивность» — каждые 10 уровней (10, 20, 30…) +1 свободное очко характеристики на выбор",
@@ -1399,85 +1402,85 @@ const WAIFU_GEN_RACE_PASSIVES = {
   ],
   2: [
     "«Лесное чутьё» — вклад ЛОВ в шанс крита удваивается (в формуле крита ЛОВ даёт ×2 к своему слагаемому)",
-    "+X% к шансу крит. атаки (базовый расовый бонус, X из БД)",
+    "+3% к шансу крит. атаки (базовый расовый бонус)",
     "×2 к коэффициенту крита от ЛОВ",
     "−5% к максимальному HP",
   ],
   3: [
     "«Хищный инстинкт» — каждое N-е текстовое сообщение в подземелье: урон ×1,5; N = max(3, 10 − ⌊СИЛ/5⌋) (при СИЛ 10 → N=8, при 25 → 5, при СИЛ ≥ 35 → 3)",
-    "+X к урону ближнего боя (плоский бонус, X из БД)",
-    "+Y% к шансу уклонения (Y из БД)",
+    "+2 к урону ближнего боя (плоский бонус)",
+    "+4% к шансу уклонения",
     "−5% к цене продажи предметов",
   ],
   4: [
-    "«Благодать» — множитель формулы регенерации HP +50% (пассивная регенерация сильнее); бонус ИНТ к EXP дополнительно +X% (X из БД)",
+    "«Благодать» — множитель формулы регенерации HP +50% (пассивная регенерация сильнее); дополнительно +2% к EXP от ИНТ",
     "+50% к скорости регенерации HP (множитель к формуле)",
-    "+X% к получаемому EXP (дополнительно к бонусу ИНТ, X из БД)",
-    "−Y% к урону крит. атак (Y из БД)",
+    "+3% к получаемому EXP (дополнительно к бонусу ИНТ)",
+    "−8% к урону крит. атак",
   ],
   5: [
-    "«Жизнекрада» — X% урона текстовых атак восстанавливает HP; X = (СИЛ + ЛОВ) × K_vampir (K из БД), исцеление после расчёта урона по монстру",
-    "+Y% к шансу крит. атаки (Y из БД)",
+    "«Жизнекрада» — часть урона текстовых атак восстанавливает HP; зависит от (СИЛ + ЛОВ)",
+    "+5% к шансу крит. атаки",
     "−10% к навыку «Торговля»",
   ],
   6: [
-    "«Инфернальный пакт» — вклад ИНТ к урону медиа-навыков удваивается: множитель (1 + ИНТ × K_инт × 2)",
-    "+X% к урону активных навыков (медиа), базовый расовый бонус (X из БД)",
+    "«Инфернальный пакт» — вклад ИНТ к урону медиа-навыков удваивается",
+    "+4% к урону активных навыков (медиа), базовый расовый бонус",
     "×2 к коэффициенту урона навыков от ИНТ",
     "−15% к навыку «Торговля»",
   ],
   7: [
-    "«Торговая магия» — Торговля: T = ОБА × K_оба × 2 (двойной бонус от ОБА)",
+    "«Торговая магия» — Торговля: двойной бонус от ОБА",
     "×2 к коэффициенту «Торговля» от ОБА",
-    "+X% к цене продажи предметов (X из БД)",
+    "+5% к цене продажи предметов",
     "−10% к урону ближнего боя",
   ],
 };
 
-/** Тексты пассивов класса — то же ТЗ (коэффициенты K_* в skill_config). */
+/** Тексты пассивов класса — ориентировочные значения для экрана создания персонажа. */
 const WAIFU_GEN_CLASS_PASSIVES = {
   1: [
-    "«Железная воля» — получаемый урон снижен на X%; X = ВЫН × K_zhv; при HP < 30% бонус удваивается",
-    "−X% к получаемому урону (от ВЫН через K_zhv)",
-    "+Y к максимальному HP (Y из БД)",
-    "−Z% к урону дальнего боя (Z из БД)",
+    "«Железная воля» — получаемый урон снижен; при HP < 30% бонус удваивается (от ВЫН)",
+    "−5% к получаемому урону (от ВЫН)",
+    "+15 к максимальному HP",
+    "−5% к урону дальнего боя",
   ],
   2: [
-    "«Берсерк» — при HP < 50% урон текстовых атак (ближний бой) +X%; X = СИЛ × K_brs; проверка перед каждой атакой",
-    "+X% к урону ближнего боя при HP < 50% (от СИЛ через K_brs)",
-    "+Y к урону крит. атак (плоский бонус, Y из БД)",
-    "−Z% к урону магических навыков (Z из БД)",
+    "«Берсерк» — при HP < 50% урон текстовых атак выше (от СИЛ)",
+    "+8% к урону ближнего боя при HP < 50%",
+    "+3 к урону крит. атак (плоский бонус)",
+    "−5% к урону магических навыков",
   ],
   3: [
-    "«Меткий глаз» — шанс крита от текстовых атак +X%; X = ЛОВ × K_met; каждый 5-й крит — ×2 к крит-урону (счётчик в сессии подземелья)",
-    "+X% к шансу крит. атаки (от ЛОВ через K_met)",
-    "+Y% к урону дальнего боя (Y из БД)",
-    "−Z% к урону ближнего боя (Z из БД)",
+    "«Меткий глаз» — шанс крита от текстовых атак выше (от ЛОВ); каждый 5-й крит — ×2 к крит-урону",
+    "+6% к шансу крит. атаки (от ЛОВ)",
+    "+5% к урону дальнего боя",
+    "−5% к урону ближнего боя",
   ],
   4: [
-    "«Аркана» — урон медиа-навыков +X%; X = ИНТ × K_ark; бонус ИНТ к EXP дополнительно +Y%",
-    "+X% к урону медиа-навыков (от ИНТ через K_ark)",
-    "+Y% к получаемому EXP (дополнительно к стандартному бонусу ИНТ, Y из БД)",
-    "−Z% к урону ближнего боя (Z из БД)",
+    "«Аркана» — урон медиа-навыков выше (от ИНТ); бонус ИНТ к EXP усилен",
+    "+6% к урону медиа-навыков (от ИНТ)",
+    "+4% к получаемому EXP (дополнительно к стандартному бонусу ИНТ)",
+    "−5% к урону ближнего боя",
   ],
   5: [
-    "«Тень» — шанс уклонения +X%; X = ЛОВ × K_ten; после уклонения следующее текстовое сообщение-атака +30% урона (флаг сбрасывается после удара)",
-    "+X% к шансу уклонения (от ЛОВ через K_ten)",
+    "«Тень» — шанс уклонения выше (от ЛОВ); после уклонения следующая атака +30% урона",
+    "+6% к шансу уклонения (от ЛОВ)",
     "+30% к урону следующей атаки после успешного уклонения",
-    "−Y к максимальному HP (штраф, Y из БД)",
+    "−10 к максимальному HP (штраф)",
   ],
   6: [
-    "«Регенерация» — каждые N текстовых сообщений в подземелье +X HP; N = max(2, 8 − ⌊ВЫН/K_n⌋), X = ВЫН × K_reg; параллельно с пассивной регенерацией вне боя",
-    "+X HP каждые N сообщений в подземелье (формулы из БД)",
-    "+Y% к скорости пассивной регенерации HP (Y из БД)",
-    "−Z% к урону ближнего боя (Z из БД)",
+    "«Регенерация» — периодическое исцеление в подземелье + усиленная пассивная регенерация",
+    "+HP каждые несколько сообщений в подземелье (от ВЫН)",
+    "+10% к скорости пассивной регенерации HP",
+    "−5% к урону ближнего боя",
   ],
   7: [
-    "«Чутьё» — золото с монстров +X%; X = (УДЧ + ОБА) × K_chut; стоимость найма в Таверне −Y%; Y = ОБА × K_hire",
-    "+X% к золоту с монстров (от УДЧ + ОБА через K_chut)",
-    "+Z% к навыку «Торговля» (Z из БД)",
-    "−Y% к стоимости найма вайфу в Таверне (от ОБА через K_hire)",
-    "−W% к урону в бою (W из БД)",
+    "«Чутьё» — больше золота с монстров (от УДЧ + ОБА); найм в Таверне дешевле",
+    "+8% к золоту с монстров",
+    "+5% к навыку «Торговля»",
+    "−8% к стоимости найма вайфу в Таверне",
+    "−5% к урону в бою",
   ],
 };
 
@@ -2146,6 +2149,8 @@ const profileState = {
   slotSortDir: "desc",
   slotPickerItems: [],
   slotPickerEquipped: null,
+  equipmentLoaded: false,
+  equipmentLoading: false,
 };
 
 const EQUIPMENT_SLOT_NAMES = {
@@ -2292,6 +2297,8 @@ const shopState = {
   /** Активная вкладка магазина: buy | sell | gamble | smith */
   activeTab: "buy",
   gambleOffers: [],
+  shopRefreshAt: null,
+  gambleRefreshAt: null,
   /** Слот витрины (1–9), который ИИ выделил в реплике «купить» */
   merchantPickBuySlot: null,
   /** inventory_items.id предмета, который ИИ выделил в реплике «продать» */
@@ -2304,6 +2311,8 @@ const shopState = {
   smithItems: [],
   /** страница сетки выбора (по 9 предметов) */
   smithPickPage: 0,
+  /** sharpen | craft — подвкладка кузницы */
+  smithSubTab: "sharpen",
 };
 
 const SMITH_PICK_PAGE_SIZE = 9;
@@ -2684,6 +2693,8 @@ async function loadShop(act) {
   shopState.act = act;
   shopState.size = safeInt(data?.size, 12);
   shopState.offers = Array.isArray(data?.items) ? data.items : [];
+  shopState.shopRefreshAt = data?.refresh_at || null;
+  updateShopRefreshLabel("buy");
 
   if (typeof window !== "undefined") {
     syncAdminUiVisibility();
@@ -3083,8 +3094,26 @@ function updateSmithMetaFromProfile(pr) {
   if (!pr) return;
   const stEl = document.getElementById("shop-smith-stones");
   const gEl = document.getElementById("shop-smith-gold-hint");
+  const dEl = document.getElementById("shop-smith-dust-hint");
   if (stEl) stEl.textContent = String(pr.protection_stones ?? 0);
   if (gEl) gEl.textContent = String(pr.gold ?? "—");
+  if (dEl) dEl.textContent = String(pr.enchant_dust ?? 0);
+}
+
+function switchSmithSubTab(name) {
+  const tab = name === "craft" ? "craft" : "sharpen";
+  shopState.smithSubTab = tab;
+  ["sharpen", "craft"].forEach((t) => {
+    const btn = document.getElementById(`shop-smith-subtab-${t}`);
+    if (btn) btn.classList.toggle("active", t === tab);
+    const panel = document.getElementById(`shop-smith-panel-${t}`);
+    if (panel) panel.style.display = t === tab ? "" : "none";
+  });
+  if (tab === "craft") {
+    refreshSmithCraftPreview().catch(console.error);
+  } else {
+    refreshSmithPreview().catch(console.error);
+  }
 }
 
 function updateSmithSelectionUI() {
@@ -3231,11 +3260,13 @@ function pickSmithItem(id) {
   closeSmithPickModal();
   updateSmithSelectionUI();
   refreshSmithPreview().catch(console.error);
+  refreshSmithCraftPreview().catch(console.error);
 }
 
 async function loadSmithTab() {
   const pr = await loadProfile().catch(() => null);
   updateSmithMetaFromProfile(pr);
+  switchSmithSubTab(shopState.smithSubTab || "sharpen");
 
   const data = await apiFetch("/inventory?limit=100&offset=0");
   const items = Array.isArray(data?.items) ? data.items : [];
@@ -3248,6 +3279,7 @@ async function loadSmithTab() {
   }
   updateSmithSelectionUI();
   await refreshSmithPreview();
+  await refreshSmithCraftPreview();
 }
 
 async function refreshSmithPreview() {
@@ -3285,6 +3317,11 @@ async function refreshSmithPreview() {
     const ar1 = tp.armor != null ? String(tp.armor) : "—";
     const sec1 = Number(tp.secondary ?? 0);
     const secStr = (x) => (x > 0 ? `+${(x * 100).toFixed(2)}%` : "—");
+    const passiveType = String(prev.passive_secondary_type || "").trim();
+    const fracType = String(prev.fraction_secondary_type || item?.secondary_fraction_type || "").trim();
+    const fracEff = Number(
+      prev.fraction_secondary_effective ?? item?.secondary_fraction_effective ?? prev.fraction_secondary_value ?? 0
+    );
 
     const chanceLine =
       ch == null
@@ -3306,9 +3343,42 @@ async function refreshSmithPreview() {
       statRows.push(`<div><span class="muted">Броня:</span> <strong>${escapeHtml(ar1)}</strong></div>`);
     }
     if (flags.showSecondary && sec1 > 0) {
+      const fracLabel = fracType ? secondaryBonusTitleRu(fracType) : "Вторичка (заточка)";
       statRows.push(
-        `<div><span class="muted">Вторичка:</span> <strong>${escapeHtml(secStr(sec1))}</strong></div>`
+        `<div><span class="muted">${escapeHtml(fracLabel)}:</span> <strong>${escapeHtml(secStr(sec1))}</strong></div>`
       );
+    }
+    if (passiveType) {
+      const pv = Number(prev.passive_secondary_value ?? item?.secondary_bonus_value ?? 0);
+      if (pv > 0) {
+        statRows.push(
+          `<div><span class="muted">Пассив:</span> <strong>${escapeHtml(formatSecondaryBonusValueDisplay(passiveType, pv))}</strong> <span class="muted tiny">(не растёт от заточки)</span></div>`
+        );
+      }
+    }
+    if (prev.awaken_on_success) {
+      statRows.push(
+        `<div class="muted tiny" style="margin-top:6px;">При +1: случайная вторичка (крит / уклонение / …)</div>`
+      );
+    }
+
+    let noGainHint = "";
+    if (!statRows.length) {
+      const st = String(item?.slot_type || "").toLowerCase();
+      const secType = String(item?.secondary_bonus_type || passiveType || "").trim().toLowerCase();
+      if (secType.startsWith("passive_")) {
+        noGainHint =
+          '<div class="muted tiny" style="margin-top:8px;">Заточка не усиливает бонус к пассивному навыку — при +1 может пробудиться fraction-вторичка.</div>';
+      } else if (st.includes("ring") || st.includes("amulet")) {
+        noGainHint =
+          '<div class="muted tiny" style="margin-top:8px;">Нет fraction-вторички для роста от заточки. При +1 возможно пробуждение или используйте «Зачарование» за пыль.</div>';
+      } else {
+        noGainHint =
+          '<div class="muted tiny" style="margin-top:8px;">Заточка усилит урон или броню; fraction-вторичку можно добавить во вкладке «Зачарование».</div>';
+      }
+    } else if (fracType && fracEff <= 0 && flags.showSecondary) {
+      noGainHint =
+        '<div class="muted tiny" style="margin-top:8px;">Fraction-вторичка появится при успешной заточке +1 или через «Зачарование».</div>';
     }
 
     box.innerHTML = `
@@ -3318,7 +3388,7 @@ async function refreshSmithPreview() {
       ${
         statRows.length
           ? `<div style="margin-top:8px;font-size:12px;">${statRows.join("")}</div>`
-          : ""
+          : noGainHint
       }`;
     const btn = document.getElementById("shop-smith-enchant-btn");
     if (btn) btn.disabled = cur >= 10;
@@ -3367,6 +3437,13 @@ async function smithTryEnchant() {
       const stoneCb = document.getElementById("shop-smith-use-stone");
       if (stoneCb) stoneCb.checked = false;
     }
+    if (res?.awaken?.secondary_fraction_type) {
+      const aw = res.awaken;
+      showToast(
+        `Пробуждение: ${secondaryBonusTitleRu(aw.secondary_fraction_type)} +${(Number(aw.secondary_fraction_value || 0) * 100).toFixed(2)}%`,
+        "success"
+      );
+    }
     const pr = await loadProfile().catch(() => null);
     updateSmithMetaFromProfile(pr);
     const it = shopState.smithItems?.find((x) => x.id === id);
@@ -3386,6 +3463,83 @@ async function smithTryEnchant() {
   } finally {
     if (btn) btn.disabled = false;
     await refreshSmithPreview().catch(() => {});
+  }
+}
+
+async function refreshSmithCraftPreview() {
+  const box = document.getElementById("shop-smith-craft-preview");
+  if (!box) return;
+  const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
+  const addBtn = document.getElementById("shop-smith-craft-add");
+  const rerollBtn = document.getElementById("shop-smith-craft-reroll");
+  const upBtn = document.getElementById("shop-smith-craft-upgrade");
+  if (!id) {
+    box.innerHTML = `<div class="muted tiny">Выберите предмет из инвентаря.</div>`;
+    if (addBtn) addBtn.disabled = true;
+    if (rerollBtn) rerollBtn.disabled = true;
+    if (upBtn) upBtn.disabled = true;
+    return;
+  }
+  try {
+    const prev = await apiFetch(`/inventory/${id}/craft-enchant-preview`);
+    const ft = String(prev?.secondary_fraction_type || "").trim();
+    const fv = Number(prev?.secondary_fraction_value ?? 0);
+    const cap = Number(prev?.fraction_cap ?? 0);
+    const costs = prev?.costs || {};
+    const fracLine =
+      ft && fv > 0
+        ? `<div><span class="muted">Fraction:</span> <strong>${escapeHtml(secondaryBonusTitleRu(ft))} ${escapeHtml(formatSecondaryBonusValueDisplay(ft, fv))}</strong></div>`
+        : `<div class="muted tiny">Fraction-вторички пока нет.</div>`;
+    box.innerHTML = `
+      ${fracLine}
+      ${cap > 0 ? `<div class="muted tiny">Cap tier: ${(cap * 100).toFixed(2)}%</div>` : ""}
+      <div class="muted tiny" style="margin-top:6px;">sec_step: ${Number(prev?.enchant_sec_step ?? 0).toFixed(4)}</div>`;
+    if (addBtn) {
+      addBtn.disabled = costs.add == null;
+      addBtn.textContent = costs.add != null ? `Добавить вторичку (✨ ${costs.add})` : "Добавить вторичку";
+    }
+    if (rerollBtn) {
+      rerollBtn.disabled = costs.reroll == null;
+      rerollBtn.textContent = costs.reroll != null ? `Перекатать (✨ ${costs.reroll})` : "Перекатать";
+    }
+    if (upBtn) {
+      upBtn.disabled = costs.upgrade == null;
+      upBtn.textContent = costs.upgrade != null ? `Усилить (✨ ${costs.upgrade})` : "Усилить";
+    }
+  } catch (e) {
+    console.error(e);
+    box.innerHTML = `<div class="muted tiny">Ошибка превью зачарования.</div>`;
+  }
+}
+
+async function smithTryCraftEnchant(operation) {
+  const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
+  if (!id) return;
+  try {
+    const res = await apiFetch(`/inventory/${id}/craft-enchant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ operation, target: "fraction" }),
+    });
+    if (res?.error) {
+      showToast(String(res.error), "error");
+      return;
+    }
+    showToast("Зачарование выполнено", "success");
+    const it = shopState.smithItems?.find((x) => x.id === id);
+    if (it) {
+      it.secondary_fraction_type = res.secondary_fraction_type;
+      it.secondary_fraction_value = res.secondary_fraction_value;
+      it.enchant_sec_step = res.enchant_sec_step;
+    }
+    await loadProfile().catch(() => null);
+    await refreshSmithCraftPreview();
+    if (shopState.smithSubTab !== "craft") {
+      await refreshSmithPreview().catch(() => {});
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || e?.message || "Ошибка зачарования", "error");
   }
 }
 
@@ -3412,6 +3566,9 @@ function switchProfileTab(name) {
   document.querySelectorAll("main .tab-panel").forEach((panel) => {
     if (panel.id?.startsWith("tab-")) panel.classList.toggle("active", panel.id === `tab-${name}`);
   });
+  if (name === "inventory") {
+    ensureProfileEquipmentLoaded().catch(() => {});
+  }
 }
 
 function closeShopModal() {
@@ -3879,7 +4036,34 @@ function closeShopGambleResultModal() {
 async function loadGambleTab(act) {
   const data = await apiFetch(`/shop/gamble/offers?act=${act}`);
   shopState.gambleOffers = Array.isArray(data?.offers) ? data.offers : [];
+  shopState.gambleRefreshAt = data?.refresh_at || null;
+  updateShopRefreshLabel("gamble");
   renderGambleGrid();
+}
+
+function updateShopRefreshLabel(tab) {
+  const id = tab === "gamble" ? "shop-gamble-refresh-label" : "shop-buy-refresh-label";
+  const el = document.getElementById(id);
+  if (!el) return;
+  const refreshAt = tab === "gamble" ? shopState.gambleRefreshAt : shopState.shopRefreshAt;
+  if (!refreshAt) {
+    el.textContent = "Обновляется в 00:00 МСК";
+    return;
+  }
+  const end = new Date(refreshAt).getTime();
+  const fmt = () => {
+    const sec = Math.max(0, Math.floor((end - Date.now()) / 1000));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    el.textContent = `Обновляется в 00:00 МСК — осталось ${h}ч ${m}м`;
+  };
+  fmt();
+  if (!window.__shopRefreshLabelTimer) {
+    window.__shopRefreshLabelTimer = setInterval(() => {
+      updateShopRefreshLabel("buy");
+      updateShopRefreshLabel("gamble");
+    }, 60_000);
+  }
 }
 
 function renderGambleGrid() {
@@ -3892,12 +4076,7 @@ function renderGambleGrid() {
     const purchased = Boolean(offer?.purchased);
     card.className = `shop-gamble-card shop-item-card item-card${purchased ? " purchased empty" : ""}`.trim();
     const typeLabel = offer?.slot_type ? slotTypeLabel(offer.slot_type) : "Предмет";
-    const iconHtml =
-      offer && (offer.art_key || offer.image_url || offer.image_key)
-        ? itemArtHtml(offer)
-        : offer
-          ? itemArtEmoji(offer)
-          : "❓";
+    const iconHtml = offer && !purchased ? itemArtEmoji(offer) : "❓";
     card.innerHTML = `
       <div class="item-icon">${iconHtml}</div>
       <div class="item-name">${escapeHtml(typeLabel)}</div>
@@ -4009,6 +4188,32 @@ function closeItemSellConfirmOverlay() {
   ov.setAttribute("aria-hidden", "true");
 }
 
+function closeItemDismantleConfirmOverlay() {
+  const ov = document.getElementById("item-modal-dismantle-overlay");
+  if (!ov) return;
+  ov.style.display = "none";
+  ov.setAttribute("aria-hidden", "true");
+}
+
+async function openItemDismantleConfirmOverlay() {
+  const item = profileState.selectedItem;
+  if (!item?.id || item.equipment_slot != null) return;
+  const ov = document.getElementById("item-modal-dismantle-overlay");
+  if (!ov) return;
+  const nmEl = document.getElementById("item-modal-dismantle-item-name");
+  if (nmEl) nmEl.innerHTML = composeItemTitlePlain(item) || escapeHtml(String(item?.name || "—"));
+  const dEl = document.getElementById("item-modal-dismantle-dust");
+  if (dEl) dEl.textContent = "…";
+  ov.style.display = "flex";
+  ov.setAttribute("aria-hidden", "false");
+  try {
+    const data = await apiFetch(`/inventory/${item.id}/dismantle-preview`);
+    if (dEl) dEl.textContent = String(data?.dust_preview ?? "—");
+  } catch (e) {
+    if (dEl) dEl.textContent = "—";
+  }
+}
+
 function openItemSellConfirmOverlay() {
   const item = profileState.selectedItem;
   if (!item?.id || item.equipment_slot != null) return;
@@ -4055,6 +4260,7 @@ function closeItemModal() {
   const m = document.getElementById("item-modal");
   if (m) m.style.display = "none";
   closeItemSellConfirmOverlay();
+  closeItemDismantleConfirmOverlay();
   closeItemEquipRingOverlay();
   profileState.selectedItem = null;
   const reqEl = document.getElementById("item-modal-requirements");
@@ -4487,6 +4693,22 @@ function renderItemModalV2CharacteristicsHtml(item) {
     );
   }
 
+  const ft = String(item?.secondary_fraction_type || "").trim();
+  const fvEff =
+    item?.secondary_fraction_effective != null
+      ? Number(item.secondary_fraction_effective)
+      : Number(item?.secondary_fraction_value ?? 0);
+  if (ft && Number.isFinite(fvEff) && fvEff > 0) {
+    rows.push(
+      itemModalV2StatRow(
+        secondaryBonusTitleRu(ft),
+        escapeHtml(formatSecondaryBonusValueDisplay(ft, fvEff)),
+        "item-modal-v2-sv-go",
+        "Fraction-вторичка (растёт от заточки)"
+      )
+    );
+  }
+
   const aff = Array.isArray(item.affixes) ? item.affixes : [];
   aff.forEach((a) => {
     const sk = String(a.stat || "").trim();
@@ -4668,7 +4890,9 @@ function secondaryBonusTitleRu(t) {
 
 function secondaryBonusModalSubtitle(t) {
   const low = String(t || "").toLowerCase();
-  if (low.startsWith("passive_node_level_add:")) return "К уровню узла на дереве пассивов";
+  if (low.startsWith("passive_node_level_add:")) {
+    return "К уровню узла на дереве пассивов (для части навыков эффект ограничен капом таблицы)";
+  }
   if (low.startsWith("passive_branch_level_add:") || low === "passive_all_nodes_level_add") {
     return "Легендарный тип бонуса";
   }
@@ -4801,7 +5025,16 @@ function renderProfileIndicators(waifu, details = null) {
     ["Урон дальний", indicators.rangedRange],
     ["Урон магич.", indicators.magicRange],
     ["Крит", indicators.critChance],
-    ["Уклонение", indicators.dodgeChance],
+    [
+      "Уклонение",
+      indicators.dodgeChance,
+      "Шанс не получить урон от ответного удара монстра. Складывается: ЛОВ × 0,1% + вторички на предметах + пассивы (например Проворство). Потолок 40%.",
+    ],
+    [
+      "Полное уклонение",
+      indicators.fullEvadeChance,
+      "Отдельный бросок после обычного уклонения: при успехе урон = 0. Даётся пассивами вроде «Шаг тени». Не суммируется со строкой «Уклонение».",
+    ],
     ["Бонус EXP", indicators.expBonus],
     ["Бонус золота", indicators.goldBonus],
     ["Скидка найма", indicators.hireDiscount],
@@ -4810,12 +5043,15 @@ function renderProfileIndicators(waifu, details = null) {
   ];
 
   const cells = rows
-    .map(
-      ([label, value]) =>
-        `<div class="profile-detail-cell"><span class="profile-detail-label">${escapeHtml(label)}</span><strong class="profile-detail-value">${escapeHtml(
-          String(value)
-        )}</strong></div>`
-    )
+    .map((row) => {
+      const label = row[0];
+      const value = row[1];
+      const tip = row[2] || "";
+      const tipAttr = tip ? ` title="${escapeHtml(tip)}"` : "";
+      return `<div class="profile-detail-cell"${tipAttr}><span class="profile-detail-label">${escapeHtml(label)}</span><strong class="profile-detail-value">${escapeHtml(
+        String(value)
+      )}</strong></div>`;
+    })
     .join("");
 
   const merchantCell = `<div class="profile-detail-cell profile-detail-cell--merchant">
@@ -5346,6 +5582,27 @@ async function claimChatRewards() {
   }
 }
 
+async function ensureProfileEquipmentLoaded() {
+  if (profileState.equipmentLoaded || profileState.equipmentLoading) return;
+  profileState.equipmentLoading = true;
+  try {
+    const eq = await apiFetch(`/waifu/equipment`);
+    const equipped = Array.isArray(eq?.equipped) ? eq.equipped : [];
+    const inventory = Array.isArray(eq?.inventory) ? eq.inventory : [];
+    profileState.inventory = inventory;
+    profileState.equippedBySlot = {};
+    equipped.forEach((it) => {
+      if (it?.equipment_slot != null) profileState.equippedBySlot[Number(it.equipment_slot)] = it;
+    });
+    profileState.inventoryPage = 1;
+    profileState.equipmentLoaded = true;
+    renderProfileEquipment();
+    renderProfileInventory();
+  } finally {
+    profileState.equipmentLoading = false;
+  }
+}
+
 async function populateProfile(profile) {
   const p = profile || (await loadProfile());
   const w = p?.main_waifu;
@@ -5390,18 +5647,21 @@ async function populateProfile(profile) {
   renderProfileStatistics();
   switchProfileInfoTab(profileState.infoTab);
 
-  const eq = await apiFetch(`/waifu/equipment`);
-  const equipped = Array.isArray(eq?.equipped) ? eq.equipped : [];
-  const inventory = Array.isArray(eq?.inventory) ? eq.inventory : [];
-  profileState.inventory = inventory;
-  profileState.equippedBySlot = {};
-  equipped.forEach((it) => {
-    if (it?.equipment_slot != null) profileState.equippedBySlot[Number(it.equipment_slot)] = it;
-  });
-  profileState.inventoryPage = 1;
-
-  renderProfileEquipment();
-  renderProfileInventory();
+  const invTabActive = document.getElementById("tab-inventory")?.classList.contains("active");
+  if (invTabActive) {
+    await ensureProfileEquipmentLoaded();
+  } else {
+    const gear = document.getElementById("profile-gear");
+    const inv = document.getElementById("profile-inventory");
+    if (gear && !profileState.equipmentLoaded) {
+      gear.classList.add("placeholder");
+      gear.textContent = "Откройте вкладку «Инвентарь», чтобы загрузить экипировку.";
+    }
+    if (inv && !profileState.equipmentLoaded) {
+      inv.classList.add("placeholder");
+      inv.textContent = "—";
+    }
+  }
 
   await loadChatRewardsStatus().catch(() => null);
 
@@ -5826,6 +6086,7 @@ function openItemModal(item) {
   if (reqSec) reqSec.style.display = pillsHtml ? "" : "none";
 
   const sellBtn = document.getElementById("item-modal-sell");
+  const dismantleBtn = document.getElementById("item-modal-dismantle");
   const enchBtn = document.getElementById("item-modal-enchant");
   const unequipBtn = document.getElementById("item-modal-unequip");
   const replaceBtn = document.getElementById("item-modal-replace");
@@ -5833,6 +6094,7 @@ function openItemModal(item) {
   const actionsRow = document.getElementById("item-modal-actions-row");
 
   if (sellBtn) sellBtn.style.display = isEquipped ? "none" : "";
+  if (dismantleBtn) dismantleBtn.style.display = isEquipped ? "none" : "";
   if (unequipBtn) unequipBtn.style.display = isEquipped ? "" : "none";
   if (replaceBtn) replaceBtn.style.display = isEquipped ? "" : "none";
   if (equipBtn) {
@@ -5847,6 +6109,7 @@ function openItemModal(item) {
 
   let visibleFooter = 0;
   if (sellBtn && sellBtn.style.display !== "none") visibleFooter += 1;
+  if (dismantleBtn && dismantleBtn.style.display !== "none") visibleFooter += 1;
   if (enchBtn && enchBtn.style.display !== "none") visibleFooter += 1;
   if (unequipBtn && unequipBtn.style.display !== "none") visibleFooter += 1;
   if (replaceBtn && replaceBtn.style.display !== "none") visibleFooter += 1;
@@ -5875,6 +6138,24 @@ async function refreshAfterInventoryModalAction() {
     return;
   }
   await bootstrapPage("profile", populateProfile);
+}
+
+async function confirmDismantleSelectedItem() {
+  const item = profileState.selectedItem;
+  if (!item?.id) return;
+  try {
+    await apiFetch(`/inventory/${item.id}/dismantle`, { method: "POST" });
+    showToast("Предмет распылён", "success");
+    closeItemDismantleConfirmOverlay();
+    closeItemModal();
+    await loadProfile().catch(() => null);
+    if (typeof loadSellInventory === "function" && shopState.activeTab === "sell") {
+      await loadSellInventory().catch(() => {});
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || e?.message || "Не удалось распылить", "error");
+  }
 }
 
 async function confirmSellSelectedItem() {
@@ -9568,7 +9849,7 @@ function openPassiveSkillModal(nodeId) {
       : "";
   let curBonusRaw =
     effLv >= 1 && node.effective_effect_value != null && node.effective_effect_value !== undefined
-      ? formatPassiveEffectValue(node.effect_type, node.effective_effect_value)
+      ? passiveEffectDisplayLabel(node.effect_type, node.effective_effect_value)
       : null;
   if (
     curBonusRaw == null &&
@@ -9576,7 +9857,7 @@ function openPassiveSkillModal(nodeId) {
     node.current_effect_value != null &&
     node.current_effect_value !== undefined
   ) {
-    curBonusRaw = formatPassiveEffectValue(node.effect_type, node.current_effect_value);
+    curBonusRaw = passiveEffectDisplayLabel(node.effect_type, node.current_effect_value);
   }
   if (curBonusRaw == null) curBonusRaw = "—";
   let nextVal = node.next_effective_effect_value;
@@ -9589,14 +9870,22 @@ function openPassiveSkillModal(nodeId) {
   }
   const nextBonusRaw =
     nextVal != null && nextVal !== undefined && nextVal !== ""
-      ? formatPassiveEffectValue(node.effect_type, nextVal)
+      ? passiveEffectDisplayLabel(node.effect_type, nextVal)
       : "—";
+  const cappedEt = PASSIVE_EFFECT_CAPPED_AT_TABLE_MAX.has(String(node.effect_type || ""));
+  const cappedWarn =
+    cappedEt && eq > 0 && effLv > max
+      ? `<p class="muted passive-modal-cap-warn" style="margin:8px 0 0;font-size:12px;">Уровень от предметов не увеличивает эффект — действует максимум по таблице (${curBonusRaw}).</p>`
+      : "";
   const curBonusRow = `<div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Текущий бонус</span><span class="passive-modal-stat-v">${passiveEscHtml(
     curBonusRaw,
   )}</span></div>`;
-  const nextBonusRow = `<div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Бонус на сл. уровне</span><span class="passive-modal-stat-v">${passiveEscHtml(
-    nextBonusRaw,
-  )}</span></div>`;
+  const nextBonusRow =
+    cur < max
+      ? `<div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Бонус на сл. уровне</span><span class="passive-modal-stat-v">${passiveEscHtml(
+          nextBonusRaw,
+        )}</span></div>`
+      : "";
   body.innerHTML = `
     <div class="passive-modal-dota">
       <div class="passive-modal-dota-top">
@@ -9615,6 +9904,7 @@ function openPassiveSkillModal(nodeId) {
         ${equipHint}
         ${curBonusRow}
         ${nextBonusRow}
+        ${cappedWarn}
       </div>
       ${learnBlock}
     </div>
@@ -9666,7 +9956,7 @@ function passiveExtrapolateEffectValue(effectValues, level, effectType) {
   if (!vals.length) return null;
   const et = String(effectType || "");
   const n = vals.length;
-  const capped = new Set(["instakill_chance", "revive_chance", "survive_chance", "full_evade_chance"]);
+  const capped = PASSIVE_EFFECT_CAPPED_AT_TABLE_MAX;
   if (capped.has(et)) {
     const idx = Math.min(level, n) - 1;
     return idx >= 0 ? vals[idx] : null;
@@ -9693,6 +9983,33 @@ function formatPassiveEffectValue(effectType, raw) {
   if (Number.isNaN(n)) return String(raw);
   return `+${Math.round(n * 100)}%`;
 }
+
+/** Человекочитаемая подпись эффекта пассива (с контекстом механики). */
+function passiveEffectDisplayLabel(effectType, raw) {
+  if (raw == null || raw === undefined) return "—";
+  const et = String(effectType || "");
+  if (et === "full_evade_chance") {
+    const pct = Math.round(Number(raw) * 100);
+    return `Шанс полного уклонения: ${pct}% (отдельный бросок после обычного уклонения)`;
+  }
+  if (et === "evade_pct") {
+    return `${formatPassiveEffectValue(et, raw)} к шансу уклонения (строка «Уклонение» в профиле)`;
+  }
+  if (et === "instakill_chance") {
+    return `Шанс мгновенного убийства: ${Math.round(Number(raw) * 100)}%`;
+  }
+  if (et === "revive_chance" || et === "survive_chance") {
+    return `${formatPassiveEffectValue(et, raw)} (эффект с потолком по таблице уровней)`;
+  }
+  return formatPassiveEffectValue(et, raw);
+}
+
+const PASSIVE_EFFECT_CAPPED_AT_TABLE_MAX = new Set([
+  "instakill_chance",
+  "revive_chance",
+  "survive_chance",
+  "full_evade_chance",
+]);
 
 function passiveNodeStateClass(node) {
   const cur = Number(node.current_level) || 0;
@@ -10144,6 +10461,34 @@ async function populateTrainingHall() {
   }
 }
 
+const STATS_GUIDE_HTML = `
+  <div class="stats-guide-body">
+    <p><strong>Основные характеристики</strong> — база персонажа + раса/класс + экипировка + плоский бонус «Трансценд.»; затем множители «+% ко всем статам» с предметов и пассивов.</p>
+    <p><strong>Урон</strong> — отдельно ближний (СИЛ), дальний (ЛОВ), магический (ИНТ); пассивы с одинаковым типом эффекта <em>суммируются</em>, разные типы — перемножаются по цепочке боя.</p>
+    <p><strong>Уклонение</strong> (строка в профиле) — один общий шанс: ЛОВ × 0,1% + вторички на предметах + пассивы вроде «Проворство». Потолок 40%. Удача в уклонение не входит.</p>
+    <p><strong>Полное уклонение</strong> — отдельная строка и отдельный бросок в бою (например «Шаг тени»). Срабатывает после обычного уклонения, если оно не сработало.</p>
+    <p><strong>Снижение урона</strong> — ВЫН + вторички + броня складываются в один пул (до 90%).</p>
+    <p><strong>Пассивы с предметов</strong> — «+N к уровню навыка» повышает эффективный уровень. Для части навыков (полное уклонение, instakill и др.) эффект не растёт выше максимума таблицы — смотрите предупреждение в модалке навыка.</p>
+    <p><strong>Заточка</strong> — усиливает урон/броню на оружии и доспехах; на аксессуарах — вторичные бонусы (крит, уклонение…). Предметы с бонусом к пассивному навыку заточкой не усиливаются.</p>
+  </div>
+`;
+
+function openStatsGuideModal() {
+  const modal = document.getElementById("stats-guide-modal");
+  const body = document.getElementById("stats-guide-body");
+  if (!modal || !body) return;
+  body.innerHTML = STATS_GUIDE_HTML;
+  modal.style.display = "flex";
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function closeStatsGuideModal() {
+  const modal = document.getElementById("stats-guide-modal");
+  if (!modal) return;
+  modal.style.display = "none";
+  modal.setAttribute("aria-hidden", "true");
+}
+
 // Expose helpers globally for inline usage (merge, don't clobber handlers assigned earlier)
 window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   initPage,
@@ -10160,8 +10505,11 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   shopPageBootstrap,
   loadShop,
   switchShopTab,
+  switchSmithSubTab,
   loadSmithTab,
   smithTryEnchant,
+  smithTryCraftEnchant,
+  refreshSmithCraftPreview,
   openSmithPickModal,
   closeSmithPickModal,
   pickSmithItem,
@@ -10176,6 +10524,8 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   closeChatRewardClaimModal,
   openProfileStatInfoModal,
   closeProfileStatInfoModal,
+  openStatsGuideModal,
+  closeStatsGuideModal,
   toggleProfileStatAccordion,
   toggleProfileInventoryMode,
   toggleProfileInventoryFilter,
@@ -10196,6 +10546,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   openProfileSlotReplacementFromModal,
   openItemSellConfirmOverlay,
   closeItemSellConfirmOverlay,
+  openItemDismantleConfirmOverlay,
+  closeItemDismantleConfirmOverlay,
+  confirmDismantleSelectedItem,
   closeItemEquipRingOverlay,
   confirmEquipToRingSlot,
   confirmSellSelectedItem,

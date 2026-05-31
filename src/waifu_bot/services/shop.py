@@ -14,6 +14,12 @@ from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
 from waifu_bot.game.formulas import calculate_gamble_price, shop_buy_price_from_merchant_discount
 from waifu_bot.services.item_service import ItemService
 from waifu_bot.services.enchanting import get_effective_params
+from waifu_bot.game.item_secondary import (
+    attach_resolved_attrs,
+    effective_fraction_combat,
+    resolve_item_secondaries,
+    template_row_from_mapping,
+)
 from waifu_bot.services.hidden_skills import (
     get_hidden_skill_bonuses,
     increment_skill_counter,
@@ -136,9 +142,9 @@ class ShopService:
         ).first()
         if not row:
             return
-        setattr(inv, "_armor_base", int(getattr(row, "armor_base", 0) or 0))
-        setattr(inv, "_secondary_bonus_type", getattr(row, "secondary_bonus_type", None))
-        setattr(inv, "_secondary_bonus_value", float(getattr(row, "secondary_bonus_value", 0.0) or 0.0))
+        template = template_row_from_mapping(row)
+        resolved = resolve_item_secondaries(inv, template)
+        attach_resolved_attrs(inv, resolved)
 
     async def buy_item(
         self, session: AsyncSession, player_id: int, act: int, slot: int
@@ -538,8 +544,9 @@ class ShopService:
                 }
             )
         ab = int(getattr(inv, "_armor_base", 0) or 0)
-        sv = float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0)
-        eff = get_effective_params(inv, armor_base=ab, secondary_bonus_value=sv)
+        resolved = getattr(inv, "_resolved_secondaries", None) or resolve_item_secondaries(inv, None)
+        _, frac_val = effective_fraction_combat(inv, resolved)
+        eff = get_effective_params(inv, armor_base=ab, secondary_bonus_value=frac_val or 0.0)
         req_raw = getattr(inv, "requirements", None)
         if not isinstance(req_raw, dict) and getattr(inv, "item", None) is not None:
             req_raw = getattr(inv.item, "requirements", None)
@@ -577,7 +584,10 @@ class ShopService:
             "armor_base": ab or None,
             "armor_effective": int(eff.get("armor", 0) or 0) or None,
             "secondary_bonus_type": getattr(inv, "_secondary_bonus_type", None),
-            "secondary_bonus_value": sv or None,
+            "secondary_bonus_value": float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0) or None,
+            "secondary_fraction_type": resolved.fraction_type,
+            "secondary_fraction_value": float(resolved.fraction_value) or None,
+            "secondary_fraction_effective": float(frac_val) if frac_val else None,
             "secondary_bonus_effective": float(eff.get("secondary", 0.0) or 0.0) or None,
             "enchant_level": int(getattr(inv, "enchant_level", 0) or 0),
             "enchant_dmg_step": int(getattr(inv, "enchant_dmg_step", 0) or 0),

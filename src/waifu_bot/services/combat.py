@@ -1609,8 +1609,10 @@ class CombatService:
                             COALESCE(inv.enchant_arm_step, 0) AS enchant_arm_step,
                             COALESCE(inv.enchant_level, 0) AS enchant_level,
                             COALESCE(inv.is_broken, false) AS is_broken,
-                            ibt.secondary_bonus_type AS secondary_bonus_type,
-                            COALESCE(ibt.secondary_bonus_value, 0.0) AS secondary_bonus_value,
+                            inv.secondary_fraction_type AS secondary_fraction_type,
+                            COALESCE(inv.secondary_fraction_value, 0.0) AS secondary_fraction_value,
+                            ibt.secondary_bonus_type AS template_secondary_type,
+                            COALESCE(ibt.secondary_bonus_value, 0.0) AS template_secondary_value,
                             COALESCE(inv.enchant_sec_step, 0.0) AS enchant_sec_step
                         FROM inventory_items inv
                         JOIN items i ON i.id = inv.item_id
@@ -1629,12 +1631,19 @@ class CombatService:
                 armor_base = float(getattr(row, "armor_base", 0) or 0)
                 arm_step = int(getattr(row, "enchant_arm_step", 0) or 0)
                 bonuses["armor_total"] += armor_base + float(arm_step * e)
-                sec_type = str(getattr(row, "secondary_bonus_type", "") or "")
-                sec_base = float(getattr(row, "secondary_bonus_value", 0.0) or 0.0)
                 sec_step = float(getattr(row, "enchant_sec_step", 0.0) or 0.0)
-                sec_val = sec_base + sec_step * e
-                if sec_type in bonuses:
-                    bonuses[sec_type] += sec_val
+                frac_type = str(getattr(row, "secondary_fraction_type", "") or "").strip()
+                frac_base = float(getattr(row, "secondary_fraction_value", 0.0) or 0.0)
+                if not frac_type:
+                    tpl_type = str(getattr(row, "template_secondary_type", "") or "").strip()
+                    tpl_val = float(getattr(row, "template_secondary_value", 0.0) or 0.0)
+                    from waifu_bot.game.item_secondary import is_fraction_secondary_type
+
+                    if tpl_type and is_fraction_secondary_type(tpl_type):
+                        frac_type = tpl_type
+                        frac_base = tpl_val
+                if frac_type in bonuses:
+                    bonuses[frac_type] += frac_base + sec_step * e
         except Exception:
             pass
         try:

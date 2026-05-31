@@ -289,25 +289,23 @@ async def collect_passive_node_level_bonus_from_session(
             if nid:
                 nodes[nid] = nodes.get(nid, 0) + add
 
-    # Вторичка из шаблона + заточка (как get_effective_params в enchanting.py).
+    # Passive secondaries from instance snapshot + affixes (fraction handled in combat query).
     try:
         tpl_rows = (
             await session.execute(
                 text(
                     """
-                    SELECT ibt.secondary_bonus_type,
-                           ibt.secondary_bonus_value,
-                           ii.enchant_level,
-                           ii.enchant_sec_step,
-                           ii.is_broken
+                    SELECT ii.secondary_bonus_type,
+                           ii.secondary_bonus_value,
+                           ibt.secondary_bonus_type AS template_secondary_type,
+                           ibt.secondary_bonus_value AS template_secondary_value
                     FROM inventory_items ii
                     JOIN items i ON i.id = ii.item_id
-                    JOIN item_base_templates ibt
+                    LEFT JOIN item_base_templates ibt
                       ON btrim(ibt.name) = btrim(i.name)
                      AND ibt.tier = COALESCE(NULLIF(ii.tier, 0), i.tier)
                     WHERE ii.player_id = :pid
                       AND ii.equipment_slot IS NOT NULL
-                      AND ibt.secondary_bonus_type IS NOT NULL
                     """
                 ),
                 {"pid": int(player_id)},
@@ -316,16 +314,18 @@ async def collect_passive_node_level_bonus_from_session(
     except Exception:
         tpl_rows = []
 
+    from waifu_bot.game.item_secondary import is_passive_secondary_type
+
     for row in tpl_rows:
-        sec_type = row[0]
-        sec_val = row[1]
-        ench_lv = int(row[2] or 0) if not bool(row[4]) else 0
-        ench_sec_step = float(row[3] or 0.0)
+        sec_type = row[0] or row[2]
+        sec_val = row[1] if row[0] is not None else row[3]
+        if not sec_type or not is_passive_secondary_type(sec_type):
+            continue
         try:
             base_sec = float(sec_val or 0.0)
         except (TypeError, ValueError):
-            base_sec = 0.0
-        eff_sec = base_sec + ench_sec_step * float(ench_lv)
+            continue
+        eff_sec = base_sec
         try:
             raw_add = int(round(eff_sec))
         except (TypeError, ValueError):
@@ -739,6 +739,9 @@ def merge_passive_into_profile_details(
     ev = float(ps.get("evade_pct", 0) or 0)
     if ev > 0:
         out["dodge_chance"] = round(float(out.get("dodge_chance", 0) or 0) + ev * 100.0, 2)
+    fe = float(ps.get("full_evade_chance", 0) or 0)
+    if fe > 0:
+        out["full_evade_chance"] = round(fe * 100.0, 2)
     dr = float(ps.get("dmg_reduce_pct", 0) or 0)
     if dr > 0:
         out["damage_reduction"] = round(float(out.get("damage_reduction", 0) or 0) + dr * 100.0, 2)

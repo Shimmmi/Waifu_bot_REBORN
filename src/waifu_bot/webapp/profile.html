@@ -1043,6 +1043,7 @@
         </div>
         <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
         <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
+        <div class="chip" title="Пыль зачарования">✨&nbsp;<strong id="badge-dust">—</strong></div>
       </div>
     </header>
 
@@ -1212,7 +1213,10 @@
         <div class="section">
           <div class="section-head">
             <h3>Характеристики</h3>
-            <div class="tag" id="profile-stat-points">ОХ: —</div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <button type="button" class="secondary tiny" onclick="WaifuApp.openStatsGuideModal()">Как считаются статы?</button>
+              <div class="tag" id="profile-stat-points">ОХ: —</div>
+            </div>
           </div>
           <div id="profile-stats-breakdown" class="profile-stats-breakdown-root"></div>
         </div>
@@ -1245,6 +1249,21 @@
         </div>
       </section>
     </main>
+
+    <div
+      id="stats-guide-modal"
+      class="modal profile-stat-info-modal"
+      style="display:none;"
+      onclick="WaifuApp.closeStatsGuideModal()"
+      aria-hidden="true"
+    >
+      <div class="profile-stat-info-panel" role="dialog" aria-modal="true" aria-labelledby="stats-guide-title" onclick="event.stopPropagation()">
+        <div class="profile-stat-info-head">
+          <div class="modal-title profile-stat-info-title" id="stats-guide-title">Как считаются статы</div>
+        </div>
+        <div class="profile-stat-info-body stats-guide-body-wrap" id="stats-guide-body"></div>
+      </div>
+    </div>
 
     <div
       id="profile-stat-info-modal"
@@ -1338,6 +1357,7 @@
         <footer class="item-modal-v2-footer">
           <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
             <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
+            <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-dismantle" type="button" onclick="WaifuApp.openItemDismantleConfirmOverlay()" style="display:none;">Распылить</button>
             <button class="item-modal-v2-btn item-modal-v2-btn--ench" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;">Заточить</button>
             <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
             <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
@@ -1363,6 +1383,26 @@
           <div class="item-modal-sell-actions">
             <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemSellConfirmOverlay()">Отмена</button>
             <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" onclick="WaifuApp.confirmSellSelectedItem()">Продать</button>
+          </div>
+        </div>
+      </div>
+      <div
+        id="item-modal-dismantle-overlay"
+        class="item-modal-sell-overlay"
+        style="display: none"
+        role="dialog"
+        aria-modal="true"
+        aria-hidden="true"
+        aria-labelledby="item-modal-dismantle-title"
+        onclick="if (event.target === this) WaifuApp.closeItemDismantleConfirmOverlay()"
+      >
+        <div class="item-modal-sell-panel" onclick="event.stopPropagation()">
+          <div class="item-modal-sell-title" id="item-modal-dismantle-title">Распылить предмет?</div>
+          <div class="item-modal-sell-name muted tiny" id="item-modal-dismantle-item-name">—</div>
+          <div class="item-modal-sell-price-line">Вы получите <strong>✨ <span id="item-modal-dismantle-dust">—</span></strong> пыли (без золота)</div>
+          <div class="item-modal-sell-actions">
+            <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemDismantleConfirmOverlay()">Отмена</button>
+            <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" onclick="WaifuApp.confirmDismantleSelectedItem()">Распылить</button>
           </div>
         </div>
       </div>

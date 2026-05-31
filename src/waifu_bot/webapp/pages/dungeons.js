@@ -397,20 +397,46 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
   const monsterArtVersionStr = monster.has_image
     ? monsterArtCacheBust(monster.template_id, monster.image_updated_at)
     : null;
-  setTimeout(() => {
-    loadMonsterImage(
-      monster.family || "unknown",
-      monster.slug || "unknown",
-      monster.tier ?? 1,
-      monster.image_override ?? null,
-      monsterArtVersionStr
-    );
-  }, 150);
+  const artKey = `${monster.family || "unknown"}|${monster.slug || "unknown"}|${monster.tier ?? 1}|${monsterArtVersionStr || ""}`;
+  if (visual && visual.dataset.monsterArtKey !== artKey) {
+    visual.dataset.monsterArtKey = artKey;
+    setTimeout(() => {
+      loadMonsterImage(
+        monster.family || "unknown",
+        monster.slug || "unknown",
+        monster.tier ?? 1,
+        monster.image_override ?? null,
+        monsterArtVersionStr
+      );
+    }, 150);
+  } else if (img && img.complete && img.naturalWidth > 0) {
+    onMonsterImageLoad(img);
+  }
 
   const monsterPct = monster.max_hp > 0 ? Math.max(0, Math.min(100, (monster.current_hp / monster.max_hp) * 100)) : 0;
   setText("monster-hp-text", hpKnown ? `${monster.current_hp} / ${monster.max_hp}` : "??? / ???");
   const hpFill = document.getElementById("monster-hp-fill");
-  if (hpFill) hpFill.style.width = monsterPct + "%";
+  if (hpFill) {
+    if (hpKnown) {
+      hpFill.style.width = monsterPct + "%";
+      hpFill.classList.remove("monster-hp-fill--unknown");
+    } else {
+      hpFill.style.width = "100%";
+      hpFill.classList.add("monster-hp-fill--unknown");
+    }
+  }
+  const hpHintEl = document.getElementById("monster-hp-codex-hint");
+  if (hpHintEl) {
+    if (!hpKnown) {
+      const tier = Number(monster.codex_tier ?? 0);
+      const need = tier < 1 ? 1 : 5;
+      hpHintEl.textContent = `Убейте этого монстра ${need}×, чтобы узнать имя${need >= 5 ? " и HP" : ""}.`;
+      hpHintEl.style.display = "block";
+    } else {
+      hpHintEl.textContent = "";
+      hpHintEl.style.display = "none";
+    }
+  }
 
   const affixesEl = document.getElementById("monster-affixes");
   if (affixesEl) {
@@ -525,7 +551,10 @@ function renderSoloActiveProgress(active) {
   if (content) content.style.display = "";
   if (fallback) fallback.style.display = "none";
   renderSoloBattleCard(monster, dungeon, waifu);
-  mountSoloBattleLog(active.battle_log_entries || []);
+  const logEntries = active.battle_log_entries;
+  if (Array.isArray(logEntries) && logEntries.length) {
+    mountSoloBattleLog(logEntries);
+  }
   setSoloExitBtnVisible(true);
 }
 
@@ -560,10 +589,11 @@ function renderSoloActiveFallback(reason) {
   setSoloExitBtnVisible(true);
 }
 
-async function refreshSoloActive() {
+async function refreshSoloActive(options = {}) {
+  const includeLog = options.includeLog !== false;
   if (!dungeonsFinishBlockedMsg) showDungeonsError("");
   try {
-    const active = await fetchActiveDungeon({ includeLog: true, force: true });
+    const active = await fetchActiveDungeon({ includeLog, force: true });
     renderAtticDungeon(active);
     if (active?.active) renderSoloActiveProgress(active);
     else {
@@ -610,7 +640,7 @@ async function populateDungeonsPage(profile) {
     // Debounced refresh of active progress
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => {
-      refreshSoloActive().catch?.(() => {});
+      refreshSoloActive({ includeLog: false }).catch?.(() => {});
     }, 250);
     const payload = evt.payload || {};
     if (payload.finish_blocked) {
@@ -1539,6 +1569,17 @@ function applyExpeditionBiomeBackground(el, tag, emojiEl, archetypeId) {
   el.style.backgroundImage = "";
   el.style.background = fallback;
   if (emojiEl) emojiEl.style.display = "";
+  const cacheKey = `${String(tag || "").trim()}|${String(archetypeId || "").trim()}`;
+  const cachedUrl = expeditionBiomeUrlCache.get(cacheKey);
+  if (cachedUrl) {
+    el.style.background = fallback;
+    el.style.backgroundImage = `url("${cachedUrl}")`;
+    el.style.backgroundSize = "cover";
+    el.style.backgroundPosition = "center";
+    el.classList.add(biomeCls);
+    if (emojiEl) emojiEl.style.display = "none";
+    return;
+  }
   const urls = biomeImageUrls(tag, archetypeId);
   let i = 0;
   function tryNext() {
@@ -1546,6 +1587,7 @@ function applyExpeditionBiomeBackground(el, tag, emojiEl, archetypeId) {
     const url = urls[i++];
     const probe = new Image();
     probe.onload = () => {
+      expeditionBiomeUrlCache.set(cacheKey, url);
       el.style.background = fallback;
       el.style.backgroundImage = `url("${url}")`;
       el.style.backgroundSize = "cover";
@@ -1975,19 +2017,77 @@ function renderExpeditionGrids() {
 }
 
 let expeditionTimerId = null;
+let expeditionActivePollId = null;
 let expActiveModalTimer = null;
+/** Кэш успешных URL фонов биомов экспедиций (tag|archetypeId → url). */
+const expeditionBiomeUrlCache = new Map();
+
+function updateExpeditionActiveCardsOnly() {
+  const active = expeditionState.active || [];
+  let anyRunning = false;
+  active.forEach((a) => {
+    const card = document.querySelector(`.exp-card-item[data-exp-kind="active"][data-exp-id="${a.id}"]`);
+    if (!card) return;
+    const sec = a.remaining_seconds;
+    if (!a.can_claim && sec != null && sec > 0) {
+      anyRunning = true;
+      a.remaining_seconds = Math.max(0, sec - 1);
+    }
+    const timerEl = card.querySelector(".exp-foot-timer");
+    if (timerEl) timerEl.textContent = a.can_claim ? "—" : formatExpeditionTime(a.remaining_seconds);
+    const progEl = card.querySelector(".exp-card-progfill");
+    if (progEl && a.progress_pct != null) progEl.style.width = `${a.progress_pct}%`;
+  });
+  return anyRunning;
+}
+
+async function pollExpeditionActiveLight() {
+  try {
+    const activeRes = await apiFetch("/expeditions/active");
+    expeditionState.active = Array.isArray(activeRes?.active) ? activeRes.active : [];
+    expeditionUiCache.activeById = {};
+    (expeditionState.active || []).forEach((a) => {
+      expeditionUiCache.activeById[a.id] = a;
+    });
+    const grid = document.getElementById("exp-active-grid");
+    const needsFullRender = (expeditionState.active || []).some((a) => {
+      const card = document.querySelector(`.exp-card-item[data-exp-kind="active"][data-exp-id="${a.id}"]`);
+      return !card;
+    });
+    if (needsFullRender) {
+      renderExpeditionGrids();
+    } else {
+      updateExpeditionActiveCardsOnly();
+    }
+    wireExpeditionTabTimers();
+    refreshAtticChips();
+  } catch {
+    // ignore light poll errors
+  }
+}
 
 function wireExpeditionTabTimers() {
   const hasRunning = (expeditionState.active || []).some((a) => !a.can_claim);
   if (hasRunning && !expeditionTimerId) {
     expeditionTimerId = setInterval(() => {
-      if (document.getElementById("tab-expedition")?.style.display !== "none") {
-        loadExpeditionTab().catch(() => {});
+      if (document.getElementById("tab-expedition")?.style.display === "none") return;
+      const still = updateExpeditionActiveCardsOnly();
+      if (!still) {
+        pollExpeditionActiveLight().catch(() => {});
       }
-    }, 15000);
+    }, 1000);
   } else if (!hasRunning && expeditionTimerId) {
     clearInterval(expeditionTimerId);
     expeditionTimerId = null;
+  }
+  if (hasRunning && !expeditionActivePollId) {
+    expeditionActivePollId = setInterval(() => {
+      if (document.getElementById("tab-expedition")?.style.display === "none") return;
+      pollExpeditionActiveLight().catch(() => {});
+    }, 15000);
+  } else if (!hasRunning && expeditionActivePollId) {
+    clearInterval(expeditionActivePollId);
+    expeditionActivePollId = null;
   }
 }
 

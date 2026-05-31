@@ -10,7 +10,8 @@
    - `armor_dr` — доля снижения от брони (WoW-style по уровню вайфу).
 4. `damage_after_mit = round(raw × (1 - total_reduce))`, минимум 1.
 5. Опционально скрытая `final_armor_pct` (ещё один множитель).
-6. Уклонение: база ЛОВ/УДЧ + `evade_pct` + пассив `full_evade_chance` (отдельный бросок).
+6. Уклонение (один пул, cap 40%): ЛОВ × 0.1% + вторички `evade_pct` + пассивы с `evade_pct` (например Проворство). Удача в dodge не участвует (`DODGE_CHANCE_LUCK = 0`).
+7. Полное уклонение: пассив `full_evade_chance` (например Шаг тени) — **отдельный бросок** после обычного уклонения; в профиле показывается отдельной строкой.
 
 Константы: [`src/waifu_bot/game/constants.py`](../src/waifu_bot/game/constants.py) (`END_DAMAGE_REDUCTION_CAP = 0.35`, `ARMOR_K_BASE = 50`, `ARMOR_K_PER_LEVEL = 9`, `ARMOR_DR_CAP = 0.75`, потолок пула `0.90` в [`combat.py`](../src/waifu_bot/services/combat.py)).
 

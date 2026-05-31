@@ -24,6 +24,7 @@ class ShopInventoryResponse(BaseModel):
     items: List[dict]
     count: int
     size: int = 9
+    refresh_at: Optional[str] = None
 
 
 class InventorySellRequest(BaseModel):
@@ -419,6 +420,7 @@ class MainWaifuDetails(BaseModel):
     magic_damage_max: Optional[int] = None
     crit_chance: float
     dodge_chance: float
+    full_evade_chance: float = 0.0
     defense: int
     merchant_discount: float
     magic_find_pct: float = 0.0
@@ -454,6 +456,10 @@ class GearItemOut(BaseModel):
     armor_base: Optional[int] = None
     secondary_bonus_type: Optional[str] = None
     secondary_bonus_value: Optional[float] = None
+    secondary_fraction_type: Optional[str] = None
+    secondary_fraction_value: Optional[float] = None
+    secondary_fraction_effective: Optional[float] = None
+    secondary_awakened: bool = False
     damage_min_effective: Optional[int] = None
     damage_max_effective: Optional[int] = None
     armor_effective: Optional[int] = None
@@ -513,6 +519,7 @@ class ProfileResponse(BaseModel):
     gold: int
     skill_points: int = 0
     protection_stones: int = 0
+    enchant_dust: int = 0
     caravan_travel_costs: List[int] = []  # длина 5: стоимость переезда в акт 1..5
     main_waifu: Optional[MainWaifuProfile] = None
     main_waifu_details: Optional[MainWaifuDetails] = None
