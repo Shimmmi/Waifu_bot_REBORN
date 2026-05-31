@@ -17,6 +17,7 @@ from waifu_bot.api.inventory_routes import (
     _enrich_items_with_template_stats,
     _to_inventory_item,
 )
+from waifu_bot.game.msk_time import msk_next_midnight_utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,9 @@ async def get_shop_inventory(
 ):
     size = shop_size_for_act(act)
     items = await shop_service.get_shop_inventory(session, act, size=size, player_id=player_id)
-    return schemas.ShopInventoryResponse(items=items, count=len(items), size=size)
+    return schemas.ShopInventoryResponse(
+        items=items, count=len(items), size=size, refresh_at=msk_next_midnight_utc_iso()
+    )
 
 
 @router.post("/shop/merchant-line", tags=["shop"])
@@ -202,7 +205,7 @@ async def gamble_offers(
     session: AsyncSession = Depends(get_db),
 ):
     offers = await gamble_service.get_personal_offers(session, player_id, act)
-    return {"offers": offers, "size": GambleService.SIZE}
+    return {"offers": offers, "size": GambleService.SIZE, "refresh_at": msk_next_midnight_utc_iso()}
 
 
 @router.post("/shop/gamble/buy", tags=["shop"])

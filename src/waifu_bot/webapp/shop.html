@@ -1113,6 +1113,7 @@
       </div>
       <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
       <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
+      <div class="chip" title="Пыль зачарования">✨&nbsp;<strong id="badge-dust">—</strong></div>
     </div>
   </header>
 
@@ -1175,6 +1176,7 @@
 
     <section class="shop-content">
       <div class="shop-tab-panel active" id="tab-buy">
+        <p class="muted tiny shop-refresh-foot" id="shop-buy-refresh-label">Обновляется в 00:00 МСК</p>
         <div class="shop-buy-grid" id="shop-buy-grid">
           <div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0;">Загрузка ассортимента...</div>
         </div>
@@ -1211,18 +1213,29 @@
       </div>
 
       <div class="shop-tab-panel" id="tab-gamble" style="display:none;">
+        <p class="muted tiny shop-refresh-foot" id="shop-gamble-refresh-label">Обновляется в 00:00 МСК</p>
+        <p class="muted tiny" style="margin:0 0 8px;padding:0 4px;">12 загадочных слотов до полночи. Быстрый ролл — кнопка «Гембл» у торговца. Характеристики скрыты до покупки.</p>
         <div class="shop-gamble-grid" id="shop-gamble-grid">
           <div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0;">Загрузка...</div>
         </div>
       </div>
 
       <div class="shop-tab-panel" id="tab-smith" style="display:none;">
+        <div class="shop-smith-meta muted tiny" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+          <span>🪙 <strong id="shop-smith-gold-hint">—</strong></span>
+          <span>✨ <strong id="shop-smith-dust-hint">—</strong></span>
+          <span>🛡 <strong id="shop-smith-stones">0</strong> камней</span>
+        </div>
+        <div class="shop-smith-subtabs" style="display:flex;gap:6px;margin-bottom:10px;">
+          <button type="button" class="shop-btab active" id="shop-smith-subtab-sharpen" onclick="ShopPage.switchSmithSubTab('sharpen')">Заточка +N</button>
+          <button type="button" class="shop-btab" id="shop-smith-subtab-craft" onclick="ShopPage.switchSmithSubTab('craft')">Зачарование</button>
+        </div>
         <div class="shop-smith-stage">
           <button type="button" class="shop-smith-anvil" id="shop-smith-slot-btn" onclick="WaifuApp.openSmithPickModal()">
             <div id="shop-smith-icon-wrap" class="shop-smith-anvil-art">⚒</div>
             <div id="shop-smith-selected-label" class="shop-smith-anvil-label muted">Выберите предмет</div>
           </button>
-          <div class="shop-smith-panel">
+          <div class="shop-smith-panel" id="shop-smith-panel-sharpen">
             <div id="shop-smith-preview" class="shop-smith-card muted tiny">Выберите предмет из инвентаря.</div>
             <button type="button" class="shop-smith-hammer-btn" id="shop-smith-enchant-btn" onclick="WaifuApp.smithTryEnchant()" disabled>Заточить</button>
             <label class="shop-smith-stone-row" id="shop-smith-stone-row" style="display:none;">
@@ -1230,6 +1243,14 @@
               <span>Камень защиты (откат до +6)</span>
             </label>
             <button type="button" class="secondary shop-smith-buy-stone" onclick="WaifuApp.buyProtectionStoneShop()">Купить камень защиты</button>
+          </div>
+          <div class="shop-smith-panel" id="shop-smith-panel-craft" style="display:none;">
+            <div id="shop-smith-craft-preview" class="shop-smith-card muted tiny">Выберите предмет для зачарования пылью.</div>
+            <div class="shop-smith-craft-actions" style="display:grid;gap:6px;margin-top:8px;">
+              <button type="button" class="secondary" id="shop-smith-craft-add" onclick="WaifuApp.smithTryCraftEnchant('add')" disabled>Добавить вторичку</button>
+              <button type="button" class="secondary" id="shop-smith-craft-reroll" onclick="WaifuApp.smithTryCraftEnchant('reroll')" disabled>Перекатать</button>
+              <button type="button" class="secondary" id="shop-smith-craft-upgrade" onclick="WaifuApp.smithTryCraftEnchant('upgrade')" disabled>Усилить</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1401,6 +1422,7 @@
         <footer class="item-modal-v2-footer">
           <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
             <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
+            <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-dismantle" type="button" onclick="WaifuApp.openItemDismantleConfirmOverlay()" style="display:none;">Распылить</button>
             <button class="item-modal-v2-btn item-modal-v2-btn--ench" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;">Заточить</button>
             <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
             <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
@@ -1426,6 +1448,26 @@
         <div class="item-modal-sell-actions">
           <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemSellConfirmOverlay()">Отмена</button>
           <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" onclick="WaifuApp.confirmSellSelectedItem()">Продать</button>
+        </div>
+      </div>
+    </div>
+    <div
+      id="item-modal-dismantle-overlay"
+      class="item-modal-sell-overlay"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+      aria-labelledby="item-modal-dismantle-title"
+      onclick="if (event.target === this) WaifuApp.closeItemDismantleConfirmOverlay()"
+    >
+      <div class="item-modal-sell-panel" onclick="event.stopPropagation()">
+        <div class="item-modal-sell-title" id="item-modal-dismantle-title">Распылить предмет?</div>
+        <div class="item-modal-sell-name muted tiny" id="item-modal-dismantle-item-name">—</div>
+        <div class="item-modal-sell-price-line">Вы получите <strong>✨ <span id="item-modal-dismantle-dust">—</span></strong> пыли (без золота)</div>
+        <div class="item-modal-sell-actions">
+          <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemDismantleConfirmOverlay()">Отмена</button>
+          <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" onclick="WaifuApp.confirmDismantleSelectedItem()">Распылить</button>
         </div>
       </div>
     </div>
@@ -1486,7 +1528,7 @@
           WaifuApp.bootstrapPage("shop", WaifuApp.shopPageBootstrap);
         }
       });
-      return { switchTab, onHeroTap };
+      return { switchTab, onHeroTap, switchSmithSubTab: (t) => WaifuApp.switchSmithSubTab(t) };
     })();
   </script>
 

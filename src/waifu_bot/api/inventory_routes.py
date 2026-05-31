@@ -10,6 +10,8 @@ from waifu_bot.api.deps import get_db, get_player_id
 from waifu_bot.api import schemas
 from waifu_bot.db import models as m
 from waifu_bot.services.enchanting import build_enchant_preview, enchant_inventory_item
+from waifu_bot.services.craft_enchant import build_craft_enchant_preview, craft_enchant_inventory_item
+from waifu_bot.services.dismantle import dismantle_inventory_item, preview_dismantle_dust
 from waifu_bot.services.inventory_payload import (
     enrich_inventory_items_with_template_stats,
     serialize_inventory_item,
@@ -32,6 +34,11 @@ async def _inventory_item_sell_price(session: AsyncSession, player_id: int, inv:
 
 class EnchantRequest(BaseModel):
     use_protection_stone: bool = Field(default=False)
+
+
+class CraftEnchantRequest(BaseModel):
+    operation: str = Field(..., pattern="^(add|reroll|upgrade)$")
+    target: str = Field(default="fraction")
 
 
 async def _enrich_items_with_template_stats(session: AsyncSession, items: list[m.InventoryItem] | None) -> None:
@@ -183,4 +190,83 @@ async def get_inventory_enchant_preview(
     if data.get("error") == "enchant_max_reached":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="enchant_max_reached")
     return data
+
+
+@router.get("/inventory/{item_id}/dismantle-preview", tags=["inventory"])
+async def get_inventory_dismantle_preview(
+    item_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    inv = await session.scalar(
+        select(m.InventoryItem)
+        .options(selectinload(m.InventoryItem.item))
+        .where(m.InventoryItem.id == item_id, m.InventoryItem.player_id == player_id)
+    )
+    if not inv:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item_not_found")
+    dust = await preview_dismantle_dust(session, inv)
+    return {"dust_preview": dust}
+
+
+@router.post("/inventory/{item_id}/dismantle", tags=["inventory"])
+async def post_inventory_dismantle(
+    item_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    result = await dismantle_inventory_item(session, inventory_item_id=item_id, player_id=player_id)
+    err = result.get("error")
+    if err == "not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=err)
+    if err == "item_equipped":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=err)
+    if err == "item_in_shop":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=err)
+    if err == "not_owned":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=err)
+    return result
+
+
+@router.get("/inventory/{item_id}/craft-enchant-preview", tags=["inventory"])
+async def get_inventory_craft_enchant_preview(
+    item_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    inv = await session.scalar(
+        select(m.InventoryItem)
+        .options(selectinload(m.InventoryItem.item))
+        .where(m.InventoryItem.id == item_id, m.InventoryItem.player_id == player_id)
+    )
+    if not inv:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item_not_found")
+    return await build_craft_enchant_preview(session, inv)
+
+
+@router.post("/inventory/{item_id}/craft-enchant", tags=["inventory"])
+async def post_inventory_craft_enchant(
+    item_id: int,
+    body: CraftEnchantRequest,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    result = await craft_enchant_inventory_item(
+        session,
+        inventory_item_id=item_id,
+        player_id=player_id,
+        operation=body.operation,  # type: ignore[arg-type]
+        target=body.target,
+    )
+    err = result.get("error")
+    if err == "not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=err)
+    if err == "insufficient_dust":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"insufficient_dust need {result.get('required')} have {result.get('have')}",
+        )
+    if err in ("fraction_already_exists", "no_fraction_to_modify", "invalid_operation", "invalid_target"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
+    return result
 

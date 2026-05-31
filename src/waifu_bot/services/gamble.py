@@ -15,11 +15,6 @@ from waifu_bot.services.hidden_skills import record_hidden_gold_spend
 from waifu_bot.services.item_service import ItemService, RARITY_WEIGHTS, _pick_weighted
 from waifu_bot.services.passive_skills import apply_passive_buy_price
 from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
-from waifu_bot.services.item_art import (
-    derive_image_key,
-    derive_item_art_key,
-    enrich_items_with_image_urls,
-)
 
 MSK = timezone(timedelta(hours=3))
 GAMBLE_SIZE = 12
@@ -45,22 +40,11 @@ class GambleService:
         return oldest.astimezone(MSK) < last_midnight
 
     def _offer_type_preview(self, inv: InventoryItem) -> dict[str, Any]:
-        base_name = str(getattr(getattr(inv, "item", None), "name", "") or "Предмет").strip()
-        display_name_for_art = base_name
-        image_key = derive_image_key(inv.slot_type, inv.weapon_type, display_name_for_art)
-        art_key = derive_item_art_key(
-            inv.slot_type,
-            inv.weapon_type,
-            base_name,
-            display_name=display_name_for_art,
-        )
+        """Public preview before purchase — slot type only (no template art leak)."""
         return {
             "slot_type": inv.slot_type,
-            "weapon_type": inv.weapon_type,
+            "weapon_type": inv.weapon_type if str(inv.slot_type or "").startswith("weapon") else None,
             "tier": int(getattr(inv, "tier", None) or 1),
-            "art_key": art_key,
-            "image_key": image_key,
-            "image_url": None,
         }
 
     async def get_personal_offers(
@@ -102,7 +86,6 @@ class GambleService:
                 row.update(self._offer_type_preview(inv))
             previews.append(row)
 
-        await enrich_items_with_image_urls(session, previews)
         return previews
 
     async def _base_price(self, session: AsyncSession, player_id: int) -> int:

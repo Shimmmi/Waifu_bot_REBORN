@@ -339,6 +339,16 @@ def test_merge_passive_skips_duplicate_asp_when_flag() -> None:
     assert skip["melee_damage"] == 100
 
 
+def test_merge_passive_full_evade_chance_in_profile() -> None:
+    from waifu_bot.services.passive_skills import merge_passive_into_profile_details
+
+    base = {"dodge_chance": 10.0}
+    ps = {"full_evade_chance": 0.5}
+    out = merge_passive_into_profile_details(dict(base), ps)
+    assert out["full_evade_chance"] == 50.0
+    assert out["dodge_chance"] == 10.0
+
+
 def test_merge_passive_armor_flat_before_armor_pct() -> None:
     from waifu_bot.services.passive_skills import merge_passive_into_profile_details
 

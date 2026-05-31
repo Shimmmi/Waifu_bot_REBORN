@@ -9,6 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
+from waifu_bot.game.item_secondary import (
+    attach_resolved_attrs,
+    effective_fraction_combat,
+    resolve_item_secondaries,
+    template_row_from_mapping,
+)
 from waifu_bot.services.enchanting import get_effective_params
 from waifu_bot.services.item_art import derive_image_key, derive_item_art_key, enrich_items_with_image_urls
 from waifu_bot.services.passive_skills import normalize_passive_level_affix_value
@@ -26,37 +32,33 @@ async def enrich_inventory_items_with_template_stats(
         tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 0)
         if item_name and tier > 0:
             keys.add((item_name, tier))
-    if not keys:
-        return
-    try:
-        stmt = (
-            select(
-                text("name"),
-                text("tier"),
-                text("armor_base"),
-                text("secondary_bonus_type"),
-                text("secondary_bonus_value"),
+    stats_map: dict[tuple[str, int], Any] = {}
+    if keys:
+        try:
+            stmt = (
+                select(
+                    text("name"),
+                    text("tier"),
+                    text("armor_base"),
+                    text("secondary_bonus_type"),
+                    text("secondary_bonus_value"),
+                )
+                .select_from(text("item_base_templates"))
+                .where(tuple_(text("name"), text("tier")).in_(list(keys)))
             )
-            .select_from(text("item_base_templates"))
-            .where(tuple_(text("name"), text("tier")).in_(list(keys)))
-        )
-        rows = (await session.execute(stmt)).all()
-    except Exception:
-        return
-    stats_map: dict[tuple[str, int], tuple[int, str | None, float]] = {}
-    for row in rows:
-        stats_map[(str(getattr(row, "name", "") or ""), int(getattr(row, "tier", 0) or 0))] = (
-            int(getattr(row, "armor_base", 0) or 0),
-            getattr(row, "secondary_bonus_type", None),
-            float(getattr(row, "secondary_bonus_value", 0.0) or 0.0),
-        )
+            rows = (await session.execute(stmt)).all()
+            for row in rows:
+                stats_map[(str(getattr(row, "name", "") or ""), int(getattr(row, "tier", 0) or 0))] = row
+        except Exception:
+            stats_map = {}
+
     for inv in items:
         item_name = str(getattr(getattr(inv, "item", None), "name", "") or "").strip()
         tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 0)
-        armor, sec_type, sec_val = stats_map.get((item_name, tier), (0, None, 0.0))
-        setattr(inv, "_armor_base", armor)
-        setattr(inv, "_secondary_bonus_type", sec_type)
-        setattr(inv, "_secondary_bonus_value", sec_val)
+        tpl_row = stats_map.get((item_name, tier))
+        template = template_row_from_mapping(tpl_row) if tpl_row else None
+        resolved = resolve_item_secondaries(inv, template)
+        attach_resolved_attrs(inv, resolved)
 
 
 def _fallback_base_name_ru(inv: m.InventoryItem) -> str:
@@ -115,8 +117,9 @@ def serialize_inventory_item(inv: m.InventoryItem) -> dict[str, Any]:
     )
 
     ab = int(getattr(inv, "_armor_base", 0) or 0)
-    sv = float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0)
-    eff = get_effective_params(inv, armor_base=ab, secondary_bonus_value=sv)
+    resolved = getattr(inv, "_resolved_secondaries", None) or resolve_item_secondaries(inv, None)
+    frac_type, frac_val = effective_fraction_combat(inv, resolved)
+    eff = get_effective_params(inv, armor_base=ab, secondary_bonus_value=frac_val or 0.0)
 
     return {
         "id": inv.id,
@@ -138,7 +141,11 @@ def serialize_inventory_item(inv: m.InventoryItem) -> dict[str, Any]:
         "armor_base": ab or None,
         "armor_effective": int(eff.get("armor", 0) or 0) or None,
         "secondary_bonus_type": getattr(inv, "_secondary_bonus_type", None),
-        "secondary_bonus_value": sv or None,
+        "secondary_bonus_value": float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0) or None,
+        "secondary_fraction_type": frac_type,
+        "secondary_fraction_value": float(resolved.fraction_value) or None,
+        "secondary_fraction_effective": float(frac_val) if frac_val else None,
+        "secondary_awakened": bool(getattr(inv, "_secondary_awakened", False)),
         "secondary_bonus_effective": float(eff.get("secondary", 0.0) or 0.0) or None,
         "enchant_level": int(getattr(inv, "enchant_level", 0) or 0),
         "enchant_dmg_step": int(getattr(inv, "enchant_dmg_step", 0) or 0),
