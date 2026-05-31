@@ -1516,6 +1516,28 @@
         }
       }
 
+      function switchSmithSubTab(name) {
+        const fn = window.WaifuApp && window.WaifuApp.switchSmithSubTab;
+        if (typeof fn === "function" && fn !== switchSmithSubTab) {
+          fn(name);
+          return;
+        }
+        const tab = name === "craft" ? "craft" : "sharpen";
+        ["sharpen", "craft"].forEach((t) => {
+          const btn = document.getElementById(`shop-smith-subtab-${t}`);
+          if (btn) btn.classList.toggle("active", t === tab);
+          const panel = document.getElementById(`shop-smith-panel-${t}`);
+          if (panel) panel.style.display = t === tab ? "" : "none";
+        });
+        const refresh =
+          tab === "craft"
+            ? window.WaifuApp && window.WaifuApp.refreshSmithCraftPreview
+            : window.WaifuApp && window.WaifuApp.refreshSmithPreview;
+        if (typeof refresh === "function") {
+          refresh().catch(console.error);
+        }
+      }
+
       window.addEventListener("DOMContentLoaded", () => {
         document.querySelectorAll(".shop-hero[data-tab-hero]").forEach((btn) => {
           btn.addEventListener("click", (e) => {
@@ -1528,7 +1550,7 @@
           WaifuApp.bootstrapPage("shop", WaifuApp.shopPageBootstrap);
         }
       });
-      return { switchTab, onHeroTap, switchSmithSubTab: (t) => WaifuApp.switchSmithSubTab(t) };
+      return { switchTab, onHeroTap, switchSmithSubTab };
     })();
   </script>
 

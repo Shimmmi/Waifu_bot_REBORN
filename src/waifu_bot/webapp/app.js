@@ -3116,6 +3116,9 @@ function switchSmithSubTab(name) {
   }
 }
 
+window.WaifuApp = window.WaifuApp || {};
+window.WaifuApp.switchSmithSubTab = switchSmithSubTab;
+
 function updateSmithSelectionUI() {
   const id = shopState.smithSelectedId;
   const items = shopState.smithItems || [];
