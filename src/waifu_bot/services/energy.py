@@ -40,8 +40,8 @@ def apply_regen(
     - HP: cap at max_hp; if current_hp <= 0, skip (no revive from regen);
       if already at cap, only refresh hp_updated_at.
     - suppress: when True, grant NO HP but advance hp_updated_at to ``now`` so the
-      idle/offline interval is forfeited (used to block in-dungeon regen while the
-      player is offline). Out-of-dungeon callers leave this False.
+      idle/offline interval is forfeited (Abyss offline regen via combat_regen).
+      Solo dungeons never pass suppress=True. Out-of-dungeon callers leave False.
     """
     if not waifu:
         return False
