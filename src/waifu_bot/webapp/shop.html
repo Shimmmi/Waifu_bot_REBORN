@@ -748,20 +748,22 @@
 
     body.page-shop .shop-smith-stage {
       display: flex;
-      flex-direction: row;
-      align-items: flex-start;
-      justify-content: center;
-      gap: 16px;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
       padding: 16px 12px 80px;
       flex: 1 1 auto;
     }
-    body.page-shop .shop-smith-panel {
-      flex: 1;
-      max-width: 240px;
+    body.page-shop .shop-smith-work-row {
       display: flex;
-      flex-direction: column;
-      gap: 10px;
+      gap: 12px;
+      align-items: stretch;
+      width: 100%;
+    }
+    body.page-shop .shop-smith-info-panel {
+      flex: 1;
       min-width: 0;
+      display: flex;
     }
     body.page-shop .shop-smith-anvil {
       flex-shrink: 0;
@@ -809,17 +811,50 @@
       line-height: 1.2;
       pointer-events: none;
     }
-    body.page-shop .shop-smith-meta {
+    body.page-shop .shop-smith-toolbar {
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    body.page-shop .shop-smith-resources {
       display: flex;
       align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-bottom: 8px;
+      gap: 10px;
+      flex-shrink: 0;
+      padding: 8px 12px;
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      border-radius: 10px;
+      background: rgba(13, 10, 8, 0.55);
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    body.page-shop .shop-smith-res-item {
+      white-space: nowrap;
+    }
+    body.page-shop .shop-smith-res-sep {
+      width: 1px;
+      align-self: stretch;
+      background: rgba(200, 146, 42, 0.25);
+      flex-shrink: 0;
+    }
+    body.page-shop .shop-smith-subtabs {
+      flex: 1;
+      display: flex;
+      gap: 6px;
+      min-width: 0;
+    }
+    body.page-shop .shop-smith-subtabs .shop-btab {
+      flex: 1;
+      min-width: 0;
+      padding: 8px 6px;
+      font-size: 11px;
     }
     body.page-shop .shop-smith-help-btn {
-      margin-left: auto;
-      width: 26px;
-      height: 26px;
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      align-self: center;
       border-radius: 50%;
       border: 1px solid rgba(200, 146, 42, 0.45);
       background: rgba(26, 20, 16, 0.9);
@@ -830,28 +865,67 @@
       line-height: 1;
       padding: 0;
     }
-    body.page-shop .shop-smith-auto-btn {
-      width: 100%;
-      font-size: 11px;
-      padding: 8px 12px;
-    }
-    body.page-shop .shop-smith-craft-actions {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
+    body.page-shop .shop-smith-controls-row {
+      display: flex;
+      flex-wrap: nowrap;
       gap: 6px;
-      margin-top: 8px;
+      align-items: center;
+      width: 100%;
     }
-    body.page-shop .shop-smith-craft-actions .secondary {
+    @media (max-width: 359px) {
+      body.page-shop .shop-smith-controls-row {
+        flex-wrap: wrap;
+      }
+    }
+    body.page-shop .shop-smith-ctrl-btn {
+      flex: 1;
+      min-width: 0;
+      min-height: 36px;
       font-size: 11px;
-      padding: 6px 4px;
-      line-height: 1.25;
-      min-height: 0;
+      line-height: 1.2;
+      padding: 6px 8px;
+      border-radius: 10px;
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      background: rgba(26, 20, 16, 0.9);
+      color: var(--cream);
+      cursor: pointer;
+      font-weight: 600;
+    }
+    body.page-shop .shop-smith-ctrl-btn--primary {
+      background: linear-gradient(180deg, rgba(200, 146, 42, 0.55), rgba(160, 110, 30, 0.65));
+      color: #fff8ee;
+      border-color: rgba(232, 184, 75, 0.6);
+      font-weight: 700;
+    }
+    body.page-shop .shop-smith-ctrl-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    body.page-shop .shop-smith-stone-check[hidden] {
+      display: none !important;
+    }
+    body.page-shop .shop-smith-stone-check {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      line-height: 1.2;
+      margin: 0;
+      cursor: pointer;
+      flex: 0 1 auto;
+      white-space: nowrap;
+      color: var(--cream);
+    }
+    body.page-shop .shop-smith-stone-check input {
+      flex-shrink: 0;
+      margin: 0;
     }
     body.page-shop .shop-smith-craft-btn-cost {
       display: block;
       font-size: 10px;
       opacity: 0.85;
       margin-top: 2px;
+      font-weight: 400;
     }
     body.page-shop #smith-help-modal .modal-content {
       max-width: 420px;
@@ -875,33 +949,19 @@
       margin-top: 0;
     }
     body.page-shop .shop-smith-card {
+      flex: 1;
       width: 100%;
+      height: 140px;
+      min-height: 140px;
+      max-height: 140px;
+      overflow-y: auto;
+      box-sizing: border-box;
       background: rgba(26, 20, 16, 0.92);
       border: 1px solid rgba(200, 146, 42, 0.35);
       border-radius: 12px;
-      padding: 12px 14px;
-      font-size: 13px;
+      padding: 10px 12px;
+      font-size: 12px;
       line-height: 1.45;
-    }
-    body.page-shop .shop-smith-hammer-btn {
-      background: linear-gradient(180deg, rgba(200, 146, 42, 0.55), rgba(160, 110, 30, 0.65));
-      color: #fff8ee;
-      border: 1px solid rgba(232, 184, 75, 0.6);
-      padding: 12px 28px;
-      border-radius: 12px;
-      font-size: 14px;
-      font-weight: 700;
-      cursor: pointer;
-      width: 100%;
-    }
-    body.page-shop .shop-smith-hammer-btn:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-    body.page-shop .shop-smith-buy-stone {
-      width: 100%;
-      font-size: 11px;
-      padding: 8px 12px;
     }
     body.page-shop #shop-smith-pick-modal .modal-content {
       background: rgba(26, 20, 16, 0.97);
@@ -1188,7 +1248,6 @@
       </div>
       <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
       <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
-      <div class="chip" title="Пыль зачарования">✨&nbsp;<strong id="badge-dust">—</strong></div>
     </div>
   </header>
 
@@ -1288,45 +1347,50 @@
       </div>
 
       <div class="shop-tab-panel" id="tab-gamble" style="display:none;">
-        <p class="muted tiny shop-refresh-foot" id="shop-gamble-refresh-label">Обновляется в 00:00 МСК</p>
-        <p class="muted tiny" style="margin:0 0 8px;padding:0 4px;">12 загадочных слотов до полночи. Быстрый ролл — кнопка «Гембл» у торговца. Характеристики скрыты до покупки.</p>
         <div class="shop-gamble-grid" id="shop-gamble-grid">
           <div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0;">Загрузка...</div>
         </div>
       </div>
 
       <div class="shop-tab-panel" id="tab-smith" style="display:none;">
-        <div class="shop-smith-meta muted tiny">
-          <span>✨ <strong id="shop-smith-dust-hint">—</strong> пыли</span>
-          <span>🛡 <strong id="shop-smith-stones">0</strong> камней</span>
+        <div class="shop-smith-toolbar">
+          <div class="shop-smith-resources muted tiny" aria-label="Ресурсы кузницы">
+            <span class="shop-smith-res-item">✨ <strong id="shop-smith-dust-hint">—</strong> пыли</span>
+            <span class="shop-smith-res-sep" aria-hidden="true"></span>
+            <span class="shop-smith-res-item">🛡 <strong id="shop-smith-stones">0</strong> камней</span>
+          </div>
+          <div class="shop-smith-subtabs">
+            <button type="button" class="shop-btab active" id="shop-smith-subtab-sharpen" onclick="ShopPage.switchSmithSubTab('sharpen')">Заточка</button>
+            <button type="button" class="shop-btab" id="shop-smith-subtab-craft" onclick="ShopPage.switchSmithSubTab('craft')">Зачарование</button>
+          </div>
           <button type="button" class="shop-smith-help-btn" id="shop-smith-help-btn" onclick="WaifuApp.openSmithHelpModal()" title="Как работает кузница" aria-label="Справка о кузнице">?</button>
         </div>
-        <div class="shop-smith-subtabs" style="display:flex;gap:6px;margin-bottom:10px;">
-          <button type="button" class="shop-btab active" id="shop-smith-subtab-sharpen" onclick="ShopPage.switchSmithSubTab('sharpen')">Заточка +N</button>
-          <button type="button" class="shop-btab" id="shop-smith-subtab-craft" onclick="ShopPage.switchSmithSubTab('craft')">Зачарование</button>
-        </div>
         <div class="shop-smith-stage">
-          <button type="button" class="shop-smith-anvil" id="shop-smith-slot-btn" onclick="WaifuApp.openSmithPickModal()">
-            <div id="shop-smith-icon-wrap" class="shop-smith-anvil-art">⚒</div>
-            <span id="shop-smith-enchant-badge" class="shop-smith-enchant-badge" hidden>+0</span>
-          </button>
-          <div class="shop-smith-panel" id="shop-smith-panel-sharpen">
-            <div id="shop-smith-preview" class="shop-smith-card muted tiny">Выберите предмет из инвентаря.</div>
-            <button type="button" class="shop-smith-hammer-btn" id="shop-smith-enchant-btn" onclick="WaifuApp.smithTryEnchant()" disabled>Заточить</button>
-            <button type="button" class="secondary shop-smith-auto-btn" id="shop-smith-auto-btn" onclick="WaifuApp.smithAutoSafeEnchant()" disabled>До +6 (без риска)</button>
-            <label class="shop-smith-stone-row" id="shop-smith-stone-row" style="display:none;">
-              <input type="checkbox" id="shop-smith-use-stone" />
-              <span>Камень защиты (откат до +6)</span>
-            </label>
-            <button type="button" class="secondary shop-smith-buy-stone" onclick="WaifuApp.buyProtectionStoneShop()">Купить камень защиты</button>
-          </div>
-          <div class="shop-smith-panel" id="shop-smith-panel-craft" style="display:none;">
-            <div id="shop-smith-craft-preview" class="shop-smith-card muted tiny">Выберите предмет для зачарования пылью.</div>
-            <div class="shop-smith-craft-actions">
-              <button type="button" class="secondary" id="shop-smith-craft-add" onclick="WaifuApp.smithTryCraftEnchant('add')" disabled>Добавить</button>
-              <button type="button" class="secondary" id="shop-smith-craft-reroll" onclick="WaifuApp.smithTryCraftEnchant('reroll')" disabled>Перекат</button>
-              <button type="button" class="secondary" id="shop-smith-craft-upgrade" onclick="WaifuApp.smithTryCraftEnchant('upgrade')" disabled>Усилить</button>
+          <div class="shop-smith-work-row">
+            <button type="button" class="shop-smith-anvil" id="shop-smith-slot-btn" onclick="WaifuApp.openSmithPickModal()">
+              <div id="shop-smith-icon-wrap" class="shop-smith-anvil-art">⚒</div>
+              <span id="shop-smith-enchant-badge" class="shop-smith-enchant-badge" hidden>+0</span>
+            </button>
+            <div id="shop-smith-panel-sharpen" class="shop-smith-info-panel">
+              <div id="shop-smith-preview" class="shop-smith-card muted tiny">Выберите предмет из инвентаря.</div>
             </div>
+            <div id="shop-smith-panel-craft" class="shop-smith-info-panel" style="display:none;">
+              <div id="shop-smith-craft-preview" class="shop-smith-card muted tiny">Выберите предмет для зачарования пылью.</div>
+            </div>
+          </div>
+          <div id="shop-smith-controls-sharpen" class="shop-smith-controls-row">
+            <button type="button" class="shop-smith-ctrl-btn shop-smith-ctrl-btn--primary" id="shop-smith-enchant-btn" onclick="WaifuApp.smithTryEnchant()" disabled>Заточить</button>
+            <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-auto-btn" onclick="WaifuApp.smithAutoSafeEnchant()" disabled>До +7</button>
+            <label class="shop-smith-stone-check" id="shop-smith-stone-check-wrap" hidden>
+              <input type="checkbox" id="shop-smith-use-stone" />
+              <span>Камень</span>
+            </label>
+            <button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.buyProtectionStoneShop()">Купить камень</button>
+          </div>
+          <div id="shop-smith-controls-craft" class="shop-smith-controls-row" style="display:none;">
+            <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-craft-add" onclick="WaifuApp.smithTryCraftEnchant('add')" disabled title="Случайная вторичка, если её ещё нет">Выдать бонус</button>
+            <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-craft-reroll" onclick="WaifuApp.smithTryCraftEnchant('reroll')" disabled title="Другой тип и сила вторички">Сменить бонус</button>
+            <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-craft-upgrade" onclick="WaifuApp.smithTryCraftEnchant('upgrade')" disabled title="+шаг к текущей вторичке">Усилить бонус</button>
           </div>
         </div>
       </div>
@@ -1604,6 +1668,8 @@
           if (btn) btn.classList.toggle("active", t === tab);
           const panel = document.getElementById(`shop-smith-panel-${t}`);
           if (panel) panel.style.display = t === tab ? "" : "none";
+          const controls = document.getElementById(`shop-smith-controls-${t}`);
+          if (controls) controls.style.display = t === tab ? "" : "none";
         });
         const refresh =
           tab === "craft"
