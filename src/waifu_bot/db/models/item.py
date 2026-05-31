@@ -243,6 +243,40 @@ class InventoryAffix(Base):
     inventory_item: Mapped["InventoryItem"] = relationship("InventoryItem", back_populates="affixes")
 
 
+class PlayerItemCodex(Base):
+    """Per-player discovery of a base item template (library items tab)."""
+
+    __tablename__ = "player_item_codex"
+
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id", ondelete="CASCADE"), primary_key=True
+    )
+    base_template_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("item_base_templates.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    seen_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class PlayerAffixCodex(Base):
+    """Per-player discovery of an affix catalog entry (legacy affix or diablo family)."""
+
+    __tablename__ = "player_affix_codex"
+
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id", ondelete="CASCADE"), primary_key=True
+    )
+    catalog_kind: Mapped[str] = mapped_column(String(32), primary_key=True)
+    catalog_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+
 class ShopOffer(Base):
     """Daily personal shop offer for a player and act."""
 
