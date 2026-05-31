@@ -20,6 +20,7 @@ from waifu_bot.game.constants import (
     WAIFU_RACE_LABEL_RU,
 )
 from waifu_bot.services.combat import CombatService
+from waifu_bot.services.dungeon import DungeonService
 from waifu_bot.services.expedition import ExpeditionService
 from waifu_bot.services.gd_cycle_service import GDCycleService
 from waifu_bot.services.gd_v1_worker import (
@@ -881,5 +882,67 @@ async def handle_expedition_abort(callback: CallbackQuery) -> None:
             return
     except Exception:
         logger.exception("expedition_abort failed for player_id=%s active_id=%s", player_id, active_id)
+        await callback.answer("Ошибка сервера", show_alert=True)
+
+
+# --- Solo dungeon: повторный вход по Inline-кнопке в ЛС ---
+
+_dungeon_service = DungeonService()
+
+
+@router.callback_query(F.data.startswith("sd_retry_"))
+async def handle_solo_dungeon_retry(callback: CallbackQuery) -> None:
+    """Начать то же соло-подземелье снова (кнопка «Войти снова» в ЛС)."""
+    from aiogram.types import InlineKeyboardMarkup
+
+    from waifu_bot.services.dungeon_notify import (
+        parse_solo_dungeon_retry_callback,
+        start_dungeon_error_message,
+    )
+
+    if not callback.data or not callback.from_user:
+        await callback.answer("Ошибка")
+        return
+    parsed = parse_solo_dungeon_retry_callback(callback.data)
+    if parsed is None:
+        await callback.answer("Неверные данные")
+        return
+    dungeon_id, plus_level = parsed
+    player_id = callback.from_user.id
+    try:
+        async for session in get_session():
+            result = await _dungeon_service.start_dungeon(
+                session, player_id, dungeon_id, plus_level=plus_level
+            )
+            if result.get("error"):
+                await callback.answer(
+                    start_dungeon_error_message(result["error"]),
+                    show_alert=True,
+                )
+                return
+            monster_name = result.get("monster_name") or "Монстр"
+            monster_hp = int(result.get("monster_hp") or 0)
+            start_line = (
+                f"⚔️ Подземелье начато. Первый монстр: «{monster_name}» (HP {monster_hp}). "
+                "Атакуйте в групповом чате."
+            )
+            try:
+                if callback.message:
+                    base_text = callback.message.text or ""
+                    await callback.message.edit_text(
+                        f"{base_text}\n\n{start_line}",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[]),
+                    )
+            except Exception:
+                pass
+            await callback.answer("Подземелье начато!")
+            return
+    except Exception:
+        logger.exception(
+            "sd_retry failed for player_id=%s dungeon_id=%s plus=%s",
+            player_id,
+            dungeon_id,
+            plus_level,
+        )
         await callback.answer("Ошибка сервера", show_alert=True)
 
