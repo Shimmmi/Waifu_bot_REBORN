@@ -765,39 +765,114 @@
     }
     body.page-shop .shop-smith-anvil {
       flex-shrink: 0;
+      position: relative;
       width: 140px;
       height: 140px;
       border-radius: 16px;
       background: radial-gradient(circle, rgba(200, 146, 42, 0.18), rgba(13, 10, 8, 0.92));
       border: 1px solid rgba(200, 146, 42, 0.4);
       cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      padding: 0;
       overflow: hidden;
       font-size: 56px;
       color: var(--cream);
     }
     body.page-shop .shop-smith-anvil-art {
+      position: absolute;
+      inset: 0;
       width: 100%;
-      height: 72px;
+      height: 100%;
       display: flex;
       align-items: center;
       justify-content: center;
       overflow: hidden;
     }
     body.page-shop .shop-smith-anvil-art img {
-      max-width: 90%;
-      max-height: 90%;
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      max-height: none;
       object-fit: contain;
     }
-    body.page-shop .shop-smith-anvil-label {
+    body.page-shop .shop-smith-enchant-badge {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      z-index: 2;
+      padding: 2px 7px;
+      border-radius: 8px;
+      background: rgba(13, 10, 8, 0.88);
+      border: 1px solid rgba(251, 191, 36, 0.55);
+      color: #fbbf24;
+      font-weight: 800;
+      font-size: 14px;
+      line-height: 1.2;
+      pointer-events: none;
+    }
+    body.page-shop .shop-smith-meta {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    body.page-shop .shop-smith-help-btn {
+      margin-left: auto;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 1px solid rgba(200, 146, 42, 0.45);
+      background: rgba(26, 20, 16, 0.9);
+      color: var(--cream);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0;
+    }
+    body.page-shop .shop-smith-auto-btn {
+      width: 100%;
       font-size: 11px;
-      color: var(--muted);
-      margin-top: 6px;
-      text-align: center;
-      line-height: 1.3;
+      padding: 8px 12px;
+    }
+    body.page-shop .shop-smith-craft-actions {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+    body.page-shop .shop-smith-craft-actions .secondary {
+      font-size: 11px;
+      padding: 6px 4px;
+      line-height: 1.25;
+      min-height: 0;
+    }
+    body.page-shop .shop-smith-craft-btn-cost {
+      display: block;
+      font-size: 10px;
+      opacity: 0.85;
+      margin-top: 2px;
+    }
+    body.page-shop #smith-help-modal .modal-content {
+      max-width: 420px;
+      max-height: min(80vh, 520px);
+      overflow: auto;
+      background: rgba(26, 20, 16, 0.97);
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      color: var(--cream);
+      padding: 14px 16px;
+    }
+    body.page-shop #smith-help-body {
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    body.page-shop #smith-help-body h4 {
+      margin: 12px 0 6px;
+      font-size: 13px;
+      color: #fbbf24;
+    }
+    body.page-shop #smith-help-body h4:first-child {
+      margin-top: 0;
     }
     body.page-shop .shop-smith-card {
       width: 100%;
@@ -1168,7 +1243,7 @@
         <button class="shop-btab active" id="shop-btab-buy" data-tab="buy" onclick="ShopPage.switchTab('buy')">Покупка</button>
         <button class="shop-btab" id="shop-btab-sell" data-tab="sell" onclick="ShopPage.switchTab('sell')">Продажа</button>
         <button class="shop-btab" id="shop-btab-gamble" data-tab="gamble" onclick="ShopPage.switchTab('gamble')">Gamble</button>
-        <button class="shop-btab" id="shop-btab-smith" data-tab="smith" onclick="ShopPage.switchTab('smith')">Заточка</button>
+        <button class="shop-btab" id="shop-btab-smith" data-tab="smith" onclick="ShopPage.switchTab('smith')">Кузнец</button>
         <button class="shop-btab-sm admin-only" id="shop-admin-refresh" style="display:none;" onclick="WaifuApp.refreshShopDebug()" title="Обновить витрину">🔄</button>
         <button class="shop-btab-sm admin-only" id="shop-admin-add-gold" style="display:none;" onclick="WaifuApp.adminAddGold()" title="+10000 золота">💰</button>
       </div>
@@ -1221,10 +1296,10 @@
       </div>
 
       <div class="shop-tab-panel" id="tab-smith" style="display:none;">
-        <div class="shop-smith-meta muted tiny" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
-          <span>🪙 <strong id="shop-smith-gold-hint">—</strong></span>
-          <span>✨ <strong id="shop-smith-dust-hint">—</strong></span>
+        <div class="shop-smith-meta muted tiny">
+          <span>✨ <strong id="shop-smith-dust-hint">—</strong> пыли</span>
           <span>🛡 <strong id="shop-smith-stones">0</strong> камней</span>
+          <button type="button" class="shop-smith-help-btn" id="shop-smith-help-btn" onclick="WaifuApp.openSmithHelpModal()" title="Как работает кузница" aria-label="Справка о кузнице">?</button>
         </div>
         <div class="shop-smith-subtabs" style="display:flex;gap:6px;margin-bottom:10px;">
           <button type="button" class="shop-btab active" id="shop-smith-subtab-sharpen" onclick="ShopPage.switchSmithSubTab('sharpen')">Заточка +N</button>
@@ -1233,11 +1308,12 @@
         <div class="shop-smith-stage">
           <button type="button" class="shop-smith-anvil" id="shop-smith-slot-btn" onclick="WaifuApp.openSmithPickModal()">
             <div id="shop-smith-icon-wrap" class="shop-smith-anvil-art">⚒</div>
-            <div id="shop-smith-selected-label" class="shop-smith-anvil-label muted">Выберите предмет</div>
+            <span id="shop-smith-enchant-badge" class="shop-smith-enchant-badge" hidden>+0</span>
           </button>
           <div class="shop-smith-panel" id="shop-smith-panel-sharpen">
             <div id="shop-smith-preview" class="shop-smith-card muted tiny">Выберите предмет из инвентаря.</div>
             <button type="button" class="shop-smith-hammer-btn" id="shop-smith-enchant-btn" onclick="WaifuApp.smithTryEnchant()" disabled>Заточить</button>
+            <button type="button" class="secondary shop-smith-auto-btn" id="shop-smith-auto-btn" onclick="WaifuApp.smithAutoSafeEnchant()" disabled>До +6 (без риска)</button>
             <label class="shop-smith-stone-row" id="shop-smith-stone-row" style="display:none;">
               <input type="checkbox" id="shop-smith-use-stone" />
               <span>Камень защиты (откат до +6)</span>
@@ -1246,9 +1322,9 @@
           </div>
           <div class="shop-smith-panel" id="shop-smith-panel-craft" style="display:none;">
             <div id="shop-smith-craft-preview" class="shop-smith-card muted tiny">Выберите предмет для зачарования пылью.</div>
-            <div class="shop-smith-craft-actions" style="display:grid;gap:6px;margin-top:8px;">
-              <button type="button" class="secondary" id="shop-smith-craft-add" onclick="WaifuApp.smithTryCraftEnchant('add')" disabled>Добавить вторичку</button>
-              <button type="button" class="secondary" id="shop-smith-craft-reroll" onclick="WaifuApp.smithTryCraftEnchant('reroll')" disabled>Перекатать</button>
+            <div class="shop-smith-craft-actions">
+              <button type="button" class="secondary" id="shop-smith-craft-add" onclick="WaifuApp.smithTryCraftEnchant('add')" disabled>Добавить</button>
+              <button type="button" class="secondary" id="shop-smith-craft-reroll" onclick="WaifuApp.smithTryCraftEnchant('reroll')" disabled>Перекат</button>
               <button type="button" class="secondary" id="shop-smith-craft-upgrade" onclick="WaifuApp.smithTryCraftEnchant('upgrade')" disabled>Усилить</button>
             </div>
           </div>
@@ -1260,7 +1336,7 @@
   <div id="shop-smith-pick-modal" class="modal" style="display:none;" onclick="if (event.target === this) WaifuApp.closeSmithPickModal()">
     <div class="modal-content shop-smith-pick-content" onclick="event.stopPropagation()">
       <div class="modal-head">
-        <div class="modal-title" style="font-size:16px;">Предмет для заточки</div>
+        <div class="modal-title" style="font-size:16px;">Выберите предмет</div>
         <button type="button" class="secondary" onclick="WaifuApp.closeSmithPickModal()">✖</button>
       </div>
       <div id="shop-smith-pick-grid" class="shop-smith-pick-page"></div>
@@ -1553,6 +1629,16 @@
       return { switchTab, onHeroTap, switchSmithSubTab };
     })();
   </script>
+
+  <div id="smith-help-modal" class="modal" style="display:none;" onclick="if (event.target === this) WaifuApp.closeSmithHelpModal()" aria-hidden="true">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div class="modal-title" id="smith-help-title">Кузница: заточка и зачарование</div>
+        <button type="button" class="secondary" onclick="WaifuApp.closeSmithHelpModal()">✖</button>
+      </div>
+      <div id="smith-help-body"></div>
+    </div>
+  </div>
 
   <div id="shop-sell-busy-modal" class="shop-sell-busy-modal" hidden aria-hidden="true" aria-live="polite" role="status">
     <div class="shop-sell-busy-sheet">

@@ -3093,11 +3093,30 @@ function buildItemModalMetaLine(item) {
 function updateSmithMetaFromProfile(pr) {
   if (!pr) return;
   const stEl = document.getElementById("shop-smith-stones");
-  const gEl = document.getElementById("shop-smith-gold-hint");
   const dEl = document.getElementById("shop-smith-dust-hint");
   if (stEl) stEl.textContent = String(pr.protection_stones ?? 0);
-  if (gEl) gEl.textContent = String(pr.gold ?? "—");
   if (dEl) dEl.textContent = String(pr.enchant_dust ?? 0);
+}
+
+function syncSmithEnchantBadge(level, visible) {
+  const badge = document.getElementById("shop-smith-enchant-badge");
+  if (!badge) return;
+  const lv = Number(level) || 0;
+  if (!visible || lv <= 0) {
+    badge.hidden = true;
+    return;
+  }
+  badge.textContent = `+${lv}`;
+  badge.hidden = false;
+}
+
+function setSmithSharpenControlsDisabled(disabled) {
+  const enchantBtn = document.getElementById("shop-smith-enchant-btn");
+  const autoBtn = document.getElementById("shop-smith-auto-btn");
+  const stoneCb = document.getElementById("shop-smith-use-stone");
+  if (enchantBtn) enchantBtn.disabled = disabled;
+  if (autoBtn) autoBtn.disabled = disabled;
+  if (stoneCb) stoneCb.disabled = disabled;
 }
 
 function switchSmithSubTab(name) {
@@ -3124,21 +3143,15 @@ function updateSmithSelectionUI() {
   const items = shopState.smithItems || [];
   const it = id ? items.find((x) => x.id === id) : null;
   const wrap = document.getElementById("shop-smith-icon-wrap");
-  const lbl = document.getElementById("shop-smith-selected-label");
   const btn = document.getElementById("shop-smith-enchant-btn");
   if (wrap) {
     wrap.innerHTML = it ? itemArtHtml(it) : "⚒";
   }
-  if (lbl) {
-    if (it) {
-      lbl.innerHTML = composeItemDisplayName(it);
-      lbl.classList.remove("muted");
-    } else {
-      lbl.textContent = "Выберите предмет";
-      lbl.classList.add("muted");
-    }
-  }
+  const lv = it ? Number(it.enchant_level ?? 0) : 0;
+  syncSmithEnchantBadge(lv, Boolean(it) && lv > 0);
   if (btn && !it) btn.disabled = true;
+  const autoBtn = document.getElementById("shop-smith-auto-btn");
+  if (autoBtn && !it) autoBtn.disabled = true;
 }
 
 function syncSmithProtectionStoneCheckbox(targetLevel) {
@@ -3293,6 +3306,9 @@ async function refreshSmithPreview() {
     box.innerHTML = `<div class="muted tiny">Выберите предмет из инвентаря.</div>`;
     const btn = document.getElementById("shop-smith-enchant-btn");
     if (btn) btn.disabled = true;
+    const autoBtn = document.getElementById("shop-smith-auto-btn");
+    if (autoBtn) autoBtn.disabled = true;
+    syncSmithEnchantBadge(0, false);
     const st = document.getElementById("shop-smith-stone-row");
     if (st) st.style.display = "none";
     syncSmithProtectionStoneCheckbox(0);
@@ -3393,8 +3409,12 @@ async function refreshSmithPreview() {
           ? `<div style="margin-top:8px;font-size:12px;">${statRows.join("")}</div>`
           : noGainHint
       }`;
+    syncSmithEnchantBadge(cur, cur > 0);
+    const broken = Boolean(item.is_broken);
     const btn = document.getElementById("shop-smith-enchant-btn");
-    if (btn) btn.disabled = cur >= 10;
+    if (btn) btn.disabled = cur >= 10 || broken;
+    const autoBtn = document.getElementById("shop-smith-auto-btn");
+    if (autoBtn) autoBtn.disabled = cur >= 6 || Boolean(prev.is_risky) || broken;
   } catch (e) {
     console.error(e);
     box.innerHTML = `<div class="muted tiny">Ошибка превью.</div>`;
@@ -3406,8 +3426,7 @@ async function smithTryEnchant() {
   const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
   if (!id) return;
   const useStone = Boolean(document.getElementById("shop-smith-use-stone")?.checked);
-  const btn = document.getElementById("shop-smith-enchant-btn");
-  if (btn) btn.disabled = true;
+  setSmithSharpenControlsDisabled(true);
   try {
     const res = await apiFetch(`/inventory/${id}/enchant`, {
       method: "POST",
@@ -3454,6 +3473,7 @@ async function smithTryEnchant() {
       it.enchant_level = nl;
       if (br) it.is_broken = true;
     }
+    syncSmithEnchantBadge(nl, nl != null && Number(nl) > 0);
     updateSmithSelectionUI();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -3464,7 +3484,81 @@ async function smithTryEnchant() {
     }
     showToast(detail || e?.message || "Ошибка заточки", "error");
   } finally {
-    if (btn) btn.disabled = false;
+    const stoneCb = document.getElementById("shop-smith-use-stone");
+    if (stoneCb) stoneCb.disabled = false;
+    await refreshSmithPreview().catch(() => {});
+  }
+}
+
+async function smithAutoSafeEnchant() {
+  const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
+  if (!id) return;
+  const item = shopState.smithItems?.find((x) => x.id === id);
+  if (item?.is_broken) {
+    showToast("Предмет сломан", "error");
+    return;
+  }
+  setSmithSharpenControlsDisabled(true);
+  try {
+    for (let step = 0; step < 6; step += 1) {
+      const prev = await apiFetch(`/inventory/${id}/enchant-preview`);
+      if (prev?.error) {
+        showToast(String(prev.error), "error");
+        break;
+      }
+      const cur = Number(prev.current_level ?? 0);
+      const tgt = Number(prev.target_level ?? cur + 1);
+      if (prev.is_risky || tgt >= 8) break;
+      if (cur >= 6) break;
+
+      const res = await apiFetch(`/inventory/${id}/enchant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ use_protection_stone: false }),
+      });
+      if (res?.error) {
+        showToast(String(res.error), "error");
+        break;
+      }
+      if (res?.removed) {
+        showToast("Предмет уничтожен при заточке", "error");
+        shopState.smithSelectedId = null;
+        shopState.smithItems = (shopState.smithItems || []).filter((x) => x.id !== id);
+        break;
+      }
+      const nl = res?.new_level;
+      const it = shopState.smithItems?.find((x) => x.id === id);
+      if (it && nl != null) {
+        it.enchant_level = nl;
+        if (res?.broken) it.is_broken = true;
+      }
+      syncSmithEnchantBadge(nl, nl != null && Number(nl) > 0);
+      if (res?.broken) {
+        showToast("Предмет сломан…", "error");
+        break;
+      }
+      if (!res?.success) {
+        showToast(`Неудача. Новый уровень: +${nl}`, "error");
+        break;
+      }
+      if (res?.awaken?.secondary_fraction_type) {
+        const aw = res.awaken;
+        showToast(
+          `Пробуждение: ${secondaryBonusTitleRu(aw.secondary_fraction_type)} +${(Number(aw.secondary_fraction_value || 0) * 100).toFixed(2)}%`,
+          "success"
+        );
+      }
+      if (Number(nl) >= 6) break;
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || e?.message || "Ошибка автозаточки", "error");
+  } finally {
+    const stoneCb = document.getElementById("shop-smith-use-stone");
+    if (stoneCb) stoneCb.disabled = false;
+    const pr = await loadProfile().catch(() => null);
+    updateSmithMetaFromProfile(pr);
+    updateSmithSelectionUI();
     await refreshSmithPreview().catch(() => {});
   }
 }
@@ -3491,23 +3585,31 @@ async function refreshSmithCraftPreview() {
     const costs = prev?.costs || {};
     const fracLine =
       ft && fv > 0
-        ? `<div><span class="muted">Fraction:</span> <strong>${escapeHtml(secondaryBonusTitleRu(ft))} ${escapeHtml(formatSecondaryBonusValueDisplay(ft, fv))}</strong></div>`
-        : `<div class="muted tiny">Fraction-вторички пока нет.</div>`;
+        ? `<div><span class="muted">Вторичка:</span> <strong>${escapeHtml(secondaryBonusTitleRu(ft))} ${escapeHtml(formatSecondaryBonusValueDisplay(ft, fv))}</strong></div>`
+        : `<div class="muted tiny">Вторичного бонуса пока нет.</div>`;
     box.innerHTML = `
       ${fracLine}
-      ${cap > 0 ? `<div class="muted tiny">Cap tier: ${(cap * 100).toFixed(2)}%</div>` : ""}
-      <div class="muted tiny" style="margin-top:6px;">sec_step: ${Number(prev?.enchant_sec_step ?? 0).toFixed(4)}</div>`;
+      ${cap > 0 ? `<div class="muted tiny">Максимум для tier: ${(cap * 100).toFixed(2)}%</div>` : ""}`;
     if (addBtn) {
       addBtn.disabled = costs.add == null;
-      addBtn.textContent = costs.add != null ? `Добавить вторичку (✨ ${costs.add})` : "Добавить вторичку";
+      addBtn.innerHTML =
+        costs.add != null
+          ? `Добавить<span class="shop-smith-craft-btn-cost">✨ ${costs.add}</span>`
+          : "Добавить";
     }
     if (rerollBtn) {
       rerollBtn.disabled = costs.reroll == null;
-      rerollBtn.textContent = costs.reroll != null ? `Перекатать (✨ ${costs.reroll})` : "Перекатать";
+      rerollBtn.innerHTML =
+        costs.reroll != null
+          ? `Перекат<span class="shop-smith-craft-btn-cost">✨ ${costs.reroll}</span>`
+          : "Перекат";
     }
     if (upBtn) {
       upBtn.disabled = costs.upgrade == null;
-      upBtn.textContent = costs.upgrade != null ? `Усилить (✨ ${costs.upgrade})` : "Усилить";
+      upBtn.innerHTML =
+        costs.upgrade != null
+          ? `Усилить<span class="shop-smith-craft-btn-cost">✨ ${costs.upgrade}</span>`
+          : "Усилить";
     }
   } catch (e) {
     console.error(e);
@@ -10464,6 +10566,33 @@ async function populateTrainingHall() {
   }
 }
 
+const SMITH_HELP_HTML = `
+  <h4>Заточка +N</h4>
+  <p>Оплачивается золотом. Оружие усиливает урон, броня — броню, аксессуары — вторичный бонус (крит, уклонение и т.д.). Уровни +1…+7 без риска; с +8 возможна неудача. Камень защиты смягчает откат до +6. При первой успешной заточке +1 на подходящем предмете может пробудиться случайная вторичка.</p>
+  <h4>Зачарование</h4>
+  <p>Оплачивается пылью. Можно добавить, перекатить или усилить вторичный бонус на любом предмете. Пассивный бонус предмета зачарованием не меняется.</p>
+  <h4>Пыль</h4>
+  <p>Получается распылением предметов в инвентаре. Продажа предметов пыль не даёт.</p>
+  <h4>Ресурсы</h4>
+  <p>Золото отображается в чердаке. Пыль и камни защиты — в строке над кузницей.</p>
+`;
+
+function openSmithHelpModal() {
+  const modal = document.getElementById("smith-help-modal");
+  const body = document.getElementById("smith-help-body");
+  if (!modal || !body) return;
+  body.innerHTML = SMITH_HELP_HTML;
+  modal.style.display = "grid";
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function closeSmithHelpModal() {
+  const modal = document.getElementById("smith-help-modal");
+  if (!modal) return;
+  modal.style.display = "none";
+  modal.setAttribute("aria-hidden", "true");
+}
+
 const STATS_GUIDE_HTML = `
   <div class="stats-guide-body">
     <p><strong>Основные характеристики</strong> — база персонажа + раса/класс + экипировка + плоский бонус «Трансценд.»; затем множители «+% ко всем статам» с предметов и пассивов.</p>
@@ -10511,8 +10640,11 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   switchSmithSubTab,
   loadSmithTab,
   smithTryEnchant,
+  smithAutoSafeEnchant,
   smithTryCraftEnchant,
   refreshSmithCraftPreview,
+  openSmithHelpModal,
+  closeSmithHelpModal,
   openSmithPickModal,
   closeSmithPickModal,
   pickSmithItem,
