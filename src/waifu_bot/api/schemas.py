@@ -503,6 +503,7 @@ class DmNotificationPrefsOut(BaseModel):
     expedition_result: bool = True
     group_dungeon: bool = True
     raid: bool = True
+    abyss: bool = True
 
 
 class DmNotificationPrefsPatch(BaseModel):
@@ -510,6 +511,7 @@ class DmNotificationPrefsPatch(BaseModel):
     expedition_result: Optional[bool] = None
     group_dungeon: Optional[bool] = None
     raid: Optional[bool] = None
+    abyss: Optional[bool] = None
 
 
 class ProfileResponse(BaseModel):

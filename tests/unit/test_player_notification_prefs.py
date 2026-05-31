@@ -17,6 +17,7 @@ from waifu_bot.services.player_notification_prefs import (
 def test_normalize_prefs_defaults():
     assert normalize_prefs(None) == DEFAULT_DM_NOTIFICATION_PREFS
     assert normalize_prefs({}) == DEFAULT_DM_NOTIFICATION_PREFS
+    assert "abyss" in DEFAULT_DM_NOTIFICATION_PREFS
 
 
 def test_normalize_prefs_partial():

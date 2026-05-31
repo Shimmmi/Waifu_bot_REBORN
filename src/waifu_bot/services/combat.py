@@ -721,10 +721,13 @@ class CombatService:
                     int(run.player_id),
                     completed=False,
                     dungeon_name=_dot_name,
+                    dungeon_id=int(run.dungeon_id),
                     plus_level=_dot_pl,
                     gold=0,
                     exp=0,
                     reason="dot",
+                    waifu_current_hp=int(waifu.current_hp or 0),
+                    waifu_max_hp=int(waifu.max_hp or 0),
                 )
                 fail_out = {
                     "dungeon_failed": True,
@@ -2010,10 +2013,13 @@ class CombatService:
                 int(waifu.player_id),
                 completed=False,
                 dungeon_name=str(dungeon.name if dungeon else "") or None,
+                dungeon_id=int(progress.dungeon_id),
                 plus_level=0,
                 gold=penalized_gold,
                 exp=exp_reward,
                 reason="retaliation",
+                waifu_current_hp=int(waifu.current_hp or 0),
+                waifu_max_hp=int(waifu.max_hp or 0),
             )
             return _with_guild_reward_bonus(
                 {
@@ -2168,11 +2174,14 @@ class CombatService:
                 int(waifu.player_id),
                 completed=True,
                 dungeon_name=str(dungeon.name if dungeon else "") or None,
+                dungeon_id=int(progress.dungeon_id),
                 plus_level=0,
                 gold=gold_gain,
                 exp=exp_reward,
                 item_dropped=drop_item_payload,
                 guild_bonus_lines=guild_lines,
+                waifu_current_hp=int(waifu.current_hp or 0),
+                waifu_max_hp=int(waifu.max_hp or 0),
             )
             return out_legacy
         else:
@@ -2537,10 +2546,13 @@ class CombatService:
                 pid,
                 completed=False,
                 dungeon_name=_fail_name,
+                dungeon_id=int(run.dungeon_id),
                 plus_level=_fail_pl,
                 gold=penalized_gold,
                 exp=exp_gain,
                 reason="retaliation",
+                waifu_current_hp=int(waifu.current_hp or 0),
+                waifu_max_hp=int(waifu.max_hp or 0),
             )
             return _with_guild_reward_bonus(
                 {
@@ -2821,11 +2833,14 @@ class CombatService:
                 pid,
                 completed=True,
                 dungeon_name=str(dungeon.name if dungeon else "") or None,
+                dungeon_id=int(run.dungeon_id),
                 plus_level=pl,
                 gold=int(run.total_gold_gained or 0),
                 exp=int(run.total_exp_gained or 0),
                 item_dropped=drop_item_payload,
                 guild_bonus_lines=guild_lines,
+                waifu_current_hp=int(waifu.current_hp or 0),
+                waifu_max_hp=int(waifu.max_hp or 0),
             )
             return out_run
 
