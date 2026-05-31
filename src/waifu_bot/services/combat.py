@@ -564,6 +564,15 @@ class CombatService:
             if not progress:
                 return {"error": "no_active_battle"}
 
+        from waifu_bot.services.abyss_service import has_active_abyss_session
+
+        if await has_active_abyss_session(session, player_id):
+            logger.warning(
+                "solo combat blocked: player_id=%s has active Abyss session",
+                player_id,
+            )
+            return {"error": "abyss_session_active"}
+
         # Get waifu and monster
         waifu = await self._get_waifu(session, player_id)
         if not waifu:
@@ -575,20 +584,15 @@ class CombatService:
         ps = await get_passive_skill_bonuses(session, player_id)
         hs = await get_hidden_skill_bonuses(session, player_id)
         hr_pm = max(0, int(round(float(hs.get("hp_regen_per_active_hour", 0) or 0))))
-        # In-dungeon regen only counts if the player was "online" (had a real
-        # gameplay action in the last ONLINE_WINDOW_SECONDS). Read the previous
-        # timestamp BEFORE updating it so the just-ended idle gap is not credited.
-        from datetime import timezone as _tz, timedelta as _td
+        from datetime import timezone as _tz
 
-        from waifu_bot.game.constants import ONLINE_WINDOW_SECONDS
+        from waifu_bot.services.combat_regen import apply_hp_regen_for_context
 
         _now = datetime.now(_tz.utc)
         combat_player = await session.get(Player, player_id)
-        prev_action = getattr(combat_player, "last_combat_action_at", None) if combat_player else None
-        if prev_action is not None and prev_action.tzinfo is None:
-            prev_action = prev_action.replace(tzinfo=_tz.utc)
-        online = prev_action is not None and (_now - prev_action) <= _td(seconds=ONLINE_WINDOW_SECONDS)
-        regen_changed = apply_regen(waifu, extra_hp_per_min=hr_pm, suppress=not online)
+        regen_changed = apply_hp_regen_for_context(
+            waifu, combat_player, context="solo", extra_hp_per_min=hr_pm, now=_now
+        )
         if combat_player is not None:
             combat_player.last_combat_action_at = _now
         waifu_hp_dirty = regen_changed or post_max_hp != pre_max_hp

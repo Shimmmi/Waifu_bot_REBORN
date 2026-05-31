@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +33,7 @@ from waifu_bot.services.combat import (
     compute_incoming_damage_after_mitigation,
 )
 from waifu_bot.services.game_config_service import cfg_float, cfg_int, get_game_config_map
+from waifu_bot.services.combat_regen import apply_hp_regen_for_context, is_player_online
 from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
 from waifu_bot.services.passive_skills import get_passive_skill_bonuses
 
@@ -44,36 +45,6 @@ _combat = CombatService(redis_client=None)
 
 def _is_text(media_type: MediaType) -> bool:
     return media_type in (MediaType.TEXT, MediaType.LINK)
-
-
-def _apply_abyss_regen(waifu: MainWaifu, *, extra_hp_per_min: int = 0) -> None:
-    """Regenerate HP over elapsed minutes, reviving from 0 (unconscious) too.
-
-    Unlike the shared `energy.apply_regen`, the Abyss lets a knocked-out waifu
-    recover passively (ТЗ §3.6).
-    """
-    if not waifu:
-        return
-    now = datetime.now(timezone.utc)
-    last = getattr(waifu, "hp_updated_at", None)
-    if last is None:
-        waifu.hp_updated_at = now
-        return
-    if last.tzinfo is None:
-        last = last.replace(tzinfo=timezone.utc)
-    cur = int(waifu.current_hp or 0)
-    max_hp = int(waifu.max_hp or 0)
-    if cur >= max_hp:
-        waifu.hp_updated_at = now
-        return
-    minutes = int((now - last).total_seconds() // 60)
-    if minutes < 1:
-        return
-    end_bonus = max(0, int(getattr(waifu, "endurance", 0) or 0) - 10)
-    per_min = 5 + end_bonus + max(0, int(extra_hp_per_min))
-    gain = min(minutes * per_min, max_hp - max(0, cur))
-    waifu.current_hp = max(0, cur) + gain
-    waifu.hp_updated_at = last + timedelta(minutes=minutes)
 
 
 async def _effective_stats(session: AsyncSession, player_id: int, waifu: MainWaifu) -> dict:
@@ -268,6 +239,9 @@ async def handle_abyss_attack(
     if progress.pending_grace_choices:
         return {"error": "awaiting_grace"}
 
+    if await absvc.has_active_solo_run(session, player_id):
+        return {"error": "solo_dungeon_active"}
+
     monster = progress.current_monster
     if not monster:
         return {"error": "no_monster"}
@@ -287,11 +261,16 @@ async def handle_abyss_attack(
     behaviors = _affix_flags(monster)
     combat_grace = None if "GRACE_STEAL" in behaviors else grace
 
-    # HP regen (revives from unconscious over time).
-    _apply_abyss_regen(waifu)
     player = await session.get(Player, player_id)
+    hs = await get_hidden_skill_bonuses(session, player_id)
+    hr_pm = max(0, int(round(float(hs.get("hp_regen_per_active_hour", 0) or 0))))
+    now = datetime.now(timezone.utc)
+    online = is_player_online(player, now=now)
+    apply_hp_regen_for_context(
+        waifu, player, context="abyss", extra_hp_per_min=hr_pm, now=now
+    )
     if player is not None:
-        player.last_combat_action_at = datetime.now(timezone.utc)
+        player.last_combat_action_at = now
 
     if int(waifu.current_hp or 0) <= 0:
         await session.commit()
@@ -422,7 +401,7 @@ async def handle_abyss_attack(
 
     # Between-monster regen (only if still conscious; ANTI_REGEN affix blocks it).
     regen_after = 0
-    if not unconscious and "ANTI_REGEN" not in behaviors:
+    if not unconscious and "ANTI_REGEN" not in behaviors and online:
         regen_after = _regen_between_monsters(cfg, waifu, grace)
     rewards["hp_regen_after"] = regen_after
     result["rewards"] = rewards

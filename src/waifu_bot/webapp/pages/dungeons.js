@@ -87,7 +87,9 @@ function renderSoloDungeonTile(d, waifuLevel) {
   const st = dungeonPlusStatusById?.[did];
   const unlocked = Number(st?.unlocked_plus_level || 0);
   const isPlusLocked = pl > 0 && pl > unlocked;
+  const blockedByAbyss = Boolean(abyssState?.session_active);
   const canEnter =
+    !blockedByAbyss &&
     !lockedByAct &&
     !lockedByPrev &&
     (pl > 0 ? !isPlusLocked : baseCanEnter);
@@ -97,7 +99,8 @@ function renderSoloDungeonTile(d, waifuLevel) {
   const lockedClass = canEnter ? "" : "locked";
   let lockReason = "";
   if (!canEnter) {
-    if (lockedByAct) lockReason = "Акт не открыт";
+    if (blockedByAbyss) lockReason = "Сначала выйдите из Бездны";
+    else if (lockedByAct) lockReason = "Акт не открыт";
     else if (lockedByPrev) lockReason = "Сначала пройдите предыдущее";
     else if (pl > 0 && isPlusLocked) lockReason = `Нужен разблокированный +${pl}`;
     else if (!baseCanEnter) lockReason = `Требуется ур. ${lvlReq}+`;
@@ -178,7 +181,12 @@ async function renderSoloDungeonsForAct(profile) {
     ? dungeons.map((d) => renderSoloDungeonTile(d, waifuLevel)).join("")
     : `<div class="placeholder">Нет данжей для акта ${act}.</div>`;
 
+  const abyssBanner = abyssState?.session_active
+    ? `<div class="banner" style="margin-bottom:12px;text-align:center;">🕳️ ОВ в Бездне — завершите спуск, чтобы начать соло-данж.</div>`
+    : "";
+
   box.innerHTML = `
+    ${abyssBanner}
     <div class="act-block">
       <div class="act-head">
         <div class="act-title">Акт ${act}</div>
@@ -866,6 +874,11 @@ async function startDungeon(dungeonId, plusLevel = 0) {
   } catch (e) {
     const { detail, raw } = parseHttpErrorDetail(e);
     // If already active: show progress card instead of throwing unhandled promise
+    if (raw.includes("abyss_session_active") || detail.includes("abyss_session_active")) {
+      showDungeonsError("Сначала выйдите из Бездны.");
+      showTab("abyss");
+      return;
+    }
     if (raw.includes("dungeon_already_active") || detail.includes("dungeon_already_active")) {
       // ensure solo tab visible
       showTab("solo");
@@ -3086,6 +3099,15 @@ function showTab(name) {
       clearInterval(gdSessionRefreshTimer);
       gdSessionRefreshTimer = null;
     }
+  }
+  if (name === "solo") {
+    apiFetch("/abyss/status")
+      .then((st) => {
+        abyssState = st;
+        const profile = window.__lastProfileForDungeons;
+        if (profile) renderSoloDungeonsForAct(profile).catch(() => {});
+      })
+      .catch(() => {});
   }
   if (name === "abyss") {
     loadAbyssTab().catch(() => {});

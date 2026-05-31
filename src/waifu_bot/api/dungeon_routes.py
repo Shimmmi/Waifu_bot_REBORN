@@ -371,6 +371,8 @@ async def start_dungeon(
             raise HTTPException(status_code=400, detail="dungeon_plus_level_locked")
         if result["error"] == "dungeon_already_completed":
             raise HTTPException(status_code=400, detail="dungeon_already_completed")
+        if result["error"] == "abyss_session_active":
+            raise HTTPException(status_code=400, detail="abyss_session_active")
         raise HTTPException(status_code=400, detail=result["error"])
     return schemas.DungeonStartResponse(**result)
 

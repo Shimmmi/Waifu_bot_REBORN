@@ -871,10 +871,9 @@ async def get_profile(
                 pre_max = int(main_waifu.max_hp or 0)
                 await _sync_waifu_max_hp(session, player_id, main_waifu)
                 post_max = int(main_waifu.max_hp or 0)
-                # If the player has an ACTIVE dungeon run, in-dungeon regen only
-                # applies while online (real action within ONLINE_WINDOW_SECONDS).
-                # This passive poll never updates last_combat_action_at.
-                from waifu_bot.game.constants import ONLINE_WINDOW_SECONDS
+                # Passive profile poll: solo regen accrues offline; Abyss only while online.
+                # Never updates last_combat_action_at here.
+                from waifu_bot.services.combat_regen import is_player_online
 
                 suppress_regen = False
                 active_run = (
@@ -885,14 +884,16 @@ async def get_profile(
                         )
                     )
                 ).first()
-                if active_run is not None:
-                    prev_action = getattr(player, "last_combat_action_at", None)
-                    if prev_action is not None and prev_action.tzinfo is None:
-                        prev_action = prev_action.replace(tzinfo=timezone.utc)
-                    online = prev_action is not None and (
-                        datetime.now(timezone.utc) - prev_action
-                    ) <= timedelta(seconds=ONLINE_WINDOW_SECONDS)
-                    suppress_regen = not online
+                abyss_active = (
+                    await session.execute(
+                        select(m.AbyssProgress.session_active).where(
+                            m.AbyssProgress.player_id == player_id,
+                            m.AbyssProgress.session_active.is_(True),
+                        )
+                    )
+                ).first()
+                if abyss_active is not None:
+                    suppress_regen = not is_player_online(player)
                 regen_changed = apply_regen(main_waifu, suppress=suppress_regen)
                 if regen_changed or post_max != pre_max:
                     await session.commit()

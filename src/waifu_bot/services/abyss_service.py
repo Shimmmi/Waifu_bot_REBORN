@@ -115,6 +115,16 @@ async def has_active_solo_run(session: AsyncSession, player_id: int) -> bool:
     return prog is not None
 
 
+async def has_active_abyss_session(session: AsyncSession, player_id: int) -> bool:
+    active = await session.scalar(
+        select(AbyssProgress.session_active).where(
+            AbyssProgress.player_id == player_id,
+            AbyssProgress.session_active.is_(True),
+        ).limit(1)
+    )
+    return active is True
+
+
 # ---------------------------------------------------------------------------
 # Daily limit + session timeout
 # ---------------------------------------------------------------------------

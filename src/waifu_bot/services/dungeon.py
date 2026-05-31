@@ -664,6 +664,11 @@ class DungeonService:
         if active:
             return {"error": "dungeon_already_active"}
 
+        from waifu_bot.services.abyss_service import has_active_abyss_session
+
+        if await has_active_abyss_session(session, player_id):
+            return {"error": "abyss_session_active"}
+
         # Check if dungeon already completed
         existing = await self._get_progress(session, player_id, dungeon_id)
         # Farming is allowed: completed dungeons can be started again.
