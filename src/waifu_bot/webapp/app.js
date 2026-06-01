@@ -1044,7 +1044,15 @@ function totalExpForLevel(level) {
 
 // ── Attic (ОЧ) renderers ─────────────────────────────────────────────────────
 
-/** Update the active-dungeon chip in the shared ОЧ header. Short format: "Название - N%" or "Название (+N) - N%". */
+/** Compact solo dungeon code for attic chip, e.g. 1-1, 2-5. */
+function formatAtticSoloDungeonCode(active) {
+  const act = Math.max(0, parseInt(active?.act, 10) || 0);
+  const num = Math.max(0, parseInt(active?.dungeon_number, 10) || 0);
+  if (act > 0 && num > 0) return `${act}-${num}`;
+  return null;
+}
+
+/** Update the active-dungeon chip in the shared ОЧ header. Short format: "1-1 - N%" or "1-1 (+N) - N%". */
 function renderAtticDungeon(active) {
   const chip = document.getElementById("attic-dungeon-chip");
   const label = document.getElementById("attic-dungeon-label");
@@ -1069,9 +1077,10 @@ function renderAtticDungeon(active) {
     const hpPct = active.monster_max_hp > 0
       ? Math.round((active.monster_current_hp / active.monster_max_hp) * 100)
       : 0;
-    const name = active.dungeon_name || "Бой";
+    const code = formatAtticSoloDungeonCode(active) || active.dungeon_name || "Бой";
     const pl = Math.max(0, parseInt(active.plus_level, 10) || 0);
-    label.textContent = pl > 0 ? `${name} (+${pl}) - ${hpPct}%` : `${name} - ${hpPct}%`;
+    label.textContent = pl > 0 ? `${code} (+${pl}) - ${hpPct}%` : `${code} - ${hpPct}%`;
+    chip.title = active.dungeon_name ? String(active.dungeon_name) : "Подземелье";
     chip.classList.remove("chip-ghost");
     chip.classList.add("chip-active");
 
@@ -1224,7 +1233,6 @@ function populateFromProfile(profile) {
   // Shared ОЧ badges — populated on every page that has these IDs in its DOM
   if (profile.act != null) setText("badge-act", profile.act);
   if (profile.gold != null) setText("badge-gold", profile.gold);
-  if (profile.enchant_dust != null) setText("badge-dust", profile.enchant_dust);
 
   const w = profile.main_waifu;
   if (w) {

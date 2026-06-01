@@ -1086,6 +1086,8 @@ class DungeonService:
                 return {
                     "dungeon_id": dungeon.id,
                     "dungeon_name": dungeon.name,
+                    "act": int(dungeon.act),
+                    "dungeon_number": int(dungeon.dungeon_number),
                     "plus_level": int(getattr(run, "plus_level", 0) or 0),
                     "monster_name": cur.name,
                     "monster_level": cur.level,
@@ -1153,6 +1155,8 @@ class DungeonService:
             return {
                 "dungeon_id": dungeon.id,
                 "dungeon_name": dungeon.name,
+                "act": int(dungeon.act),
+                "dungeon_number": int(dungeon.dungeon_number),
                 "monster_name": "Монстр",
                 "monster_level": dungeon.level,
                 "monster_current_hp": cur_hp,
@@ -1193,6 +1197,8 @@ class DungeonService:
         return {
             "dungeon_id": dungeon.id,
             "dungeon_name": dungeon.name,
+            "act": int(dungeon.act),
+            "dungeon_number": int(dungeon.dungeon_number),
             "monster_name": monster.name,
             "monster_level": monster.level,
             "monster_current_hp": progress.current_monster_hp or monster.max_hp,
