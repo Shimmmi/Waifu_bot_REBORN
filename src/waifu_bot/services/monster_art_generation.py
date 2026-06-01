@@ -21,10 +21,9 @@ from waifu_bot.db.models.story_boss import StoryBossDefinition
 from waifu_bot.services.dungeon import _monster_slug_for_webp
 from waifu_bot.services.expedition_events_ai import (
     _extract_openrouter_image_b64,
-    _openrouter_headers,
-    _openrouter_url,
     monster_template_dominant_trait_ru,
 )
+from waifu_bot.services.llm_client import has_llm_configured, post_chat_completions
 
 logger = logging.getLogger(__name__)
 
@@ -189,9 +188,8 @@ async def generate_monster_art_webp(
     admin_player_id: int | None = None,
 ) -> Optional[MonsterArtGenerationResult]:
     """Call OpenRouter image model; returns WEBP bytes and path metadata or None."""
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.info("[MONSTER ART] Skip: no OPENROUTER_API_KEY")
+    if not has_llm_configured():
+        logger.info("[MONSTER ART] Skip: no LLM API key")
         return None
 
     tmpl = await session.get(MonsterTemplate, int(template_id))
@@ -268,13 +266,14 @@ async def generate_monster_art_webp(
                         "image_size": "1K",
                     },
                 }
-                r = await client.post(
-                    _openrouter_url(),
-                    headers=_openrouter_headers(),
-                    json=body,
+                r = await post_chat_completions(
+                    client,
+                    body,
+                    caller="monster art",
+                    use_image_model=True,
                 )
-                if r.status_code in (401, 402):
-                    logger.error("[MONSTER ART] OpenRouter %s", r.status_code)
+                if r.status_code == 401:
+                    logger.error("[MONSTER ART] LLM %s", r.status_code)
                     return None
                 if not r.is_success:
                     logger.error("[MONSTER ART] HTTP %s %s", r.status_code, (r.text or "")[:400])
@@ -323,9 +322,8 @@ async def generate_monster_art_webp(
 
 async def _openrouter_generate_webp(prompt: str, *, log_tag: str) -> Optional[bytes]:
     """Shared OpenRouter image call → WEBP bytes."""
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.info("[%s] Skip: no OPENROUTER_API_KEY", log_tag)
+    if not has_llm_configured():
+        logger.info("[%s] Skip: no LLM API key", log_tag)
         return None
 
     model = settings.openrouter_model_image
@@ -343,13 +341,14 @@ async def _openrouter_generate_webp(prompt: str, *, log_tag: str) -> Optional[by
                         "image_size": "1K",
                     },
                 }
-                r = await client.post(
-                    _openrouter_url(),
-                    headers=_openrouter_headers(),
-                    json=body,
+                r = await post_chat_completions(
+                    client,
+                    body,
+                    caller=log_tag,
+                    use_image_model=True,
                 )
-                if r.status_code in (401, 402):
-                    logger.error("[%s] OpenRouter %s", log_tag, r.status_code)
+                if r.status_code == 401:
+                    logger.error("[%s] LLM %s", log_tag, r.status_code)
                     return None
                 if not r.is_success:
                     logger.error("[%s] HTTP %s %s", log_tag, r.status_code, (r.text or "")[:400])

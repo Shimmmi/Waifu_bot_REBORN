@@ -18,6 +18,36 @@ CATALOG_LEGACY = "legacy_affix"
 CATALOG_DIABLO = "diablo_family"
 
 
+def _direct_base_template_id(inv: m.InventoryItem) -> int | None:
+    """Template id set at generation time (preferred over reverse lookup)."""
+    raw = getattr(inv, "_base_template_id", None)
+    if raw is None:
+        return None
+    try:
+        tid = int(raw)
+        return tid if tid > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _base_grade_hint(inv: m.InventoryItem) -> int | None:
+    """Best-effort base_grade for fallback template resolution."""
+    raw = getattr(inv, "_base_grade", None)
+    if raw is not None:
+        try:
+            return max(0, min(2, int(raw)))
+        except (TypeError, ValueError):
+            pass
+    item = getattr(inv, "item", None)
+    name = str(getattr(item, "name", "") or getattr(inv, "_display_name", "") or "")
+    low = name.lower()
+    if " · апогей" in low or "апогей (" in low:
+        return 2
+    if " · возвыш" in low or "возвыш." in low:
+        return 1
+    return None
+
+
 async def resolve_base_template_id(
     session: AsyncSession, inv: m.InventoryItem
 ) -> int | None:
@@ -39,11 +69,27 @@ async def resolve_base_template_id(
     if not base_name or base_name.lower() in ("предмет", "item"):
         return None
 
+    base_grade = _base_grade_hint(inv)
     try:
+        if base_grade is not None:
+            row = await session.execute(
+                text(
+                    "SELECT id FROM item_base_templates "
+                    "WHERE name = :name AND tier = :tier "
+                    "AND COALESCE(base_grade, 0) = :bg "
+                    "LIMIT 1"
+                ),
+                {"name": base_name, "tier": int(tier), "bg": int(base_grade)},
+            )
+            tid = row.scalar()
+            if tid is not None:
+                return int(tid)
         row = await session.execute(
             text(
                 "SELECT id FROM item_base_templates "
-                "WHERE name = :name AND tier = :tier LIMIT 1"
+                "WHERE name = :name AND tier = :tier "
+                "ORDER BY COALESCE(base_grade, 0) ASC "
+                "LIMIT 1"
             ),
             {"name": base_name, "tier": int(tier)},
         )
@@ -144,9 +190,22 @@ async def register_inventory_codex(
     if not player_id or inv is None:
         return
     try:
-        bt_id = await resolve_base_template_id(session, inv)
+        bt_id = _direct_base_template_id(inv)
+        if not bt_id:
+            bt_id = await resolve_base_template_id(session, inv)
         if bt_id:
             await mark_item_seen(session, int(player_id), bt_id)
+        else:
+            name = getattr(inv, "_display_name", None) or (
+                getattr(getattr(inv, "item", None), "name", None)
+            )
+            logger.warning(
+                "item codex: base template not resolved player_id=%s inv_id=%s name=%r tier=%s",
+                player_id,
+                getattr(inv, "id", None),
+                name,
+                getattr(inv, "tier", None),
+            )
         await mark_affixes_from_inventory(session, int(player_id), inv)
     except Exception:
         logger.exception(
@@ -154,3 +213,10 @@ async def register_inventory_codex(
             player_id,
             getattr(inv, "id", None),
         )
+
+
+async def encounter_item_codex(
+    session: AsyncSession, player_id: int | None, inv: m.InventoryItem
+) -> None:
+    """Register library discovery when a player encounters an item (drop, shop, etc.)."""
+    await register_inventory_codex(session, player_id, inv)

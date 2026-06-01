@@ -9,6 +9,7 @@ import httpx
 
 from waifu_bot.core.config import settings
 from waifu_bot.game.constants import AI_NARRATIVE_RHYTHM_REWRITE_RU
+from waifu_bot.services.llm_client import has_llm_configured, post_chat_completions
 
 logger = logging.getLogger(__name__)
 
@@ -133,23 +134,6 @@ def escape_telegram_html(text: str) -> str:
     return "".join(parts)
 
 
-def _openrouter_url() -> str:
-    base = (getattr(settings, "openrouter_base_url", None) or "https://openrouter.ai/api/v1").rstrip("/")
-    return f"{base}/chat/completions"
-
-
-def _openrouter_headers() -> dict[str, str]:
-    api_key = getattr(settings, "openrouter_api_key", None) or ""
-    referer = str(getattr(settings, "public_base_url", "https://waifu-bot.reborn")).rstrip("/")
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "Referer": referer,
-        "HTTP-Referer": referer,
-        "X-Title": "Waifu Bot",
-    }
-
-
 def _openrouter_text_extra() -> dict[str, object]:
     return {"reasoning": {"exclude": True}}
 
@@ -198,8 +182,7 @@ async def rhythm_rewrite_narrative(
     source = (draft or "").strip()
     if not source:
         return draft
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
+    if not has_llm_configured():
         return draft
 
     html_note = ""
@@ -217,20 +200,20 @@ async def rhythm_rewrite_narrative(
 
     try:
         async with httpx.AsyncClient(timeout=25.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
+            r = await post_chat_completions(
+                client,
+                {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 320,
                     "temperature": 0.72,
                     **_openrouter_text_extra(),
                 },
+                caller=f"rhythm rewrite ({caller})",
             )
             if r.status_code != 200:
                 logger.warning(
-                    "OpenRouter rhythm rewrite (%s): HTTP %s body=%s",
+                    "LLM rhythm rewrite (%s): HTTP %s body=%s",
                     caller,
                     r.status_code,
                     (r.text or "")[:400],

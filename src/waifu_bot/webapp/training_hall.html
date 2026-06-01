@@ -115,8 +115,9 @@
         border-color: rgba(200, 146, 42, 0.15);
         color: var(--text);
       }
-      body.page-training .hidden-skill-card-lv {
-        color: var(--muted);
+      body.page-training .hidden-skill-card-lv-badge {
+        color: #f4e8d8;
+        border-color: rgba(200, 146, 42, 0.45);
       }
       body.page-training .passive-reset-btn {
         border-color: rgba(200, 146, 42, 0.45);
@@ -259,6 +260,10 @@
       <div class="modal-content passive-skill-modal-panel" onclick="event.stopPropagation()">
         <div class="modal-head passive-modal-head--skill">
           <div class="modal-title passive-modal-title-row">
+            <div class="hidden-skill-modal-icon-wrap" id="hidden-skill-modal-icon-wrap">
+              <img class="hidden-skill-modal-img" id="hidden-skill-modal-img" alt="" decoding="async" />
+              <span class="hidden-skill-modal-emoji" id="hidden-skill-modal-emoji" aria-hidden="true"></span>
+            </div>
             <span id="hidden-skill-modal-title">—</span>
           </div>
           <button

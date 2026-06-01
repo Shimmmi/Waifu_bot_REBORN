@@ -231,10 +231,11 @@ async def war_state_for_player(session: AsyncSession, player_id: int) -> dict:
 
 
 async def generate_war_narrative_batch(session: AsyncSession) -> list[tuple[int, str]]:
-    """Returns (player_id, text) for DMs. Uses OpenRouter when configured."""
+    """Returns (player_id, text) for DMs. Uses LLM when configured."""
     from waifu_bot.core.config import settings
+    from waifu_bot.services.llm_client import has_llm_configured, post_chat_completions
 
-    if not getattr(settings, "openrouter_api_key", None):
+    if not has_llm_configured():
         return []
     cfg = await get_game_config_map(session)
     interval_h = cfg_int(cfg, "guild_war.narrative_interval_hours", 6)
@@ -256,27 +257,27 @@ async def generate_war_narrative_batch(session: AsyncSession) -> list[tuple[int,
             import httpx
 
             async with httpx.AsyncClient(timeout=20.0) as client:
-                r = await client.post(
-                    f"{settings.openrouter_base_url.rstrip('/')}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {settings.openrouter_api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
+                r = await post_chat_completions(
+                    client,
+                    {
                         "model": settings.openrouter_model,
                         "messages": [
                             {"role": "system", "content": "Ты летописец гильдейской войны. Кратко, ярко."},
                             {"role": "user", "content": brief},
                         ],
                     },
+                    caller="guild war narrative",
                 )
-            data = r.json()
-            text = (
-                (data.get("choices") or [{}])[0]
-                .get("message", {})
-                .get("content", "")
-                .strip()
-            )
+                if not r.is_success:
+                    text = ""
+                else:
+                    data = r.json()
+                    text = (
+                        (data.get("choices") or [{}])[0]
+                        .get("message", {})
+                        .get("content", "")
+                        .strip()
+                    )
         except Exception:
             logger.exception("war narrative failed")
             text = ""

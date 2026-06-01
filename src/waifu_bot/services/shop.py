@@ -110,6 +110,10 @@ class ShopService:
                 continue
             # Проверяем, купил ли этот игрок предмет
             is_sold = bool(off.purchased)
+            if player_id is not None and not is_sold:
+                from waifu_bot.services.item_codex import register_inventory_codex
+
+                await register_inventory_codex(session, int(player_id), inv)
             await self._enrich_inv_with_template_stats(session, inv)
             preview = self._offer_to_preview(off, inv, act=act, merchant_discount_pct=merchant_disc)
             preview["sold"] = is_sold

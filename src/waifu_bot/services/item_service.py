@@ -884,6 +884,9 @@ class ItemService:
 
         await session.flush()
         inv._display_name = item.name  # type: ignore[attr-defined]
+        if base.get("id") is not None:
+            inv._base_template_id = int(base["id"])  # type: ignore[attr-defined]
+            inv._base_grade = int(base.get("base_grade") or 0)  # type: ignore[attr-defined]
         await apply_enchant_steps_to_inventory_item(session, inv)
         await self._register_inventory_codex(session, player_id, inv)
         return inv
@@ -1578,6 +1581,9 @@ class ItemService:
         await session.flush()
         # Attach display name so callers don't need to lazy-load inv.item in async context
         inv._display_name = item.name  # type: ignore[attr-defined]
+        if base.get("id") is not None:
+            inv._base_template_id = int(base["id"])  # type: ignore[attr-defined]
+            inv._base_grade = int(base.get("base_grade") or 0)  # type: ignore[attr-defined]
         await apply_enchant_steps_to_inventory_item(session, inv)
         return inv
 

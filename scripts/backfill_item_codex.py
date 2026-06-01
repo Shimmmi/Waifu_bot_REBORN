@@ -16,25 +16,28 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
+from waifu_bot.db import session as db_session
 from waifu_bot.db.models import InventoryItem, ShopOffer
-from waifu_bot.db.session import SessionLocal, init_engine
 from waifu_bot.services.item_codex import register_inventory_codex
 
 
 async def run(dry_run: bool) -> int:
-    init_engine()
-    assert SessionLocal is not None
+    db_session.init_engine()
+    assert db_session.SessionLocal is not None
 
     item_rows = 0
     offer_rows = 0
 
-    async with SessionLocal() as session:
+    async with db_session.SessionLocal() as session:
         inv_ids: set[int] = set()
         player_by_inv: dict[int, int] = {}
 
         inv_q = await session.execute(
-            select(InventoryItem).where(InventoryItem.player_id.isnot(None))
+            select(InventoryItem)
+            .options(selectinload(InventoryItem.item), selectinload(InventoryItem.affixes))
+            .where(InventoryItem.player_id.isnot(None))
         )
         for inv in inv_q.scalars().all():
             if inv.id and inv.player_id:
@@ -54,7 +57,11 @@ async def run(dry_run: bool) -> int:
             return 0
 
         for iid in sorted(inv_ids):
-            inv = await session.get(InventoryItem, iid)
+            inv = await session.scalar(
+                select(InventoryItem)
+                .options(selectinload(InventoryItem.item), selectinload(InventoryItem.affixes))
+                .where(InventoryItem.id == int(iid))
+            )
             pid = player_by_inv.get(iid)
             if inv is None or not pid:
                 continue

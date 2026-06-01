@@ -2106,6 +2106,9 @@ class CombatService:
                         is_shop=False,
                         plus_level=0,
                     )
+                    from waifu_bot.services.item_codex import encounter_item_codex
+
+                    await encounter_item_codex(session, int(waifu.player_id), inv)
                     await session.flush()
                     item_display_name = (
                         getattr(inv, "_display_name", None)
@@ -2739,6 +2742,9 @@ class CombatService:
                         is_shop=False,
                         plus_level=pl,
                     )
+                    from waifu_bot.services.item_codex import encounter_item_codex
+
+                    await encounter_item_codex(session, int(run.player_id), inv)
                     await session.flush()
                     item_display_name = (
                         getattr(inv, "_display_name", None)
