@@ -16,11 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.core.config import settings
 from waifu_bot.game.expedition_narrative_catalog import archetype_for_id
-from waifu_bot.services.expedition_events_ai import (
-    _extract_openrouter_image_b64,
-    _openrouter_headers,
-    _openrouter_url,
-)
+from waifu_bot.services.expedition_events_ai import _extract_openrouter_image_b64
+from waifu_bot.services.llm_client import has_llm_configured, post_chat_completions
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +84,8 @@ async def generate_expedition_archetype_art_webp(
     slot_id: int | None = None,
 ) -> Optional[ExpeditionArtResult]:
     """Call OpenRouter image model; returns WEBP bytes and path metadata or None."""
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.info("[EXPEDITION ART] Skip: no OPENROUTER_API_KEY")
+    if not has_llm_configured():
+        logger.info("[EXPEDITION ART] Skip: no LLM API key")
         return None
 
     arch = archetype_for_id(archetype_id)
@@ -123,13 +119,14 @@ async def generate_expedition_archetype_art_webp(
                         "image_size": "1K",
                     },
                 }
-                r = await client.post(
-                    _openrouter_url(),
-                    headers=_openrouter_headers(),
-                    json=body,
+                r = await post_chat_completions(
+                    client,
+                    body,
+                    caller="expedition art",
+                    use_image_model=True,
                 )
-                if r.status_code in (401, 402):
-                    logger.error("[EXPEDITION ART] OpenRouter %s", r.status_code)
+                if r.status_code == 401:
+                    logger.error("[EXPEDITION ART] LLM %s", r.status_code)
                     return None
                 if not r.is_success:
                     logger.error("[EXPEDITION ART] HTTP %s %s", r.status_code, (r.text or "")[:400])

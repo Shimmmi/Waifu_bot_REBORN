@@ -75,6 +75,12 @@ class Settings(BaseSettings):
     openrouter_model_hire: str | None = Field(None, alias="OPENROUTER_MODEL_HIRE")
     openrouter_model_image: str = Field("sourceful/riverflow-v2-fast", alias="OPENROUTER_MODEL_IMAGE")
 
+    # RouterAI: fallback при HTTP 402 от OpenRouter (OpenAI-compatible API)
+    routerai_api_key: str | None = Field(None, alias="ROUTERAI_API_KEY")
+    routerai_base_url: str = Field("https://routerai.ru/api/v1", alias="ROUTERAI_BASE_URL")
+    routerai_model: str | None = Field(None, alias="ROUTERAI_MODEL")
+    routerai_model_image: str | None = Field(None, alias="ROUTERAI_MODEL_IMAGE")
+
     # Image API (опционально; альтернатива OpenRouter для портретов наёмниц)
     together_api_key: str | None = Field(None, alias="TOGETHER_API_KEY")
     replicate_api_token: str | None = Field(None, alias="REPLICATE_API_TOKEN")

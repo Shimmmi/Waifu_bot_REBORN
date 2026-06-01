@@ -1879,10 +1879,12 @@ async def caravan_driver_tip(
     )
     out = {"text": text}
     if text is None:
-        if not getattr(settings, "openrouter_api_key", None):
-            out["error"] = "OPENROUTER_API_KEY не задан в .env"
+        from waifu_bot.services.llm_client import has_llm_configured
+
+        if not has_llm_configured():
+            out["error"] = "OPENROUTER_API_KEY или ROUTERAI_API_KEY не задан в .env"
         else:
-            out["error"] = "OpenRouter не вернул текст (см. логи [caravan driver-tip])"
+            out["error"] = "LLM не вернул текст (см. логи [caravan driver-tip])"
     return out
 
 

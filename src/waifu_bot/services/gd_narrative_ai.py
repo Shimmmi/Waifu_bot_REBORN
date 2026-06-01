@@ -17,6 +17,7 @@ from waifu_bot.game.constants import (
 )
 from waifu_bot.services.ai_narrative_rewrite import escape_telegram_html, rhythm_rewrite_narrative
 from waifu_bot.services.gd_round_engine import _attack_type_for_class
+from waifu_bot.services.llm_client import has_llm_configured, post_chat_completions
 
 logger = logging.getLogger(__name__)
 
@@ -334,23 +335,6 @@ ongoing — стычка не закончена. НЕ убивай монстр
 party_wiped — монстр торжествует, отряд без сознания, намёк на возвращение."""
 
 
-def _openrouter_url() -> str:
-    base = (getattr(settings, "openrouter_base_url", None) or "https://openrouter.ai/api/v1").rstrip("/")
-    return f"{base}/chat/completions"
-
-
-def _headers() -> dict[str, str]:
-    api_key = getattr(settings, "openrouter_api_key", None) or ""
-    referer = str(getattr(settings, "public_base_url", "https://waifu-bot.reborn")).rstrip("/")
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "Referer": referer,
-        "HTTP-Referer": referer,
-        "X-Title": "Waifu Bot",
-    }
-
-
 def _assistant_text(choice: object) -> str:
     if not isinstance(choice, dict):
         return ""
@@ -526,8 +510,7 @@ async def generate_gd_start_narrative(
         f"Отряд собирается у входа в «{dungeon_name}». "
         "Впереди тёмные коридоры — пора действовать."
     )
-    api_key = getattr(settings, "openrouter_api_key", None) or ""
-    if not api_key.strip() or not party:
+    if not has_llm_configured() or not party:
         return None, stub
     user_prompt = build_user_prompt_start(dungeon_name, biome_tag, party)
     payload = {
@@ -541,7 +524,7 @@ async def generate_gd_start_narrative(
     }
     try:
         async with httpx.AsyncClient(timeout=timeout_sec) as client:
-            r = await client.post(_openrouter_url(), headers=_headers(), json=payload)
+            r = await post_chat_completions(client, payload, caller="gd-start")
             r.raise_for_status()
             data = r.json()
             choices = data.get("choices") or []
@@ -574,8 +557,7 @@ async def generate_gd_round_narrative(
     On failure: (None, stub).
     """
     stub = f"[Раунд {ctx.get('round', 1)}. Бой продолжается...]"
-    api_key = getattr(settings, "openrouter_api_key", None) or ""
-    if not api_key.strip():
+    if not has_llm_configured():
         return None, stub
     user_prompt = build_user_prompt_round(ctx)
     payload = {
@@ -589,7 +571,7 @@ async def generate_gd_round_narrative(
     }
     try:
         async with httpx.AsyncClient(timeout=timeout_sec) as client:
-            r = await client.post(_openrouter_url(), headers=_headers(), json=payload)
+            r = await post_chat_completions(client, payload, caller="gd-round")
             r.raise_for_status()
             data = r.json()
             choices = data.get("choices") or []
@@ -614,8 +596,7 @@ async def generate_gd_round_narrative(
 async def generate_gd_finale_narrative(ctx: dict[str, Any], *, timeout_sec: float = 20.0) -> tuple[str | None, str]:
     """§7.3 epilogue: MVP + lowest contributor."""
     stub = "Герои вышли из подземелья — впереди новые приключения."
-    api_key = getattr(settings, "openrouter_api_key", None) or ""
-    if not api_key.strip():
+    if not has_llm_configured():
         return None, stub
     extra = build_user_prompt_finale(ctx)
     payload = {
@@ -629,7 +610,7 @@ async def generate_gd_finale_narrative(ctx: dict[str, Any], *, timeout_sec: floa
     }
     try:
         async with httpx.AsyncClient(timeout=timeout_sec) as client:
-            r = await client.post(_openrouter_url(), headers=_headers(), json=payload)
+            r = await post_chat_completions(client, payload, caller="gd-finale")
             r.raise_for_status()
             data = r.json()
             choices = data.get("choices") or []

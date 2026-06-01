@@ -4329,15 +4329,34 @@ async function openItemDismantleConfirmOverlay() {
   }
 }
 
-function openItemSellConfirmOverlay() {
-  const item = profileState.selectedItem;
+function formatItemSellPriceGold(item) {
+  if (item?.sell_price != null) {
+    const n = Number(item.sell_price);
+    if (Number.isFinite(n)) return n.toLocaleString();
+  }
+  return String(estimateProfileSellPrice(item));
+}
+
+async function openItemSellConfirmOverlay() {
+  let item = profileState.selectedItem;
   if (!item?.id || item.equipment_slot != null) return;
   const ov = document.getElementById("item-modal-sell-overlay");
   if (!ov) return;
   const nmEl = document.getElementById("item-modal-sell-item-name");
   if (nmEl) nmEl.innerHTML = composeItemTitlePlain(item) || escapeHtml(String(item?.name || "—"));
   const gEl = document.getElementById("item-modal-sell-gold");
-  if (gEl) gEl.textContent = String(estimateProfileSellPrice(item));
+  if (item.sell_price == null && item.id) {
+    try {
+      const data = await apiFetch(`/inventory/${item.id}`);
+      if (data?.sell_price != null) {
+        item = { ...item, sell_price: data.sell_price };
+        profileState.selectedItem = item;
+      }
+    } catch (_) {
+      /* keep estimate fallback */
+    }
+  }
+  if (gEl) gEl.textContent = formatItemSellPriceGold(item);
   ov.style.display = "flex";
   ov.setAttribute("aria-hidden", "false");
 }
@@ -9896,6 +9915,10 @@ async function loadLibraryAffixesCatalog(force) {
   return data;
 }
 
+async function loadLibraryItemsCatalogs(force) {
+  return Promise.all([loadLibraryItemsCatalog(force), loadLibraryAffixesCatalog(force)]);
+}
+
 function ensureLibraryStyles() {
   let style = document.getElementById("lib-styles");
   if (!style) {
@@ -10199,7 +10222,7 @@ function libraryOpenMonster(templateId) {
   }
 }
 
-function librarySwitchTab(tabId) {
+async function librarySwitchTab(tabId) {
   libraryCloseMonster();
   libraryCloseItem();
   libraryState.tab = tabId;
@@ -10220,7 +10243,18 @@ function librarySwitchTab(tabId) {
     return;
   }
   if (tabId === "items") {
-    libraryRenderItemsTab();
+    if (!libraryItemsCatalogCache || !libraryAffixesCatalogCache) {
+      body.innerHTML = '<div class="lib-loading">Загрузка…</div>';
+    }
+    try {
+      await loadLibraryItemsCatalogs(Boolean(!libraryItemsCatalogCache || !libraryAffixesCatalogCache));
+      libraryRenderItemsTab();
+    } catch (e) {
+      const { detail } = parseHttpErrorDetail(e);
+      body.innerHTML = `<p class="muted" style="color:#f87171">${escapeHtml(
+        detail || "Не удалось загрузить каталог предметов"
+      )}</p>`;
+    }
     return;
   }
   body.innerHTML = '<div class="lib-soon">Этот раздел появится позже.</div>';
@@ -10298,12 +10332,18 @@ async function openLibrary(opts) {
   }
 
   try {
-    if (tab === "items") {
-      await Promise.all([loadLibraryItemsCatalog(false), loadLibraryAffixesCatalog(false)]);
-    } else {
-      await loadLibraryCatalog(false);
+    const force = Boolean(opts.force);
+    if (force) {
+      libraryCatalogCache = null;
+      libraryItemsCatalogCache = null;
+      libraryAffixesCatalogCache = null;
     }
-    librarySwitchTab(tab);
+    await Promise.all([
+      loadLibraryCatalog(force),
+      loadLibraryItemsCatalog(force),
+      loadLibraryAffixesCatalog(force),
+    ]);
+    await librarySwitchTab(tab);
     if (opts.templateId != null) {
       libraryOpenMonster(Number(opts.templateId));
     }
@@ -10330,6 +10370,7 @@ let trainingHallTab = "warrior";
 let passiveTreeListenersBound = false;
 let hiddenSkillsCache = [];
 let hiddenSkillsListenersBound = false;
+const HIDDEN_SKILL_WEBP_BASE = `${GAME_STATIC_BASE}/hidden-skills/webp`;
 const PASSIVE_SKILL_PLACEHOLDER = `${GAME_STATIC_BASE}/passive-skill-placeholder.svg`;
 const PASSIVE_SKILL_WEBP_BASE = `${GAME_STATIC_BASE}/passive-skills/webp`;
 
@@ -10955,6 +10996,42 @@ function formatHiddenEffectsBlock(effects) {
     .join(" · ");
 }
 
+function hiddenSkillArtUrl(skill) {
+  const direct = String(skill?.image_url || "").trim();
+  if (direct) return direct;
+  const id = String(skill?.id || "").trim();
+  if (!id) return "";
+  return `${HIDDEN_SKILL_WEBP_BASE}/${encodeURIComponent(id)}.webp`;
+}
+
+function hiddenSkillArtHasClass(artWrapEl) {
+  return artWrapEl?.classList.contains("hidden-skill-modal-icon-wrap")
+    ? "hidden-skill-modal-icon-wrap--has-art"
+    : "hidden-skill-card-art--has-art";
+}
+
+function bindHiddenSkillArt(imgEl, artWrapEl, skill) {
+  if (!imgEl) return;
+  const hasArtClass = hiddenSkillArtHasClass(artWrapEl);
+  const url = hiddenSkillArtUrl(skill);
+  const clearArt = () => {
+    artWrapEl?.classList.remove(hasArtClass);
+    imgEl.removeAttribute("src");
+  };
+  if (!url) {
+    clearArt();
+    return;
+  }
+  imgEl.onerror = () => {
+    imgEl.onerror = null;
+    clearArt();
+  };
+  imgEl.onload = () => {
+    artWrapEl?.classList.add(hasArtClass);
+  };
+  imgEl.src = url;
+}
+
 function findHiddenSkillById(skillId) {
   return hiddenSkillsCache.find((s) => s.id === skillId) || null;
 }
@@ -10964,10 +11041,13 @@ function openHiddenSkillModal(skillId) {
   if (!s) return;
   const m = document.getElementById("hidden-skill-modal");
   const title = document.getElementById("hidden-skill-modal-title");
-  const iconEl = document.getElementById("hidden-skill-modal-icon");
+  const iconWrap = document.getElementById("hidden-skill-modal-icon-wrap");
+  const iconImg = document.getElementById("hidden-skill-modal-img");
+  const iconEmoji = document.getElementById("hidden-skill-modal-emoji");
   const body = document.getElementById("hidden-skill-modal-body");
   if (!m || !title || !body) return;
-  if (iconEl) iconEl.textContent = s.icon || "✨";
+  if (iconEmoji) iconEmoji.textContent = s.icon || "✨";
+  bindHiddenSkillArt(iconImg, iconWrap, s);
   title.textContent = s.name || "—";
   const lv = Number(s.level) || 0;
   const cnt = Number(s.counter) || 0;
@@ -11061,28 +11141,30 @@ async function populateTrainingHall() {
       html += `<div class="hidden-skills-cat">${esc(cat)}</div>`;
       list.forEach((s) => {
         const lv = Number(s.level) || 0;
-        const cnt = Number(s.counter) || 0;
-        const next = s.next_threshold != null ? Number(s.next_threshold) : null;
-        let pct = 0;
-        if (next && next > 0) {
-          pct = Math.min(100, Math.round((cnt / next) * 100));
-        }
-        const hint = s.description || "";
-        const curFxShort = formatHiddenEffectsBlock(s.current_effects);
         html += `<div class="hidden-skill-card" data-hidden-skill-id="${esc(s.id)}" role="button" tabindex="0" title="Подробнее">
-          <div class="hidden-skill-card-top"><span>${esc(s.icon || "✨")}</span>
-            <span class="hidden-skill-card-title">${esc(s.name)}</span></div>
-          <div class="hidden-skill-meta">${esc(hint)}</div>
-          <div class="hidden-skill-meta">${esc(curFxShort)}</div>
-          <div class="hidden-skill-meta">Ур. ${lv} / ${s.max_level || 5} · ${cnt}${
-            next != null ? ` / ${next}` : ""
-          }</div>
-          <div class="hidden-skill-bar"><div class="hidden-skill-bar-fill" style="width:${pct}%"></div></div>
+          <div class="hidden-skill-card-inner">
+            <div class="hidden-skill-card-title">${esc(s.name)}</div>
+            <div class="hidden-skill-card-art">
+              <img class="hidden-skill-card-img" alt="" decoding="async" />
+              <span class="hidden-skill-card-emoji" aria-hidden="true">${esc(s.icon || "✨")}</span>
+              <span class="hidden-skill-card-lv-badge" aria-label="Уровень ${lv}">${esc(String(lv))}</span>
+            </div>
+          </div>
         </div>`;
       });
     }
     root.classList.remove("placeholder");
     root.innerHTML = html;
+    root.querySelectorAll(".hidden-skill-card[data-hidden-skill-id]").forEach((el) => {
+      const id = el.getAttribute("data-hidden-skill-id");
+      const skill = findHiddenSkillById(id);
+      if (!skill) return;
+      bindHiddenSkillArt(
+        el.querySelector(".hidden-skill-card-img"),
+        el.querySelector(".hidden-skill-card-art"),
+        skill,
+      );
+    });
   } catch (e) {
     if (isWebAppUnauthorizedError(e)) {
       console.warn("Скрытые навыки: нет авторизации Telegram WebApp.");

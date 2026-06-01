@@ -29,6 +29,12 @@ from waifu_bot.game.expedition_narrative_catalog import (
     narrative_style_prompt_block,
 )
 from waifu_bot.services.ai_narrative_rewrite import rhythm_rewrite_narrative
+from waifu_bot.services.llm_client import (
+    has_llm_configured,
+    openrouter_headers_for_compat as _openrouter_headers,
+    openrouter_url_for_compat as _openrouter_url,
+    post_chat_completions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,24 +77,6 @@ def format_expedition_start_intro_telegram(
     if meta:
         lines.extend(["", "\n".join(x for x in meta if x)])
     return "\n".join(lines)
-
-
-def _openrouter_url() -> str:
-    base = (getattr(settings, "openrouter_base_url", None) or "https://openrouter.ai/api/v1").rstrip("/")
-    return f"{base}/chat/completions"
-
-
-def _openrouter_headers() -> dict[str, str]:
-    api_key = getattr(settings, "openrouter_api_key", None) or ""
-    referer = str(getattr(settings, "public_base_url", "https://waifu-bot.reborn")).rstrip("/")
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        # OpenRouter ожидает site URL для рейтинга; в HTTP это стандартный заголовок Referer
-        "Referer": referer,
-        "HTTP-Referer": referer,
-        "X-Title": "Waifu Bot",
-    }
 
 
 def _string_from_openrouter_content_part(block: object) -> str:
@@ -198,8 +186,7 @@ async def generate_expedition_narrative_brief(
     """
     Генерирует JSON-бриф экспедиции при старте: название, сеттинг, план эпизодов.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
+    if not has_llm_configured():
         return None
 
     model = settings.openrouter_model
@@ -246,20 +233,20 @@ async def generate_expedition_narrative_brief(
 
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
+            r = await post_chat_completions(
+                client,
+                {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 650,
                     "temperature": 0.88,
                     **_openrouter_text_extra(),
                 },
+                caller="expedition brief",
             )
             if r.status_code != 200:
                 logger.warning(
-                    "OpenRouter expedition brief: HTTP %s body=%s",
+                    "LLM expedition brief: HTTP %s body=%s",
                     r.status_code,
                     (r.text or "")[:400],
                 )
@@ -360,8 +347,7 @@ async def generate_expedition_tick_narrative(
     Короткий нарратив одного тика экспедиции v1.3 (2–4 предложения, RU).
     Контекст структурирован по ТЗ (биом, испытание, отряд, исход, твист).
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
+    if not has_llm_configured():
         return None
 
     model = settings.openrouter_model
@@ -429,20 +415,20 @@ async def generate_expedition_tick_narrative(
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
+            r = await post_chat_completions(
+                client,
+                {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 320,
                     "temperature": 0.82,
                     **_openrouter_text_extra(),
                 },
+                caller="expedition tick",
             )
             if r.status_code != 200:
                 logger.warning(
-                    "OpenRouter expedition tick: HTTP %s body=%s",
+                    "LLM expedition tick: HTTP %s body=%s",
                     r.status_code,
                     (r.text or "")[:400],
                 )
@@ -484,8 +470,7 @@ async def generate_expedition_event(
     Генерирует короткое описание исхода экспедиции (2–3 предложения) через OpenRouter.
     Возвращает None, если ключ не задан или запрос не удался.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
+    if not has_llm_configured():
         return None
 
     model = settings.openrouter_model
@@ -519,20 +504,20 @@ async def generate_expedition_event(
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
+            r = await post_chat_completions(
+                client,
+                {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 200,
                     "temperature": 0.7,
                     **_openrouter_text_extra(),
                 },
+                caller="expedition event",
             )
             if r.status_code != 200:
                 logger.warning(
-                    "OpenRouter expedition event: HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
+                    "LLM expedition event: HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
                     r.status_code,
                     (r.text or "")[:400],
                 )
@@ -599,8 +584,7 @@ async def generate_hire_waifu_name_and_bio(
     ИИ придумывает уникальное фэнтезийное женское имя (любой длины, с разнообразной фонетикой)
     по расе/классу и 2–3 предложения био. Возвращает (name, bio) или None при ошибке/недоступности.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
+    if not has_llm_configured():
         return None
 
     model = settings.openrouter_model_hire or settings.openrouter_model
@@ -622,20 +606,20 @@ async def generate_hire_waifu_name_and_bio(
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
+            r = await post_chat_completions(
+                client,
+                {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 300,
                     "temperature": 1.0,
                     **_openrouter_text_extra(),
                 },
+                caller="hire name+bio",
             )
             if r.status_code != 200:
                 logger.warning(
-                    "OpenRouter hire name+bio: HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
+                    "LLM hire name+bio: HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
                     r.status_code,
                     (r.text or "")[:400],
                 )
@@ -672,9 +656,8 @@ async def generate_shop_merchant_line(
     context: buy — продаёшь со витрины; sell — покупаешь у странника; gamble — зовёшь на гембу.
     Использует ту же модель, что и генерация BIO наёмных вайфу (OPENROUTER_MODEL_HIRE или OPENROUTER_MODEL).
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.warning("[shop merchant-line] Пропуск: не задан OPENROUTER_API_KEY")
+    if not has_llm_configured():
+        logger.warning("[shop merchant-line] Пропуск: не задан OPENROUTER_API_KEY или ROUTERAI_API_KEY")
         return None
 
     model = settings.openrouter_model_hire or settings.openrouter_model
@@ -723,20 +706,20 @@ async def generate_shop_merchant_line(
 
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
+            r = await post_chat_completions(
+                client,
+                {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 120,
                     "temperature": 0.8,
                     **_openrouter_text_extra(),
                 },
+                caller="shop merchant-line",
             )
             if r.status_code != 200:
                 logger.warning(
-                    "[shop merchant-line] OpenRouter HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
+                    "[shop merchant-line] LLM HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
                     r.status_code,
                     (r.text or "")[:400],
                 )
@@ -847,9 +830,8 @@ async def generate_caravan_driver_tip(
     """
     Короткий совет погонщицы каравана (2–4 предложения, RU), опирается на переданные игровые факты из БД.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.warning("[caravan driver-tip] Пропуск: не задан OPENROUTER_API_KEY")
+    if not has_llm_configured():
+        logger.warning("[caravan driver-tip] Пропуск: не задан OPENROUTER_API_KEY или ROUTERAI_API_KEY")
         return None
 
     gk = game_knowledge if game_knowledge is not None else {"skills": [], "monsters": []}
@@ -890,20 +872,20 @@ async def generate_caravan_driver_tip(
 
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
+            r = await post_chat_completions(
+                client,
+                {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 280,
                     "temperature": 0.75,
                     **_openrouter_text_extra(),
                 },
+                caller="caravan driver-tip",
             )
             if r.status_code != 200:
                 logger.warning(
-                    "[caravan driver-tip] OpenRouter HTTP %s body=%s",
+                    "[caravan driver-tip] LLM HTTP %s body=%s",
                     r.status_code,
                     (r.text or "")[:400],
                 )
@@ -931,9 +913,8 @@ async def generate_tavern_keeper_banter(
     tavern_facts: Optional[dict[str, Any]] = None,
 ) -> Optional[str]:
     """Короткая реплика тавернщика (слухи, быт), RU — OpenRouter."""
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.warning("[tavern keeper] Пропуск: не задан OPENROUTER_API_KEY")
+    if not has_llm_configured():
+        logger.warning("[tavern keeper] Пропуск: не задан OPENROUTER_API_KEY или ROUTERAI_API_KEY")
         return None
 
     tf = tavern_facts if isinstance(tavern_facts, dict) else {}
@@ -962,20 +943,20 @@ async def generate_tavern_keeper_banter(
 
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
+            r = await post_chat_completions(
+                client,
+                {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 300,
                     "temperature": 0.78,
                     **_openrouter_text_extra(),
                 },
+                caller="tavern keeper",
             )
             if r.status_code != 200:
                 logger.warning(
-                    "[tavern keeper] OpenRouter HTTP %s body=%s",
+                    "[tavern keeper] LLM HTTP %s body=%s",
                     r.status_code,
                     (r.text or "")[:400],
                 )
@@ -1009,9 +990,8 @@ async def generate_main_waifu_bio(
     class_ru: str,
 ) -> Optional[str]:
     """2–4 предложения на русском для основной вайфу при создании (OpenRouter)."""
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.warning("[main waifu bio] Пропуск: не задан OPENROUTER_API_KEY")
+    if not has_llm_configured():
+        logger.warning("[main waifu bio] Пропуск: не задан OPENROUTER_API_KEY или ROUTERAI_API_KEY")
         return None
 
     from waifu_bot.services.narrative import load_narrative_bible
@@ -1046,20 +1026,20 @@ async def generate_main_waifu_bio(
 
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
+            r = await post_chat_completions(
+                client,
+                {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 400,
                     "temperature": 0.72,
                     **_openrouter_text_extra(),
                 },
+                caller="main waifu bio",
             )
             if r.status_code != 200:
                 logger.warning(
-                    "[main waifu bio] OpenRouter HTTP %s body=%s",
+                    "[main waifu bio] LLM HTTP %s body=%s",
                     r.status_code,
                     (r.text or "")[:400],
                 )
@@ -1418,9 +1398,8 @@ async def generate_main_waifu_portrait(
     Портрет основной вайфу (превью при создании): OpenRouter image API, anime 2:3.
     Возвращает только base64 без префикса data: или None.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.info("[MAIN OV IMAGE] Skip: no OPENROUTER_API_KEY")
+    if not has_llm_configured():
+        logger.info("[MAIN OV IMAGE] Skip: no LLM API key")
         return None
 
     model = settings.openrouter_model_image
@@ -1482,16 +1461,14 @@ async def generate_main_waifu_portrait(
                         "image_size": "1K",
                     },
                 }
-                r = await client.post(
-                    _openrouter_url(),
-                    headers=_openrouter_headers(),
-                    json=body,
+                r = await post_chat_completions(
+                    client,
+                    body,
+                    caller="main ov image",
+                    use_image_model=True,
                 )
-                if r.status_code == 402:
-                    logger.error("[MAIN OV IMAGE] OpenRouter 402")
-                    return None
                 if r.status_code == 401:
-                    logger.error("[MAIN OV IMAGE] OpenRouter 401")
+                    logger.error("[MAIN OV IMAGE] LLM 401")
                     return None
                 if not r.is_success:
                     logger.error("[MAIN OV IMAGE] HTTP %s %s", r.status_code, (r.text or "")[:400])
@@ -1732,9 +1709,8 @@ async def generate_main_waifu_paperdoll_from_portrait(
     2D JRPG-style paperdoll (waist-up) from existing portrait: multimodal request to OPENROUTER_MODEL_IMAGE.
     Returns raw base64 or None.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.info("[MAIN OV PAPERDOLL] Skip: no OPENROUTER_API_KEY")
+    if not has_llm_configured():
+        logger.info("[MAIN OV PAPERDOLL] Skip: no LLM API key")
         return None
 
     raw_b64 = str(portrait_b64 or "").strip()
@@ -1838,16 +1814,14 @@ async def generate_main_waifu_paperdoll_from_portrait(
                         "image_size": "1K",
                     },
                 }
-                r = await client.post(
-                    _openrouter_url(),
-                    headers=_openrouter_headers(),
-                    json=body,
+                r = await post_chat_completions(
+                    client,
+                    body,
+                    caller="main ov paperdoll",
+                    use_image_model=True,
                 )
-                if r.status_code == 402:
-                    logger.error("[MAIN OV PAPERDOLL] OpenRouter 402")
-                    return None
                 if r.status_code == 401:
-                    logger.error("[MAIN OV PAPERDOLL] OpenRouter 401")
+                    logger.error("[MAIN OV PAPERDOLL] LLM 401")
                     return None
                 if not r.is_success:
                     logger.error("[MAIN OV PAPERDOLL] HTTP %s %s", r.status_code, (r.text or "")[:400])
@@ -1914,8 +1888,7 @@ async def generate_hire_waifu_perk_moment_ru(
     """
     Одно короткое предложение на русском: визуальный момент для аниме-портрета, связанный с перком.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
+    if not has_llm_configured():
         return None
 
     model = settings.openrouter_model_hire or settings.openrouter_model
@@ -1933,16 +1906,16 @@ async def generate_hire_waifu_perk_moment_ru(
 
     try:
         async with httpx.AsyncClient(timeout=40.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
+            r = await post_chat_completions(
+                client,
+                {
                     "model": model,
                     "messages": [{"role": "user", "content": user_prompt}],
                     "max_tokens": 120,
                     "temperature": 1.05,
                     **_openrouter_text_extra(),
                 },
+                caller="hire portrait moment",
             )
             if r.status_code != 200:
                 logger.warning(
@@ -1981,9 +1954,8 @@ async def generate_hire_waifu_image(
     Возвращает base64-строку изображения или None при ошибке.
     Парсинг: message.images[0].image_url.url, не content.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.info("[IMAGE GEN] Skip: no OPENROUTER_API_KEY")
+    if not has_llm_configured():
+        logger.info("[IMAGE GEN] Skip: no LLM API key")
         return None
 
     model = settings.openrouter_model_image
@@ -2058,18 +2030,16 @@ async def generate_hire_waifu_image(
                         "image_size": "1K",
                     },
                 }
-                r = await client.post(
-                    _openrouter_url(),
-                    headers=_openrouter_headers(),
-                    json=body,
+                r = await post_chat_completions(
+                    client,
+                    body,
+                    caller="hire portrait image",
+                    use_image_model=True,
                 )
                 logger.info("[IMAGE GEN] Status: %s modalities=%s", r.status_code, modalities)
 
-                if r.status_code == 402:
-                    logger.error("[IMAGE GEN] OpenRouter: недостаточно средств (402)")
-                    return None
                 if r.status_code == 401:
-                    logger.error("[IMAGE GEN] OpenRouter: неверный API ключ (401)")
+                    logger.error("[IMAGE GEN] LLM: неверный API ключ (401)")
                     return None
                 if not r.is_success:
                     logger.error("[IMAGE GEN] Error body: %s", r.text[:500])

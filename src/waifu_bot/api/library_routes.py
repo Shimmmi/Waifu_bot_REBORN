@@ -237,12 +237,21 @@ def _fmt_affix_range(value_min: int | float | None, value_max: int | float | Non
     return f"{vmin}–{vmax}"
 
 
+def _row_get(row: object, key: str, default=None):
+    if isinstance(row, dict):
+        return row.get(key, default)
+    try:
+        return row._mapping[key]  # type: ignore[attr-defined]
+    except Exception:
+        return getattr(row, key, default)
+
+
 def _build_item_entry(row: object, seen: bool) -> dict:
-    tid = int(getattr(row, "id", 0) or 0)
-    tier = int(getattr(row, "tier", 1) or 1)
-    item_type = str(getattr(row, "item_type", "") or "")
-    subtype = str(getattr(row, "subtype", "") or "")
-    base_name = str(getattr(row, "name", "") or "")
+    tid = int(_row_get(row, "id", 0) or 0)
+    tier = int(_row_get(row, "tier", 1) or 1)
+    item_type = str(_row_get(row, "item_type", "") or "")
+    subtype = str(_row_get(row, "subtype", "") or "")
+    base_name = str(_row_get(row, "name", "") or "")
     slot_type = _slot_type_from_ibt(item_type, subtype)
     weapon_type = subtype if item_type.lower() == "weapon" else None
 
@@ -255,26 +264,26 @@ def _build_item_entry(row: object, seen: bool) -> dict:
         "item_type": item_type if seen else None,
         "subtype": subtype if seen else None,
         "slot_type": slot_type if seen else None,
-        "level_min": int(getattr(row, "level_min", 0) or 0) if seen else None,
-        "level_max": int(getattr(row, "level_max", 0) or 0) if seen else None,
+        "level_min": int(_row_get(row, "level_min", 0) or 0) if seen else None,
+        "level_max": int(_row_get(row, "level_max", 0) or 0) if seen else None,
     }
     if seen:
         entry["art_key"] = derive_item_art_key(slot_type, weapon_type, base_name)
-        dmg_min = int(getattr(row, "dmg_min", 0) or 0)
-        dmg_max = int(getattr(row, "dmg_max", 0) or 0)
+        dmg_min = int(_row_get(row, "dmg_min", 0) or 0)
+        dmg_max = int(_row_get(row, "dmg_max", 0) or 0)
         if dmg_min > 0 or dmg_max > 0:
             entry["damage_min"] = dmg_min
             entry["damage_max"] = dmg_max
-        atk = int(getattr(row, "attack_speed", 0) or 0)
+        atk = int(_row_get(row, "attack_speed", 0) or 0)
         if atk > 0:
             entry["attack_speed"] = atk
-        armor = int(getattr(row, "armor_base", 0) or 0)
+        armor = int(_row_get(row, "armor_base", 0) or 0)
         if armor > 0:
             entry["armor_base"] = armor
-        st1 = getattr(row, "stat1_type", None)
+        st1 = _row_get(row, "stat1_type", None)
         if st1:
             entry["base_stat"] = str(st1)
-            entry["base_stat_value"] = int(getattr(row, "stat1_value", 0) or 0)
+            entry["base_stat_value"] = int(_row_get(row, "stat1_value", 0) or 0)
     return entry
 
 
@@ -286,7 +295,13 @@ async def items_catalog(
     """Base item templates with per-player discovery (seen / hidden)."""
     try:
         templates = list(
-            (await session.execute(text("SELECT * FROM item_base_templates ORDER BY tier, name"))).all()
+            (
+                await session.execute(
+                    text("SELECT * FROM item_base_templates ORDER BY tier, name")
+                )
+            )
+            .mappings()
+            .all()
         )
         codex_rows = list(
             (
@@ -298,7 +313,7 @@ async def items_catalog(
             .all()
         )
         seen_set = {int(r.base_template_id) for r in codex_rows}
-        entries = [_build_item_entry(t, int(t.id) in seen_set) for t in templates]
+        entries = [_build_item_entry(t, int(t["id"]) in seen_set) for t in templates]
         total = len(entries)
         seen_count = len(seen_set)
         return {
@@ -325,7 +340,7 @@ async def item_detail(
             text("SELECT * FROM item_base_templates WHERE id = :id"),
             {"id": int(base_template_id)},
         )
-    ).first()
+    ).mappings().first()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item_not_found")
     codex = await session.get(PlayerItemCodex, (int(player_id), int(base_template_id)))
