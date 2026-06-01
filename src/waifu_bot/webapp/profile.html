@@ -68,71 +68,6 @@
         padding: 10px 10px 24px;
       }
 
-      body.page-profile .attic {
-        background: rgba(13, 10, 8, 0.95) !important;
-        border-bottom: 1px solid rgba(200, 146, 42, 0.2) !important;
-        padding: 7px 10px !important;
-        backdrop-filter: blur(8px);
-      }
-      body.page-profile .attic-row {
-        display: flex;
-        gap: 5px;
-        align-items: center;
-        flex-wrap: nowrap;
-        overflow: hidden;
-        padding: 2px 0;
-      }
-      body.page-profile .attic-row .chip {
-        flex: 0 0 auto;
-        min-width: 0;
-        padding: 3px 9px;
-        font-size: 11px;
-        border-radius: 20px;
-        background: rgba(255, 255, 255, 0.06) !important;
-        border: 1px solid rgba(200, 146, 42, 0.2) !important;
-        color: var(--cream) !important;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      body.page-profile .attic-row .chip b,
-      body.page-profile .attic-row .chip strong {
-        color: var(--amber-glow) !important;
-      }
-      body.page-profile .chip-ghost {
-        background: rgba(255, 255, 255, 0.06) !important;
-      }
-      body.page-profile .attic-level-chip {
-        flex: 1.2 1 0;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 3px;
-        white-space: normal;
-      }
-      body.page-profile .attic-xp-fill {
-        background: linear-gradient(90deg, rgba(200, 146, 42, 0.9), rgba(232, 184, 75, 0.9)) !important;
-      }
-      body.page-profile #attic-dungeon-chip {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 2px;
-        padding-top: 4px;
-        padding-bottom: 4px;
-        max-width: 38%;
-      }
-      body.page-profile #attic-dungeon-label {
-        display: block;
-        font-size: 10px;
-        line-height: 1.2;
-        color: var(--cream) !important;
-      }
-      body.page-profile #attic-expedition-chip {
-        flex: 0 1 auto;
-        min-width: 48px;
-        max-width: 22%;
-        justify-content: center;
-      }
-
       /* Вкладки страницы — один ряд, компактно */
       body.page-profile .profile-tabs {
         flex-wrap: nowrap;
@@ -1043,7 +978,6 @@
         </div>
         <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
         <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
-        <div class="chip" title="Пыль зачарования">✨&nbsp;<strong id="badge-dust">—</strong></div>
       </div>
     </header>
 

@@ -451,6 +451,8 @@ async def active_dungeon(
             "monster_damage_known": bool(reveal["damage"]),
             "monster_display_name": monster_display_name,
             "dungeon_name": data.get("dungeon_name", "Неизвестное подземелье"),
+            "act": data.get("act"),
+            "dungeon_number": data.get("dungeon_number"),
             "plus_level": data.get("plus_level", 0),
             "total_rooms": total_monsters,
             "monster_name": data.get("monster_name", "Монстр"),

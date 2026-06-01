@@ -17,8 +17,15 @@
           <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
           <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
         </div>
-        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье"><span id="attic-dungeon-label">Нет боя</span></div>
-        <div class="chip chip-ghost" id="attic-expedition-chip" title="Экспедиции"></div>
+        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)">
+          <span id="attic-dungeon-label">Нет боя</span>
+          <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden>
+            <div class="attic-dungeon-progress-track">
+              <div class="attic-dungeon-progress-fill" id="attic-dungeon-progress-fill"></div>
+            </div>
+          </div>
+        </div>
+        <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
         <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
       </div>
     </header>
