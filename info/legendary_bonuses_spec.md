@@ -159,27 +159,45 @@ CREATE TABLE legendary_bonuses (
 );
 ```
 
-### Таблица `items` — дополнение
+### Таблица `item_base_templates` / `inventory_items`
 
 ```sql
--- Добавить поля к существующей таблице items / item_templates
-ALTER TABLE item_templates ADD COLUMN IF NOT EXISTS
-    legendary_bonus_ids INTEGER[] DEFAULT '{}';
--- Массив из 1-2 ID из таблицы legendary_bonuses
--- Заполняется вручную при создании легендарного предмета
+-- Curated unique bonus ids on canonical templates (1–2 ids each)
+ALTER TABLE item_base_templates ADD COLUMN IF NOT EXISTS
+    legendary_bonus_ids INTEGER[] NOT NULL DEFAULT '{}';
+
+-- Snapshot copied to instance at generation (rarity 5)
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS
+    legendary_bonus_ids INTEGER[] NOT NULL DEFAULT '{}';
 ```
 
-### Таблица `battle_sessions` — дополнение
+Легендарный предмет (rarity **5**, integer): **фиксированные** base stats на шаблоне (× `legendary.base_stat_mult` при генерации), вторички/enchant как у обычных, **0 rolled affixes**, `is_legendary = TRUE`, 1–2 id из `legendary_bonuses`.
+
+### Таблица `dungeon_runs` / `abyss_progress` — `battle_state`
 
 ```sql
--- Добавить поле к существующей таблице активного боя
-ALTER TABLE battle_sessions ADD COLUMN IF NOT EXISTS
+ALTER TABLE dungeon_runs ADD COLUMN IF NOT EXISTS
     battle_state JSONB NOT NULL DEFAULT '{}';
 
--- Индекс для быстрого доступа
-CREATE INDEX IF NOT EXISTS idx_battle_sessions_state
-    ON battle_sessions USING gin(battle_state);
+ALTER TABLE abyss_progress ADD COLUMN IF NOT EXISTS
+    battle_state JSONB NOT NULL DEFAULT '{}';
+
+CREATE INDEX IF NOT EXISTS idx_dungeon_runs_battle_state
+    ON dungeon_runs USING gin(battle_state);
 ```
+
+**Семантика «текущий бой»:** encounter с конкретным монстром в активном solo run или Abyss-сессии. Fight-level ключи сбрасываются при смене монстра; session-level — при завершении/провале run.
+
+**Legacy:** `battle_sessions` и `DungeonProgress` — не используются для legendary v1.
+
+### Поле `main_waifus.last_dungeon_failed`
+
+```sql
+ALTER TABLE main_waifus ADD COLUMN IF NOT EXISTS
+    last_dungeon_failed BOOLEAN NOT NULL DEFAULT FALSE;
+```
+
+Для `SURVIVOR_SPIRIT`: `TRUE`, если **предыдущий** solo run завершился провалом; сброс при успешном completion.
 
 ### Структура `battle_state` JSONB
 
@@ -238,9 +256,8 @@ CREATE INDEX IF NOT EXISTS idx_battle_sessions_state
 3. После обработки всех бонусов патчи **мержатся** и **атомарно** сохраняются в БД:
 
 ```python
-UPDATE battle_sessions
-SET battle_state = battle_state || %s::jsonb
-WHERE id = %s
+# dungeon_runs.battle_state — merge патчей после обработки сообщения
+run.battle_state = merge_battle_state(run.battle_state, patch)
 ```
 
 ### Сброс при смене монстра
@@ -533,7 +550,7 @@ def handler_media_trio(ctx: BonusContext) -> BonusResult:
 #### `TYPE_HUNTER` — Охотник на типы
 
 ```
-3 разных типа медиа в одном бою → четвёртое медиа наносит АоЕ по всем монстрам комнаты.
+3 разных типа медиа в одном бою → четвёртое медиа наносит **splash-урон по всем оставшимся монстрам** текущего `dungeon_runs` (position > current, status alive). В Abyss v1 — только encounter pipeline без multi-monster splash.
 ```
 
 **Params:**
@@ -1144,7 +1161,7 @@ return BonusResult(damage_multiplier=1.0 + bonus)
 
 ### 4.8 Группа `group_only`
 
-> Работает только в групповых подземельях. В одиночных — `BonusResult()`.
+> **v1 — на паузе (out of scope).** GD / групповые подземелья не внедряются. Обработчики `TEAM_SPIRIT`, `CROWD_INSPIRATION`, `LAST_WORD`, `RESONANCE_SERIES` зарегистрированы как no-op; в одиночных и Abyss — `BonusResult()`.
 
 ---
 
@@ -1384,17 +1401,26 @@ if unique >= ctx.bonus_params["unique_media_types_required"]:
     rand(DMG_min, DMG_max) × (1 + stat_bonus) × media_coefficient
         │
         ▼
-[5] Проверка уклонения ОВ (dodge)
-    ├── SUCCESS → COUNTER_DODGE выставляет флаг в battle_state
-    └── FAIL → continue
-        │
-        ▼
-[6] Проверка крита ОВ
-    ├── force_crit от бонусов (AGONY, SNIPER_SHOT, etc.) → CRIT
+[5] Проверка крита ОВ (pre_crit legendary: force_crit только)
+    ├── force_crit от бонусов (AGONY, SNIPER_SHOT, COUNTER_DODGE ready, …) → CRIT
     └── rand() < crit_chance → CRIT / MISS
         │
         ▼
-[7] Применение всех активных legendary_bonuses
+[6] Применение legendary_bonuses (post_crit)
+    base_damage для BonusContext = значение после calculate_message_damage + stat/passive pools, **до** elite curse/stone (cut point в combat.py)
+        │
+        ▼
+[7] … (агрегация mult, heal, drop/gold mult накопление)
+        │
+        ▼
+[5-retaliation] Incoming dodge (retaliation) → COUNTER_DODGE выставляет counter_dodge_ready
+    LAST_BREATH / DAMAGE_MIRROR / REVENGE_CRYSTAL charge — incoming pipeline, не outgoing
+        │
+        ▼
+[9] DEATH PIPELINE (только здесь)
+    [9d] KILLING_BLOW_HEAL — death handlers, не outgoing pass
+    [9d] TYPE_HUNTER — splash × hit_damage по **оставшимся** монстрам run (position > current)
+    [9e] drop_chance_multiplier / FIRST_DAILY / HUNTER_EXPERIENCE — roll редкости при **completion** подземелья
     Для каждого бонуса: handler(ctx) → BonusResult
     Результаты агрегируются:
     - damage_multiplier: перемножить все (×mult1 × mult2 × ...)
@@ -1505,22 +1531,23 @@ def initial_battle_state(waifu_id: int, dungeon_id: int) -> dict:
 ### 6.3 Загрузка активных бонусов ОВ
 
 ```python
-def get_active_legendary_bonuses(waifu_id: int) -> list[tuple[dict, dict]]:
-    """
-    Возвращает список (bonus_record, item_record) для всех
-    надетых легендарных предметов ОВ.
-    """
+async def get_active_legendary_bonuses(session, player_id: int) -> list[dict]:
+    """Экипированные rarity=5 inventory_items, equipment_slot 1–6."""
     query = """
-        SELECT lb.*, i.id as item_id
-        FROM equipment e
-        JOIN items i ON e.item_id = i.id
-        JOIN item_templates it ON i.template_id = it.id
-        JOIN LATERAL unnest(it.legendary_bonus_ids) AS bid ON TRUE
+        SELECT lb.*, ii.id AS inventory_item_id, ii.slot_type
+        FROM inventory_items ii
+        JOIN LATERAL unnest(COALESCE(ii.legendary_bonus_ids, '{}')) AS bid ON TRUE
         JOIN legendary_bonuses lb ON lb.id = bid
-        WHERE e.waifu_id = %s AND it.rarity = 'legendary' AND lb.is_active = TRUE
+        WHERE ii.player_id = :player_id
+          AND ii.equipment_slot BETWEEN 1 AND 6
+          AND COALESCE(ii.rarity, 0) = 5
+          AND lb.is_active = TRUE
     """
-    return db.fetchall(query, (waifu_id,))
 ```
+
+Fallback: join `item_base_templates` по `items.name` + tier, если snapshot `legendary_bonus_ids` на instance пуст.
+
+Глобальные caps — `game_config` (`legendary_bonus_max_total_multiplier`, …), не `game_settings`.
 
 ### 6.4 Реестр обработчиков
 
@@ -1719,6 +1746,21 @@ final_multiplier = min(aggregated_multiplier, MAX_TOTAL_MULTIPLIER)
 | `DAMAGE_MIRROR` + `DETONATOR` | Двойной иммунитет к урону при смерти монстра |
 | `MORNING_RITUAL` + `SILENCE_BURST` | Оба эксплуатируют молчание |
 | `MONOLOGUE` + `VERBOSITY` | Оба зависят от длины текста, взаимоисключают оптимальную стратегию |
+| `SILENCE_BURST` + `AMBUSH_SILENCE` | Оба эксплуатируют молчание — stacking abuse |
+| `HUNT_FRENZY` + `SNIPER_SHOT` | Оба бустят первый удар по монстру |
+| `PHOENIX_RAGE` + `LAST_BREATH` | Конфликт low-HP / survive приоритетов |
+
+### Конфликты с passive / hidden (§8.1)
+
+| Legendary | Passive / hidden | Решение v1 |
+|---|---|---|
+| `LAST_BREATH` | survive_chance | Один proc за бой; passive cap при экипировке |
+| `AGONY` | nth_hit_crit | Только один forced-crit источник на удар |
+| `PHOENIX_RAGE` | generic revive | Окно Феникса имеет приоритет |
+| `SNIPER_SHOT` | first_hit_crit | SNIPER_SHOT на первом ударе по монстру |
+| `RARITY_SYNERGY` | — | Вторая **легендарка** в любом слоте; бонус один раз на пару |
+
+`RESONANCE_SERIES` удалён из registry (дубликат `LAST_WORD`, group_only paused).
 
 ### Правила уведомлений
 

@@ -10,7 +10,9 @@ from sqlalchemy.orm import selectinload
 
 from waifu_bot.db import models as m
 from waifu_bot.game.passive_affix_ilvl import passive_node_level_add_allowed
+from waifu_bot.game.item_secondary import snapshot_secondaries_from_template, template_row_from_mapping
 from waifu_bot.services.enchanting import apply_enchant_steps_to_inventory_item
+from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
 
 
 RARITY_WEIGHTS = [
@@ -546,6 +548,9 @@ class ItemService:
                 " AND COALESCE(secondary_bonus_type, '') NOT ILIKE 'passive_branch_level_add:%' "
                 " AND COALESCE(secondary_bonus_type, '') <> 'passive_all_nodes_level_add' "
             )
+        legend_order = ""
+        if int(item_rarity) >= 5:
+            legend_order = "(CASE WHEN cardinality(COALESCE(legendary_bonus_ids, '{}')) > 0 THEN 0 ELSE 1 END), "
 
         async def _one(where_sql: str, params: dict[str, Any]) -> Optional[dict[str, Any]]:
             row = (
@@ -557,7 +562,7 @@ class ItemService:
                         WHERE COALESCE(base_grade, 0) = :bg
                           AND ({where_sql})
                           {legend_excl}
-                        ORDER BY random() * GREATEST(weight, 1) DESC
+                        ORDER BY {legend_order} random() * GREATEST(weight, 1) DESC
                         LIMIT 1
                         """
                     ),
@@ -591,7 +596,7 @@ class ItemService:
                         FROM item_base_templates
                         WHERE COALESCE(base_grade, 0) = :bg
                           {legend_excl}
-                        ORDER BY ABS(tier - :tier), random() * GREATEST(weight, 1) DESC
+                        ORDER BY ABS(tier - :tier), {legend_order} random() * GREATEST(weight, 1) DESC
                         LIMIT 1
                         """
                     ),
@@ -882,6 +887,8 @@ class ItemService:
         item.level = int(inv.total_level)
         item.base_value = max(1, int(20 * int(inv.total_level) * int(rarity)))
 
+        await self._apply_legendary_item_finalization(session, item, inv, base, int(rarity))
+
         await session.flush()
         inv._display_name = item.name  # type: ignore[attr-defined]
         if base.get("id") is not None:
@@ -1134,6 +1141,8 @@ class ItemService:
         item.level = int(inv.total_level)
         item.base_value = max(1, int(20 * int(inv.total_level) * int(rarity)))
 
+        await self._apply_legendary_item_finalization(session, item, inv, base, int(rarity))
+
         await session.flush()
         inv._display_name = item.name  # type: ignore[attr-defined]
         await apply_enchant_steps_to_inventory_item(session, inv)
@@ -1295,6 +1304,58 @@ class ItemService:
         if st in self._TEMPLATE_FRACTION_SECONDARIES:
             return max(0, min(6, int(round(sv * 200))))
         return 0
+
+    async def _apply_legendary_item_finalization(
+        self,
+        session: AsyncSession,
+        item: m.Item,
+        inv: m.InventoryItem,
+        base: dict[str, Any],
+        rarity: int,
+    ) -> None:
+        """Rarity 5: fixed boosted stats, template secondaries, legendary bonus ids."""
+        if int(rarity) != 5:
+            return
+        cfg = await get_game_config_map(session)
+        mult = float(cfg_float(cfg, "legendary.base_stat_mult", 1.25))
+        if inv.damage_min is not None:
+            inv.damage_min = max(1, int(round(int(inv.damage_min) * mult)))
+        if inv.damage_max is not None:
+            inv.damage_max = max(1, int(round(int(inv.damage_max) * mult)))
+        if item.damage is not None:
+            item.damage = inv.damage_max or inv.damage_min
+        if inv.base_stat_value is not None:
+            inv.base_stat_value = max(1, int(round(int(inv.base_stat_value) * mult)))
+        stat2 = int(base.get("stat2_value") or 0)
+        if stat2 > 0:
+            code2 = str(base.get("stat2_type") or "").upper()
+            name2 = _STAT_CODE_TO_NAME.get(code2)
+            if name2 and inv.base_stat != name2:
+                extra = max(1, int(round(stat2 * mult)))
+                inv.affixes.append(
+                    m.InventoryAffix(
+                        inventory_item_id=inv.id,
+                        name=f"Легендарный {name2}",
+                        stat=name2,
+                        value=str(extra),
+                        is_percent=False,
+                        kind="affix",
+                        tier=1,
+                        level_delta=0,
+                    )
+                )
+        tpl_row = template_row_from_mapping(base)
+        snapshot_secondaries_from_template(inv, tpl_row)
+        raw_ids = base.get("legendary_bonus_ids") or []
+        try:
+            ids = [int(x) for x in raw_ids if x is not None]
+        except (TypeError, ValueError):
+            ids = []
+        inv.legendary_bonus_ids = ids or None
+        item.is_legendary = True
+        inv.is_legendary = True
+        item.rarity = 5
+        inv.rarity = 5
 
     async def _pick_diablo_base(
         self, session: AsyncSession, tier_cap: int, target_total_level: int

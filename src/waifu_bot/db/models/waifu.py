@@ -132,6 +132,9 @@ class MainWaifu(Base):
 
     bio: Mapped[str | None] = mapped_column(Text(), nullable=True)
 
+    # True after last solo dungeon run ended with status failed (SURVIVOR_SPIRIT)
+    last_dungeon_failed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     __table_args__ = (
         CheckConstraint("level >= 1 AND level <= 60", name="check_level_range"),
         CheckConstraint("energy >= 0 AND energy <= max_energy", name="check_energy_range"),

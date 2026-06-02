@@ -9,6 +9,7 @@ from waifu_bot.db.models.player_mail import PlayerMail, PlayerMailStatus
 from waifu_bot.db.models.hidden_skill import HiddenSkillDefinition, PlayerHiddenSkill
 from waifu_bot.db.models.passive_skill import PassiveSkillNode, PlayerPassiveSkill
 from waifu_bot.db.models.game_config import GameConfig
+from waifu_bot.db.models.legendary_bonus import LegendaryBonus
 from waifu_bot.db.models.waifu import (
     MainWaifu,
     MainWaifuPortraitDraft,
@@ -112,6 +113,7 @@ __all__ = [
     "PassiveSkillNode",
     "PlayerPassiveSkill",
     "GameConfig",
+    "LegendaryBonus",
     "MainWaifu",
     "MainWaifuPortraitDraft",
     "MainWaifuPortraitVariant",

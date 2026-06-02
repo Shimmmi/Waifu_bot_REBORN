@@ -8,7 +8,7 @@ from typing import List, Optional
 logger = logging.getLogger(__name__)
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import SQLAlchemyError
@@ -42,6 +42,7 @@ from waifu_bot.services.waifu_hp import sync_waifu_max_hp
 from waifu_bot.services.combat import roll_monster_elite
 from waifu_bot.services.elite_affix_combat import buff_next_multipliers_for_new_monster
 from waifu_bot.services.narrative import build_story_modal_on_dungeon_start
+from waifu_bot.game.legendary_bonuses.state import initial_battle_state
 import math
 
 
@@ -163,6 +164,21 @@ def _monster_slug_for_webp(
 
 class DungeonService:
     """Service for dungeon operations."""
+
+    async def _player_first_dungeon_today(self, session: AsyncSession, player_id: int) -> bool:
+        """True if the player has not started any dungeon run today (UTC)."""
+        from datetime import timezone
+
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        cnt = await session.scalar(
+            select(func.count())
+            .select_from(DungeonRun)
+            .where(
+                DungeonRun.player_id == player_id,
+                DungeonRun.started_at >= today_start,
+            )
+        )
+        return int(cnt or 0) == 0
 
     async def _is_global_plus_unlocked(self, session: AsyncSession, player_id: int) -> bool:
         """Dungeon+ unlocks globally after completing Act 5 dungeon #5 (SOLO)."""
@@ -693,6 +709,7 @@ class DungeonService:
                 n_min = max(1, int(getattr(dungeon, "obstacle_min", 1) or 1))
                 n_max = max(n_min, int(getattr(dungeon, "obstacle_max", n_min) or n_min))
                 total = int(rng.randint(n_min, n_max))
+                first_daily = await self._player_first_dungeon_today(session, player_id)
                 run = DungeonRun(
                     player_id=player_id,
                     dungeon_id=dungeon_id,
@@ -702,6 +719,7 @@ class DungeonService:
                     current_position=1,
                     total_monsters=total,
                     started_at=datetime.utcnow(),
+                    battle_state=initial_battle_state(first_daily_dungeon=first_daily),
                 )
                 session.add(run)
                 await session.flush()

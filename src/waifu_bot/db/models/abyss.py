@@ -133,6 +133,9 @@ class AbyssProgress(Base):
     # Pending Grace choices awaiting selection after a checkpoint (list of grace ids).
     pending_grace_choices: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
+    # Legendary bonus state for active Abyss session
+    battle_state: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+
     # Statistics
     total_floors_cleared: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_monsters_killed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

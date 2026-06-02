@@ -260,6 +260,9 @@ class DungeonRun(Base):
     # Solo run: debuffs on main waifu from monster abilities (DoT, shock, weakness); JSON list
     active_waifu_debuffs: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
+    # Legendary bonus encounter/session state (fight-level + run-level counters)
+    battle_state: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

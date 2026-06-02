@@ -18,6 +18,7 @@ from waifu_bot.game.item_secondary import (
 from waifu_bot.services.enchanting import get_effective_params
 from waifu_bot.services.item_art import derive_image_key, derive_item_art_key, enrich_items_with_image_urls
 from waifu_bot.services.passive_skills import normalize_passive_level_affix_value
+from waifu_bot.game.legendary_bonuses.loader import fetch_legendary_bonus_payloads
 
 
 async def enrich_inventory_items_with_template_stats(
@@ -89,7 +90,11 @@ def _fallback_base_name_ru(inv: m.InventoryItem) -> str:
     return "Предмет"
 
 
-def serialize_inventory_item(inv: m.InventoryItem) -> dict[str, Any]:
+def serialize_inventory_item(
+    inv: m.InventoryItem,
+    *,
+    legendary_bonuses: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     affixes = [
         {
             "name": a.name,
@@ -153,6 +158,7 @@ def serialize_inventory_item(inv: m.InventoryItem) -> dict[str, Any]:
         "enchant_sec_step": float(getattr(inv, "enchant_sec_step", 0.0) or 0.0),
         "is_broken": bool(getattr(inv, "is_broken", False)),
         "is_legendary": inv.is_legendary,
+        "legendary_bonuses": legendary_bonuses or [],
         "requirements": inv.requirements,
         "affixes": affixes,
         "slot_type": inv.slot_type,
@@ -169,6 +175,10 @@ async def build_inventory_payloads(
     if not items:
         return []
     await enrich_inventory_items_with_template_stats(session, items)
-    payloads = [serialize_inventory_item(inv) for inv in items]
+    bonus_map = await fetch_legendary_bonus_payloads(session, items)
+    payloads = [
+        serialize_inventory_item(inv, legendary_bonuses=bonus_map.get(int(inv.id), []))
+        for inv in items
+    ]
     await enrich_items_with_image_urls(session, payloads)
     return payloads
