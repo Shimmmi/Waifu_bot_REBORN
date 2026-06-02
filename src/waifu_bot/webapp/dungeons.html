@@ -1625,7 +1625,12 @@
     <div class="screen">
       <header class="attic">
         <div class="attic-row" aria-label="Основной чердак">
-          <div class="chip attic-level-chip" title="Уровень и опыт">
+          <button type="button" class="attic-player-avatar" id="attic-player-avatar" aria-label="Профиль игрока" title="Профиль игрока">
+            <img id="attic-player-avatar-img" alt="" hidden />
+            <span class="attic-player-avatar-fallback" id="attic-player-avatar-fallback"></span>
+            <span class="attic-player-mail-badge" id="attic-player-mail-badge" hidden aria-hidden="true"></span>
+          </button>
+          <div class="chip attic-level-chip" title="Уровень основной вайфу">
             <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
             <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
           </div>

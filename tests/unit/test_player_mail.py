@@ -66,7 +66,7 @@ async def test_send_mail_deducts_gold_and_creates_row():
             "mail.daily_send_limit": "20",
         },
     ):
-        with patch.object(mail_svc, "_assert_same_guild", new_callable=AsyncMock, return_value=(10, 10)):
+        with patch.object(mail_svc, "_assert_can_send_mail", new_callable=AsyncMock):
             result = await mail_svc.send_mail(
                 session, 1, 2, body_text="Привет", gold_amount=100, inventory_item_id=None
             )
@@ -119,3 +119,66 @@ async def test_unread_count():
     session.scalar = AsyncMock(return_value=3)
     count = await mail_svc.unread_count(session, 42)
     assert count == 3
+
+
+@pytest.mark.asyncio
+async def test_has_pending_rewards():
+    mail = PlayerMail(
+        id=1,
+        sender_player_id=1,
+        recipient_player_id=2,
+        gold_amount=100,
+        status=PlayerMailStatus.READ,
+    )
+    assert mail_svc._has_pending_rewards(mail) is True
+    mail.status = PlayerMailStatus.CLAIMED
+    assert mail_svc._has_pending_rewards(mail) is False
+
+
+@pytest.mark.asyncio
+async def test_delete_mail_auto_claims_before_soft_delete():
+    session = AsyncMock()
+    mail = PlayerMail(
+        id=7,
+        sender_player_id=1,
+        recipient_player_id=2,
+        body_text="gift",
+        gold_amount=50,
+        inventory_item_id=None,
+        status=PlayerMailStatus.READ,
+    )
+
+    async def _get(model, pk):
+        if pk == 7:
+            return mail
+        if pk == 2:
+            return Player(id=2, gold=0)
+        if pk == 1:
+            return Player(id=1, username="bob")
+        return None
+
+    session.get = AsyncMock(side_effect=_get)
+    session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+    )
+    session.commit = AsyncMock()
+    session.refresh = AsyncMock()
+
+    with patch.object(mail_svc, "claim_mail", new_callable=AsyncMock) as claim_mock:
+        await mail_svc.delete_mail(session, 2, 7)
+        claim_mock.assert_awaited_once_with(session, 2, 7)
+
+    assert mail.recipient_deleted is True
+    session.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mail_badge_show_when_unread_or_pending():
+    session = AsyncMock()
+    session.scalar = AsyncMock(side_effect=[2, 0])
+    badge = await mail_svc.mail_badge(session, 99)
+    assert badge == {"unread": 2, "pending_rewards": 0, "show": True}
+
+    session.scalar = AsyncMock(side_effect=[0, 1])
+    badge2 = await mail_svc.mail_badge(session, 99)
+    assert badge2["show"] is True

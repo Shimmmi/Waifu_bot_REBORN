@@ -1,10 +1,10 @@
-"""In-game mail between guild members."""
+"""In-game mail between players."""
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -33,6 +33,7 @@ def _player_label(player: Player | None) -> str:
 
 
 async def _assert_same_guild(session: AsyncSession, sender_id: int, recipient_id: int) -> tuple[int, int]:
+    """Used for viewing another player's profile (same guild only)."""
     if sender_id == recipient_id:
         raise ValueError("cannot_mail_self")
     s_mem = (
@@ -44,6 +45,14 @@ async def _assert_same_guild(session: AsyncSession, sender_id: int, recipient_id
     if not s_mem or not r_mem or s_mem.guild_id != r_mem.guild_id:
         raise ValueError("not_same_guild")
     return int(s_mem.guild_id), int(r_mem.guild_id)
+
+
+async def _assert_can_send_mail(session: AsyncSession, sender_id: int, recipient_id: int) -> None:
+    if sender_id == recipient_id:
+        raise ValueError("cannot_mail_self")
+    recipient = await session.get(Player, recipient_id)
+    if not recipient:
+        raise ValueError("recipient_not_found")
 
 
 async def _inbox_count(session: AsyncSession, recipient_id: int) -> int:
@@ -110,7 +119,7 @@ async def send_mail(
     max_inbox = cfg_int(cfg, "mail.max_inbox", 50)
     daily_limit = cfg_int(cfg, "mail.daily_send_limit", 20)
 
-    await _assert_same_guild(session, sender_id, recipient_id)
+    await _assert_can_send_mail(session, sender_id, recipient_id)
 
     text = (body_text or "").strip()
     gold = max(0, int(gold_amount or 0))
@@ -201,6 +210,12 @@ async def list_inbox(
     return {"items": items, "limit": limit, "offset": offset}
 
 
+def _has_pending_rewards(mail: PlayerMail) -> bool:
+    if mail.status == PlayerMailStatus.CLAIMED:
+        return False
+    return bool(mail.gold_amount) or bool(mail.inventory_item_id)
+
+
 async def unread_count(session: AsyncSession, player_id: int) -> int:
     return int(
         await session.scalar(
@@ -214,6 +229,29 @@ async def unread_count(session: AsyncSession, player_id: int) -> int:
         )
         or 0
     )
+
+
+async def pending_rewards_count(session: AsyncSession, player_id: int) -> int:
+    """Read mail with unclaimed gold or item attachments."""
+    return int(
+        await session.scalar(
+            select(func.count())
+            .select_from(PlayerMail)
+            .where(
+                PlayerMail.recipient_player_id == player_id,
+                PlayerMail.recipient_deleted.is_(False),
+                PlayerMail.status == PlayerMailStatus.READ,
+                or_(PlayerMail.gold_amount > 0, PlayerMail.inventory_item_id.isnot(None)),
+            )
+        )
+        or 0
+    )
+
+
+async def mail_badge(session: AsyncSession, player_id: int) -> dict[str, int]:
+    unread = await unread_count(session, player_id)
+    pending = await pending_rewards_count(session, player_id)
+    return {"unread": unread, "pending_rewards": pending, "show": unread > 0 or pending > 0}
 
 
 async def get_mail(session: AsyncSession, player_id: int, mail_id: int) -> dict:
@@ -303,9 +341,43 @@ async def claim_mail(session: AsyncSession, player_id: int, mail_id: int) -> dic
     return _mail_to_dict(mail, sender=sender, item=inv_item)
 
 
+async def list_sent(
+    session: AsyncSession,
+    player_id: int,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    limit = max(1, min(100, int(limit)))
+    offset = max(0, int(offset))
+    rows = (
+        await session.execute(
+            select(PlayerMail, Player)
+            .join(Player, Player.id == PlayerMail.recipient_player_id)
+            .where(PlayerMail.sender_player_id == player_id)
+            .order_by(PlayerMail.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    items = []
+    for m, recipient in rows:
+        d = _mail_to_dict(m, sender=None, item=None)
+        d["recipient_label"] = _player_label(recipient)
+        items.append(d)
+    return {"items": items, "limit": limit, "offset": offset}
+
+
 async def delete_mail(session: AsyncSession, player_id: int, mail_id: int) -> None:
     mail = await session.get(PlayerMail, mail_id)
     if not mail or mail.recipient_player_id != player_id:
         raise ValueError("mail_not_found")
+    if mail.recipient_deleted:
+        return
+    if _has_pending_rewards(mail):
+        await claim_mail(session, player_id, mail_id)
+        mail = await session.get(PlayerMail, mail_id)
+        if not mail:
+            raise ValueError("mail_not_found")
     mail.recipient_deleted = True
     await session.commit()

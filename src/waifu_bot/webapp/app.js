@@ -1282,7 +1282,112 @@ function populateFromProfile(profile) {
   // Async: update dynamic ОЧ chips on every page load/refresh
   refreshAtticChips();
 
+  renderAtticPlayerAvatar(profile);
+  startAtticMailBadgePolling();
+
   if (document.getElementById("shop-gamble-cost")) updateShopGambleCost();
+}
+
+function getTelegramUser() {
+  try {
+    return tg?.initDataUnsafe?.user || null;
+  } catch {
+    return null;
+  }
+}
+
+function playerDisplayInitials(profile) {
+  const u = getTelegramUser();
+  const name = (u?.first_name || profile?.main_waifu?.name || "И").trim();
+  return name ? name.slice(0, 1).toUpperCase() : "?";
+}
+
+function applyPlayerAvatarUrl(avatarUrl, profile) {
+  const initials = playerDisplayInitials(profile);
+  const pairs = [
+    ["attic-player-avatar-img", "attic-player-avatar-fallback"],
+    ["player-hero-avatar-img", "player-hero-avatar-fallback"],
+  ];
+  pairs.forEach(([imgId, fbId]) => {
+    const img = document.getElementById(imgId);
+    const fb = document.getElementById(fbId);
+    if (!img && !fb) return;
+    if (avatarUrl && img) {
+      img.src = avatarUrl;
+      img.hidden = false;
+      if (fb) fb.textContent = "";
+    } else {
+      if (img) {
+        img.hidden = true;
+        img.removeAttribute("src");
+      }
+      if (fb) fb.textContent = initials;
+    }
+  });
+}
+
+async function fetchPlayerAvatarUrl() {
+  if (playerPageState.cachedAvatarUrl) return playerPageState.cachedAvatarUrl;
+  try {
+    const d = await apiFetch("/player/profile");
+    playerPageState.cachedAvatarUrl = d?.avatar_url || null;
+    return playerPageState.cachedAvatarUrl;
+  } catch {
+    return null;
+  }
+}
+
+async function applyPlayerAvatarToElements(profile) {
+  const url =
+    playerPageState.profileData?.avatar_url ||
+    playerPageState.cachedAvatarUrl ||
+    (await fetchPlayerAvatarUrl());
+  applyPlayerAvatarUrl(url, profile);
+}
+
+function renderAtticPlayerAvatar(profile) {
+  const btn = document.getElementById("attic-player-avatar");
+  if (!btn) return;
+  applyPlayerAvatarToElements(profile);
+  if (!btn.__waifuBound) {
+    btn.__waifuBound = true;
+    btn.addEventListener("click", () => {
+      window.location.href = "./player.html";
+    });
+  }
+}
+
+async function refreshAtticMailBadge() {
+  const badge = document.getElementById("attic-player-mail-badge");
+  const tabBadge = document.getElementById("player-tab-mail-badge");
+  const overflowBadge = document.getElementById("player-overflow-mail-badge");
+  const topbarOverflowBadge = document.getElementById("player-topbar-overflow-mail-badge");
+  if (!badge && !tabBadge && !overflowBadge && !topbarOverflowBadge) return;
+  try {
+    const data = await apiFetch("/mail/badge");
+    const show =
+      Boolean(data?.show) ||
+      safeInt(data?.unread, 0) > 0 ||
+      safeInt(data?.pending_rewards, 0) > 0;
+    if (badge) badge.hidden = !show;
+    if (tabBadge) tabBadge.hidden = !show;
+    if (overflowBadge) overflowBadge.hidden = !show;
+    if (topbarOverflowBadge) topbarOverflowBadge.hidden = !show;
+  } catch {
+    if (badge) badge.hidden = true;
+    if (tabBadge) tabBadge.hidden = true;
+    if (overflowBadge) overflowBadge.hidden = true;
+    if (topbarOverflowBadge) topbarOverflowBadge.hidden = true;
+  }
+}
+
+function startAtticMailBadgePolling() {
+  if (!document.getElementById("attic-player-avatar")) return;
+  refreshAtticMailBadge().catch(() => {});
+  if (window.__waifuMailBadgeInterval) return;
+  window.__waifuMailBadgeInterval = setInterval(() => {
+    refreshAtticMailBadge().catch(() => {});
+  }, 60000);
 }
 
 function appendEvent(text) {
@@ -2490,7 +2595,10 @@ async function initSettingsPage() {
   if (!window.__waifuSettingsPageshowBound) {
     window.__waifuSettingsPageshowBound = true;
     window.addEventListener("pageshow", () => {
-      if (document.body.classList.contains("page-settings")) {
+      if (
+        document.body.classList.contains("page-settings") ||
+        document.body.classList.contains("page-player")
+      ) {
         closeSettingsNotifyModal();
       }
     });
@@ -2626,7 +2734,7 @@ async function bootstrapPage(page, afterLoad) {
     console.warn("Tutorial bootstrap failed:", err);
   }
 
-  if (page === "settings") {
+  if (page === "settings" || page === "player") {
     try {
       await initSettingsPage();
     } catch (err) {
@@ -6805,7 +6913,7 @@ function mailApiErrorToUser(detail, fallback) {
   const err = typeof detail === "string" ? detail : String(detail?.error || detail || "");
   const map = {
     cannot_mail_self: "Нельзя отправить письмо самому себе.",
-    not_same_guild: "Писать можно только участникам своей гильдии.",
+    not_same_guild: "Нет доступа к профилю этого игрока.",
     empty_mail: "Укажите текст, золото или предмет.",
     body_too_long: "Слишком длинное сообщение.",
     gold_too_much: "Слишком много золота в одном письме.",
@@ -7102,7 +7210,7 @@ function renderGuildMembersHtml(members) {
         : "—";
     return `<div class="guild-member-row">
       <span class="guild-member-dot ${dotCls}" aria-hidden="true"></span>
-      <button type="button" class="guild-member-preview-btn" onclick="WaifuApp.openGuildMemberPreviewModal(${Number(m.player_id)})">${guildMemberLabel(m)}</button>
+      <button type="button" class="guild-member-preview-btn" onclick="WaifuApp.openPlayerProfile(${Number(m.player_id)})">${guildMemberLabel(m)}</button>
       <span class="guild-member-power">${escapeHtml(String(pwr))}</span>
       ${badges}
     </div>`;
@@ -7729,8 +7837,142 @@ function closePlayerMailComposeModal() {
   guildHallState.mailCompose = { recipientId: null, inventoryItemId: null, itemLabel: "" };
 }
 
+function getActiveMailComposeContext() {
+  const tabPane = document.getElementById("player-mail-compose-pane");
+  if (
+    document.body.classList.contains("page-player") &&
+    tabPane &&
+    !tabPane.hidden &&
+    playerPageState.activeSection === "mail"
+  ) {
+    return {
+      state: playerPageState.mailCompose,
+      bodyId: "player-mail-tab-body",
+      goldId: "player-mail-tab-gold",
+      pickId: "player-mail-tab-item-pick",
+      onSuccess: () => {
+        resetPlayerMailComposeForm();
+        setPlayerMailTab("inbox");
+        refreshMailInbox().catch(() => {});
+      },
+    };
+  }
+  return {
+    state: guildHallState.mailCompose,
+    bodyId: "player-mail-compose-body",
+    goldId: "player-mail-compose-gold",
+    pickId: "player-mail-compose-item-pick",
+    listId: "player-mail-compose-item-list",
+    onSuccess: () => {
+      refreshAtticMailBadge().catch(() => {});
+      closePlayerMailComposeModal();
+    },
+  };
+}
+
+function renderPlayerMailItemCell(it) {
+  const rCls = rarityClassFromValue(it?.rarity);
+  const lvl = safeInt(it?.level, 0);
+  const lvlLabel = lvl > 0 ? `ур. ${lvl}` : "ур. ?";
+  return `<button type="button" class="guild-bank-deposit-cell ${rCls}" onclick="WaifuApp.selectPlayerMailItem(${Number(it.id)})" aria-label="${escapeHtml(composeItemDisplayName(it))}">
+    <span class="item-level">${lvlLabel}</span>
+    <span class="guild-bank-deposit-cell-art">${itemArtHtml(it)}</span>
+  </button>`;
+}
+
+function renderPlayerMailItemPicker() {
+  const grid = document.getElementById("player-mail-item-grid");
+  const pager = document.getElementById("player-mail-item-pagination");
+  const emptyNote = document.getElementById("player-mail-item-empty-note");
+  if (!grid || !pager) return;
+  const items = playerPageState.mailItemInventory;
+  const pageSize = playerPageState.mailItemPageSize;
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const page = Math.min(Math.max(1, playerPageState.mailItemPage), totalPages);
+  if (page !== playerPageState.mailItemPage) playerPageState.mailItemPage = page;
+  const start = (page - 1) * pageSize;
+  const slice = items.slice(start, start + pageSize);
+  const cells = [];
+  for (let i = 0; i < pageSize; i += 1) {
+    if (i < slice.length) {
+      cells.push(renderPlayerMailItemCell(slice[i]));
+    } else {
+      cells.push(`<div class="guild-bank-deposit-cell guild-bank-deposit-cell--empty" aria-hidden="true"></div>`);
+    }
+  }
+  grid.innerHTML = cells.join("");
+  if (emptyNote) {
+    if (!items.length) {
+      emptyNote.textContent = "Нет предметов для отправки (только неэкипированные).";
+      emptyNote.hidden = false;
+    } else {
+      emptyNote.textContent = "";
+      emptyNote.hidden = true;
+    }
+  }
+  if (totalPages > 1) {
+    pager.innerHTML = `<button type="button" class="guild-bank-pag-btn" ${page <= 1 ? "disabled" : ""} onclick="WaifuApp.playerMailItemPrevPage()">← Назад</button>
+      <span class="guild-bank-pag-info">Стр. ${page}</span>
+      <button type="button" class="guild-bank-pag-btn" ${page >= totalPages ? "disabled" : ""} onclick="WaifuApp.playerMailItemNextPage()">Вперёд →</button>`;
+    pager.hidden = false;
+  } else {
+    pager.innerHTML = "";
+    pager.hidden = true;
+  }
+}
+
+async function openPlayerMailItemModal() {
+  try {
+    const eq = await apiFetch("/waifu/equipment");
+    const inv = (Array.isArray(eq?.inventory) ? eq.inventory : []).filter((i) => i?.id && !i?.equipment_slot);
+    playerPageState.mailItemInventory = inv;
+    playerPageState.mailItemPage = 1;
+    renderPlayerMailItemPicker();
+    const m = document.getElementById("player-mail-item-modal");
+    if (m) {
+      m.style.display = "flex";
+      m.setAttribute("aria-hidden", "false");
+    }
+    document.body.style.overflow = "hidden";
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось загрузить инвентарь", "error");
+  }
+}
+
+function closePlayerMailItemModal() {
+  const m = document.getElementById("player-mail-item-modal");
+  if (m) {
+    m.style.display = "none";
+    m.setAttribute("aria-hidden", "true");
+  }
+  document.body.style.overflow = "";
+}
+
+function playerMailItemPrevPage() {
+  playerPageState.mailItemPage = Math.max(1, playerPageState.mailItemPage - 1);
+  renderPlayerMailItemPicker();
+}
+
+function playerMailItemNextPage() {
+  const pageSize = playerPageState.mailItemPageSize;
+  const totalPages = Math.max(1, Math.ceil(playerPageState.mailItemInventory.length / pageSize));
+  playerPageState.mailItemPage = Math.min(playerPageState.mailItemPage + 1, totalPages);
+  renderPlayerMailItemPicker();
+}
+
 async function openPlayerMailItemPicker() {
-  const listEl = document.getElementById("player-mail-compose-item-list");
+  const tabPane = document.getElementById("player-mail-compose-pane");
+  if (
+    document.body.classList.contains("page-player") &&
+    tabPane &&
+    !tabPane.hidden &&
+    playerPageState.activeSection === "mail"
+  ) {
+    return openPlayerMailItemModal();
+  }
+  const ctx = getActiveMailComposeContext();
+  const listEl = document.getElementById(ctx.listId);
   if (!listEl) return;
   try {
     const eq = await apiFetch("/waifu/equipment");
@@ -7741,7 +7983,7 @@ async function openPlayerMailItemPicker() {
       listEl.innerHTML = inv
         .map((it) => {
           const iid = Number(it.id);
-          const sel = guildHallState.mailCompose.inventoryItemId === iid ? " selected" : "";
+          const sel = ctx.state.inventoryItemId === iid ? " selected" : "";
           return `<div class="player-mail-compose-item-row${sel}" data-id="${iid}" onclick="WaifuApp.selectPlayerMailItem(${iid})">
             <span>${itemArtHtml(it)}</span>
             <span>${escapeHtml(composeItemDisplayName(it))}</span>
@@ -7749,40 +7991,70 @@ async function openPlayerMailItemPicker() {
         })
         .join("");
     }
-    listEl.style.display = "";
+    listEl.hidden = false;
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(detail || "Не удалось загрузить инвентарь", "error");
   }
 }
 
+function renderMailComposeItemPick(item) {
+  const pickEl = document.getElementById("player-mail-tab-item-pick");
+  if (!pickEl) return;
+  if (!item) {
+    pickEl.innerHTML = `<span class="player-mail-item-pick-empty">Не выбран</span>`;
+    return;
+  }
+  pickEl.innerHTML = `<span class="player-mail-item-pick-art">${itemArtHtml(item)}</span><span class="player-mail-item-pick-name">${composeItemDisplayName(item)}</span>`;
+}
+
 function selectPlayerMailItem(id) {
+  const ctx = getActiveMailComposeContext();
   const iid = Number(id);
-  guildHallState.mailCompose.inventoryItemId = iid;
+  ctx.state.inventoryItemId = iid;
+  const fromModal = playerPageState.mailItemInventory.find((x) => Number(x.id) === iid);
   const row = document.querySelector(`.player-mail-compose-item-row[data-id="${iid}"]`);
-  const label = row?.querySelector("span:last-child")?.textContent?.trim() || `Предмет #${iid}`;
-  guildHallState.mailCompose.itemLabel = label;
-  const pickEl = document.getElementById("player-mail-compose-item-pick");
-  if (pickEl) pickEl.textContent = label;
+  const item = fromModal || null;
+  if (item) {
+    ctx.state.itemLabel = composeItemDisplayName(item).replace(/<[^>]+>/g, "").trim();
+  } else {
+    ctx.state.itemLabel = row?.querySelector("span:last-child")?.textContent?.trim() || `Предмет #${iid}`;
+  }
+  if (ctx.pickId === "player-mail-tab-item-pick") {
+    renderMailComposeItemPick(item);
+  } else {
+    const pickEl = document.getElementById(ctx.pickId);
+    if (pickEl) pickEl.textContent = ctx.state.itemLabel;
+  }
   document.querySelectorAll(".player-mail-compose-item-row").forEach((el) => {
     el.classList.toggle("selected", Number(el.dataset.id) === iid);
   });
-  const listEl = document.getElementById("player-mail-compose-item-list");
-  if (listEl) listEl.style.display = "none";
+  const listEl = document.getElementById(ctx.listId);
+  if (listEl) listEl.hidden = true;
+  if (
+    document.body.classList.contains("page-player") &&
+    playerPageState.activeSection === "mail"
+  ) {
+    closePlayerMailItemModal();
+  }
 }
 
 async function sendPlayerMail() {
-  const rid = Number(guildHallState.mailCompose.recipientId);
-  if (!Number.isFinite(rid) || rid <= 0) return;
-  const bodyText = (document.getElementById("player-mail-compose-body")?.value || "").trim();
-  const goldAmount = Math.max(0, safeInt(document.getElementById("player-mail-compose-gold")?.value, 0));
-  const inventoryItemId = guildHallState.mailCompose.inventoryItemId;
+  const ctx = getActiveMailComposeContext();
+  const rid = Number(ctx.state.recipientId);
+  if (!Number.isFinite(rid) || rid <= 0) {
+    showToast("Выберите получателя", "error");
+    return;
+  }
+  const bodyText = (document.getElementById(ctx.bodyId)?.value || "").trim();
+  const goldAmount = Math.max(0, safeInt(document.getElementById(ctx.goldId)?.value, 0));
+  const inventoryItemId = ctx.state.inventoryItemId;
   const payload = { recipient_player_id: rid, body_text: bodyText || null, gold_amount: goldAmount };
   if (inventoryItemId) payload.inventory_item_id = Number(inventoryItemId);
   try {
     await apiFetch("/mail/send", { method: "POST", body: JSON.stringify(payload) });
     showToast("Письмо отправлено");
-    closePlayerMailComposeModal();
+    ctx.onSuccess();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(mailApiErrorToUser(detail, "Не удалось отправить"), "error");
@@ -7791,17 +8063,750 @@ async function sendPlayerMail() {
 
 async function initMailPage() {
   await refreshMailInbox();
+  await refreshMailSent().catch(() => {});
+}
+
+const playerPageState = {
+  activeSection: null,
+  profileData: null,
+  cachedAvatarUrl: null,
+  viewPlayerId: null,
+  isViewMode: false,
+  selfPlayerId: null,
+  mailTab: "inbox",
+  mailCompose: { recipientId: null, recipientLabel: "", inventoryItemId: null, itemLabel: "" },
+  mailGuildSuggestions: null,
+  mailItemInventory: [],
+  mailItemPage: 1,
+  mailItemPageSize: 12,
+};
+
+const PLAYER_AVATAR_PRESET_COUNT = 20;
+
+function getPlayerViewIdFromQuery() {
+  const raw = new URLSearchParams(window.location.search).get("playerId");
+  const id = Number(raw);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function openPlayerProfile(playerId) {
+  const id = Number(playerId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  window.location.href = `./player.html?playerId=${encodeURIComponent(id)}`;
+}
+
+function syncPlayerViewModeUi() {
+  const view = playerPageState.isViewMode;
+  document.body.classList.toggle("player-view-mode", view);
+  document.querySelectorAll(".player-only-self").forEach((el) => {
+    el.hidden = view;
+  });
+  document.querySelectorAll(".player-overflow-item--self").forEach((el) => {
+    el.hidden = view;
+  });
+  const overflowBtn = document.getElementById("player-overflow-btn");
+  const topbarOverflowBtn = document.getElementById("player-topbar-overflow-btn");
+  if (overflowBtn) overflowBtn.hidden = view;
+  if (topbarOverflowBtn) topbarOverflowBtn.hidden = view;
+  const avatarBtn = document.getElementById("player-hero-avatar-btn");
+  if (avatarBtn) avatarBtn.disabled = view;
+  const showcaseToggle = document.getElementById("player-showcase-toggle");
+  if (showcaseToggle) showcaseToggle.hidden = view;
+}
+
+function syncPlayerChromeMode() {
+  const onOverview = !playerPageState.activeSection;
+  const view = playerPageState.isViewMode;
+  document.body.classList.toggle("player-chrome--overview", onOverview);
+  const subpanelTopbar = document.getElementById("player-subpanel-topbar");
+  const titleEl = document.getElementById("player-topbar-title");
+  const showcaseOverflow = document.getElementById("player-overflow-btn");
+  const topbarOverflow = document.getElementById("player-topbar-overflow-btn");
+  if (onOverview) {
+    if (subpanelTopbar) subpanelTopbar.hidden = true;
+    if (showcaseOverflow) showcaseOverflow.hidden = view;
+    if (topbarOverflow) topbarOverflow.hidden = true;
+  } else {
+    if (subpanelTopbar) subpanelTopbar.hidden = false;
+    const titles = { mail: "Почта", guild: "Гильдия", settings: "Настройки" };
+    if (titleEl) titleEl.textContent = titles[playerPageState.activeSection] || "Профиль";
+    if (showcaseOverflow) showcaseOverflow.hidden = true;
+    if (topbarOverflow) topbarOverflow.hidden = view;
+  }
+}
+
+async function rehydratePlayerPage() {
+  const menu = document.getElementById("player-overflow-menu");
+  if (menu) menu.hidden = true;
+  closePlayerMailItemModal();
+  playerPageState.mailTab = "inbox";
+  setPlayerMailTab("inbox");
+  const fallback = profileState.currentProfile || {};
+  applyPlayerHashSection();
+  syncPlayerChromeMode();
+  syncPlayerViewModeUi();
+  try {
+    if (playerPageState.isViewMode && playerPageState.viewPlayerId) {
+      await loadPublicPlayerProfile(playerPageState.viewPlayerId, fallback);
+    } else {
+      await loadSelfPlayerProfile(fallback);
+      if (!playerPageState.isViewMode) {
+        refreshAtticMailBadge().catch(() => {});
+      }
+    }
+  } catch {
+    /* ignore rehydrate errors */
+  }
+}
+
+function bindPlayerPageLifecycle() {
+  if (window.__waifuPlayerPageshowBound) return;
+  window.__waifuPlayerPageshowBound = true;
+  window.addEventListener("pageshow", (ev) => {
+    if (!document.body.classList.contains("page-player")) return;
+    if (!ev.persisted) return;
+    rehydratePlayerPage().catch(() => {});
+  });
+}
+
+function openPlayerSection(section) {
+  const name = section || "overview";
+  playerPageState.activeSection = name === "overview" ? null : name;
+  const menu = document.getElementById("player-overflow-menu");
+  if (menu) menu.hidden = true;
+
+  const mainScroll = document.getElementById("player-main-scroll");
+  const subpanels = ["mail", "guild", "settings"];
+
+  if (!playerPageState.activeSection) {
+    if (mainScroll) mainScroll.hidden = false;
+    subpanels.forEach((s) => {
+      const el = document.getElementById(`player-panel-${s}`);
+      if (el) el.hidden = true;
+    });
+    syncPlayerChromeMode();
+    return;
+  }
+
+  if (mainScroll) mainScroll.hidden = true;
+  subpanels.forEach((s) => {
+    const el = document.getElementById(`player-panel-${s}`);
+    if (el) el.hidden = s !== playerPageState.activeSection;
+  });
+  syncPlayerChromeMode();
+
+  if (playerPageState.activeSection === "mail") {
+    setPlayerMailTab(playerPageState.mailTab || "inbox");
+    refreshMailInbox().catch(() => {});
+  }
+  if (playerPageState.activeSection === "guild") {
+    renderPlayerGuildBlock().catch(() => {});
+  }
+}
+
+function applyPlayerHashSection() {
+  const hash = (window.location.hash || "").replace(/^#/, "").trim();
+  if (hash === "mail" || hash === "settings" || hash === "guild") {
+    if (playerPageState.isViewMode && (hash === "mail" || hash === "settings")) {
+      openPlayerSection("overview");
+      return;
+    }
+    openPlayerSection(hash);
+  } else {
+    openPlayerSection("overview");
+  }
+}
+
+function renderPlayerHeroFromProfileData(data, fallbackProfile) {
+  const name = (data?.display_name || fallbackProfile?.main_waifu?.name || "Игрок").trim();
+  setText("player-hero-name", name);
+  const unEl = document.getElementById("player-hero-username");
+  const un = (data?.telegram_username || getTelegramUser()?.username || "").trim();
+  if (unEl) unEl.textContent = un ? `@${un}` : "";
+  playerPageState.cachedAvatarUrl = data?.avatar_url || playerPageState.cachedAvatarUrl;
+  applyPlayerAvatarUrl(data?.avatar_url, fallbackProfile || profileState.currentProfile);
+}
+
+function renderPlayerWaifuShowcase(data) {
+  const img = document.getElementById("player-waifu-showcase-img");
+  const emptyEl = document.getElementById("player-waifu-showcase-empty");
+  const toggle = document.getElementById("player-showcase-toggle");
+  const nameEl = document.getElementById("player-waifu-name");
+  const levelEl = document.getElementById("player-waifu-level");
+  const mw = data?.main_waifu;
+  const mode = (data?.profile_showcase || "portrait").toLowerCase();
+  let url = null;
+  if (mode === "paperdoll") {
+    url = mw?.paperdoll_url || mw?.portrait_url || null;
+  } else {
+    url = mw?.portrait_url || mw?.paperdoll_url || null;
+  }
+  if (nameEl) nameEl.textContent = (mw?.name || "").trim() || "—";
+  if (levelEl) {
+    const lvl = mw?.level;
+    levelEl.textContent = lvl != null && lvl !== "" ? `Ур. ${lvl}` : "";
+  }
+  if (img) {
+    if (url) {
+      img.src = url;
+      img.hidden = false;
+      if (emptyEl) emptyEl.hidden = true;
+    } else {
+      img.hidden = true;
+      img.removeAttribute("src");
+      if (emptyEl) emptyEl.hidden = false;
+    }
+  }
+  if (toggle && !playerPageState.isViewMode) {
+    const hasBoth = !!(mw?.portrait_url && mw?.paperdoll_url);
+    toggle.hidden = !hasBoth;
+    toggle.querySelectorAll(".player-showcase-switch-btn").forEach((btn) => {
+      const m = btn.getAttribute("data-showcase");
+      btn.classList.toggle("active", m === mode);
+    });
+  } else if (toggle) {
+    toggle.hidden = true;
+  }
+}
+
+function formatStoryActDungeon(act, dungeonNumber) {
+  const a = Math.max(0, parseInt(act, 10) || 0);
+  const n = Math.max(0, parseInt(dungeonNumber, 10) || 0);
+  if (a > 0 && n > 0) return `Акт ${a}-${n}`;
+  return null;
+}
+
+function renderPlayerCampaignCompact(campaign) {
+  const el = document.getElementById("player-campaign-compact");
+  if (!el) return;
+  const c = campaign || {};
+  if (c.main_campaign_complete) {
+    el.textContent = "🏰 Кампания пройдена";
+    el.hidden = false;
+    return;
+  }
+  const code = formatStoryActDungeon(c.story_next_act, c.story_next_dungeon_number);
+  if (!code) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.textContent = `🏰 ${code}`;
+  el.hidden = false;
+}
+
+function renderPlayerAbyssCompact(abyss) {
+  const el = document.getElementById("player-abyss-compact");
+  if (!el) return;
+  const a = abyss || {};
+  const maxFloor = safeInt(a.max_floor_reached, 0);
+  if (maxFloor <= 0 && !a.session_active) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const floor =
+    a.session_active && a.current_floor != null
+      ? safeInt(a.current_floor, 0)
+      : maxFloor;
+  const chk = a.current_checkpoint != null ? safeInt(a.current_checkpoint, 0) : null;
+  const parts = [`Этаж ${floor}`];
+  if (chk != null) parts.push(`ЧК ${chk}`);
+  el.textContent = `🌑 ${parts.join(" · ")}`;
+  el.hidden = false;
+}
+
+function applyPlayerProfilePayload(data, fallbackProfile) {
+  playerPageState.profileData = data;
+  renderPlayerHeroFromProfileData(data, fallbackProfile);
+  renderPlayerWaifuShowcase(data);
+  renderPlayerCampaignCompact(data?.campaign);
+  renderPlayerAbyssCompact(data?.abyss);
+}
+
+async function loadSelfPlayerProfile(fallbackProfile) {
+  const data = await apiFetch("/player/profile");
+  applyPlayerProfilePayload(data, fallbackProfile);
+  return data;
+}
+
+async function loadPublicPlayerProfile(targetId, fallbackProfile) {
+  const data = await apiFetch(`/player/${encodeURIComponent(targetId)}/profile`);
+  applyPlayerProfilePayload(data, fallbackProfile);
+  return data;
+}
+
+async function renderPlayerGuildBlock() {
+  const root = document.getElementById("player-guild-root");
+  if (!root) return;
+  if (playerPageState.isViewMode) {
+    const rank = playerPageState.profileData?.guild_rank;
+    root.innerHTML = `<p>${rank ? `<strong>${escapeHtml(rank)}</strong> в вашей гильдии` : "Участник гильдии"}</p>
+      <a href="./guild_hall.html" class="btn secondary" style="margin-top:8px;display:inline-block">Зал гильдии</a>`;
+    return;
+  }
+  root.innerHTML = `<p class="muted">Загрузка…</p>`;
+  try {
+    const data = await apiFetch("/guilds/me");
+    if (!data?.in_guild) {
+      root.innerHTML = `<p class="muted">Вы не состоите в гильдии.</p>
+        <a href="./guild_hall.html" class="btn secondary" style="margin-top:8px;display:inline-block">Зал гильдии</a>`;
+      return;
+    }
+    const rank = data.is_leader ? "Глава" : data.is_officer ? "Офицер" : "Участник";
+    const memberCount = Array.isArray(data.members) ? data.members.length : 0;
+    const tag = (data.guild_tag || "").trim();
+    root.innerHTML = `<p><strong>${escapeHtml(data.guild_name || "Гильдия")}</strong>${tag ? ` [${escapeHtml(tag)}]` : ""} · ${escapeHtml(rank)}</p>
+      <p class="muted tiny">Ур. гильдии ${safeInt(data.guild_level, 1)} · участников ${memberCount}</p>
+      <a href="./guild_hall.html" class="btn secondary" style="margin-top:8px;display:inline-block">Зал гильдии</a>`;
+  } catch {
+    root.innerHTML = `<p class="muted">Не удалось загрузить данные гильдии.</p>`;
+  }
+}
+
+async function refreshMailSent() {
+  const root = document.getElementById("mail-sent-root");
+  if (!root) return;
+  try {
+    const data = await apiFetch("/mail/sent?limit=30");
+    const items = Array.isArray(data?.items) ? data.items : [];
+    if (!items.length) {
+      root.innerHTML = `<p class="muted">Исходящих писем нет.</p>`;
+      return;
+    }
+    root.innerHTML = items
+      .map((m) => {
+        const status =
+          m.status === "claimed"
+            ? "забрано"
+            : m.status === "read"
+              ? "прочитано"
+              : "доставлено";
+        const attach = [];
+        if (m.gold_amount > 0) attach.push(`🪙 ${Number(m.gold_amount).toLocaleString("ru-RU")}`);
+        if (m.inventory_item_id) attach.push("📦 предмет");
+        const preview = (m.body_text || attach.join(" · ") || "—").slice(0, 60);
+        return `<div class="mail-inbox-row" style="cursor:default">
+          <span style="flex:1;min-width:0">
+            <strong>${escapeHtml(m.recipient_label || "Игрок")}</strong>
+            <span class="muted tiny"> · ${escapeHtml(status)}</span>
+            <div class="muted tiny">${escapeHtml(preview)}</div>
+          </span>
+        </div>`;
+      })
+      .join("");
+  } catch {
+    root.innerHTML = `<p class="muted">Не удалось загрузить отправленные.</p>`;
+  }
+}
+
+function setPlayerMailTab(tab) {
+  const name = tab === "compose" ? "compose" : "inbox";
+  playerPageState.mailTab = name;
+  document.querySelectorAll(".player-mail-tab").forEach((btn) => {
+    const t = btn.getAttribute("data-mail-tab");
+    const active = t === name;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  const inboxPane = document.getElementById("player-mail-inbox-pane");
+  const composePane = document.getElementById("player-mail-compose-pane");
+  if (inboxPane) inboxPane.hidden = name !== "inbox";
+  if (composePane) composePane.hidden = name !== "compose";
+  if (name === "compose") {
+    loadPlayerMailGuildSuggestions().catch(() => {});
+  }
+}
+
+function resetPlayerMailComposeForm() {
+  playerPageState.mailCompose = {
+    recipientId: null,
+    recipientLabel: "",
+    inventoryItemId: null,
+    itemLabel: "",
+  };
+  const input = document.getElementById("player-mail-recipient-input");
+  const body = document.getElementById("player-mail-tab-body");
+  const gold = document.getElementById("player-mail-tab-gold");
+  const suggest = document.getElementById("player-mail-recipient-suggest");
+  if (input) input.value = "";
+  if (body) body.value = "";
+  if (gold) gold.value = "0";
+  renderMailComposeItemPick(null);
+  if (suggest) suggest.hidden = true;
+}
+
+function playerMailRecipientRowLabel(item) {
+  const un = (item.username || "").trim();
+  if (un) return `@${un.replace(/^@/, "")}`;
+  const name = (item.character_name || item.first_name || "").trim();
+  if (name) return name;
+  const id = item.telegram_id ?? item.player_id;
+  return id != null ? `Игрок ${id}` : "Игрок";
+}
+
+function renderPlayerMailRecipientSuggest(items, sectionLabel) {
+  const box = document.getElementById("player-mail-recipient-suggest");
+  if (!box) return;
+  if (!items.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  const head = sectionLabel
+    ? `<div class="player-mail-suggest-section">${escapeHtml(sectionLabel)}</div>`
+    : "";
+  box.innerHTML =
+    head +
+    items
+      .map((item) => {
+        const pid = Number(item.telegram_id ?? item.player_id);
+        const label = escapeHtml(playerMailRecipientRowLabel(item));
+        return `<button type="button" class="player-mail-suggest-row" data-player-id="${pid}" data-label="${label}">${label}</button>`;
+      })
+      .join("");
+  box.hidden = false;
+  box.querySelectorAll(".player-mail-suggest-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      const pid = Number(row.getAttribute("data-player-id"));
+      const label = row.getAttribute("data-label") || "";
+      playerPageState.mailCompose.recipientId = pid;
+      playerPageState.mailCompose.recipientLabel = label;
+      const input = document.getElementById("player-mail-recipient-input");
+      if (input) input.value = label;
+      box.hidden = true;
+    });
+  });
+}
+
+async function loadPlayerMailGuildSuggestions() {
+  if (playerPageState.mailGuildSuggestions) return playerPageState.mailGuildSuggestions;
+  try {
+    const data = await apiFetch("/guilds/me");
+    if (!data?.in_guild || !Array.isArray(data.members)) {
+      playerPageState.mailGuildSuggestions = [];
+      return [];
+    }
+    const selfId = Number(profileState.currentProfile?.player_id);
+    const items = data.members
+      .filter((m) => Number(m.player_id) !== selfId)
+      .map((m) => ({
+        telegram_id: m.player_id,
+        username: m.telegram_username,
+        first_name: m.display_name,
+        character_name: m.main_waifu_name,
+      }));
+    playerPageState.mailGuildSuggestions = items;
+    return items;
+  } catch {
+    playerPageState.mailGuildSuggestions = [];
+    return [];
+  }
+}
+
+let playerMailSearchTimer = null;
+
+async function searchPlayerMailRecipients(query) {
+  const q = (query || "").trim();
+  if (q.length < 1) {
+    const guild = await loadPlayerMailGuildSuggestions();
+    renderPlayerMailRecipientSuggest(guild, guild.length ? "Гильдия" : "");
+    const friendsNote = document.getElementById("player-mail-recipient-suggest");
+    if (friendsNote && !guild.length) {
+      friendsNote.innerHTML = `<p class="muted tiny" style="padding:10px 12px">Друзья — скоро</p>`;
+      friendsNote.hidden = false;
+    }
+    return;
+  }
+  try {
+    const data = await apiFetch(`/players/search?q=${encodeURIComponent(q)}`);
+    const items = Array.isArray(data?.items) ? data.items : [];
+    const selfId = Number(profileState.currentProfile?.player_id);
+    const filtered = items.filter((it) => Number(it.telegram_id) !== selfId);
+    renderPlayerMailRecipientSuggest(filtered, filtered.length ? "Поиск" : "");
+    if (!filtered.length) {
+      const box = document.getElementById("player-mail-recipient-suggest");
+      if (box) {
+        box.innerHTML = `<p class="muted tiny" style="padding:10px 12px">Никого не найдено</p>`;
+        box.hidden = false;
+      }
+    }
+  } catch {
+    const box = document.getElementById("player-mail-recipient-suggest");
+    if (box) {
+      box.innerHTML = `<p class="muted tiny" style="padding:10px 12px">Ошибка поиска</p>`;
+      box.hidden = false;
+    }
+  }
+}
+
+function initPlayerMailTabs() {
+  if (window.__waifuPlayerMailTabsBound) return;
+  window.__waifuPlayerMailTabsBound = true;
+  document.querySelectorAll(".player-mail-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.getAttribute("data-mail-tab");
+      if (tab) setPlayerMailTab(tab);
+    });
+  });
+}
+
+function initPlayerMailCompose() {
+  if (window.__waifuPlayerMailComposeBound) return;
+  window.__waifuPlayerMailComposeBound = true;
+  const input = document.getElementById("player-mail-recipient-input");
+  const suggest = document.getElementById("player-mail-recipient-suggest");
+  const itemBtn = document.getElementById("player-mail-tab-item-btn");
+  const sendBtn = document.getElementById("player-mail-tab-send");
+
+  input?.addEventListener("focus", () => {
+    searchPlayerMailRecipients(input.value).catch(() => {});
+  });
+  input?.addEventListener("input", () => {
+    const q = input.value.trim();
+    playerPageState.mailCompose.recipientId = null;
+    clearTimeout(playerMailSearchTimer);
+    playerMailSearchTimer = setTimeout(() => {
+      searchPlayerMailRecipients(q).catch(() => {});
+    }, 280);
+  });
+  document.addEventListener("click", (ev) => {
+    if (!suggest || suggest.hidden) return;
+    if (ev.target === input || suggest.contains(ev.target)) return;
+    suggest.hidden = true;
+  });
+  itemBtn?.addEventListener("click", () => openPlayerMailItemPicker());
+  sendBtn?.addEventListener("click", () => sendPlayerMail());
+}
+
+function togglePlayerOverflowMenu(ev) {
+  ev?.stopPropagation();
+  const menu = document.getElementById("player-overflow-menu");
+  if (menu) menu.hidden = !menu.hidden;
+}
+
+function initPlayerOverflowMenu() {
+  if (window.__waifuPlayerOverflowBound) return;
+  window.__waifuPlayerOverflowBound = true;
+  const menu = document.getElementById("player-overflow-menu");
+  const backBtn = document.getElementById("player-topbar-back");
+  document.querySelectorAll("#player-overflow-btn, #player-topbar-overflow-btn").forEach((btn) => {
+    if (menu) {
+      btn.addEventListener("click", togglePlayerOverflowMenu);
+    }
+  });
+  if (menu) {
+    document.addEventListener("click", () => {
+      if (menu) menu.hidden = true;
+    });
+    menu.addEventListener("click", (ev) => ev.stopPropagation());
+    menu.querySelectorAll("[data-player-section]").forEach((item) => {
+      item.addEventListener("click", () => {
+        const sec = item.getAttribute("data-player-section");
+        if (sec) {
+          if (sec === "overview") {
+            history.replaceState(null, "", window.location.pathname + window.location.search);
+            openPlayerSection("overview");
+          } else {
+            window.location.hash = sec;
+            openPlayerSection(sec);
+          }
+        }
+        menu.hidden = true;
+      });
+    });
+  }
+  if (backBtn) {
+    backBtn.addEventListener("click", () => {
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+      openPlayerSection("overview");
+    });
+  }
+}
+
+function initPlayerShowcaseToggle() {
+  if (window.__waifuPlayerShowcaseBound) return;
+  window.__waifuPlayerShowcaseBound = true;
+  document.querySelectorAll(".player-showcase-switch-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mode = btn.getAttribute("data-showcase");
+      if (!mode || playerPageState.isViewMode) return;
+      const prev = playerPageState.profileData?.profile_showcase;
+      const data = { ...(playerPageState.profileData || {}), profile_showcase: mode };
+      playerPageState.profileData = data;
+      renderPlayerWaifuShowcase(data);
+      apiFetch("/player/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile_showcase: mode }),
+      })
+        .then((res) => {
+          playerPageState.profileData = res;
+          renderPlayerWaifuShowcase(res);
+        })
+        .catch((e) => {
+          const rollback = {
+            ...(playerPageState.profileData || {}),
+            profile_showcase: prev || "portrait",
+          };
+          playerPageState.profileData = rollback;
+          renderPlayerWaifuShowcase(rollback);
+          const { detail } = parseHttpErrorDetail(e);
+          showToast(detail || "Не удалось сохранить", "error");
+        });
+    });
+  });
+}
+
+function initPlayerAvatarModal() {
+  if (window.__waifuPlayerAvatarModalBound) return;
+  window.__waifuPlayerAvatarModalBound = true;
+  const openBtn = document.getElementById("player-hero-avatar-btn");
+  const modal = document.getElementById("player-avatar-modal");
+  const closeBtn = document.getElementById("player-avatar-modal-close");
+  const grid = document.getElementById("player-avatar-preset-grid");
+  const fileInput = document.getElementById("player-avatar-file-input");
+  const resetBtn = document.getElementById("player-avatar-reset-preset");
+
+  if (grid && !grid.__filled) {
+    grid.__filled = true;
+    let html = "";
+    for (let i = 1; i <= PLAYER_AVATAR_PRESET_COUNT; i++) {
+      const url = `/static/game/ui/player-avatars/preset-${String(i).padStart(2, "0")}.webp`;
+      html += `<button type="button" class="player-avatar-preset-btn" data-preset-id="${i}" aria-label="Пресет ${i}"><img src="${url}" alt="" /></button>`;
+    }
+    grid.innerHTML = html;
+    grid.querySelectorAll(".player-avatar-preset-btn").forEach((b) => {
+      b.addEventListener("click", async () => {
+        const pid = Number(b.getAttribute("data-preset-id"));
+        try {
+          const data = await apiFetch("/player/profile", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ avatar_preset_id: pid, clear_custom_avatar: true }),
+          });
+          playerPageState.cachedAvatarUrl = data.avatar_url;
+          applyPlayerProfilePayload(data, profileState.currentProfile);
+          applyPlayerAvatarUrl(data.avatar_url, profileState.currentProfile);
+          closeModal();
+        } catch (e) {
+          const { detail } = parseHttpErrorDetail(e);
+          showToast(detail || "Ошибка", "error");
+        }
+      });
+    });
+  }
+
+  const openModal = () => {
+    if (playerPageState.isViewMode || !modal) return;
+    const cur = playerPageState.profileData?.avatar_preset_id || 1;
+    grid?.querySelectorAll(".player-avatar-preset-btn").forEach((x) => {
+      x.classList.toggle("selected", Number(x.getAttribute("data-preset-id")) === Number(cur));
+    });
+    modal.style.display = "";
+    modal.classList.add("player-avatar-modal--open");
+  };
+  const closeModal = () => {
+    if (!modal) return;
+    modal.classList.remove("player-avatar-modal--open");
+    modal.style.display = "none";
+  };
+
+  openBtn?.addEventListener("click", openModal);
+  closeBtn?.addEventListener("click", closeModal);
+  modal?.addEventListener("click", (ev) => {
+    if (ev.target === modal) closeModal();
+  });
+
+  resetBtn?.addEventListener("click", async () => {
+    try {
+      const data = await apiFetch("/player/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatar_preset_id: 1, clear_custom_avatar: true }),
+      });
+      playerPageState.cachedAvatarUrl = data.avatar_url;
+      applyPlayerProfilePayload(data, profileState.currentProfile);
+      applyPlayerAvatarUrl(data.avatar_url, profileState.currentProfile);
+      closeModal();
+    } catch (e) {
+      const { detail } = parseHttpErrorDetail(e);
+      showToast(detail || "Ошибка", "error");
+    }
+  });
+
+  fileInput?.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const res = await fetch(`${API_BASE}/player/avatar/upload`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: fd,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail?.error || err.detail || res.statusText);
+      }
+      const data = await res.json();
+      playerPageState.cachedAvatarUrl = data.avatar_url;
+      const full = await apiFetch("/player/profile");
+      applyPlayerProfilePayload(full, profileState.currentProfile);
+      applyPlayerAvatarUrl(data.avatar_url, profileState.currentProfile);
+      fileInput.value = "";
+      closeModal();
+    } catch (e) {
+      showToast(String(e.message || e) || "Не удалось загрузить", "error");
+    }
+  });
+}
+
+async function initPlayerPage(profile) {
+  const fallback = profile || profileState.currentProfile || {};
+  const viewId = getPlayerViewIdFromQuery();
+  const selfId = fallback?.player_id != null ? Number(fallback.player_id) : null;
+  playerPageState.viewPlayerId = viewId;
+  playerPageState.selfPlayerId = selfId;
+  playerPageState.isViewMode = viewId != null && (selfId == null || viewId !== selfId);
+
+  initPlayerOverflowMenu();
+  initPlayerShowcaseToggle();
+  initPlayerAvatarModal();
+  initPlayerMailTabs();
+  initPlayerMailCompose();
+  bindPlayerPageLifecycle();
+  syncPlayerViewModeUi();
+
+  try {
+    if (playerPageState.isViewMode) {
+      await loadPublicPlayerProfile(viewId, fallback);
+    } else {
+      await loadSelfPlayerProfile(fallback);
+      if (!playerPageState.isViewMode) {
+        refreshAtticMailBadge().catch(() => {});
+      }
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось загрузить профиль", "error");
+  }
+
+  applyPlayerHashSection();
 }
 
 async function refreshMailInbox() {
   try {
-    const [inbox, unread] = await Promise.all([
+    const [inbox, badge] = await Promise.all([
       apiFetch("/mail/inbox?limit=50"),
-      apiFetch("/mail/unread-count"),
+      apiFetch("/mail/badge").catch(() => ({ unread: 0, pending_rewards: 0 })),
     ]);
     guildHallState.mailState.inbox = Array.isArray(inbox?.items) ? inbox.items : [];
-    guildHallState.mailState.unreadCount = safeInt(unread?.count, 0);
+    guildHallState.mailState.unreadCount = safeInt(badge?.unread, 0);
+    guildHallState.mailState.pendingRewards = safeInt(badge?.pending_rewards, 0);
     renderMailInbox();
+    await refreshAtticMailBadge();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     const root = document.getElementById("mail-inbox-root");
@@ -7809,21 +8814,49 @@ async function refreshMailInbox() {
   }
 }
 
+function formatMailListDate(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const sameDay =
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate();
+    if (sameDay) {
+      return d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+  } catch {
+    return "";
+  }
+}
+
 function renderMailInbox() {
   const root = document.getElementById("mail-inbox-root");
-  const unreadEl = document.getElementById("mail-unread-count");
-  const rewardsEl = document.getElementById("mail-rewards-count");
-  if (unreadEl) unreadEl.textContent = String(guildHallState.mailState.unreadCount);
-  if (rewardsEl) {
-    const pending = guildHallState.mailState.inbox.filter(
-      (m) => (m.gold_amount > 0 || m.inventory_item_id) && m.status !== "claimed"
-    ).length;
-    rewardsEl.textContent = String(pending);
-  }
+  const isPlayerPage = document.body.classList.contains("page-player");
   if (!root) return;
   const items = guildHallState.mailState.inbox;
   if (!items.length) {
     root.innerHTML = `<p class="muted">Входящих писем нет.</p>`;
+    return;
+  }
+  if (isPlayerPage) {
+    root.innerHTML = items
+      .map((m) => {
+        const unread = m.status === "unread";
+        const sender = escapeHtml(m.sender_label || "Игрок");
+        const date = escapeHtml(formatMailListDate(m.created_at));
+        const readMark = unread ? "" : `<span class="mail-inbox-read-mark muted tiny">прочитано</span>`;
+        return `<button type="button" class="mail-inbox-row${unread ? " unread" : ""}" onclick="WaifuApp.openMailDetail(${Number(m.id)})">
+          <span class="mail-inbox-dot" aria-hidden="true"></span>
+          <span class="mail-inbox-row-main">
+            <span class="mail-inbox-sender">${unread ? `<strong>${sender}</strong>` : sender} ${readMark}</span>
+            <span class="mail-inbox-date">${date}</span>
+          </span>
+        </button>`;
+      })
+      .join("");
     return;
   }
   root.innerHTML = items
@@ -7865,7 +8898,7 @@ async function openMailDetail(mailId) {
       ${canClaim ? `<button type="button" class="btn primary" onclick="WaifuApp.claimMail(${id})">Забрать награду</button>` : ""}
       <button type="button" class="btn secondary" style="margin-top:8px" onclick="WaifuApp.deleteMail(${id})">Удалить</button>
     </div>`;
-    panel.style.display = "";
+    panel.hidden = false;
     await refreshMailInbox();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -7892,7 +8925,7 @@ async function deleteMail(mailId) {
     const panel = document.getElementById("mail-detail-root");
     if (panel) {
       panel.innerHTML = "";
-      panel.style.display = "none";
+      panel.hidden = true;
     }
     await refreshMailInbox();
   } catch (e) {
@@ -11367,10 +12400,19 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   openPlayerMailComposeModal,
   closePlayerMailComposeModal,
   openPlayerMailItemPicker,
+  openPlayerMailItemModal,
+  closePlayerMailItemModal,
+  playerMailItemPrevPage,
+  playerMailItemNextPage,
   selectPlayerMailItem,
   sendPlayerMail,
   initMailPage,
+  initPlayerPage,
+  openPlayerProfile,
+  openPlayerSection,
+  refreshAtticMailBadge,
   refreshMailInbox,
+  refreshMailSent,
   openMailDetail,
   claimMail,
   deleteMail,

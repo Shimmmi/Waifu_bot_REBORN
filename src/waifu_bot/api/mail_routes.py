@@ -48,6 +48,24 @@ async def mail_unread_count(
     return {"count": count}
 
 
+@router.get("/mail/badge", tags=["mail"])
+async def mail_badge(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    return await mail_svc.mail_badge(session, player_id)
+
+
+@router.get("/mail/sent", tags=["mail"])
+async def mail_sent(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    return await mail_svc.list_sent(session, player_id, limit=limit, offset=offset)
+
+
 @router.get("/mail/{mail_id}", tags=["mail"])
 async def mail_detail(
     mail_id: int,

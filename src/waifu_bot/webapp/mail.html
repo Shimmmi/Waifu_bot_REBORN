@@ -2,39 +2,13 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="refresh" content="0; url=./player.html#mail" />
     <title>Почта</title>
-    <link rel="stylesheet" href="./styles.css" />
-    <script src="./vendor/telegram-web-app.js"></script>
-    <script defer src="./app.js"></script>
+    <script>
+      window.location.replace("./player.html#mail");
+    </script>
   </head>
-  <body class="page-mail" onload="WaifuApp.bootstrapPage('mail', WaifuApp.initMailPage);">
-    <header>
-      <div class="topbar">
-        <div class="badge">Непрочитанные: <strong id="mail-unread-count">—</strong></div>
-        <div class="badge">Награды: <strong id="mail-rewards-count">—</strong></div>
-      </div>
-    </header>
-
-    <main class="layout">
-      <section class="section">
-        <h3>Входящие</h3>
-        <div id="mail-inbox-root" class="mail-inbox-list">
-          <p class="muted">Загрузка…</p>
-        </div>
-        <div id="mail-detail-root" style="display: none"></div>
-      </section>
-    </main>
-
-    <nav class="nav basement">
-      <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
-      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span aria-hidden="true">🏰</span></a>
-      <a href="./shop.html" data-page="shop" title="Магазин"><span aria-hidden="true">🏪</span></a>
-      <a href="./tavern.html" data-page="tavern" title="Таверна"><span aria-hidden="true">🍻</span></a>
-      <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
-      <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
-      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
-      <a href="./index.html" data-page="menu" title="Главное меню"><span aria-hidden="true">🏠</span></a>
-    </nav>
+  <body>
+    <p><a href="./player.html#mail">Перейти в почту</a></p>
   </body>
 </html>
