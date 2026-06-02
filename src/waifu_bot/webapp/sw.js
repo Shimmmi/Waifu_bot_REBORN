@@ -1,5 +1,5 @@
 /** Service worker: cache static game assets and WebApp shell on repeat visits. */
-const CACHE_VERSION = "waifu-webapp-v21";
+const CACHE_VERSION = "waifu-webapp-v24";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 

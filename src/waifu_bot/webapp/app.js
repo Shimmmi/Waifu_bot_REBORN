@@ -478,6 +478,15 @@ function webAppAuthNoticeHtml() {
   </div>`;
 }
 
+/** Сообщение при 502/503 или недоступном API (nginx upstream down). */
+function serverUnavailableNoticeHtml() {
+  return `<div class="webapp-auth-notice" role="alert">
+    <h3 class="webapp-auth-notice-title">Сервер временно недоступен</h3>
+    <p>Не удалось загрузить данные с сервера (ошибка 502 или сеть). Подождите немного и обновите страницу.</p>
+    <p class="muted">Если ошибка не проходит, напишите администратору — возможно, упал backend за nginx.</p>
+  </div>`;
+}
+
 function rarityLabel(r) {
   const v = Number(r);
   return (
@@ -2709,6 +2718,7 @@ async function bootstrapPage(page, afterLoad) {
   } catch (err) {
     if (isWebAppUnauthorizedError(err)) {
       console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
+      profile = { __authRequired: true };
     } else {
       console.error("Failed to load profile:", err);
     }
@@ -2716,7 +2726,7 @@ async function bootstrapPage(page, afterLoad) {
 
   if (typeof afterLoad === "function") {
     try {
-      await afterLoad(profile || { act: 1 });
+      await afterLoad(profile ?? (page === "index" ? null : { act: 1 }));
     } catch (err) {
       console.error("Failed to bootstrap page:", err);
     }
@@ -6518,10 +6528,22 @@ function initTitleScreen(profile) {
 
   if (!btn) return;
 
-  const stub = profile && typeof profile.player_id === "undefined";
-  if (stub && authEl) {
-    authEl.style.display = "block";
-    authEl.innerHTML = getWebAppAuthNoticeHtml();
+  if (!profile) {
+    if (authEl) {
+      authEl.style.display = "block";
+      authEl.innerHTML = serverUnavailableNoticeHtml();
+    }
+    btn.textContent = "Повторить";
+    btn.disabled = false;
+    btn.onclick = () => window.location.reload();
+    return;
+  }
+
+  if (profile.__authRequired) {
+    if (authEl) {
+      authEl.style.display = "block";
+      authEl.innerHTML = webAppAuthNoticeHtml();
+    }
     btn.textContent = "Вход недоступен";
     btn.disabled = true;
     btn.onclick = null;

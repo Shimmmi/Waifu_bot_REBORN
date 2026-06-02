@@ -140,6 +140,9 @@ class InventoryItem(Base):
     secondary_fraction_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     secondary_fraction_value: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
+    # Snapshot of curated legendary unique bonus ids from item_base_templates
+    legendary_bonus_ids: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), nullable=True)
+
     # Relationships
     player: Mapped["Player"] = relationship("Player", back_populates="inventory_items")
     item: Mapped["Item"] = relationship("Item")

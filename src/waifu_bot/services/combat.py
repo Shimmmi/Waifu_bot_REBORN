@@ -51,9 +51,15 @@ from waifu_bot.game.formulas import (
 )
 from waifu_bot.game.constants import MAX_LEVEL
 from waifu_bot.services.energy import apply_regen
+from waifu_bot.services.item_service import ItemService
 from waifu_bot.services.waifu_hp import sync_waifu_max_hp
 from waifu_bot.services import sse as sse_service
-from waifu_bot.services.item_service import ItemService
+from waifu_bot.game.legendary_bonuses.state import initial_battle_state
+from waifu_bot.services.legendary_combat import (
+    LegendaryCombatBridge,
+    apply_remaining_monsters_splash,
+    persist_battle_state,
+)
 from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
 from waifu_bot.services.narrative import build_why_next_for_reward_modal
 from waifu_bot.services.hidden_skills import (
@@ -597,6 +603,19 @@ class CombatService:
             combat_player.last_combat_action_at = _now
         waifu_hp_dirty = regen_changed or post_max_hp != pre_max_hp
 
+        legendary_bridge = LegendaryCombatBridge()
+        legendary_gold_mult = 1.0
+        legendary_drop_mult = 1.0
+        legendary_ignore_death = False
+        legendary_state_patch: dict = {}
+        if run:
+            await legendary_bridge.load(session, player_id)
+            if not isinstance(getattr(run, "battle_state", None), dict):
+                run.battle_state = initial_battle_state()
+            legendary_state_patch.update(
+                legendary_bridge.prep_message_patch(run.battle_state or {}, media_type)
+            )
+
         # Compute effective stats (base + equipped bonuses) and pick attack type from weapon.
         eff = await self._get_effective_combat_profile(session, player_id, waifu, cached_psb=ps)
         attack_type = eff["attack_type"]
@@ -763,6 +782,7 @@ class CombatService:
             weapon_offhand=weapon_damage_offhand,
         )
         trace.extend_steps(base_steps)
+        legendary_base_damage = int(damage)
         if hs_asp > 0 and stat_mult > 1.0001:
             trace.add(
                 "hidden_all_stats",
@@ -1070,6 +1090,31 @@ class CombatService:
         if run_monster is not None and affix_rows and damage > 0 and not monster_media_immune:
             damage, media_blocked = apply_media_block(run_monster, affix_rows, media_type, damage, trace)
 
+        leg_ctx = None
+        leg_force_crit = False
+        leg_crit_mult = 1.0
+        leg_ignore_dodge = False
+        leg_ignore_affixes = False
+        if run and legendary_bridge.active and run_monster is not None:
+            if combat_player is None:
+                combat_player = await session.get(Player, player_id)
+            from waifu_bot.game.legendary_bonuses.state import merge_battle_state as _lbs_merge
+
+            leg_ctx = legendary_bridge.build_context(
+                player_id=player_id,
+                waifu=waifu,
+                run=run,
+                run_monster=run_monster,
+                battle_state=_lbs_merge(run.battle_state or {}, legendary_state_patch),
+                base_damage=legendary_base_damage,
+                media_type=media_type,
+                message_length=msg_len,
+                player_gold=int(combat_player.gold or 0) if combat_player else 0,
+                extra_data={},
+            )
+            leg_force_crit, leg_crit_mult, pre_patch = legendary_bridge.apply_pre_crit(leg_ctx)
+            legendary_state_patch.update(pre_patch or {})
+
         # Crit — ANTI_CRIT applies to base agility/luck roll (not N-й / скрытые шансы)
         n_raw = float(ps.get("nth_hit_crit", 0) or 0)
         force_nth = False
@@ -1089,6 +1134,8 @@ class CombatService:
                 delta=0,
             )
         is_crit = bool(force_nth) or (random.random() < eff_crit_chance)
+        if leg_ctx is not None and leg_force_crit:
+            is_crit = True
         if not is_crit and msg_n < 3:
             fhc = float(hs.get("first_hit_crit_pct", 0) or 0)
             if fhc > 0 and random.random() * 100.0 < fhc:
@@ -1112,6 +1159,8 @@ class CombatService:
                 cdm = float(ps.get("crit_dmg_melee_pct", 0) or 0)
                 if cdm > 0:
                     mult *= 1.0 + cdm
+            if leg_ctx is not None and leg_crit_mult > 1.0:
+                mult *= leg_crit_mult
             damage = int(damage * mult)
             crit_label = f"Критический удар (×{mult:.2f}"
             if force_nth:
@@ -1119,8 +1168,36 @@ class CombatService:
             crit_label += ")"
             trace.mult("crit", crit_label, nb, damage, factor=mult)
 
+        if leg_ctx is not None:
+            leg_ctx.battle_state = {**(run.battle_state or {}), **legendary_state_patch}
+            damage, leg_agg = legendary_bridge.apply_outgoing(leg_ctx, damage)
+            legendary_state_patch.update(leg_agg.battle_state_patch or {})
+            legendary_gold_mult *= float(leg_agg.gold_multiplier or 1.0)
+            legendary_drop_mult *= float(leg_agg.drop_chance_multiplier or 1.0)
+            legendary_ignore_death = legendary_ignore_death or bool(leg_agg.ignore_monster_death_damage)
+            leg_ignore_dodge = leg_ignore_dodge or bool(leg_agg.ignore_monster_dodge)
+            leg_ignore_affixes = leg_ignore_affixes or bool(leg_agg.ignore_monster_affixes)
+            if leg_agg.heal_flat or leg_agg.heal_pct_of_damage:
+                heal_amt = int(leg_agg.heal_flat) + int(round(damage * float(leg_agg.heal_pct_of_damage or 0)))
+                if heal_amt > 0:
+                    waifu.current_hp = min(int(waifu.max_hp or 1), int(waifu.current_hp or 0) + heal_amt)
+            if leg_agg.notifications:
+                trace.add(
+                    "legendary_bonus",
+                    leg_agg.notifications[0],
+                    int(damage),
+                    int(damage),
+                    delta=0,
+                )
+            crit_patch = legendary_bridge.post_crit(leg_ctx, is_crit)
+            legendary_state_patch.update(crit_patch or {})
+            if float(leg_agg.remaining_monsters_damage_multiplier or 0) > 0:
+                legendary_state_patch["_remaining_monsters_mult"] = float(
+                    leg_agg.remaining_monsters_damage_multiplier
+                )
+
         if not monster_media_immune and not media_blocked:
-            if monster_evade_pct > 0 and random.random() < (monster_evade_pct / 100.0):
+            if not leg_ignore_dodge and monster_evade_pct > 0 and random.random() < (monster_evade_pct / 100.0):
                 monster_dodged = True
                 nb = damage
                 damage = 0
@@ -1366,6 +1443,31 @@ class CombatService:
                 pass
 
             if run and run_monster:
+                if leg_ctx is not None:
+                    death_agg = legendary_bridge.on_death_heals(leg_ctx)
+                    if death_agg.heal_flat:
+                        waifu.current_hp = min(
+                            int(waifu.max_hp or 1),
+                            int(waifu.current_hp or 0) + int(death_agg.heal_flat),
+                        )
+                rem_mult = float(legendary_state_patch.pop("_remaining_monsters_mult", 0) or 0)
+                if rem_mult > 0:
+                    await apply_remaining_monsters_splash(
+                        session,
+                        run,
+                        int(run_monster.position or 0),
+                        int(damage),
+                        rem_mult,
+                    )
+                tf = int((run.battle_state or {}).get("total_damage_dealt_fight", 0) or 0) + int(damage)
+                kill_patch = legendary_bridge.on_monster_killed(run.battle_state or {}, tf)
+                legendary_state_patch.update(kill_patch)
+                legendary_state_patch["_legendary_gold_mult"] = legendary_gold_mult
+                legendary_state_patch["_legendary_drop_mult"] = legendary_drop_mult
+                legendary_state_patch["_legendary_ignore_death"] = legendary_ignore_death
+                if (run.battle_state or {}).get("detonator_triggered"):
+                    legendary_state_patch["_legendary_monster_self_damage"] = int(run_monster.damage or 0)
+                persist_battle_state(run, legendary_state_patch)
                 result = await self._handle_run_monster_defeated(
                     session, run, run_monster, waifu, killing_media_type=media_type
                 )
@@ -1404,6 +1506,17 @@ class CombatService:
             }.get(media_type)
             if _ev:
                 await increment_skill_counter(session, player_id, _ev, 1)
+
+        if run:
+            if damage > 0 and not monster_dodged:
+                tf = int((run.battle_state or {}).get("total_damage_dealt_fight", 0) or 0) + int(damage)
+                ts = int((run.battle_state or {}).get("total_damage_dealt_session", 0) or 0) + int(damage)
+                legendary_state_patch["total_damage_dealt_fight"] = tf
+                legendary_state_patch["total_damage_dealt_session"] = ts
+            legendary_state_patch["_legendary_gold_mult"] = legendary_gold_mult
+            legendary_state_patch["_legendary_drop_mult"] = legendary_drop_mult
+            legendary_state_patch["_legendary_ignore_death"] = legendary_ignore_death
+            persist_battle_state(run, legendary_state_patch)
 
         await session.commit()
 
@@ -2248,6 +2361,8 @@ class CombatService:
             session, pid, waifu, cached_psb=ps_run, cached_hs=hs
         )
         gold_mult *= 1.0 + float(eff_luck_rw) * LCK_GOLD_COEFF
+        lb_st = run.battle_state if isinstance(getattr(run, "battle_state", None), dict) else {}
+        gold_mult *= float(lb_st.get("_legendary_gold_mult", 1.0) or 1.0)
 
         exp_mult *= await self._experience_int_multiplier(
             session, pid, waifu, cached_psb=ps_run, cached_hs=hs
@@ -2376,8 +2491,15 @@ class CombatService:
 
         # Retaliation
         hp_before_incoming = int(waifu.current_hp or 0)
-        raw_in = int(run_monster.damage)
-        if run_monster.applied_affix_ids:
+        lb_st = run.battle_state if isinstance(getattr(run, "battle_state", None), dict) else {}
+        if lb_st.get("_legendary_ignore_death"):
+            raw_in = 0
+        else:
+            raw_in = int(run_monster.damage)
+        self_dmg = int(lb_st.get("_legendary_monster_self_damage", 0) or 0)
+        if self_dmg > 0:
+            raw_in = 0
+        if raw_in > 0 and run_monster.applied_affix_ids:
             try:
                 aff_rows_b = list(
                     (
@@ -2413,6 +2535,27 @@ class CombatService:
         if lhr > 0 and int(waifu.current_hp or 0) * 2 <= max(1, int(waifu.max_hp or 1)):
             dmg_taken = max(1, int(round(dmg_taken * (1.0 - lhr / 100.0))))
             dmg_after_lhr = dmg_taken
+        legendary_bridge = LegendaryCombatBridge()
+        await legendary_bridge.load(session, pid)
+        lb_patch: dict = {}
+        if legendary_bridge.active and dmg_taken > 0:
+            _pl = await session.get(Player, pid)
+            leg_ctx = legendary_bridge.build_context(
+                player_id=pid,
+                waifu=waifu,
+                run=run,
+                run_monster=run_monster,
+                battle_state=lb_st,
+                base_damage=0,
+                media_type=MediaType.TEXT,
+                message_length=0,
+                player_gold=int(_pl.gold or 0) if _pl else 0,
+            )
+            dmg_taken, p_lb, _ = legendary_bridge.incoming_last_breath(leg_ctx, dmg_taken)
+            lb_patch.update(p_lb or {})
+            dmg_taken, reflect, _ = legendary_bridge.incoming_mirror(leg_ctx, dmg_taken)
+            if reflect > 0:
+                run_monster.current_hp = max(0, int(run_monster.current_hp or 0) - reflect)
         dodge_frac = await self._dodge_fraction_for_retaliation(
             session,
             pid,
@@ -2426,17 +2569,23 @@ class CombatService:
         if dodge_frac > 0 and dmg_taken > 0 and random.random() < dodge_frac:
             dmg_taken = 0
             sec_evaded = True
+            if legendary_bridge.active:
+                lb_patch.update(legendary_bridge.on_dodge())
         fe = float(ps_run.get("full_evade_chance", 0) or 0)
         fe_evaded = False
         if fe > 0 and random.random() < fe:
             dmg_taken = 0
             fe_evaded = True
         hp_before = waifu.current_hp
+        if dmg_taken > 0 and legendary_bridge.active:
+            lb_patch.update(legendary_bridge.on_incoming_damage(int(dmg_taken)))
         waifu.current_hp = max(0, waifu.current_hp - dmg_taken)
         if waifu.current_hp <= 0:
             rv = float(ps_run.get("revive_chance", 0) or 0)
             if rv > 0 and random.random() < rv:
                 waifu.current_hp = max(1, int(0.1 * int(waifu.max_hp or 1)))
+                if legendary_bridge.active:
+                    lb_patch.update(legendary_bridge.on_revive())
         if waifu.current_hp <= 0:
             sv = float(ps_run.get("survive_chance", 0) or 0)
             if sv > 0 and random.random() < sv:
@@ -2497,6 +2646,8 @@ class CombatService:
                 player_hp_after=hp_after_incoming,
             )
         )
+        if lb_patch:
+            persist_battle_state(run, lb_patch)
         run.waifu_hp_lost = int(run.waifu_hp_lost or 0) + max(0, hp_before - waifu.current_hp)
         if waifu.current_hp > 0 and dmg_taken >= int(0.5 * max(1, int(waifu.max_hp or 1))):
             await increment_skill_counter(session, pid, "near_death_survived", 1)
@@ -2514,6 +2665,7 @@ class CombatService:
         if waifu.current_hp <= 0:
             run.status = "failed"
             run.ended_at = datetime.utcnow()
+            waifu.last_dungeon_failed = True
             if progress:
                 progress.is_active = False
             if player:
@@ -2574,6 +2726,7 @@ class CombatService:
         if run.current_position >= run.total_monsters:
             run.status = "completed"
             run.ended_at = datetime.utcnow()
+            waifu.last_dungeon_failed = False
 
             dungeon = await session.get(Dungeon, run.dungeon_id)
             pl = int(getattr(run, "plus_level", 0) or 0)
@@ -2700,6 +2853,10 @@ class CombatService:
                             total_mf_pct += drop_pct * 100.0
                     except Exception:
                         pass
+                    lb_st = run.battle_state if isinstance(getattr(run, "battle_state", None), dict) else {}
+                    leg_drop_mult = float(lb_st.get("_legendary_drop_mult", 1.0) or 1.0)
+                    if leg_drop_mult > 1.0:
+                        total_mf_pct *= leg_drop_mult
                     rule_q = await session.execute(
                         select(DropRule).where(DropRule.act == dungeon.act, DropRule.boss_only == True)  # noqa: E712
                     )

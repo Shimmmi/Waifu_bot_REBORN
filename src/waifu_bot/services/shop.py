@@ -231,6 +231,10 @@ class ShopService:
         # Remove from inventory
         await session.delete(inventory_item)
 
+        from waifu_bot.services.legendary_combat import increment_active_run_items_sold
+
+        await increment_active_run_items_sold(session, player_id)
+
         await session.commit()
 
         return {

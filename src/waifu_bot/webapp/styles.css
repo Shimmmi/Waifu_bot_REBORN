@@ -1327,9 +1327,14 @@ header.attic,
 .attic-player-avatar {
   position: relative;
   flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
+  align-self: stretch;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 28px;
+  max-height: 100%;
+  max-width: 44px;
+  aspect-ratio: 1;
   padding: 0;
   margin: 0;
   border: 2px solid rgba(200, 146, 42, 0.45);
@@ -1340,6 +1345,7 @@ header.attic,
   display: flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
 }
 
 .attic-player-avatar-img,
@@ -1353,7 +1359,7 @@ header.attic,
 
 .attic-player-avatar-fallback,
 #attic-player-avatar-fallback {
-  font-size: 15px;
+  font-size: clamp(10px, 35%, 15px);
   font-weight: 700;
   color: #e8b84b;
   line-height: 1;
@@ -4017,6 +4023,9 @@ button.chip {
   }
   .attic {
     padding: 12px;
+  }
+  .attic-player-avatar {
+    max-width: 40px;
   }
   .layout {
     padding: 12px;
@@ -12041,6 +12050,61 @@ body.page-player {
   padding-bottom: 120px;
 }
 
+body.page-player.player-chrome--overview {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+body.page-player.player-chrome--overview .player-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+
+body.page-player.player-chrome--overview .player-main-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.page-player.player-chrome--overview .player-profile-column {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+body.page-player.player-chrome--overview .player-hero {
+  flex: 0 0 auto;
+}
+
+body.page-player.player-chrome--overview .player-waifu-showcase {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+body.page-player.player-chrome--overview .player-waifu-showcase-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+body.page-player.player-chrome--overview .player-waifu-showcase-img {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+}
+
 body.page-player .section h3 {
   font-family: "Cinzel", serif;
   color: var(--amber-glow);
@@ -12253,6 +12317,10 @@ body.page-player:not(.player-chrome--overview) .player-overflow-menu {
   background: radial-gradient(ellipse at 50% 85%, rgba(200, 146, 42, 0.14), rgba(13, 10, 8, 0.95));
   display: block;
   overflow: hidden;
+}
+
+body.page-player:not(.player-chrome--overview) .player-waifu-showcase-frame {
+  min-height: 52vh;
 }
 
 .player-showcase-toolbar {

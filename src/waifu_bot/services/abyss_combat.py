@@ -36,6 +36,12 @@ from waifu_bot.services.game_config_service import cfg_float, cfg_int, get_game_
 from waifu_bot.services.combat_regen import apply_hp_regen_for_context, is_player_online
 from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
 from waifu_bot.services.passive_skills import get_passive_skill_bonuses
+from waifu_bot.services.legendary_combat import (
+    LegendaryCombatBridge,
+    LegendaryMonsterView,
+    persist_progress_battle_state,
+)
+from waifu_bot.game.legendary_bonuses.state import initial_battle_state, merge_battle_state
 
 logger = logging.getLogger(__name__)
 
@@ -301,6 +307,11 @@ async def handle_abyss_attack(
 
     damage = 0
     is_crit = False
+    legendary_state_patch: dict = {}
+    legendary_gold_mult = 1.0
+    legendary_drop_mult = 1.0
+    legendary_ignore_death = False
+    leg_ctx = None
     if not block_reason:
         damage = calculate_message_damage(
             media_type,
@@ -311,14 +322,65 @@ async def handle_abyss_attack(
             message_length=msg_len,
             weapon_damage=eff["weapon_damage"],
         )
+        legendary_base = int(damage)
+        legendary_bridge = LegendaryCombatBridge()
+        await legendary_bridge.load(session, player_id)
+        if legendary_bridge.active:
+            if not isinstance(getattr(progress, "battle_state", None), dict):
+                progress.battle_state = initial_battle_state()
+            legendary_state_patch.update(
+                legendary_bridge.prep_message_patch(progress.battle_state or {}, media_type)
+            )
+            merged = merge_battle_state(progress.battle_state or {}, legendary_state_patch)
+            leg_ctx = legendary_bridge.build_context(
+                player_id=player_id,
+                waifu=waifu,
+                session_id=int(progress.id),
+                battle_state=merged,
+                base_damage=legendary_base,
+                media_type=media_type,
+                message_length=msg_len,
+                player_gold=int(player.gold or 0) if player else 0,
+                monster=LegendaryMonsterView.from_abyss_monster(monster, floor),
+            )
+            leg_force_crit, leg_crit_mult, pre_patch = legendary_bridge.apply_pre_crit(leg_ctx)
+            legendary_state_patch.update(pre_patch or {})
+        else:
+            leg_force_crit = False
+            leg_crit_mult = 1.0
+
         crit_chance = calculate_crit_chance(eff["agility"], eff["luck"])
-        if rng.random() < crit_chance:
-            is_crit = True
-            damage = round(damage * get_crit_multiplier(eff["strength"]))
+        is_crit = bool(leg_force_crit) or rng.random() < crit_chance
+        if is_crit:
+            crit_mult = get_crit_multiplier(eff["strength"]) * float(leg_crit_mult or 1.0)
+            damage = round(damage * crit_mult)
+
+        if leg_ctx is not None:
+            leg_ctx.battle_state = merge_battle_state(progress.battle_state or {}, legendary_state_patch)
+            damage, leg_agg = legendary_bridge.apply_outgoing(leg_ctx, int(damage))
+            legendary_state_patch.update(leg_agg.battle_state_patch or {})
+            legendary_gold_mult *= float(leg_agg.gold_multiplier or 1.0)
+            legendary_drop_mult *= float(leg_agg.drop_chance_multiplier or 1.0)
+            legendary_ignore_death = legendary_ignore_death or bool(leg_agg.ignore_monster_death_damage)
+            crit_patch = legendary_bridge.post_crit(leg_ctx, is_crit)
+            legendary_state_patch.update(crit_patch or {})
+
         damage = _apply_grace_to_attack(damage, is_text, combat_grace)
         damage = round(damage * _affix_chaos_mult(behaviors, rng))
         damage = _apply_stone_skin(monster, damage)
         damage = max(1, int(damage))
+
+        if leg_ctx is not None:
+            tf = int((progress.battle_state or {}).get("total_damage_dealt_fight", 0) or 0) + int(damage)
+            ts = int((progress.battle_state or {}).get("total_damage_dealt_session", 0) or 0) + int(damage)
+            legendary_state_patch["total_damage_dealt_fight"] = tf
+            legendary_state_patch["total_damage_dealt_session"] = ts
+            legendary_state_patch["_legendary_gold_mult"] = legendary_gold_mult
+            legendary_state_patch["_legendary_drop_mult"] = legendary_drop_mult
+            legendary_state_patch["_legendary_ignore_death"] = legendary_ignore_death
+            persist_progress_battle_state(progress, legendary_state_patch)
+            monster["messages_on_monster"] = int(monster.get("messages_on_monster") or 0) + 1
+            _mark_monster_dirty(progress)
 
     # --- Apply to monster ---
     monster["current_hp"] = int(monster.get("current_hp") or 0) - damage
