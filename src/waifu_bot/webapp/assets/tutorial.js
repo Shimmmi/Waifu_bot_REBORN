@@ -101,10 +101,16 @@
           text: "Привет! Я твоя проводница в мире Waifu REBORN. Сейчас покажу, где что находится — это займёт пару минут.",
         },
         {
+          id: "player_avatar",
+          target: "[data-tutorial='attic-player-avatar']",
+          image: "explaining",
+          text: "Кружок слева вверху — профиль игрока. Внутри можно выбрать аватар (не из Telegram), почту, прогресс кампании и бездну. Красная точка — новые письма.",
+        },
+        {
           id: "portrait",
           target: "[data-tutorial='profile-portrait']",
           image: "explaining",
-          text: "Здесь твоя основная вайфу: имя, уровень, здоровье и опыт. Следи за полосками HP и XP — они обновляются после боёв.",
+          text: "Ниже — профиль основной вайфу: имя, уровень, здоровье и опыт. Следи за полосками HP и XP — они обновляются после боёв.",
         },
         {
           id: "stats",
@@ -735,7 +741,7 @@
       if (flow.page === page) return forced;
       return null;
     }
-    if (page === "index" || page === "settings" || page === "battle" || page === "mail") {
+    if (page === "index" || page === "settings" || page === "battle" || page === "mail" || page === "player") {
       return null;
     }
     const ts = normalizeTutorialState(tutorialState);

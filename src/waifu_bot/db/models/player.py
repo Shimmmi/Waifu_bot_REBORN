@@ -51,6 +51,13 @@ class Player(Base):
         JSONB, default=dict, server_default="{}", nullable=False
     )
 
+    # Player profile UI (WebApp; not Telegram photo)
+    avatar_preset_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avatar_custom_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    profile_showcase: Mapped[str] = mapped_column(
+        String(16), default="portrait", nullable=False
+    )
+
     # Telegram DM toggles: solo_dungeon, expedition_result, group_dungeon, raid
     dm_notification_prefs: Mapped[dict] = mapped_column(
         JSONB,

@@ -72,6 +72,7 @@ from waifu_bot.api.chat_rewards_routes import router as chat_rewards_router
 from waifu_bot.api.armory_routes import router as armory_router
 from waifu_bot.api.tutorial_routes import router as tutorial_router
 from waifu_bot.api.player_notification_routes import router as player_notification_router
+from waifu_bot.api.player_profile_routes import router as player_profile_router
 from waifu_bot.api.library_routes import router as library_router
 from waifu_bot.api.abyss_routes import router as abyss_router
 
@@ -89,6 +90,7 @@ router.include_router(mail_router)
 router.include_router(chat_rewards_router)
 router.include_router(tutorial_router)
 router.include_router(player_notification_router)
+router.include_router(player_profile_router)
 router.include_router(armory_router)
 router.include_router(library_router)
 router.include_router(abyss_router)

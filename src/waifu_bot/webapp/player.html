@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Профиль игрока</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./assets/tutorial.css" />
+    <script src="./vendor/telegram-web-app.js"></script>
+    <script>
+      (function () {
+        function resetSettingsNotifyModalEarly() {
+          var modal = document.getElementById("settings-notify-modal");
+          if (!modal) return;
+          modal.classList.remove("settings-notify-modal--open");
+          modal.style.display = "none";
+        }
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", resetSettingsNotifyModalEarly);
+        } else {
+          resetSettingsNotifyModalEarly();
+        }
+        window.addEventListener("pageshow", resetSettingsNotifyModalEarly);
+      })();
+    </script>
+    <script defer src="./assets/tutorial.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body class="page-player player-chrome--overview" onload="WaifuApp.bootstrapPage('player', WaifuApp.initPlayerPage);">
+    <div id="player-overflow-menu" class="player-overflow-menu" hidden role="menu">
+      <button type="button" class="player-overflow-item" data-player-section="overview" role="menuitem">Обзор</button>
+      <button type="button" class="player-overflow-item" data-player-section="mail" role="menuitem" id="player-menu-mail">
+        Почта <span class="player-tab-badge" id="player-tab-mail-badge" hidden></span>
+      </button>
+      <button type="button" class="player-overflow-item" data-player-section="guild" role="menuitem">Гильдия</button>
+      <button type="button" class="player-overflow-item player-overflow-item--self" data-player-section="settings" role="menuitem">Настройки</button>
+    </div>
+
+    <main class="layout player-layout">
+      <div id="player-subpanel-topbar" class="player-topbar player-topbar--subpanel" hidden>
+        <button type="button" class="player-topbar-back" id="player-topbar-back" aria-label="Назад">←</button>
+        <h1 class="player-topbar-title" id="player-topbar-title">Профиль</h1>
+        <button
+          type="button"
+          class="player-overflow-btn"
+          id="player-topbar-overflow-btn"
+          aria-label="Разделы"
+          aria-haspopup="true"
+        >
+          ⋯
+          <span class="player-overflow-mail-badge" id="player-topbar-overflow-mail-badge" hidden></span>
+        </button>
+      </div>
+      <div id="player-main-scroll" class="player-main-scroll">
+        <div class="player-profile-column">
+        <header class="player-hero">
+          <button type="button" class="player-hero-avatar-wrap" id="player-hero-avatar-btn" aria-label="Сменить аватар">
+            <img id="player-hero-avatar-img" class="player-hero-avatar-img" alt="" hidden />
+            <span id="player-hero-avatar-fallback" class="player-hero-avatar-fallback"></span>
+          </button>
+          <div class="player-hero-text">
+            <h2 class="player-hero-name" id="player-hero-name">Игрок</h2>
+            <p class="muted tiny player-hero-username" id="player-hero-username"></p>
+          </div>
+        </header>
+
+        <section class="player-waifu-showcase" aria-label="Основная вайфу">
+          <div class="player-waifu-showcase-frame">
+            <div class="player-waifu-caption">
+              <span id="player-waifu-name" class="player-waifu-name"></span>
+              <span id="player-waifu-level" class="player-waifu-level"></span>
+            </div>
+            <div class="player-showcase-toolbar">
+              <div id="player-showcase-toggle" class="player-showcase-switch" role="group" aria-label="Режим отображения" hidden>
+                <button type="button" class="player-showcase-switch-btn" data-showcase="portrait">Портрет</button>
+                <button type="button" class="player-showcase-switch-btn" data-showcase="paperdoll">Doll</button>
+              </div>
+              <button type="button" class="player-overflow-btn" id="player-overflow-btn" aria-label="Разделы" aria-haspopup="true">
+                ⋯
+                <span class="player-overflow-mail-badge" id="player-overflow-mail-badge" hidden></span>
+              </button>
+            </div>
+            <div class="player-showcase-overlay">
+              <div id="player-campaign-compact" class="player-progress-chip"></div>
+              <div id="player-abyss-compact" class="player-progress-chip"></div>
+            </div>
+            <img id="player-waifu-showcase-img" class="player-waifu-showcase-img" alt="" hidden />
+            <p id="player-waifu-showcase-empty" class="muted player-waifu-showcase-empty" hidden>Нет изображения вайфу</p>
+          </div>
+        </section>
+        </div>
+      </div>
+
+      <section id="player-panel-mail" class="player-subpanel" hidden>
+        <nav class="player-mail-tabs" role="tablist" aria-label="Почта">
+          <button type="button" class="player-mail-tab active" data-mail-tab="inbox" role="tab" aria-selected="true">Входящие</button>
+          <button type="button" class="player-mail-tab" data-mail-tab="compose" role="tab" aria-selected="false">Отправить</button>
+        </nav>
+        <section id="player-mail-inbox-pane" class="player-mail-pane" role="tabpanel">
+          <div id="mail-inbox-root" class="mail-inbox-list player-mail-inbox-list">
+            <p class="muted">Загрузка…</p>
+          </div>
+          <div id="mail-detail-root" class="player-mail-detail-root" hidden></div>
+        </section>
+        <section id="player-mail-compose-pane" class="player-mail-pane" role="tabpanel" hidden>
+          <div class="player-mail-compose-inline">
+            <label class="player-mail-compose-field">
+              <span>Кому</span>
+              <input
+                type="text"
+                id="player-mail-recipient-input"
+                autocomplete="off"
+                placeholder="Ник, имя или ID…"
+              />
+            </label>
+            <div id="player-mail-recipient-suggest" class="player-mail-recipient-suggest" hidden></div>
+            <label class="player-mail-compose-field">
+              <span>Сообщение</span>
+              <textarea id="player-mail-tab-body" rows="4" maxlength="500" placeholder="Текст письма…"></textarea>
+            </label>
+            <label class="player-mail-compose-field">
+              <span>Золото</span>
+              <input type="number" id="player-mail-tab-gold" min="0" step="1" value="0" />
+            </label>
+            <div class="player-mail-compose-item">
+              <span class="player-mail-compose-field-label">Предмет</span>
+              <div id="player-mail-tab-item-pick" class="player-mail-item-pick muted tiny">Не выбран</div>
+              <button type="button" class="player-mail-btn player-mail-btn--secondary" id="player-mail-tab-item-btn">
+                Выбрать предмет
+              </button>
+            </div>
+            <button
+              type="button"
+              class="player-mail-btn player-mail-btn--send"
+              id="player-mail-tab-send"
+              aria-label="Отправить"
+              title="Отправить"
+            >
+              ✉
+            </button>
+          </div>
+        </section>
+      </section>
+
+      <section id="player-panel-guild" class="player-subpanel" hidden>
+        <h3>Гильдия</h3>
+        <div id="player-guild-root" class="muted">Загрузка…</div>
+      </section>
+
+      <section id="player-panel-settings" class="player-subpanel" hidden>
+        <section class="section">
+          <h3>Геймплей</h3>
+          <div class="list settings-gameplay-list">
+            <button type="button" class="list-item settings-list-btn" onclick="WaifuApp.Tutorial.replay()">
+              Пройти обучение заново
+            </button>
+            <button
+              type="button"
+              class="list-item settings-list-btn settings-list-btn--chevron"
+              id="settings-open-notify"
+            >
+              Уведомления в ЛС
+            </button>
+            <div class="list-item settings-toggle-row" id="settings-admin-row" style="display: none">
+              <span class="settings-toggle-label">Админ</span>
+              <label class="settings-switch">
+                <input type="checkbox" id="settings-admin-toggle" checked />
+                <span class="settings-switch-slider" aria-hidden="true"></span>
+              </label>
+            </div>
+          </div>
+        </section>
+        <section class="section">
+          <h3>Общие</h3>
+          <div class="list">
+            <div class="list-item">Язык: RU</div>
+            <div class="list-item">Звук/музыка: выкл</div>
+          </div>
+        </section>
+        <section class="section">
+          <h3>Помощь</h3>
+          <div class="list">
+            <a href="./index.html" class="list-item settings-list-btn">← Главное меню</a>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <div
+      id="player-mail-item-modal"
+      class="modal player-mail-item-modal-root"
+      style="display: none"
+      aria-hidden="true"
+      onclick="if (event.target === this) WaifuApp.closePlayerMailItemModal()"
+    >
+      <div class="modal-content guild-bank-deposit-modal-panel" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <h2 class="modal-title">Выбор предмета</h2>
+          <button type="button" class="modal-close" onclick="WaifuApp.closePlayerMailItemModal()" aria-label="Закрыть">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted tiny guild-bank-deposit-hint">Выберите предмет из инвентаря.</p>
+          <p id="player-mail-item-empty-note" class="guild-bank-deposit-empty-note muted tiny" hidden></p>
+          <div id="player-mail-item-grid" class="guild-bank-deposit-grid"></div>
+          <div id="player-mail-item-pagination" class="guild-bank-deposit-pagination"></div>
+        </div>
+        <div class="modal-footer" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end">
+          <button type="button" class="btn secondary" onclick="WaifuApp.closePlayerMailItemModal()">Закрыть</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="player-avatar-modal" class="modal player-avatar-modal" style="display: none" role="dialog" aria-modal="true" aria-labelledby="player-avatar-modal-title">
+      <div class="modal-content player-avatar-panel">
+        <div class="modal-head">
+          <div class="modal-title" id="player-avatar-modal-title">Аватар игрока</div>
+          <button type="button" class="secondary" id="player-avatar-modal-close" aria-label="Закрыть">✖</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted tiny">Выберите пресет или загрузите фото с устройства.</p>
+          <div id="player-avatar-preset-grid" class="player-avatar-preset-grid"></div>
+          <div class="player-avatar-actions-row">
+            <label class="player-avatar-action-btn">
+              Загрузить
+              <input type="file" id="player-avatar-file-input" accept="image/png,image/jpeg,image/webp" hidden />
+            </label>
+            <button type="button" class="player-avatar-action-btn" id="player-avatar-reset-preset">Сбросить</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="settings-notify-modal"
+      class="modal settings-notify-modal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-notify-title"
+    >
+      <div class="modal-content settings-notify-panel">
+        <div class="modal-head">
+          <div class="modal-title" id="settings-notify-title">Уведомления в ЛС</div>
+          <button type="button" class="secondary" id="settings-notify-close" aria-label="Закрыть">✖</button>
+        </div>
+        <div class="modal-body settings-notify-body">
+          <p class="muted tiny settings-notify-hint">Сообщения от бота в личные сообщения Telegram.</p>
+          <div class="settings-notify-options">
+            <label class="settings-notify-option">
+              <span class="settings-notify-option-label">Прохождение соло-подземелий</span>
+              <span class="settings-switch">
+                <input type="checkbox" data-notify-key="solo_dungeon" checked />
+                <span class="settings-switch-slider" aria-hidden="true"></span>
+              </span>
+            </label>
+            <label class="settings-notify-option">
+              <span class="settings-notify-option-label">Экспедиции</span>
+              <span class="settings-switch">
+                <input type="checkbox" data-notify-key="expedition_result" checked />
+                <span class="settings-switch-slider" aria-hidden="true"></span>
+              </span>
+            </label>
+            <label class="settings-notify-option">
+              <span class="settings-notify-option-label">Групповые подземелья</span>
+              <span class="settings-switch">
+                <input type="checkbox" data-notify-key="group_dungeon" checked />
+                <span class="settings-switch-slider" aria-hidden="true"></span>
+              </span>
+            </label>
+            <label class="settings-notify-option">
+              <span class="settings-notify-option-label">Рейды</span>
+              <span class="settings-switch">
+                <input type="checkbox" data-notify-key="raid" checked />
+                <span class="settings-switch-slider" aria-hidden="true"></span>
+              </span>
+            </label>
+            <label class="settings-notify-option">
+              <span class="settings-notify-option-label">Бездна</span>
+              <span class="settings-switch">
+                <input type="checkbox" data-notify-key="abyss" checked />
+                <span class="settings-switch-slider" aria-hidden="true"></span>
+              </span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn primary" id="settings-notify-done">Готово</button>
+        </div>
+      </div>
+    </div>
+
+    <nav class="nav basement">
+      <a href="./profile.html" data-page="profile" title="Профиль вайфу"><span aria-hidden="true">👤</span></a>
+      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span aria-hidden="true">🏰</span></a>
+      <a href="./shop.html" data-page="shop" title="Магазин"><span aria-hidden="true">🏪</span></a>
+      <a href="./tavern.html" data-page="tavern" title="Таверна"><span aria-hidden="true">🍻</span></a>
+      <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
+      <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
+      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
+      <a href="./index.html" data-page="menu" title="Главное меню"><span aria-hidden="true">🏠</span></a>
+    </nav>
+  </body>
+</html>

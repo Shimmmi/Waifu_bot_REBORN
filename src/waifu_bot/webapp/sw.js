@@ -1,5 +1,5 @@
 /** Service worker: cache static game assets and WebApp shell on repeat visits. */
-const CACHE_VERSION = "waifu-webapp-v15";
+const CACHE_VERSION = "waifu-webapp-v21";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
@@ -7,6 +7,7 @@ const SHELL_URLS = [
   "/webapp/app.js",
   "/webapp/styles.css",
   "/webapp/settings.html",
+  "/webapp/player.html",
   "/webapp/assets/tutorial.js",
   "/webapp/assets/tutorial.css",
   "/webapp/vendor/telegram-web-app.js",
