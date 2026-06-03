@@ -2,7 +2,13 @@
 import logging
 
 from fastapi import Depends, Header, HTTPException, Query, status
-from sqlalchemy.exc import InvalidRequestError, OperationalError, ProgrammingError, SQLAlchemyError
+from sqlalchemy.exc import (
+    InvalidRequestError,
+    OperationalError,
+    PendingRollbackError,
+    ProgrammingError,
+    SQLAlchemyError,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.core import redis as redis_core
@@ -31,6 +37,20 @@ async def get_db() -> AsyncSession:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="database_unavailable",
+        ) from e
+    except PendingRollbackError as e:
+        original = e.__cause__ or e.__context__
+        if original is not None:
+            logger.exception(
+                "PendingRollbackError in get_db (earlier error: %s: %s)",
+                type(original).__name__,
+                original,
+            )
+        else:
+            logger.exception("PendingRollbackError in get_db (session rolled back)")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="session_rollback_error",
         ) from e
     except InvalidRequestError as e:
         # Mapper/relationship misconfiguration — not a DB outage (do not return 503).

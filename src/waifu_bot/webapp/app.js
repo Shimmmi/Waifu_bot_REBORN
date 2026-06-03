@@ -1222,9 +1222,12 @@ async function fetchActiveDungeon(options = {}) {
 
 function refreshAtticChips(opts = {}) {
   const skipDungeon = opts.skipDungeon === true || isDungeonsPage();
+  const skipExpeditions =
+    opts.forceExpeditions !== true && (opts.skipExpeditions === true || isDungeonsPage());
   if (!skipDungeon) {
     fetchActiveDungeon({ includeLog: false }).then(renderAtticDungeon).catch(() => {});
   }
+  if (skipExpeditions) return;
   Promise.all([
     apiFetch("/expeditions/slots").catch(() => ({ slots: [] })),
     apiFetch("/expeditions/active").catch(() => ({ active: [] })),
@@ -2710,11 +2713,35 @@ function initAtticChipClicks() {
   }
 }
 
+function registerWaifuServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  if (!window.__waifuSwControllerBound) {
+    window.__waifuSwControllerBound = true;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (window.__waifuSwReloading) return;
+      window.__waifuSwReloading = true;
+      window.location.reload();
+    });
+  }
+  const doUpdate = (reg) => {
+    if (reg) reg.update().catch(() => {});
+  };
+  if (window.__waifuSwRegistered) {
+    navigator.serviceWorker.getRegistration("/webapp/sw.js").then(doUpdate).catch(() => {});
+    return;
+  }
+  window.__waifuSwRegistered = true;
+  navigator.serviceWorker
+    .register("/webapp/sw.js")
+    .then((reg) => doUpdate(reg))
+    .catch(() => {});
+}
+
 async function bootstrapPage(page, afterLoad) {
   await initPage(page);
   let profile = null;
   try {
-    profile = await loadProfile({ lite: page !== "profile" });
+    profile = await loadProfile({ lite: true });
   } catch (err) {
     if (isWebAppUnauthorizedError(err)) {
       console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
@@ -5867,7 +5894,12 @@ async function reloadProfileEquipment() {
 }
 
 async function populateProfile(profile) {
-  const p = profile || (await loadProfile());
+  let p = profile;
+  if (isProfilePage()) {
+    p = await loadProfile({ lite: false });
+  } else if (!p) {
+    p = await loadProfile({ lite: true });
+  }
   const w = p?.main_waifu;
   const mainEl = document.querySelector("main.profile-layout");
   const missEl = document.getElementById("profile-missing-waifu");
@@ -6637,6 +6669,344 @@ async function adminClearAllItems() {
     showToast("Все предметы удалены");
   } catch (e) {
     showToast("Ошибка: " + (e?.message || e), "error");
+  }
+}
+
+const adminSpawnState = {
+  catalog: null,
+  filters: { search: "", tier: "all", slot: "all" },
+  affixFilters: { search: "", kind: "all" },
+  selectedTemplateId: null,
+  level: 1,
+  isLegendary: false,
+  rarity: 2,
+  baseGrade: 0,
+  selectedAffixKeys: new Set(),
+};
+
+function adminSpawnAffixKey(entry) {
+  return `${entry.catalog_kind}:${entry.catalog_id}`;
+}
+
+function adminSpawnCardArtHtml(entry) {
+  const fakeItem = {
+    art_key: entry.art_key,
+    tier: entry.tier,
+    slot_type: entry.slot_type,
+    weapon_type: entry.subtype,
+  };
+  return `<div class="lib-card-art">${itemArtHtml(fakeItem)}</div>`;
+}
+
+function adminSpawnBindFilterHandlers() {
+  const search = document.getElementById("admin-spawn-search");
+  const tier = document.getElementById("admin-spawn-tier");
+  const slot = document.getElementById("admin-spawn-slot");
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = "1";
+    search.addEventListener("input", () => {
+      adminSpawnState.filters.search = search.value.trim().toLowerCase();
+      adminSpawnRenderGrid();
+    });
+  }
+  if (tier && !tier.dataset.bound) {
+    tier.dataset.bound = "1";
+    tier.addEventListener("change", () => {
+      adminSpawnState.filters.tier = tier.value;
+      adminSpawnRenderGrid();
+    });
+  }
+  if (slot && !slot.dataset.bound) {
+    slot.dataset.bound = "1";
+    slot.addEventListener("change", () => {
+      adminSpawnState.filters.slot = slot.value;
+      adminSpawnRenderGrid();
+    });
+  }
+  const affSearch = document.getElementById("admin-spawn-affix-search");
+  const affKind = document.getElementById("admin-spawn-affix-kind");
+  if (affSearch && !affSearch.dataset.bound) {
+    affSearch.dataset.bound = "1";
+    affSearch.addEventListener("input", () => {
+      adminSpawnState.affixFilters.search = affSearch.value.trim().toLowerCase();
+      adminSpawnRenderAffixList();
+    });
+  }
+  if (affKind && !affKind.dataset.bound) {
+    affKind.dataset.bound = "1";
+    affKind.addEventListener("change", () => {
+      adminSpawnState.affixFilters.kind = affKind.value;
+      adminSpawnRenderAffixList();
+    });
+  }
+}
+
+function adminSpawnRenderGrid() {
+  const grid = document.getElementById("admin-spawn-items-grid");
+  const cat = adminSpawnState.catalog;
+  if (!grid || !cat) return;
+  const f = adminSpawnState.filters;
+  let items = cat.items || [];
+  if (f.search) {
+    items = items.filter((it) => String(it.name || "").toLowerCase().includes(f.search));
+  }
+  if (f.tier !== "all") {
+    const t = Number(f.tier);
+    items = items.filter((it) => Number(it.tier) === t);
+  }
+  if (f.slot !== "all") {
+    items = items.filter((it) => String(it.slot_type || "") === f.slot);
+  }
+  const selId = adminSpawnState.selectedTemplateId;
+  grid.innerHTML = items
+    .map((it) => {
+      const tid = Number(it.base_template_id);
+      const tierCls = libraryTierClass(Math.max(1, Number(it.tier) || 1));
+      const selected = tid === selId ? " selected admin-spawn-card" : " admin-spawn-card";
+      const legBadge = it.has_curated_legendary
+        ? `<span class="admin-spawn-leg-badge">★ curated</span>`
+        : "";
+      return `
+        <div class="lib-card ${tierCls}${selected}" role="button" tabindex="0" data-template-id="${tid}"
+          onclick="WaifuApp.adminSpawnSelectTemplate(${tid})">
+          ${adminSpawnCardArtHtml(it)}
+          <div class="lib-card-meta">
+            <div class="lib-card-name">${escapeHtml(it.name || "?")}</div>
+            <div class="lib-card-tier">T${Number(it.tier) || "?"}${legBadge}</div>
+          </div>
+        </div>`;
+    })
+    .join("");
+}
+
+function adminSpawnFindTemplate(tid) {
+  const items = adminSpawnState.catalog?.items || [];
+  return items.find((it) => Number(it.base_template_id) === Number(tid)) || null;
+}
+
+function adminSpawnRenderConfig() {
+  const box = document.getElementById("admin-spawn-config");
+  const submitBtn = document.getElementById("admin-spawn-submit-btn");
+  const tid = adminSpawnState.selectedTemplateId;
+  if (!box) return;
+  if (!tid) {
+    box.innerHTML = "Выберите шаблон слева.";
+    if (submitBtn) submitBtn.disabled = true;
+    return;
+  }
+  const tpl = adminSpawnFindTemplate(tid);
+  if (!tpl) {
+    box.innerHTML = "Шаблон не найден.";
+    if (submitBtn) submitBtn.disabled = true;
+    return;
+  }
+  if (submitBtn) submitBtn.disabled = false;
+  const lvlMin = Number(tpl.level_min) || 1;
+  const lvlMax = Number(tpl.level_max) || lvlMin;
+  box.innerHTML = `
+    <div><strong>${escapeHtml(tpl.name || "")}</strong> · T${Number(tpl.tier) || "?"}</div>
+    <label>Уровень (ilvl)
+      <input type="number" id="admin-spawn-level" min="${lvlMin}" max="${Math.max(lvlMax, 60)}" value="${adminSpawnState.level}" />
+    </label>
+    <label>Редкость
+      <select id="admin-spawn-rarity"${adminSpawnState.isLegendary ? " disabled" : ""}>
+        ${[1, 2, 3, 4, 5].map((r) => {
+          const labels = ["", "Обычная", "Необычная", "Редкая", "Эпическая", "Легендарная"];
+          return `<option value="${r}"${adminSpawnState.rarity === r ? " selected" : ""}>${labels[r] || r}</option>`;
+        }).join("")}
+      </select>
+    </label>
+    <label><input type="checkbox" id="admin-spawn-legendary"${adminSpawnState.isLegendary ? " checked" : ""} /> Легендарный</label>
+    <label>Грейд базы
+      <select id="admin-spawn-base-grade">
+        <option value="0"${adminSpawnState.baseGrade === 0 ? " selected" : ""}>Обычный</option>
+        <option value="1"${adminSpawnState.baseGrade === 1 ? " selected" : ""}>Возвышенный</option>
+        <option value="2"${adminSpawnState.baseGrade === 2 ? " selected" : ""}>Апогей</option>
+      </select>
+    </label>
+    <div class="muted tiny" id="admin-spawn-affix-count">Аффиксов выбрано: ${adminSpawnState.selectedAffixKeys.size}</div>`;
+}
+
+function adminSpawnOnConfigPanelChange(ev) {
+  const t = ev.target;
+  if (!t || !t.id) return;
+  if (t.id === "admin-spawn-level") {
+    adminSpawnState.level = Math.max(1, parseInt(t.value, 10) || 1);
+    return;
+  }
+  if (t.id === "admin-spawn-rarity") {
+    adminSpawnState.rarity = Math.max(1, Math.min(5, parseInt(t.value, 10) || 2));
+    return;
+  }
+  if (t.id === "admin-spawn-legendary") {
+    adminSpawnState.isLegendary = Boolean(t.checked);
+    if (adminSpawnState.isLegendary) adminSpawnState.rarity = 5;
+    adminSpawnRenderConfig();
+    return;
+  }
+  if (t.id === "admin-spawn-base-grade") {
+    adminSpawnState.baseGrade = Math.max(0, Math.min(2, parseInt(t.value, 10) || 0));
+  }
+}
+
+function adminSpawnBindConfigDelegation() {
+  const panel = document.querySelector(".admin-spawn-right");
+  if (!panel || panel.dataset.spawnCfgBound) return;
+  panel.dataset.spawnCfgBound = "1";
+  panel.addEventListener("change", adminSpawnOnConfigPanelChange);
+}
+
+function adminSpawnRenderAffixList() {
+  const list = document.getElementById("admin-spawn-affix-list");
+  const cat = adminSpawnState.catalog;
+  if (!list || !cat) return;
+  const f = adminSpawnState.affixFilters;
+  let rows = cat.affixes || [];
+  if (f.search) {
+    const q = f.search;
+    rows = rows.filter(
+      (a) =>
+        String(a.name_ru || a.name || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(a.description_ru || "")
+          .toLowerCase()
+          .includes(q)
+    );
+  }
+  if (f.kind !== "all") {
+    if (f.kind === "prefix") {
+      rows = rows.filter((a) => String(a.kind || "") === "prefix" || String(a.kind || "") === "affix");
+    } else if (f.kind === "suffix") {
+      rows = rows.filter((a) => String(a.kind || "") === "suffix");
+    } else if (f.kind === "affix") {
+      rows = rows.filter((a) => String(a.catalog_kind || "") === "legacy_affix");
+    }
+  }
+  list.innerHTML = rows
+    .map((a) => {
+      const key = adminSpawnAffixKey(a);
+      const on = adminSpawnState.selectedAffixKeys.has(key);
+      const kindLabel =
+        String(a.kind || "") === "suffix"
+          ? "Суффикс"
+          : String(a.kind || "") === "prefix"
+            ? "Префикс"
+            : "Legacy";
+      return `
+        <label class="admin-spawn-affix-row${on ? " selected" : ""}">
+          <input type="checkbox" data-affix-key="${key}"${on ? " checked" : ""}
+            onchange="WaifuApp.adminSpawnToggleAffixFromEl(this)" />
+          <span class="admin-spawn-affix-meta">
+            <span class="admin-spawn-affix-name">${escapeHtml(a.name_ru || a.name || "?")}</span>
+            <span class="muted tiny">${escapeHtml(kindLabel)}${a.range_label ? " · " + escapeHtml(a.range_label) : ""}</span>
+          </span>
+        </label>`;
+    })
+    .join("");
+}
+
+function adminSpawnSelectTemplate(templateId) {
+  const tid = Number(templateId);
+  const tpl = adminSpawnFindTemplate(tid);
+  adminSpawnState.selectedTemplateId = tpl ? tid : null;
+  if (tpl) {
+    adminSpawnState.level = Number(tpl.level_min) || 1;
+    if (tpl.has_curated_legendary) {
+      adminSpawnState.isLegendary = true;
+      adminSpawnState.rarity = 5;
+    }
+    adminSpawnState.baseGrade = Number(tpl.base_grade) || 0;
+  }
+  adminSpawnRenderGrid();
+  adminSpawnRenderConfig();
+  adminSpawnRenderAffixList();
+}
+
+function adminSpawnToggleAffix(key, checked) {
+  if (!key) return;
+  if (checked) adminSpawnState.selectedAffixKeys.add(key);
+  else adminSpawnState.selectedAffixKeys.delete(key);
+  const cnt = document.getElementById("admin-spawn-affix-count");
+  if (cnt) cnt.textContent = `Аффиксов выбрано: ${adminSpawnState.selectedAffixKeys.size}`;
+}
+
+function adminSpawnToggleAffixFromEl(el) {
+  if (!el) return;
+  adminSpawnToggleAffix(el.getAttribute("data-affix-key"), el.checked);
+  const row = el.closest(".admin-spawn-affix-row");
+  if (row) row.classList.toggle("selected", Boolean(el.checked));
+}
+
+async function adminOpenSpawnItemModal() {
+  if (!isAdminUser() || !isAdminUiEnabled()) {
+    showToast("Нужен админ-режим", "error");
+    return;
+  }
+  const modal = document.getElementById("admin-spawn-item-modal");
+  if (!modal) return;
+  try {
+    if (!adminSpawnState.catalog) {
+      adminSpawnState.catalog = await apiFetch("/admin/spawn-item/catalog");
+    }
+  } catch (e) {
+    showToast("Каталог: " + (e?.message || e), "error");
+    return;
+  }
+  adminSpawnBindFilterHandlers();
+  adminSpawnBindConfigDelegation();
+  adminSpawnRenderGrid();
+  adminSpawnRenderConfig();
+  adminSpawnRenderAffixList();
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function adminCloseSpawnItemModal() {
+  const modal = document.getElementById("admin-spawn-item-modal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+async function adminSpawnSubmit() {
+  const tid = adminSpawnState.selectedTemplateId;
+  if (!tid) {
+    showToast("Выберите шаблон", "error");
+    return;
+  }
+  const affixes = [];
+  for (const key of adminSpawnState.selectedAffixKeys) {
+    const [kind, idStr] = String(key).split(":");
+    const cid = parseInt(idStr, 10);
+    if (!kind || !Number.isFinite(cid)) continue;
+    affixes.push({ catalog_kind: kind, catalog_id: cid });
+  }
+  const submitBtn = document.getElementById("admin-spawn-submit-btn");
+  if (submitBtn) submitBtn.disabled = true;
+  try {
+    const payload = await apiFetch("/admin/inventory/spawn-item", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        base_template_id: tid,
+        level: adminSpawnState.level,
+        rarity: adminSpawnState.isLegendary ? 5 : adminSpawnState.rarity,
+        is_legendary: adminSpawnState.isLegendary,
+        base_grade: adminSpawnState.baseGrade,
+        affixes,
+      }),
+    });
+    adminCloseSpawnItemModal();
+    await loadProfile();
+    showToast(`Добавлено: ${payload.name || "предмет"} (${payload.affix_count || 0} афф.)`);
+    if (payload.inventory_item_id) {
+      await openItemById(Number(payload.inventory_item_id));
+    }
+  } catch (e) {
+    showToast("Ошибка: " + (e?.message || e), "error");
+  } finally {
+    if (submitBtn) submitBtn.disabled = !adminSpawnState.selectedTemplateId;
   }
 }
 
@@ -9862,10 +10232,7 @@ async function initPage(page) {
   initAtticChipClicks();
   initItemArtGenerateDelegated();
 
-  if ("serviceWorker" in navigator && !window.__waifuSwRegistered) {
-    window.__waifuSwRegistered = true;
-    navigator.serviceWorker.register("/webapp/sw.js").catch(() => {});
-  }
+  registerWaifuServiceWorker();
 
   syncAdminUiVisibility();
 
@@ -9873,6 +10240,7 @@ async function initPage(page) {
   // Keep numbers fresh without forcing full-page reload.
   if (!window.__waifuProfileAutoRefresh) {
     window.__waifuProfileAutoRefresh = setInterval(async () => {
+      if (!document.getElementById("badge-level")) return;
       try {
         const p = await loadProfile({ lite: !isProfilePage() });
         const w = p?.main_waifu;
@@ -10303,10 +10671,14 @@ const LIBRARY_TIER_BORDER = {
   4: "#a855f7",
   5: "#f59e0b",
   6: "#ef4444",
+  7: "#ec4899",
+  8: "#06b6d4",
+  9: "#eab308",
+  10: "#f472b6",
 };
 
 function libraryTierClass(tier) {
-  const t = Math.max(0, Math.min(6, Number(tier) || 0));
+  const t = Math.max(0, Math.min(10, Number(tier) || 0));
   return `lib-tier-${t}`;
 }
 
@@ -10678,7 +11050,7 @@ function libraryRenderItemsGrid() {
   grid.innerHTML = items
     .map((it) => {
       const tid = Number(it.base_template_id);
-      const tierCls = libraryTierClass(Math.min(6, Math.max(1, Number(it.tier) || 1)));
+      const tierCls = libraryTierClass(Math.max(1, Number(it.tier) || 1));
       const label = escapeHtml(it.name || "???");
       return `
         <div class="lib-card ${tierCls}" role="button" tabindex="0" data-base-template-id="${tid}"
@@ -10701,21 +11073,21 @@ function libraryBindAffixFilterHandlers() {
     search.dataset.bound = "1";
     search.addEventListener("input", () => {
       libraryAffixFilters.search = search.value.trim().toLowerCase();
-      libraryRenderAffixesGrid();
+      libraryRenderAffixesList();
     });
   }
   if (kind && !kind.dataset.bound) {
     kind.dataset.bound = "1";
     kind.addEventListener("change", () => {
       libraryAffixFilters.kind = kind.value;
-      libraryRenderAffixesGrid();
+      libraryRenderAffixesList();
     });
   }
   if (seen && !seen.dataset.bound) {
     seen.dataset.bound = "1";
     seen.addEventListener("change", () => {
       libraryAffixFilters.seen = seen.value;
-      libraryRenderAffixesGrid();
+      libraryRenderAffixesList();
     });
   }
 }
@@ -10724,13 +11096,22 @@ function libraryAffixDetailKey(entry) {
   return `${entry.catalog_kind}:${entry.catalog_id}`;
 }
 
-function libraryRenderAffixesGrid() {
-  const grid = document.getElementById("lib-affix-grid");
-  if (!grid || !libraryAffixesCatalogCache) return;
+function libraryRenderAffixesList() {
+  const list = document.getElementById("lib-affix-list");
+  if (!list || !libraryAffixesCatalogCache) return;
   const f = libraryAffixFilters;
   let rows = libraryAffixesCatalogCache.affixes || [];
   if (f.search) {
-    rows = rows.filter((a) => String(a.name || "").toLowerCase().includes(f.search));
+    const q = f.search;
+    rows = rows.filter(
+      (a) =>
+        String(a.name_ru || a.name || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(a.description_ru || "")
+          .toLowerCase()
+          .includes(q)
+    );
   }
   if (f.kind !== "all") {
     const k = f.kind === "prefix" ? "affix" : f.kind;
@@ -10743,20 +11124,33 @@ function libraryRenderAffixesGrid() {
   if (sumEl) {
     sumEl.textContent = `Открыто ${summary.seen || 0} из ${summary.total || 0} (${summary.seen_pct || 0}%)`;
   }
-  grid.innerHTML = rows
+  if (!rows.length) {
+    list.innerHTML = '<p class="muted tiny">Ничего не найдено.</p>';
+    return;
+  }
+  list.innerHTML = rows
     .map((a) => {
-      const key = libraryAffixDetailKey(a);
       const kindLabel = a.kind === "suffix" ? "Суфф." : a.kind === "affix" || a.kind === "prefix" ? "Преф." : "—";
+      const displayName = a.name_ru || a.name || "???";
+      if (!a.seen) {
+        return `
+          <div class="lib-affix-row lib-affix-row--hidden">
+            <div class="lib-affix-row-head">
+              <span class="lib-affix-row-name">${escapeHtml(displayName)}</span>
+              <span class="lib-affix-row-badge">${escapeHtml(kindLabel)}</span>
+            </div>
+            <div class="lib-affix-row-effect muted tiny">Встретите предмет с этим аффиксом в игре.</div>
+          </div>`;
+      }
+      const desc = a.description_ru || statMeta(a.stat || "").short;
+      const range = a.range_label ? ` (${a.range_label})` : "";
       return `
-        <div class="lib-card lib-tier-2" role="button" tabindex="0"
-          onclick='WaifuApp.libraryOpenAffix(${JSON.stringify(key)})'>
-          <div class="lib-card-art silhouette" style="filter:none">
-            <span class="lib-art-emoji">${a.kind === "suffix" ? "✨" : "⚔️"}</span>
+        <div class="lib-affix-row">
+          <div class="lib-affix-row-head">
+            <span class="lib-affix-row-name">${escapeHtml(displayName)}</span>
+            <span class="lib-affix-row-badge">${escapeHtml(kindLabel)}</span>
           </div>
-          <div class="lib-card-meta">
-            <div class="lib-card-name">${escapeHtml(a.name || "???")}</div>
-            <div class="lib-affix-kind">${escapeHtml(kindLabel)}</div>
-          </div>
+          <div class="lib-affix-row-effect">${escapeHtml(desc)}${escapeHtml(range)}</div>
         </div>`;
     })
     .join("");
@@ -10786,7 +11180,7 @@ function libraryItemsSubtabShellHtml() {
           <option value="unseen">Скрытые</option>
         </select>
       </div>
-      <div id="lib-affix-grid" class="lib-grid"></div>`;
+      <div id="lib-affix-list" class="lib-affix-list"></div>`;
   }
   return `
     <div class="lib-items-subtabs">
@@ -10815,7 +11209,8 @@ function libraryItemsSubtabShellHtml() {
         <option value="unseen">Скрытые</option>
       </select>
     </div>
-    <div id="lib-items-grid" class="lib-grid"></div>`;
+    <p class="lib-tier-hint muted tiny">Цветная рамка — тир предмета (T1–T10).</p>
+    <div id="lib-items-grid" class="lib-grid lib-grid--items"></div>`;
 }
 
 function librarySwitchItemsSubtab(subtab) {
@@ -10829,7 +11224,7 @@ function libraryRenderItemsTab() {
   body.innerHTML = libraryItemsSubtabShellHtml();
   if (libraryState.itemsSubtab === "affixes") {
     libraryBindAffixFilterHandlers();
-    libraryRenderAffixesGrid();
+    libraryRenderAffixesList();
   } else {
     libraryBindItemsFilterHandlers();
     libraryRenderItemsGrid();
@@ -10844,7 +11239,7 @@ function ensureLibraryItemModal() {
   modal.className = "lib-monster-overlay hidden";
   modal.setAttribute("aria-modal", "true");
   modal.innerHTML = `
-    <div class="lib-monster-panel" role="dialog" aria-label="Карточка предмета" onclick="event.stopPropagation()">
+    <div class="lib-monster-panel lib-item-detail-panel" role="dialog" aria-label="Карточка предмета" onclick="event.stopPropagation()">
       <button type="button" class="lib-monster-close" aria-label="Закрыть" onclick="WaifuApp.libraryCloseItem()">×</button>
       <div id="library-item-body"></div>
     </div>`;
@@ -10864,6 +11259,9 @@ function libraryCloseItem() {
 }
 
 function libraryBuildItemDetailHtml(e) {
+  if (!e?.seen) {
+    return `<div class="lib-item-detail"><div class="lib-item-detail-name">???</div><p class="muted tiny">Встретите этот предмет в игре.</p></div>`;
+  }
   const rows = [];
   if (e.level_min != null) {
     rows.push(
@@ -10889,14 +11287,23 @@ function libraryBuildItemDetailHtml(e) {
     );
   }
   const fakeItem = { art_key: e.art_key, tier: e.tier, slot_type: e.slot_type, weapon_type: e.subtype };
-  const artBlock = e.seen
-    ? `<div class="lib-mtg-art">${itemArtHtml(fakeItem)}</div>`
-    : `<div class="lib-mtg-art silhouette"><span class="lib-art-emoji">🎒</span></div>`;
+  const artBlock = `<div class="lib-item-detail-art">${itemArtHtml(fakeItem)}</div>`;
+  const flavor = String(e.flavor_ru || "").trim();
+  const flavorBlock = flavor
+    ? `<div class="lib-item-flavor">${escapeHtml(flavor)}</div>`
+    : "";
+  const tierCls = libraryTierClass(Number(e.tier) || 1);
   return `
-    <div class="lib-mtg ${libraryTierClass(Math.min(6, Number(e.tier) || 1))}">
-      <div class="lib-mtg-name"><span class="lib-mtg-name-text">${escapeHtml(e.name || "???")}</span></div>
-      ${artBlock}
-      <div class="lib-mtg-stats">${rows.join("")}</div>
+    <div class="lib-item-detail lib-mtg ${tierCls}">
+      <div class="lib-item-detail-head">
+        ${artBlock}
+        <div class="lib-item-detail-title">
+          <div class="lib-item-detail-name">${escapeHtml(e.name || "???")}</div>
+          <div class="lib-item-detail-tier">T${escapeHtml(String(e.tier))}</div>
+        </div>
+      </div>
+      ${flavorBlock}
+      <div class="lib-mtg-stats lib-item-detail-stats">${rows.join("")}</div>
     </div>`;
 }
 
@@ -10906,7 +11313,8 @@ function libraryOpenItem(baseTemplateId) {
   libraryCloseMonster();
   libraryState.itemDetailId = tid;
   libraryState.affixDetailKey = null;
-  let e = (libraryItemsCatalogCache?.items || []).find((it) => Number(it.base_template_id) === tid);
+  const e = (libraryItemsCatalogCache?.items || []).find((it) => Number(it.base_template_id) === tid);
+  ensureLibraryItemModal();
   const body = document.getElementById("library-item-body");
   if (!body) return;
   if (!e) {
@@ -10914,7 +11322,6 @@ function libraryOpenItem(baseTemplateId) {
   } else {
     body.innerHTML = libraryBuildItemDetailHtml(e);
   }
-  ensureLibraryItemModal();
   const modal = document.getElementById("library-item-modal");
   if (modal) {
     modal.classList.remove("hidden");
@@ -10945,10 +11352,10 @@ function libraryOpenAffix(key) {
   libraryState.affixDetailKey = key;
   libraryState.itemDetailId = null;
   const entry = (libraryAffixesCatalogCache?.affixes || []).find((a) => libraryAffixDetailKey(a) === key);
+  ensureLibraryItemModal();
   const body = document.getElementById("library-item-body");
   if (!body) return;
   body.innerHTML = entry ? libraryBuildAffixDetailHtml(entry) : '<p class="muted">Нет данных</p>';
-  ensureLibraryItemModal();
   const modal = document.getElementById("library-item-modal");
   if (modal) {
     modal.classList.remove("hidden");
@@ -10993,17 +11400,22 @@ function ensureLibraryStyles() {
 .lib-tab.active{border-color:rgba(232,184,75,.7);background:rgba(200,146,42,.15)}
 .lib-tab[disabled]{opacity:.35;cursor:not-allowed}
 .lib-body{flex:1;min-height:0;overflow-y:auto;padding:10px 12px 16px;-webkit-overflow-scrolling:touch;position:relative;z-index:1}
-#library-monster-modal.lib-monster-overlay{position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box}
-#library-monster-modal.lib-monster-overlay.hidden{display:none!important}
+#library-monster-modal.lib-monster-overlay,#library-item-modal.lib-monster-overlay{position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box}
+#library-monster-modal.lib-monster-overlay.hidden,#library-item-modal.lib-monster-overlay.hidden{display:none!important}
 .lib-monster-panel{position:relative;width:min(420px,94vw);max-height:88vh;overflow-y:auto;-webkit-overflow-scrolling:touch;border-radius:12px}
 .lib-monster-close{position:absolute;top:8px;right:8px;z-index:2;width:32px;height:32px;border-radius:8px;border:1px solid rgba(200,146,42,.4);background:rgba(22,16,11,.92);color:#e8b84b;font-size:20px;line-height:1;cursor:pointer;padding:0}
 .lib-summary{font-size:11px;color:rgba(201,184,168,.85);margin-bottom:8px}
 .lib-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .lib-filters select,.lib-filters input{flex:1;min-width:100px;font-size:12px;padding:6px 8px;border-radius:8px;border:1px solid rgba(200,146,42,.3);background:#1f1812;color:#e5e2e1}
 .lib-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.lib-grid.lib-grid--items{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.lib-grid--items .lib-card-meta{padding:3px 4px 5px;font-size:9px}
+.lib-tier-hint{margin:-4px 0 8px}
 .lib-card{border:2px solid #5a5248;border-radius:10px;background:rgba(0,0,0,.35);cursor:pointer;overflow:hidden;text-align:center}
 .lib-card.lib-tier-1{border-color:#9ca3af}.lib-card.lib-tier-2{border-color:#22c55e}.lib-card.lib-tier-3{border-color:#3b82f6}
 .lib-card.lib-tier-4{border-color:#a855f7}.lib-card.lib-tier-5{border-color:#f59e0b}.lib-card.lib-tier-6{border-color:#ef4444}
+.lib-card.lib-tier-7{border-color:#ec4899}.lib-card.lib-tier-8{border-color:#06b6d4}.lib-card.lib-tier-9{border-color:#eab308}
+.lib-card.lib-tier-10{border-color:#f472b6;box-shadow:0 0 8px rgba(234,179,8,.35)}
 .lib-card-art{position:relative;aspect-ratio:1;background:#0d0a08;display:flex;align-items:center;justify-content:center}
 .lib-card-art.silhouette{filter:brightness(.35) contrast(.9)}
 .lib-card-art img{width:100%;height:100%;object-fit:cover}
@@ -11014,6 +11426,24 @@ function ensureLibraryStyles() {
 .lib-mtg{border:2px solid #5a5248;border-radius:12px;background:#f0e6d8;color:#3d2e1f;overflow:hidden;margin:0}
 .lib-mtg.lib-tier-1{border-color:#9ca3af}.lib-mtg.lib-tier-2{border-color:#22c55e}.lib-mtg.lib-tier-3{border-color:#3b82f6}
 .lib-mtg.lib-tier-4{border-color:#a855f7}.lib-mtg.lib-tier-5{border-color:#f59e0b}.lib-mtg.lib-tier-6{border-color:#ef4444}
+.lib-mtg.lib-tier-7{border-color:#ec4899}.lib-mtg.lib-tier-8{border-color:#06b6d4}.lib-mtg.lib-tier-9{border-color:#eab308}
+.lib-mtg.lib-tier-10{border-color:#f472b6;box-shadow:0 0 8px rgba(234,179,8,.35)}
+.lib-item-detail-panel{width:min(340px,92vw);max-height:85vh}
+.lib-item-detail{background:#f0e6d8;color:#3d2e1f;border-radius:12px;overflow:hidden}
+.lib-item-detail-head{display:flex;gap:10px;padding:10px 12px;align-items:center;background:#e5d9c8}
+.lib-item-detail-art{width:56px;height:56px;flex-shrink:0;border-radius:8px;background:#d8cbb8;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.lib-item-detail-art img{width:100%;height:100%;object-fit:contain}
+.lib-item-detail-name{font-weight:700;font-size:14px;color:#5c4030}
+.lib-item-detail-tier{font-size:11px;color:rgba(92,64,48,.75)}
+.lib-item-flavor{margin:0;padding:10px 12px;font-size:12px;line-height:1.55;font-style:italic;color:rgba(61,46,31,.85);border-left:2px solid rgba(200,146,42,.45);background:rgba(61,46,31,.06)}
+.lib-item-detail-stats{padding:8px 12px 12px;font-size:12px}
+.lib-affix-list{display:flex;flex-direction:column;gap:4px}
+.lib-affix-row{padding:8px 10px;border-radius:8px;border:1px solid rgba(200,146,42,.22);background:rgba(0,0,0,.28)}
+.lib-affix-row--hidden{opacity:.65}
+.lib-affix-row-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px}
+.lib-affix-row-name{font-weight:700;font-size:13px;color:#e8dcc8}
+.lib-affix-row-badge{font-size:9px;color:rgba(201,184,168,.8);flex-shrink:0}
+.lib-affix-row-effect{font-size:11px;line-height:1.4;color:rgba(201,184,168,.92)}
 .lib-mtg-name{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:10px 12px;background:#e5d9c8;font-weight:700;color:#5c4030}
 .lib-monster-panel .lib-mtg-name{padding-right:44px}
 .lib-mtg-name-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -11363,6 +11793,7 @@ async function openLibrary(opts) {
     document.body.appendChild(modal);
   }
   ensureLibraryMonsterModal();
+  ensureLibraryItemModal();
 
   const tabsEl = document.getElementById("lib-tabs");
   if (tabsEl) {
@@ -12335,6 +12766,12 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   adminAddStatPoints,
   adminResetMainWaifuStatSpend,
   adminClearAllItems,
+  adminOpenSpawnItemModal,
+  adminCloseSpawnItemModal,
+  adminSpawnSelectTemplate,
+  adminSpawnToggleAffix,
+  adminSpawnToggleAffixFromEl,
+  adminSpawnSubmit,
   showToast,
   initWaifuGenerator,
   initTitleScreen,

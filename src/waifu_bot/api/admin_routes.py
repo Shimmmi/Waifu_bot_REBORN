@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,8 +20,11 @@ from waifu_bot.services.passive_skills import compute_tavern_hire_price
 from waifu_bot.services.player_new_game_reset import clear_player_redis_keys, reset_player_to_new_game
 from waifu_bot.services.tavern import TavernService
 from waifu_bot.services.waifu_hp import sync_waifu_max_hp as _sync_waifu_max_hp
-
+from waifu_bot.services.item_service import ItemService
+from waifu_bot.api.library_routes import build_admin_template_entry, build_affix_catalog_entries
 logger = logging.getLogger(__name__)
+
+item_service = ItemService()
 
 router = APIRouter()
 
@@ -283,6 +286,88 @@ async def admin_reset_main_waifu_stat_spend(
         "refunded": refunded,
         "stat_points": int(waifu.stat_points or 0),
     }
+
+
+@router.get("/admin/spawn-item/catalog", tags=["admin"])
+async def admin_spawn_item_catalog(
+    player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Full item templates + affix catalog for admin spawn UI (no codex redaction)."""
+    templates = list(
+        (
+            await session.execute(
+                text("SELECT * FROM item_base_templates ORDER BY tier, name")
+            )
+        )
+        .mappings()
+        .all()
+    )
+    items = [build_admin_template_entry(t) for t in templates]
+    seen_legacy = {int(x) for x in (await session.scalars(select(m.Affix.id))).all()}
+    seen_diablo = {int(x) for x in (await session.scalars(select(m.AffixFamily.id))).all()}
+    affix_entries = await build_affix_catalog_entries(
+        session, seen_legacy=seen_legacy, seen_diablo=seen_diablo
+    )
+    return {
+        "items": items,
+        "affixes": affix_entries,
+        "summary": {
+            "items_total": len(items),
+            "affixes_total": len(affix_entries),
+        },
+    }
+
+
+@router.post("/admin/inventory/spawn-item", tags=["admin"], response_model=schemas.AdminSpawnItemResponse)
+async def admin_spawn_inventory_item(
+    body: schemas.AdminSpawnItemRequest,
+    player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: create inventory item from base template + optional affix picks."""
+    player = await session.get(m.Player, int(player_id))
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="player_not_found")
+    act = max(1, int(getattr(player, "current_act", 1) or 1))
+    affix_payload = [
+        {"catalog_kind": a.catalog_kind, "catalog_id": int(a.catalog_id)}
+        for a in (body.affixes or [])
+    ]
+    try:
+        inv = await item_service.generate_admin_inventory_item(
+            session,
+            int(player_id),
+            base_template_id=int(body.base_template_id),
+            act=act,
+            rarity=int(body.rarity),
+            level=body.level,
+            is_legendary=bool(body.is_legendary),
+            affixes=affix_payload,
+            base_grade=int(body.base_grade or 0),
+        )
+    except ValueError as e:
+        if str(e) == "base_template_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="base_template_not_found"
+            ) from e
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("admin_spawn_inventory_item failed player_id=%s", player_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="spawn_failed",
+        ) from e
+
+    name = str(getattr(getattr(inv, "item", None), "name", None) or "Предмет")
+    await session.commit()
+    return schemas.AdminSpawnItemResponse(
+        success=True,
+        inventory_item_id=int(inv.id),
+        name=name,
+        rarity=int(inv.rarity or body.rarity),
+        affix_count=len(inv.affixes or []),
+    )
 
 
 @router.post("/admin/items/clear", tags=["admin"])

@@ -14,6 +14,11 @@ from waifu_bot.api.deps import get_db, get_player_id
 from waifu_bot.db import models as m
 from waifu_bot.db.models.item import PlayerAffixCodex, PlayerItemCodex
 from waifu_bot.game import bestiary as bcfg
+from waifu_bot.game.affix_display_names import (
+    representative_affix_tier,
+    resolve_prefix_name_ru,
+    resolve_suffix_name_ru,
+)
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
 from waifu_bot.services.item_art import derive_item_art_key
 from waifu_bot.services.item_codex import CATALOG_DIABLO, CATALOG_LEGACY
@@ -284,6 +289,9 @@ def _build_item_entry(row: object, seen: bool) -> dict:
         if st1:
             entry["base_stat"] = str(st1)
             entry["base_stat_value"] = int(_row_get(row, "stat1_value", 0) or 0)
+        flavor = str(_row_get(row, "flavor_ru", "") or "").strip()
+        if flavor:
+            entry["flavor_ru"] = flavor
     return entry
 
 
@@ -348,6 +356,113 @@ async def item_detail(
     return _build_item_entry(row, seen)
 
 
+async def build_affix_catalog_entries(
+    session: AsyncSession,
+    *,
+    seen_legacy: set[int],
+    seen_diablo: set[int],
+) -> list[dict]:
+    """Affix catalog rows; pass empty sets to hide all, or all ids for admin full catalog."""
+    entries: list[dict] = []
+    legacy = list((await session.execute(select(m.Affix).order_by(m.Affix.name))).scalars().all())
+    for aff in legacy:
+        seen = int(aff.id) in seen_legacy
+        stat = str(aff.stat or "")
+        desc = effect_stat_description_ru(stat)
+        name_ru = aff.name if seen else _HIDDEN_NAME
+        entries.append(
+            {
+                "catalog_kind": CATALOG_LEGACY,
+                "catalog_id": int(aff.id),
+                "seen": seen,
+                "name": name_ru,
+                "name_ru": name_ru,
+                "kind": aff.kind if seen else None,
+                "stat": stat if seen else None,
+                "description_ru": desc if seen else None,
+                "value_min": int(aff.value_min) if seen else None,
+                "value_max": int(aff.value_max) if seen else None,
+                "is_percent": bool(aff.is_percent) if seen else None,
+                "range_label": (
+                    _fmt_affix_range(aff.value_min, aff.value_max, aff.is_percent)
+                    if seen
+                    else None
+                ),
+                "tier": int(aff.tier) if seen else None,
+            }
+        )
+
+    families = list(
+        (await session.execute(select(m.AffixFamily).order_by(m.AffixFamily.family_id))).scalars().all()
+    )
+    for fam in families:
+        seen = int(fam.id) in seen_diablo
+        tier_rows = list(
+            (
+                await session.execute(
+                    select(m.AffixFamilyTier).where(m.AffixFamilyTier.family_id == fam.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        vmin = vmax = None
+        if tier_rows:
+            mins = [float(t.value_min) for t in tier_rows if t.value_min is not None]
+            maxs = [float(t.value_max) for t in tier_rows if t.value_max is not None]
+            if mins:
+                vmin = int(min(mins))
+            if maxs:
+                vmax = int(max(maxs))
+        effect_key = str(fam.effect_key or "")
+        is_pct = "pct" in effect_key.lower() or "percent" in effect_key.lower()
+        rep_tier = representative_affix_tier(tier_rows)
+        kind = str(fam.kind or "")
+        if seen:
+            if kind in ("suffix",):
+                name_ru = resolve_suffix_name_ru(str(fam.family_id or ""), rep_tier)
+            else:
+                name_ru = resolve_prefix_name_ru(effect_key, rep_tier)
+        else:
+            name_ru = _HIDDEN_NAME
+        entries.append(
+            {
+                "catalog_kind": CATALOG_DIABLO,
+                "catalog_id": int(fam.id),
+                "seen": seen,
+                "name": name_ru,
+                "name_ru": name_ru,
+                "kind": fam.kind if seen else None,
+                "stat": effect_key if seen else None,
+                "description_ru": effect_stat_description_ru(effect_key) if seen else None,
+                "value_min": vmin if seen else None,
+                "value_max": vmax if seen else None,
+                "is_percent": is_pct if seen else None,
+                "range_label": (
+                    _fmt_affix_range(vmin, vmax, is_pct) if seen and vmin is not None else None
+                ),
+                "family_id": fam.family_id if seen else None,
+            }
+        )
+
+    entries.sort(key=lambda e: (e.get("kind") or "", e.get("name") or ""))
+    return entries
+
+
+def build_admin_template_entry(row: object) -> dict:
+    """Full template row for admin spawn UI (no codex redaction)."""
+    entry = _build_item_entry(row, seen=True)
+    raw_leg = _row_get(row, "legendary_bonus_ids", None) or []
+    try:
+        leg_ids = [int(x) for x in raw_leg if x is not None]
+    except (TypeError, ValueError):
+        leg_ids = []
+    entry["legendary_bonus_ids"] = leg_ids
+    entry["base_grade"] = int(_row_get(row, "base_grade", 0) or 0)
+    entry["has_curated_legendary"] = len(leg_ids) > 0
+    return entry
+
+
 @router.get("/library/affixes", tags=["library"])
 async def affixes_catalog(
     player_id: int = Depends(get_player_id),
@@ -375,78 +490,9 @@ async def affixes_catalog(
             if r.catalog_kind == CATALOG_DIABLO
         }
 
-        entries: list[dict] = []
-        legacy = list((await session.execute(select(m.Affix).order_by(m.Affix.name))).scalars().all())
-        for aff in legacy:
-            seen = int(aff.id) in seen_legacy
-            stat = str(aff.stat or "")
-            desc = effect_stat_description_ru(stat)
-            entries.append(
-                {
-                    "catalog_kind": CATALOG_LEGACY,
-                    "catalog_id": int(aff.id),
-                    "seen": seen,
-                    "name": aff.name if seen else _HIDDEN_NAME,
-                    "kind": aff.kind if seen else None,
-                    "stat": stat if seen else None,
-                    "description_ru": desc if seen else None,
-                    "value_min": int(aff.value_min) if seen else None,
-                    "value_max": int(aff.value_max) if seen else None,
-                    "is_percent": bool(aff.is_percent) if seen else None,
-                    "range_label": (
-                        _fmt_affix_range(aff.value_min, aff.value_max, aff.is_percent)
-                        if seen
-                        else None
-                    ),
-                    "tier": int(aff.tier) if seen else None,
-                }
-            )
-
-        families = list(
-            (await session.execute(select(m.AffixFamily).order_by(m.AffixFamily.family_id))).scalars().all()
+        entries = await build_affix_catalog_entries(
+            session, seen_legacy=seen_legacy, seen_diablo=seen_diablo
         )
-        for fam in families:
-            seen = int(fam.id) in seen_diablo
-            tier_rows = list(
-                (
-                    await session.execute(
-                        select(m.AffixFamilyTier).where(m.AffixFamilyTier.family_id == fam.id)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            vmin = vmax = None
-            if tier_rows:
-                mins = [float(t.value_min) for t in tier_rows if t.value_min is not None]
-                maxs = [float(t.value_max) for t in tier_rows if t.value_max is not None]
-                if mins:
-                    vmin = int(min(mins))
-                if maxs:
-                    vmax = int(max(maxs))
-            effect_key = str(fam.effect_key or "")
-            is_pct = "pct" in effect_key.lower() or "percent" in effect_key.lower()
-            display_name = str(fam.family_id or "").replace("_", " ").strip().title() or effect_key
-            entries.append(
-                {
-                    "catalog_kind": CATALOG_DIABLO,
-                    "catalog_id": int(fam.id),
-                    "seen": seen,
-                    "name": display_name if seen else _HIDDEN_NAME,
-                    "kind": fam.kind if seen else None,
-                    "stat": effect_key if seen else None,
-                    "description_ru": effect_stat_description_ru(effect_key) if seen else None,
-                    "value_min": vmin if seen else None,
-                    "value_max": vmax if seen else None,
-                    "is_percent": is_pct if seen else None,
-                    "range_label": (
-                        _fmt_affix_range(vmin, vmax, is_pct) if seen and vmin is not None else None
-                    ),
-                    "family_id": fam.family_id if seen else None,
-                }
-            )
-
-        entries.sort(key=lambda e: (e.get("kind") or "", e.get("name") or ""))
         total = len(entries)
         seen_count = sum(1 for e in entries if e.get("seen"))
         return {
