@@ -963,3 +963,25 @@ class ExpeditionCancelResponse(BaseModel):
     gold_total: int
     error: Optional[str] = None
 
+
+class AdminSpawnAffixIn(BaseModel):
+    catalog_kind: Literal["legacy_affix", "diablo_family"]
+    catalog_id: int = Field(..., ge=1)
+
+
+class AdminSpawnItemRequest(BaseModel):
+    base_template_id: int = Field(..., ge=1)
+    level: Optional[int] = Field(None, ge=1, le=60)
+    rarity: int = Field(2, ge=1, le=5)
+    is_legendary: bool = False
+    affixes: List[AdminSpawnAffixIn] = Field(default_factory=list)
+    base_grade: int = Field(0, ge=0, le=2)
+
+
+class AdminSpawnItemResponse(BaseModel):
+    success: bool = True
+    inventory_item_id: int
+    name: str
+    rarity: int
+    affix_count: int
+

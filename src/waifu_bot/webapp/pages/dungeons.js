@@ -1487,30 +1487,35 @@ function showExpeditionError(msg, tone = "danger") {
   box.style.display = "block";
 }
 
+let expeditionTabDataLoaded = false;
+
 async function loadExpeditionTab() {
   showExpeditionError("");
   try {
-    const [slotsRes, activeRes, rosterRes] = await Promise.all([
-      apiFetch("/expeditions/daily-slots").catch(() => apiFetch("/expeditions/slots")),
-      apiFetch("/expeditions/active"),
-      apiFetch("/expeditions/roster").catch(() => ({ waifus: [] })),
-    ]);
-    expeditionState.slots = Array.isArray(slotsRes?.slots) ? slotsRes.slots : [];
-    expeditionState.active = Array.isArray(activeRes?.active) ? activeRes.active : [];
-    expeditionState.roster = Array.isArray(rosterRes?.waifus) ? rosterRes.waifus : [];
-    expeditionState.refreshAt = slotsRes?.refresh_at || null;
-    expeditionUiCache.activeById = {};
-    expeditionUiCache.dailyById = {};
-    (expeditionState.active || []).forEach((a) => {
-      expeditionUiCache.activeById[a.id] = a;
-    });
-    (expeditionState.slots || []).forEach((s) => {
-      expeditionUiCache.dailyById[s.id] = s;
-    });
+    if (!expeditionTabDataLoaded) {
+      expeditionTabDataLoaded = true;
+      const [slotsRes, activeRes, rosterRes] = await Promise.all([
+        apiFetch("/expeditions/daily-slots").catch(() => apiFetch("/expeditions/slots")),
+        apiFetch("/expeditions/active"),
+        apiFetch("/expeditions/roster").catch(() => ({ waifus: [] })),
+      ]);
+      expeditionState.slots = Array.isArray(slotsRes?.slots) ? slotsRes.slots : [];
+      expeditionState.active = Array.isArray(activeRes?.active) ? activeRes.active : [];
+      expeditionState.roster = Array.isArray(rosterRes?.waifus) ? rosterRes.waifus : [];
+      expeditionState.refreshAt = slotsRes?.refresh_at || null;
+      expeditionUiCache.activeById = {};
+      expeditionUiCache.dailyById = {};
+      (expeditionState.active || []).forEach((a) => {
+        expeditionUiCache.activeById[a.id] = a;
+      });
+      (expeditionState.slots || []).forEach((s) => {
+        expeditionUiCache.dailyById[s.id] = s;
+      });
+    }
     renderExpeditionGrids();
     updateExpeditionRefreshLabel();
     wireExpeditionTabTimers();
-    refreshAtticChips();
+    refreshAtticChips({ forceExpeditions: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showExpeditionError(detail || "Ошибка загрузки экспедиций");
@@ -2073,7 +2078,7 @@ async function pollExpeditionActiveLight() {
       updateExpeditionActiveCardsOnly();
     }
     wireExpeditionTabTimers();
-    refreshAtticChips();
+    refreshAtticChips({ forceExpeditions: true });
   } catch {
     // ignore light poll errors
   }

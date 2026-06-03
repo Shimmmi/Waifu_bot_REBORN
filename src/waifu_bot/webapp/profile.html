@@ -6,7 +6,7 @@
     <title>Профиль вайфу — Waifu REBORN</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=waifu-webapp-v25" />
     <style>
       /* Палитра как у магазина / таверны */
       body.page-profile .profile-missing-waifu {
@@ -937,6 +937,199 @@
       body.page-profile #tab-inventory .inv-pagination .tag {
         color: rgba(232, 220, 200, 0.75) !important;
       }
+      body.page-profile #tab-inventory .inv-spawn-admin-btn {
+        border-color: rgba(200, 146, 42, 0.55) !important;
+        color: #e8b84b !important;
+      }
+      #admin-spawn-item-modal.admin-spawn-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9200;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        box-sizing: border-box;
+      }
+      #admin-spawn-item-modal.admin-spawn-overlay.hidden {
+        display: none !important;
+      }
+      .admin-spawn-panel {
+        position: relative;
+        width: min(960px, 98vw);
+        max-height: 92vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        border-radius: 12px;
+        border: 1px solid rgba(200, 146, 42, 0.45);
+        background: #1a1410;
+        color: #e8dcc8;
+      }
+      .admin-spawn-close {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 3;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.4);
+        background: rgba(22, 16, 11, 0.92);
+        color: #e8b84b;
+        font-size: 20px;
+        cursor: pointer;
+      }
+      .admin-spawn-head {
+        padding: 10px 40px 8px 12px;
+        font-size: 14px;
+        font-weight: 700;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.2);
+      }
+      .admin-spawn-layout {
+        display: grid;
+        grid-template-columns: 1fr minmax(260px, 34%);
+        gap: 0;
+        min-height: 0;
+        flex: 1;
+        overflow: hidden;
+      }
+      .admin-spawn-left,
+      .admin-spawn-right {
+        padding: 10px;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        min-height: 0;
+        max-height: calc(92vh - 52px);
+      }
+      .admin-spawn-left {
+        border-right: 1px solid rgba(200, 146, 42, 0.15);
+      }
+      .admin-spawn-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+      .admin-spawn-filters input,
+      .admin-spawn-filters select {
+        flex: 1;
+        min-width: 90px;
+        font-size: 11px;
+        padding: 6px 8px;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.3);
+        background: #1f1812;
+        color: #e5e2e1;
+      }
+      #admin-spawn-items-grid.lib-grid--items {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .admin-spawn-card.selected {
+        outline: 2px solid #e8b84b;
+        outline-offset: 1px;
+      }
+      .admin-spawn-leg-badge {
+        display: block;
+        font-size: 8px;
+        color: #f59e0b;
+        margin-top: 2px;
+      }
+      .admin-spawn-config {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 10px;
+        font-size: 12px;
+      }
+      .admin-spawn-config label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .admin-spawn-config input[type="number"],
+      .admin-spawn-config select {
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(200, 146, 42, 0.3);
+        background: #1f1812;
+        color: #e5e2e1;
+        max-width: 100%;
+      }
+      .admin-spawn-affix-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+      .admin-spawn-affix-filters input,
+      .admin-spawn-affix-filters select {
+        flex: 1;
+        min-width: 80px;
+        font-size: 11px;
+        padding: 5px 7px;
+        border-radius: 6px;
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        background: #1f1812;
+        color: #e5e2e1;
+      }
+      .admin-spawn-affix-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 38vh;
+        overflow-y: auto;
+        margin-bottom: 10px;
+        -webkit-overflow-scrolling: touch;
+      }
+      .admin-spawn-affix-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.2);
+        background: rgba(0, 0, 0, 0.25);
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .admin-spawn-affix-row.selected {
+        border-color: rgba(232, 184, 75, 0.65);
+        background: rgba(200, 146, 42, 0.12);
+      }
+      .admin-spawn-affix-row input {
+        margin-top: 2px;
+        flex-shrink: 0;
+      }
+      .admin-spawn-affix-meta {
+        flex: 1;
+        min-width: 0;
+      }
+      .admin-spawn-affix-name {
+        font-weight: 700;
+        color: #e8dcc8;
+      }
+      .admin-spawn-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .admin-spawn-actions .btn {
+        flex: 1;
+        min-width: 120px;
+      }
+      @media (max-width: 720px) {
+        .admin-spawn-layout {
+          grid-template-columns: 1fr;
+        }
+        .admin-spawn-left {
+          border-right: none;
+          border-bottom: 1px solid rgba(200, 146, 42, 0.15);
+          max-height: 42vh;
+        }
+      }
       body.page-profile .section-head .tag {
         color: var(--amber-glow) !important;
         border-color: rgba(200, 146, 42, 0.35);
@@ -959,7 +1152,7 @@
     <link rel="stylesheet" href="./assets/tutorial.css" />
     <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="./assets/tutorial.js"></script>
-    <script defer src="./app.js"></script>
+    <script defer src="./app.js?v=waifu-webapp-v25"></script>
   </head>
   <body class="page-profile" onload="WaifuApp.bootstrapPage('profile', WaifuApp.populateProfile);">
     <header class="attic">
@@ -1124,6 +1317,14 @@
             <button class="inv-filter-btn active" id="profile-filter-weapon" onclick="WaifuApp.toggleProfileInventoryFilter('weapon')">⚔ Оружие</button>
             <button class="inv-filter-btn active" id="profile-filter-armor" onclick="WaifuApp.toggleProfileInventoryFilter('armor')">🛡 Броня</button>
             <button class="inv-filter-btn active" id="profile-filter-accessory" onclick="WaifuApp.toggleProfileInventoryFilter('accessory')">💍 Акс.</button>
+            <button
+              type="button"
+              class="inv-filter-btn inv-spawn-admin-btn admin-only"
+              id="admin-spawn-item-btn"
+              title="Сгенерировать предмет (админ)"
+              onclick="WaifuApp.adminOpenSpawnItemModal()"
+              style="display: none"
+            >＋ Предмет</button>
             <div class="inv-sort-wrap">
               <select id="profile-sort-select" class="inv-sort-select" onchange="WaifuApp.setProfileInventorySort(this.value)">
                 <option value="level">Ур.</option>
@@ -1379,6 +1580,67 @@
         <p id="chat-reward-claim-sub" class="chat-reward-claim-sub muted">Золото и опыт уже на счету.</p>
         <div id="chat-reward-claim-body"></div>
         <button type="button" class="btn primary" style="width:100%;margin-top:12px" onclick="WaifuApp.closeChatRewardClaimModal()">Отлично</button>
+      </div>
+    </div>
+
+    <div
+      id="admin-spawn-item-modal"
+      class="admin-spawn-overlay hidden"
+      aria-hidden="true"
+      onclick="if (event.target === this) WaifuApp.adminCloseSpawnItemModal()"
+    >
+      <div class="admin-spawn-panel" role="dialog" aria-labelledby="admin-spawn-title">
+        <button
+          type="button"
+          class="admin-spawn-close"
+          aria-label="Закрыть"
+          onclick="WaifuApp.adminCloseSpawnItemModal()"
+        >×</button>
+        <div class="admin-spawn-head" id="admin-spawn-title">Генерация предмета (админ)</div>
+        <div class="admin-spawn-layout">
+          <div class="admin-spawn-left">
+            <div class="admin-spawn-filters">
+              <input id="admin-spawn-search" type="search" placeholder="Поиск…" />
+              <select id="admin-spawn-tier">
+                <option value="all">Все тиры</option>
+                <option value="1">T1</option><option value="2">T2</option><option value="3">T3</option>
+                <option value="4">T4</option><option value="5">T5</option><option value="6">T6</option>
+                <option value="7">T7</option><option value="8">T8</option><option value="9">T9</option>
+                <option value="10">T10</option>
+              </select>
+              <select id="admin-spawn-slot">
+                <option value="all">Все слоты</option>
+                <option value="weapon_1h">Оружие 1H</option>
+                <option value="weapon_2h">Оружие 2H</option>
+                <option value="offhand">Offhand</option>
+                <option value="costume">Доспех</option>
+                <option value="ring">Кольцо</option>
+                <option value="amulet">Амулет</option>
+              </select>
+            </div>
+            <p class="muted tiny lib-tier-hint">Цветная рамка — тир шаблона. Нажмите карточку для выбора.</p>
+            <div id="admin-spawn-items-grid" class="lib-grid lib-grid--items"></div>
+          </div>
+          <div class="admin-spawn-right">
+            <div id="admin-spawn-config" class="admin-spawn-config muted tiny">Выберите шаблон слева.</div>
+            <div class="admin-spawn-affix-filters">
+              <input id="admin-spawn-affix-search" type="search" placeholder="Аффиксы…" />
+              <select id="admin-spawn-affix-kind">
+                <option value="all">Все</option>
+                <option value="prefix">Префиксы</option>
+                <option value="suffix">Суффиксы</option>
+                <option value="affix">Legacy affix</option>
+              </select>
+            </div>
+            <div id="admin-spawn-affix-list" class="admin-spawn-affix-list"></div>
+            <div class="admin-spawn-actions">
+              <button type="button" class="btn primary" id="admin-spawn-submit-btn" onclick="WaifuApp.adminSpawnSubmit()" disabled>
+                Добавить в инвентарь
+              </button>
+              <button type="button" class="btn secondary" onclick="WaifuApp.adminCloseSpawnItemModal()">Закрыть</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 

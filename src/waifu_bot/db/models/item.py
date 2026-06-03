@@ -141,7 +141,9 @@ class InventoryItem(Base):
     secondary_fraction_value: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
     # Snapshot of curated legendary unique bonus ids from item_base_templates
-    legendary_bonus_ids: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), nullable=True)
+    legendary_bonus_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer), nullable=False, default=list
+    )
 
     # Relationships
     player: Mapped["Player"] = relationship("Player", back_populates="inventory_items")

@@ -1,19 +1,41 @@
-/** Service worker: cache static game assets and WebApp shell on repeat visits. */
-const CACHE_VERSION = "waifu-webapp-v24";
+/** Service worker: cache static game assets; network-first shell JS/CSS for fresh deploys. */
+const CACHE_VERSION = "waifu-webapp-v25";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
+/** Precache offline fallback only; HTML is not precached (always network). */
 const SHELL_URLS = [
   "/webapp/app.js",
   "/webapp/styles.css",
-  "/webapp/settings.html",
-  "/webapp/player.html",
   "/webapp/assets/tutorial.js",
   "/webapp/assets/tutorial.css",
   "/webapp/vendor/telegram-web-app.js",
   "/webapp/pages/tavern.js",
   "/webapp/pages/dungeons.js",
 ];
+
+function isShellAsset(pathname) {
+  if (!pathname.startsWith("/webapp/")) return false;
+  return (
+    pathname.endsWith(".js") ||
+    pathname.endsWith(".css") ||
+    pathname.endsWith(".webp") ||
+    pathname.endsWith(".png") ||
+    pathname.endsWith(".mp3")
+  );
+}
+
+async function networkFirstShell(cache, req) {
+  try {
+    const res = await fetch(req);
+    if (res.ok) await cache.put(req, res.clone());
+    return res;
+  } catch (err) {
+    const cached = await cache.match(req);
+    if (cached) return cached;
+    throw err;
+  }
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -54,27 +76,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (
-    url.pathname.startsWith("/webapp/") &&
-    (url.pathname.endsWith(".js") ||
-      url.pathname.endsWith(".css") ||
-      url.pathname.endsWith(".webp") ||
-      url.pathname.endsWith(".png") ||
-      url.pathname.endsWith(".mp3"))
-  ) {
-    // Stale-while-revalidate: serve cached immediately but always refresh in the
-    // background so JS/CSS edits self-heal on the next reload.
-    event.respondWith(
-      caches.open(SHELL_CACHE).then(async (cache) => {
-        const cached = await cache.match(req);
-        const network = fetch(req)
-          .then((res) => {
-            if (res.ok) cache.put(req, res.clone());
-            return res;
-          })
-          .catch(() => cached);
-        return cached || network;
-      })
-    );
+  if (isShellAsset(url.pathname)) {
+    event.respondWith(caches.open(SHELL_CACHE).then((cache) => networkFirstShell(cache, req)));
   }
 });

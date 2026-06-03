@@ -545,6 +545,18 @@ async def claim_wallet(session: AsyncSession, redis: Any, player_id: int) -> Cla
                     rarity=rarity,
                     level=item_level,
                 )
+                affix_count = len(getattr(inv, "affixes", None) or [])
+                if int(rarity) >= 2 and affix_count == 0:
+                    logger.warning(
+                        "claim_wallet: chest item has no affixes player_id=%s rarity=%s "
+                        "level=%s act=%s inv_id=%s name=%r",
+                        player_id,
+                        rarity,
+                        item_level,
+                        act,
+                        getattr(inv, "id", None),
+                        getattr(getattr(inv, "item", None), "name", None),
+                    )
                 item_name = "Предмет"
                 if inv.item:
                     item_name = inv.item.name
