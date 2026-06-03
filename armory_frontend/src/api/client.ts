@@ -129,3 +129,23 @@ export interface PlayerStatistics {
   gold_earned: number
   exp_earned: number
 }
+
+export interface AdminGroupChat {
+  chat_id: number
+  chat_type: string
+  title?: string | null
+  username?: string | null
+  status: string
+  joined_at?: string | null
+  left_at?: string | null
+  last_activity_at?: string | null
+  discovered_via: string
+  telegram_url?: string | null
+}
+
+export interface AdminGroupChatsResponse {
+  total: number
+  page: number
+  page_size: number
+  items: AdminGroupChat[]
+}

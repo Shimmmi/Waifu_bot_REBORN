@@ -58,8 +58,9 @@ python scripts/check_secrets.py
    На странице `/armory/login` показан точный Redirect URI для копирования в BotFather.
    Client Secret для popup/post_message не нужен.
    На VPS без прямого доступа к `oauth.telegram.org` задайте `TELEGRAM_API_BASE_URL` (Cloudflare Worker) — JWKS для проверки JWT подтянется через Worker автоматически. Обновите код Worker и задеployьте (см. `scripts/cloudflare-telegram-proxy/`).
-3. Миграции: `python -m waifu_bot.cli migrate`
-4. Сборка фронта:
+3. Миграции: `PYTHONPATH=src python -m waifu_bot.cli migrate` (на VPS: `./run_migrate.sh`)
+4. Backfill групповых чатов (Armory admin): `./run_backfill_group_chats.sh`
+5. Сборка фронта:
    ```bash
    cd armory_frontend && npm ci && npm run build
    ```

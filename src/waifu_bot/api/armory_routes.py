@@ -82,6 +82,10 @@ class GrantGoldRequest(BaseModel):
     amount: int = Field(ge=1, le=1_000_000)
 
 
+class GroupChatsRefreshBody(BaseModel):
+    chat_ids: list[int] | None = None
+
+
 def _bot_id_from_token() -> str:
     if settings.telegram_oidc_client_id:
         return str(settings.telegram_oidc_client_id)
@@ -650,6 +654,38 @@ async def admin_restore_hp(
     await _admin_audit(session, request, admin_id, "restore_hp", tg_id)
     await session.commit()
     return {"success": True, "current_hp": waifu.current_hp}
+
+
+@router.get("/admin/group-chats")
+async def admin_list_group_chats(
+    admin_id: ArmoryAdmin,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    status: str = Query("all", max_length=32),
+    q: str = Query("", max_length=128),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    await rate_limit_by_user(redis, admin_id, "admin_group_chats", 120)
+    from waifu_bot.services.bot_group_chats import list_bot_group_chats
+
+    return await list_bot_group_chats(
+        session, status_filter=status, q=q, page=page, page_size=page_size
+    )
+
+
+@router.post("/admin/group-chats/refresh", dependencies=[Depends(verify_csrf)])
+async def admin_refresh_group_chats(
+    admin_id: ArmoryAdmin,
+    body: GroupChatsRefreshBody,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    await rate_limit_by_user(redis, admin_id, "admin_group_chats_refresh", 30)
+    from waifu_bot.services.bot_group_chats import refresh_bot_group_chats
+    from waifu_bot.services.webhook import get_bot
+
+    return await refresh_bot_group_chats(session, get_bot(), body.chat_ids)
 
 
 @router.get("/admin/actions")

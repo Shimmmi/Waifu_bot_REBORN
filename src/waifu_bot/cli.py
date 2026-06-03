@@ -30,6 +30,25 @@ def migrate(revision: str = "heads"):
     command.upgrade(cfg, revision)
 
 
+@app.command("backfill-group-chats")
+def backfill_group_chats():
+    """Populate bot_group_chats from historical chat_id sources + Telegram API."""
+    init_engine()
+
+    async def _run() -> None:
+        from waifu_bot.db.session import get_session
+        from waifu_bot.services.bot_group_chats import backfill_bot_group_chats
+        from waifu_bot.services.webhook import get_bot
+
+        bot = get_bot()
+        async for session in get_session():
+            result = await backfill_bot_group_chats(session, bot)
+            typer.echo(result)
+            break
+
+    asyncio.run(_run())
+
+
 @app.command()
 def run(
     env: str = typer.Option("dev", "--env", "-e", help="APP_ENV: production, testing, dev, stage"),
