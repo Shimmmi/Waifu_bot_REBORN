@@ -984,4 +984,6 @@ class AdminSpawnItemResponse(BaseModel):
     name: str
     rarity: int
     affix_count: int
+    affixes_requested: int = 0
+    affixes_applied: int = 0
 

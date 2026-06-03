@@ -22,6 +22,8 @@ from waifu_bot.services.tavern import TavernService
 from waifu_bot.services.waifu_hp import sync_waifu_max_hp as _sync_waifu_max_hp
 from waifu_bot.services.item_service import ItemService
 from waifu_bot.api.library_routes import build_admin_template_entry, build_affix_catalog_entries
+from waifu_bot.services.item_codex import CATALOG_LEGACY
+from waifu_bot.game.item_display_name import compose_item_display_name_ru
 logger = logging.getLogger(__name__)
 
 item_service = ItemService()
@@ -306,9 +308,13 @@ async def admin_spawn_item_catalog(
     items = [build_admin_template_entry(t) for t in templates]
     seen_legacy = {int(x) for x in (await session.scalars(select(m.Affix.id))).all()}
     seen_diablo = {int(x) for x in (await session.scalars(select(m.AffixFamily.id))).all()}
-    affix_entries = await build_affix_catalog_entries(
-        session, seen_legacy=seen_legacy, seen_diablo=seen_diablo
-    )
+    affix_entries = [
+        e
+        for e in await build_affix_catalog_entries(
+            session, seen_legacy=seen_legacy, seen_diablo=seen_diablo
+        )
+        if e.get("catalog_kind") != CATALOG_LEGACY
+    ]
     return {
         "items": items,
         "affixes": affix_entries,
@@ -335,7 +341,7 @@ async def admin_spawn_inventory_item(
         for a in (body.affixes or [])
     ]
     try:
-        inv = await item_service.generate_admin_inventory_item(
+        inv, affixes_requested, affixes_applied = await item_service.generate_admin_inventory_item(
             session,
             int(player_id),
             base_template_id=int(body.base_template_id),
@@ -359,14 +365,16 @@ async def admin_spawn_inventory_item(
             detail="spawn_failed",
         ) from e
 
-    name = str(getattr(getattr(inv, "item", None), "name", None) or "Предмет")
+    _base, display_name = compose_item_display_name_ru(inv)
     await session.commit()
     return schemas.AdminSpawnItemResponse(
         success=True,
         inventory_item_id=int(inv.id),
-        name=name,
+        name=display_name,
         rarity=int(inv.rarity or body.rarity),
         affix_count=len(inv.affixes or []),
+        affixes_requested=int(affixes_requested),
+        affixes_applied=int(affixes_applied),
     )
 
 

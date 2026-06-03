@@ -17,18 +17,16 @@ def calculate_dismantle_dust(
     *,
     rarity: int,
     tier: int,
-    enchant_level: int,
     cfg: dict[str, str],
 ) -> int:
+    """Dust from dismantle: base × rarity_mult × tier_mult^(tier-1). Enchant does not affect dust."""
     base = cfg_float(cfg, "dismantle.dust_base", 5.0)
     r = max(1, min(5, int(rarity or 1)))
     rarity_mult = cfg_float(cfg, f"dismantle.rarity_mult_{r}", 1.0)
     t = max(1, min(10, int(tier or 1)))
-    tier_mult_base = cfg_float(cfg, "dismantle.tier_mult", 1.08)
+    tier_mult_base = cfg_float(cfg, "dismantle.tier_mult", 1.2)
     tier_mult = tier_mult_base ** (t - 1)
-    plus_mult = cfg_float(cfg, "dismantle.enchant_plus_mult", 0.12)
-    ench = max(0, int(enchant_level or 0))
-    dust = base * rarity_mult * tier_mult * (1.0 + ench * plus_mult)
+    dust = base * rarity_mult * tier_mult
     return max(1, int(math.floor(dust)))
 
 
@@ -51,7 +49,6 @@ async def preview_dismantle_dust(session: AsyncSession, inv: m.InventoryItem) ->
     return calculate_dismantle_dust(
         rarity=rarity,
         tier=tier,
-        enchant_level=int(inv.enchant_level or 0),
         cfg=cfg,
     )
 

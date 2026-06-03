@@ -987,35 +987,18 @@
         font-weight: 700;
         border-bottom: 1px solid rgba(200, 146, 42, 0.2);
       }
-      .admin-spawn-layout {
-        display: grid;
-        grid-template-columns: 1fr minmax(260px, 34%);
-        gap: 0;
-        min-height: 0;
-        flex: 1;
-        overflow: hidden;
-      }
-      .admin-spawn-left,
-      .admin-spawn-right {
-        padding: 10px;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-        min-height: 0;
-        max-height: calc(92vh - 52px);
-      }
-      .admin-spawn-left {
-        border-right: 1px solid rgba(200, 146, 42, 0.15);
-      }
-      .admin-spawn-filters {
+      .admin-spawn-toolbar {
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
-        margin-bottom: 8px;
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.15);
+        flex-shrink: 0;
       }
-      .admin-spawn-filters input,
-      .admin-spawn-filters select {
+      .admin-spawn-toolbar input,
+      .admin-spawn-toolbar select {
         flex: 1;
-        min-width: 90px;
+        min-width: 72px;
         font-size: 11px;
         padding: 6px 8px;
         border-radius: 8px;
@@ -1023,8 +1006,130 @@
         background: #1f1812;
         color: #e5e2e1;
       }
-      #admin-spawn-items-grid.lib-grid--items {
+      .admin-spawn-summary {
+        padding: 6px 10px;
+        font-size: 11px;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.1);
+        flex-shrink: 0;
+      }
+      .admin-spawn-body {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 8px 10px 56px;
+      }
+      .admin-spawn-body-items {
+        margin-bottom: 10px;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid.lib-grid {
+        display: grid;
+        gap: 6px;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid.lib-grid--items {
         grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card {
+        border: 2px solid #5a5248;
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.35);
+        cursor: pointer;
+        overflow: hidden;
+        text-align: center;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-1 {
+        border-color: #9ca3af;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-2 {
+        border-color: #22c55e;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-3 {
+        border-color: #3b82f6;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-4 {
+        border-color: #a855f7;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-5 {
+        border-color: #f59e0b;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-6 {
+        border-color: #ef4444;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-7 {
+        border-color: #ec4899;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-8 {
+        border-color: #06b6d4;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-9 {
+        border-color: #eab308;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-10 {
+        border-color: #f472b6;
+        box-shadow: 0 0 8px rgba(234, 179, 8, 0.35);
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-art {
+        position: relative;
+        aspect-ratio: 1;
+        overflow: hidden;
+        background: #0d0a08;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-art img {
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        display: block;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-art .item-art-admin-wrap {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-art .item-art-admin-wrap--placeholder {
+        width: 100%;
+        height: 100%;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-art .item-art-admin-wrap--placeholder .lib-art-emoji {
+        font-size: 28px;
+        line-height: 1;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-art .item-art-admin-wrap img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .item-art-generate-btn {
+        width: 22px;
+        height: 22px;
+        top: 1px;
+        right: 1px;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-meta {
+        padding: 3px 4px 5px;
+        font-size: 9px;
+        line-height: 1.2;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-name {
+        font-weight: 700;
+        color: #e8dcc8;
+        white-space: normal;
+        word-break: break-word;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        min-height: 2.4em;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-tier {
+        color: rgba(201, 184, 168, 0.8);
       }
       .admin-spawn-card.selected {
         outline: 2px solid #e8b84b;
@@ -1036,53 +1141,95 @@
         color: #f59e0b;
         margin-top: 2px;
       }
-      .admin-spawn-config {
-        display: grid;
-        gap: 8px;
-        margin-bottom: 10px;
-        font-size: 12px;
-      }
-      .admin-spawn-config label {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-      .admin-spawn-config input[type="number"],
-      .admin-spawn-config select {
-        font-size: 12px;
-        padding: 4px 8px;
-        border-radius: 6px;
-        border: 1px solid rgba(200, 146, 42, 0.3);
-        background: #1f1812;
-        color: #e5e2e1;
-        max-width: 100%;
-      }
-      .admin-spawn-affix-filters {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-bottom: 6px;
-      }
-      .admin-spawn-affix-filters input,
-      .admin-spawn-affix-filters select {
-        flex: 1;
-        min-width: 80px;
-        font-size: 11px;
-        padding: 5px 7px;
-        border-radius: 6px;
-        border: 1px solid rgba(200, 146, 42, 0.25);
-        background: #1f1812;
-        color: #e5e2e1;
-      }
       .admin-spawn-affix-list {
         display: flex;
         flex-direction: column;
         gap: 4px;
-        max-height: 38vh;
+        max-height: 36vh;
         overflow-y: auto;
-        margin-bottom: 10px;
         -webkit-overflow-scrolling: touch;
+      }
+      #admin-spawn-affix-modal.admin-spawn-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9300;
+        background: rgba(0, 0, 0, 0.55);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        box-sizing: border-box;
+      }
+      #admin-spawn-affix-modal.admin-spawn-overlay.hidden {
+        display: none !important;
+      }
+      #admin-spawn-affix-modal .admin-spawn-affix-panel {
+        width: min(520px, 96vw);
+        max-height: 88vh;
+        display: flex;
+        flex-direction: column;
+        border-radius: 12px;
+        border: 1px solid rgba(200, 146, 42, 0.45);
+        background: #1a1410;
+        color: #e8dcc8;
+        padding: 12px;
+        gap: 8px;
+      }
+      #admin-spawn-affix-modal .admin-spawn-affix-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      #admin-spawn-affix-modal .admin-spawn-affix-toolbar input,
+      #admin-spawn-affix-modal .admin-spawn-affix-toolbar select {
+        flex: 1 1 120px;
+        min-width: 0;
+        font-size: 12px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        background: rgba(0, 0, 0, 0.35);
+        color: #e8dcc8;
+      }
+      #admin-spawn-affix-modal .admin-spawn-affix-list {
+        flex: 1;
+        min-height: 0;
+        max-height: 60vh;
+      }
+      .admin-spawn-affix-open-btn {
+        flex: 0 0 auto;
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        border: 1px solid rgba(200, 146, 42, 0.45);
+        background: rgba(200, 146, 42, 0.12);
+        color: #e8b84b;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .admin-spawn-fab {
+        position: absolute;
+        right: 14px;
+        bottom: 14px;
+        z-index: 4;
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        border: 2px solid rgba(232, 184, 75, 0.75);
+        background: linear-gradient(145deg, #3d2e14, #1a1410);
+        color: #e8b84b;
+        font-size: 24px;
+        line-height: 1;
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+      }
+      .admin-spawn-fab:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
       }
       .admin-spawn-affix-row {
         display: flex;
@@ -1111,23 +1258,14 @@
         font-weight: 700;
         color: #e8dcc8;
       }
-      .admin-spawn-actions {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-      .admin-spawn-actions .btn {
-        flex: 1;
-        min-width: 120px;
+      .admin-spawn-affix-desc {
+        display: block;
+        margin-top: 2px;
+        line-height: 1.25;
       }
       @media (max-width: 720px) {
-        .admin-spawn-layout {
-          grid-template-columns: 1fr;
-        }
-        .admin-spawn-left {
-          border-right: none;
-          border-bottom: 1px solid rgba(200, 146, 42, 0.15);
-          max-height: 42vh;
+        #admin-spawn-item-modal #admin-spawn-items-grid.lib-grid--items {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
         }
       }
       body.page-profile .section-head .tag {
@@ -1597,50 +1735,90 @@
           onclick="WaifuApp.adminCloseSpawnItemModal()"
         >×</button>
         <div class="admin-spawn-head" id="admin-spawn-title">Генерация предмета (админ)</div>
-        <div class="admin-spawn-layout">
-          <div class="admin-spawn-left">
-            <div class="admin-spawn-filters">
-              <input id="admin-spawn-search" type="search" placeholder="Поиск…" />
-              <select id="admin-spawn-tier">
-                <option value="all">Все тиры</option>
-                <option value="1">T1</option><option value="2">T2</option><option value="3">T3</option>
-                <option value="4">T4</option><option value="5">T5</option><option value="6">T6</option>
-                <option value="7">T7</option><option value="8">T8</option><option value="9">T9</option>
-                <option value="10">T10</option>
-              </select>
-              <select id="admin-spawn-slot">
-                <option value="all">Все слоты</option>
-                <option value="weapon_1h">Оружие 1H</option>
-                <option value="weapon_2h">Оружие 2H</option>
-                <option value="offhand">Offhand</option>
-                <option value="costume">Доспех</option>
-                <option value="ring">Кольцо</option>
-                <option value="amulet">Амулет</option>
-              </select>
-            </div>
-            <p class="muted tiny lib-tier-hint">Цветная рамка — тир шаблона. Нажмите карточку для выбора.</p>
+        <div class="admin-spawn-toolbar">
+          <input id="admin-spawn-search" type="search" placeholder="Предмет…" />
+          <select id="admin-spawn-tier">
+            <option value="all">Все тиры</option>
+            <option value="legendary">Легендарные</option>
+            <option value="1">T1</option><option value="2">T2</option><option value="3">T3</option>
+            <option value="4">T4</option><option value="5">T5</option><option value="6">T6</option>
+            <option value="7">T7</option><option value="8">T8</option><option value="9">T9</option>
+            <option value="10">T10</option>
+          </select>
+          <select id="admin-spawn-slot">
+            <option value="all">Все слоты</option>
+            <option value="weapon_1h">Оружие 1H</option>
+            <option value="weapon_2h">Оружие 2H</option>
+            <option value="offhand">Offhand</option>
+            <option value="costume">Доспех</option>
+            <option value="ring">Кольцо</option>
+            <option value="amulet">Амулет</option>
+          </select>
+          <select id="admin-spawn-base-grade-filter">
+            <option value="all">Все грейды</option>
+            <option value="0">Обычный</option>
+            <option value="1">Возвышенный</option>
+            <option value="2">Апогей</option>
+          </select>
+          <button
+            type="button"
+            id="admin-spawn-affix-open-btn"
+            class="admin-spawn-affix-open-btn"
+            onclick="WaifuApp.adminOpenSpawnAffixModal()"
+          >Аффиксы (0)</button>
+          <select id="admin-spawn-rarity">
+            <option value="1">Обычная</option>
+            <option value="2" selected>Необычная</option>
+            <option value="3">Редкая</option>
+            <option value="4">Эпическая</option>
+          </select>
+        </div>
+        <div id="admin-spawn-config" class="admin-spawn-summary muted tiny">Выберите шаблон.</div>
+        <div class="admin-spawn-body">
+          <div class="admin-spawn-body-items">
             <div id="admin-spawn-items-grid" class="lib-grid lib-grid--items"></div>
           </div>
-          <div class="admin-spawn-right">
-            <div id="admin-spawn-config" class="admin-spawn-config muted tiny">Выберите шаблон слева.</div>
-            <div class="admin-spawn-affix-filters">
-              <input id="admin-spawn-affix-search" type="search" placeholder="Аффиксы…" />
-              <select id="admin-spawn-affix-kind">
-                <option value="all">Все</option>
-                <option value="prefix">Префиксы</option>
-                <option value="suffix">Суффиксы</option>
-                <option value="affix">Legacy affix</option>
-              </select>
-            </div>
-            <div id="admin-spawn-affix-list" class="admin-spawn-affix-list"></div>
-            <div class="admin-spawn-actions">
-              <button type="button" class="btn primary" id="admin-spawn-submit-btn" onclick="WaifuApp.adminSpawnSubmit()" disabled>
-                Добавить в инвентарь
-              </button>
-              <button type="button" class="btn secondary" onclick="WaifuApp.adminCloseSpawnItemModal()">Закрыть</button>
-            </div>
-          </div>
         </div>
+        <button
+          type="button"
+          class="admin-spawn-fab"
+          id="admin-spawn-submit-fab"
+          aria-label="Добавить в инвентарь"
+          onclick="WaifuApp.adminSpawnSubmit()"
+          disabled
+        >🎒</button>
+      </div>
+    </div>
+
+    <div
+      id="admin-spawn-affix-modal"
+      class="admin-spawn-overlay hidden"
+      aria-hidden="true"
+      onclick="if (event.target === this) WaifuApp.adminCloseSpawnAffixModal()"
+    >
+      <div class="admin-spawn-affix-panel" role="dialog" aria-labelledby="admin-spawn-affix-title">
+        <div class="admin-spawn-head" id="admin-spawn-affix-title">Аффиксы</div>
+        <div class="admin-spawn-affix-toolbar">
+          <input id="admin-spawn-affix-search" type="search" placeholder="Аффиксы…" />
+          <select id="admin-spawn-affix-kind">
+            <option value="all">Все типы</option>
+            <option value="prefix">Префиксы</option>
+            <option value="suffix">Суффиксы</option>
+          </select>
+          <select id="admin-spawn-affix-category">
+            <option value="all">Все категории</option>
+            <option value="stats">Основные статы</option>
+            <option value="damage">Урон и крит</option>
+            <option value="defense">Защита и выживаемость</option>
+            <option value="economy">Золото, опыт, торговля</option>
+            <option value="skills">Навыки / пассивы</option>
+            <option value="monster">Урон по типам монстров</option>
+            <option value="media">Урон от медиа</option>
+            <option value="other">Прочее</option>
+          </select>
+        </div>
+        <div id="admin-spawn-affix-list" class="admin-spawn-affix-list"></div>
+        <button type="button" class="btn primary" style="width:100%" onclick="WaifuApp.adminCloseSpawnAffixModal()">Готово</button>
       </div>
     </div>
 

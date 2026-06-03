@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
+from waifu_bot.game.item_display_name import compose_item_display_name_ru
 from waifu_bot.game.item_secondary import (
     attach_resolved_attrs,
     effective_fraction_combat,
@@ -108,13 +109,7 @@ def serialize_inventory_item(
         for a in (inv.affixes or [])
     ]
 
-    base_name = inv.item.name if inv.item else _fallback_base_name_ru(inv)
-    if base_name.strip().lower() in ("предмет", "item"):
-        base_name = _fallback_base_name_ru(inv)
-
-    prefix = next((a.name for a in (inv.affixes or []) if getattr(a, "kind", None) == "affix"), None)
-    suffix = next((a.name for a in (inv.affixes or []) if getattr(a, "kind", None) == "suffix"), None)
-    display_name = f"{(prefix + ' ') if prefix else ''}{base_name}{(' ' + suffix) if suffix else ''}".strip()
+    base_name, display_name = compose_item_display_name_ru(inv)
 
     image_key = derive_image_key(inv.slot_type, inv.weapon_type, display_name)
     art_key = derive_item_art_key(

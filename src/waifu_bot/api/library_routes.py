@@ -19,7 +19,7 @@ from waifu_bot.game.affix_display_names import (
     resolve_prefix_name_ru,
     resolve_suffix_name_ru,
 )
-from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
+from waifu_bot.game.affix_effect_ui import effect_bonus_category, effect_stat_description_ru
 from waifu_bot.services.item_art import derive_item_art_key
 from waifu_bot.services.item_codex import CATALOG_DIABLO, CATALOG_LEGACY
 
@@ -369,6 +369,7 @@ async def build_affix_catalog_entries(
         seen = int(aff.id) in seen_legacy
         stat = str(aff.stat or "")
         desc = effect_stat_description_ru(stat)
+        cat_id, cat_label = effect_bonus_category(stat)
         name_ru = aff.name if seen else _HIDDEN_NAME
         entries.append(
             {
@@ -379,6 +380,8 @@ async def build_affix_catalog_entries(
                 "name_ru": name_ru,
                 "kind": aff.kind if seen else None,
                 "stat": stat if seen else None,
+                "bonus_category": cat_id,
+                "bonus_category_label": cat_label,
                 "description_ru": desc if seen else None,
                 "value_min": int(aff.value_min) if seen else None,
                 "value_max": int(aff.value_max) if seen else None,
@@ -415,14 +418,16 @@ async def build_affix_catalog_entries(
             if maxs:
                 vmax = int(max(maxs))
         effect_key = str(fam.effect_key or "")
+        cat_id, cat_label = effect_bonus_category(effect_key)
         is_pct = "pct" in effect_key.lower() or "percent" in effect_key.lower()
         rep_tier = representative_affix_tier(tier_rows)
         kind = str(fam.kind or "")
         if seen:
+            fid = str(fam.family_id or "")
             if kind in ("suffix",):
-                name_ru = resolve_suffix_name_ru(str(fam.family_id or ""), rep_tier)
+                name_ru = resolve_suffix_name_ru(fid, rep_tier)
             else:
-                name_ru = resolve_prefix_name_ru(effect_key, rep_tier)
+                name_ru = resolve_prefix_name_ru(effect_key, rep_tier, family_id=fid or None)
         else:
             name_ru = _HIDDEN_NAME
         entries.append(
@@ -434,6 +439,8 @@ async def build_affix_catalog_entries(
                 "name_ru": name_ru,
                 "kind": fam.kind if seen else None,
                 "stat": effect_key if seen else None,
+                "bonus_category": cat_id,
+                "bonus_category_label": cat_label,
                 "description_ru": effect_stat_description_ru(effect_key) if seen else None,
                 "value_min": vmin if seen else None,
                 "value_max": vmax if seen else None,
