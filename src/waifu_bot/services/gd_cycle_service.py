@@ -28,6 +28,7 @@ from waifu_bot.game.constants import (
 )
 from waifu_bot.services.game_config_service import get_game_config_map, cfg_int, cfg_float
 from waifu_bot.services.gd_scaling import compute_challenge_level
+from waifu_bot.services import gd_active_cache as gd_active_cache_mod
 
 if TYPE_CHECKING:
     from aiogram import Bot
@@ -168,12 +169,30 @@ class GDCycleService:
         return r.scalar_one_or_none()
 
     async def get_active_v1_cycle(self, session: AsyncSession, chat_id: int) -> GDCycle | None:
+        cached = await gd_active_cache_mod.get_cached_active_cycle_id(self.redis, chat_id)
+        if cached is False:
+            pass  # cache miss — query DB below
+        elif cached is None:
+            return None
+        else:
+            cycle = await session.get(GDCycle, int(cached))
+            if cycle and cycle.status == "active" and int(cycle.chat_id) == int(chat_id):
+                return cycle
+            await gd_active_cache_mod.invalidate_active_cycle_cache(self.redis, chat_id)
+
         r = await session.execute(
             select(GDCycle)
             .where(GDCycle.chat_id == chat_id, GDCycle.status == "active")
             .limit(1)
         )
-        return r.scalar_one_or_none()
+        cycle = r.scalar_one_or_none()
+        if cycle:
+            await gd_active_cache_mod.set_active_cycle_cache(
+                self.redis, chat_id, cycle.id
+            )
+        else:
+            await gd_active_cache_mod.set_active_cycle_cache(self.redis, chat_id, None)
+        return cycle
 
     async def get_party_roster(
         self, session: AsyncSession, chat_id: int
@@ -344,6 +363,14 @@ class GDCycleService:
             cycle.finished_at = datetime.now(timezone.utc)
             cycle.round_deadline_at = None
         await session.flush()
+        if cycle.status == "active":
+            await gd_active_cache_mod.set_active_cycle_cache(
+                self.redis, cycle.chat_id, cycle.id
+            )
+        else:
+            await gd_active_cache_mod.set_active_cycle_cache(
+                self.redis, cycle.chat_id, None
+            )
         return {"status": cycle.status, "registrations": len(regs)}
 
     async def reset_v1_cycles_for_chat(self, session: AsyncSession, chat_id: int) -> int:
@@ -366,6 +393,7 @@ class GDCycleService:
             n += 1
         if n:
             await session.flush()
+        await gd_active_cache_mod.invalidate_active_cycle_cache(self.redis, chat_id)
         return n
 
     async def record_round_action(

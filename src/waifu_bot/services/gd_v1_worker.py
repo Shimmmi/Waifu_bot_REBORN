@@ -1,6 +1,7 @@
 """GD v1.0: registration deadlines, round ticks, rewards."""
 from __future__ import annotations
 
+import asyncio
 import copy
 import logging
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ from waifu_bot.services.combat import apply_main_waifu_levelups
 from waifu_bot.services.game_config_service import get_game_config_map, cfg_float
 from waifu_bot.services.gd_scaling import reward_level_multiplier
 from waifu_bot.services.gd_cycle_service import GDCycleService
+from waifu_bot.services import gd_active_cache as gd_active_cache_mod
 from waifu_bot.services.gd_narrative_ai import (
     generate_gd_finale_narrative,
     generate_gd_round_narrative,
@@ -468,6 +470,14 @@ async def _gd_v1_execute_round_resolution_after_simulation(
     if result["round_outcome"] == "victory":
         cycle2.status = "finished"
         cycle2.finished_at = datetime.now(timezone.utc)
+        try:
+            from waifu_bot.core import redis as redis_core
+
+            await gd_active_cache_mod.set_active_cycle_cache(
+                redis_core.get_redis(), cycle2.chat_id, None
+            )
+        except Exception:
+            logger.debug("gd active cache invalidate on victory failed", exc_info=True)
         await session.commit()
         logger.info(
             "GD v1 round tick done cycle_id=%s round=%s outcome=victory narrative_sent=%s buffer_users=%s",
@@ -774,6 +784,16 @@ async def _process_gd_v1_round_for_cycle_locked(
     return GDRoundProcessResult(ok=False, cycle_id=cycle_id, skipped_reason="no_session")
 
 
+async def _send_gd_reward_dm(bot: Any, uid: int, text_dm: str, rew: GDRewardRow) -> None:
+    for attempt in range(3):
+        try:
+            await bot.send_message(chat_id=uid, text=text_dm)
+            rew.dm_sent = True
+            return
+        except Exception:
+            logger.warning("GD reward DM attempt %s failed uid=%s", attempt, uid)
+
+
 async def finalize_gd_v1_rewards_and_notify(session: AsyncSession, cycle: GDCycle, bot: Any | None) -> None:
     fresh = await session.get(GDCycle, cycle.id)
     if not fresh:
@@ -831,6 +851,7 @@ async def finalize_gd_v1_rewards_and_notify(session: AsyncSession, cycle: GDCycl
     ranked = sorted(scores.items(), key=lambda x: -x[1])
     rank_map = {uid: i + 1 for i, (uid, _) in enumerate(ranked)}
 
+    dm_tasks: list[Any] = []
     for uid in uids:
         share = scores[uid] / total_score
         c = contrib.get(str(uid), {})
@@ -891,11 +912,7 @@ async def finalize_gd_v1_rewards_and_notify(session: AsyncSession, cycle: GDCycl
             from waifu_bot.services.player_notification_prefs import should_send_dm
 
             if await should_send_dm(session, int(uid), "group_dungeon"):
-                for attempt in range(3):
-                    try:
-                        await bot.send_message(chat_id=uid, text=text_dm)
-                        rew.dm_sent = True
-                        break
-                    except Exception:
-                        logger.warning("GD reward DM attempt %s failed uid=%s", attempt, uid)
+                dm_tasks.append(_send_gd_reward_dm(bot, uid, text_dm, rew))
+    if dm_tasks:
+        await asyncio.gather(*dm_tasks, return_exceptions=True)
     await session.commit()

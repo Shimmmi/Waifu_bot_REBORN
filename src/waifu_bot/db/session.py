@@ -13,7 +13,14 @@ def init_engine() -> None:
     global engine, SessionLocal  # noqa: PLW0603
     if engine:
         return
-    engine = create_async_engine(settings.postgres_dsn, echo=False, future=True)
+    engine = create_async_engine(
+        settings.postgres_dsn,
+        echo=False,
+        future=True,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_pre_ping=settings.db_pool_pre_ping,
+    )
     SessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

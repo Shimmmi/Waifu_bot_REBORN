@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -31,7 +32,7 @@ from waifu_bot.services.gd_v1_worker import (
     process_gd_v1_admin_force_victory_cycle,
     send_gd_v1_group_start_narrative,
 )
-from waifu_bot.services.game_config_service import get_game_config_map
+from waifu_bot.services.game_config_service import cfg_bool, get_game_config_map
 from waifu_bot.services import chat_rewards as chat_rewards_svc
 from waifu_bot.services.telegram_trace import (
     log_outgoing_fail,
@@ -230,6 +231,16 @@ def _media_type_from_message(message: Message) -> MediaType:
     return MediaType.TEXT
 
 
+async def _capture_tavern_audio_safe(bot: Bot, message: Message) -> None:
+    try:
+        from waifu_bot.services.tavern_audio import save_chat_audio_from_message
+
+        await save_chat_audio_from_message(bot, message)
+    except Exception:
+        chat_id = getattr(message.chat, "id", None)
+        logger.debug("tavern audio capture failed chat=%s", chat_id, exc_info=True)
+
+
 @router.message(_group_message_eligible_for_buffer_or_solo_combat)
 async def group_message_damage(message: Message, bot: Bot) -> None:
     """Каждое групповое сообщение: буфер раунда GD v1 + соло-урон (одновременно)."""
@@ -245,19 +256,41 @@ async def group_message_damage(message: Message, bot: Bot) -> None:
     chat_id = message.chat.id if message.chat else None
     player_id = message.from_user.id
 
-    # Cache dropped audio files (not voice) for tavern BGM — best-effort, isolated session.
+    # Cache dropped audio files (not voice) for tavern BGM — fire-and-forget.
     if message.audio:
-        try:
-            from waifu_bot.services.tavern_audio import save_chat_audio_from_message
-
-            await save_chat_audio_from_message(bot, message)
-        except Exception:
-            logger.debug("tavern audio capture failed chat=%s", chat_id, exc_info=True)
+        asyncio.create_task(
+            _capture_tavern_audio_safe(bot, message),
+            name=f"tavern_audio:{chat_id}",
+        )
 
     media_type = _media_type_from_message(message)
     message_text = message.text or message.caption
     msg_len = len(message_text) if message_text else 0
 
+    from waifu_bot.services.perf_metrics import track_async
+
+    async with track_async("group_message_damage_ms"):
+        await _group_message_damage_body(
+            message,
+            bot,
+            chat_id=chat_id,
+            player_id=player_id,
+            media_type=media_type,
+            message_text=message_text,
+            msg_len=msg_len,
+        )
+
+
+async def _group_message_damage_body(
+    message: Message,
+    bot: Bot,
+    *,
+    chat_id: int | None,
+    player_id: int,
+    media_type: MediaType,
+    message_text: str | None,
+    msg_len: int,
+) -> None:
     try:
         async for session in get_session():
             if chat_id is not None and int(chat_id) < 0:
@@ -328,6 +361,12 @@ async def group_message_damage(message: Message, bot: Bot) -> None:
                 # solo-dungeon damage, while chat members who are not in the GD keep dealing
                 # their own solo damage. process_message_damage no-ops cleanly when the player
                 # has no active solo run, so non-dungeon users are unaffected.
+
+            skip_solo_while_gd = bool(
+                v1
+                and cfg_bool(cfg, "gd_v1_skip_group_solo_while_active", default=False)
+            )
+
             from waifu_bot.services.guild_raid_service import apply_raid_message_damage
 
             mt: list[str] = []
@@ -355,6 +394,8 @@ async def group_message_damage(message: Message, bot: Bot) -> None:
                     chat_id,
                     rd.get("damage"),
                 )
+                break
+            if skip_solo_while_gd:
                 break
             result = await combat_service.process_message_damage(
                 session=session,

@@ -360,3 +360,32 @@ def test_affix_chaos_mult_bounds():
     for _ in range(50):
         m = ac._affix_chaos_mult({"CHAOS_DMG": {"swap_types": True}}, rng)
         assert 0.7 <= m <= 1.3
+
+
+def test_handle_abyss_attack_no_session_skips_for_update(monkeypatch):
+    """Without an active Abyss session, avoid locking progress with FOR UPDATE."""
+    import asyncio
+
+    from waifu_bot.game.constants import MediaType
+    from waifu_bot.services import abyss_combat as ac
+    from waifu_bot.services import abyss_service as absvc
+
+    async def no_session(_session, _player_id):
+        return False
+
+    async def must_not_call(*_args, **_kwargs):
+        raise AssertionError("get_progress_for_update must not run without active session")
+
+    monkeypatch.setattr(absvc, "has_active_abyss_session", no_session)
+    monkeypatch.setattr(absvc, "get_progress_for_update", must_not_call)
+
+    result = asyncio.run(
+        ac.handle_abyss_attack(
+            session=None,  # type: ignore[arg-type]
+            player_id=1,
+            media_type=MediaType.TEXT,
+            message_text="hi",
+            message_length=2,
+        )
+    )
+    assert result == {"error": "no_session"}

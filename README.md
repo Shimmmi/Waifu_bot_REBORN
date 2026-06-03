@@ -76,6 +76,12 @@ API: `/api/armory/*` (отдельно от Telegram WebApp `/webapp`).
 - Базовая настройка логов.
 - Подготовка к async Postgres (SQLAlchemy) через `db/session.py`.
 - Техническое ТЗ: `docs/technical_spec.md`.
+- **Полная архитектура и цепочки взаимодействий (EN):** `docs/ARCHITECTURE_AND_INTERACTIONS.md` — runtime reference for performance and operability analysis.
+- **Сверка FIX_OPTIMISATION с кодом (RU):** `docs/FIX_OPTIMISATION_ANALYSIS.md` — верификация 12 пунктов производительности и выводы.
+- **Performance runbook (EN):** `docs/PERFORMANCE_RUNBOOK.md` — мониторинг Redis/GD, флаги `game_config`, откат оптимизаций.
+- **Этапы оптимизации (RU):** `docs/OPTIMIZATION_STAGES_ANALYSIS.md` — Этап 1 (малый онлайн) и анализ Этапа 2; `docs/STAGE1_INFRA.md`, `docs/STAGE1_WORKERS_DECISION.md`, `docs/STAGE2_GATE.md`.
+- **Docker / workers:** `docs/DOCKER.md`, `docker-compose.yml`, `infra/systemd/`, `k8s/README.md`.
+- **Prod cutover (RU):** `docs/PROD_CUTOVER.md` — миграции, PgBouncer, workers на VPS.
 
 ## Что дальше
 - Реализовать WebApp HTML/JS для зданий/актов + SSE каналы.

@@ -29,8 +29,14 @@ if [ -f armory_frontend/package.json ]; then
 fi
 echo "==> apply migrations"
 PYTHONPATH=${REPO_DIR}/src python3 -m waifu_bot.cli migrate || true
-echo "==> restart service"
+echo "==> restart services"
 sudo systemctl restart waifu-bot.service
+if systemctl list-unit-files waifu-bot-worker.service >/dev/null 2>&1; then
+  sudo systemctl restart waifu-bot-worker.service waifu-bot-scheduler.service 2>/dev/null || true
+  if systemctl list-unit-files waifu-bot-llm-worker.service >/dev/null 2>&1; then
+    sudo systemctl restart waifu-bot-llm-worker.service 2>/dev/null || true
+  fi
+fi
 sleep 2
 systemctl is-active waifu-bot.service
 echo "==> health check"

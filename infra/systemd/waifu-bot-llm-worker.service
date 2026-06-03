@@ -1,0 +1,18 @@
+[Unit]
+Description=Waifu Bot Dramatiq LLM worker
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/waifu-bot-REBORN
+Environment=PYTHONPATH=/opt/waifu-bot-REBORN/src
+EnvironmentFile=-/opt/waifu-bot-REBORN/.env
+Environment=WORKER_ROLE=llm
+Environment=LLM_WORKER_ENABLED=true
+ExecStart=/opt/waifu-bot-REBORN/.venv/bin/python -m dramatiq waifu_bot.worker.actors --processes 1 --threads 2 -Q llm
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

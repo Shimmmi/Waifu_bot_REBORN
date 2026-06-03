@@ -65,5 +65,50 @@ def run(
     )
 
 
+@app.command()
+def scheduler(
+    env: str = typer.Option("production", "--env", "-e", help="APP_ENV"),
+):
+    """Run Dramatiq tick scheduler (BACKGROUND_MODE=worker|dual)."""
+    _set_env(env)
+    from waifu_bot.worker.scheduler import run_scheduler
+
+    asyncio.run(run_scheduler())
+
+
+@app.command()
+def worker(
+    queue: str = typer.Option("default", "--queue", "-Q", help="Dramatiq queue: default|llm"),
+    processes: int = typer.Option(1, "--processes", "-p"),
+    threads: int = typer.Option(4, "--threads", "-t"),
+    env: str = typer.Option("production", "--env", "-e"),
+):
+    """Run Dramatiq worker process."""
+    import os
+    import subprocess
+    import sys
+
+    _set_env(env)
+    os.environ.setdefault("PYTHONPATH", os.path.join(os.getcwd(), "src"))
+    if queue == "llm":
+        os.environ["WORKER_ROLE"] = "llm"
+    else:
+        os.environ["WORKER_ROLE"] = "gameplay"
+    cmd = [
+        sys.executable,
+        "-m",
+        "dramatiq",
+        "waifu_bot.worker.actors",
+        "--processes",
+        str(processes),
+        "--threads",
+        str(threads),
+        "-Q",
+        queue,
+    ]
+    typer.echo(" ".join(cmd))
+    raise SystemExit(subprocess.call(cmd))
+
+
 if __name__ == "__main__":
     app()

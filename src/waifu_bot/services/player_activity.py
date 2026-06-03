@@ -7,13 +7,17 @@ from typing import Any, Awaitable, Callable, Dict
 
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Update
+from redis.exceptions import RedisError
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from waifu_bot.core.config import settings
 from waifu_bot.db.models import Player
 from waifu_bot.db.session import SessionLocal, init_engine
 
 logger = logging.getLogger(__name__)
+
+_ACTIVITY_TOUCH_PREFIX = "player_activity:touch:"
 
 
 async def sync_player_telegram_identity(
@@ -53,6 +57,25 @@ async def touch_player_last_active(session: AsyncSession, telegram_user_id: int)
     )
 
 
+async def should_touch_player_activity(redis: Any, user_id: int) -> bool:
+    """
+    True if this update should write last_active to DB (debounce window expired).
+    Uses Redis SET NX; if Redis unavailable, always True (safe fallback).
+    """
+    if user_id <= 0:
+        return False
+    if redis is None:
+        return True
+    ttl = max(60, int(settings.player_activity_debounce_seconds))
+    key = f"{_ACTIVITY_TOUCH_PREFIX}{user_id}"
+    try:
+        ok = await redis.set(key, "1", nx=True, ex=ttl)
+        return bool(ok)
+    except RedisError:
+        logger.debug("activity debounce redis failed user_id=%s", user_id, exc_info=True)
+        return True
+
+
 class PlayerTelegramActivityMiddleware(BaseMiddleware):
     """После любого сообщения / правки / callback — обновить last_active (гильдия-онлайн)."""
 
@@ -72,18 +95,24 @@ class PlayerTelegramActivityMiddleware(BaseMiddleware):
                 user = event.callback_query.from_user
             if user:
                 try:
-                    init_engine()
-                    assert SessionLocal is not None
-                    async with SessionLocal() as session:
-                        await touch_player_last_active(session, user.id)
-                        await sync_player_telegram_identity(
-                            session,
-                            user.id,
-                            getattr(user, "username", None),
-                            getattr(user, "first_name", None),
-                            getattr(user, "last_name", None),
-                        )
-                        await session.commit()
+                    from waifu_bot.core import redis as redis_core
+
+                    redis = redis_core.get_redis()
+                    if await should_touch_player_activity(redis, user.id):
+                        init_engine()
+                        assert SessionLocal is not None
+                        async with SessionLocal() as session:
+                            await touch_player_last_active(session, user.id)
+                            await sync_player_telegram_identity(
+                                session,
+                                user.id,
+                                getattr(user, "username", None),
+                                getattr(user, "first_name", None),
+                                getattr(user, "last_name", None),
+                            )
+                            await session.commit()
                 except Exception:
-                    logger.exception("PlayerTelegramActivityMiddleware touch failed user_id=%s", user.id)
+                    logger.exception(
+                        "PlayerTelegramActivityMiddleware touch failed user_id=%s", user.id
+                    )
         return await handler(event, data)

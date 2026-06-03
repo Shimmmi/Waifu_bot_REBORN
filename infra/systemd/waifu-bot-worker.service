@@ -1,0 +1,19 @@
+[Unit]
+Description=Waifu Bot Dramatiq gameplay worker
+After=network.target redis.service postgresql.service
+PartOf=waifu-bot.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/waifu-bot-REBORN
+Environment=PYTHONPATH=/opt/waifu-bot-REBORN/src
+EnvironmentFile=-/opt/waifu-bot-REBORN/.env
+Environment=WORKER_ROLE=gameplay
+Environment=BACKGROUND_MODE=worker
+ExecStart=/opt/waifu-bot-REBORN/.venv/bin/python -m dramatiq waifu_bot.worker.actors --processes 1 --threads 4 -Q default
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

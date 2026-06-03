@@ -647,4 +647,5 @@ async def get_status(session: AsyncSession, redis: Any, player_id: int) -> dict[
         },
         "guild_bonus_lines": br.guild_bonus_lines,
         "claimable": wallet_gold > 0 or wallet_exp > 0 or pending_chests > 0,
+        "buffer_pending": bool(buf),
     }
