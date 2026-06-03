@@ -1,0 +1,2 @@
+; Generate: echo '"user" "md5'$(pg_md5 -m -p password | cut -d- -f3)'"'
+"waifu_user" "md5REPLACE_WITH_pg_md5_HASH"

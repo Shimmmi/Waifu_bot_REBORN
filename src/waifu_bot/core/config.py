@@ -66,7 +66,19 @@ class Settings(BaseSettings):
 
     # db / cache
     postgres_dsn: str = Field(..., alias="POSTGRES_DSN")
+    db_pool_size: int = Field(5, alias="DB_POOL_SIZE")
+    db_max_overflow: int = Field(10, alias="DB_MAX_OVERFLOW")
+    db_pool_pre_ping: bool = Field(True, alias="DB_POOL_PRE_PING")
     redis_url: str = Field(..., alias="REDIS_URL")
+    # inline = asyncio loops in API; worker = Dramatiq+scheduler only; dual = both (shadow)
+    background_mode: str = Field("inline", alias="BACKGROUND_MODE")
+    # Process role for LLM offload: api | gameplay | llm
+    worker_role: str = Field("api", alias="WORKER_ROLE")
+    llm_worker_enabled: bool = Field(False, alias="LLM_WORKER_ENABLED")
+    # Debounce PlayerTelegramActivityMiddleware DB writes (seconds).
+    player_activity_debounce_seconds: int = Field(300, alias="PLAYER_ACTIVITY_DEBOUNCE_SECONDS")
+    # Log P50/P95 for group_message_damage and LLM (Stage 1 baseline; see docs/STAGE1_INFRA.md).
+    perf_metrics_enabled: bool = Field(False, alias="PERF_METRICS_ENABLED")
 
     # --- OpenRouter: все модели задаются в .env (OPENROUTER_MODEL, OPENROUTER_MODEL_HIRE, OPENROUTER_MODEL_IMAGE) ---
     openrouter_api_key: str | None = Field(None, alias="OPENROUTER_API_KEY")

@@ -1,0 +1,101 @@
+# Waifu Bot — local/staging stack (Stage 1 PR6). Copy .env.example → .env and set secrets.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: waifu
+      POSTGRES_PASSWORD: waifu
+      POSTGRES_DB: waifu
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U waifu"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  pgbouncer:
+    image: edoburu/pgbouncer:1.22.1-p0
+    environment:
+      DATABASE_URL: postgres://waifu:waifu@postgres:5432/waifu
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+    ports:
+      - "6432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      POSTGRES_DSN: postgresql+asyncpg://waifu:waifu@pgbouncer:5432/waifu
+      REDIS_URL: redis://redis:6379/0
+      BACKGROUND_MODE: worker
+      WORKER_ROLE: api
+      HOST: 0.0.0.0
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["python", "-m", "dramatiq", "waifu_bot.worker.actors", "--processes", "1", "--threads", "4", "-Q", "default"]
+    env_file: .env
+    environment:
+      POSTGRES_DSN: postgresql+asyncpg://waifu:waifu@pgbouncer:5432/waifu
+      REDIS_URL: redis://redis:6379/0
+      BACKGROUND_MODE: worker
+      WORKER_ROLE: gameplay
+    depends_on:
+      - api
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    command: ["python", "-m", "waifu_bot.worker.scheduler"]
+    env_file: .env
+    environment:
+      POSTGRES_DSN: postgresql+asyncpg://waifu:waifu@pgbouncer:5432/waifu
+      REDIS_URL: redis://redis:6379/0
+      BACKGROUND_MODE: worker
+    depends_on:
+      - worker
+      redis:
+        condition: service_healthy
+
+  llm-worker:
+    build: .
+    command: ["python", "-m", "dramatiq", "waifu_bot.worker.actors", "--processes", "1", "--threads", "2", "-Q", "llm"]
+    env_file: .env
+    environment:
+      POSTGRES_DSN: postgresql+asyncpg://waifu:waifu@pgbouncer:5432/waifu
+      REDIS_URL: redis://redis:6379/0
+      WORKER_ROLE: llm
+      LLM_WORKER_ENABLED: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:

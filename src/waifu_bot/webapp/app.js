@@ -1462,9 +1462,26 @@ function connectSSE() {
   };
   sse.onerror = () => {
     appendEvent("SSE connection lost, retrying...");
+    if (typeof window.WaifuApp._scheduleSseRefetch === "function") {
+      window.WaifuApp._scheduleSseRefetch();
+    }
     setTimeout(connectSSE, 3000);
   };
 }
+
+let _sseRefetchTimer = null;
+window.WaifuApp._scheduleSseRefetch = function scheduleSseRefetch() {
+  if (_sseRefetchTimer) clearTimeout(_sseRefetchTimer);
+  _sseRefetchTimer = setTimeout(() => {
+    _sseRefetchTimer = null;
+    if (typeof window.WaifuApp.refreshBattleState === "function") {
+      window.WaifuApp.refreshBattleState();
+    }
+    if (typeof window.WaifuApp.loadProfile === "function") {
+      window.WaifuApp.loadProfile();
+    }
+  }, 300);
+};
 
 const WAIFU_GEN_BASE = `${GAME_STATIC_BASE}/waifu-gen`;
 const WAIFU_GEN_PLACEHOLDER = `${WAIFU_GEN_BASE}/placeholder.svg`;

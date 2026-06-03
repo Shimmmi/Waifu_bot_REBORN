@@ -173,7 +173,11 @@ def create_app() -> FastAPI:
                         )
                 asyncio.create_task(_run())
 
-        start_all_background_tasks()
+        mode = (settings.background_mode or "inline").lower()
+        if mode in ("inline", "dual"):
+            start_all_background_tasks()
+        else:
+            logger.info("BACKGROUND_MODE=%s — inline asyncio loops disabled in API", mode)
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:

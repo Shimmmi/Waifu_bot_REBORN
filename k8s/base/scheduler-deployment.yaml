@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: waifu-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: waifu-scheduler
+  template:
+    metadata:
+      labels:
+        app: waifu-scheduler
+    spec:
+      containers:
+        - name: scheduler
+          image: waifu-bot:latest
+          command: ["python", "-m", "waifu_bot.worker.scheduler"]
+          envFrom:
+            - secretRef:
+                name: waifu-bot-env
+          env:
+            - name: BACKGROUND_MODE
+              value: worker

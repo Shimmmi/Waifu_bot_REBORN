@@ -239,6 +239,8 @@ async def handle_abyss_attack(
     """Process one chat message as an Abyss attack. No-ops cleanly if the player
     has no active Abyss session."""
     rng = rng or random
+    if not await absvc.has_active_abyss_session(session, player_id):
+        return {"error": "no_session"}
     progress = await absvc.get_progress_for_update(session, player_id)
     if progress is None or not progress.session_active:
         return {"error": "no_session"}

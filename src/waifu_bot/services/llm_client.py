@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Sequence
@@ -13,6 +14,15 @@ from waifu_bot.core.config import settings
 logger = logging.getLogger(__name__)
 
 FALLBACK_HTTP_STATUSES: tuple[int, ...] = (402,)
+_LLM_MAX_CONCURRENT = 2
+_llm_sem: asyncio.Semaphore | None = None
+
+
+def _get_llm_semaphore() -> asyncio.Semaphore:
+    global _llm_sem
+    if _llm_sem is None:
+        _llm_sem = asyncio.Semaphore(_LLM_MAX_CONCURRENT)
+    return _llm_sem
 
 
 @dataclass(frozen=True)
@@ -89,6 +99,40 @@ def primary_provider() -> LlmProvider | None:
     return chain[0] if chain else None
 
 
+_LLM_OFFLOAD_EXACT = frozenset({"gd-start", "gd-round", "gd-finale"})
+_LLM_OFFLOAD_PREFIXES = ("expedition", "guild war", "guild-war")
+
+
+def should_offload_llm(caller: str) -> bool:
+    """Route background LLM calls to Dramatiq llm queue when LLM_WORKER_ENABLED."""
+    if not getattr(settings, "llm_worker_enabled", False):
+        return False
+    if (getattr(settings, "worker_role", "api") or "api").lower() == "llm":
+        return False
+    if caller in _LLM_OFFLOAD_EXACT:
+        return True
+    return any(caller.startswith(p) for p in _LLM_OFFLOAD_PREFIXES)
+
+
+async def _post_chat_completions_via_worker(
+    payload: dict,
+    *,
+    caller: str,
+    use_image_model: bool,
+) -> httpx.Response:
+    import waifu_bot.worker.actors  # noqa: F401 — register broker/actors
+    from waifu_bot.worker.actors.llm import llm_post_chat_completions_task
+
+    message = llm_post_chat_completions_task.send(payload, caller, use_image_model)
+    result = await asyncio.to_thread(message.get_result, timeout=180_000)
+    return httpx.Response(
+        status_code=int(result["status_code"]),
+        content=result["content"],
+        headers=httpx.Headers(result.get("headers") or {}),
+        request=httpx.Request("POST", "dramatiq://llm/chat/completions"),
+    )
+
+
 def _payload_with_model(payload: dict, provider: LlmProvider, *, use_image_model: bool) -> dict:
     """OpenRouter: model из payload. RouterAI: подставить ROUTERAI_MODEL* если заданы."""
     out = dict(payload)
@@ -121,9 +165,36 @@ async def post_chat_completions(
     if not chain:
         raise RuntimeError("post_chat_completions called without any LLM provider configured")
 
-    fallback_set = set(fallback_on)
-    last: httpx.Response | None = None
+    if should_offload_llm(caller):
+        from waifu_bot.services.perf_metrics import track_async
 
+        async with track_async("llm_post_chat_completions_ms"):
+            return await _post_chat_completions_via_worker(
+                payload, caller=caller, use_image_model=use_image_model
+            )
+
+    fallback_set = set(fallback_on)
+
+    from waifu_bot.services.perf_metrics import track_async
+
+    async with track_async("llm_post_chat_completions_ms"):
+        async with _get_llm_semaphore():
+            return await _post_chat_completions_locked(
+                client, payload, caller=caller, use_image_model=use_image_model,
+                fallback_set=fallback_set, chain=chain,
+            )
+
+
+async def _post_chat_completions_locked(
+    client: httpx.AsyncClient,
+    payload: dict,
+    *,
+    caller: str,
+    use_image_model: bool,
+    fallback_set: set[int],
+    chain: list[LlmProvider],
+) -> httpx.Response:
+    last: httpx.Response | None = None
     for idx, provider in enumerate(chain):
         body = _payload_with_model(payload, provider, use_image_model=use_image_model)
         url = chat_completions_url(provider.base_url)

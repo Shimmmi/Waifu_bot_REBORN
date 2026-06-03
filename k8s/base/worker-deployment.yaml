@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: waifu-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: waifu-worker
+  template:
+    metadata:
+      labels:
+        app: waifu-worker
+    spec:
+      containers:
+        - name: worker
+          image: waifu-bot:latest
+          command:
+            - python
+            - -m
+            - dramatiq
+            - waifu_bot.worker.actors
+            - --processes
+            - "1"
+            - --threads
+            - "4"
+            - -Q
+            - default
+          envFrom:
+            - secretRef:
+                name: waifu-bot-env
+          env:
+            - name: WORKER_ROLE
+              value: gameplay
+            - name: BACKGROUND_MODE
+              value: worker

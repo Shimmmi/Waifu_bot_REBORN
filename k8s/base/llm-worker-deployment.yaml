@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: waifu-llm-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: waifu-llm-worker
+  template:
+    metadata:
+      labels:
+        app: waifu-llm-worker
+    spec:
+      containers:
+        - name: llm-worker
+          image: waifu-bot:latest
+          command:
+            - python
+            - -m
+            - dramatiq
+            - waifu_bot.worker.actors
+            - --processes
+            - "1"
+            - --threads
+            - "2"
+            - -Q
+            - llm
+          envFrom:
+            - secretRef:
+                name: waifu-bot-env
+          env:
+            - name: WORKER_ROLE
+              value: llm
+            - name: LLM_WORKER_ENABLED
+              value: "true"
