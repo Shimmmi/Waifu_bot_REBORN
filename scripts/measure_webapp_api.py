@@ -66,6 +66,11 @@ def main() -> int:
         default=None,
         help="X-Dev-Token for browser dev bypass (or set DEV_BROWSER_TOKEN env)",
     )
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="Write JSON report to this path (e.g. info/webapp_perf_profile_expedition.json)",
+    )
     args = parser.parse_args()
     dev_token = args.dev_token or __import__("os").environ.get("DEV_BROWSER_TOKEN")
     api = f"{args.base_url}/api"
@@ -113,17 +118,43 @@ def main() -> int:
         }
         and r.get("status") == 200
     )
+    profile_page_est = sum(
+        r["bytes"]
+        for r in results
+        if r["label"] in {"profile_full"} and r.get("status") == 200
+    )
+    dungeons_solo_est = sum(
+        r["bytes"]
+        for r in results
+        if r["label"]
+        in {
+            "profile_lite",
+            "dungeons_active_full",
+            "dungeons_plus_status",
+            "dungeons_list_act1",
+        }
+        and r.get("status") == 200
+    )
 
     report = {
         "player_id": args.player_id,
+        "base_url": args.base_url,
         "endpoints": results,
         "totals": {
             "all_measured_bytes": total_bytes,
-            "dungeons_page_optimized_est_bytes": dungeons_page_est,
+            "profile_page_bootstrap_full_est_bytes": profile_page_est,
+            "dungeons_page_solo_tab_est_bytes": dungeons_solo_est,
+            "dungeons_page_with_expedition_tab_est_bytes": dungeons_page_est,
             "tavern_page_optimized_est_bytes": tavern_page_est,
         },
     }
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    out_json = json.dumps(report, ensure_ascii=False, indent=2)
+    if args.output:
+        out_path = __import__("pathlib").Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(out_json + "\n", encoding="utf-8")
+        print(f"Wrote {out_path}", file=sys.stderr)
+    print(out_json)
     failed = [r for r in results if r.get("status") != 200]
     return 1 if failed else 0
 

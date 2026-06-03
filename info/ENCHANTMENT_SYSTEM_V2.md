@@ -30,8 +30,14 @@
 Формула пыли (настраивается в `game_config`):
 
 ```
-dust = base × rarity_mult × tier_mult^(tier-1) × (1 + enchant_level × plus_mult)
+dust = floor( base × rarity_mult[rarity] × tier_mult^(tier - 1) )
 ```
+
+- `rarity_mult` — геометрическая прогрессия по редкости (1…5): от ×1 (common) до ×10 (legendary) при дефолтном конфиге.
+- `tier_mult` — основание степени по tier шаблона (1…10), по умолчанию `1.20`.
+- **Уровень заточки на пыль не влияет.**
+
+Примеры (дефолт: `dust_base=5`, легенда T1 → 50, легенда T10 → 257):
 
 ## Fraction-вторички
 

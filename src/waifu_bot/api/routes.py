@@ -20,6 +20,7 @@ from waifu_bot.services.expedition import ExpeditionService
 from waifu_bot.services.webhook import process_update
 from waifu_bot.services import sse as sse_service
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
+from waifu_bot.game.item_display_name import compose_item_display_name_ru
 from waifu_bot.services.item_art import (
     derive_image_key,
     derive_item_art_key,
@@ -606,40 +607,8 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
                 description=_ad or None,
             )
         )
-    def _fallback_base_name_ru() -> str:
-        st = (inv.slot_type or "").lower()
-        wt = (inv.weapon_type or "").lower()
-        if "ring" in st:
-            return "Кольцо"
-        if "amulet" in st:
-            return "Амулет"
-        if "costume" in st or "armor" in st:
-            return "Доспех"
-        if "offhand" in st:
-            if wt == "orb" or "сфера" in (inv.item.name if inv.item else "").lower():
-                return "Сфера"
-            return "Щит"
-        if "weapon" in st:
-            if "axe" in wt:
-                return "Топор"
-            if "sword" in wt:
-                return "Меч"
-            if "bow" in wt:
-                return "Лук"
-            if "staff" in wt or "wand" in wt:
-                return "Посох"
-            if "dagger" in wt:
-                return "Кинжал"
-            return "Оружие"
-        return "Предмет"
 
-    base_name = inv.item.name if inv.item else _fallback_base_name_ru()
-    if base_name.strip().lower() in ("предмет", "item"):
-        base_name = _fallback_base_name_ru()
-
-    prefix = next((a.name for a in (inv.affixes or []) if getattr(a, "kind", None) == "affix"), None)
-    suffix = next((a.name for a in (inv.affixes or []) if getattr(a, "kind", None) == "suffix"), None)
-    display_name = f"{(prefix + ' ') if prefix else ''}{base_name}{(' ' + suffix) if suffix else ''}".strip()
+    base_name, display_name = compose_item_display_name_ru(inv)
     image_key = derive_image_key(inv.slot_type, inv.weapon_type, display_name)
     art_key = derive_item_art_key(
         inv.slot_type, inv.weapon_type, base_name, display_name=display_name

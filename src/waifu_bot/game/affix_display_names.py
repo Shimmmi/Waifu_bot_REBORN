@@ -345,7 +345,7 @@ _SECONDARY_PREFIX_NAMES: dict[str, dict[tuple[int, int], str]] = {
 }
 
 
-def resolve_prefix_name_ru(stat: str, affix_tier: int) -> str:
+def _resolve_prefix_name_ru_legacy(stat: str, affix_tier: int) -> str:
     st = str(stat or "")
     low = st.lower().replace("audioo", "audio").replace("magii", "magic")
     if low.startswith("passive_node_level_add:") or low.startswith(
@@ -373,7 +373,18 @@ def resolve_prefix_name_ru(stat: str, affix_tier: int) -> str:
     return (stat or "").capitalize() or "Префикс"
 
 
-def resolve_suffix_name_ru(family_key: str, affix_tier: int) -> str:
+def resolve_prefix_name_ru(
+    stat: str, affix_tier: int, *, family_id: str | None = None
+) -> str:
+    from waifu_bot.game.affix_display_names_llm import lookup_affix_display_name_ru
+
+    cached = lookup_affix_display_name_ru(family_id, affix_tier)
+    if cached:
+        return cached
+    return _resolve_prefix_name_ru_legacy(stat, affix_tier)
+
+
+def _resolve_suffix_name_ru_legacy(family_key: str, affix_tier: int) -> str:
     fk = str(family_key or "")
     if fk.startswith("s_passive_lvl_") or fk.startswith("s_passive_branch_"):
         return _PASSIVE_LEVEL_ADD_SUFFIX.get(int(affix_tier), "наставления")
@@ -387,6 +398,15 @@ def resolve_suffix_name_ru(family_key: str, affix_tier: int) -> str:
         fam = mm.group(1).lower()
         return _MONSTER_FAMILY_GENITIVE_RU.get(fam, fam)
     return family_key
+
+
+def resolve_suffix_name_ru(family_key: str, affix_tier: int) -> str:
+    from waifu_bot.game.affix_display_names_llm import lookup_affix_display_name_ru
+
+    cached = lookup_affix_display_name_ru(family_key, affix_tier)
+    if cached:
+        return cached
+    return _resolve_suffix_name_ru_legacy(family_key, affix_tier)
 
 
 def representative_affix_tier(tier_rows: list) -> int:

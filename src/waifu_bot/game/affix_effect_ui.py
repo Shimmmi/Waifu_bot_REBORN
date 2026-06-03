@@ -83,3 +83,79 @@ def effect_stat_description_ru(effect_key: str) -> str:
     if low == "passive_all_nodes_level_add":
         return "+ур. ко всем изученным пассивным навыкам"
     return raw or "Свойство"
+
+
+_PRIMARY_STATS = frozenset(
+    {"strength", "agility", "intelligence", "endurance", "charm", "luck"}
+)
+
+BONUS_CATEGORY_LABELS: dict[str, str] = {
+    "stats": "Основные статы",
+    "damage": "Урон и крит",
+    "defense": "Защита и выживаемость",
+    "economy": "Золото, опыт, торговля",
+    "skills": "Навыки / пассивы",
+    "monster": "Урон по типам монстров",
+    "media": "Урон от медиа",
+    "other": "Прочее",
+}
+
+BONUS_CATEGORY_ORDER: tuple[str, ...] = (
+    "stats",
+    "damage",
+    "defense",
+    "economy",
+    "skills",
+    "monster",
+    "media",
+    "other",
+)
+
+
+def _normalize_effect_key(effect_key: str) -> str:
+    return (
+        str(effect_key or "")
+        .strip()
+        .lower()
+        .replace("audioo", "audio")
+        .replace("magii", "magic")
+    )
+
+
+def effect_bonus_category(effect_key: str) -> tuple[str, str]:
+    """Обобщённая категория бонуса для фильтров UI (id, подпись ru)."""
+    low = _normalize_effect_key(effect_key)
+    if not low:
+        return "other", BONUS_CATEGORY_LABELS["other"]
+    if low in _PRIMARY_STATS:
+        return "stats", BONUS_CATEGORY_LABELS["stats"]
+    if low.startswith("passive_"):
+        return "skills", BONUS_CATEGORY_LABELS["skills"]
+    if low.startswith("damage_vs_monster_type_"):
+        return "monster", BONUS_CATEGORY_LABELS["monster"]
+    if low.startswith("media_damage_"):
+        return "media", BONUS_CATEGORY_LABELS["media"]
+    if (
+        low.startswith("gold_")
+        or low.startswith("exp_")
+        or low.startswith("merchant_")
+        or low.startswith("sell_price_")
+        or low.startswith("tavern_")
+        or low == "magic_find_pct"
+    ):
+        return "economy", BONUS_CATEGORY_LABELS["economy"]
+    if (
+        low.startswith("damage_")
+        or low.startswith("melee_")
+        or low.startswith("ranged_")
+        or low.startswith("magic_")
+        or low.startswith("crit_")
+    ):
+        return "damage", BONUS_CATEGORY_LABELS["damage"]
+    if (
+        low.startswith("defense_")
+        or low.startswith("hp_")
+        or low in ("dmg_reduce_pct", "evade_pct", "hp_max_pct")
+    ):
+        return "defense", BONUS_CATEGORY_LABELS["defense"]
+    return "other", BONUS_CATEGORY_LABELS["other"]

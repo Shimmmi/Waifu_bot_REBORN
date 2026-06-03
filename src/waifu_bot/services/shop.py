@@ -453,89 +453,9 @@ class ShopService:
             price = shop_buy_price_from_merchant_discount(offer.price_base, float(merchant_discount_pct))
         else:
             price = offer.price_base
-        def _fallback_base_name_ru() -> str:
-            st = (inv.slot_type or "").lower()
-            wt = (inv.weapon_type or "").lower()
-            if "ring" in st:
-                return "Кольцо"
-            if "amulet" in st:
-                return "Амулет"
-            if "costume" in st or "armor" in st:
-                return "Доспех"
-            if "offhand" in st:
-                return "Щит"
-            if "weapon" in st:
-                if "axe" in wt:
-                    return "Топор"
-                if "sword" in wt:
-                    return "Меч"
-                if "bow" in wt:
-                    return "Лук"
-                if "staff" in wt or "wand" in wt:
-                    return "Посох"
-                if "dagger" in wt:
-                    return "Кинжал"
-                return "Оружие"
-            return "Предмет"
+        from waifu_bot.game.item_display_name import compose_item_display_name_ru
 
-        def _guess_gender_ru(noun: str) -> str:
-            """
-            Very rough grammatical gender guess for RU nouns:
-            - "n" neuter, "f" feminine, "m" masculine (default).
-            """
-            # Use the first word as the "head noun" heuristic, otherwise phrases like
-            # "Кольцо новичка" would be mis-detected as feminine due to trailing "а".
-            w_full = (noun or "").strip().lower()
-            head = w_full.split()[0] if w_full else ""
-            w = head.strip("()[]{}.,!?:;\"'") if head else w_full.strip("()[]{}.,!?:;\"'")
-            if not w:
-                return "m"
-            if w.endswith(("о", "е", "ё", "ие", "мя")):
-                return "n"
-            if w.endswith(("а", "я")):
-                return "f"
-            return "m"
-
-        def _inflect_adj_ru(adj: str, gender: str) -> str:
-            """
-            Minimal adjective agreement for common masculine nominative forms:
-            - ...ый/...ой → ...ая / ...ое
-            - ...ий       → ...яя / ...ее
-            Keeps original casing except the ending.
-            """
-            a = (adj or "").strip()
-            if not a or gender == "m":
-                return a
-            low = a.lower()
-            if low.endswith("ый") or low.endswith("ой"):
-                stem = a[:-2]
-                return stem + ("ая" if gender == "f" else "ое")
-            if low.endswith(("кий", "гий", "хий")):
-                # E.g. "крепкий" -> "крепкая/крепкое"
-                stem = a[:-2]  # drop "ий"
-                return stem + ("ая" if gender == "f" else "ое")
-            if low.endswith("ий"):
-                stem = a[:-2]
-                return stem + ("яя" if gender == "f" else "ее")
-            return a
-
-        # Build display name with affixes (prefixes before, suffixes after)
-        prefixes: list[str] = []
-        suffixes: list[str] = []
-        for a in inv.affixes or []:
-            if getattr(a, "kind", None) == "affix":
-                prefixes.append(a.name)
-            elif getattr(a, "kind", None) == "suffix":
-                suffixes.append(a.name)
-
-        base_name = inv.item.name if inv.item else _fallback_base_name_ru()
-        if base_name.strip().lower() in ("предмет", "item"):
-            base_name = _fallback_base_name_ru()
-
-        gender = _guess_gender_ru(base_name)
-        prefixes = [_inflect_adj_ru(p, gender) for p in prefixes]
-
-        full_name = " ".join(prefixes + [base_name] + suffixes).strip()
+        base_name, full_name = compose_item_display_name_ru(inv)
         # Serialize affixes for frontend (same shape as inventory endpoints expect)
         affixes_out: list[dict] = []
         for a in inv.affixes or []:

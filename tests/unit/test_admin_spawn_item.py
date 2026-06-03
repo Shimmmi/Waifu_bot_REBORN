@@ -49,11 +49,13 @@ def test_admin_spawn_inventory_item_route_calls_service() -> None:
         inv.item = item
 
         with patch.object(ar.item_service, "generate_admin_inventory_item", new_callable=AsyncMock) as gen:
-            gen.return_value = inv
+            gen.return_value = (inv, 2, 2)
             body = AdminSpawnItemRequest(base_template_id=10, level=8, rarity=2)
             resp = await ar.admin_spawn_inventory_item(body=body, player_id=99, session=session)
         assert resp.inventory_item_id == 9001
         assert resp.affix_count == 2
+        assert resp.affixes_requested == 2
+        assert resp.affixes_applied == 2
         session.commit.assert_awaited_once()
 
     asyncio.run(_run())
@@ -74,17 +76,87 @@ def test_generate_admin_inventory_item_smoke() -> None:
             if not tid_row:
                 pytest.skip("no templates")
             tid = int(tid_row[0])
-            inv = await svc.generate_admin_inventory_item(
+            inv, _req, _app = await svc.generate_admin_inventory_item(
                 session,
                 None,
                 base_template_id=tid,
                 act=1,
                 rarity=2,
-                level=23,
                 affixes=[],
             )
-            await session.rollback()
             assert inv.id is not None
             assert int(inv.tier or 0) >= 1
+            assert int(inv.total_level or 0) >= int(inv.base_level or 1)
+
+            fam_row = (
+                await session.execute(text("SELECT id FROM affix_families LIMIT 1"))
+            ).first()
+            if fam_row:
+                fam_id = int(fam_row[0])
+                inv_aff, aff_req, aff_app = await svc.generate_admin_inventory_item(
+                    session,
+                    None,
+                    base_template_id=tid,
+                    act=3,
+                    rarity=3,
+                    affixes=[{"catalog_kind": "diablo_family", "catalog_id": fam_id}],
+                )
+                assert int(inv_aff.total_level) >= int(inv.total_level)
+                assert aff_req == 1
+                assert aff_app == 1
+
+            await session.rollback()
 
     asyncio.run(_smoke())
+
+
+def test_generate_admin_multi_affix_high_ilvl() -> None:
+    from sqlalchemy import text
+
+    from waifu_bot.db.session import init_engine, get_session
+
+    async def _run() -> None:
+        init_engine()
+        async for session in get_session():
+            svc = ItemService()
+            if not await svc._item_base_templates_has_content(session):
+                pytest.skip("item_base_templates not seeded")
+            t10_row = (
+                await session.execute(
+                    text(
+                        "SELECT id FROM item_base_templates WHERE tier >= 10 "
+                        "ORDER BY tier DESC LIMIT 1"
+                    )
+                )
+            ).first()
+            if not t10_row:
+                pytest.skip("no T10 template")
+            tid = int(t10_row[0])
+            fam_rows = (
+                await session.execute(
+                    text(
+                        "SELECT id FROM affix_families WHERE family_id IN "
+                        "('p_primary_strength', 'p_primary_intelligence')"
+                    )
+                )
+            ).all()
+            if len(fam_rows) < 2:
+                pytest.skip("primary stat families not seeded")
+            affixes = [
+                {"catalog_kind": "diablo_family", "catalog_id": int(r[0])}
+                for r in fam_rows[:2]
+            ]
+            inv, aff_req, aff_app = await svc.generate_admin_inventory_item(
+                session,
+                None,
+                base_template_id=tid,
+                act=5,
+                rarity=4,
+                affixes=affixes,
+            )
+            assert aff_req == 2
+            assert aff_app >= 2
+            assert len(inv.affixes or []) >= 2
+            await session.rollback()
+
+    asyncio.run(_run())

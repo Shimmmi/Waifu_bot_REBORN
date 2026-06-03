@@ -531,7 +531,9 @@ class ItemService:
             fam_kind = (getattr(fam, "kind", "") or "").lower()
             inv_kind = "affix" if fam_kind == "prefix" else "suffix"
             if inv_kind == "affix":
-                name_ru = self._resolve_prefix_name_ru(effect_key, affix_tier)
+                name_ru = self._resolve_prefix_name_ru(
+                    effect_key, affix_tier, family_id=str(getattr(fam, "family_id", "") or "") or None
+                )
             else:
                 name_ru = self._resolve_suffix_name_ru(str(getattr(fam, "family_id", "") or ""), affix_tier)
 
@@ -786,7 +788,9 @@ class ItemService:
             fam_kind = (getattr(fam, "kind", "") or "").lower()
             inv_kind = "affix" if fam_kind == "prefix" else "suffix"
             if inv_kind == "affix":
-                name_ru = self._resolve_prefix_name_ru(effect_key, affix_tier)
+                name_ru = self._resolve_prefix_name_ru(
+                    effect_key, affix_tier, family_id=str(getattr(fam, "family_id", "") or "") or None
+                )
             else:
                 name_ru = self._resolve_suffix_name_ru(str(getattr(fam, "family_id", "") or ""), affix_tier)
 
@@ -844,8 +848,10 @@ class ItemService:
             or ":percent" in k
         )
 
-    def _resolve_prefix_name_ru(self, stat: str, affix_tier: int) -> str:
-        return resolve_prefix_name_ru(stat, affix_tier)
+    def _resolve_prefix_name_ru(
+        self, stat: str, affix_tier: int, *, family_id: str | None = None
+    ) -> str:
+        return resolve_prefix_name_ru(stat, affix_tier, family_id=family_id)
 
     def _resolve_suffix_name_ru(self, family_key: str, affix_tier: int) -> str:
         return resolve_suffix_name_ru(family_key, affix_tier)
@@ -1250,7 +1256,9 @@ class ItemService:
             fam_kind = (getattr(fam, "kind", "") or "").lower()
             inv_kind = "affix" if fam_kind == "prefix" else "suffix"
             if inv_kind == "affix":
-                name_ru = self._resolve_prefix_name_ru(effect_key, affix_tier)
+                name_ru = self._resolve_prefix_name_ru(
+                    effect_key, affix_tier, family_id=str(getattr(fam, "family_id", "") or "") or None
+                )
             else:
                 name_ru = self._resolve_suffix_name_ru(str(getattr(fam, "family_id", "") or ""), affix_tier)
 
@@ -1478,6 +1486,51 @@ class ItemService:
             return None
         return fam, tr
 
+    async def _pick_diablo_tier_row_for_admin(
+        self,
+        session: AsyncSession,
+        family_id: int,
+        target_total_level: int,
+        tier_cap: int,
+    ) -> tuple[m.AffixFamily, m.AffixFamilyTier] | None:
+        """Admin QA: pick affix tier row even when ilvl is above seed bands."""
+        picked = await self._pick_diablo_tier_row_for_level(
+            session, family_id, target_total_level, tier_cap
+        )
+        if picked:
+            return picked
+        fam = await session.get(m.AffixFamily, int(family_id))
+        if not fam:
+            return None
+        cur = int(target_total_level)
+        cap = int(tier_cap)
+        res = await session.execute(
+            select(m.AffixFamilyTier)
+            .where(
+                m.AffixFamilyTier.family_id == int(family_id),
+                m.AffixFamilyTier.min_total_level <= cur,
+                m.AffixFamilyTier.affix_tier <= cap,
+            )
+            .order_by(m.AffixFamilyTier.affix_tier.desc())
+            .limit(1)
+        )
+        tr = res.scalars().first()
+        if tr is not None:
+            return fam, tr
+        res = await session.execute(
+            select(m.AffixFamilyTier)
+            .where(
+                m.AffixFamilyTier.family_id == int(family_id),
+                m.AffixFamilyTier.affix_tier <= cap,
+            )
+            .order_by(m.AffixFamilyTier.affix_tier.desc())
+            .limit(1)
+        )
+        tr = res.scalars().first()
+        if tr is None:
+            return None
+        return fam, tr
+
     def _append_diablo_affix_to_inv(
         self,
         inv: m.InventoryItem,
@@ -1510,7 +1563,9 @@ class ItemService:
         fam_kind = (getattr(fam, "kind", "") or "").lower()
         inv_kind = "affix" if fam_kind == "prefix" else "suffix"
         if inv_kind == "affix":
-            name_ru = self._resolve_prefix_name_ru(effect_key, affix_tier)
+            name_ru = self._resolve_prefix_name_ru(
+                effect_key, affix_tier, family_id=str(getattr(fam, "family_id", "") or "") or None
+            )
         else:
             name_ru = self._resolve_suffix_name_ru(str(getattr(fam, "family_id", "") or ""), affix_tier)
 
@@ -1548,13 +1603,20 @@ class ItemService:
         base_template_id: int,
         act: int,
         rarity: int,
-        level: int | None,
+        level: int | None = None,
         is_legendary: bool = False,
         affixes: list[dict[str, Any]] | None = None,
         base_grade: int = 0,
-    ) -> m.InventoryItem:
-        """Spawn a specific base template with optional affix picks (admin QA)."""
+    ) -> tuple[m.InventoryItem, int, int]:
+        """Spawn a specific base template with optional affix picks (admin QA).
+
+        Returns (inventory_item, affixes_requested, affixes_applied).
+        """
         from waifu_bot.services.item_codex import CATALOG_DIABLO, CATALOG_LEGACY
+
+        affix_specs = list(affixes or [])
+        affixes_requested = len(affix_specs)
+        affixes_applied = 0
 
         base = await self._fetch_base_template_dict(session, int(base_template_id))
         if not base:
@@ -1564,28 +1626,19 @@ class ItemService:
         bg = max(0, min(2, int(base_grade or 0)))
         base_tier = int(base.get("tier") or 1)
         base_level = int(base.get("level_min") or max(1, (base_tier - 1) * 5 + 1))
-        target_total_level = max(
-            base_level,
-            int(level or base_level),
-        )
         slot_type = self._slot_type_from_template_row(base.get("item_type"), base.get("subtype"))
 
         raw_dmg_min = int(base.get("dmg_min") or 0)
         raw_dmg_max = int(base.get("dmg_max") or 0)
         dmg_min: int | None = raw_dmg_min if raw_dmg_min > 0 else None
         dmg_max: int | None = raw_dmg_max if raw_dmg_max > 0 else None
-        if dmg_min is not None and dmg_max is not None:
-            try:
-                dmg_min, dmg_max = self._roll_weapon_damage_for_level(dmg_min, dmg_max, target_total_level)
-            except Exception:
-                pass
 
         raw_attack_speed = int(base.get("attack_speed") or 0)
         attack_speed = raw_attack_speed if raw_attack_speed > 0 else None
         base_stat_code = str(base.get("stat1_type") or "").upper()
         base_stat = _STAT_CODE_TO_NAME.get(base_stat_code)
         base_stat_value = int(base.get("stat1_value") or 0) or None
-        req_level = int(base.get("level_min") or max(1, target_total_level - 2))
+        req_level = int(base.get("level_min") or max(1, base_level - 2))
         req_stat_val = max(0, int(base.get("stat1_value") or 0))
         req = {"level": req_level}
         if base_stat == "strength":
@@ -1619,7 +1672,7 @@ class ItemService:
             description=None,
             rarity=int(eff_rarity),
             tier=int(base_tier),
-            level=int(target_total_level),
+            level=int(base_level),
             item_type=self._item_type_from_slot_type(slot_type),
             damage=int(dmg_max) if dmg_max is not None else (int(dmg_min) if dmg_min is not None else None),
             attack_speed=int(attack_speed) if attack_speed is not None else None,
@@ -1630,7 +1683,7 @@ class ItemService:
             required_agility=req.get("agility"),
             required_intelligence=req.get("intelligence"),
             affixes=None,
-            base_value=max(1, int(20 * int(target_total_level) * int(eff_rarity))),
+            base_value=max(1, int(20 * int(base_level) * int(eff_rarity))),
             is_legendary=False,
         )
         session.add(item)
@@ -1641,9 +1694,9 @@ class ItemService:
             item_id=item.id,
             rarity=int(eff_rarity),
             tier=int(base_tier),
-            level=int(target_total_level),
+            level=int(base_level),
             base_level=int(base_level),
-            total_level=int(target_total_level),
+            total_level=int(base_level),
             plus_level_source=0,
             base_id=None,
             is_legendary=False,
@@ -1662,17 +1715,18 @@ class ItemService:
         session.add(inv)
         await session.flush()
 
-        tier_cap = _affix_tier_cap_for_generation(act, target_total_level)
         pseudo_base = SimpleNamespace(slot_type=slot_type, attack_type=attack_type)
 
-        for spec in affixes or []:
+        for spec in affix_specs:
             kind = str(spec.get("catalog_kind") or "").strip()
             cid = int(spec.get("catalog_id") or 0)
             if cid <= 0:
                 continue
+            cur_level = int(inv.total_level)
+            tier_cap = _affix_tier_cap_for_generation(act, cur_level)
             if kind == CATALOG_DIABLO:
-                picked = await self._pick_diablo_tier_row_for_level(
-                    session, cid, target_total_level, tier_cap
+                picked = await self._pick_diablo_tier_row_for_admin(
+                    session, cid, cur_level, tier_cap
                 )
                 if not picked:
                     continue
@@ -1686,9 +1740,10 @@ class ItemService:
                     ek, slot_type, attack_type, weapon_type
                 ):
                     continue
-                if not passive_node_level_add_allowed(ek, int(target_total_level)):
+                if not passive_node_level_add_allowed(ek, int(inv.total_level)):
                     continue
                 self._append_diablo_affix_to_inv(inv, item, fam, tr)
+                affixes_applied += 1
             elif kind == CATALOG_LEGACY:
                 leg = await session.get(m.Affix, cid)
                 if not leg:
@@ -1709,10 +1764,22 @@ class ItemService:
                         tier=int(leg.tier or 1),
                     )
                 )
+                affixes_applied += 1
 
         tpl_ilvl = self._template_secondary_total_level_bonus(base)
         if tpl_ilvl:
             inv.total_level = int(inv.total_level) + int(tpl_ilvl)
+
+        if dmg_min is not None and dmg_max is not None and raw_dmg_min > 0 and raw_dmg_max > 0:
+            try:
+                dmg_min, dmg_max = self._roll_weapon_damage_for_level(
+                    raw_dmg_min, raw_dmg_max, int(inv.total_level)
+                )
+                inv.damage_min = int(dmg_min)
+                inv.damage_max = int(dmg_max)
+                item.damage = int(dmg_max) if dmg_max is not None else int(dmg_min)
+            except Exception:
+                pass
 
         inv.level = int(inv.total_level)
         item.level = int(inv.total_level)
@@ -1721,14 +1788,17 @@ class ItemService:
         await self._apply_legendary_item_finalization(session, item, inv, base, int(eff_rarity))
 
         await session.flush()
-        inv._display_name = item.name  # type: ignore[attr-defined]
+        from waifu_bot.game.item_display_name import compose_item_display_name_ru
+
+        _base, display_name = compose_item_display_name_ru(inv)
+        inv._display_name = display_name  # type: ignore[attr-defined]
         if base.get("id") is not None:
             inv._base_template_id = int(base["id"])  # type: ignore[attr-defined]
             inv._base_grade = int(base.get("base_grade") or 0)  # type: ignore[attr-defined]
         await apply_enchant_steps_to_inventory_item(session, inv)
         if player_id is not None:
             await self._register_inventory_codex(session, int(player_id), inv)
-        return inv
+        return inv, affixes_requested, affixes_applied
 
     async def generate_gamble_item(self, session: AsyncSession, act: int, player_level: int) -> m.InventoryItem:
         """Generate gamble item (uncommon-epic) into inventory."""
