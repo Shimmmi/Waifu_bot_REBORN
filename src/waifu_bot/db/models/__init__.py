@@ -81,6 +81,7 @@ from waifu_bot.db.models.group_dungeon import (
     GDCompletion,
 )
 from waifu_bot.db.models.armory import ArmoryAdminActionLog, PlayerBan, PlayerEventLog
+from waifu_bot.db.models.bot_group_chat import BotGroupChat
 from waifu_bot.db.models.gd_cycle import (
     GDClassSkill,
     GDCycle,
@@ -101,6 +102,7 @@ from waifu_bot.db.models.abyss import (
 __all__ = [
     "PlayerEventLog",
     "ArmoryAdminActionLog",
+    "BotGroupChat",
     "PlayerBan",
     "Player",
     "PlayerChatRewardWallet",

@@ -7,7 +7,7 @@ import logging
 
 from aiogram import Bot, F, Router
 from aiogram.filters import BaseFilter, Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, ChatMemberUpdated, Message
 
 from waifu_bot.core import redis as redis_core
 from waifu_bot.core.config import settings
@@ -190,6 +190,19 @@ async def cmd_help(message: Message, bot: Bot) -> None:
     await _send_response_traced(message, text, "cmd_help")
 
 
+@router.my_chat_member()
+async def on_bot_chat_member(event: ChatMemberUpdated, bot: Bot) -> None:
+    """Record bot join/leave in group chats for Armory admin monitoring."""
+    try:
+        async for session in get_session():
+            from waifu_bot.services.bot_group_chats import record_bot_chat_member_update
+
+            await record_bot_chat_member_update(session, event, bot)
+            await session.commit()
+    except Exception:
+        logger.exception("bot chat member update failed chat_id=%s", getattr(event.chat, "id", None))
+
+
 def _media_type_from_message(message: Message) -> MediaType:
     # Media priority
     if message.sticker:
@@ -254,6 +267,12 @@ async def group_message_damage(message: Message, bot: Bot) -> None:
                     await touch_player_chat_seen(session, player_id, int(chat_id))
                 except Exception:
                     logger.debug("touch_player_chat_seen failed pid=%s chat=%s", player_id, chat_id, exc_info=True)
+                try:
+                    from waifu_bot.services.bot_group_chats import touch_bot_group_chat_activity
+
+                    await touch_bot_group_chat_activity(session, int(chat_id))
+                except Exception:
+                    logger.debug("touch_bot_group_chat_activity failed chat=%s", chat_id, exc_info=True)
             try:
                 text_chars = len(message_text) if message_text else 0
                 cfg = await get_game_config_map(session)
