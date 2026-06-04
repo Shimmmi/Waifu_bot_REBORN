@@ -1,7 +1,11 @@
 """Совпадение детализации базового урона сообщения с calculate_message_damage."""
 
 from waifu_bot.game.constants import MediaType
-from waifu_bot.game.formulas import build_message_damage_base_trace_ru, calculate_message_damage
+from waifu_bot.game.formulas import (
+    apply_equipment_damage_flats,
+    build_message_damage_base_trace_ru,
+    calculate_message_damage,
+)
 
 
 def test_base_trace_matches_calculate_message_damage_grid():
@@ -94,3 +98,56 @@ def test_text_length_step_when_long():
     assert "mult" in kinds
     labels = " ".join(s.get("label_ru", "") for s in steps)
     assert "Длина" in labels or "длина" in labels.lower()
+
+
+def test_apply_equipment_damage_flats_magic_text():
+    base = 50
+    got, steps = apply_equipment_damage_flats(
+        base,
+        attack_type="magic",
+        media_type=MediaType.TEXT,
+        bonuses={"magic_damage_flat": 8, "damage_flat": 3},
+    )
+    assert got == base + 8 + 3
+    assert len(steps) == 2
+    assert all(s["source"] == "affix_attack_damage_flat" for s in steps)
+    assert any("магией" in s["label_ru"] for s in steps)
+
+
+def test_apply_equipment_damage_flats_ranged_text():
+    base = 40
+    got, steps = apply_equipment_damage_flats(
+        base,
+        attack_type="ranged",
+        media_type=MediaType.TEXT,
+        bonuses={"ranged_damage_flat": 12, "magic_damage_flat": 99},
+    )
+    assert got == base + 12
+    assert len(steps) == 1
+    assert "дальнем" in steps[0]["label_ru"]
+
+
+def test_apply_equipment_damage_flats_magic_on_sticker_with_ranged_weapon():
+    base = 30
+    got, steps = apply_equipment_damage_flats(
+        base,
+        attack_type="ranged",
+        media_type=MediaType.STICKER,
+        bonuses={"magic_damage_flat": 15, "ranged_damage_flat": 20},
+    )
+    assert got == base + 15
+    assert len(steps) == 1
+    assert "магией" in steps[0]["label_ru"]
+
+
+def test_apply_equipment_damage_flats_damage_percent():
+    base = 100
+    got, steps = apply_equipment_damage_flats(
+        base,
+        attack_type="melee",
+        media_type=MediaType.TEXT,
+        bonuses={"damage_flat": 10, "damage_percent": 20},
+    )
+    assert got == int((base + 10) * 1.2)
+    assert steps[-1]["kind"] == "mult"
+    assert steps[-1]["source"] == "affix_attack_damage_percent"

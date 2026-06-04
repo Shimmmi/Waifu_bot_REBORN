@@ -771,6 +771,32 @@ def _max_effect_display(node: PassiveSkillNode) -> str:
     return f"+{round(mx * 100)}%"
 
 
+def passive_learn_block_reason(
+    *,
+    waifu_level: int,
+    branch_spent: int,
+    waifu_level_req: int,
+    branch_points_req: int,
+    current_level: int,
+    max_level: int,
+    skill_points: int,
+    gold: int,
+    cost_gold: int,
+) -> str | None:
+    """Причина, почему узел нельзя прокачать; None — можно (при прочих условиях API)."""
+    if waifu_level < int(waifu_level_req):
+        return "locked_waifu_level"
+    if branch_spent < int(branch_points_req):
+        return "locked_branch_points"
+    if current_level >= int(max_level):
+        return "skill_maxed"
+    if int(skill_points) < 1:
+        return "no_skill_points"
+    if int(gold) < int(cost_gold):
+        return "insufficient_gold"
+    return None
+
+
 async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[str, Any]:
     nodes = (
         (await session.execute(select(PassiveSkillNode).order_by(PassiveSkillNode.branch, PassiveSkillNode.tier, PassiveSkillNode.position)))
@@ -810,14 +836,20 @@ async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[
         if b not in branches:
             continue
         spent = bp.get(b, 0)
-        locked = waifu_lv < int(n.waifu_level_req) or spent < int(n.branch_points_req)
         cost_gold_eff = await effective_passive_learn_cost(session, player_id, int(n.cost_gold or 0))
-        can_learn = (
-            not locked
-            and cur < int(n.max_level)
-            and sp >= 1
-            and gold >= cost_gold_eff
+        block = passive_learn_block_reason(
+            waifu_level=waifu_lv,
+            branch_spent=spent,
+            waifu_level_req=int(n.waifu_level_req),
+            branch_points_req=int(n.branch_points_req),
+            current_level=cur,
+            max_level=int(n.max_level),
+            skill_points=sp,
+            gold=gold,
+            cost_gold=cost_gold_eff,
         )
+        locked = block in ("locked_waifu_level", "locked_branch_points")
+        can_learn = block is None
         add_lv = (
             int(bundle.nodes.get(str(n.id).strip().lower(), 0) or 0)
             + int(bundle.branches.get(str(n.branch), 0) or 0)
@@ -864,7 +896,21 @@ async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[
                 "description": n.description,
                 "can_learn": can_learn,
                 "is_locked": locked,
+                "learn_block_reason": block,
             }
+        )
+
+    total_learned = sum(int(v) for v in learned_map.values())
+    per_level = int(cfg_float(cfg, "skill.points_per_level", 1.0))
+    expected_free = max(0, (waifu_lv - 1) * per_level - total_learned)
+    if abs(sp - expected_free) > 0:
+        logger.warning(
+            "passive skill_points mismatch player_id=%s sp=%s expected_free=%s learned_sum=%s waifu_lv=%s",
+            player_id,
+            sp,
+            expected_free,
+            total_learned,
+            waifu_lv,
         )
 
     return {

@@ -523,6 +523,7 @@ All paths below are relative to **`/api`** prefix.
 | `POST` | `/armory/admin/players/{tg_id}/unban` |
 | `POST` | `/armory/admin/players/{tg_id}/grant-gold` |
 | `POST` | `/armory/admin/players/{tg_id}/restore-hp` |
+| `POST` | `/armory/admin/players/{tg_id}/grant-paperdoll-generation` |
 | `GET` | `/armory/admin/group-chats` |
 | `POST` | `/armory/admin/group-chats/refresh` |
 | `GET` | `/armory/admin/actions` |

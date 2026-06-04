@@ -129,6 +129,9 @@ class MainWaifu(Base):
     paperdoll_generated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    paperdoll_bonus_generations: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
 
     bio: Mapped[str | None] = mapped_column(Text(), nullable=True)
 

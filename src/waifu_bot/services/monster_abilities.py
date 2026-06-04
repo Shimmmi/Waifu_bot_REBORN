@@ -175,7 +175,10 @@ async def log_dot_tick_if_any(
 ) -> None:
     if dot_total <= 0:
         return
-    session.add(
+    from waifu_bot.services.combat import append_solo_battle_log
+
+    await append_solo_battle_log(
+        session,
         BattleLog(
             player_id=player_id,
             dungeon_id=dungeon_id,
@@ -186,5 +189,5 @@ async def log_dot_tick_if_any(
             },
             player_hp_before=hp_before,
             player_hp_after=hp_after,
-        )
+        ),
     )

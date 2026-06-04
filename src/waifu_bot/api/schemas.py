@@ -207,6 +207,7 @@ class PassiveSkillNodeOut(BaseModel):
     description: str | None = None
     can_learn: bool = False
     is_locked: bool = False
+    learn_block_reason: str | None = None
 
 
 class PassiveSkillTreeResponse(BaseModel):
@@ -395,6 +396,7 @@ class MainWaifuProfile(BaseModel):
     class_flat_bonuses: dict[str, int] = Field(default_factory=dict)
     portrait_url: Optional[str] = None
     paperdoll_url: Optional[str] = None
+    paperdoll_generations_remaining: int = 0
     bio: Optional[str] = None
 
     class Config:

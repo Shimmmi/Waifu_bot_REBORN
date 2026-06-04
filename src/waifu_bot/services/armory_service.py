@@ -19,6 +19,7 @@ from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
 from waifu_bot.services.passive_skills import get_passive_skill_bonuses
 from waifu_bot.services.player_ban import is_player_banned
 from waifu_bot.services.inventory_payload import build_inventory_payloads
+from waifu_bot.services.paperdoll_quota import paperdoll_generations_remaining
 
 
 def _waifu_portrait_url(waifu: m.MainWaifu) -> str | None:
@@ -150,6 +151,13 @@ async def build_public_summary(
             out["character"]["experience"] = waifu.experience
             out["character"]["energy"] = waifu.energy
             out["character"]["max_energy"] = waifu.max_energy
+        if access == "admin":
+            out["character"]["paperdoll_bonus_generations"] = int(
+                waifu.paperdoll_bonus_generations or 0
+            )
+            out["character"]["paperdoll_generations_remaining"] = paperdoll_generations_remaining(
+                waifu
+            )
 
         equipped_payloads = await build_inventory_payloads(session, equipped)
         out["equipped_items"] = equipped_payloads
