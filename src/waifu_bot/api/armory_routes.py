@@ -38,6 +38,7 @@ from waifu_bot.services.armory_service import (
     load_player_bundle,
     search_players,
 )
+from waifu_bot.services.paperdoll_quota import paperdoll_generations_remaining
 from waifu_bot.services.armory_session import (
     SESSION_COOKIE,
     clear_session_cookies,
@@ -654,6 +655,42 @@ async def admin_restore_hp(
     await _admin_audit(session, request, admin_id, "restore_hp", tg_id)
     await session.commit()
     return {"success": True, "current_hp": waifu.current_hp}
+
+
+@router.post(
+    "/admin/players/{tg_id}/grant-paperdoll-generation",
+    dependencies=[Depends(verify_csrf)],
+)
+async def admin_grant_paperdoll_generation(
+    tg_id: int,
+    request: Request,
+    admin_id: ArmoryAdmin,
+    session: AsyncSession = Depends(get_db),
+):
+    player = await session.get(m.Player, tg_id)
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="player not found")
+    waifu = (
+        await session.execute(select(m.MainWaifu).where(m.MainWaifu.player_id == tg_id))
+    ).scalar_one_or_none()
+    if not waifu:
+        raise HTTPException(status_code=404, detail="waifu_not_found")
+    waifu.paperdoll_bonus_generations = int(waifu.paperdoll_bonus_generations or 0) + 1
+    remaining = paperdoll_generations_remaining(waifu)
+    await _admin_audit(
+        session,
+        request,
+        admin_id,
+        "grant_paperdoll_generation",
+        tg_id,
+        {"paperdoll_bonus_generations": waifu.paperdoll_bonus_generations},
+    )
+    await session.commit()
+    return {
+        "success": True,
+        "paperdoll_bonus_generations": waifu.paperdoll_bonus_generations,
+        "paperdoll_generations_remaining": remaining,
+    }
 
 
 @router.get("/admin/group-chats")

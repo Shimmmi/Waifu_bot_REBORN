@@ -35,9 +35,9 @@
 | 6 | + к золоту (дроп) | `gold_bonus_pct` | то же | `gold_bonus_pct` | `p_sec_gold_bonus_pct`, `s_sec_gold_bonus_pct` | Складывается с бонусом от УДЧ |
 | **Уже есть на «Подробно», но через другие механики (не 6 колонок шаблона)** |
 | 7 | + к броне (от предметов) | суммарная броня с экипировки + зачар | Профиль `armor`, бой: `armor_dr = A/(A+K(waifu.level))` в общем пуле `total_reduce` | — (implicit `armor_base` + enchant) | **Нет** отдельной семьи в JSON | Не дублировать как `dmg_reduce_pct`; отдельный вклад в пул снижения, не плоское вычитание |
-| 8 | + % урона ближнего боя | `melee_damage_flat` (в коде считается как flat-бонус к скору урона) | `calculate_item_bonuses` + `_compute_details` | — | **Нет** | Нужны семьи `p_/s_` + тиры в `diablo_affix_family_tiers.json` |
-| 9 | + % урона дальнего боя | `ranged_damage_flat` | то же | — | **Нет** | В дереве пассивов **нет** отдельного узла «лук» — только экипировка/аффиксы |
-| 10 | + % магического урона | `magic_damage_flat` | то же | — | **Нет** | |
+| 8 | + % урона ближнего боя | `melee_damage_flat` (в коде считается как flat-бонус к скору урона) | `calculate_item_bonuses` + `_compute_details` | — | `p_dmg_melee`, `s_dmg_melee` | Бой: `apply_equipment_damage_flats` — на **тексте/ссылке** при `attack_type=melee` |
+| 9 | + % урона дальнего боя | `ranged_damage_flat` | то же | — | `p_dmg_ranged`, `s_dmg_ranged` | Бой: то же при `attack_type=ranged` (на медиа не применяется) |
+| 10 | + % магического урона | `magic_damage_flat` | то же | — | `p_dmg_magic`, `s_dmg_magic` | Бой: на **тексте** при `attack_type=magic`; на **остальных медиа** (урон от ИНТ) — всегда, независимо от оружия. Также `damage_flat` / `damage_percent` с экипа |
 | 11 | Скидка в магазине (покупка) | `merchant_discount_flat`, `merchant_discount_percent` | `_compute_details` → `merchant_discount` | — | **Нет** | Сейчас сильно завязано на ОБА; аффиксами расширяется суммой |
 | 12 | Цена продажи в магазине выше | нет отдельного ключа | Продажа: `shop.calculate_shop_price(..., is_buy=False)` только от **charm** | — | **Нет** | Нужен новый ключ, напр. `sell_price_bonus_percent` + правка `shop.py` и профиля |
 | 13 | Скидка в таверне (найм, лечение, прокачка) | нет единого ключа предмета | Таверна: в основном ОБА/конфиг | — | **Нет** | Пассив `shop_discount_pct` у узла `m_bargain` — не то же самое, что отдельная «таверна» |
@@ -196,7 +196,7 @@
 
 1. Аффиксы **урона по семье** для 8 недостающих семей + **процентные** варианты (`damage_vs_monster_type_percent:*`).
 2. Аффиксы **медиа** для 7 недостающих ключей (отдельный `exclusive_group` на тип медиа или один `media_bonus` с жёстким `max_per_item`).
-3. Аффиксы **melee / ranged / magic** урона (`*_flat` или `*_percent` — унифицировать с `calculate_item_bonuses`).
+3. ~~Аффиксы **melee / ranged / magic** урона в бою~~ — сделано: `apply_equipment_damage_flats` в `combat.process_message_damage`.
 4. Отдельные ключи **продажа** и **таверна** + проводка в `shop.py` / `tavern.py`.
 5. Условные **3× / 2×** — отдельный эпик после стабилизации ключей.
 6. **passive_node_level_add** — отдельный крупный модуль (БД, баланс, UI).

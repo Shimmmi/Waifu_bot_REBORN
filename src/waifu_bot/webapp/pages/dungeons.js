@@ -182,7 +182,7 @@ async function renderSoloDungeonsForAct(profile) {
     : `<div class="placeholder">Нет данжей для акта ${act}.</div>`;
 
   const abyssBanner = abyssState?.session_active
-    ? `<div class="banner" style="margin-bottom:12px;text-align:center;">🕳️ ОВ в Бездне — завершите спуск, чтобы начать соло-данж.</div>`
+    ? `<div class="banner banner--abyss-active">🕳️ ОВ в Бездне — завершите спуск, чтобы начать соло-данж.</div>`
     : "";
 
   box.innerHTML = `
@@ -2774,19 +2774,30 @@ async function loadAbyssTab() {
   }
 }
 
-function abyssHpBar(cur, max, color) {
+function abyssHpBar(cur, max, fillClass) {
   const pct = max > 0 ? Math.max(0, Math.min(100, Math.round((cur / max) * 100))) : 0;
   return `
-    <div class="abyss-hpbar" style="background:#2a2030;border-radius:8px;overflow:hidden;height:18px;position:relative;">
-      <div style="width:${pct}%;height:100%;background:${color};transition:width .3s;"></div>
-      <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;text-shadow:0 1px 2px #000;">${Math.max(0, cur)} / ${max}</span>
+    <div class="hp-bar-wrap abyss-hpbar-labeled">
+      <div class="hp-bar-labels">
+        <span class="hp-bar-label-value">${Math.max(0, cur)} / ${max}</span>
+      </div>
+      <div class="hp-bar">
+        <div class="hp-fill ${fillClass}" style="width:${pct}%"></div>
+      </div>
     </div>`;
+}
+
+function abyssAffixColorClass(monster) {
+  const n = Number(monster.affix_count) || (monster.affixes || []).length;
+  if (n >= 4) return "red";
+  if (n >= 3) return "gold";
+  return monster.is_elite ? "gold" : "blue";
 }
 
 function abyssModifierBadge(modifier, label, desc) {
   if (!modifier) return "";
   const b = ABYSS_MODIFIER_BADGE[modifier] || { icon: "", cls: "" };
-  return `<div class="abyss-modifier-badge ${b.cls}" title="${escapeHtml(desc || "")}" style="display:inline-block;padding:4px 10px;border-radius:14px;background:#3a2a4a;border:1px solid #5a3a6a;font-size:12px;margin:2px;">${b.icon} ${escapeHtml(label || modifier)}</div>`;
+  return `<div class="abyss-modifier-badge ${b.cls}" title="${escapeHtml(desc || "")}">${b.icon} ${escapeHtml(label || modifier)}</div>`;
 }
 
 function renderAbyss(st) {
@@ -2795,9 +2806,9 @@ function renderAbyss(st) {
 
   if (!st.is_available) {
     root.innerHTML = `
-      <div class="card" style="text-align:center;padding:24px;">
-        <div style="font-size:42px;">🕳️</div>
-        <h3 style="margin:8px 0;">Бездна закрыта</h3>
+      <div class="card card--locked">
+        <div class="abyss-hero-icon">🕳️</div>
+        <h3>Бездна закрыта</h3>
         <p class="muted">${escapeHtml(st.unavailable_reason || "Недоступно")}</p>
       </div>`;
     return;
@@ -2820,24 +2831,24 @@ function abyssLobbyHtml(st) {
   const limit = Number(st.daily_limit || 0);
   const shards = Number(st.abyss_shards || 0);
   return `
-    <div class="card" style="padding:18px;">
-      <div style="display:flex;align-items:center;gap:10px;">
-        <div style="font-size:36px;">🕳️</div>
+    <div class="card">
+      <div class="abyss-lobby-head">
+        <div class="abyss-lobby-icon">🕳️</div>
         <div>
-          <h3 style="margin:0;">Бездна</h3>
+          <h3>Бездна</h3>
           <div class="muted tiny">Бесконечный спуск. Каждое сообщение в чате — удар.</div>
         </div>
       </div>
-      <div class="abyss-stats-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0;">
-        <div class="abyss-stat"><div class="muted tiny">Рекорд</div><div style="font-size:20px;font-weight:700;">🏆 ${record}</div></div>
-        <div class="abyss-stat"><div class="muted tiny">Последний чекпоинт</div><div style="font-size:20px;font-weight:700;">🏛 ${checkpoint}</div></div>
-        <div class="abyss-stat"><div class="muted tiny">Осколки Бездны</div><div style="font-size:20px;font-weight:700;">🔮 ${shards}</div></div>
-        <div class="abyss-stat"><div class="muted tiny">Чекпоинты сегодня</div><div style="font-size:20px;font-weight:700;">${limitUsed} / ${limit}</div></div>
+      <div class="abyss-stats-grid">
+        <div class="abyss-stat"><div class="muted tiny">Рекорд</div><div class="abyss-stat-value">🏆 ${record}</div></div>
+        <div class="abyss-stat"><div class="muted tiny">Последний чекпоинт</div><div class="abyss-stat-value">🏛 ${checkpoint}</div></div>
+        <div class="abyss-stat"><div class="muted tiny">Осколки Бездны</div><div class="abyss-stat-value">🔮 ${shards}</div></div>
+        <div class="abyss-stat"><div class="muted tiny">Чекпоинты сегодня</div><div class="abyss-stat-value">${limitUsed} / ${limit}</div></div>
       </div>
-      <button class="primary" style="width:100%;" onclick="WaifuApp.abyssEnter()">${escapeHtml(btnLabel)}</button>
-      <div style="display:flex;gap:8px;margin-top:10px;">
-        <button class="secondary" style="flex:1;" onclick="WaifuApp.openAbyssLeaderboard()">🏆 Топ недели</button>
-        <button class="secondary" style="flex:1;" onclick="WaifuApp.openAbyssShop()">🔮 Магазин</button>
+      <button class="primary btn-block" onclick="WaifuApp.abyssEnter()">${escapeHtml(btnLabel)}</button>
+      <div class="abyss-actions-row">
+        <button class="secondary" onclick="WaifuApp.openAbyssLeaderboard()">🏆 Топ недели</button>
+        <button class="secondary" onclick="WaifuApp.openAbyssShop()">🔮 Магазин</button>
       </div>
     </div>`;
 }
@@ -2846,51 +2857,54 @@ function abyssBattleHtml(st) {
   const m = st.current_monster || {};
   const floor = Number(st.current_floor || 0);
   const badges = [];
-  if (m.is_boss) badges.push(`<span class="badge" style="background:#7a2a2a;padding:2px 8px;border-radius:10px;font-size:11px;">👑 Босс</span>`);
-  if (m.is_elite) badges.push(`<span class="badge" style="background:#2a4a7a;padding:2px 8px;border-radius:10px;font-size:11px;">⭐ Элита</span>`);
-  const affixChips = (m.affixes || []).map((a) => `<span class="affix-chip" style="display:inline-block;background:#33304a;padding:2px 7px;border-radius:8px;font-size:10px;margin:1px;">${escapeHtml(a.name)}</span>`).join("");
+  if (m.is_boss) badges.push(`<span class="badge abyss-badge-boss">👑 Босс</span>`);
+  if (m.is_elite) badges.push(`<span class="badge abyss-badge-elite">⭐ Элита</span>`);
+  const affixColor = abyssAffixColorClass(m);
+  const affixChips = (m.affixes || [])
+    .map((a) => `<span class="affix-chip ${affixColor}">${escapeHtml(a.name)}</span>`)
+    .join("");
   const grace = st.active_grace;
   const graceHtml = grace
-    ? `<div class="abyss-grace-active" style="background:#243a24;border:1px solid #3a6a3a;border-radius:10px;padding:8px 10px;margin:8px 0;font-size:12px;">${escapeHtml(grace.icon || "✨")} <b>${escapeHtml(grace.name)}</b> — ${escapeHtml(grace.effect_label || grace.description || "")}</div>`
+    ? `<div class="abyss-grace-active">${escapeHtml(grace.icon || "✨")} <b>${escapeHtml(grace.name)}</b> — ${escapeHtml(grace.effect_label || grace.description || "")}</div>`
     : "";
   const modifierHtml = st.current_floor_modifier
     ? abyssModifierBadge(st.current_floor_modifier, st.modifier_label, st.modifier_description)
     : "";
   const warning = m.warning_text
-    ? `<div class="banner" style="background:#4a2a1a;border-color:#7a4a2a;">⚠️ ${escapeHtml(m.warning_text)}</div>`
+    ? `<div class="banner banner--warning">⚠️ ${escapeHtml(m.warning_text)}</div>`
     : "";
   const unconscious = st.waifu_unconscious;
   const reviveBtn = unconscious
-    ? `<button class="primary" style="width:100%;margin-top:8px;" onclick="WaifuApp.abyssRevive()">🔮 Воскресить за Осколки</button>`
+    ? `<button type="button" class="primary btn-block abyss-revive-btn" onclick="WaifuApp.abyssRevive()">🔮 Воскресить за Осколки</button>`
     : "";
   const unconsciousBanner = unconscious
-    ? `<div class="banner" style="background:#3a1a1a;border-color:#7a2a2a;">😵 ОВ без сознания. HP восстанавливается со временем — атаки возобновятся автоматически.</div>`
+    ? `<div class="banner banner--danger">😵 ОВ без сознания. HP восстанавливается со временем — атаки возобновятся автоматически.</div>`
     : "";
 
   return `
-    <div class="card" style="padding:16px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div><span style="font-size:13px;" class="muted">Этаж</span> <span style="font-size:24px;font-weight:800;">${floor}</span></div>
+    <div class="card">
+      <div class="abyss-battle-head">
+        <div><span class="muted tiny">Этаж</span> <span class="abyss-floor-num">${floor}</span></div>
         <button class="dungeon-tab-sm" title="Покинуть Бездну" onclick="WaifuApp.openAbyssExitModal()">🏳️</button>
       </div>
-      <div style="margin:6px 0;">${modifierHtml}</div>
+      <div class="abyss-modifiers">${modifierHtml}</div>
       ${graceHtml}
       ${warning}
       ${unconsciousBanner}
-      <div class="abyss-monster" style="margin-top:10px;">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;">
-          <div style="font-weight:700;">${escapeHtml(m.name || "Монстр")} ${badges.join(" ")}</div>
+      <div class="abyss-monster">
+        <div class="abyss-monster-head">
+          <div class="abyss-monster-name">${escapeHtml(m.name || "Монстр")} ${badges.join(" ")}</div>
           <div class="muted tiny">ур. ${Number(m.level || 1)}</div>
         </div>
-        <div style="margin:6px 0;">${affixChips}</div>
-        ${abyssHpBar(Number(m.hp_current || 0), Number(m.hp_max || 1), "linear-gradient(90deg,#c0392b,#e74c3c)")}
+        <div class="abyss-affixes">${affixChips}</div>
+        ${abyssHpBar(Number(m.hp_current || 0), Number(m.hp_max || 1), "hp-fill-monster")}
       </div>
-      <div class="abyss-waifu" style="margin-top:14px;">
+      <div class="abyss-waifu">
         <div class="muted tiny">Ваша ОВ</div>
-        ${abyssHpBar(Number(st.waifu_hp || 0), Number(st.waifu_max_hp || 1), "linear-gradient(90deg,#27ae60,#2ecc71)")}
+        ${abyssHpBar(Number(st.waifu_hp || 0), Number(st.waifu_max_hp || 1), "hp-fill-waifu")}
       </div>
       ${reviveBtn}
-      <p class="muted tiny" style="text-align:center;margin:12px 0 0;">✍️ Пишите в групповой чат — каждое сообщение наносит урон.</p>
+      <p class="muted tiny abyss-hint">✍️ Пишите в групповой чат — каждое сообщение наносит урон.</p>
     </div>`;
 }
 
@@ -2937,10 +2951,9 @@ function openAbyssGraceModal(choices) {
   const wrap = document.getElementById("abyss-grace-options");
   if (!modal || !wrap) return;
   wrap.innerHTML = (choices || []).map((g) => `
-    <button class="abyss-grace-option" onclick="WaifuApp.chooseAbyssGrace(${Number(g.id)})"
-      style="display:block;width:100%;text-align:left;background:#2a2438;border:1px solid #4a3a5a;border-radius:12px;padding:12px;margin:6px 0;cursor:pointer;">
-      <div style="font-weight:700;">${escapeHtml(g.icon || "✨")} ${escapeHtml(g.name)}</div>
-      <div class="muted tiny" style="margin-top:4px;">${escapeHtml(g.effect_label || g.description || "")}</div>
+    <button type="button" class="abyss-grace-option" onclick="WaifuApp.chooseAbyssGrace(${Number(g.id)})">
+      <div class="abyss-grace-option-title">${escapeHtml(g.icon || "✨")} ${escapeHtml(g.name)}</div>
+      <div class="muted tiny abyss-grace-option-desc">${escapeHtml(g.effect_label || g.description || "")}</div>
     </button>`).join("");
   modal.style.display = "flex";
 }
@@ -2974,8 +2987,8 @@ function openAbyssCheckpointModal(floor) {
   if (!modal || !body) return;
   if (title) title.textContent = `🏛 Чекпоинт ${floor} пройден!`;
   body.innerHTML = `
-    <p style="text-align:center;font-size:14px;">Босс повержен, прогресс сохранён.</p>
-    <p class="muted tiny" style="text-align:center;">Награды (осколки и предмет) начислены — подробности в личке бота.
+    <p class="abyss-checkpoint-lead">Босс повержен, прогресс сохранён.</p>
+    <p class="muted tiny abyss-checkpoint-note">Награды (осколки и предмет) начислены — подробности в личке бота.
     Выберите Благодать, чтобы продолжить спуск.</p>`;
   modal.style.display = "flex";
 }
@@ -3008,10 +3021,10 @@ async function openAbyssLeaderboard() {
   try {
     const data = await apiFetch("/abyss/leaderboard?limit=50");
     const rows = (data.entries || []).map((e) => `
-      <div style="display:flex;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #2a2438;${e.is_me ? "background:#243a24;border-radius:6px;" : ""}">
+      <div class="abyss-list-row${e.is_me ? " abyss-list-row--me" : ""}">
         <span>${e.rank}. ${escapeHtml(e.name)}</span>
-        <span style="font-weight:700;">🕳️ ${e.max_floor}</span>
-      </div>`).join("") || `<div class="muted" style="padding:12px;text-align:center;">Пока пусто</div>`;
+        <span class="abyss-list-row-floor">🕳️ ${e.max_floor}</span>
+      </div>`).join("") || `<div class="muted abyss-list-empty">Пока пусто</div>`;
     const myRank = data.my_rank ? `<p class="muted tiny">Ваше место: ${data.my_rank}</p>` : "";
     showAbyssBottomSheet("🏆 Лидерборд недели", rows + myRank);
   } catch (e) {
@@ -3023,13 +3036,13 @@ async function openAbyssShop() {
   try {
     const data = await apiFetch("/abyss/shop");
     const items = (data.items || []).map((it) => `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid #2a2438;">
+      <div class="abyss-list-row abyss-shop-row">
         <div>
-          <div style="font-weight:700;">${escapeHtml(it.icon || "")} ${escapeHtml(it.name)}</div>
+          <div class="abyss-shop-name">${escapeHtml(it.icon || "")} ${escapeHtml(it.name)}</div>
           <div class="muted tiny">${escapeHtml(it.description || "")}</div>
         </div>
-        <button class="secondary" ${it.affordable ? "" : "disabled"} onclick="WaifuApp.abyssBuy(${it.id})">🔮 ${it.cost_shards}</button>
-      </div>`).join("") || `<div class="muted" style="padding:12px;text-align:center;">Магазин пуст</div>`;
+        <button type="button" class="secondary" ${it.affordable ? "" : "disabled"} onclick="WaifuApp.abyssBuy(${it.id})">🔮 ${it.cost_shards}</button>
+      </div>`).join("") || `<div class="muted abyss-list-empty">Магазин пуст</div>`;
     showAbyssBottomSheet(`🔮 Магазин Осколков (${data.abyss_shards})`, items);
   } catch (e) {
     showToast("Не удалось загрузить магазин: " + (e?.message || e), "error");
@@ -3058,10 +3071,10 @@ function showAbyssBottomSheet(title, innerHtml) {
   if (!sheet) {
     sheet = document.createElement("div");
     sheet.id = "abyss-bottomsheet";
-    sheet.className = "modal";
+    sheet.className = "modal abyss-bottomsheet-modal";
     sheet.style.display = "none";
     sheet.innerHTML = `
-      <div class="modal-content">
+      <div class="modal-content abyss-modal-content">
         <div class="modal-head">
           <div class="modal-title" id="abyss-bs-title"></div>
           <button type="button" class="secondary" onclick="document.getElementById('abyss-bottomsheet').style.display='none'">✖</button>

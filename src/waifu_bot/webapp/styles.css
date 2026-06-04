@@ -7365,7 +7365,8 @@ body.page-shop {
 }
 .page-training .passive-skill-cell-lv-badge {
   position: absolute;
-  top: 6px;
+  top: auto;
+  bottom: 6px;
   left: 6px;
   z-index: 3;
   display: inline-flex;
@@ -7519,6 +7520,50 @@ body.page-shop {
   font-weight: 800;
   letter-spacing: 0.02em;
   white-space: nowrap;
+}
+.page-training .passive-cell-upgrade--compact {
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 3px 5px 4px;
+  border-radius: 6px;
+  font-size: 9px;
+}
+.page-training .passive-cell-upgrade--compact .passive-cell-upgrade-plus {
+  width: 14px;
+  height: 14px;
+  font-size: 12px;
+  border-radius: 3px;
+}
+.page-training .passive-cell-upgrade--compact .passive-cell-upgrade-cost {
+  font-size: 8px;
+  line-height: 1.1;
+}
+.page-training .passive-cell-gold-hint {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 5px;
+  border-radius: 6px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: rgba(22, 18, 14, 0.92);
+  color: #fbbf24;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  opacity: 0.92;
+}
+.page-training .passive-modal-blocked {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #d4a574;
 }
 .page-training .passive-skill-cell-title {
   font-size: 11px;

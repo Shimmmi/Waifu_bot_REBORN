@@ -437,6 +437,338 @@
         box-shadow: 0 10px 24px rgba(61, 41, 20, 0.35);
       }
 
+      /* Бездна: модалки — тёмная янтарная тема (как reward-modal) */
+      .page-dungeons #abyss-grace-modal .modal-content,
+      .page-dungeons #abyss-checkpoint-modal .modal-content,
+      .page-dungeons #abyss-exit-modal .modal-content,
+      .page-dungeons #abyss-bottomsheet .modal-content {
+        max-width: 360px;
+        background: linear-gradient(165deg, rgba(28, 22, 16, 0.98), rgba(12, 9, 6, 0.99));
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        color: #e8dcc8;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+      }
+      .page-dungeons #abyss-grace-modal .modal-title,
+      .page-dungeons #abyss-checkpoint-modal .modal-title,
+      .page-dungeons #abyss-exit-modal .modal-title,
+      .page-dungeons #abyss-bottomsheet .modal-title {
+        color: #e8b84b;
+      }
+      .page-dungeons #abyss-grace-modal .modal-body .muted,
+      .page-dungeons #abyss-checkpoint-modal .modal-body .muted,
+      .page-dungeons #abyss-exit-modal .modal-body .muted,
+      .page-dungeons #abyss-bottomsheet .modal-body .muted {
+        color: rgba(232, 220, 200, 0.72) !important;
+      }
+      .page-dungeons #abyss-grace-modal .modal-head .secondary,
+      .page-dungeons #abyss-checkpoint-modal .modal-head .secondary,
+      .page-dungeons #abyss-exit-modal .modal-head .secondary,
+      .page-dungeons #abyss-exit-modal .modal-footer .secondary,
+      .page-dungeons #abyss-bottomsheet .modal-head .secondary {
+        background: rgba(26, 20, 14, 0.9);
+        border: 1px solid rgba(200, 146, 42, 0.28);
+        color: #d4c4b0;
+      }
+      .page-dungeons #abyss-grace-modal .modal-head .secondary:hover,
+      .page-dungeons #abyss-checkpoint-modal .modal-head .secondary:hover,
+      .page-dungeons #abyss-exit-modal .modal-head .secondary:hover,
+      .page-dungeons #abyss-exit-modal .modal-footer .secondary:hover,
+      .page-dungeons #abyss-bottomsheet .modal-head .secondary:hover {
+        border-color: rgba(200, 146, 42, 0.5);
+        color: #e8b84b;
+        background: rgba(200, 146, 42, 0.12);
+      }
+      .page-dungeons #abyss-checkpoint-modal .modal-footer .primary,
+      .page-dungeons #abyss-exit-modal .modal-footer .primary {
+        border-color: #5c3d24;
+        background: linear-gradient(135deg, #a67c52, #7d5a3a);
+        color: #fff8f0;
+      }
+      .page-dungeons #abyss-checkpoint-modal .modal-footer .primary:hover,
+      .page-dungeons #abyss-exit-modal .modal-footer .primary:hover {
+        box-shadow: 0 10px 24px rgba(61, 41, 20, 0.35);
+      }
+      .page-dungeons #abyss-exit-modal .modal-footer .danger {
+        color: #fca5a5;
+        border-color: rgba(248, 113, 113, 0.45);
+        background: rgba(127, 29, 29, 0.35);
+      }
+      .page-dungeons #abyss-exit-modal .modal-footer .danger:hover {
+        color: #fecaca;
+        border-color: rgba(248, 113, 113, 0.65);
+        background: rgba(127, 29, 29, 0.5);
+      }
+
+      /* Бездна: вкладка и карточки */
+      .page-dungeons #tab-abyss .card {
+        background: rgba(18, 14, 10, 0.92);
+        border: 1px solid rgba(200, 146, 42, 0.22);
+        color: #e8dcc8;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      }
+      .page-dungeons #tab-abyss .card h3 {
+        color: #e8b84b;
+      }
+      .page-dungeons #tab-abyss .muted {
+        color: rgba(232, 220, 200, 0.72);
+      }
+      .page-dungeons #tab-abyss .card--locked {
+        text-align: center;
+        padding: 24px;
+      }
+      .page-dungeons #tab-abyss .card--locked .abyss-hero-icon {
+        font-size: 42px;
+      }
+      .page-dungeons #tab-abyss .abyss-lobby-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .page-dungeons #tab-abyss .abyss-lobby-head h3 {
+        margin: 0;
+      }
+      .page-dungeons #tab-abyss .card--locked h3 {
+        margin: 8px 0;
+      }
+      .page-dungeons #tab-abyss .abyss-monster-name {
+        font-weight: 700;
+      }
+      .page-dungeons #tab-abyss .abyss-revive-btn {
+        margin-top: 8px;
+      }
+      .page-dungeons #tab-abyss .abyss-lobby-icon {
+        font-size: 36px;
+      }
+      .page-dungeons #tab-abyss .primary {
+        border-color: #5c3d24;
+        background: linear-gradient(135deg, #a67c52, #7d5a3a);
+        color: #fff8f0;
+      }
+      .page-dungeons #tab-abyss .primary:hover:not(:disabled) {
+        box-shadow: 0 10px 24px rgba(61, 41, 20, 0.35);
+      }
+      .page-dungeons #tab-abyss .secondary {
+        background: rgba(26, 20, 14, 0.9);
+        border: 1px solid rgba(200, 146, 42, 0.28);
+        color: #d4c4b0;
+      }
+      .page-dungeons #tab-abyss .secondary:hover:not(:disabled) {
+        border-color: rgba(200, 146, 42, 0.5);
+        color: #e8b84b;
+        background: rgba(200, 146, 42, 0.12);
+      }
+      .page-dungeons #tab-abyss .abyss-actions-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .page-dungeons #tab-abyss .abyss-actions-row .secondary {
+        flex: 1;
+      }
+      .page-dungeons #tab-abyss .btn-block {
+        width: 100%;
+      }
+      .page-dungeons #tab-abyss .banner {
+        background: rgba(200, 146, 42, 0.12);
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        color: #e8dcc8;
+      }
+      .page-dungeons #tab-abyss .banner--warning {
+        background: rgba(120, 70, 20, 0.25);
+        border-color: rgba(200, 146, 42, 0.45);
+      }
+      .page-dungeons #tab-abyss .banner--danger {
+        background: rgba(127, 29, 29, 0.25);
+        border-color: rgba(248, 113, 113, 0.35);
+        color: #fecaca;
+      }
+      .page-dungeons .banner.banner--abyss-active {
+        margin-bottom: 12px;
+        text-align: center;
+        background: rgba(200, 146, 42, 0.12);
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        color: #e8dcc8;
+      }
+      .page-dungeons #tab-abyss .abyss-stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin: 16px 0;
+      }
+      .page-dungeons #tab-abyss .abyss-stat {
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(200, 146, 42, 0.2);
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .page-dungeons #tab-abyss .abyss-stat-value {
+        font-size: 20px;
+        font-weight: 700;
+        color: #e8dcc8;
+      }
+      .page-dungeons #tab-abyss .abyss-battle-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .page-dungeons #tab-abyss .abyss-floor-num {
+        font-size: 24px;
+        font-weight: 800;
+        color: #e8b84b;
+      }
+      .page-dungeons #tab-abyss .abyss-monster {
+        margin-top: 10px;
+      }
+      .page-dungeons #tab-abyss .abyss-monster-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .page-dungeons #tab-abyss .abyss-waifu {
+        margin-top: 14px;
+      }
+      .page-dungeons #tab-abyss .abyss-hint {
+        text-align: center;
+        margin: 12px 0 0;
+      }
+      .page-dungeons #tab-abyss .abyss-affixes {
+        margin: 6px 0;
+      }
+      .page-dungeons #tab-abyss .abyss-hpbar-labeled .hp-bar {
+        height: 18px;
+        border-radius: 8px;
+      }
+      .page-dungeons #tab-abyss .abyss-hpbar-labeled .hp-bar-labels {
+        margin-bottom: 4px;
+      }
+      .page-dungeons #tab-abyss .abyss-modifier-badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 14px;
+        font-size: 12px;
+        margin: 2px;
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        background: rgba(200, 146, 42, 0.12);
+        color: #e8dcc8;
+      }
+      .page-dungeons #tab-abyss .abyss-mod-blessed {
+        border-color: rgba(245, 158, 11, 0.45);
+        background: rgba(245, 158, 11, 0.15);
+        color: #fcd34d;
+      }
+      .page-dungeons #tab-abyss .abyss-mod-cursed {
+        border-color: rgba(239, 68, 68, 0.4);
+        background: rgba(127, 29, 29, 0.3);
+        color: #fca5a5;
+      }
+      .page-dungeons #tab-abyss .abyss-mod-rage {
+        border-color: rgba(248, 113, 113, 0.45);
+        background: rgba(185, 28, 28, 0.25);
+        color: #fecaca;
+      }
+      .page-dungeons #tab-abyss .abyss-mod-dark {
+        border-color: rgba(139, 92, 246, 0.35);
+        background: rgba(46, 16, 72, 0.4);
+        color: #c4b5fd;
+      }
+      .page-dungeons #tab-abyss .abyss-mod-echo {
+        border-color: rgba(148, 163, 184, 0.4);
+        background: rgba(51, 65, 85, 0.35);
+        color: #cbd5e1;
+      }
+      .page-dungeons #tab-abyss .abyss-grace-active {
+        border-radius: 10px;
+        padding: 8px 10px;
+        margin: 8px 0;
+        font-size: 12px;
+        border: 1px solid rgba(16, 185, 129, 0.35);
+        background: rgba(16, 185, 129, 0.12);
+        color: #a7f3d0;
+      }
+      .page-dungeons #tab-abyss .abyss-badge-boss {
+        background: rgba(127, 29, 29, 0.45) !important;
+        border: 1px solid rgba(248, 113, 113, 0.35);
+        color: #fecaca;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+      }
+      .page-dungeons #tab-abyss .abyss-badge-elite {
+        background: rgba(200, 146, 42, 0.2) !important;
+        border: 1px solid rgba(245, 158, 11, 0.35);
+        color: #fcd34d;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+      }
+      .page-dungeons #abyss-grace-options {
+        display: grid;
+        gap: 6px;
+      }
+      .page-dungeons .abyss-grace-option {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border-radius: 12px;
+        padding: 12px;
+        margin: 0;
+        cursor: pointer;
+        border: 1px solid rgba(200, 146, 42, 0.22);
+        background: rgba(255, 255, 255, 0.04);
+        color: #e8dcc8;
+      }
+      .page-dungeons .abyss-grace-option:hover {
+        border-color: rgba(200, 146, 42, 0.45);
+        background: rgba(200, 146, 42, 0.1);
+      }
+      .page-dungeons .abyss-grace-option-title {
+        font-weight: 700;
+      }
+      .page-dungeons .abyss-grace-option-desc {
+        margin-top: 4px;
+      }
+      .page-dungeons .abyss-list-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 4px;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.15);
+        color: #e8dcc8;
+      }
+      .page-dungeons .abyss-list-row--me {
+        background: rgba(200, 146, 42, 0.12);
+        border-radius: 6px;
+        border-bottom-color: transparent;
+      }
+      .page-dungeons .abyss-list-row-floor {
+        font-weight: 700;
+      }
+      .page-dungeons .abyss-shop-row .secondary {
+        flex-shrink: 0;
+      }
+      .page-dungeons #abyss-checkpoint-body p {
+        color: rgba(232, 220, 200, 0.92);
+      }
+      .page-dungeons .abyss-checkpoint-lead {
+        text-align: center;
+        font-size: 14px;
+        margin: 0 0 8px;
+      }
+      .page-dungeons .abyss-checkpoint-note {
+        text-align: center;
+        margin: 0;
+      }
+      .page-dungeons #tab-abyss .abyss-modifiers {
+        margin: 6px 0;
+      }
+      .page-dungeons .abyss-list-empty {
+        padding: 12px;
+        text-align: center;
+      }
+      .page-dungeons .abyss-shop-name {
+        font-weight: 700;
+      }
+
       /* ── Expedition grid v2 (ежедневные + активные + модалки) ── */
       .exp-sec-header {
         display: flex;

@@ -5597,6 +5597,13 @@ function togglePaperdollMenu(ev) {
   }
 }
 
+function paperdollGenerationsRemaining(waifu) {
+  const n = waifu?.paperdoll_generations_remaining;
+  if (n != null && !Number.isNaN(Number(n))) return Number(n);
+  const paperdollUrl = String(waifu?.paperdoll_url || "").trim();
+  return paperdollUrl ? 0 : 1;
+}
+
 function renderProfilePaperDoll(waifu) {
   const paperdollUrl = String(waifu?.paperdoll_url || "").trim();
   const portraitUrl = String(
@@ -5604,8 +5611,9 @@ function renderProfilePaperDoll(waifu) {
   ).trim();
   const hasPortrait = Boolean(portraitUrl);
   const admin = isAdminUser();
-  const remaining = admin ? "безлимит" : paperdollUrl ? "0" : "1";
-  const canGenerate = hasPortrait && (admin || !paperdollUrl);
+  const gensLeft = paperdollGenerationsRemaining(waifu);
+  const remaining = admin ? "безлимит" : String(gensLeft);
+  const canGenerate = hasPortrait && (admin || gensLeft > 0);
   const name = escapeHtml(String(waifu?.name || "Основная вайфу"));
   const meta = `${escapeHtml(className(waifu?.class ?? waifu?.class_))} · ${escapeHtml(raceName(waifu?.race))}`;
 
@@ -5652,8 +5660,7 @@ async function generateMainWaifuPaperdoll() {
     return;
   }
   const admin = isAdminUser();
-  const paperdollUrl = String(waifu?.paperdoll_url || "").trim();
-  if (!admin && paperdollUrl) {
+  if (!admin && paperdollGenerationsRemaining(waifu) <= 0) {
     showToast("Генерация образа уже использована", "error");
     return;
   }
@@ -5667,7 +5674,11 @@ async function generateMainWaifuPaperdoll() {
     const payload = await apiFetch(path, { method: "POST" });
     const url = String(payload?.paperdoll_url || "").trim();
     if (url && profileState.currentProfile?.main_waifu) {
-      profileState.currentProfile.main_waifu.paperdoll_url = url;
+      const mw = profileState.currentProfile.main_waifu;
+      mw.paperdoll_url = url;
+      if (!admin) {
+        mw.paperdoll_generations_remaining = Math.max(0, paperdollGenerationsRemaining(mw) - 1);
+      }
     }
     renderProfileEquipment();
     showToast("Образ с экипировкой сохранён");
@@ -8871,7 +8882,7 @@ function renderPlayerAbyssCompact(abyss) {
   const chk = a.current_checkpoint != null ? safeInt(a.current_checkpoint, 0) : null;
   const parts = [`Этаж ${floor}`];
   if (chk != null) parts.push(`ЧК ${chk}`);
-  el.textContent = `🌑 ${parts.join(" · ")}`;
+  el.textContent = `🕳️ ${parts.join(" · ")}`;
   el.hidden = false;
 }
 
@@ -12118,6 +12129,64 @@ function findPassiveNodeById(nodeId) {
   return null;
 }
 
+function passiveLearnBlockMessage(node) {
+  const reason = node?.learn_block_reason;
+  if (!reason) return "";
+  const gold = Number(passiveTreeCache?.gold ?? 0);
+  const cost = Number(node.cost_gold ?? 0);
+  switch (reason) {
+    case "locked_waifu_level":
+      return `Нужен уровень ОВ ≥ ${node.waifu_level_req}`;
+    case "locked_branch_points":
+      return `Нужно ≥ ${node.branch_points_req} оч. в этой ветке`;
+    case "skill_maxed":
+      return "Навык уже максимального уровня";
+    case "no_skill_points":
+      return "Нет свободных очков навыков (ОПГ)";
+    case "insufficient_gold":
+      return `Нужно ${cost} 🪙 (у вас ${gold})`;
+    default:
+      return reason;
+  }
+}
+
+function passiveLearnErrorToUser(out) {
+  const err = (out && out.error) || "";
+  if (err === "insufficient_gold") {
+    const req = out.required != null ? out.required : "?";
+    const have = out.have != null ? out.have : 0;
+    return `Нужно ${req} 🪙 (есть ${have})`;
+  }
+  const map = {
+    no_skill_points: "Недостаточно очков навыков (ОПГ)",
+    insufficient_waifu_level: "Недостаточный уровень основной вайфу",
+    insufficient_branch_points: "Недостаточно очков в ветке",
+    skill_maxed: "Навык уже максимального уровня",
+    node_not_found: "Узел не найден",
+    player_not_found: "Игрок не найден",
+  };
+  return map[err] || err || "Ошибка";
+}
+
+function passiveNodeCornerOverlay(node) {
+  const esc = passiveEscHtml;
+  const costNum = Number(node.cost_gold || 0);
+  const cost = esc(String(costNum));
+  if (node.can_learn) {
+    return `<button type="button" class="passive-cell-upgrade passive-cell-upgrade--compact" data-passive-learn="${esc(
+      node.id,
+    )}" aria-label="Прокачать за ${cost} золота" title="Прокачать · ${cost} 🪙">
+      <span class="passive-cell-upgrade-plus" aria-hidden="true">+</span>
+      <span class="passive-cell-upgrade-cost">🪙${cost}</span>
+    </button>`;
+  }
+  if (node.learn_block_reason === "insufficient_gold") {
+    const hint = esc(passiveLearnBlockMessage(node));
+    return `<span class="passive-cell-gold-hint" title="${hint}" aria-label="${hint}">🪙 ${cost}</span>`;
+  }
+  return "";
+}
+
 async function learnPassiveNode(nodeId, triggerEl) {
   const btn = triggerEl;
   if (btn) btn.disabled = true;
@@ -12128,9 +12197,7 @@ async function learnPassiveNode(nodeId, triggerEl) {
       body: JSON.stringify({ node_id: nodeId }),
     });
     if (!out || !out.ok) {
-      let msg = (out && out.error) || "Ошибка";
-      if (out && out.error === "insufficient_gold") msg = `Нужно ${out.required} 🪙`;
-      showToast(msg, "error");
+      showToast(passiveLearnErrorToUser(out), "error");
       return;
     }
     closePassiveSkillModal();
@@ -12167,11 +12234,13 @@ function openPassiveSkillModal(nodeId) {
     node.branch_points_req > 0
       ? `<p class="muted passive-modal-req">Уровень ОВ ≥ ${node.waifu_level_req}, в ветке ≥ ${node.branch_points_req} оч.</p>`
       : `<p class="muted passive-modal-req">Уровень ОВ ≥ ${node.waifu_level_req}</p>`;
-  const learnBlock =
-    node.can_learn
-      ? `<div class="passive-modal-learn-wrap"><button type="button" class="btn passive-modal-learn-btn" data-passive-modal-learn="${passiveEscHtml(
-          node.id,
-        )}">Прокачать · 🪙&nbsp;${passiveEscHtml(String(node.cost_gold || 0))}</button></div>`
+  const blockMsg = passiveLearnBlockMessage(node);
+  const learnBlock = node.can_learn
+    ? `<div class="passive-modal-learn-wrap"><button type="button" class="btn passive-modal-learn-btn" data-passive-modal-learn="${passiveEscHtml(
+        node.id,
+      )}">Прокачать · 🪙&nbsp;${passiveEscHtml(String(node.cost_gold || 0))}</button></div>`
+    : blockMsg
+      ? `<p class="passive-modal-blocked muted" role="status">${passiveEscHtml(blockMsg)}</p>`
       : "";
   const ico = getPassiveNodeIcon(node);
   const levelRow = `<div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Уровень (очки)</span><span class="passive-modal-stat-v">${cur} / ${max}</span></div>`;
@@ -12402,17 +12471,12 @@ function renderPassiveNodeCard(node) {
       ? `ур.${node.waifu_level_req}, в ветке ≥${node.branch_points_req} оч.`
       : "";
   const levelHint = displayEffLv > 0 ? ` · ур. ${displayEffLv}` : "";
-  const titleAttr = (reqHint ? `${node.name} — ${reqHint}` : `${node.name}${levelHint}`)
+  const blockHint = !node.can_learn && node.learn_block_reason ? passiveLearnBlockMessage(node) : "";
+  const titleExtra = blockHint ? ` — ${blockHint}` : "";
+  const titleAttr = (reqHint ? `${node.name} — ${reqHint}` : `${node.name}${levelHint}${titleExtra}`)
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;");
-  const upgradeOverlay = node.can_learn
-    ? `<button type="button" class="passive-cell-upgrade" data-passive-learn="${esc(
-        node.id,
-      )}" aria-label="Прокачать за ${esc(String(node.cost_gold || 0))} золота">
-        <span class="passive-cell-upgrade-plus" aria-hidden="true">+</span>
-        <span class="passive-cell-upgrade-cost">🪙&nbsp;${esc(String(node.cost_gold || 0))}</span>
-      </button>`
-    : "";
+  const cornerOverlay = passiveNodeCornerOverlay(node);
   const badgeEquip = hasEquipLift;
   const levelBadge =
     displayEffLv > 0
@@ -12433,7 +12497,7 @@ function renderPassiveNodeCard(node) {
             ? `<span class="passive-skill-cell-lock" aria-hidden="true">🔒</span>`
             : ""
         }
-        ${upgradeOverlay}
+        ${cornerOverlay}
       </div>
       <div class="passive-skill-cell-title">${esc(node.name)}</div>
     </div>
@@ -12604,7 +12668,10 @@ async function loadPassiveSkillTree() {
   try {
     const data = await apiFetch("/skills/passive/tree");
     passiveTreeCache = data;
+    const ptsWrap = document.getElementById("passive-free-pts-wrap");
+    if (ptsWrap) ptsWrap.hidden = false;
     setText("passive-free-pts", data.skill_points);
+    if (data.gold != null && typeof setText === "function") setText("badge-gold", data.gold);
     updatePassiveTabLabels(data.branch_points || {});
     renderPassiveTree();
   } catch (e) {

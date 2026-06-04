@@ -8,7 +8,7 @@ from typing import List, Optional
 logger = logging.getLogger(__name__)
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import SQLAlchemyError
@@ -69,6 +69,34 @@ def _solo_battle_log_summary_fallback(event_type: str, event_data: dict | None) 
     if event_type == "monster_reward":
         return (ed.get("summary_ru") or "").strip() or "Награда за монстра."
     return event_type or "Событие боя."
+
+
+async def prune_solo_battle_log(
+    session: AsyncSession,
+    player_id: int,
+    dungeon_id: int,
+    *,
+    keep: int = SOLO_BATTLE_LOG_LIMIT,
+) -> int:
+    """Удалить старые записи журнала соло-данжа, оставив последние ``keep`` по id."""
+    keep = max(1, int(keep))
+    pid = int(player_id)
+    did = int(dungeon_id)
+    cnt = await session.scalar(
+        select(func.count())
+        .select_from(BattleLog)
+        .where(BattleLog.player_id == pid, BattleLog.dungeon_id == did)
+    )
+    if not cnt or int(cnt) <= keep:
+        return 0
+    old_ids = (
+        select(BattleLog.id)
+        .where(BattleLog.player_id == pid, BattleLog.dungeon_id == did)
+        .order_by(BattleLog.id.desc())
+        .offset(keep)
+    )
+    result = await session.execute(delete(BattleLog).where(BattleLog.id.in_(old_ids)))
+    return int(result.rowcount or 0)
 
 
 async def fetch_solo_battle_log_entries(

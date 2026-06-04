@@ -47,12 +47,23 @@ onMounted(load)
     </div>
     <div class="card" style="margin-top: 1rem">
       <h3>Действия</h3>
+      <p
+        v-if="full?.summary?.character && 'paperdoll_generations_remaining' in (full.summary.character as object)"
+        class="muted"
+        style="margin: 0.5rem 0 0"
+      >
+        Paper-doll: осталось генераций
+        {{ (full.summary.character as Record<string, unknown>).paperdoll_generations_remaining }}
+        (бонус:
+        {{ (full.summary.character as Record<string, unknown>).paperdoll_bonus_generations ?? 0 }})
+      </p>
       <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem">
         <button class="btn btn-danger" @click="action('wipe')">Вайп</button>
         <button class="btn btn-danger" @click="action('ban', { reason: 'admin' })">Бан</button>
         <button class="btn" @click="action('unban')">Разбан</button>
         <button class="btn" @click="action('grant-gold', { amount: 10000 })">+10k gold</button>
         <button class="btn" @click="action('restore-hp')">Restore HP</button>
+        <button class="btn" @click="action('grant-paperdoll-generation')">+1 paper-doll</button>
       </div>
       <p v-if="message" style="margin-top: 0.5rem">{{ message }}</p>
     </div>

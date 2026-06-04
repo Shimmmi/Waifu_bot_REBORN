@@ -40,6 +40,7 @@ from waifu_bot.game.constants import (
 )
 from waifu_bot.game.monster_affix_behavior import media_type_matches_immune
 from waifu_bot.game.formulas import (
+    apply_equipment_damage_flats,
     blend_rarity_weights_with_magic_find,
     build_message_damage_base_trace_ru,
     calculate_armor_damage_reduction,
@@ -122,6 +123,15 @@ async def clear_solo_battle_log(session: AsyncSession, player_id: int, dungeon_i
             BattleLog.dungeon_id == int(dungeon_id),
         )
     )
+
+
+async def append_solo_battle_log(session: AsyncSession, log: BattleLog) -> None:
+    """Добавить запись в журнал соло-данжа и обрезать хвост до SOLO_BATTLE_LOG_LIMIT."""
+    session.add(log)
+    await session.flush()
+    from waifu_bot.services.dungeon import prune_solo_battle_log
+
+    await prune_solo_battle_log(session, int(log.player_id), int(log.dungeon_id))
 
 
 TOTAL_INCOMING_REDUCE_CAP = 0.90
@@ -500,13 +510,14 @@ async def _log_solo_monster_reward(
     event_data, bonus = _solo_monster_reward_log_payload(
         exp=exp, gold=gold, guild_contribs=guild_contribs, monster_name=monster_name
     )
-    session.add(
+    await append_solo_battle_log(
+        session,
         BattleLog(
             player_id=int(player_id),
             dungeon_id=int(dungeon_id),
             event_type="monster_reward",
             event_data=event_data,
-        )
+        ),
     )
     return bonus
 
@@ -695,7 +706,7 @@ class CombatService:
                 monster_hp_after=(run_monster.current_hp if run and run_monster else (progress.current_monster_hp or monster.max_hp)),
                 message_text=message_text,
             )
-            session.add(battle_log)
+            await append_solo_battle_log(session, battle_log)
             await session.commit()
             await self._publish_battle_event(player_id, result)
             return result
@@ -782,6 +793,13 @@ class CombatService:
             weapon_offhand=weapon_damage_offhand,
         )
         trace.extend_steps(base_steps)
+        damage, flat_steps = apply_equipment_damage_flats(
+            damage,
+            attack_type=attack_type,
+            media_type=media_type,
+            bonuses=eff_bonuses,
+        )
+        trace.extend_steps(flat_steps)
         legendary_base_damage = int(damage)
         if hs_asp > 0 and stat_mult > 1.0001:
             trace.add(
@@ -1394,7 +1412,7 @@ class CombatService:
             monster_hp_after=monster_hp_after,
             message_text=message_text,
         )
-        session.add(battle_log)
+        await append_solo_battle_log(session, battle_log)
 
         # Check if monster defeated
         if monster_hp_after <= 0:
@@ -2063,7 +2081,8 @@ class CombatService:
             monster_name=getattr(monster, "name", None),
         )
         _lmk_in = media_type_to_log_media_key(killing_media_type)
-        session.add(
+        await append_solo_battle_log(
+            session,
             BattleLog(
                 player_id=waifu.player_id,
                 dungeon_id=progress.dungeon_id,
@@ -2077,7 +2096,7 @@ class CombatService:
                 },
                 player_hp_before=hp_before_incoming,
                 player_hp_after=hp_after_incoming,
-            )
+            ),
         )
 
         # Gold reward: distribute dungeon base_gold across monsters (fallback if per-monster gold isn't modeled yet)
@@ -2630,7 +2649,8 @@ class CombatService:
             monster_name=getattr(run_monster, "name", None),
         )
         _lmk_in = media_type_to_log_media_key(killing_media_type)
-        session.add(
+        await append_solo_battle_log(
+            session,
             BattleLog(
                 player_id=waifu.player_id,
                 dungeon_id=run.dungeon_id,
@@ -2644,7 +2664,7 @@ class CombatService:
                 },
                 player_hp_before=hp_before_incoming,
                 player_hp_after=hp_after_incoming,
-            )
+            ),
         )
         if lb_patch:
             persist_battle_state(run, lb_patch)
@@ -3296,7 +3316,8 @@ class CombatService:
             monster_name=monster_name,
         )
         _lmk_in = media_type_to_log_media_key(killing_media_type)
-        session.add(
+        await append_solo_battle_log(
+            session,
             BattleLog(
                 player_id=pid,
                 dungeon_id=int(dungeon_id),
@@ -3311,7 +3332,7 @@ class CombatService:
                 },
                 player_hp_before=hp_before_incoming,
                 player_hp_after=hp_after_incoming,
-            )
+            ),
         )
         return int(dmg_taken), hp_before_incoming, hp_after_incoming
 

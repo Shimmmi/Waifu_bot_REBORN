@@ -78,15 +78,39 @@
 
 Узлы только экономики/опыта без шага урона: m_trade, m_bargain, m_wisdom, m_cmd, m_lore — проверять профиль/награды, не `damage_breakdown`.
 
-## 4. Админ: прокачать все пассивы
+## 4. Прокачка узла: ОПГ + золото
+
+Каждый уровень узла требует **одновременно**:
+
+1. **Свободное очко навыка (ОПГ)** — поле `players.skill_points` (выдаётся за уровень основной вайфу, тратится по 1 за уровень узла).
+2. **Золото** — `cost_gold` узла с учётом скидок (`effective_passive_learn_cost`: пассивы, чары и т.д.).
+
+В API дерева (`GET /skills/passive/tree`) у каждого узла:
+
+- `can_learn` — `true`, только если нет блокировки;
+- `learn_block_reason` — приоритет проверок: `locked_waifu_level` → `locked_branch_points` → `skill_maxed` → `no_skill_points` → `insufficient_gold`.
+
+**Типичная ловушка QA:** на экране «1 ОПГ», но прокачка нигде недоступна — проверить золото в чердаке (`#badge-gold`) и `insufficient_gold` на открытых узлах (бейдж «🪙 N» в правом верхнем углу ячейки, не кнопка «+»).
+
+**Уровень ОВ 16:** часть узлов тиров 3+ (например ветка Мудрец) имеет `waifu_level_req` ≥ 25 в сиде `0037_passive_skill_tree.py` — блокировка `locked_waifu_level`, не золото.
+
+Ручная проверка зала:
+
+1. ОПГ ≥ 1, золото &lt; `cost_gold` открытого узла — в чердаке `#badge-gold`, на ячейке hint «🪙 N», в модалке текст «Нужно N 🪙 (у вас M)».
+2. Достаточно золота и ОПГ — компактная кнопка «+» справа сверху; уровень узла — бейдж слева снизу.
+3. `POST /skills/passive/learn` при нехватке золота — `error: insufficient_gold`, поля `required` / `have`.
+
+Юнит-тесты причин: `tests/unit/test_passive_skill_can_learn.py`.
+
+## 5. Админ: прокачать все пассивы
 
 Только Telegram user id **305174198**: кнопка на training hall и `POST /skills/passive/admin-max-all` (без списания золота/очков — QA).
 
-## 5. Риски
+## 6. Риски
 
 Округление в UI (`%0.f`); эффективный уровень узла с экипировки `passive_node_level_add:*` увеличивает число без изменения «изученного» уровня в UI.
 
-## 6. Автоматизация (опционально)
+## 7. Автоматизация (опционально)
 
 - Юнит-тест: `tests/unit/test_passive_s_media_extrapolate.py` — для узла «Чутьё» (`media_dmg_pct`) на уровне 3 значение экстраполяции равно `0.28`.
 - Сверка сида с БД: `python3 scripts/diff_passive_nodes_seed.py` (только вывод сида); с DSN async — `python3 scripts/diff_passive_nodes_seed.py --dsn "postgresql+asyncpg://..."` (сравнение `id`, `effect_type`, `effect_values`).

@@ -291,6 +291,79 @@ def build_message_damage_base_trace_ru(
     return total, steps
 
 
+_ATTACK_TYPE_DAMAGE_FLAT_KEYS: dict[str, str] = {
+    "melee": "melee_damage_flat",
+    "ranged": "ranged_damage_flat",
+    "magic": "magic_damage_flat",
+    "spell": "magic_damage_flat",
+}
+
+
+def apply_equipment_damage_flats(
+    damage: int,
+    *,
+    attack_type: str,
+    media_type: MediaType,
+    bonuses: dict[str, int],
+) -> tuple[int, list[dict[str, Any]]]:
+    """Плоские бонусы урона с экипировки (как в профиле «Подробно»).
+
+    Текст/ссылка: damage_flat + бонус по типу оружия (melee/ranged/magic).
+    Остальные медиа: damage_flat + magic_damage_flat (ветка урона от ИНТ).
+    """
+    from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
+
+    steps: list[dict[str, Any]] = []
+    current = int(damage)
+    keys_to_apply: list[str] = []
+
+    if int(bonuses.get("damage_flat", 0) or 0):
+        keys_to_apply.append("damage_flat")
+
+    if media_type in (MediaType.TEXT, MediaType.LINK):
+        type_key = _ATTACK_TYPE_DAMAGE_FLAT_KEYS.get((attack_type or "melee").lower())
+        if type_key and int(bonuses.get(type_key, 0) or 0):
+            keys_to_apply.append(type_key)
+    elif int(bonuses.get("magic_damage_flat", 0) or 0):
+        keys_to_apply.append("magic_damage_flat")
+
+    for key in keys_to_apply:
+        add = int(bonuses.get(key, 0) or 0)
+        if not add:
+            continue
+        nb = current
+        current = nb + add
+        label = effect_stat_description_ru(key)
+        steps.append(
+            {
+                "kind": "add",
+                "source": "affix_attack_damage_flat",
+                "label_ru": f"Экипировка: {label} +{add}",
+                "value_before": nb,
+                "value_after": current,
+                "delta": add,
+            }
+        )
+
+    pct = int(bonuses.get("damage_percent", 0) or 0)
+    if pct:
+        nb = current
+        fac = 1.0 + pct / 100.0
+        current = int(nb * fac)
+        steps.append(
+            {
+                "kind": "mult",
+                "source": "affix_attack_damage_percent",
+                "label_ru": f"Экипировка: {effect_stat_description_ru('damage_percent')} +{pct}%",
+                "value_before": nb,
+                "value_after": current,
+                "factor": round(fac, 6),
+            }
+        )
+
+    return current, steps
+
+
 def blend_rarity_weights_with_magic_find(opts: list[tuple[int, int]], total_mf_pct: float) -> list[tuple[int, int]]:
     """Смешать базовые веса редкости с целевым хвостом (15% эпик / 85% легенда при t=1).
 

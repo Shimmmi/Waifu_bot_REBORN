@@ -46,6 +46,10 @@ from waifu_bot.services.expedition_events_ai import (
 )
 from waifu_bot.services.narrative import build_narrative_prompt_context
 from waifu_bot.services.starter_gear import grant_main_waifu_starter_gear
+from waifu_bot.services.paperdoll_quota import (
+    consume_paperdoll_generation,
+    paperdoll_generations_remaining,
+)
 from waifu_bot.services.player_new_game_reset import clear_player_redis_keys, reset_player_to_new_game
 from waifu_bot.game.constants import (
     CARAVAN_TRAVEL_GOLD_TO_ACT,
@@ -1038,6 +1042,7 @@ async def get_profile(
                     class_flat_bonuses=class_flat_bonuses_for(main_waifu.class_),
                     portrait_url=portrait_url,
                     paperdoll_url=paperdoll_url,
+                    paperdoll_generations_remaining=paperdoll_generations_remaining(main_waifu),
                     bio=getattr(main_waifu, "bio", None),
                 )
 
@@ -1504,13 +1509,14 @@ async def _run_paperdoll_generation_save(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="main_waifu_not_found")
 
     main = player.main_waifu
+    had_image_before = bool((getattr(main, "paperdoll_image_data", None) or "").strip())
     portrait_raw = (getattr(main, "image_data", None) or "").strip()
     if not portrait_raw:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="portrait_required_for_paperdoll",
         )
-    if (getattr(main, "paperdoll_image_data", None) or "").strip() and not replace_existing:
+    if not replace_existing and had_image_before and paperdoll_generations_remaining(main) <= 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="paperdoll_already_generated",
@@ -1547,6 +1553,8 @@ async def _run_paperdoll_generation_save(
     main.paperdoll_image_data = b64_stripped
     main.paperdoll_image_mime = mime_out
     main.paperdoll_generated_at = datetime.now(tz=timezone.utc)
+    if not replace_existing:
+        consume_paperdoll_generation(main, had_image_before=had_image_before)
     try:
         await session.commit()
     except SQLAlchemyError:
