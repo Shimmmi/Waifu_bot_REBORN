@@ -10949,6 +10949,10 @@ body.page-guild .guild-members-modal-root {
   z-index: 6;
 }
 
+body.page-guild .guild-stats-grid--arming {
+  pointer-events: none;
+}
+
 body.page-guild .guild-members-modal-root:not(.guild-members-modal--open) {
   display: none !important;
   pointer-events: none;
@@ -10957,6 +10961,7 @@ body.page-guild .guild-members-modal-root:not(.guild-members-modal--open) {
 body.page-guild .guild-members-modal-root.guild-members-modal--open {
   position: fixed;
   inset: 0;
+  z-index: 1200;
   display: grid !important;
   place-items: center;
   padding: 12px;

@@ -8,6 +8,7 @@ from typing import Any
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -111,6 +112,12 @@ BASE_LOCATIONS = [
 
 def _moscow_today():
     return datetime.now(tz=MOSCOW_TZ).date()
+
+
+def _msk_day_start_utc() -> datetime:
+    """00:00 MSK for the current MSK calendar day, as UTC-aware datetime."""
+    today = _moscow_today()
+    return datetime(today.year, today.month, today.day, tzinfo=MOSCOW_TZ).astimezone(timezone.utc)
 
 
 async def _apply_narrative_at_start(
@@ -701,6 +708,31 @@ class ExpeditionService:
         today = _moscow_today()
         return await self._ensure_day_slots(session, today)
 
+    async def _lock_player_for_update(self, session: AsyncSession, player_id: int) -> Player | None:
+        stmt = select(Player).where(Player.id == player_id).with_for_update()
+        return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def _count_starts_today(self, session: AsyncSession, player_id: int) -> int:
+        day_start = _msk_day_start_utc()
+        stmt = select(func.count()).select_from(ActiveExpedition).where(
+            ActiveExpedition.player_id == player_id,
+            ActiveExpedition.started_at >= day_start,
+        )
+        return int((await session.execute(stmt)).scalar_one() or 0)
+
+    async def _check_daily_start_limit(self, session: AsyncSession, player_id: int) -> dict | None:
+        if await self._count_starts_today(session, player_id) >= EXPEDITION_SLOTS_PER_DAY:
+            return {"error": "daily_limit_reached", "max": EXPEDITION_SLOTS_PER_DAY}
+        return None
+
+    async def _commit_start_or_slot_conflict(self, session: AsyncSession) -> dict | None:
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            return {"error": "already_started"}
+        return None
+
     async def get_used_slot_ids(self, session: AsyncSession, player_id: int) -> set[int]:
         """ID слотов, по которым у игрока уже есть экспедиция (активная или завершённая) — слот «использован»."""
         stmt = select(ActiveExpedition.expedition_slot_id).where(
@@ -793,117 +825,36 @@ class ExpeditionService:
         difficulty_level: int | None = None,
     ) -> dict:
         """
-        Запуск экспедиции: v1.3 — тип аффикса × уровень × длительность; либо старый дневной слот.
-        Ежедневный слот + difficulty_level + длительность из EXPEDITION_V13_DURATIONS → тики v1.3 с привязкой к слоту.
+        Запуск экспедиции через ежедневный слот (v1.3).
+        Конструктор без слота и legacy-путь отключены в публичном API.
         """
         if affix_template_id is not None and affix_level is not None and display_base_location:
-            return await self._start_v13(
-                session,
-                player_id,
-                squad_waifu_ids,
-                duration_minutes,
-                affix_template_id=int(affix_template_id),
-                affix_level=int(affix_level),
-                display_base_location=display_base_location,
-                display_biome_tag=display_biome_tag,
-            )
+            if expedition_slot_id is None:
+                return {"error": "constructor_disabled"}
 
-        if (
+        if not (
             expedition_slot_id is not None
             and difficulty_level is not None
             and duration_minutes in EXPEDITION_V13_DURATIONS
         ):
-            return await self._start_daily_slot_v13(
-                session,
-                player_id,
-                int(expedition_slot_id),
-                squad_waifu_ids,
-                duration_minutes,
-                int(difficulty_level),
-            )
-
-        if expedition_slot_id is None:
             return {"error": "missing_expedition_config"}
 
-        if duration_minutes not in EXPEDITION_TIME_COEFFS:
-            return {"error": "invalid_duration"}
-        if not (EXPEDITION_MIN_SQUAD <= len(squad_waifu_ids) <= EXPEDITION_MAX_SQUAD):
-            return {"error": "squad_size", "min": EXPEDITION_MIN_SQUAD, "max": EXPEDITION_MAX_SQUAD}
+        player = await self._lock_player_for_update(session, player_id)
+        if not player:
+            return {"error": "player_not_found"}
 
-        slot = await session.get(ExpeditionSlot, expedition_slot_id)
-        if not slot:
-            return {"error": "slot_not_found"}
+        daily_err = await self._check_daily_start_limit(session, player_id)
+        if daily_err:
+            return daily_err
 
-        today = _moscow_today()
-        if slot.day != today:
-            return {"error": "slot_expired"}
-
-        squad: list[HiredWaifu] = []
-        for wid in squad_waifu_ids:
-            w = await session.get(HiredWaifu, wid)
-            if not w or w.player_id != player_id:
-                return {"error": "waifu_not_found", "waifu_id": wid}
-            if not (w.squad_position and 1 <= w.squad_position <= 6):
-                return {"error": "waifu_not_in_squad", "waifu_id": wid}
-            squad.append(w)
-
-        used_ids = await self.get_used_slot_ids(session, player_id)
-        if expedition_slot_id in used_ids:
-            return {"error": "already_started"}
-
-        power = _squad_power(squad)
-        player = await session.get(Player, player_id, options=[selectinload(Player.main_waifu)])
-        player_level = (
-            int(player.main_waifu.level or 1) if (player and player.main_waifu) else 1
-        )
-        affix_by_id: dict[int, Any] = {}
-        if getattr(slot, "affix_ids", None):
-            stmt_aff = select(ExpeditionAffix).where(ExpeditionAffix.id.in_(list(slot.affix_ids)))
-            affix_rows = list((await session.execute(stmt_aff)).scalars().all())
-            affix_by_id = {a.id: a for a in affix_rows}
-        ch_union = slot_challenge_categories_union(slot, affix_by_id)
-        chance_pct, reward_gold, reward_exp = _chance_and_rewards(
-            slot,
+        return await self._start_daily_slot_v13(
+            session,
+            player_id,
+            int(expedition_slot_id),
+            squad_waifu_ids,
             duration_minutes,
-            power,
-            squad,
-            player_level=player_level,
-            challenge_union=ch_union,
+            int(difficulty_level),
         )
-        ps_exp = await get_passive_skill_bonuses(session, player_id)
-        hs_exp = await get_hidden_skill_bonuses(session, player_id)
-        rm = expedition_reward_multiplier(ps_exp, hs_exp)
-        reward_gold = max(0, int(round(reward_gold * rm)))
-        reward_exp = max(0, int(round(reward_exp * rm)))
-        now = datetime.now(tz=timezone.utc)
-        ends_at = now + timedelta(minutes=duration_minutes)
-
-        active = ActiveExpedition(
-            player_id=player_id,
-            expedition_slot_id=expedition_slot_id,
-            started_at=now,
-            ends_at=ends_at,
-            duration_minutes=duration_minutes,
-            chance=chance_pct,
-            success=False,
-            reward_gold=reward_gold,
-            reward_experience=reward_exp,
-            squad_waifu_ids=squad_waifu_ids,
-        )
-        session.add(active)
-        await session.commit()
-        await session.refresh(active)
-        return {
-            "success": True,
-            "active_id": active.id,
-            "expedition_name": slot.name,
-            "chance": chance_pct,
-            "success": False,
-            "reward_gold": reward_gold,
-            "reward_experience": reward_exp,
-            "ends_at": ends_at.isoformat(),
-            "duration_minutes": duration_minutes,
-        }
 
     async def _start_v13(
         self,
@@ -1144,7 +1095,9 @@ class ExpeditionService:
                 duration_minutes=duration_minutes,
             )
         await self._lock_squad_expedition(session, active.id, squad_waifu_ids)
-        await session.commit()
+        commit_err = await self._commit_start_or_slot_conflict(session)
+        if commit_err:
+            return commit_err
         await session.refresh(active)
         exp_name = (active.display_base_location or loc).strip()
         return {
