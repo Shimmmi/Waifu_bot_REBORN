@@ -216,6 +216,8 @@ async def _guild_war_narrative_fn() -> None:
 # fixed interval (and never on a fresh restart mid-day/mid-week).
 _last_abyss_daily_reset = None
 _last_abyss_weekly_reset = None
+_last_guild_quest_daily_reset = None
+_last_guild_quest_weekly_reset = None
 
 
 async def _abyss_daily_reset_fn() -> None:
@@ -310,6 +312,53 @@ async def _abyss_weekly_reset_fn() -> None:
         await session.commit()
         break
     logger.info("abyss weekly reset processed week=%s (%d players)", ended_week, len(rows))
+
+
+async def _guild_quest_daily_reset_fn() -> None:
+    global _last_guild_quest_daily_reset
+    from waifu_bot.services.abyss_service import msk_today
+
+    today = msk_today()
+    from waifu_bot.db.session import get_session, init_engine
+    from waifu_bot.services.guild_quest_service import (
+        process_weekly_ballot_autopick,
+        rotate_daily_quests,
+    )
+
+    init_engine()
+    async for session in get_session():
+        if _last_guild_quest_daily_reset is None:
+            _last_guild_quest_daily_reset = today
+        elif _last_guild_quest_daily_reset != today:
+            await rotate_daily_quests(session)
+            _last_guild_quest_daily_reset = today
+            logger.info("guild quest daily reset applied for %s (MSK)", today)
+        await process_weekly_ballot_autopick(session)
+        await session.commit()
+        break
+
+
+async def _guild_quest_weekly_reset_fn() -> None:
+    global _last_guild_quest_weekly_reset
+    from waifu_bot.services.abyss_service import week_start_msk
+
+    cur_week = week_start_msk()
+    if _last_guild_quest_weekly_reset is None:
+        _last_guild_quest_weekly_reset = cur_week
+        return
+    if _last_guild_quest_weekly_reset == cur_week:
+        return
+
+    from waifu_bot.db.session import get_session, init_engine
+    from waifu_bot.services.guild_quest_service import rotate_weekly_quests
+
+    init_engine()
+    async for session in get_session():
+        await rotate_weekly_quests(session)
+        await session.commit()
+        break
+    _last_guild_quest_weekly_reset = cur_week
+    logger.info("guild quest weekly reset applied for week=%s (MSK)", cur_week)
 
 
 # ---------------------------------------------------------------------------

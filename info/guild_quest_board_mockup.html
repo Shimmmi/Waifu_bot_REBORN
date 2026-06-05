@@ -1,0 +1,219 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans)}
+.gb{padding:12px 0}
+.gh{background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px;margin-bottom:12px}
+.gh-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.gh-badge{width:36px;height:36px;border-radius:8px;background:var(--color-background-info);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.gh-name{font-size:15px;font-weight:500;color:var(--color-text-primary)}
+.gh-sub{font-size:12px;color:var(--color-text-secondary);margin-top:2px}
+.gh-lvl{margin-left:auto;text-align:right}
+.lvl-badge{display:inline-block;background:var(--color-background-warning);color:var(--color-text-warning);font-size:11px;font-weight:500;padding:3px 8px;border-radius:20px;margin-bottom:4px}
+.xp-bar-wrap{display:flex;align-items:center;gap:8px}
+.xp-bar{flex:1;height:6px;background:var(--color-border-tertiary);border-radius:3px;overflow:hidden;min-width:80px}
+.xp-fill{height:100%;background:var(--color-text-warning);border-radius:3px;width:62%}
+.xp-txt{font-size:11px;color:var(--color-text-secondary);white-space:nowrap}
+.buffs{display:flex;gap:6px;flex-wrap:wrap}
+.buff-chip{font-size:11px;color:var(--color-text-success);background:var(--color-background-success);border-radius:20px;padding:2px 8px}
+.tabs{display:flex;gap:4px;margin-bottom:10px}
+.tab{flex:1;padding:7px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);background:var(--color-background-primary);font-size:12px;color:var(--color-text-secondary);cursor:pointer;text-align:center}
+.tab.active{background:var(--color-background-secondary);border-color:var(--color-border-secondary);color:var(--color-text-primary);font-weight:500}
+.section{margin-bottom:8px}
+.sect-label{font-size:11px;color:var(--color-text-secondary);margin-bottom:6px;padding-left:2px;text-transform:uppercase;letter-spacing:.5px}
+.qcard{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:12px 14px;margin-bottom:8px}
+.qcard.done{border-color:var(--color-border-success);background:var(--color-background-success)}
+.qcard-top{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+.qcat{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.qcat.combat{background:var(--color-background-danger)}
+.qcat.chat{background:var(--color-background-info)}
+.qcat.exp{background:var(--color-background-warning)}
+.qcat.eco{background:var(--color-background-success)}
+.qinfo{flex:1}
+.qname{font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:2px}
+.qdesc{font-size:12px;color:var(--color-text-secondary);line-height:1.4}
+.qtags{display:flex;gap:4px;margin-left:auto;flex-direction:column;align-items:flex-end}
+.qtag{font-size:10px;padding:2px 7px;border-radius:20px;white-space:nowrap}
+.qtag.daily{background:var(--color-background-info);color:var(--color-text-info)}
+.qtag.weekly{background:var(--color-background-warning);color:var(--color-text-warning)}
+.qtag.milestone{background:var(--color-background-secondary);color:var(--color-text-secondary)}
+.qtag.timer{font-size:10px;color:var(--color-text-secondary)}
+.prog-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.prog-bar{flex:1;height:8px;background:var(--color-border-tertiary);border-radius:4px;overflow:hidden}
+.prog-fill{height:100%;border-radius:4px}
+.prog-fill.blue{background:var(--color-text-info)}
+.prog-fill.amber{background:var(--color-text-warning)}
+.prog-fill.green{background:var(--color-text-success)}
+.prog-fill.red{background:var(--color-text-danger)}
+.prog-val{font-size:11px;color:var(--color-text-secondary);white-space:nowrap;min-width:70px;text-align:right}
+.contrib{display:flex;align-items:center;gap:6px}
+.contrib-label{font-size:11px;color:var(--color-text-secondary)}
+.ctop{display:flex;gap:4px}
+.cavatar{width:20px;height:20px;border-radius:50%;background:var(--color-background-info);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:500;color:var(--color-text-info)}
+.cavatar.a{background:var(--color-background-warning);color:var(--color-text-warning)}
+.cavatar.b{background:var(--color-background-danger);color:var(--color-text-danger)}
+.cavatar.c{background:var(--color-background-success);color:var(--color-text-success)}
+.qreward{margin-left:auto;font-size:11px;font-weight:500;color:var(--color-text-warning)}
+.done-badge{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--color-text-success);font-weight:500}
+.milestone-tiers{display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap}
+.tier-item{flex:1;min-width:50px;border:0.5px solid var(--color-border-tertiary);border-radius:6px;padding:5px 6px;text-align:center}
+.tier-item.done-tier{border-color:var(--color-border-success);background:var(--color-background-success)}
+.tier-item.active-tier{border-color:var(--color-border-warning);background:var(--color-background-warning)}
+.tier-num{font-size:10px;font-weight:500;color:var(--color-text-secondary)}
+.tier-num.done-tier{color:var(--color-text-success)}
+.tier-num.active-tier{color:var(--color-text-warning)}
+.tier-val{font-size:9px;color:var(--color-text-secondary);margin-top:1px}
+.tier-xp{font-size:9px;color:var(--color-text-warning);margin-top:1px}
+.divider{height:0.5px;background:var(--color-border-tertiary);margin:10px 0}
+.bottom-hint{font-size:11px;color:var(--color-text-secondary);text-align:center;padding:8px 0}
+</style>
+
+<div class="gb">
+  <div class="gh">
+    <div class="gh-top">
+      <div class="gh-badge"><i class="ti ti-shield" style="font-size:20px;color:var(--color-text-info)" aria-hidden="true"></i></div>
+      <div>
+        <div class="gh-name">Гильдия «Алые Лепестки»</div>
+        <div class="gh-sub">14 участников · Создана 42 дня назад</div>
+      </div>
+      <div class="gh-lvl">
+        <div class="lvl-badge">Ур. 7</div>
+        <div class="xp-bar-wrap">
+          <div class="xp-bar"><div class="xp-fill"></div></div>
+          <span class="xp-txt">3 100 / 5 000 XP</span>
+        </div>
+      </div>
+    </div>
+    <div class="buffs">
+      <span class="buff-chip"><i class="ti ti-trending-up" style="font-size:11px" aria-hidden="true"></i> +10% EXP</span>
+      <span class="buff-chip"><i class="ti ti-coins" style="font-size:11px" aria-hidden="true"></i> +7% золото</span>
+      <span class="buff-chip"><i class="ti ti-backpack" style="font-size:11px" aria-hidden="true"></i> +1 слот экспедиции</span>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active">Вехи</div>
+    <div class="tab">Ежедневные</div>
+    <div class="tab">Еженедельные</div>
+  </div>
+
+  <div class="section">
+    <div class="sect-label">В процессе</div>
+
+    <div class="qcard">
+      <div class="qcard-top">
+        <div class="qcat chat"><i class="ti ti-sticker" style="font-size:16px;color:var(--color-text-info)" aria-hidden="true"></i></div>
+        <div class="qinfo">
+          <div class="qname">Стикер-марафон III</div>
+          <div class="qdesc">Участники гильдии отправляют стикеры в подземельях. Все засчитываются суммарно.</div>
+        </div>
+        <div class="qtags">
+          <span class="qtag milestone">Веха</span>
+        </div>
+      </div>
+      <div class="milestone-tiers">
+        <div class="tier-item done-tier"><div class="tier-num done-tier">I</div><div class="tier-val">100</div><div class="tier-xp">+50 XP</div></div>
+        <div class="tier-item done-tier"><div class="tier-num done-tier">II</div><div class="tier-val">1 000</div><div class="tier-xp">+200 XP</div></div>
+        <div class="tier-item active-tier"><div class="tier-num active-tier">III</div><div class="tier-val">10 000</div><div class="tier-xp">+500 XP</div></div>
+        <div class="tier-item"><div class="tier-num">IV</div><div class="tier-val">50 000</div><div class="tier-xp">+1 000 XP</div></div>
+        <div class="tier-item"><div class="tier-num">V</div><div class="tier-val">100 000</div><div class="tier-xp">+2 000 XP</div></div>
+      </div>
+      <div class="prog-row">
+        <div class="prog-bar"><div class="prog-fill blue" style="width:73%"></div></div>
+        <span class="prog-val">7 312 / 10 000</span>
+      </div>
+      <div class="contrib">
+        <span class="contrib-label">Лидеры:</span>
+        <div class="ctop">
+          <div class="cavatar a" title="Sakura">Sa</div>
+          <div class="cavatar b" title="Yuki">Yu</div>
+          <div class="cavatar c" title="Mira">Mi</div>
+        </div>
+        <span class="contrib-label" style="margin-left:2px">+11 участников</span>
+        <span class="qreward" style="margin-left:auto">+500 Guild XP</span>
+      </div>
+    </div>
+
+    <div class="qcard">
+      <div class="qcard-top">
+        <div class="qcat combat"><i class="ti ti-sword" style="font-size:16px;color:var(--color-text-danger)" aria-hidden="true"></i></div>
+        <div class="qinfo">
+          <div class="qname">Истребители монстров IV</div>
+          <div class="qdesc">Суммарное количество убитых монстров всеми участниками гильдии.</div>
+        </div>
+        <div class="qtags">
+          <span class="qtag milestone">Веха</span>
+        </div>
+      </div>
+      <div class="milestone-tiers">
+        <div class="tier-item done-tier"><div class="tier-num done-tier">I</div><div class="tier-val">500</div><div class="tier-xp">+80 XP</div></div>
+        <div class="tier-item done-tier"><div class="tier-num done-tier">II</div><div class="tier-val">2 000</div><div class="tier-xp">+250 XP</div></div>
+        <div class="tier-item done-tier"><div class="tier-num done-tier">III</div><div class="tier-val">8 000</div><div class="tier-xp">+600 XP</div></div>
+        <div class="tier-item active-tier"><div class="tier-num active-tier">IV</div><div class="tier-val">25 000</div><div class="tier-xp">+1 200 XP</div></div>
+        <div class="tier-item"><div class="tier-num">V</div><div class="tier-val">100 000</div><div class="tier-xp">+3 000 XP</div></div>
+      </div>
+      <div class="prog-row">
+        <div class="prog-bar"><div class="prog-fill red" style="width:44%"></div></div>
+        <span class="prog-val">10 987 / 25 000</span>
+      </div>
+      <div class="contrib">
+        <span class="contrib-label">Лидеры:</span>
+        <div class="ctop">
+          <div class="cavatar" title="Neko">Ne</div>
+          <div class="cavatar a" title="Aika">Ai</div>
+          <div class="cavatar b" title="Rei">Re</div>
+        </div>
+        <span class="qreward" style="margin-left:auto">+1 200 Guild XP</span>
+      </div>
+    </div>
+
+    <div class="qcard">
+      <div class="qcard-top">
+        <div class="qcat exp"><i class="ti ti-map" style="font-size:16px;color:var(--color-text-warning)" aria-hidden="true"></i></div>
+        <div class="qinfo">
+          <div class="qname">Голос гильдии II</div>
+          <div class="qdesc">Аудиосообщения в подземельях — редки, поэтому каждое ценно вдвойне.</div>
+        </div>
+        <div class="qtags">
+          <span class="qtag milestone">Веха</span>
+        </div>
+      </div>
+      <div class="milestone-tiers">
+        <div class="tier-item done-tier"><div class="tier-num done-tier">I</div><div class="tier-val">100</div><div class="tier-xp">+120 XP</div></div>
+        <div class="tier-item active-tier"><div class="tier-num active-tier">II</div><div class="tier-val">500</div><div class="tier-xp">+400 XP</div></div>
+        <div class="tier-item"><div class="tier-num">III</div><div class="tier-val">2 000</div><div class="tier-xp">+1 000 XP</div></div>
+      </div>
+      <div class="prog-row">
+        <div class="prog-bar"><div class="prog-fill amber" style="width:28%"></div></div>
+        <span class="prog-val">141 / 500</span>
+      </div>
+      <div class="contrib">
+        <span class="contrib-label">Лидеры:</span>
+        <div class="ctop">
+          <div class="cavatar c" title="Luna">Lu</div>
+          <div class="cavatar" title="Hana">Ha</div>
+        </div>
+        <span class="qreward" style="margin-left:auto">+400 Guild XP</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="sect-label">Недавно выполнено</div>
+    <div class="qcard done">
+      <div class="qcard-top">
+        <div class="qcat eco"><i class="ti ti-coins" style="font-size:16px;color:var(--color-text-success)" aria-hidden="true"></i></div>
+        <div class="qinfo">
+          <div class="qname">Золотой фонд II</div>
+          <div class="qdesc">Суммарно заработано 100 000 золота участниками гильдии.</div>
+        </div>
+        <div class="qtags">
+          <span class="qtag milestone">Веха</span>
+        </div>
+      </div>
+      <div class="done-badge"><i class="ti ti-circle-check" aria-hidden="true"></i> Выполнено · +300 Guild XP получено</div>
+    </div>
+  </div>
+
+  <div class="bottom-hint">Вехи накапливаются постоянно и никогда не сбрасываются</div>
+</div>

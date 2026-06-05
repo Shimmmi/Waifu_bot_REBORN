@@ -307,6 +307,25 @@ async def _group_message_damage_body(
                 except Exception:
                     logger.debug("touch_bot_group_chat_activity failed chat=%s", chat_id, exc_info=True)
             try:
+                from waifu_bot.services.guild_quest_service import record_metric
+
+                _chat_metrics: list[tuple[str, int]] = []
+                if message.sticker:
+                    _chat_metrics.append(("stickers_sent", 1))
+                elif message.animation:
+                    _chat_metrics.append(("gifs_sent", 1))
+                elif message.video:
+                    _chat_metrics.append(("videos_sent", 1))
+                elif message.voice or message.audio:
+                    _chat_metrics.append(("audio_messages_sent", 1))
+                if message_text and str(message_text).strip():
+                    _chat_metrics.append(("text_messages_sent", 1))
+                for _m, _d in _chat_metrics:
+                    await record_metric(session, player_id, _m, _d)
+            except Exception:
+                logger.debug("guild quest chat hook failed pid=%s", player_id, exc_info=True)
+
+            try:
                 text_chars = len(message_text) if message_text else 0
                 cfg = await get_game_config_map(session)
                 await chat_rewards_svc.try_award_chat_message(

@@ -7432,6 +7432,9 @@ const guildHallState = {
   skillsBranch: "combat",
   raidParticipantIds: [],
   warTargets: null,
+  questsData: null,
+  questsTab: "milestones",
+  questsLoading: false,
   heroMenuListener: false,
 };
 
@@ -7467,6 +7470,7 @@ function guildApiErrorToUser(detail, fallback) {
     leader_cannot_leave: "Глава не может покинуть гильдию — передайте лидерство или распустите гильдию.",
     not_in_guild: "Вы не в гильдии.",
     locked: "Навык заблокирован уровнем гильдии.",
+    tier_locked: "Навык заблокирован тиром гильдии.",
     max_level: "Навык уже максимального уровня.",
     no_skill_points: "Недостаточно очков прокачки (ОПГ).",
     raid_already_active: "Рейд уже идёт.",
@@ -7740,6 +7744,10 @@ function switchGuildTab(name) {
 
 function switchGuildActivityTab(sub) {
   guildHallState.activitySubTab = sub;
+  if (sub === "quests") {
+    void loadGuildQuests().then(() => renderGuildTabContent());
+    return;
+  }
   void renderGuildTabContent();
 }
 
@@ -8143,6 +8151,55 @@ function closeGuildSkillModal() {
   }
 }
 
+function guildSkillUpgradeCost(sk) {
+  const cur = safeInt(sk?.current_level, 0);
+  if (sk?.upgrade_cost != null && cur < 3) return safeInt(sk.upgrade_cost, 1);
+  return cur === 0 ? safeInt(sk?.cost_sp, 1) : safeInt(sk?.cost_per_upgrade, 1);
+}
+
+function guildSkillCanUpgradeClientFallback(sk, d) {
+  const cur = safeInt(sk?.current_level, 0);
+  const guildLevel = safeInt(d?.guild_level, 1);
+  const tierUnlock = safeInt(d?.skill_tier_unlock, 1);
+  const glReq = safeInt(sk?.guild_level_req, 1);
+  const tier = safeInt(sk?.tier, 1);
+  const avail = safeInt(d?.skill_points_available, 0);
+  const cost = guildSkillUpgradeCost(sk);
+  return (
+    isGuildLeader(d) &&
+    cur < 3 &&
+    guildLevel >= glReq &&
+    tier <= tierUnlock &&
+    avail >= cost
+  );
+}
+
+function guildSkillCanUpgrade(sk, d) {
+  if (typeof sk?.can_upgrade === "boolean") return sk.can_upgrade;
+  return guildSkillCanUpgradeClientFallback(sk, d);
+}
+
+function guildSkillBlockReasonRu(sk, d, reason) {
+  const cost = guildSkillUpgradeCost(sk);
+  const glReq = safeInt(sk?.guild_level_req, 1);
+  const tier = safeInt(sk?.tier, 1);
+  switch (String(reason || "").trim()) {
+    case "leader_only":
+      return "Только глава гильдии";
+    case "locked":
+      return `Нужен ${glReq} ур. гильдии`;
+    case "tier_locked":
+      return `Откроется с тиром навыков ${tier}`;
+    case "no_skill_points":
+      return `Недостаточно ОПГ (нужно ${cost})`;
+    case "max_level":
+      return "Максимальный уровень";
+    default:
+      if (!isGuildLeader(d)) return "Только глава гильдии";
+      return guildApiErrorToUser(reason, "Нельзя улучшить");
+  }
+}
+
 function openGuildSkillModal(skillId) {
   const d = guildHallState.me;
   const sk = (d?.definitions || []).find((x) => Number(x.id) === Number(skillId));
@@ -8155,16 +8212,10 @@ function openGuildSkillModal(skillId) {
   const eff = Array.isArray(sk.effect_per_level) ? sk.effect_per_level : [];
   const effCur = cur > 0 && eff[cur - 1] != null ? eff[cur - 1] : "—";
   const effNext = cur < 3 && eff[cur] != null ? eff[cur] : null;
-  const cost =
-    cur === 0 ? safeInt(sk.cost_sp, 1) : cur < 3 ? safeInt(sk.cost_per_upgrade, 1) : 0;
+  const cost = guildSkillUpgradeCost(sk);
   const avail = safeInt(d?.skill_points_available, 0);
-  const tierUnlock = safeInt(d?.skill_tier_unlock, 1);
-  const canUp =
-    d?.is_leader &&
-    cur < 3 &&
-    safeInt(d?.guild_level, 1) >= safeInt(sk.guild_level_req, 1) &&
-    safeInt(sk.tier, 1) <= tierUnlock &&
-    avail >= cost;
+  const canUp = guildSkillCanUpgrade(sk, d);
+  const blockReason = sk.upgrade_block_reason || (canUp ? null : "no_skill_points");
   if (body) {
     body.innerHTML = `
       <div class="detail-row"><span>Тир</span><strong>${sk.tier ?? "—"}</strong></div>
@@ -8178,7 +8229,7 @@ function openGuildSkillModal(skillId) {
   if (footer) {
     footer.innerHTML = canUp
       ? `<button type="button" class="btn primary" onclick="WaifuApp.guildSkillUpgrade(${Number(sk.id)})">+1 ОПГ (${cost})</button>`
-      : `<span class="muted tiny">${d?.is_leader ? "Нельзя улучшить (нет ОПГ или макс.)" : "Только глава может улучшать"}</span>`;
+      : `<span class="muted tiny">${escapeHtml(guildSkillBlockReasonRu(sk, d, blockReason))}</span>`;
   }
   const m = document.getElementById("guild-skill-modal");
   if (m) {
@@ -9851,9 +9902,9 @@ function renderGuildSkillCard(sk, d) {
   const locked = guildLevel < glReq || tier > tierUnlock;
   const maxed = cur >= 3;
   const branch = guildSkillBranch(sk);
-  const avail = safeInt(d?.skill_points_available, 0);
-  const cost = cur === 0 ? safeInt(sk.cost_sp, 1) : safeInt(sk.cost_per_upgrade, 1);
-  const canUp = d?.is_leader && !locked && !maxed && avail >= cost;
+  const cost = guildSkillUpgradeCost(sk);
+  const canUp = !locked && !maxed && guildSkillCanUpgrade(sk, d);
+  const blockReason = sk.upgrade_block_reason;
   const avatarClass = locked
     ? "guild-skill-card-avatar guild-skill-card-avatar--locked"
     : `guild-skill-card-avatar guild-skill-card-avatar--${branch}`;
@@ -9885,7 +9936,8 @@ function renderGuildSkillCard(sk, d) {
   } else if (canUp) {
     action = `<button type="button" class="guild-skill-card-upgrade guild-skill-card-upgrade--primary" onclick="event.stopPropagation();WaifuApp.guildSkillUpgrade(${Number(sk.id)})"><span class="guild-skill-card-upgrade-plus">+</span><span class="guild-skill-card-upgrade-cost">${cost} ОПГ</span></button>`;
   } else {
-    action = `<button type="button" class="guild-skill-card-upgrade" disabled onclick="event.stopPropagation()"><span class="guild-skill-card-upgrade-plus">+</span><span class="guild-skill-card-upgrade-cost">${cost} ОПГ</span></button>`;
+    const reasonText = escapeHtml(guildSkillBlockReasonRu(sk, d, blockReason));
+    action = `<button type="button" class="guild-skill-card-upgrade" disabled onclick="event.stopPropagation()" title="${reasonText}"><span class="guild-skill-card-upgrade-plus">+</span><span class="guild-skill-card-upgrade-cost">${cost} ОПГ</span></button>`;
   }
   const cardClass = `guild-skill-card${maxed ? " maxed" : ""}${locked ? " locked" : ""}`;
   const lvlLabel = maxed
@@ -9918,7 +9970,7 @@ function renderGuildSkillsPanel(d) {
     { id: "defense", icon: "🛡️", label: "Защитные" },
     { id: "utility", icon: "💰", label: "Мирные" },
   ];
-  const resetBtn = d?.is_leader
+  const resetBtn = isGuildLeader(d)
     ? `<button type="button" class="guild-skills-panel-reset" onclick="WaifuApp.guildSkillReset()">🔄 Сбросить</button>`
     : "";
   const tabs = branches
@@ -10209,8 +10261,231 @@ async function loadGuildWarTargetsForUi() {
     .join("");
 }
 
+function formatGuildQuestVal(n) {
+  const v = safeInt(n, 0);
+  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(v);
+}
+
+function guildQuestCategoryMeta(category) {
+  const map = {
+    chat: { emoji: "💬", cls: "chat" },
+    combat: { emoji: "⚔️", cls: "combat" },
+    expedition: { emoji: "🗺️", cls: "expedition" },
+    economy: { emoji: "💰", cls: "economy" },
+  };
+  return map[category] || { emoji: "📋", cls: "chat" };
+}
+
+function guildQuestProgressFillClass(category) {
+  if (category === "combat") return "red";
+  if (category === "expedition") return "amber";
+  if (category === "economy") return "green";
+  return "blue";
+}
+
+function renderGuildQuestLeaders(leaders) {
+  if (!Array.isArray(leaders) || !leaders.length) return "";
+  const items = leaders
+    .map((l, idx) => {
+      const name = escapeHtml(l.display_name || "?");
+      const initial = name.charAt(0).toUpperCase();
+      const url = l.avatar_url ? escapeHtml(l.avatar_url) : "";
+      const rankCls = idx === 0 ? " guild-quest-leader-avatar--gold" : idx === 1 ? " guild-quest-leader-avatar--silver" : idx === 2 ? " guild-quest-leader-avatar--bronze" : "";
+      const img = url
+        ? `<img class="guild-quest-leader-avatar${rankCls}" src="${url}" alt="" title="${name}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'guild-quest-leader-avatar guild-quest-leader-fallback${rankCls}',textContent:'${initial}',title:'${name}'}))" onclick="WaifuApp.openPlayerProfile(${Number(l.player_id)})" />`
+        : `<span class="guild-quest-leader-avatar guild-quest-leader-fallback${rankCls}" title="${name}" onclick="WaifuApp.openPlayerProfile(${Number(l.player_id)})">${initial}</span>`;
+      return img;
+    })
+    .join("");
+  return `<div class="guild-quest-leaders">${items}</div>`;
+}
+
+function renderGuildQuestTiers(tiers) {
+  if (!Array.isArray(tiers) || !tiers.length) return "";
+  const items = tiers
+    .map((t) => {
+      const roman = ["I", "II", "III", "IV", "V"][safeInt(t.tier, 1) - 1] || String(t.tier);
+      const st = t.status === "done" ? "done-tier" : t.status === "active" ? "active-tier" : "";
+      return `<div class="guild-quest-tier-item ${st}">
+        <div class="guild-quest-tier-num ${st}">${roman}</div>
+        <div class="guild-quest-tier-val">${formatGuildQuestVal(t.target)}</div>
+        <div class="guild-quest-tier-xp">+${safeInt(t.reward_xp, 0)} XP</div>
+      </div>`;
+    })
+    .join("");
+  return `<div class="guild-quest-tiers">${items}</div>`;
+}
+
+function renderGuildQuestCard(q, { done = false } = {}) {
+  const cat = guildQuestCategoryMeta(q.category);
+  const fillCls = guildQuestProgressFillClass(q.category);
+  const typeLabel =
+    q.type === "daily" ? "Ежедневный" : q.type === "weekly" ? "Еженедельный" : "Веха";
+  const typeCls = q.type === "daily" ? "daily" : q.type === "weekly" ? "weekly" : "milestone";
+  const leaders = renderGuildQuestLeaders(q.leaders);
+  const other =
+    safeInt(q.other_contributors_count, 0) > 0
+      ? `<span class="guild-quest-contrib-more">+${safeInt(q.other_contributors_count, 0)} участников</span>`
+      : "";
+  const tiers = q.type === "milestone" ? renderGuildQuestTiers(q.tiers) : "";
+  const doneBlock = done
+    ? `<div class="guild-quest-done-badge">✅ Выполнено · +${safeInt(q.reward_xp, 0)} Guild XP получено</div>`
+    : `<div class="guild-quest-prog-row">
+        <div class="guild-quest-prog-bar"><div class="guild-quest-prog-fill ${fillCls}" style="width:${Math.min(100, Math.max(0, Number(q.progress_pct) || 0))}%"></div></div>
+        <span class="guild-quest-prog-val">${formatGuildQuestVal(q.current)} / ${formatGuildQuestVal(q.target)}</span>
+      </div>
+      <div class="guild-quest-contrib-row">
+        <span class="guild-quest-contrib-label">Лидеры:</span>
+        ${leaders}
+        ${other}
+        <span class="guild-quest-reward">+${safeInt(q.reward_xp, 0)} Guild XP</span>
+      </div>`;
+  return `<div class="guild-quest-card${done ? " guild-quest-card--done" : ""}">
+    <div class="guild-quest-card-top">
+      <div class="guild-quest-cat guild-quest-cat--${cat.cls}">${cat.emoji}</div>
+      <div class="guild-quest-info">
+        <div class="guild-quest-name">${escapeHtml(q.name || "")}</div>
+        <div class="guild-quest-desc">${escapeHtml(q.description || "")}</div>
+      </div>
+      <div class="guild-quest-tags">
+        <span class="guild-quest-tag guild-quest-tag--${typeCls}">${typeLabel}</span>
+      </div>
+    </div>
+    ${tiers}
+    ${doneBlock}
+  </div>`;
+}
+
+function formatGuildQuestReset(secondsLeft) {
+  const s = Math.max(0, safeInt(secondsLeft, 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `Обновляется в 00:00 МСК — осталось ${h}ч ${m}м`;
+}
+
+function renderGuildQuestBallot(ballot, viewerOfficer) {
+  if (!ballot || ballot.chosen_template_id) return "";
+  const opts = (ballot.options || [])
+    .map((o) => {
+      const cat = guildQuestCategoryMeta(o.category);
+      const voteBtn =
+        ballot.can_vote && viewerOfficer
+          ? `<button type="button" class="guild-quest-vote-btn" onclick="WaifuApp.voteWeeklyQuest(${Number(o.template_id)})">Выбрать</button>`
+          : "";
+      return `<div class="guild-quest-ballot-option">
+        <div class="guild-quest-cat guild-quest-cat--${cat.cls}">${cat.emoji}</div>
+        <div class="guild-quest-info">
+          <div class="guild-quest-name">${escapeHtml(o.name || "")}</div>
+          <div class="guild-quest-desc">${escapeHtml(o.description || "")}</div>
+          <div class="guild-quest-ballot-meta">Цель: ${formatGuildQuestVal(o.target)} · +${safeInt(o.reward_xp, 0)} XP</div>
+        </div>
+        ${voteBtn}
+      </div>`;
+    })
+    .join("");
+  return `<div class="guild-quest-section">
+    <div class="guild-section-label">Голосование за еженедельный квест</div>
+    ${opts || `<p class="muted tiny">Ожидание вариантов…</p>`}
+  </div>`;
+}
+
+function renderGuildQuestsPaneContent(data) {
+  const tab = guildHallState.questsTab || "milestones";
+  const tabs = data?.tabs || {};
+  const tabBtns = [
+    ["milestones", "Вехи"],
+    ["daily", "Ежедневные"],
+    ["weekly", "Еженедельные"],
+  ]
+    .map(
+      ([id, label]) =>
+        `<button type="button" class="guild-quest-tab${tab === id ? " active" : ""}" onclick="WaifuApp.switchGuildQuestTab('${id}')">${label}</button>`
+    )
+    .join("");
+
+  let body = "";
+  if (tab === "milestones") {
+    const ms = tabs.milestones || {};
+    const inProg = (ms.in_progress || []).map((q) => renderGuildQuestCard(q)).join("");
+    const done = (ms.recently_completed || []).map((q) => renderGuildQuestCard(q, { done: true })).join("");
+    body = `
+      ${inProg ? `<div class="guild-quest-section"><div class="guild-section-label">В процессе</div>${inProg}</div>` : ""}
+      ${done ? `<div class="guild-quest-section"><div class="guild-section-label">Недавно выполнено</div>${done}</div>` : ""}
+      ${!inProg && !done ? `<p class="muted tiny">Нет активных вех.</p>` : ""}
+      <p class="guild-quest-hint">Вехи накапливаются постоянно и никогда не сбрасываются</p>`;
+  } else if (tab === "daily") {
+    const daily = tabs.daily || {};
+    const cards = (daily.quests || []).map((q) => renderGuildQuestCard(q)).join("");
+    body = `
+      <p class="guild-quest-reset-hint">${formatGuildQuestReset(daily.seconds_left)}</p>
+      ${cards || `<p class="muted tiny">Ежедневные квесты появятся после полуночи МСК.</p>`}`;
+  } else {
+    const weekly = tabs.weekly || {};
+    const ballot = renderGuildQuestBallot(weekly.ballot, !!data?.viewer_is_officer);
+    const quest = weekly.quest ? renderGuildQuestCard(weekly.quest) : "";
+    body = `
+      <p class="guild-quest-reset-hint">${formatGuildQuestReset(weekly.seconds_left)}</p>
+      ${ballot}
+      ${quest || (!ballot ? `<p class="muted tiny">Еженедельный квест ещё не выбран.</p>` : "")}`;
+  }
+
+  return `<div class="guild-quests-board">
+    <nav class="guild-quest-tabs" aria-label="Типы квестов">${tabBtns}</nav>
+    ${body}
+  </div>`;
+}
+
 function renderGuildQuestsPane() {
-  return `<p class="muted tiny">Гильдейские квесты в разработке (см. ТЗ).</p>`;
+  if (guildHallState.questsLoading) {
+    return `<p class="muted tiny">Загрузка квестов…</p>`;
+  }
+  const data = guildHallState.questsData;
+  if (!data) {
+    return `<p class="muted tiny">Не удалось загрузить квесты.</p>`;
+  }
+  return renderGuildQuestsPaneContent(data);
+}
+
+async function loadGuildQuests() {
+  guildHallState.questsLoading = true;
+  try {
+    const data = await apiFetch("/guilds/me/quests");
+    guildHallState.questsData = data;
+    return data;
+  } catch (e) {
+    guildHallState.questsData = null;
+    throw e;
+  } finally {
+    guildHallState.questsLoading = false;
+  }
+}
+
+function switchGuildQuestTab(tab) {
+  guildHallState.questsTab = tab;
+  const pane = document.querySelector(".guild-activity-pane");
+  if (pane && guildHallState.questsData) {
+    pane.innerHTML = renderGuildQuestsPane();
+  } else {
+    void renderGuildTabContent();
+  }
+}
+
+async function voteWeeklyQuest(templateId) {
+  try {
+    await apiFetch("/guilds/me/quests/weekly/vote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ template_id: Number(templateId) }),
+    });
+    await loadGuildQuests();
+    await renderGuildTabContent();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    alert(detail || "Не удалось проголосовать");
+  }
 }
 
 async function renderGuildTabContent() {
@@ -13061,6 +13336,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   setGuildPageLoading,
   switchGuildTab,
   switchGuildActivityTab,
+  loadGuildQuests,
+  switchGuildQuestTab,
+  voteWeeklyQuest,
   createGuildFromHall,
   joinGuildFromSearch,
   leaveGuildFromHall,

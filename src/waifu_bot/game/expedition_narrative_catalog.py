@@ -337,6 +337,33 @@ def narrative_style_prompt_block(style: ExpeditionNarrativeStyle) -> str:
     return f"Стиль повествования «{style.name_ru}»: {style.prompt_rules_ru}"
 
 
+_FALLBACK_TITLE_PREFIXES: tuple[str, ...] = ("Операция", "Проект", "Рейд", "Миссия")
+
+
+def fallback_expedition_title(
+    archetype: LocationArchetype,
+    mode: ExpeditionMode,
+    rng: random.Random,
+) -> str:
+    """Детерминированное кодовое имя без LLM — не склеивает режим/архетип/аффиксы."""
+    prefix = rng.choice(_FALLBACK_TITLE_PREFIXES)
+    hints = list(archetype.narrative_hints)
+    rng.shuffle(hints)
+    core = hints[0] if hints else "тайна"
+    focus_words = [
+        w.strip()
+        for w in mode.narrative_focus.replace(",", " ").split()
+        if w.strip()
+    ]
+    rng.shuffle(focus_words)
+    parts = [prefix, core]
+    if len(hints) > 1 and rng.random() < 0.5:
+        parts.append(hints[1])
+    elif focus_words:
+        parts.append(focus_words[0])
+    return " ".join(parts)[:120]
+
+
 def fallback_narrative_brief(
     archetype: LocationArchetype,
     mode: ExpeditionMode,
@@ -352,10 +379,7 @@ def fallback_narrative_brief(
     style = narrative_style or pick_narrative_style(r)
     hints = list(archetype.narrative_hints)
     r.shuffle(hints)
-    affix_bit = ""
-    if affix_names:
-        affix_bit = f" ({', '.join(affix_names[:2])})"
-    title = f"{mode.name_ru} в {archetype.name_ru}{affix_bit}".strip()
+    title = fallback_expedition_title(archetype, mode, r)
     setting = (
         f"Отряд отправляется в {archetype.name_ru.lower()}: {hints[0] if hints else 'неизвестная зона'}. "
         f"Цель — {mode.narrative_focus}."

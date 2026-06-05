@@ -146,23 +146,21 @@ async def _apply_narrative_at_start(
     affix_hints = [str(getattr(a, "description_hint", "") or "").strip() for a in affix_rows]
     squad_names = [w.name or "Наёмница" for w in squad]
 
-    brief = None
-    if dm_narratives:
-        brief = await generate_expedition_narrative_brief(
-            archetype_id=arch.id,
-            archetype_name=arch.name_ru,
-            archetype_hints=list(arch.narrative_hints),
-            mode_id=mode.id,
-            mode_name=mode.name_ru,
-            mode_focus=mode.narrative_focus,
-            mode_prompt_rules=mode.prompt_rules_ru,
-            affix_names=affix_names,
-            affix_hints=affix_hints,
-            events_total=max(1, int(events_total or 1)),
-            duration_minutes=int(duration_minutes),
-            squad_names=squad_names,
-            narrative_style=narrative_style,
-        )
+    brief = await generate_expedition_narrative_brief(
+        archetype_id=arch.id,
+        archetype_name=arch.name_ru,
+        archetype_hints=list(arch.narrative_hints),
+        mode_id=mode.id,
+        mode_name=mode.name_ru,
+        mode_focus=mode.narrative_focus,
+        mode_prompt_rules=mode.prompt_rules_ru,
+        affix_names=affix_names,
+        affix_hints=affix_hints,
+        events_total=max(1, int(events_total or 1)),
+        duration_minutes=int(duration_minutes),
+        squad_names=squad_names,
+        narrative_style=narrative_style,
+    )
     if not brief:
         brief = fallback_narrative_brief(
             arch,
@@ -1314,6 +1312,16 @@ class ExpeditionService:
                 await apply_expedition_success_guild(session, player_id)
             except Exception:
                 pass
+
+        try:
+            from waifu_bot.services.guild_quest_service import record_metric
+
+            await record_metric(session, player_id, "expedition_minutes", int(active.duration_minutes or 0))
+            if outcome == EXPEDITION_OUTCOME_SUCCESS:
+                await record_metric(session, player_id, "expeditions_completed", 1)
+                await record_metric(session, player_id, "expeditions_no_death", 1)
+        except Exception:
+            pass
 
         from waifu_bot.services.event_log import log_event
 
