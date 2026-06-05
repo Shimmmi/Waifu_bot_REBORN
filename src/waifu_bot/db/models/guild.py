@@ -79,6 +79,10 @@ class Guild(Base):
     max_bank_items: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     withdrawal_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Per day or total
 
+    founder_player_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("players.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Relationships
     members: Mapped[list[GuildMember]] = relationship(
         "GuildMember", back_populates="guild", cascade="all, delete-orphan"

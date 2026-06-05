@@ -51,6 +51,12 @@ def _skill_upgrade_gate(
 async def _ensure_guild_leader(session: AsyncSession, mem: GuildMember) -> bool:
     if mem.is_leader:
         return True
+    from waifu_bot.services.guild_leader_integrity import ensure_guild_has_leader
+
+    if await ensure_guild_has_leader(session, int(mem.guild_id)):
+        await session.refresh(mem)
+    if mem.is_leader:
+        return True
     cnt = await session.scalar(
         select(func.count()).select_from(GuildMember).where(GuildMember.guild_id == mem.guild_id)
     )
@@ -68,6 +74,10 @@ async def guild_skills_snapshot(session: AsyncSession, player_id: int) -> dict:
     guild = await session.get(Guild, mem.guild_id)
     if not guild:
         return {"in_guild": False}
+    from waifu_bot.services.guild_leader_integrity import ensure_guild_has_leader
+
+    if await ensure_guild_has_leader(session, int(guild.id)):
+        await session.refresh(mem)
     member_count = int(
         await session.scalar(
             select(func.count()).select_from(GuildMember).where(GuildMember.guild_id == guild.id)

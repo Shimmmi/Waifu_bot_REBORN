@@ -10949,13 +10949,287 @@ body.page-guild .guild-members-modal-root {
   z-index: 6;
 }
 
+body.page-guild .guild-members-modal-root:not(.guild-members-modal--open) {
+  display: none !important;
+  pointer-events: none;
+}
+
+body.page-guild .guild-members-modal-root.guild-members-modal--open {
+  position: fixed;
+  inset: 0;
+  display: grid !important;
+  place-items: center;
+  padding: 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+
+body.page-guild .guild-members-modal-panel {
+  position: relative;
+  max-width: 500px;
+  width: min(100%, 500px);
+  padding: 10px 12px 12px;
+  gap: 8px;
+  grid-template-rows: auto 1fr;
+}
+
+body.page-guild .guild-members-modal-title {
+  margin: 0 36px 0 0;
+  padding-right: 4px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--amber-glow);
+  line-height: 1.25;
+}
+
+body.page-guild .guild-members-modal-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(200, 146, 42, 0.35);
+  background: rgba(8, 14, 26, 0.75);
+  color: var(--ash);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: inherit;
+  backdrop-filter: blur(4px);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+body.page-guild .guild-members-modal-close:hover {
+  background: rgba(200, 146, 42, 0.18);
+  color: var(--amber-glow);
+}
+
 body.page-guild .guild-members-modal-body {
-  max-height: min(60vh, 420px);
+  max-height: min(65vh, 440px);
   overflow-y: auto;
+  overflow-x: hidden;
+  gap: 0;
+  padding: 0;
 }
 
 body.page-guild .guild-members-modal-root .modal-content {
-  max-width: 420px;
+  max-width: 500px;
+  width: min(100%, 500px);
+}
+
+body.page-guild .guild-members-table {
+  min-width: 300px;
+  overflow-x: auto;
+}
+
+body.page-guild .guild-members-table-head,
+body.page-guild .guild-members-table-row {
+  display: grid;
+  grid-template-columns: 8px 32px minmax(0, 1fr) 64px 52px 24px;
+  column-gap: 6px;
+  align-items: center;
+}
+
+body.page-guild .guild-members-table-head {
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(200, 146, 42, 0.2);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+body.page-guild .guild-members-table-head .gmc--power {
+  text-align: right;
+}
+
+body.page-guild .guild-members-table-body {
+  display: flex;
+  flex-direction: column;
+}
+
+body.page-guild .guild-members-table-row {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(200, 146, 42, 0.12);
+}
+
+body.page-guild .guild-members-table-row:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+body.page-guild .guild-members-table-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+body.page-guild .guild-members-table-row:last-child {
+  border-bottom: none;
+}
+
+body.page-guild .gmc {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+body.page-guild .gmc--dot {
+  justify-content: center;
+}
+
+body.page-guild .gmc--avatar {
+  justify-content: center;
+}
+
+body.page-guild .gmc--name {
+  overflow: hidden;
+}
+
+body.page-guild .gmc--rank {
+  justify-content: flex-start;
+}
+
+body.page-guild .gmc--power {
+  justify-content: flex-end;
+}
+
+body.page-guild .gmc--actions {
+  justify-content: flex-end;
+}
+
+body.page-guild .guild-member-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(200, 146, 42, 0.25);
+  flex-shrink: 0;
+}
+
+body.page-guild .guild-member-avatar--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(13, 10, 8, 0.8);
+  font-size: 16px;
+}
+
+body.page-guild .guild-member-name-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  width: 100%;
+}
+
+body.page-guild .guild-member-name-btn:hover {
+  color: var(--amber-glow);
+}
+
+body.page-guild .guild-members-table .guild-member-rank {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+body.page-guild .guild-members-table .guild-member-power {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--amber-glow);
+  white-space: nowrap;
+  margin-left: 0;
+  text-align: right;
+}
+
+body.page-guild .guild-member-actions {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+}
+
+body.page-guild .guild-member-actions-spacer {
+  width: 24px;
+  height: 24px;
+}
+
+body.page-guild .guild-member-actions-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(200, 146, 42, 0.25);
+  background: rgba(13, 10, 8, 0.6);
+  color: var(--amber-glow);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.page-guild .guild-member-actions-btn:hover {
+  background: rgba(200, 146, 42, 0.15);
+  border-color: rgba(200, 146, 42, 0.45);
+}
+
+body.page-guild .guild-member-actions-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 2;
+  min-width: 168px;
+  background: rgba(13, 10, 8, 0.96);
+  border: 1px solid rgba(200, 146, 42, 0.35);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+body.page-guild .guild-member-actions-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+body.page-guild .guild-member-actions-menu-item:hover {
+  background: rgba(200, 146, 42, 0.12);
+  color: var(--amber-glow);
+}
+
+body.page-guild .guild-member-actions-menu-item--danger {
+  color: #f87171;
+}
+
+body.page-guild .guild-member-actions-menu-item--danger:hover {
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
 }
 
 body.page-guild .guild-stat-card--btn:hover,

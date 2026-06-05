@@ -7473,6 +7473,10 @@ function guildApiErrorToUser(detail, fallback) {
     tier_locked: "Навык заблокирован тиром гильдии.",
     max_level: "Навык уже максимального уровня.",
     no_skill_points: "Недостаточно очков прокачки (ОПГ).",
+    cannot_kick_leader: "Нельзя исключить главу гильдии.",
+    cannot_kick_self: "Нельзя исключить самого себя.",
+    invalid_role: "Недопустимое звание.",
+    target_not_found: "Участник не найден.",
     raid_already_active: "Рейд уже идёт.",
     need_participants: "Нужно минимум 2 участника.",
     wars_locked: "Войны доступны с 10 уровня гильдии.",
@@ -7609,6 +7613,9 @@ function renderGuildHero(d) {
       if (!ev.target.closest("#guild-hero-menu") && !ev.target.closest("#guild-hero-menu-btn")) {
         closeGuildHeroMenu();
       }
+      if (!ev.target.closest(".guild-member-actions")) {
+        closeGuildMemberActionMenus();
+      }
     });
   }
 }
@@ -7650,19 +7657,47 @@ function openGuildMembersModal() {
   if (!d?.in_guild) return;
   const body = document.getElementById("guild-members-modal-body");
   const modal = document.getElementById("guild-members-modal");
-  if (body) body.innerHTML = renderGuildMembersHtml(d.members);
+  if (body) body.innerHTML = renderGuildMembersHtml(d.members, d);
   if (modal) {
-    modal.style.display = "flex";
+    modal.classList.add("guild-members-modal--open");
     modal.setAttribute("aria-hidden", "false");
   }
 }
 
 function closeGuildMembersModal() {
   const modal = document.getElementById("guild-members-modal");
+  closeGuildMemberActionMenus();
   if (modal) {
-    modal.style.display = "none";
+    modal.classList.remove("guild-members-modal--open");
     modal.setAttribute("aria-hidden", "true");
   }
+}
+
+function refreshGuildMembersModal() {
+  const modal = document.getElementById("guild-members-modal");
+  if (!modal?.classList.contains("guild-members-modal--open")) return;
+  const d = guildHallState.me;
+  const body = document.getElementById("guild-members-modal-body");
+  if (body && d?.members) {
+    body.innerHTML = renderGuildMembersHtml(d.members, d);
+  }
+}
+
+function toggleGuildMemberActionMenu(ev, playerId) {
+  ev?.stopPropagation?.();
+  const menu = document.getElementById(`guild-member-menu-${playerId}`);
+  if (!menu) return;
+  const willOpen = menu.hidden;
+  closeGuildMemberActionMenus();
+  if (willOpen) {
+    menu.hidden = false;
+  }
+}
+
+function closeGuildMemberActionMenus() {
+  document.querySelectorAll(".guild-member-actions-menu").forEach((menu) => {
+    menu.hidden = true;
+  });
 }
 
 function toggleGuildHeroMenu(ev) {
@@ -7768,39 +7803,149 @@ function guildMemberLabel(m) {
   return escapeHtml(m.display_name || `Игрок ${m.player_id}`);
 }
 
-function renderGuildMembersHtml(members) {
+function guildMemberPlainName(m) {
+  const un = (m.telegram_username || "").trim();
+  if (un) return `@${un}`;
+  return m.display_name || `Игрок ${m.player_id}`;
+}
+
+function guildMemberRankLabel(m) {
+  if (m.rank) return m.rank;
+  if (m.is_leader) return "Глава";
+  if (m.is_officer) return "Офицер";
+  return "Участник";
+}
+
+function guildMemberAvatarHtml(m) {
+  const url = (m.portrait_url || "").trim();
+  if (url) {
+    return `<img class="guild-member-avatar" src="${escapeHtml(url)}" alt="" loading="lazy" />`;
+  }
+  return `<div class="guild-member-avatar guild-member-avatar--fallback" aria-hidden="true">🧙</div>`;
+}
+
+function guildMemberActionMenuHtml(m, d) {
+  const viewerId = Number(d?.viewer_player_id);
+  const targetId = Number(m.player_id);
+  if (!isGuildLeader(d) || !viewerId || targetId === viewerId || m.is_leader) {
+    return `<span class="guild-member-actions-spacer" aria-hidden="true"></span>`;
+  }
+  const items = [];
+  if (m.is_officer) {
+    items.push(
+      `<button type="button" class="guild-member-actions-menu-item" onclick="WaifuApp.guildSetMemberRank(${targetId}, 'member')">Снять с офицера</button>`
+    );
+  } else {
+    items.push(
+      `<button type="button" class="guild-member-actions-menu-item" onclick="WaifuApp.guildSetMemberRank(${targetId}, 'officer')">Назначить офицером</button>`
+    );
+  }
+  items.push(
+    `<button type="button" class="guild-member-actions-menu-item guild-member-actions-menu-item--danger" onclick="WaifuApp.guildKickMember(${targetId})">Исключить</button>`
+  );
+  items.push(
+    `<button type="button" class="guild-member-actions-menu-item" onclick="WaifuApp.guildSetMemberRank(${targetId}, 'leader')">Передать лидерство</button>`
+  );
+  return `<div class="guild-member-actions">
+    <button type="button" class="guild-member-actions-btn" aria-label="Действия" aria-haspopup="true" onclick="WaifuApp.toggleGuildMemberActionMenu(event, ${targetId})">⋯</button>
+    <div id="guild-member-menu-${targetId}" class="guild-member-actions-menu" hidden>${items.join("")}</div>
+  </div>`;
+}
+
+function renderGuildMembersHtml(members, viewerContext) {
   if (!Array.isArray(members) || !members.length) {
     return `<p class="muted tiny">Нет участников.</p>`;
   }
-  const online = members.filter((m) => m.online);
-  const offline = members.filter((m) => !m.online);
-  const row = (m) => {
-    const badges = [
-      m.is_leader ? `<span class="guild-member-badge">Глава</span>` : "",
-      m.is_officer && !m.is_leader ? `<span class="guild-member-badge">Офицер</span>` : "",
-    ]
-      .filter(Boolean)
-      .join("");
-    const dotCls = m.online ? "guild-member-dot--online" : "guild-member-dot--offline";
-    const pwr =
-      m.member_power != null && m.member_power !== ""
-        ? formatGuildPower(m.member_power)
-        : "—";
-    return `<div class="guild-member-row">
-      <span class="guild-member-dot ${dotCls}" aria-hidden="true"></span>
-      <button type="button" class="guild-member-preview-btn" onclick="WaifuApp.openPlayerProfile(${Number(m.player_id)})">${guildMemberLabel(m)}</button>
-      <span class="guild-member-power">${escapeHtml(String(pwr))}</span>
-      ${badges}
+  const sorted = [...members].sort((a, b) => {
+    const ao = a.online ? 1 : 0;
+    const bo = b.online ? 1 : 0;
+    if (bo !== ao) return bo - ao;
+    const al = a.is_leader ? 2 : a.is_officer ? 1 : 0;
+    const bl = b.is_leader ? 2 : b.is_officer ? 1 : 0;
+    if (bl !== al) return bl - al;
+    return String(a.display_name || "").localeCompare(String(b.display_name || ""), "ru");
+  });
+  const rows = sorted
+    .map((m) => {
+      const dotCls = m.online ? "guild-member-dot--online" : "guild-member-dot--offline";
+      const pwr =
+        m.member_power != null && m.member_power !== ""
+          ? formatGuildPower(m.member_power)
+          : "—";
+      return `<div class="guild-members-table-row">
+      <span class="gmc gmc--dot"><span class="guild-member-dot ${dotCls}" aria-hidden="true" title="${m.online ? "Онлайн" : "Оффлайн"}"></span></span>
+      <span class="gmc gmc--avatar">${guildMemberAvatarHtml(m)}</span>
+      <span class="gmc gmc--name"><button type="button" class="guild-member-name-btn" onclick="WaifuApp.openPlayerProfile(${Number(m.player_id)})">${guildMemberLabel(m)}</button></span>
+      <span class="gmc gmc--rank"><span class="guild-member-rank">${escapeHtml(guildMemberRankLabel(m))}</span></span>
+      <span class="gmc gmc--power"><span class="guild-member-power">${escapeHtml(String(pwr))}</span></span>
+      <span class="gmc gmc--actions">${guildMemberActionMenuHtml(m, viewerContext)}</span>
     </div>`;
-  };
-  let html = "";
-  if (online.length) {
-    html += `<h4 class="guild-activity-section-title">Онлайн</h4><div class="guild-members-list">${online.map(row).join("")}</div>`;
+    })
+    .join("");
+  return `<div class="guild-members-table">
+    <div class="guild-members-table-head">
+      <span class="gmc gmc--dot" aria-hidden="true"></span>
+      <span class="gmc gmc--avatar" aria-hidden="true"></span>
+      <span class="gmc gmc--name">Игрок</span>
+      <span class="gmc gmc--rank">Звание</span>
+      <span class="gmc gmc--power">Мощь</span>
+      <span class="gmc gmc--actions" aria-hidden="true"></span>
+    </div>
+    <div class="guild-members-table-body">${rows}</div>
+  </div>`;
+}
+
+async function guildKickMember(targetId) {
+  closeGuildMemberActionMenus();
+  const d = guildHallState.me;
+  const member = (d?.members || []).find((m) => Number(m.player_id) === Number(targetId));
+  const name = member ? guildMemberPlainName(member) : `игрока ${targetId}`;
+  if (!confirm(`Исключить ${name} из гильдии?`)) return;
+  try {
+    const res = await apiFetch(`/guilds/members/${targetId}/kick`, { method: "POST" });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось исключить"), "error");
+      return;
+    }
+    showToast("Участник исключён", "success");
+    await populateGuildHall();
+    refreshGuildMembersModal();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
   }
-  if (offline.length) {
-    html += `<h4 class="guild-activity-section-title">Оффлайн</h4><div class="guild-members-list">${offline.map(row).join("")}</div>`;
+}
+
+async function guildSetMemberRank(targetId, role) {
+  closeGuildMemberActionMenus();
+  if (role === "leader") {
+    const d = guildHallState.me;
+    const member = (d?.members || []).find((m) => Number(m.player_id) === Number(targetId));
+    const name = member ? guildMemberPlainName(member) : `игроку ${targetId}`;
+    if (!confirm(`Передать лидерство ${name}? Вы станете обычным участником.`)) return;
   }
-  return html;
+  try {
+    const res = await apiFetch(`/guilds/members/${targetId}/rank`, {
+      method: "POST",
+      body: JSON.stringify({ role }),
+    });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось изменить звание"), "error");
+      return;
+    }
+    const toastMsg =
+      role === "leader"
+        ? "Лидерство передано"
+        : role === "officer"
+          ? "Участник назначен офицером"
+          : "Офицер снят";
+    showToast(toastMsg, "success");
+    await populateGuildHall();
+    refreshGuildMembersModal();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
 }
 
 function getGuildRaidChatId(d) {
@@ -10648,6 +10793,11 @@ async function populateGuildHall(profile) {
       document.getElementById("guild-member-preview-mail")?.addEventListener("click", openGuildMemberMailCompose);
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
+          const membersModal = document.getElementById("guild-members-modal");
+          if (membersModal?.classList.contains("guild-members-modal--open")) {
+            closeGuildMembersModal();
+            return;
+          }
           const compose = document.getElementById("player-mail-compose-modal");
           if (compose && compose.style.display !== "none") {
             closePlayerMailComposeModal();
@@ -13396,6 +13546,11 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   uploadGuildBanner,
   openGuildMembersModal,
   closeGuildMembersModal,
+  refreshGuildMembersModal,
+  toggleGuildMemberActionMenu,
+  closeGuildMemberActionMenus,
+  guildKickMember,
+  guildSetMemberRank,
   toggleGuildHeroMenu,
   closeGuildHeroMenu,
   toggleGuildRaidParticipant,

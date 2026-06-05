@@ -278,12 +278,10 @@
       </div>
     </div>
 
-    <div id="guild-members-modal" class="modal guild-members-modal-root" style="display: none" aria-hidden="true" onclick="if (event.target === this) WaifuApp.closeGuildMembersModal()">
+    <div id="guild-members-modal" class="modal guild-members-modal-root" aria-hidden="true" onclick="if (event.target === this) WaifuApp.closeGuildMembersModal()">
       <div class="modal-content guild-members-modal-panel" onclick="event.stopPropagation()">
-        <div class="modal-head">
-          <h2 class="modal-title">Участники</h2>
-          <button type="button" class="modal-close" id="guild-members-modal-close" aria-label="Закрыть" onclick="WaifuApp.closeGuildMembersModal()">✕</button>
-        </div>
+        <button type="button" class="guild-members-modal-close" id="guild-members-modal-close" aria-label="Закрыть" onclick="WaifuApp.closeGuildMembersModal()">✕</button>
+        <h2 class="guild-members-modal-title">Состав Гильдии</h2>
         <div id="guild-members-modal-body" class="modal-body guild-members-modal-body"></div>
       </div>
     </div>

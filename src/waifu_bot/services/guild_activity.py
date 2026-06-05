@@ -151,6 +151,43 @@ async def log_member_join(
     )
 
 
+async def log_member_kick(
+    session: AsyncSession,
+    guild_id: int,
+    actor_id: int,
+    target_id: int,
+) -> None:
+    actor_name = await _player_display(session, actor_id)
+    target_name = await _player_display(session, target_id)
+    await log_guild_activity(
+        session,
+        guild_id,
+        "member_kick",
+        f"{actor_name} исключил {target_name} из гильдии",
+        actor_player_id=actor_id,
+        actor_avatar="🚫",
+    )
+
+
+async def log_member_rank_change(
+    session: AsyncSession,
+    guild_id: int,
+    actor_id: int,
+    target_id: int,
+    rank_label: str,
+) -> None:
+    actor_name = await _player_display(session, actor_id)
+    target_name = await _player_display(session, target_id)
+    await log_guild_activity(
+        session,
+        guild_id,
+        "member_rank_change",
+        f"{actor_name} назначил {target_name} — {rank_label}",
+        actor_player_id=actor_id,
+        actor_avatar="⭐",
+    )
+
+
 async def log_bank_deposit(
     session: AsyncSession, guild_id: int, player_id: int, amount: int
 ) -> None:

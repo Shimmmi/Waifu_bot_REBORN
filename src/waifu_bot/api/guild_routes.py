@@ -79,6 +79,35 @@ async def leave_guild(
     return schemas.GuildActionResponse(**await guild_service.leave_guild(session, player_id))
 
 
+@router.post("/guilds/members/{target_player_id}/kick", tags=["guild"])
+async def kick_guild_member(
+    target_player_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    return schemas.GuildActionResponse(
+        **await guild_service.kick_member(session, player_id, target_player_id)
+    )
+
+
+class GuildMemberRankBody(BaseModel):
+    role: str
+
+
+@router.post("/guilds/members/{target_player_id}/rank", tags=["guild"])
+async def set_guild_member_rank(
+    target_player_id: int,
+    body: GuildMemberRankBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    return schemas.GuildActionResponse(
+        **await guild_service.set_member_rank(
+            session, player_id, target_player_id, body.role
+        )
+    )
+
+
 @router.post("/guilds/deposit/gold", tags=["guild"])
 async def deposit_guild_gold(
     amount: int,
@@ -209,6 +238,17 @@ async def guilds_me(
             display_name = fn or un or str(pl.id)
             player_id_out = int(pl.id)
             telegram_username = un or None
+        mw = waifu_by_player.get(int(gm.player_id))
+        portrait_url = None
+        if mw and getattr(mw, "image_data", None):
+            mime = getattr(mw, "image_mime", None) or "image/webp"
+            portrait_url = f"data:{mime};base64,{mw.image_data}"
+        if gm.is_leader:
+            rank = "Глава"
+        elif gm.is_officer:
+            rank = "Офицер"
+        else:
+            rank = "Участник"
         members_out.append(
             {
                 "player_id": player_id_out,
@@ -216,13 +256,20 @@ async def guilds_me(
                 "telegram_username": telegram_username,
                 "is_leader": bool(gm.is_leader),
                 "is_officer": bool(gm.is_officer),
+                "rank": rank,
+                "portrait_url": portrait_url,
                 "last_active": last_active_iso,
                 "online": online,
                 "member_power": member_power(waifu_by_player.get(int(gm.player_id))),
             }
         )
     members_out.sort(
-        key=lambda x: (-bool(x["is_leader"]), -bool(x["is_officer"]), x["display_name"].lower())
+        key=lambda x: (
+            -bool(x["online"]),
+            -bool(x["is_leader"]),
+            -bool(x["is_officer"]),
+            x["display_name"].lower(),
+        )
     )
     guild_icon_url = f"/static/{guild.icon_path}" if guild.icon_path else None
     guild_banner_url = f"/static/{guild.banner_path}" if guild.banner_path else None

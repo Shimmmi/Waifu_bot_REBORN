@@ -82,6 +82,7 @@ class GuildService:
             experience=0,
             gold=0,
             is_recruiting=True,
+            founder_player_id=player_id,
         )
         session.add(guild)
         await session.flush()
@@ -186,6 +187,85 @@ class GuildService:
         await session.delete(member)
         await session.commit()
 
+        return {"success": True}
+
+    async def kick_member(
+        self, session: AsyncSession, actor_id: int, target_id: int
+    ) -> dict:
+        """Kick a guild member (leader only)."""
+        actor = await self._get_guild_member(session, actor_id)
+        if not actor:
+            return {"error": "not_in_guild"}
+        if not actor.is_leader:
+            return {"error": "leader_only"}
+        if actor_id == target_id:
+            return {"error": "cannot_kick_self"}
+
+        target = await self._get_guild_member(session, target_id)
+        if not target or target.guild_id != actor.guild_id:
+            return {"error": "target_not_found"}
+        if target.is_leader:
+            return {"error": "cannot_kick_leader"}
+
+        from waifu_bot.services.guild_activity import log_member_kick
+
+        guild_id = int(actor.guild_id)
+        await log_member_kick(session, guild_id, actor_id, target_id)
+        await session.delete(target)
+        await session.commit()
+        return {"success": True}
+
+    async def set_member_rank(
+        self,
+        session: AsyncSession,
+        actor_id: int,
+        target_id: int,
+        role: str,
+    ) -> dict:
+        """Change member rank or transfer leadership (leader only)."""
+        role_norm = (role or "").strip().lower()
+        if role_norm not in ("officer", "member", "leader"):
+            return {"error": "invalid_role"}
+
+        actor = await self._get_guild_member(session, actor_id)
+        if not actor:
+            return {"error": "not_in_guild"}
+        if not actor.is_leader:
+            return {"error": "leader_only"}
+
+        target = await self._get_guild_member(session, target_id)
+        if not target or target.guild_id != actor.guild_id:
+            return {"error": "target_not_found"}
+
+        from waifu_bot.services.guild_activity import log_member_rank_change
+
+        guild_id = int(actor.guild_id)
+
+        if role_norm == "leader":
+            if actor_id == target_id:
+                return {"error": "invalid_role"}
+            actor.is_leader = False
+            actor.is_officer = False
+            target.is_leader = True
+            target.is_officer = False
+            rank_label = "Глава"
+        elif role_norm == "officer":
+            if target.is_leader:
+                return {"error": "invalid_role"}
+            target.is_officer = True
+            target.is_leader = False
+            rank_label = "Офицер"
+        else:
+            if target.is_leader:
+                return {"error": "invalid_role"}
+            target.is_officer = False
+            target.is_leader = False
+            rank_label = "Участник"
+
+        await log_member_rank_change(
+            session, guild_id, actor_id, target_id, rank_label
+        )
+        await session.commit()
         return {"success": True}
 
     async def get_guild_info(
