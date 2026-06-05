@@ -574,3 +574,43 @@ async def guild_war_respond(
     from waifu_bot.services.guild_war_service import respond_war
 
     return await respond_war(session, player_id, body.war_id, body.accept)
+
+
+@router.get("/guilds/me/quests", tags=["guild"])
+async def guilds_me_quests(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.guild_quest_service import quests_snapshot_for_guild
+
+    mem = await guild_service.get_guild_member(session, player_id)
+    if not mem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_in_guild")
+    snap = await quests_snapshot_for_guild(session, mem.guild_id, player_id)
+    if snap.get("error"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=snap["error"])
+    return snap
+
+
+class GuildWeeklyQuestVoteBody(BaseModel):
+    template_id: int
+
+
+@router.post("/guilds/me/quests/weekly/vote", tags=["guild"])
+async def guilds_me_quests_weekly_vote(
+    body: GuildWeeklyQuestVoteBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.guild_quest_service import vote_weekly_quest
+
+    result = await vote_weekly_quest(session, player_id, body.template_id)
+    if result.get("error"):
+        code = result["error"]
+        if code in ("not_in_guild", "no_ballot", "invalid_option"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code)
+        if code in ("officer_only", "already_voted"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=code)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code)
+    await session.commit()
+    return result

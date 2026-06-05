@@ -283,3 +283,21 @@ async def log_guild_level_up(
         f"Гильдия достигла {int(new_level)} уровня",
         actor_avatar="🏛️",
     )
+
+
+async def log_guild_quest_completed(
+    session: AsyncSession,
+    guild_id: int,
+    quest_name: str,
+    reward_xp: int,
+    *,
+    tier_suffix: str | None = None,
+) -> None:
+    label = quest_name if tier_suffix is None else quest_name
+    await log_guild_activity(
+        session,
+        guild_id,
+        "guild_quest",
+        f"Квест «{label}» выполнен · +{int(reward_xp)} Guild XP",
+        actor_avatar="📜",
+    )

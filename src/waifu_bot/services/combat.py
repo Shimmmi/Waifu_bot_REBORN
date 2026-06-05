@@ -423,6 +423,17 @@ async def apply_main_waifu_levelups(session: AsyncSession, waifu: MainWaifu) -> 
     return changed
 
 
+async def _guild_quest_record(
+    session: AsyncSession, player_id: int, metric: str, delta: int = 1
+) -> None:
+    try:
+        from waifu_bot.services.guild_quest_service import record_metric
+
+        await record_metric(session, int(player_id), metric, int(delta))
+    except Exception:
+        pass
+
+
 async def _maybe_log_guild_combat_rewards(
     session: AsyncSession,
     player_id: int,
@@ -442,6 +453,10 @@ async def _maybe_log_guild_combat_rewards(
                 int(player_id),
                 str(drop_item_payload.get("name") or "Предмет"),
             )
+        if drop_item_payload:
+            await _guild_quest_record(session, player_id, "items_found", 1)
+            if int(drop_item_payload.get("rarity") or 0) >= 4:
+                await _guild_quest_record(session, player_id, "rare_items_found", 1)
     except Exception:
         pass
 
@@ -1506,6 +1521,9 @@ class CombatService:
         # player_damage = await self._monster_attack(session, monster, waifu)
 
         if not monster_dodged and damage > 0:
+            await _guild_quest_record(session, player_id, "total_damage_dealt", int(damage))
+            if is_crit:
+                await _guild_quest_record(session, player_id, "critical_hits", 1)
             await increment_skill_counter(session, player_id, "dungeon_message", 1)
             if source_chat_id is not None and int(source_chat_id) < 0:
                 await increment_skill_counter(session, player_id, "group_message", 1)
@@ -1971,6 +1989,14 @@ class CombatService:
         exp_mult *= await self._experience_int_multiplier(
             session, int(waifu.player_id), waifu, cached_psb=ps_cl, cached_hs=hs_cl
         )
+        try:
+            from waifu_bot.services.guild_quest_service import get_quest_exp_bonus_pct
+
+            quest_exp_pct = await get_quest_exp_bonus_pct(session, int(waifu.player_id))
+            if quest_exp_pct > 0:
+                exp_mult *= 1.0 + float(quest_exp_pct) / 100.0
+        except Exception:
+            pass
 
         gold_mult, exp_mult, guild_contribs = await _apply_guild_solo_reward_mults_to_state(
             session, int(waifu.player_id), gold_mult, exp_mult
@@ -2116,6 +2142,10 @@ class CombatService:
                 if mk > 0:
                     gold_gain = max(0, int(round(gold_gain * (1.0 + mk))))
             player.gold += gold_gain
+            if gold_gain > 0:
+                await _guild_quest_record(
+                    session, int(waifu.player_id), "gold_earned", int(gold_gain)
+                )
 
         guild_bonus = await _log_solo_monster_reward(
             session,
@@ -2386,6 +2416,14 @@ class CombatService:
         exp_mult *= await self._experience_int_multiplier(
             session, pid, waifu, cached_psb=ps_run, cached_hs=hs
         )
+        try:
+            from waifu_bot.services.guild_quest_service import get_quest_exp_bonus_pct
+
+            quest_exp_pct = await get_quest_exp_bonus_pct(session, pid)
+            if quest_exp_pct > 0:
+                exp_mult *= 1.0 + float(quest_exp_pct) / 100.0
+        except Exception:
+            pass
 
         gold_mult, exp_mult, guild_contribs = await _apply_guild_solo_reward_mults_to_state(
             session, pid, gold_mult, exp_mult
@@ -2421,6 +2459,7 @@ class CombatService:
                 exp_mult *= 1.0 + fc_exp / 100.0
 
         await increment_skill_counter(session, pid, "dungeon_kill", 1)
+        await _guild_quest_record(session, pid, "monsters_killed", 1)
         try:
             await bestiary_service.record_kill(
                 session, pid, getattr(run_monster, "template_id", None), redis=self.redis
@@ -2429,6 +2468,7 @@ class CombatService:
             pass
         if run_monster.is_boss:
             await increment_skill_counter(session, pid, "boss_kill", 1)
+            await _guild_quest_record(session, pid, "bosses_killed", 1)
         sbid = getattr(run_monster, "story_boss_definition_id", None)
         if run_monster.is_boss and sbid:
             await increment_skill_counter(session, pid, "story_boss_total_kills", 1)
@@ -2468,6 +2508,7 @@ class CombatService:
                     pass
         if run_monster.is_elite:
             await increment_skill_counter(session, pid, "elite_kill", 1)
+            await _guild_quest_record(session, pid, "elites_killed", 1)
         mc = int(run_monster.messages_on_monster or 0)
         if 1 <= mc <= 3:
             await increment_skill_counter(session, pid, "fast_kill", 1)
@@ -2489,6 +2530,8 @@ class CombatService:
         if player:
             player.gold += gold_gain
             await try_hoarder_saving_streak(session, pid, int(player.gold or 0), self.redis)
+        if gold_gain > 0:
+            await _guild_quest_record(session, pid, "gold_earned", int(gold_gain))
 
         guild_bonus = await _log_solo_monster_reward(
             session,

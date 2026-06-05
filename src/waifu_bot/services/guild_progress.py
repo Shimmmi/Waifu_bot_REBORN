@@ -194,6 +194,28 @@ def _monster_xp_for_transition(
     return total
 
 
+def _monster_kill_counts_for_transition(
+    pre_m: list[dict[str, Any]],
+    post_m: list[dict[str, Any]],
+) -> tuple[int, int]:
+    def alive_hp(m: dict[str, Any]) -> int:
+        return int(m.get("hp") or 0)
+
+    pre_map = {int(m.get("id", 0)): m for m in pre_m if int(m.get("id", 0))}
+    post_map = {int(m.get("id", 0)): m for m in post_m if int(m.get("id", 0))}
+    kills = bosses = 0
+    for mid, a in pre_map.items():
+        if alive_hp(a) <= 0:
+            continue
+        b = post_map.get(mid)
+        if b is None or alive_hp(b) <= 0:
+            if bool(a.get("is_boss")):
+                bosses += 1
+            else:
+                kills += 1
+    return kills, bosses
+
+
 async def apply_gd_monster_kill_gxp(
     session: AsyncSession,
     registrations_user_ids: list[int],
@@ -213,6 +235,17 @@ async def apply_gd_monster_kill_gxp(
     total = _monster_xp_for_transition(pre_m, post_m, kill_gxp, boss_gxp)
     if total:
         await add_gxp(session, guild_id, total, reason="gd_kills")
+    try:
+        from waifu_bot.services.guild_quest_service import record_metric
+
+        kills, bosses = _monster_kill_counts_for_transition(pre_m, post_m)
+        actor = int(registrations_user_ids[0]) if registrations_user_ids else None
+        if actor and kills:
+            await record_metric(session, actor, "monsters_killed", kills)
+        if actor and bosses:
+            await record_metric(session, actor, "bosses_killed", bosses)
+    except Exception:
+        logger.debug("guild quest gd kill hook failed", exc_info=True)
 
 
 def _collect_registration_user_ids(cycle: Any) -> list[int]:

@@ -52,6 +52,17 @@ from waifu_bot.db.models.dungeon import (
 from waifu_bot.db.models.endless import PlayerDungeonPlus, ItemBase, AffixFamily, AffixFamilyTier
 from waifu_bot.db.models.art import ItemArt
 from waifu_bot.db.models.guild import Guild, GuildMember, GuildBank
+from waifu_bot.db.models.guild_quest import (
+    GuildQuest,
+    GuildQuestCategory,
+    GuildQuestContribution,
+    GuildQuestPlayerBuff,
+    GuildQuestStatus,
+    GuildQuestTemplate,
+    GuildQuestTier,
+    GuildQuestType,
+    GuildWeeklyQuestBallot,
+)
 from waifu_bot.db.models.guild_extended import (
     GuildLevelThreshold,
     GuildSkillDefinition,
@@ -158,6 +169,15 @@ __all__ = [
     "Guild",
     "GuildMember",
     "GuildBank",
+    "GuildQuest",
+    "GuildQuestCategory",
+    "GuildQuestContribution",
+    "GuildQuestPlayerBuff",
+    "GuildQuestStatus",
+    "GuildQuestTemplate",
+    "GuildQuestTier",
+    "GuildQuestType",
+    "GuildWeeklyQuestBallot",
     "GuildLevelThreshold",
     "GuildSkillDefinition",
     "GuildSkillLevelRow",

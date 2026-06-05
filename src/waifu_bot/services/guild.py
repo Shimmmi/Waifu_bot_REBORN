@@ -94,6 +94,13 @@ class GuildService:
         )
         session.add(member)
 
+        try:
+            from waifu_bot.services.guild_quest_service import ensure_guild_quests
+
+            await ensure_guild_quests(session, guild.id)
+        except Exception:
+            pass
+
         # Deduct gold
         player.gold -= GUILD_CREATION_COST
 
