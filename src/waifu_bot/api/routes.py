@@ -2385,6 +2385,8 @@ async def expeditions_start(
     )
     err = result.get("error")
     if err:
+        if err == "player_not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Игрок не найден")
         if err == "invalid_duration":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Недопустимая длительность")
         if err == "squad_size":
@@ -2405,6 +2407,16 @@ async def expeditions_start(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Вайфу должна быть в отряде таверны")
         if err == "already_started":
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Экспедиция в этот слот уже запущена")
+        if err == "daily_limit_reached":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Лимит экспедиций на сегодня: {result.get('max', 3)}",
+            )
+        if err == "constructor_disabled":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Прямой запуск без дневного слота недоступен",
+            )
         if err == "missing_expedition_config":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Укажите слот или параметры похода (локация, аффикс, уровень)")
         if err == "too_many_expeditions":

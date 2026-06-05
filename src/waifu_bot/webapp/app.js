@@ -7436,7 +7436,10 @@ const guildHallState = {
   questsTab: "milestones",
   questsLoading: false,
   heroMenuListener: false,
+  membersModalGuardUntil: 0,
 };
+
+const GUILD_MEMBERS_MODAL_GUARD_MS = 400;
 
 function isGuildLeader(d) {
   if (!d) return false;
@@ -7633,7 +7636,7 @@ function renderGuildStatsGrid(d) {
   return `
     <div class="guild-section-label">Статистика</div>
     <div class="guild-stats-grid">
-      <button type="button" class="guild-stat-card guild-stat-card--btn" onclick="WaifuApp.openGuildMembersModal()">
+      <button type="button" id="guild-stat-members-btn" class="guild-stat-card guild-stat-card--btn">
         <div class="guild-stat-label">Участники</div>
         <div class="guild-stat-val">${members.length} <span class="guild-stat-sub">/ ${slots}</span></div>
       </button>
@@ -7652,6 +7655,59 @@ function renderGuildStatsGrid(d) {
     </div>`;
 }
 
+function armGuildMembersModalGuard() {
+  guildHallState.membersModalGuardUntil = Date.now() + GUILD_MEMBERS_MODAL_GUARD_MS;
+  const grid = document.querySelector(".guild-stats-grid");
+  if (!grid) return;
+  grid.classList.add("guild-stats-grid--arming");
+  window.setTimeout(() => grid.classList.remove("guild-stats-grid--arming"), GUILD_MEMBERS_MODAL_GUARD_MS);
+}
+
+function bindGuildMembersStatCard() {
+  const root = document.getElementById("guild-tab-content");
+  if (!root || root.dataset.membersBtnBound === "1") return;
+  root.dataset.membersBtnBound = "1";
+  root.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("#guild-stat-members-btn");
+    if (!btn) return;
+    if (Date.now() < (guildHallState.membersModalGuardUntil || 0)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
+    openGuildMembersModal();
+  });
+}
+
+function bindGuildMembersModalChrome() {
+  if (window.__guildMembersModalBound) return;
+  window.__guildMembersModalBound = true;
+
+  const modal = document.getElementById("guild-members-modal");
+  const closeBtn = document.getElementById("guild-members-modal-close");
+  const panel = modal?.querySelector(".guild-members-modal-panel");
+
+  const onCloseClick = (ev) => {
+    ev.preventDefault();
+    closeGuildMembersModal();
+  };
+  closeBtn?.addEventListener("click", onCloseClick);
+  closeBtn?.addEventListener("touchend", onCloseClick);
+
+  modal?.addEventListener("click", (ev) => {
+    if (ev.target === modal) closeGuildMembersModal();
+  });
+  panel?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+  });
+
+  window.addEventListener("pageshow", () => {
+    if (document.body.classList.contains("page-guild")) {
+      closeGuildMembersModal();
+    }
+  });
+}
+
 function openGuildMembersModal() {
   const d = guildHallState.me;
   if (!d?.in_guild) return;
@@ -7661,6 +7717,7 @@ function openGuildMembersModal() {
   if (modal) {
     modal.classList.add("guild-members-modal--open");
     modal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
   }
 }
 
@@ -7670,6 +7727,9 @@ function closeGuildMembersModal() {
   if (modal) {
     modal.classList.remove("guild-members-modal--open");
     modal.setAttribute("aria-hidden", "true");
+  }
+  if (document.body.classList.contains("page-guild")) {
+    document.body.style.overflow = "";
   }
 }
 
@@ -10660,6 +10720,7 @@ async function renderGuildTabContent() {
     root.innerHTML = `
       ${renderGuildStatsGrid(d)}
       ${renderGuildActivityFeed(d)}`;
+    armGuildMembersModalGuard();
     return;
   }
 
@@ -10756,6 +10817,7 @@ async function searchGuilds(query) {
 }
 
 async function populateGuildHall(profile) {
+  closeGuildMembersModal();
   const p = profile || profileState.currentProfile || {};
   guildHallState.profileGold = safeInt(p?.gold, 0);
   const root = document.getElementById("guild-tab-content");
@@ -10789,6 +10851,8 @@ async function populateGuildHall(profile) {
     await renderGuildTabContent();
     if (!window.__guildHallModalBound) {
       window.__guildHallModalBound = true;
+      bindGuildMembersModalChrome();
+      bindGuildMembersStatCard();
       document.getElementById("guild-skill-modal-close")?.addEventListener("click", closeGuildSkillModal);
       document.getElementById("guild-member-preview-mail")?.addEventListener("click", openGuildMemberMailCompose);
       document.addEventListener("keydown", (e) => {

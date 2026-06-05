@@ -11,11 +11,13 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -133,4 +135,14 @@ class ActiveExpedition(Base):
     location_archetype_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     expedition_mode_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     narrative_brief: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    __table_args__ = (
+        Index(
+            "uq_active_expedition_player_slot",
+            "player_id",
+            "expedition_slot_id",
+            unique=True,
+            postgresql_where=text("expedition_slot_id IS NOT NULL"),
+        ),
+    )
 
