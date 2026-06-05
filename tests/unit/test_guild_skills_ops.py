@@ -143,6 +143,10 @@ def test_guild_skill_upgrade_sole_member_auto_leader():
         with patch(
             "waifu_bot.services.guild_activity.log_skill_upgrade",
             new_callable=AsyncMock,
+        ), patch(
+            "waifu_bot.services.guild_leader_integrity.ensure_guild_has_leader",
+            new_callable=AsyncMock,
+            return_value=False,
         ):
             result = await guild_skill_upgrade(session, 123, 1)
 
@@ -195,7 +199,12 @@ def test_guild_skills_snapshot_can_upgrade_fields():
         session.get = AsyncMock(side_effect=_get)
         session.scalar = AsyncMock(return_value=1)
 
-        snap = await guild_skills_snapshot(session, 123)
+        with patch(
+            "waifu_bot.services.guild_leader_integrity.ensure_guild_has_leader",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            snap = await guild_skills_snapshot(session, 123)
         assert snap["skill_tier_unlock"] == 1
         assert snap["is_leader"] is True
         sk = snap["definitions"][0]

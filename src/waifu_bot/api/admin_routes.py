@@ -797,3 +797,24 @@ async def admin_generate_story_boss_art(
         "image_url": public_path,
     }
 
+
+@router.post("/admin/guilds/{guild_id}/restore-founder-leadership", tags=["admin"])
+async def admin_restore_founder_leadership(
+    guild_id: int,
+    player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.guild_leader_integrity import restore_founder_leadership
+
+    result = await restore_founder_leadership(
+        session, int(guild_id), actor_player_id=int(player_id)
+    )
+    if result.get("error"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result["error"],
+        )
+    if result.get("changed"):
+        await session.commit()
+    return result
+
