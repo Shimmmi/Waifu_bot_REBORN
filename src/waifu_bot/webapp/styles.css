@@ -9508,6 +9508,35 @@ body.page-guild .guild-raid-participants-modal-root.guild-raid-participants-moda
   display: flex;
 }
 
+body.page-guild .guild-raid-chat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+body.page-guild .guild-raid-chat-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+body.page-guild .guild-raid-chat-row + .guild-raid-chat-row {
+  margin-top: 8px;
+}
+
+body.page-guild .guild-raid-chat-row-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
 body.page-guild .guild-raid-vitals {
   margin: 10px 0;
   display: flex;

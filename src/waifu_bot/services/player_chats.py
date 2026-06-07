@@ -46,6 +46,27 @@ async def resolve_player_group_chats(session: AsyncSession, player_id: int) -> l
     return sorted({int(r[0]) for r in rows})
 
 
+async def players_seen_in_group_chat(session: AsyncSession, chat_id: int) -> list[int]:
+    """Player IDs seen in a group chat (messages or GD registration)."""
+    cid = int(chat_id)
+    if cid >= 0:
+        return []
+    gd_q = (
+        select(GDRegistration.user_id.label("player_id"))
+        .join(GDCycle, GDRegistration.cycle_id == GDCycle.id)
+        .where(GDCycle.chat_id == cid)
+        .distinct()
+    )
+    seen_q = (
+        select(PlayerChatFirstSeen.player_id.label("player_id"))
+        .where(PlayerChatFirstSeen.chat_id == cid)
+        .distinct()
+    )
+    combined = union(gd_q, seen_q).subquery()
+    rows = (await session.execute(select(combined.c.player_id))).all()
+    return sorted({int(r[0]) for r in rows})
+
+
 async def forget_player_chat_seen(
     session: AsyncSession, player_id: int, chat_id: int
 ) -> None:
