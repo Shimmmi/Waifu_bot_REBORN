@@ -8010,10 +8010,63 @@ async function guildSetMemberRank(targetId, role) {
 
 function getGuildRaidChatId(d) {
   const fromGuild = d?.raid?.telegram_chat_id ?? d?.telegram_chat_id;
-  if (fromGuild != null && Number(fromGuild) > 0) return Number(fromGuild);
+  if (fromGuild != null && Number(fromGuild) !== 0) return Number(fromGuild);
   const chat = tg?.initDataUnsafe?.chat;
   if (chat?.id) return Number(chat.id);
   return null;
+}
+
+function guildRaidMusterStatusLabel(st) {
+  const map = {
+    pending: "ожидает",
+    accepted: "принял",
+    declined: "отказался",
+    timeout: "таймаут (3 ч)",
+  };
+  return map[String(st || "").toLowerCase()] || st || "—";
+}
+
+function openGuildRaidParticipantModal() {
+  const d = guildHallState.me;
+  const members = Array.isArray(d?.members) ? d.members : [];
+  const maxSlots = safeInt(d?.raid?.raid_party_slots, 10) || 10;
+  const body = document.getElementById("guild-raid-participants-modal-body");
+  const modal = document.getElementById("guild-raid-participants-modal");
+  if (!body || !modal) return;
+  if (!guildHallState.raidParticipantIds.length) {
+    const viewerId = safeInt(d?.viewer_player_id, 0);
+    if (viewerId) guildHallState.raidParticipantIds = [viewerId];
+  }
+  body.innerHTML = members
+    .map((m) => {
+      const pid = Number(m.player_id);
+      const checked = guildHallState.raidParticipantIds.includes(pid);
+      const label = guildMemberLabel(m);
+      const online = m.online ? " 🟢" : "";
+      return `<label class="guild-raid-participant-row">
+        <input type="checkbox" ${checked ? "checked" : ""} onchange="WaifuApp.toggleGuildRaidParticipant(${pid}, this.checked)" />
+        ${guildMemberAvatarHtml(m)}
+        <span>${label}${online}</span>
+      </label>`;
+    })
+    .join("");
+  body.innerHTML += `<p class="muted tiny" style="margin-top:8px">Выбрано: <span id="guild-raid-picked-count">${guildHallState.raidParticipantIds.length}</span> / ${maxSlots}</p>`;
+  modal.classList.add("guild-raid-participants-modal--open");
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function closeGuildRaidParticipantModal() {
+  const modal = document.getElementById("guild-raid-participants-modal");
+  if (!modal) return;
+  modal.classList.remove("guild-raid-participants-modal--open");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+function updateGuildRaidPickedCount() {
+  const el = document.getElementById("guild-raid-picked-count");
+  const d = guildHallState.me;
+  const maxSlots = safeInt(d?.raid?.raid_party_slots, 10) || 10;
+  if (el) el.textContent = String(Math.min(guildHallState.raidParticipantIds.length, maxSlots));
 }
 
 async function loadGuildBankItems() {
@@ -9901,9 +9954,48 @@ async function leaveGuildFromHall() {
 function toggleGuildRaidParticipant(playerId, checked) {
   const pid = Number(playerId);
   const set = new Set(guildHallState.raidParticipantIds.map(Number));
-  if (checked) set.add(pid);
-  else set.delete(pid);
+  const maxSlots = safeInt(guildHallState.me?.raid?.raid_party_slots, 10) || 10;
+  if (checked) {
+    if (set.size >= maxSlots) {
+      showToast(`Максимум ${maxSlots} участников`, "error");
+      void renderGuildTabContent();
+      return;
+    }
+    set.add(pid);
+  } else set.delete(pid);
   guildHallState.raidParticipantIds = [...set];
+  updateGuildRaidPickedCount();
+}
+
+async function startGuildRaidMuster() {
+  const d = guildHallState.me;
+  const chatId = getGuildRaidChatId(d);
+  if (!chatId) {
+    showToast("Привяжите групповой чат гильдии или откройте WebApp из него", "error");
+    return;
+  }
+  const pids = guildHallState.raidParticipantIds.filter((x) => Number(x) > 0);
+  if (pids.length < 2) {
+    showToast("Выберите минимум 2 участников", "error");
+    return;
+  }
+  try {
+    const res = await apiFetch("/guilds/raid/muster", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ participant_ids: pids, chat_id: chatId }),
+    });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось начать сбор"), "error");
+      return;
+    }
+    closeGuildRaidParticipantModal();
+    showToast("Сбор начат — приглашения в личку (3 ч)");
+    await populateGuildHall();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
 }
 
 async function startGuildRaid(templateId) {
@@ -10374,43 +10466,60 @@ function guildBankNextPage() {
 function renderGuildRaidPane(d) {
   const raid = d?.raid || {};
   const active = raid?.active_raid;
-  const templates = Array.isArray(raid?.templates) ? raid.templates : [];
+  const muster = raid?.active_muster;
+  const chronicle = Array.isArray(raid?.chronicle) ? raid.chronicle : [];
   const members = Array.isArray(d?.members) ? d.members : [];
   const canManage = d?.is_leader || d?.is_officer;
+  const memberById = Object.fromEntries(members.map((m) => [Number(m.player_id), m]));
   let html = "";
-  if (active) {
-    const hpPct =
-      active.hp_max > 0 ? Math.round((safeInt(active.hp, 0) / safeInt(active.hp_max, 1)) * 100) : 0;
-    html += `<h4 class="guild-activity-section-title">Активный рейд</h4>
-      <p>Этап ${active.stage ?? "—"} · HP ${active.hp ?? 0}/${active.hp_max ?? 0} (${hpPct}%)</p>
-      <ul>${(active.participants || [])
-        .map((p) => `<li>Игрок ${p.player_id}: ${p.messages ?? 0} сообщ., урон ${p.damage ?? 0}</li>`)
-        .join("")}</ul>
-      <button type="button" class="btn secondary" onclick="WaifuApp.leaveGuildRaid()">Покинуть рейд</button>`;
-  } else if (canManage && templates.length) {
-    const viewerId = safeInt(d?.viewer_player_id, 0);
-    if (!guildHallState.raidParticipantIds.length && viewerId) {
-      guildHallState.raidParticipantIds = [viewerId];
-    }
-    html += `<h4 class="guild-activity-section-title">Начать рейд</h4>
-      <p class="muted tiny">Выберите участников (мин. 2) и шаблон.</p>
-      <div class="guild-raid-party-row">${members
-        .map((m) => {
-          const pid = Number(m.player_id);
-          const checked = guildHallState.raidParticipantIds.includes(pid);
-          return `<label><input type="checkbox" ${checked ? "checked" : ""} onchange="WaifuApp.toggleGuildRaidParticipant(${pid}, this.checked)" /> ${guildMemberLabel(m)}</label>`;
+
+  if (muster && muster.status === "pending") {
+    html += `<h4 class="guild-activity-section-title">Сбор на рейд</h4>
+      <p class="muted tiny">Подтверждение в личке бота · до ${escapeHtml(muster.deadline_at || "—")}</p>
+      <ul class="guild-raid-muster-list">${(muster.participants || [])
+        .map((p) => {
+          const m = memberById[Number(p.player_id)];
+          const nm = m ? guildMemberLabel(m) : `Игрок ${p.player_id}`;
+          return `<li>${nm}: <strong>${escapeHtml(guildRaidMusterStatusLabel(p.status))}</strong></li>`;
         })
-        .join("")}</div>`;
-    html += templates
-      .map(
-        (t) => `<div class="list-item" style="margin-top:8px">
-          <strong>${escapeHtml(t.name || "")}</strong> — тир ${t.tier}, GXP ${t.gxp}, мин. ур. гильдии ${t.min_level}
-          <button type="button" class="btn primary" style="margin-top:6px" onclick="WaifuApp.startGuildRaid(${Number(t.id)})">Начать</button>
-        </div>`
-      )
-      .join("");
-  } else {
-    html += `<p class="muted tiny">${canManage ? "Нет доступных шаблонов рейда." : "Рейды запускает глава или офицер."}</p>`;
+        .join("")}</ul>`;
+  }
+
+  if (active) {
+    const isV2 = safeInt(active.raid_version, 1) >= 2;
+    if (isV2) {
+      const vit = safeInt(active.company_vitality, 0);
+      const prog = safeInt(active.story_progress, 0);
+      const day = safeInt(active.day_index, 0);
+      html += `<h4 class="guild-activity-section-title">Рейд · недельная хроника</h4>
+        <p>День ${day} / 7 · локация: ${escapeHtml(active.location_archetype_id || "—")}</p>
+        <div class="guild-raid-vitals">
+          <div class="guild-raid-vital-row"><span>Выносливость</span><div class="guild-raid-bar"><div class="guild-raid-bar-fill guild-raid-bar-fill--vit" style="width:${vit}%"></div></div><span>${vit}%</span></div>
+          <div class="guild-raid-vital-row"><span>Прогресс</span><div class="guild-raid-bar"><div class="guild-raid-bar-fill guild-raid-bar-fill--prog" style="width:${prog}%"></div></div><span>${prog}%</span></div>
+        </div>`;
+      if (active.prologue_html) {
+        html += `<details class="guild-raid-chronicle-entry"><summary>Prologue</summary><div class="guild-raid-narrative">${active.prologue_html}</div></details>`;
+      }
+      chronicle.forEach((c) => {
+        html += `<details class="guild-raid-chronicle-entry"><summary>День ${c.day_index}</summary>
+          <div class="guild-raid-narrative">${c.narrative_html || ""}</div>
+          ${c.winning_tactic ? `<p class="muted tiny">Тактика: ${escapeHtml(c.winning_tactic.label || "—")}</p>` : ""}
+        </details>`;
+      });
+      html += `<button type="button" class="btn secondary" style="margin-top:8px" onclick="WaifuApp.leaveGuildRaid()">Покинуть рейд</button>`;
+    } else {
+      const hpPct =
+        active.hp_max > 0 ? Math.round((safeInt(active.hp, 0) / safeInt(active.hp_max, 1)) * 100) : 0;
+      html += `<h4 class="guild-activity-section-title">Активный рейд (legacy)</h4>
+        <p>Этап ${active.stage ?? "—"} · HP ${active.hp ?? 0}/${active.hp_max ?? 0} (${hpPct}%)</p>
+        <button type="button" class="btn secondary" onclick="WaifuApp.leaveGuildRaid()">Покинуть рейд</button>`;
+    }
+  } else if (canManage && !muster) {
+    html += `<h4 class="guild-activity-section-title">Начать рейд</h4>
+      <p class="muted tiny">Выберите состав и нажмите «Сбор». Участникам придёт рейд-чек в личку (3 ч).</p>
+      <button type="button" class="btn primary" onclick="WaifuApp.openGuildRaidParticipantModal()">Выбрать участников и сбор</button>`;
+  } else if (!canManage) {
+    html += `<p class="muted tiny">${muster ? "Идёт сбор на рейд." : "Рейды запускает глава или офицер."}</p>`;
   }
   return html;
 }
@@ -13618,6 +13727,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   toggleGuildHeroMenu,
   closeGuildHeroMenu,
   toggleGuildRaidParticipant,
+  openGuildRaidParticipantModal,
+  closeGuildRaidParticipantModal,
+  startGuildRaidMuster,
   startGuildRaid,
   leaveGuildRaid,
   loadGuildWarTargetsForUi,

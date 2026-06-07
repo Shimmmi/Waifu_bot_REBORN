@@ -898,6 +898,7 @@ class ExpeditionActiveOut(BaseModel):
     expedition_mode_id: Optional[str] = None
     expedition_mode_name: Optional[str] = None
     narrative_title: Optional[str] = None
+    result_ready: bool = False
 
 
 class ExpeditionActiveResponse(BaseModel):

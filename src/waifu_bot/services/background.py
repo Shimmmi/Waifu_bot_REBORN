@@ -93,7 +93,7 @@ async def _expedition_notify_tick() -> None:
             taken = await svc.take_for_notification(session, active.id)
             if not taken:
                 continue
-            await svc.ensure_outcome_and_rewards(session, active)
+            await svc.finalize_completed_expedition(session, active)
             await session.commit()
             await session.refresh(active)
             name = (
@@ -184,11 +184,14 @@ async def _guild_war_hourly_fn() -> None:
 async def _guild_tick_fn() -> None:
     from waifu_bot.db.session import get_session, init_engine
     from waifu_bot.services.guild_raid_service import tick_raid_stage_timeouts
+    from waifu_bot.services.guild_raid_v2_service import tick_muster_deadlines, tick_raid_daily_msk
     from waifu_bot.services.guild_war_service import tick_war_phases
 
     init_engine()
     async for session in get_session():
+        await tick_muster_deadlines(session)
         await tick_raid_stage_timeouts(session)
+        await tick_raid_daily_msk(session)
         await tick_war_phases(session)
         break
 

@@ -8,7 +8,7 @@ import logging
 
 from aiogram import Bot, F, Router
 from aiogram.filters import BaseFilter, Command
-from aiogram.types import CallbackQuery, ChatMemberUpdated, Message
+from aiogram.types import CallbackQuery, ChatMemberUpdated, Message, PollAnswer
 
 from waifu_bot.core import redis as redis_core
 from waifu_bot.core.config import settings
@@ -49,6 +49,11 @@ GD_V1_TEST_ACCESS_DENIED = (
 
 GD_V1_FORCE_ROUND_DENIED = (
     "Команда /gd_v1_force_round доступна только администраторам бота (ADMIN_IDS в .env) "
+    "или тестовому user id (GD_V1_MANUAL_TEST_USER_IDS в коде)."
+)
+
+RAID_ADMIN_DENIED = (
+    "Команда доступна только администраторам бота (ADMIN_IDS в .env) "
     "или тестовому user id (GD_V1_MANUAL_TEST_USER_IDS в коде)."
 )
 
@@ -405,8 +410,9 @@ async def _group_message_damage_body(
                 player_id,
                 message_length=msg_len,
                 media_types=mt or None,
+                text_preview=(message_text or "")[:200] or None,
             )
-            if rd.get("ok"):
+            if rd.get("ok") and rd.get("damage"):
                 logger.info(
                     "group guild raid hit: player=%s chat_id=%s dmg=%s",
                     player_id,
@@ -414,6 +420,8 @@ async def _group_message_damage_body(
                     rd.get("damage"),
                 )
                 break
+            if rd.get("logged"):
+                logger.debug("guild raid chat logged player=%s chat_id=%s", player_id, chat_id)
             if skip_solo_while_gd:
                 break
             result = await combat_service.process_message_damage(
@@ -473,6 +481,86 @@ def _gd_v1_manual_test_allowed(user_id: int) -> bool:
 
 def _gd_v1_force_round_allowed(user_id: int) -> bool:
     return user_id in GD_V1_MANUAL_TEST_USER_IDS or user_id in set(settings.admin_ids or [])
+
+
+def _raid_admin_allowed(user_id: int) -> bool:
+    return _gd_v1_force_round_allowed(user_id)
+
+
+def _raid_admin_context_from_message(message: Message) -> tuple[int | None, int | None]:
+    """Return (chat_id, guild_id) for resolving active v2 raid."""
+    if message.chat and message.chat.type in ("group", "supergroup"):
+        return int(message.chat.id), None
+    text = (message.text or message.caption or "").strip()
+    parts = text.split()
+    if len(parts) >= 2:
+        try:
+            val = int(parts[1])
+            if val < 0:
+                return val, None
+            return None, val
+        except ValueError:
+            pass
+    return None, None
+
+
+def _raid_admin_player_id_from_message(message: Message) -> int | None:
+    text = (message.text or message.caption or "").strip()
+    parts = text.split()
+    if len(parts) >= 2:
+        try:
+            return int(parts[1])
+        except ValueError:
+            pass
+    if message.reply_to_message and message.reply_to_message.from_user:
+        return int(message.reply_to_message.from_user.id)
+    return None
+
+
+async def _run_raid_admin_with_raid(message: Message, op) -> None:
+    """Resolve guild/raid and run async op(session, guild, raid) -> dict."""
+    chat_id, guild_id = _raid_admin_context_from_message(message)
+    if chat_id is None and guild_id is None:
+        await message.reply(
+            "Укажите guild_id или chat_id группы (в личке): "
+            "/команда <guild_id> или /команда -100…"
+        )
+        return
+    try:
+        async for session in get_session():
+            from waifu_bot.services.guild_raid_v2_service import resolve_active_v2_raid
+
+            resolved = await resolve_active_v2_raid(session, chat_id=chat_id, guild_id=guild_id)
+            if isinstance(resolved, dict):
+                err = resolved.get("error", "unknown")
+                msgs = {
+                    "no_active_raid": "Нет активного рейда для этой гильдии/чата.",
+                    "no_active_v2_raid": "Активный рейд не v2 (недельная хроника).",
+                    "need_context": "Не удалось определить гильдию.",
+                }
+                await message.reply(msgs.get(err, f"Ошибка: {err}"))
+                break
+            guild, raid = resolved
+            result = await op(session, guild, raid)
+            if result.get("error"):
+                err = result["error"]
+                msgs = {
+                    "generate_failed": "Не удалось сгенерировать (день > 7 или log уже доставлен).",
+                    "no_pending_deliver": "Нет сгенерированного, но не доставленного daily log.",
+                    "no_pending_resolve": "Нет доставленного, но не resolved daily log.",
+                    "not_guild_member": f"Игрок {result.get('player_id')} не в гильдии.",
+                    "already_participant": f"Игрок {result.get('player_id')} уже в рейде.",
+                    "slots_full": f"Слоты заполнены (макс. {result.get('max')}).",
+                }
+                await message.reply(msgs.get(err, f"Ошибка: {err}"))
+            else:
+                await message.reply(json.dumps(result, ensure_ascii=False, indent=2)[:3900])
+            if not result.get("error") and result.get("mode") != "defeat":
+                await session.commit()
+            break
+    except Exception:
+        logger.exception("raid admin command failed")
+        await message.reply("Ошибка сервера при выполнении админ-команды рейда.")
 
 
 # --- Group dungeon GD v1: /gd_join, manual test commands for GD_V1_MANUAL_TEST_USER_IDS ---
@@ -1024,4 +1112,178 @@ async def handle_solo_dungeon_retry(callback: CallbackQuery) -> None:
             plus_level,
         )
         await callback.answer("Ошибка сервера", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("raid_muster_yes:"))
+async def handle_raid_muster_yes(callback: CallbackQuery) -> None:
+    if not callback.data or not callback.from_user:
+        await callback.answer("Ошибка")
+        return
+    try:
+        muster_id = int(callback.data.split(":")[-1])
+    except ValueError:
+        await callback.answer("Неверные данные")
+        return
+    player_id = callback.from_user.id
+    try:
+        async for session in get_session():
+            from waifu_bot.services.guild_raid_v2_service import respond_muster
+
+            result = await respond_muster(session, player_id, muster_id, True)
+            if result.get("error") == "muster_not_found":
+                await callback.answer("Сбор уже завершён или отменён.", show_alert=True)
+                return
+            if result.get("error"):
+                await callback.answer("Не удалось подтвердить.", show_alert=True)
+                return
+            if result.get("status") == "started":
+                await callback.answer("Все на месте — рейд начался!", show_alert=True)
+            else:
+                await callback.answer("Вы в строю!")
+            return
+    except Exception:
+        logger.exception("raid_muster_yes failed muster_id=%s", muster_id)
+        await callback.answer("Ошибка сервера", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("raid_muster_no:"))
+async def handle_raid_muster_no(callback: CallbackQuery) -> None:
+    if not callback.data or not callback.from_user:
+        await callback.answer("Ошибка")
+        return
+    try:
+        muster_id = int(callback.data.split(":")[-1])
+    except ValueError:
+        await callback.answer("Неверные данные")
+        return
+    player_id = callback.from_user.id
+    try:
+        async for session in get_session():
+            from waifu_bot.services.guild_raid_v2_service import respond_muster
+
+            result = await respond_muster(session, player_id, muster_id, False)
+            if result.get("error"):
+                await callback.answer("Не удалось ответить.", show_alert=True)
+                return
+            await callback.answer("Вы отказались — сбор отменён.", show_alert=True)
+            return
+    except Exception:
+        logger.exception("raid_muster_no failed muster_id=%s", muster_id)
+        await callback.answer("Ошибка сервера", show_alert=True)
+
+
+@router.poll_answer()
+async def handle_poll_answer(poll_answer: PollAnswer) -> None:
+    if not poll_answer.user or not poll_answer.poll_id:
+        return
+    option_ids = list(poll_answer.option_ids or [])
+    try:
+        async for session in get_session():
+            from sqlalchemy import select
+
+            from waifu_bot.db.models import GuildRaidDailyLog
+            from waifu_bot.services.guild_raid_v2_service import record_poll_vote_by_poll_id
+
+            await record_poll_vote_by_poll_id(
+                session,
+                telegram_poll_id=str(poll_answer.poll_id),
+                player_id=int(poll_answer.user.id),
+                option_ids=option_ids,
+            )
+            break
+    except Exception:
+        logger.exception("poll_answer handler failed user=%s", poll_answer.user.id)
+
+
+# --- Guild raid v2 admin commands (ADMIN_IDS) ---
+
+
+@router.message(Command("raid_admin_narrative_generate"), command_addressed_to_this_bot)
+async def cmd_raid_admin_narrative_generate(message: Message) -> None:
+    if not message.from_user or message.from_user.is_bot:
+        return
+    if not _raid_admin_allowed(message.from_user.id):
+        await message.reply(RAID_ADMIN_DENIED)
+        return
+
+    async def _op(session, guild, raid):
+        from waifu_bot.services.guild_raid_v2_service import admin_force_generate
+
+        return await admin_force_generate(session, raid)
+
+    await _run_raid_admin_with_raid(message, _op)
+
+
+@router.message(Command("raid_admin_narrative_deliver"), command_addressed_to_this_bot)
+async def cmd_raid_admin_narrative_deliver(message: Message) -> None:
+    if not message.from_user or message.from_user.is_bot:
+        return
+    if not _raid_admin_allowed(message.from_user.id):
+        await message.reply(RAID_ADMIN_DENIED)
+        return
+
+    async def _op(session, guild, raid):
+        from waifu_bot.services.guild_raid_v2_service import admin_force_deliver
+
+        return await admin_force_deliver(session, raid)
+
+    await _run_raid_admin_with_raid(message, _op)
+
+
+@router.message(Command("raid_admin_narrative_resolve"), command_addressed_to_this_bot)
+async def cmd_raid_admin_narrative_resolve(message: Message) -> None:
+    if not message.from_user or message.from_user.is_bot:
+        return
+    if not _raid_admin_allowed(message.from_user.id):
+        await message.reply(RAID_ADMIN_DENIED)
+        return
+
+    async def _op(session, guild, raid):
+        from waifu_bot.services.guild_raid_v2_service import admin_force_resolve
+
+        return await admin_force_resolve(session, raid)
+
+    await _run_raid_admin_with_raid(message, _op)
+
+
+@router.message(Command("raid_admin_stop"), command_addressed_to_this_bot)
+async def cmd_raid_admin_stop(message: Message) -> None:
+    if not message.from_user or message.from_user.is_bot:
+        return
+    if not _raid_admin_allowed(message.from_user.id):
+        await message.reply(RAID_ADMIN_DENIED)
+        return
+    text = (message.text or "").strip()
+    parts = text.split()
+    mode = "defeat" if len(parts) >= 2 and parts[1].lower() == "defeat" else "abort"
+
+    async def _op(session, guild, raid):
+        from waifu_bot.services.guild_raid_v2_service import admin_stop_raid
+
+        return await admin_stop_raid(session, raid, guild, mode=mode)
+
+    await _run_raid_admin_with_raid(message, _op)
+
+
+@router.message(Command("raid_admin_add_player"), command_addressed_to_this_bot)
+async def cmd_raid_admin_add_player(message: Message) -> None:
+    if not message.from_user or message.from_user.is_bot:
+        return
+    if not _raid_admin_allowed(message.from_user.id):
+        await message.reply(RAID_ADMIN_DENIED)
+        return
+    target_pid = _raid_admin_player_id_from_message(message)
+    if not target_pid:
+        await message.reply(
+            "Укажите telegram user id: /raid_admin_add_player <id> "
+            "или ответьте командой на сообщение игрока."
+        )
+        return
+
+    async def _op(session, guild, raid):
+        from waifu_bot.services.guild_raid_v2_service import admin_add_participant
+
+        return await admin_add_participant(session, raid, guild, target_pid)
+
+    await _run_raid_admin_with_raid(message, _op)
 

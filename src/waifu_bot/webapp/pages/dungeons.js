@@ -1488,12 +1488,66 @@ function showExpeditionError(msg, tone = "danger") {
 }
 
 let expeditionTabDataLoaded = false;
+let expSendLoadingInterval = null;
+let expeditionSendInFlight = false;
 
-async function loadExpeditionTab() {
+const EXP_SEND_LOADING_STEPS = [
+  [12, "Красят губки..."],
+  [24, "Выбирают, что надеть..."],
+  [36, "Делают мейк-ап..."],
+  [48, "Заплетают косички..."],
+  [60, "Ищут второй носок..."],
+  [72, "Пакуют зелья в рюкзак..."],
+  [84, "Прощаются с котом..."],
+  [92, "Спорят, кто идёт первой..."],
+];
+
+function openExpeditionSendLoading() {
+  const modal = document.getElementById("exp-send-loading-modal");
+  const fill = document.getElementById("exp-send-loading-fill");
+  const sub = document.getElementById("exp-send-loading-sub");
+  if (!modal) return;
+  if (expSendLoadingInterval) {
+    clearInterval(expSendLoadingInterval);
+    expSendLoadingInterval = null;
+  }
+  modal.style.display = "flex";
+  modal.setAttribute("aria-busy", "true");
+  document.body.style.overflow = "hidden";
+  if (fill) {
+    fill.style.width = "0%";
+    fill.classList.remove("is-indeterminate");
+  }
+  if (sub) sub.textContent = EXP_SEND_LOADING_STEPS[0][1];
+  let stepIdx = 0;
+  expSendLoadingInterval = setInterval(() => {
+    if (stepIdx < EXP_SEND_LOADING_STEPS.length && fill && sub) {
+      const [pct, text] = EXP_SEND_LOADING_STEPS[stepIdx++];
+      fill.style.width = pct + "%";
+      sub.textContent = text;
+    }
+  }, 600);
+}
+
+function closeExpeditionSendLoading() {
+  if (expSendLoadingInterval) {
+    clearInterval(expSendLoadingInterval);
+    expSendLoadingInterval = null;
+  }
+  const modal = document.getElementById("exp-send-loading-modal");
+  if (modal) {
+    modal.style.display = "none";
+    modal.setAttribute("aria-busy", "false");
+  }
+  document.body.style.overflow = "";
+}
+
+async function loadExpeditionTab(opts = {}) {
+  const force = Boolean(opts && opts.force);
   showExpeditionError("");
   try {
-    if (!expeditionTabDataLoaded) {
-      expeditionTabDataLoaded = true;
+    if (!expeditionTabDataLoaded || force) {
+      if (!expeditionTabDataLoaded) expeditionTabDataLoaded = true;
       const [slotsRes, activeRes, rosterRes] = await Promise.all([
         apiFetch("/expeditions/daily-slots").catch(() => apiFetch("/expeditions/slots")),
         apiFetch("/expeditions/active"),
@@ -1966,7 +2020,7 @@ function renderExpeditionGrids() {
               ${titleOverlay}
             </div>
             <div class="exp-card-progbar"><div class="exp-card-progfill" style="width:${prog}%"></div></div>
-            <div class="exp-card-foot"><span class="exp-foot-active">● В пути</span><span class="exp-foot-timer">${timeStr}</span></div>
+            <div class="exp-card-foot"><span class="exp-foot-active">${a.can_claim ? "● Готово" : "● В пути"}</span><span class="exp-foot-timer">${timeStr}</span></div>
           </div>`;
         })
         .join("");
@@ -2145,10 +2199,17 @@ function expCloseOverlay(id) {
   }
 }
 
+let expeditionClaimInFlight = false;
+
 function expOpenCard(kind, id) {
   if (kind === "active") {
     const raw = expeditionUiCache.activeById[id];
-    if (raw) openActiveExpModal(raw);
+    if (!raw) return;
+    if (raw.can_claim) {
+      claimAndShowExpeditionResult(raw.id, raw.result_ready);
+      return;
+    }
+    openActiveExpModal(raw);
   } else {
     const slot = expeditionUiCache.dailyById[id];
     if (slot) openSendExpModal(slot);
@@ -2177,17 +2238,8 @@ function openActiveExpModal(raw) {
   window._activeExpId = raw.id;
   const claimBtn = expG("eam-claim-btn");
   const abortBtn = expG("eam-abort-btn");
-  if (claimBtn) {
-    claimBtn.onclick = () => {
-      closeActiveExpModal();
-      openExpeditionResult(raw.id);
-    };
-  }
-  if (claimBtn && abortBtn) {
-    const canClaim = Boolean(raw.can_claim);
-    claimBtn.style.display = canClaim ? "block" : "none";
-    abortBtn.style.display = canClaim ? "none" : "";
-  }
+  if (claimBtn) claimBtn.style.display = "none";
+  if (abortBtn) abortBtn.style.display = "";
   expOpenOverlay("exp-active-modal");
 }
 
@@ -2268,6 +2320,7 @@ function openSendExpModal(slot) {
 }
 
 function closeSendExpModal() {
+  if (expeditionSendInFlight) return;
   expCloseOverlay("exp-send-modal");
 }
 
@@ -2425,15 +2478,30 @@ function expPickUnit(id) {
 }
 
 function expClosePicker() {
+  if (expeditionSendInFlight) return;
   expCloseOverlay("exp-picker-overlay");
 }
 
 async function submitExpeditionStart() {
+  if (expeditionSendInFlight) return;
   const unitIds = expeditionSend.squadSlots.filter(Boolean).map((u) => u.id);
   if (!unitIds.length || !expeditionSend.slotId) {
     showExpeditionError("Выберите отряд и слот.");
     return;
   }
+  const savedSlot = expeditionSend.currentSlot;
+  const savedSquad = expeditionSend.squadSlots.slice();
+  const savedDiff = expeditionSend.diffVal;
+  const savedDur = expeditionSend.durVal;
+  const sendBtn = expG("exp-send-btn");
+  closeSendExpModal();
+  expClosePicker();
+  expeditionSendInFlight = true;
+  if (sendBtn) {
+    sendBtn.disabled = true;
+    sendBtn.setAttribute("aria-busy", "true");
+  }
+  openExpeditionSendLoading();
   try {
     await apiFetch("/expeditions/start", {
       method: "POST",
@@ -2445,14 +2513,41 @@ async function submitExpeditionStart() {
         duration_minutes: expeditionSend.durVal,
       }),
     });
-    closeSendExpModal();
-    expClosePicker();
+    if (expSendLoadingInterval) {
+      clearInterval(expSendLoadingInterval);
+      expSendLoadingInterval = null;
+    }
+    const fill = document.getElementById("exp-send-loading-fill");
+    const sub = document.getElementById("exp-send-loading-sub");
+    if (fill) fill.style.width = "100%";
+    if (sub) sub.textContent = "Отряд вышел в поход!";
+    await new Promise((r) => setTimeout(r, 300));
+    closeExpeditionSendLoading();
     showExpeditionError("");
-    showDungeonsError("Экспедиция отправлена.");
-    await loadExpeditionTab();
+    await loadExpeditionTab({ force: true });
+    document.getElementById("exp-active-section")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (e) {
+    closeExpeditionSendLoading();
     const { detail } = parseHttpErrorDetail(e);
     showExpeditionError(detail || "Ошибка запуска экспедиции");
+    if (savedSlot) {
+      openSendExpModal(savedSlot);
+      expeditionSend.squadSlots = savedSquad;
+      expeditionSend.diffVal = savedDiff;
+      expeditionSend.durVal = savedDur;
+      expG("esm-diff-row")?.querySelectorAll(".exp-opt-btn").forEach((b, i) => {
+        b.classList.toggle("active", i === savedDiff - 1);
+      });
+      expG("esm-dur-row")?.querySelectorAll(".exp-opt-btn").forEach((b) => {
+        b.classList.toggle("active", Number(b.textContent) === savedDur);
+      });
+      updateExpeditionObstacleLevel();
+      updateExpeditionSendAffixes();
+      renderExpeditionSquadSlots();
+    }
+  } finally {
+    expeditionSendInFlight = false;
+    if (sendBtn) sendBtn.removeAttribute("aria-busy");
   }
 }
 
@@ -2498,7 +2593,7 @@ async function abortExpedition(activeId) {
     showToast?.("Экспедиция завершена (≈50% награды)", "success");
     closeActiveExpModal();
     await loadProfile().catch(() => {});
-    await loadExpeditionTab();
+    await loadExpeditionTab({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast?.(detail || e?.message || "Ошибка", "error");
@@ -2520,51 +2615,44 @@ async function claimExpedition(activeId) {
   }
 }
 
-async function openExpeditionResult(expeditionId) {
+function showExpeditionResultModal(opts = {}) {
+  const showLoading = Boolean(opts.loading);
+  const showContent = Boolean(opts.content);
   const modal = document.getElementById("expedition-result-modal");
   const loading = document.getElementById("exp-result-loading");
   const content = document.getElementById("exp-result-content");
-  const fill = document.getElementById("exp-result-loading-fill");
-  const sub = document.getElementById("exp-result-loading-sub");
-  if (!modal || !loading || !content) return;
-
+  if (!modal || !loading || !content) return false;
   modal.style.display = "flex";
   modal.style.alignItems = "flex-end";
   modal.style.justifyContent = "center";
-  loading.style.display = "flex";
-  content.style.display = "none";
-  if (fill) fill.style.width = "0%";
+  loading.style.display = showLoading ? "flex" : "none";
+  content.style.display = showContent ? "block" : "none";
+  return true;
+}
 
-  const loadingSteps = [
-    [10, "Отряд возвращается в таверну..."],
-    [30, "Считаем потери и трофеи..."],
-    [55, "Начисляем опыт наёмницам..."],
-    [75, "Рассказчик пишет историю..."],
-    [90, "Почти готово..."],
-  ];
-  let stepIdx = 0;
-  const progressInterval = setInterval(() => {
-    if (stepIdx < loadingSteps.length && fill && sub) {
-      const [pct, text] = loadingSteps[stepIdx++];
-      fill.style.width = pct + "%";
-      sub.textContent = text;
-    }
-  }, 600);
-
+async function claimAndShowExpeditionResult(expeditionId, resultReady) {
+  if (expeditionClaimInFlight) return;
+  expeditionClaimInFlight = true;
+  showExpeditionResultModal({ loading: !resultReady });
+  loadExpeditionTab({ force: true }).catch(() => {});
+  loadProfile().catch(() => {});
   try {
     const result = await apiFetch(`/expeditions/${expeditionId}/claim`, { method: "POST" });
-    clearInterval(progressInterval);
-    if (fill) fill.style.width = "100%";
-    if (sub) sub.textContent = "Готово!";
-    await new Promise((r) => setTimeout(r, 400));
     fillExpeditionResult(result);
-    loading.style.display = "none";
-    content.style.display = "block";
+    showExpeditionResultModal({ content: true });
   } catch (e) {
-    clearInterval(progressInterval);
-    modal.style.display = "none";
-    showToast("Ошибка получения наград: " + (e?.message || e), "error");
+    const modal = document.getElementById("expedition-result-modal");
+    if (modal) modal.style.display = "none";
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || e?.message || "Ошибка получения наград", "error");
+    loadExpeditionTab({ force: true }).catch(() => {});
+  } finally {
+    expeditionClaimInFlight = false;
   }
+}
+
+async function openExpeditionResult(expeditionId) {
+  await claimAndShowExpeditionResult(expeditionId, false);
 }
 
 function fillExpeditionResult(result) {
@@ -2640,8 +2728,6 @@ function fillExpeditionResult(result) {
 function closeExpeditionResult() {
   const modal = document.getElementById("expedition-result-modal");
   if (modal) modal.style.display = "none";
-  loadExpeditionTab?.();
-  loadProfile?.catch(() => {});
 }
 
 async function cancelExpedition(activeId) {

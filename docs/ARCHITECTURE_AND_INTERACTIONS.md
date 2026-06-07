@@ -415,7 +415,9 @@ stateDiagram-v2
 
 ### 5.6 Guild raid and war
 
-- **Raid damage:** `guild_raid_service.apply_raid_message_damage` in group handler (short-circuits before solo combat when raid active)
+- **Raid v2 (weekly chronicle):** `guild_raid_v2_service` — muster, chat log, MSK daily pipeline (04:50/05:00/08:00), tactic resolve
+- **Raid admin (ADMIN_IDS):** `/raid_admin_narrative_generate`, `_deliver`, `_resolve`; `/raid_admin_stop` (abort) or `/raid_admin_stop defeat`; `/raid_admin_add_player <id>` — in group chat or DM with `guild_id`/`chat_id` arg
+- **Raid chat log:** `apply_raid_message_damage` logs v2 messages for narrative (does not block solo combat)
 - **War phases / raid timeout:** `background._guild_tick_fn` every 60s
 - **Hourly online war GXP:** `guild_war_hourly` 3600s
 - **AI war narrative batch:** `guild_war_narrative` 900s — **skipped** in `dev`/`testing`

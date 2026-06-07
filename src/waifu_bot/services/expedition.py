@@ -1211,45 +1211,11 @@ class ExpeditionService:
             or (slot.name if slot else None)
             or "Экспедиция"
         )
-        squad_names: list[str] = []
-        for wid in squad_ids:
-            w = await session.get(HiredWaifu, wid)
-            if w and w.player_id == player_id:
-                squad_names.append(w.name or "Вайфу")
-        from waifu_bot.services.expedition_events_ai import generate_expedition_event
-        import asyncio
-        from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
-
-        brief = getattr(active, "narrative_brief", None) or {}
-        arch = archetype_for_id(getattr(active, "location_archetype_id", None))
-        mode = mode_for_id(getattr(active, "expedition_mode_id", None))
-        tick_summaries: list[str] = []
-        ts = active.tick_state or {}
-        if ts.get("last_narrative"):
-            tick_summaries.append(str(ts["last_narrative"]))
-        squad_prepared = ts.get("squad_prepared")
-        try:
-            # 2× OpenRouter (генерация + refine): 30s + 25s httpx внутри generate_expedition_event.
-            event_text = await asyncio.wait_for(
-                generate_expedition_event(
-                    expedition_name=expedition_name,
-                    success=outcome == EXPEDITION_OUTCOME_SUCCESS,
-                    duration_minutes=active.duration_minutes,
-                    squad_names=squad_names,
-                    reward_gold=gold,
-                    reward_experience=exp,
-                    narrative_brief=brief if isinstance(brief, dict) else None,
-                    mode_name=mode.name_ru if mode else None,
-                    archetype_name=arch.name_ru if arch else None,
-                    tick_summaries=tick_summaries,
-                    squad_prepared=squad_prepared if isinstance(squad_prepared, bool) else None,
-                ),
-                timeout=65.0,
-            )
-        except asyncio.TimeoutError:
-            event_text = f"Отряд вернулся из экспедиции «{expedition_name}». Награда: {gold} золота, {exp} опыта наёмницам."
-        if event_text:
-            active.event_text = event_text
+        event_text = (getattr(active, "event_text", None) or "").strip()
+        if not event_text:
+            event_text = await self._generate_final_event_text(session, active)
+            if event_text:
+                active.event_text = event_text
 
         await increment_skill_counter(session, player_id, "expedition_complete", 1)
         for wid in squad_ids:
@@ -1471,6 +1437,77 @@ class ExpeditionService:
         )
         result = await session.execute(stmt)
         return result.rowcount > 0
+
+    async def _generate_final_event_text(
+        self, session: AsyncSession, active: ActiveExpedition
+    ) -> str:
+        """ИИ-описание итога экспедиции (финальный narrative)."""
+        import asyncio
+
+        from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
+        from waifu_bot.services.expedition_events_ai import generate_expedition_event
+
+        player_id = int(active.player_id)
+        squad_ids = list(active.squad_waifu_ids or [])
+        outcome = getattr(active, "outcome", None) or EXPEDITION_OUTCOME_FAILURE
+        gold = int(active.reward_gold or 0)
+        exp = int(active.reward_experience or 0)
+
+        slot = active.expedition_slot
+        if slot is None and active.expedition_slot_id:
+            slot = await session.get(ExpeditionSlot, active.expedition_slot_id)
+        expedition_name = (
+            (active.display_base_location or "").strip()
+            or (slot.name if slot else None)
+            or "Экспедиция"
+        )
+        squad_names: list[str] = []
+        for wid in squad_ids:
+            w = await session.get(HiredWaifu, wid)
+            if w and w.player_id == player_id:
+                squad_names.append(w.name or "Вайфу")
+
+        brief = getattr(active, "narrative_brief", None) or {}
+        arch = archetype_for_id(getattr(active, "location_archetype_id", None))
+        mode = mode_for_id(getattr(active, "expedition_mode_id", None))
+        tick_summaries: list[str] = []
+        ts = active.tick_state or {}
+        if ts.get("last_narrative"):
+            tick_summaries.append(str(ts["last_narrative"]))
+        squad_prepared = ts.get("squad_prepared")
+        try:
+            return await asyncio.wait_for(
+                generate_expedition_event(
+                    expedition_name=expedition_name,
+                    success=outcome == EXPEDITION_OUTCOME_SUCCESS,
+                    duration_minutes=active.duration_minutes,
+                    squad_names=squad_names,
+                    reward_gold=gold,
+                    reward_experience=exp,
+                    narrative_brief=brief if isinstance(brief, dict) else None,
+                    mode_name=mode.name_ru if mode else None,
+                    archetype_name=arch.name_ru if arch else None,
+                    tick_summaries=tick_summaries,
+                    squad_prepared=squad_prepared if isinstance(squad_prepared, bool) else None,
+                ),
+                timeout=65.0,
+            )
+        except asyncio.TimeoutError:
+            return (
+                f"Отряд вернулся из экспедиции «{expedition_name}». "
+                f"Награда: {gold} золота, {exp} опыта наёмницам."
+            )
+
+    async def finalize_completed_expedition(
+        self, session: AsyncSession, active: ActiveExpedition
+    ) -> None:
+        """Исход, финальные награды и предгенерация event_text для забора награды."""
+        await self.ensure_outcome_and_rewards(session, active)
+        if not (getattr(active, "event_text", None) or "").strip():
+            event_text = await self._generate_final_event_text(session, active)
+            if event_text:
+                active.event_text = event_text
+        await session.flush()
 
     async def ensure_outcome_and_rewards(
         self, session: AsyncSession, active: ActiveExpedition
