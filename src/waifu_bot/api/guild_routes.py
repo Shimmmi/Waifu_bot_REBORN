@@ -168,6 +168,11 @@ async def guild_bank_items_list(
     return {"items": items}
 
 
+class GuildRaidMusterBody(BaseModel):
+    participant_ids: list[int] = Field(default_factory=list)
+    chat_id: int
+
+
 class GuildRaidStartBody(BaseModel):
     template_id: int
     participant_ids: list[int] = Field(default_factory=list)
@@ -194,7 +199,9 @@ async def guilds_me(
         nt = await session.get(m.GuildLevelThreshold, guild.level + 1)
         if nt:
             next_gxp = nt.gxp_required
-    raid = await raid_state_for_player(session, player_id)
+    from waifu_bot.services.guild_raid_v2_service import raid_v2_state
+
+    raid = await raid_v2_state(session, guild, mem)
     war = await war_state_for_player(session, player_id)
     bank_n = await session.scalar(
         select(func.count()).select_from(m.GuildBank).where(m.GuildBank.guild_id == guild.id)
@@ -517,6 +524,37 @@ async def guild_skill_reset_ep(
     from waifu_bot.services.guild_skills_ops import guild_skill_reset
 
     return await guild_skill_reset(session, player_id)
+
+
+@router.post("/guilds/raid/muster", tags=["guild"])
+async def guild_raid_muster(
+    body: GuildRaidMusterBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.guild_raid_v2_service import create_muster, send_muster_invites
+
+    result = await create_muster(session, player_id, body.participant_ids, body.chat_id)
+    if result.get("error"):
+        return result
+    await session.commit()
+    if result.get("muster_id"):
+        await send_muster_invites(session, int(result["muster_id"]))
+    return result
+
+
+@router.get("/guilds/raid/muster", tags=["guild"])
+async def guild_raid_muster_status(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.guild_raid_v2_service import get_active_muster, muster_public_state
+
+    mem = await guild_service.get_guild_member(session, player_id)
+    if not mem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_in_guild")
+    muster = await get_active_muster(session, mem.guild_id)
+    return {"muster": muster_public_state(muster) if muster else None}
 
 
 @router.post("/guilds/raid/start", tags=["guild"])

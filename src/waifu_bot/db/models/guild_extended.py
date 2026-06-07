@@ -123,9 +123,9 @@ class GuildRaid(Base):
     )
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=GuildRaidStatus.PREPARATION.value)
     current_stage: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    phase: Mapped[str] = mapped_column(String(32), nullable=False, default="fight")  # fight | transition
-    stage_monster_hp_current: Mapped[int] = mapped_column(Integer, nullable=False)
-    stage_monster_hp_max: Mapped[int] = mapped_column(Integer, nullable=False)
+    phase: Mapped[str] = mapped_column(String(32), nullable=False, default="adventure")  # adventure | fight | transition
+    stage_monster_hp_current: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stage_monster_hp_max: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     stage_enrage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -135,12 +135,73 @@ class GuildRaid(Base):
     chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     pending_loot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     reward_pool_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # v2 weekly chronicle
+    raid_version: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    company_vitality: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    story_progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    day_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    location_archetype_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    narrative_style_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    party_snapshot_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    last_tactic_choice_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    last_resolve_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    adventure_meta_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    active_muster_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     guild: Mapped["Guild"] = relationship("Guild", back_populates="guild_raids", foreign_keys=[guild_id])
     template: Mapped["GuildRaidTemplate"] = relationship("GuildRaidTemplate")
     participants: Mapped[list["GuildRaidParticipant"]] = relationship(
         "GuildRaidParticipant", back_populates="raid", cascade="all, delete-orphan"
     )
+
+
+class GuildRaidMuster(Base):
+    __tablename__ = "guild_raid_musters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(Integer, ForeignKey("guilds.id", ondelete="CASCADE"), nullable=False)
+    initiator_player_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    participant_ids_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    responses_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    raid_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("guild_raids.id", ondelete="SET NULL"), nullable=True)
+
+
+class GuildRaidChatEvent(Base):
+    __tablename__ = "guild_raid_chat_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    raid_id: Mapped[int] = mapped_column(Integer, ForeignKey("guild_raids.id", ondelete="CASCADE"), nullable=False)
+    player_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    event_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    message_length: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    media_types_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    text_preview: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+
+class GuildRaidDailyLog(Base):
+    __tablename__ = "guild_raid_daily_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    raid_id: Mapped[int] = mapped_column(Integer, ForeignKey("guild_raids.id", ondelete="CASCADE"), nullable=False)
+    day_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    game_date: Mapped[date] = mapped_column(Date, nullable=False)
+    narrative_html: Mapped[str | None] = mapped_column(String, nullable=True)
+    slot_beats_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    tactic_poll_options_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    poll_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    poll_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    poll_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    poll_votes_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    winning_tactic_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    resolve_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (UniqueConstraint("raid_id", "day_index", name="uq_guild_raid_daily_log_day"),)
 
 
 class GuildRaidParticipant(Base):

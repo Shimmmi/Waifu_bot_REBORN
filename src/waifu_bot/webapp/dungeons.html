@@ -2181,6 +2181,24 @@
             </div>
           </div>
 
+          <div id="exp-send-loading-modal" class="exp-send-loading-modal" style="display:none;"
+               role="dialog" aria-modal="true" aria-busy="true" aria-label="Отправка экспедиции">
+            <div class="exp-send-loading-sheet">
+              <div class="exp-send-loading-visual" aria-hidden="true">
+                <div class="exp-send-loading-emoji">💄</div>
+                <div class="exp-send-loading-orb">
+                  <div class="exp-send-loading-orb-inner"></div>
+                </div>
+              </div>
+              <div class="exp-send-loading-title">Готовим отряд к выходу…</div>
+              <div class="exp-send-loading-sub" id="exp-send-loading-sub">Красят губки...</div>
+              <div class="exp-send-loading-bar">
+                <div class="exp-send-loading-fill" id="exp-send-loading-fill"></div>
+              </div>
+              <div class="exp-send-loading-hint">Пожалуйста, подождите — экспедиция отправляется</div>
+            </div>
+          </div>
+
           <div id="exp-picker-overlay" class="exp-overlay" style="display:none;" onclick="if(event.target===this)WaifuApp.expClosePicker()">
             <div class="exp-sheet" style="max-height:80%">
               <div class="exp-sheet-handle"></div>
@@ -2224,7 +2242,7 @@
                   <div class="exp-result-squad-title">Найденные предметы</div>
                   <div class="exp-result-items" id="exp-result-items"></div>
                 </div>
-                <button class="exp-result-close-btn" onclick="WaifuApp.closeExpeditionResult()">Забрать награду</button>
+                <button class="exp-result-close-btn" onclick="WaifuApp.closeExpeditionResult()">ОК</button>
               </div>
             </div>
           </div>

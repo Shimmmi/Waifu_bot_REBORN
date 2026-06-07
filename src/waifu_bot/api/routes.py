@@ -2281,6 +2281,10 @@ async def expeditions_active(
                 expedition_mode_id=getattr(a, "expedition_mode_id", None),
                 expedition_mode_name=mode.name_ru if mode else None,
                 narrative_title=narrative_title,
+                result_ready=bool(
+                    getattr(a, "outcome", None)
+                    and (getattr(a, "event_text", None) or "").strip()
+                ),
             )
         )
     return schemas.ExpeditionActiveResponse(active=out)
