@@ -526,6 +526,37 @@ async def guild_skill_reset_ep(
     return await guild_skill_reset(session, player_id)
 
 
+@router.get("/guilds/raid/available-chats", tags=["guild"])
+async def guild_raid_available_chats(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.guild_raid_v2_service import list_raid_available_chats
+
+    result = await list_raid_available_chats(session, player_id)
+    if result.get("error") == "forbidden":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=result)
+    if result.get("error"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result)
+    return result
+
+
+@router.get("/guilds/raid/chat-members", tags=["guild"])
+async def guild_raid_chat_members(
+    chat_id: int = Query(...),
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.guild_raid_v2_service import guild_members_for_raid_chat
+
+    result = await guild_members_for_raid_chat(session, player_id, chat_id)
+    if result.get("error") == "forbidden":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=result)
+    if result.get("error"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result)
+    return result
+
+
 @router.post("/guilds/raid/muster", tags=["guild"])
 async def guild_raid_muster(
     body: GuildRaidMusterBody,

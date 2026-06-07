@@ -7431,6 +7431,10 @@ const guildHallState = {
   mailState: { inbox: [], selectedId: null, unreadCount: 0 },
   skillsBranch: "combat",
   raidParticipantIds: [],
+  raidChatId: null,
+  raidChatTitle: null,
+  raidEligibleMembers: null,
+  raidAvailableChats: [],
   warTargets: null,
   questsData: null,
   questsTab: "milestones",
@@ -7482,6 +7486,9 @@ function guildApiErrorToUser(detail, fallback) {
     target_not_found: "Участник не найден.",
     raid_already_active: "Рейд уже идёт.",
     need_participants: "Нужно минимум 2 участника.",
+    need_guild_chat: "Выберите групповой чат для рейда.",
+    invalid_raid_chat: "Этот чат недоступен для рейда.",
+    not_in_raid_chat: "Участник не состоит в выбранном чате.",
     wars_locked: "Войны доступны с 10 уровня гильдии.",
     already_at_war: "У гильдии уже активная война.",
     bad_target: "Нельзя объявить войну этой гильдии.",
@@ -8026,16 +8033,113 @@ function guildRaidMusterStatusLabel(st) {
   return map[String(st || "").toLowerCase()] || st || "—";
 }
 
-function openGuildRaidParticipantModal() {
+function closeGuildRaidChatModal() {
+  const modal = document.getElementById("guild-raid-chat-modal");
+  if (!modal) return;
+  modal.classList.remove("guild-raid-participants-modal--open");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+async function openGuildRaidChatModal() {
   const d = guildHallState.me;
-  const members = Array.isArray(d?.members) ? d.members : [];
+  if (!isGuildLeader(d)) {
+    showToast("Только глава гильдии может выбрать чат", "error");
+    return;
+  }
+  const body = document.getElementById("guild-raid-chat-modal-body");
+  const modal = document.getElementById("guild-raid-chat-modal");
+  if (!body || !modal) return;
+  body.innerHTML = `<p class="muted tiny">Загрузка чатов…</p>`;
+  modal.classList.add("guild-raid-participants-modal--open");
+  modal.setAttribute("aria-hidden", "false");
+  try {
+    const data = await apiFetch("/guilds/raid/available-chats");
+    const chats = Array.isArray(data?.chats) ? data.chats : [];
+    guildHallState.raidAvailableChats = chats;
+    if (!chats.length) {
+      const hint = data?.hint || "Нет доступных чатов. Напишите сообщение в группе с ботом.";
+      body.innerHTML = `<p class="muted tiny">${escapeHtml(hint)}</p>`;
+      return;
+    }
+    body.innerHTML = chats
+      .map((c, idx) => {
+        const cid = Number(c.chat_id);
+        const rawTitle = String(c.title || `Чат ${cid}`);
+        const title = escapeHtml(rawTitle);
+        const current = c.is_current ? ' <span class="muted tiny">(текущий)</span>' : "";
+        return `<button type="button" class="guild-raid-chat-row" data-chat-index="${idx}">
+          <span class="guild-raid-chat-row-title">${title}${current}</span>
+          <span class="muted tiny">${cid}</span>
+        </button>`;
+      })
+      .join("");
+    body.querySelectorAll(".guild-raid-chat-row").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.chatIndex);
+        const c = (guildHallState.raidAvailableChats || [])[idx];
+        if (!c) return;
+        selectGuildRaidChat(Number(c.chat_id), c.title || "");
+      });
+    });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    body.innerHTML = `<p class="muted tiny">${escapeHtml(guildApiErrorToUser(detail, "Не удалось загрузить чаты"))}</p>`;
+  }
+}
+
+async function selectGuildRaidChat(chatId, title) {
+  guildHallState.raidChatId = Number(chatId);
+  guildHallState.raidChatTitle = String(title || "").trim() || `Чат ${chatId}`;
+  guildHallState.raidParticipantIds = [];
+  guildHallState.raidEligibleMembers = null;
+  closeGuildRaidChatModal();
+  await openGuildRaidParticipantModal();
+}
+
+async function openGuildRaidParticipantModal() {
+  const d = guildHallState.me;
+  const chatId = guildHallState.raidChatId;
+  if (!chatId) {
+    showToast("Сначала выберите чат", "error");
+    return;
+  }
   const maxSlots = safeInt(d?.raid?.raid_party_slots, 10) || 10;
   const body = document.getElementById("guild-raid-participants-modal-body");
   const modal = document.getElementById("guild-raid-participants-modal");
+  const chatLabel = document.getElementById("guild-raid-participants-chat-label");
   if (!body || !modal) return;
+  const chatTitle = guildHallState.raidChatTitle || `Чат ${chatId}`;
+  if (chatLabel) {
+    chatLabel.textContent = `Чат: ${chatTitle}. Минимум 2 участника из этого чата. Окно подтверждения — 3 часа.`;
+  }
+  body.innerHTML = `<p class="muted tiny">Загрузка участников…</p>`;
+  modal.classList.add("guild-raid-participants-modal--open");
+  modal.setAttribute("aria-hidden", "false");
+  let members = guildHallState.raidEligibleMembers;
+  try {
+    if (!Array.isArray(members)) {
+      const data = await apiFetch(`/guilds/raid/chat-members?chat_id=${encodeURIComponent(chatId)}`);
+      members = Array.isArray(data?.members) ? data.members : [];
+      guildHallState.raidEligibleMembers = members;
+      if (data?.chat_title) guildHallState.raidChatTitle = data.chat_title;
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    body.innerHTML = `<p class="muted tiny">${escapeHtml(guildApiErrorToUser(detail, "Не удалось загрузить участников"))}</p>`;
+    return;
+  }
+  if (!members.length) {
+    body.innerHTML = `<p class="muted tiny">В этом чате нет членов гильдии, которых бот видел. Участники должны написать хотя бы одно сообщение в чате.</p>`;
+    return;
+  }
+  const eligibleIds = new Set(members.map((m) => Number(m.player_id)));
   if (!guildHallState.raidParticipantIds.length) {
     const viewerId = safeInt(d?.viewer_player_id, 0);
-    if (viewerId) guildHallState.raidParticipantIds = [viewerId];
+    if (viewerId && eligibleIds.has(viewerId)) guildHallState.raidParticipantIds = [viewerId];
+  } else {
+    guildHallState.raidParticipantIds = guildHallState.raidParticipantIds.filter((pid) =>
+      eligibleIds.has(Number(pid))
+    );
   }
   body.innerHTML = members
     .map((m) => {
@@ -8051,8 +8155,6 @@ function openGuildRaidParticipantModal() {
     })
     .join("");
   body.innerHTML += `<p class="muted tiny" style="margin-top:8px">Выбрано: <span id="guild-raid-picked-count">${guildHallState.raidParticipantIds.length}</span> / ${maxSlots}</p>`;
-  modal.classList.add("guild-raid-participants-modal--open");
-  modal.setAttribute("aria-hidden", "false");
 }
 
 function closeGuildRaidParticipantModal() {
@@ -9969,9 +10071,9 @@ function toggleGuildRaidParticipant(playerId, checked) {
 
 async function startGuildRaidMuster() {
   const d = guildHallState.me;
-  const chatId = getGuildRaidChatId(d);
+  const chatId = guildHallState.raidChatId;
   if (!chatId) {
-    showToast("Привяжите групповой чат гильдии или откройте WebApp из него", "error");
+    showToast("Сначала выберите чат для рейда", "error");
     return;
   }
   const pids = guildHallState.raidParticipantIds.filter((x) => Number(x) > 0);
@@ -9990,6 +10092,10 @@ async function startGuildRaidMuster() {
       return;
     }
     closeGuildRaidParticipantModal();
+    guildHallState.raidChatId = null;
+    guildHallState.raidChatTitle = null;
+    guildHallState.raidEligibleMembers = null;
+    guildHallState.raidParticipantIds = [];
     showToast("Сбор начат — приглашения в личку (3 ч)");
     await populateGuildHall();
   } catch (e) {
@@ -10469,7 +10575,6 @@ function renderGuildRaidPane(d) {
   const muster = raid?.active_muster;
   const chronicle = Array.isArray(raid?.chronicle) ? raid.chronicle : [];
   const members = Array.isArray(d?.members) ? d.members : [];
-  const canManage = d?.is_leader || d?.is_officer;
   const memberById = Object.fromEntries(members.map((m) => [Number(m.player_id), m]));
   let html = "";
 
@@ -10514,12 +10619,12 @@ function renderGuildRaidPane(d) {
         <p>Этап ${active.stage ?? "—"} · HP ${active.hp ?? 0}/${active.hp_max ?? 0} (${hpPct}%)</p>
         <button type="button" class="btn secondary" onclick="WaifuApp.leaveGuildRaid()">Покинуть рейд</button>`;
     }
-  } else if (canManage && !muster) {
+  } else if (isGuildLeader(d) && !muster) {
     html += `<h4 class="guild-activity-section-title">Начать рейд</h4>
-      <p class="muted tiny">Выберите состав и нажмите «Сбор». Участникам придёт рейд-чек в личку (3 ч).</p>
-      <button type="button" class="btn primary" onclick="WaifuApp.openGuildRaidParticipantModal()">Выбрать участников и сбор</button>`;
-  } else if (!canManage) {
-    html += `<p class="muted tiny">${muster ? "Идёт сбор на рейд." : "Рейды запускает глава или офицер."}</p>`;
+      <p class="muted tiny">Выберите чат гильдии, затем состав. Участникам придёт рейд-чек в личку (3 ч).</p>
+      <button type="button" class="btn primary" onclick="WaifuApp.openGuildRaidChatModal()">Выбрать чат</button>`;
+  } else if (!isGuildLeader(d)) {
+    html += `<p class="muted tiny">${muster ? "Идёт сбор на рейд." : "Рейд запускает глава гильдии."}</p>`;
   }
   return html;
 }
@@ -13727,6 +13832,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   toggleGuildHeroMenu,
   closeGuildHeroMenu,
   toggleGuildRaidParticipant,
+  openGuildRaidChatModal,
+  closeGuildRaidChatModal,
+  selectGuildRaidChat,
   openGuildRaidParticipantModal,
   closeGuildRaidParticipantModal,
   startGuildRaidMuster,

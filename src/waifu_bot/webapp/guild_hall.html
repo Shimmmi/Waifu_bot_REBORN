@@ -278,11 +278,23 @@
       </div>
     </div>
 
+    <div id="guild-raid-chat-modal" class="modal guild-raid-participants-modal-root" aria-hidden="true">
+      <div class="modal-content guild-raid-participants-panel">
+        <button type="button" class="guild-members-modal-close" aria-label="Закрыть" onclick="WaifuApp.closeGuildRaidChatModal()">✕</button>
+        <h2 class="guild-members-modal-title">Чат для рейда</h2>
+        <p class="muted tiny">Выберите групповой чат, где состоите вы и добавлен бот.</p>
+        <div id="guild-raid-chat-modal-body" class="modal-body guild-raid-participants-body"></div>
+        <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+          <button type="button" class="btn secondary" onclick="WaifuApp.closeGuildRaidChatModal()">Отмена</button>
+        </div>
+      </div>
+    </div>
+
     <div id="guild-raid-participants-modal" class="modal guild-raid-participants-modal-root" aria-hidden="true">
       <div class="modal-content guild-raid-participants-panel">
         <button type="button" class="guild-members-modal-close" aria-label="Закрыть" onclick="WaifuApp.closeGuildRaidParticipantModal()">✕</button>
         <h2 class="guild-members-modal-title">Участники рейда</h2>
-        <p class="muted tiny">Минимум 2 участника. Окно подтверждения — 3 часа.</p>
+        <p class="muted tiny" id="guild-raid-participants-chat-label">Минимум 2 участника. Окно подтверждения — 3 часа.</p>
         <div id="guild-raid-participants-modal-body" class="modal-body guild-raid-participants-body"></div>
         <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
           <button type="button" class="btn secondary" onclick="WaifuApp.closeGuildRaidParticipantModal()">Отмена</button>

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from waifu_bot.db.models import (
+    BotGroupChat,
     Guild,
     GuildLevelThreshold,
     GuildMember,
@@ -21,7 +22,10 @@ from waifu_bot.db.models import (
     GuildRaidParticipant,
     GuildRaidTemplate,
     MainWaifu,
+    Player,
 )
+from waifu_bot.services.bot_group_chats import ACTIVE_STATUSES, build_telegram_group_url
+from waifu_bot.services.player_chats import players_seen_in_group_chat, resolve_player_group_chats
 from waifu_bot.services.abyss_service import msk_now, msk_today
 from waifu_bot.services.guild_raid_mechanics import (
     MUSTER_HOURS,
@@ -52,6 +56,11 @@ _last_guild_raid_daily_resolve: date | None = None
 MUSTER_STATUS_PENDING = "pending"
 MUSTER_STATUS_COMPLETED = "completed"
 MUSTER_STATUS_CANCELLED = "cancelled"
+
+_RAID_CHAT_EMPTY_HINT = (
+    "Напишите хотя бы одно сообщение в групповом чате с ботом — тогда чат появится в списке."
+)
+_GUILD_ONLINE_TTL = timedelta(minutes=5)
 
 
 def _utc_now() -> datetime:
@@ -132,6 +141,167 @@ def muster_public_state(muster: GuildRaidMuster) -> dict[str, Any]:
     }
 
 
+async def _require_guild_leader(
+    session: AsyncSession, player_id: int
+) -> tuple[GuildMember, Guild] | dict[str, Any]:
+    mem = (
+        await session.execute(select(GuildMember).where(GuildMember.player_id == player_id))
+    ).scalar_one_or_none()
+    if not mem or not mem.is_leader:
+        return {"error": "forbidden"}
+    guild = await session.get(Guild, mem.guild_id)
+    if not guild:
+        return {"error": "no_guild"}
+    return mem, guild
+
+
+async def _leader_raid_chat_ids(session: AsyncSession, leader_id: int) -> list[int]:
+    leader_chats = await resolve_player_group_chats(session, int(leader_id))
+    if not leader_chats:
+        return []
+    rows = (
+        await session.execute(
+            select(BotGroupChat.chat_id).where(
+                BotGroupChat.chat_id.in_(leader_chats),
+                BotGroupChat.status.in_(tuple(ACTIVE_STATUSES)),
+            )
+        )
+    ).all()
+    return sorted({int(r[0]) for r in rows})
+
+
+async def list_raid_available_chats(session: AsyncSession, player_id: int) -> dict[str, Any]:
+    ctx = await _require_guild_leader(session, player_id)
+    if isinstance(ctx, dict):
+        return ctx
+    _mem, guild = ctx
+    allowed_ids = await _leader_raid_chat_ids(session, player_id)
+    if not allowed_ids:
+        return {"chats": [], "hint": _RAID_CHAT_EMPTY_HINT}
+    rows = (
+        await session.execute(select(BotGroupChat).where(BotGroupChat.chat_id.in_(allowed_ids)))
+    ).scalars().all()
+    row_by_id = {int(r.chat_id): r for r in rows}
+    current_chat = int(guild.telegram_chat_id) if guild.telegram_chat_id else None
+    chats: list[dict[str, Any]] = []
+    for cid in allowed_ids:
+        row = row_by_id.get(cid)
+        title = (row.title if row and row.title else None) or f"Чат {cid}"
+        username = row.username if row else None
+        invite_link = row.invite_link if row else None
+        chats.append(
+            {
+                "chat_id": cid,
+                "title": title,
+                "username": username,
+                "telegram_url": build_telegram_group_url(
+                    cid, username=username, invite_link=invite_link
+                ),
+                "is_current": current_chat is not None and cid == current_chat,
+            }
+        )
+    return {"chats": chats}
+
+
+def _member_public_dict(
+    gm: GuildMember,
+    *,
+    waifu_by_player: dict[int, MainWaifu],
+    now_utc: datetime,
+) -> dict[str, Any]:
+    pl: Player | None = gm.player
+    last_active_iso = None
+    online = False
+    telegram_username = None
+    if pl is None:
+        display_name = f"Игрок {gm.player_id}"
+        player_id_out = int(gm.player_id)
+    else:
+        la = pl.last_active
+        if la is not None:
+            la_utc = la.replace(tzinfo=timezone.utc) if la.tzinfo is None else la.astimezone(timezone.utc)
+            last_active_iso = la_utc.isoformat()
+            online = (now_utc - la_utc) <= _GUILD_ONLINE_TTL
+        fn = (pl.first_name or "").strip()
+        un = (pl.username or "").strip()
+        display_name = fn or un or str(pl.id)
+        player_id_out = int(pl.id)
+        telegram_username = un or None
+    mw = waifu_by_player.get(int(gm.player_id))
+    portrait_url = None
+    if mw and getattr(mw, "image_data", None):
+        mime = getattr(mw, "image_mime", None) or "image/webp"
+        portrait_url = f"data:{mime};base64,{mw.image_data}"
+    if gm.is_leader:
+        rank = "Глава"
+    elif gm.is_officer:
+        rank = "Офицер"
+    else:
+        rank = "Участник"
+    from waifu_bot.services.guild_activity import member_power
+
+    return {
+        "player_id": player_id_out,
+        "display_name": display_name,
+        "telegram_username": telegram_username,
+        "is_leader": bool(gm.is_leader),
+        "is_officer": bool(gm.is_officer),
+        "rank": rank,
+        "portrait_url": portrait_url,
+        "last_active": last_active_iso,
+        "online": online,
+        "member_power": member_power(mw),
+    }
+
+
+async def guild_members_for_raid_chat(
+    session: AsyncSession, player_id: int, chat_id: int
+) -> dict[str, Any]:
+    ctx = await _require_guild_leader(session, player_id)
+    if isinstance(ctx, dict):
+        return ctx
+    _mem, guild = ctx
+    cid = int(chat_id)
+    if cid >= 0:
+        return {"error": "invalid_raid_chat"}
+    allowed_ids = await _leader_raid_chat_ids(session, player_id)
+    if cid not in allowed_ids:
+        return {"error": "invalid_raid_chat"}
+    seen_pids = set(await players_seen_in_group_chat(session, cid))
+    gm_stmt = (
+        select(GuildMember)
+        .where(GuildMember.guild_id == guild.id)
+        .options(selectinload(GuildMember.player))
+    )
+    guild_members = (await session.execute(gm_stmt)).scalars().unique().all()
+    member_ids = [int(gm.player_id) for gm in guild_members if int(gm.player_id) in seen_pids]
+    waifu_by_player: dict[int, MainWaifu] = {}
+    if member_ids:
+        waifu_rows = (
+            await session.execute(select(MainWaifu).where(MainWaifu.player_id.in_(member_ids)))
+        ).scalars().all()
+        waifu_by_player = {int(w.player_id): w for w in waifu_rows}
+    now_utc = datetime.now(timezone.utc)
+    members_out: list[dict[str, Any]] = []
+    for gm in guild_members:
+        if int(gm.player_id) not in seen_pids:
+            continue
+        members_out.append(
+            _member_public_dict(gm, waifu_by_player=waifu_by_player, now_utc=now_utc)
+        )
+    members_out.sort(
+        key=lambda x: (
+            -bool(x["online"]),
+            -bool(x["is_leader"]),
+            -bool(x["is_officer"]),
+            x["display_name"].lower(),
+        )
+    )
+    chat_row = await session.get(BotGroupChat, cid)
+    chat_title = (chat_row.title if chat_row and chat_row.title else None) or f"Чат {cid}"
+    return {"chat_id": cid, "chat_title": chat_title, "members": members_out}
+
+
 async def send_muster_invites(session: AsyncSession, muster_id: int) -> None:
     muster = await session.get(GuildRaidMuster, muster_id)
     if not muster:
@@ -172,14 +342,10 @@ async def create_muster(
     participant_ids: list[int],
     chat_id: int,
 ) -> dict[str, Any]:
-    mem = (
-        await session.execute(select(GuildMember).where(GuildMember.player_id == player_id))
-    ).scalar_one_or_none()
-    if not mem or not _can_manage_raid(mem):
-        return {"error": "forbidden"}
-    guild = await session.get(Guild, mem.guild_id)
-    if not guild:
-        return {"error": "no_guild"}
+    ctx = await _require_guild_leader(session, player_id)
+    if isinstance(ctx, dict):
+        return ctx
+    mem, guild = ctx
     if guild.raid_active_id:
         return {"error": "raid_already_active"}
     existing = await get_active_muster(session, guild.id)
@@ -191,16 +357,25 @@ async def create_muster(
     pids = list(dict.fromkeys(int(x) for x in participant_ids))[:max_slots]
     if len(pids) < 2:
         return {"error": "need_participants", "min": 2}
+
+    if int(chat_id) == 0:
+        return {"error": "need_guild_chat"}
+    cid = int(chat_id)
+    allowed_ids = await _leader_raid_chat_ids(session, player_id)
+    if cid not in allowed_ids:
+        return {"error": "invalid_raid_chat"}
+
+    seen_pids = set(await players_seen_in_group_chat(session, cid))
     for pid in pids:
         gm = await session.execute(
             select(GuildMember).where(GuildMember.guild_id == guild.id, GuildMember.player_id == pid)
         )
         if gm.scalar_one_or_none() is None:
             return {"error": "not_all_guild_members", "player_id": pid}
+        if int(pid) not in seen_pids:
+            return {"error": "not_in_raid_chat", "player_id": pid}
 
-    if int(chat_id) == 0:
-        return {"error": "need_guild_chat"}
-    guild.telegram_chat_id = int(chat_id)
+    guild.telegram_chat_id = cid
 
     muster = GuildRaidMuster(
         guild_id=guild.id,
