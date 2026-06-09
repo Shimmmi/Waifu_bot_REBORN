@@ -35,3 +35,30 @@ class ChatAudioTrack(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class ChatAudioCapturePending(Base):
+    """In-flight or failed tavern BGM capture — stores Telegram file_id for admin retry."""
+
+    __tablename__ = "chat_audio_capture_pending"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    file_unique_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    file_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    file_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    performer: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    uploader_player_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    last_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

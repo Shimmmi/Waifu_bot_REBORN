@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     telegram_oidc_jwks_url: str | None = Field(None, alias="TELEGRAM_OIDC_JWKS_URL")
     # Исходящие запросы Bot API только через прокси (SOCKS5/HTTP). Пример: socks5://user:pass@host:1080
     telegram_bot_proxy: str | None = Field(None, alias="TELEGRAM_BOT_PROXY")
+    # Абсолютный потолок (с) на скачивание одного файла (tavern BGM); per-chunk read — ниже.
+    telegram_file_download_timeout: int = Field(600, alias="TELEGRAM_FILE_DOWNLOAD_TIMEOUT")
+    telegram_file_download_read_timeout: int = Field(60, alias="TELEGRAM_FILE_DOWNLOAD_READ_TIMEOUT")
     webhook_drop_pending: bool = Field(True, alias="WEBHOOK_DROP_PENDING")
     telegram_update_mode: str = Field("webhook", alias="TELEGRAM_UPDATE_MODE",
                                        description="webhook|polling — polling bypasses VPS inbound network issues")

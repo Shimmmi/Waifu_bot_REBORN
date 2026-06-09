@@ -149,3 +149,100 @@ export interface AdminGroupChatsResponse {
   page_size: number
   items: AdminGroupChat[]
 }
+
+export interface AdminTavernBgmOverview {
+  total_tracks: number
+  chats_with_tracks: number
+  tracks_last_24h: number
+  missing_files: number
+  pending_failed_count: number
+  events_last_hour: number
+  events_buffer_size: number
+}
+
+export interface AdminTavernBgmChat {
+  chat_id: number
+  title?: string | null
+  username?: string | null
+  status: string
+  track_count: number
+  last_track_at?: string | null
+}
+
+export interface AdminTavernBgmChatsResponse {
+  total: number
+  page: number
+  page_size: number
+  items: AdminTavernBgmChat[]
+}
+
+export interface AdminTavernBgmTrack {
+  id: number
+  chat_id: number
+  url: string
+  title?: string | null
+  performer?: string | null
+  duration?: number | null
+  relative_path: string
+  file_exists: boolean
+  created_at?: string | null
+  uploader_player_id?: number | null
+  mime_type?: string | null
+  file_size?: number | null
+}
+
+export interface AdminTavernBgmTracksResponse {
+  chat_id: number
+  tracks: AdminTavernBgmTrack[]
+}
+
+export interface AdminTavernBgmEvent {
+  ts: string
+  event: string
+  chat_id?: number | null
+  player_id?: number | null
+  detail: string
+}
+
+export interface AdminTavernBgmEventsResponse {
+  events: AdminTavernBgmEvent[]
+}
+
+export interface AdminTavernBgmPlayerPreview {
+  player_id: number
+  player_group_chats: number[]
+  bot_active_intersection: number[]
+  player_view: {
+    chats: Array<{ chat_id: number; title: string; track_count: number }>
+    hint?: string
+  }
+}
+
+export interface AdminTavernBgmPendingItem {
+  id: number
+  chat_id: number
+  file_unique_id: string
+  file_id: string
+  title?: string | null
+  performer?: string | null
+  file_size?: number | null
+  mime_type?: string | null
+  uploader_player_id?: number | null
+  status: string
+  last_error?: string | null
+  retry_count: number
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface AdminTavernBgmPendingResponse {
+  items: AdminTavernBgmPendingItem[]
+}
+
+export interface AdminTavernBgmRetryResponse {
+  ok: boolean
+  status: string
+  track_id?: number
+  error?: string
+  events: AdminTavernBgmEvent[]
+}

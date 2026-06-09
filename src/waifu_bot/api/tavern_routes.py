@@ -118,16 +118,39 @@ async def tavern_available(
     )
 
 
-@router.get("/tavern/bgm/tracks", tags=["tavern"])
-async def tavern_bgm_tracks(
+@router.get("/tavern/bgm/chats", tags=["tavern"])
+async def tavern_bgm_chats(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Cached group-chat audio tracks for tavern background music (all of the player's chats)."""
-    from waifu_bot.services.tavern_audio import list_tracks_for_player
+    """Group chats where both the player and bot are present (for BGM player chat picker)."""
+    from waifu_bot.services.tavern_audio import list_bgm_chats_for_player
 
     try:
+        return await list_bgm_chats_for_player(session, player_id)
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_chats failed for player %s", player_id)
+        return {"chats": [], "hint": "Не удалось загрузить список чатов."}
+
+
+@router.get("/tavern/bgm/tracks", tags=["tavern"])
+async def tavern_bgm_tracks(
+    chat_id: Optional[int] = Query(None),
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Cached group-chat audio tracks for tavern BGM (all chats or one chat)."""
+    from waifu_bot.services.tavern_audio import list_tracks_for_player, list_tracks_for_player_chat
+
+    try:
+        if chat_id is not None:
+            tracks = await list_tracks_for_player_chat(session, player_id, int(chat_id))
+            if tracks is None:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="chat_not_allowed")
+            return {"tracks": tracks}
         tracks = await list_tracks_for_player(session, player_id)
+    except HTTPException:
+        raise
     except SQLAlchemyError:
         logger.exception("tavern_bgm_tracks failed for player %s", player_id)
         tracks = []

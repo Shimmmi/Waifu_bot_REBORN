@@ -7,6 +7,7 @@ import AdminPlayers from './pages/admin/Players.vue'
 import AdminPlayerDetails from './pages/admin/PlayerDetails.vue'
 import AdminActions from './pages/admin/Actions.vue'
 import AdminGroupChats from './pages/admin/GroupChats.vue'
+import AdminTavernBgm from './pages/admin/TavernBgm.vue'
 
 const router = createRouter({
   history: createWebHistory('/armory/'),
@@ -18,6 +19,7 @@ const router = createRouter({
     { path: '/admin/players', name: 'admin-players', component: AdminPlayers },
     { path: '/admin/players/:id', name: 'admin-player', component: AdminPlayerDetails, props: true },
     { path: '/admin/group-chats', name: 'admin-group-chats', component: AdminGroupChats },
+    { path: '/admin/tavern-bgm', name: 'admin-tavern-bgm', component: AdminTavernBgm },
     { path: '/admin/actions', name: 'admin-actions', component: AdminActions },
   ],
 })
