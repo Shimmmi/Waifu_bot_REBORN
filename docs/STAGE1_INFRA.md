@@ -29,6 +29,7 @@ POSTGRES_DSN=postgresql+asyncpg://user:pass@127.0.0.1:6432/waifu
 ### Проверка
 
 ```bash
+./scripts/stage1_ops_cutover.sh   # migrate 0096 + index audit + alerts
 ./scripts/setup_pgbouncer_check.sh
 curl -sS https://<host>/health
 ```

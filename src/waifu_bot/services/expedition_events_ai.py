@@ -471,7 +471,8 @@ async def generate_expedition_event(
     squad_prepared: bool | None = None,
 ) -> Optional[str]:
     """
-    Генерирует короткое описание исхода экспедиции (2–3 предложения) через OpenRouter.
+    Генерирует итоговое описание экспедиции (3–5 предложений) через OpenRouter.
+    Компонует эпизоды в связное повествование без цифр и наград.
     Возвращает None, если ключ не задан или запрос не удался.
     """
     if not has_llm_configured():
@@ -479,32 +480,42 @@ async def generate_expedition_event(
 
     model = settings.openrouter_model
 
-    outcome = "успешно завершили" if success else "не справились и вернулись ни с чем"
+    outcome = "успешно завершили" if success else "не справились и вернулись с пустыми руками"
     names = ", ".join(squad_names[:5]) if squad_names else "отряд"
-    extra = ""
+    context_parts: list[str] = []
     if narrative_brief:
         setting = (narrative_brief.get("setting_summary") or "")[:300]
         if setting:
-            extra += f" Сеттинг экспедиции: {setting}."
+            context_parts.append(f"Сеттинг: {setting}")
+        intro = (narrative_brief.get("intro_narrative") or "")[:400]
+        if intro:
+            context_parts.append(f"Брифинг перед выходом: {intro}")
     if mode_name or archetype_name:
-        extra += f" Режим: {mode_name or '—'}. Локация-архетип: {archetype_name or '—'}."
-    if tick_summaries:
-        joined = " | ".join(s[:120] for s in tick_summaries[-3:] if s)
-        if joined:
-            extra += f" Кратко что было: {joined}."
+        context_parts.append(f"Режим: {mode_name or '—'}. Локация: {archetype_name or '—'}.")
     if squad_prepared is not None:
-        prep = "отряд был подготовлен к угрозам слота" if squad_prepared else "отряд не имел нужных навыков против угроз слота"
-        extra += f" Подготовка: {prep}."
+        prep = "отряд был подготовлен к угрозам" if squad_prepared else "отряд не имел нужных навыков"
+        context_parts.append(f"Подготовка: {prep}.")
+    episodes_block = ""
+    if tick_summaries:
+        lines = [s.strip() for s in tick_summaries if s and str(s).strip()]
+        if lines:
+            episodes_block = "\n".join(f"{i + 1}. {s[:300]}" for i, s in enumerate(lines))
     style_block = _expedition_style_prompt_from_brief(narrative_brief)
+    context = "\n".join(context_parts)
     prompt = (
-        f"Напиши коротко (2–3 предложения, на русском) описание исхода экспедиции в фэнтези-стиле. "
+        f"Напиши связное итоговое повествование (3–5 предложений, на русском) о том, как прошла экспедиция. "
         f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
         f"{style_block} "
-        f"Экспедиция: «{expedition_name}». {names} {outcome}. "
-        f"Длительность: {duration_minutes} мин.{extra} "
-        + (f"Награда: {reward_gold} золота, {reward_experience} опыта." if success else "")
-        + " Без вступления, только сам текст события."
+        f"Собери из эпизодов ниже единую историю приключений наёмниц ({names}). "
+        f"Экспедиция «{expedition_name}»: отряд {outcome}. "
+        f"Отрази настроение исхода, но НЕ упоминай время, минуты, золото, опыт, HP, проценты и любые числа — "
+        f"награды показываются отдельно.\n"
     )
+    if context:
+        prompt += f"\nКонтекст:\n{context}\n"
+    if episodes_block:
+        prompt += f"\nЭпизоды экспедиции:\n{episodes_block}\n"
+    prompt += "\nБез вступления, только текст итога."
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -513,7 +524,7 @@ async def generate_expedition_event(
                 {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 200,
+                    "max_tokens": 280,
                     "temperature": 0.7,
                     **_openrouter_text_extra(),
                 },
@@ -538,7 +549,7 @@ async def generate_expedition_event(
             return await refine_expedition_narrative_draft(
                 text,
                 caller="event",
-                length_hint="2–3 предложения",
+                length_hint="3–5 предложений",
             )
     except Exception as e:
         logger.warning("OpenRouter expedition event error: %s", e)

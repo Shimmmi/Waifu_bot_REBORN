@@ -97,7 +97,8 @@ function sortTavernPool(squad, reserve) {
 function tavernHireBackgroundUrl(remaining) {
   const rem = Math.max(0, Math.min(4, Number(remaining) || 0));
   const n = 4 - rem;
-  const root = `${TAVERN_STATIC_BASE}/tavern.background`;
+  const tavernBase = window.TAVERN_STATIC_BASE || "/static/game/ui/tavern";
+  const root = `${tavernBase}/tavern.background`;
   return n === 0 ? `${root}.webp` : `${root}_${n}.webp`;
 }
 
@@ -155,8 +156,9 @@ async function loadTavernChatBgm() {
 
 function getTavernBgmPlaylist() {
   // Group-chat audio first; bundled static tracks as fallback.
-  const staticUrls = (TAVERN_BGM_TRACKS || []).map(
-    (name) => `${TAVERN_STATIC_BASE}/audio/${name}`
+  const tavernBase = window.TAVERN_STATIC_BASE || "/static/game/ui/tavern";
+  const staticUrls = (window.TAVERN_BGM_TRACKS || []).map(
+    (name) => `${tavernBase}/audio/${name}`
   );
   const chat = Array.isArray(tavernChatBgmUrls) ? tavernChatBgmUrls.slice() : [];
   return chat.concat(staticUrls);
@@ -460,7 +462,6 @@ function renderTavernHealList() {
     try {
       const res = await apiFetch(`/tavern/heal?hired_waifu_id=${encodeURIComponent(id)}`, { method: "POST" });
       if (res && res.success) {
-        showToast("Наёмница вылечена");
         if (typeof res.gold_total === "number") profileState.gold = res.gold_total;
         const { squad: s, reserve: r } = await loadTavernWithProfile(undefined, { innerRefresh: true });
         tavernState.squad = s || tavernState.squad;

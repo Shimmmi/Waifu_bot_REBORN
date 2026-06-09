@@ -32,7 +32,7 @@ for html in sorted(webapp.glob("*.html")):
         return f'{m.group(1)}="{m.group(2)}?v={ver}"'
 
     text = re.sub(
-        r'(href|src)="((?:\./|/webapp/)?(?:styles\.css|app\.js|pages/[a-z_]+\.js))(?:\?[^"]*)?"',
+        r'(href|src)="((?:\./|/webapp/)?(?:styles\.css|app\.js|pages/[a-z_]+\.js|bundle/(?:app|dungeons|tavern)\.min\.js|bundle/styles\.min\.css|bundle/combat-island\.min\.js|bundle/waifu-combat-island\.css))(?:\?[^"]*)?"',
         bump_attr,
         text,
     )

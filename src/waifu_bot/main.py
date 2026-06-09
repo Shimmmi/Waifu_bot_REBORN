@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 from waifu_bot.api.routes import router as api_router
 from waifu_bot.core.config import settings
@@ -100,6 +101,7 @@ def create_app() -> FastAPI:
         openapi_url="/api/openapi.json",
     )
 
+    app.add_middleware(GZipMiddleware, minimum_size=500)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

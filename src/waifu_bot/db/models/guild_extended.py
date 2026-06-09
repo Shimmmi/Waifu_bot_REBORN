@@ -181,6 +181,23 @@ class GuildRaidChatEvent(Base):
     text_preview: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
+class GuildRaidSlotSummary(Base):
+    __tablename__ = "guild_raid_slot_summaries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    raid_id: Mapped[int] = mapped_column(Integer, ForeignKey("guild_raids.id", ondelete="CASCADE"), nullable=False)
+    game_date: Mapped[date] = mapped_column(Date, nullable=False)
+    slot_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    slot_label: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    summary_html: Mapped[str | None] = mapped_column(String, nullable=True)
+    slot_beats_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("raid_id", "game_date", "slot_index", name="uq_guild_raid_slot_summary"),
+    )
+
+
 class GuildRaidDailyLog(Base):
     __tablename__ = "guild_raid_daily_logs"
 

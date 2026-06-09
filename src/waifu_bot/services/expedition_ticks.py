@@ -50,6 +50,20 @@ def _tag_labels(tag_ids: frozenset[str] | set[str]) -> list[str]:
     ]
 
 
+def tick_narrative_history(tick_state: dict | None) -> list[str]:
+    """Эпизоды экспедиции для финального нарратива (history или fallback на last_narrative)."""
+    ts = tick_state or {}
+    hist = ts.get("narrative_history")
+    if isinstance(hist, list):
+        out = [str(x).strip() for x in hist if str(x).strip()]
+        if out:
+            return out
+    last = ts.get("last_narrative")
+    if last and str(last).strip():
+        return [str(last).strip()]
+    return []
+
+
 def _tick_pressure_label(*, squad_prepared: bool, tag_mult: float, uncovered_count: int) -> str:
     if not squad_prepared or uncovered_count >= 2:
         return "high"
@@ -328,6 +342,10 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
             expedition_context=expedition_context,
         )
     ts["last_narrative"] = (narrative or "") if not silent else (ts.get("last_narrative") or "")
+    if narrative and not silent:
+        hist = list(ts.get("narrative_history") or [])
+        hist.append(str(narrative).strip())
+        ts["narrative_history"] = hist[-15:]
     ts["last_challenge_category"] = challenge_cat
     ts["last_outcome"] = outcome
     ts["squad_prepared"] = squad_prepared

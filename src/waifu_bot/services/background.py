@@ -184,13 +184,14 @@ async def _guild_war_hourly_fn() -> None:
 async def _guild_tick_fn() -> None:
     from waifu_bot.db.session import get_session, init_engine
     from waifu_bot.services.guild_raid_service import tick_raid_stage_timeouts
-    from waifu_bot.services.guild_raid_v2_service import tick_muster_deadlines, tick_raid_daily_msk
+    from waifu_bot.services.guild_raid_v2_service import tick_muster_deadlines, tick_raid_4h_summaries, tick_raid_daily_msk
     from waifu_bot.services.guild_war_service import tick_war_phases
 
     init_engine()
     async for session in get_session():
         await tick_muster_deadlines(session)
         await tick_raid_stage_timeouts(session)
+        await tick_raid_4h_summaries(session)
         await tick_raid_daily_msk(session)
         await tick_war_phases(session)
         break

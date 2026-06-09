@@ -19,6 +19,7 @@ from waifu_bot.services.energy import apply_regen
 from waifu_bot.services.expedition import ExpeditionService
 from waifu_bot.services.webhook import process_update
 from waifu_bot.services import sse as sse_service
+from waifu_bot.game.solo_rewards import enrich_profile_reward_bonus_pcts, guild_reward_fractions
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
 from waifu_bot.game.item_display_name import compose_item_display_name_ru
 from waifu_bot.services.item_art import (
@@ -410,11 +411,11 @@ def _compute_details(
     damage_reduction_pct += float(total_bonuses.get("secondary_dmg_reduce_pct", 0.0) or 0.0) * 100.0
     damage_reduction_pct = min(90.0, max(0.0, damage_reduction_pct))
 
-    # Опыт в данже: (1 + вторичка) × (1 + ИНТ×INT_EXP_BONUS_COEFF) — как в combat.py; пассивки — в merge_passive_into_profile_details
+    # Опыт/золото в данже: аддитивное сложение % (как solo_rewards / combat.py)
     from waifu_bot.game.constants import INT_EXP_BONUS_COEFF
 
     sec_exp_frac = float(total_bonuses.get("secondary_exp_bonus_pct", 0.0) or 0.0)
-    exp_bonus_pct = ((1.0 + sec_exp_frac) * (1.0 + float(intelligence) * INT_EXP_BONUS_COEFF) - 1.0) * 100.0
+    exp_bonus_pct = (sec_exp_frac + float(intelligence) * INT_EXP_BONUS_COEFF) * 100.0
 
     # Бонусы от УДЧ
     from waifu_bot.game.constants import (
@@ -424,8 +425,8 @@ def _compute_details(
         MAGIC_FIND_FULL_BLEND_PCT,
     )
 
-    gold_bonus_pct = luck * LCK_GOLD_COEFF * 100.0
-    gold_bonus_pct += float(total_bonuses.get("secondary_gold_bonus_pct", 0.0) or 0.0) * 100.0
+    sec_gold_frac = float(total_bonuses.get("secondary_gold_bonus_pct", 0.0) or 0.0)
+    gold_bonus_pct = (float(luck) * LCK_GOLD_COEFF + sec_gold_frac) * 100.0
     item_drop_bonus_pct = luck * LCK_ITEM_DROP_COEFF * 100.0
     sec_mf_frac = float(total_bonuses.get("secondary_magic_find_pct", 0.0) or 0.0)
     magic_find_pct = float(luck) * LCK_MAGIC_FIND_COEFF * 100.0 + sec_mf_frac * 100.0
@@ -913,6 +914,26 @@ async def get_profile(
                 except Exception:
                     logger.exception("passive fetch failed in /profile player_id=%s", player_id)
 
+                hs_profile: dict[str, float] = {}
+                night_moscow_profile = False
+                try:
+                    from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses, is_night_moscow
+
+                    hs_profile = await get_hidden_skill_bonuses(session, player_id)
+                    night_moscow_profile = is_night_moscow()
+                except Exception:
+                    logger.exception("hidden skills fetch failed in /profile player_id=%s", player_id)
+
+                guild_exp_profile = 0.0
+                guild_gold_profile = 0.0
+                try:
+                    from waifu_bot.services.guild_skill_effects import effect_values_for_player
+
+                    gfx_profile = await effect_values_for_player(session, player_id)
+                    guild_exp_profile, guild_gold_profile = guild_reward_fractions(gfx_profile)
+                except Exception:
+                    logger.exception("guild effects fetch failed in /profile player_id=%s", player_id)
+
                 stat_flat = int(psb_profile.get("main_stats_flat", 0) or 0)
 
                 eff_four = None
@@ -949,6 +970,13 @@ async def get_profile(
                             main_stats_flat=stat_flat,
                         )
                         raw_d = merge_passive_into_profile_details(raw_d, psb_profile)
+                    raw_d = enrich_profile_reward_bonus_pcts(
+                        raw_d,
+                        hs=hs_profile,
+                        guild_exp_frac=guild_exp_profile,
+                        guild_gold_frac=guild_gold_profile,
+                        night_moscow=night_moscow_profile,
+                    )
                     main_details = schemas.MainWaifuDetails(**raw_d)
                 except Exception:
                     logger.exception("main_waifu_details build failed player_id=%s", player_id)

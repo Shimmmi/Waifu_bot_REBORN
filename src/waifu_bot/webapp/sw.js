@@ -1,5 +1,5 @@
 /** Service worker: cache static game assets; network-first shell JS/CSS for fresh deploys. */
-const CACHE_VERSION = "waifu-webapp-v25";
+const CACHE_VERSION = "waifu-webapp-v29";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
@@ -7,6 +7,11 @@ const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const SHELL_URLS = [
   "/webapp/app.js",
   "/webapp/styles.css",
+  "/webapp/bundle/app.min.js",
+  "/webapp/bundle/styles.min.css",
+  "/webapp/bundle/dungeons.min.js",
+  "/webapp/bundle/tavern.min.js",
+  "/webapp/bundle/combat-island.min.js",
   "/webapp/assets/tutorial.js",
   "/webapp/assets/tutorial.css",
   "/webapp/vendor/telegram-web-app.js",

@@ -7,8 +7,9 @@ import json
 import logging
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import BaseFilter, Command
-from aiogram.types import CallbackQuery, ChatMemberUpdated, Message, PollAnswer
+from aiogram.types import CallbackQuery, ChatMemberUpdated, InlineKeyboardMarkup, Message, PollAnswer
 
 from waifu_bot.core import redis as redis_core
 from waifu_bot.core.config import settings
@@ -424,52 +425,61 @@ async def _group_message_damage_body(
                 logger.debug("guild raid chat logged player=%s chat_id=%s", player_id, chat_id)
             if skip_solo_while_gd:
                 break
-            result = await combat_service.process_message_damage(
-                session=session,
-                player_id=player_id,
-                media_type=media_type,
-                message_text=message_text,
-                message_length=msg_len,
-                source_chat_id=chat_id,
-                source_chat_type=getattr(message.chat, "type", None),
-                source_message_id=message.message_id,
-            )
-            if result.get("error"):
-                logger.info(
-                    "group combat result: error=%s player=%s chat_id=%s",
-                    result.get("error"), player_id, chat_id,
-                )
-            else:
-                logger.info(
-                    "group combat hit: player=%s chat_id=%s dmg=%s",
-                    player_id, chat_id, result.get("damage"),
-                )
 
-            # Бездна: взаимоисключимо с соло-данжем — no-op, если нет активной сессии.
-            try:
-                from waifu_bot.services.abyss_combat import handle_abyss_attack
-                from waifu_bot.services import abyss_notify
+            from waifu_bot.services import solo_active_cache as solo_active_cache_mod
 
-                abyss_res = await handle_abyss_attack(
-                    session,
+            _redis = redis_core.get_redis()
+            solo_cached = await solo_active_cache_mod.has_solo_active_cached(_redis, player_id)
+            if solo_cached is not False:
+                result = await combat_service.process_message_damage(
+                    session=session,
                     player_id=player_id,
                     media_type=media_type,
                     message_text=message_text,
                     message_length=msg_len,
+                    source_chat_id=chat_id,
+                    source_chat_type=getattr(message.chat, "type", None),
+                    source_message_id=message.message_id,
                 )
-                if abyss_res and not abyss_res.get("error"):
+                if result.get("error"):
                     logger.info(
-                        "group abyss hit: player=%s chat_id=%s floor=%s dmg=%s killed=%s",
-                        player_id, chat_id, abyss_res.get("floor"),
-                        abyss_res.get("damage_dealt"), abyss_res.get("monster_killed"),
+                        "group combat result: error=%s player=%s chat_id=%s",
+                        result.get("error"), player_id, chat_id,
                     )
-                    await abyss_notify.notify_abyss_event(
-                        bot, session, player_id, chat_id, abyss_res
+                else:
+                    logger.info(
+                        "group combat hit: player=%s chat_id=%s dmg=%s",
+                        player_id, chat_id, result.get("damage"),
                     )
-            except Exception:
-                logger.exception(
-                    "abyss attack failed pid=%s chat=%s", player_id, chat_id
-                )
+                    if result.get("dungeon_completed"):
+                        await solo_active_cache_mod.mark_solo_inactive(_redis, player_id)
+
+            # Бездна: взаимоисключимо с соло-данжем — no-op, если нет активной сессии.
+            if solo_cached is not False:
+                try:
+                    from waifu_bot.services.abyss_combat import handle_abyss_attack
+                    from waifu_bot.services import abyss_notify
+
+                    abyss_res = await handle_abyss_attack(
+                        session,
+                        player_id=player_id,
+                        media_type=media_type,
+                        message_text=message_text,
+                        message_length=msg_len,
+                    )
+                    if abyss_res and not abyss_res.get("error"):
+                        logger.info(
+                            "group abyss hit: player=%s chat_id=%s floor=%s dmg=%s killed=%s",
+                            player_id, chat_id, abyss_res.get("floor"),
+                            abyss_res.get("damage_dealt"), abyss_res.get("monster_killed"),
+                        )
+                        await abyss_notify.notify_abyss_event(
+                            bot, session, player_id, chat_id, abyss_res
+                        )
+                except Exception:
+                    logger.exception(
+                        "abyss attack failed pid=%s chat=%s", player_id, chat_id
+                    )
             break
     except Exception:
         logger.exception("Failed to process group message for player %s", player_id)
@@ -1114,62 +1124,129 @@ async def handle_solo_dungeon_retry(callback: CallbackQuery) -> None:
         await callback.answer("Ошибка сервера", show_alert=True)
 
 
+async def _safe_callback_answer(
+    callback: CallbackQuery,
+    text: str = "",
+    *,
+    show_alert: bool = False,
+) -> bool:
+    """Answer callback query. Returns False if the query already expired."""
+    try:
+        await callback.answer(text, show_alert=show_alert)
+        return True
+    except TelegramBadRequest as exc:
+        msg = str(exc).lower()
+        if "query is too old" in msg or "query id is invalid" in msg:
+            logger.debug("stale callback query: %s", exc)
+            return False
+        raise
+
+
+def _muster_result_message(result: dict) -> str:
+    err = result.get("error")
+    if err == "muster_not_found":
+        return "Сбор уже завершён или отменён."
+    if err == "not_invited":
+        return "Вы не в списке участников этого сбора."
+    if err == "raid_already_active":
+        return "У гильдии уже идёт рейд."
+    if err == "no_template":
+        return "Не удалось начать рейд: нет шаблона."
+    if err == "need_guild_chat":
+        return "Не удалось начать рейд: не выбран чат."
+    if err:
+        return "Не удалось подтвердить участие."
+
+    status = result.get("status")
+    if status == "cancelled":
+        return "Вы отказались — сбор отменён."
+    if status == "started":
+        return "⚔️ Все на месте — рейд начался! Пролог скоро в чате."
+    if status == "pending":
+        muster = result.get("muster") or {}
+        participants = muster.get("participants") or []
+        total = len(participants) or 1
+        accepted = sum(1 for p in participants if p.get("status") == "accepted")
+        return f"✅ Вы в строю! Ожидаем остальных ({accepted}/{total})."
+    return "Ответ принят."
+
+
+async def _send_muster_feedback_dm(player_id: int, text: str) -> None:
+    try:
+        from waifu_bot.services.webhook import get_bot
+
+        bot = get_bot()
+        if bot:
+            await bot.send_message(chat_id=int(player_id), text=text)
+    except Exception:
+        logger.debug("muster feedback DM failed player_id=%s", player_id, exc_info=True)
+
+
+async def _update_muster_invite_message(callback: CallbackQuery, status_line: str) -> None:
+    if not callback.message:
+        return
+    try:
+        base = callback.message.text or callback.message.caption or ""
+        await callback.message.edit_text(
+            f"{base}\n\n{status_line}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[]),
+        )
+    except Exception:
+        logger.debug("muster invite message edit failed", exc_info=True)
+
+
 @router.callback_query(F.data.startswith("raid_muster_yes:"))
 async def handle_raid_muster_yes(callback: CallbackQuery) -> None:
     if not callback.data or not callback.from_user:
-        await callback.answer("Ошибка")
+        await _safe_callback_answer(callback, "Ошибка")
         return
     try:
         muster_id = int(callback.data.split(":")[-1])
     except ValueError:
-        await callback.answer("Неверные данные")
+        await _safe_callback_answer(callback, "Неверные данные")
         return
     player_id = callback.from_user.id
+    await _safe_callback_answer(callback, "Принято…")
     try:
         async for session in get_session():
             from waifu_bot.services.guild_raid_v2_service import respond_muster
 
             result = await respond_muster(session, player_id, muster_id, True)
-            if result.get("error") == "muster_not_found":
-                await callback.answer("Сбор уже завершён или отменён.", show_alert=True)
-                return
-            if result.get("error"):
-                await callback.answer("Не удалось подтвердить.", show_alert=True)
-                return
-            if result.get("status") == "started":
-                await callback.answer("Все на месте — рейд начался!", show_alert=True)
-            else:
-                await callback.answer("Вы в строю!")
+            feedback = _muster_result_message(result)
+            await _send_muster_feedback_dm(player_id, feedback)
+            if not result.get("error"):
+                await _update_muster_invite_message(callback, feedback)
             return
     except Exception:
         logger.exception("raid_muster_yes failed muster_id=%s", muster_id)
-        await callback.answer("Ошибка сервера", show_alert=True)
+        await _send_muster_feedback_dm(player_id, "Ошибка сервера. Попробуйте ещё раз или напишите лидеру гильдии.")
 
 
 @router.callback_query(F.data.startswith("raid_muster_no:"))
 async def handle_raid_muster_no(callback: CallbackQuery) -> None:
     if not callback.data or not callback.from_user:
-        await callback.answer("Ошибка")
+        await _safe_callback_answer(callback, "Ошибка")
         return
     try:
         muster_id = int(callback.data.split(":")[-1])
     except ValueError:
-        await callback.answer("Неверные данные")
+        await _safe_callback_answer(callback, "Неверные данные")
         return
     player_id = callback.from_user.id
+    await _safe_callback_answer(callback, "Принято…")
     try:
         async for session in get_session():
             from waifu_bot.services.guild_raid_v2_service import respond_muster
 
             result = await respond_muster(session, player_id, muster_id, False)
-            if result.get("error"):
-                await callback.answer("Не удалось ответить.", show_alert=True)
-                return
-            await callback.answer("Вы отказались — сбор отменён.", show_alert=True)
+            feedback = _muster_result_message(result)
+            await _send_muster_feedback_dm(player_id, feedback)
+            if not result.get("error"):
+                await _update_muster_invite_message(callback, feedback)
             return
     except Exception:
         logger.exception("raid_muster_no failed muster_id=%s", muster_id)
-        await callback.answer("Ошибка сервера", show_alert=True)
+        await _send_muster_feedback_dm(player_id, "Ошибка сервера. Попробуйте ещё раз или напишите лидеру гильдии.")
 
 
 @router.poll_answer()
@@ -1261,6 +1338,22 @@ async def cmd_raid_admin_stop(message: Message) -> None:
         from waifu_bot.services.guild_raid_v2_service import admin_stop_raid
 
         return await admin_stop_raid(session, raid, guild, mode=mode)
+
+    await _run_raid_admin_with_raid(message, _op)
+
+
+@router.message(Command("raid_admin_slot_summary"), command_addressed_to_this_bot)
+async def cmd_raid_admin_slot_summary(message: Message) -> None:
+    if not message.from_user or message.from_user.is_bot:
+        return
+    if not _raid_admin_allowed(message.from_user.id):
+        await message.reply(RAID_ADMIN_DENIED)
+        return
+
+    async def _op(session, guild, raid):
+        from waifu_bot.services.guild_raid_v2_service import admin_force_slot_summaries
+
+        return await admin_force_slot_summaries(session, raid)
 
     await _run_raid_admin_with_raid(message, _op)
 

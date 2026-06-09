@@ -7,6 +7,7 @@
   --muted: #9ca3af;
   --accent: #8b5cf6;
   --border: #1f2937;
+  --attic-bar-height: 58px;
 }
 
 .theme-light {
@@ -1707,6 +1708,16 @@ button.chip {
   overscroll-behavior: contain;
 }
 
+#item-modal.modal.item-modal-root.item-modal-v2-wrap.item-modal-v2--open {
+  z-index: 110;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  align-content: start;
+  place-items: center;
+  padding-top: calc(var(--attic-bar-height, 58px) + max(8px, env(safe-area-inset-top, 0px)));
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+}
+
 #guild-bank-deposit-item-modal.modal.shop-modal--open {
   z-index: 30;
 }
@@ -1722,8 +1733,10 @@ button.chip {
   grid-column: 1;
   grid-row: 1;
   justify-self: center;
-  align-self: center;
+  align-self: start;
   z-index: 0;
+  height: min(620px, calc(100dvh - var(--attic-bar-height, 58px) - 24px));
+  max-height: min(620px, calc(100dvh - var(--attic-bar-height, 58px) - 24px));
 }
 #item-modal.modal.item-modal-root.item-modal-v2-wrap > .item-modal-sell-overlay {
   grid-column: 1;
@@ -1745,13 +1758,16 @@ button.chip {
 .item-modal-v2-shell {
   width: 100%;
   max-width: min(344px, calc(100vw - 32px));
+  height: min(620px, calc(100vh - 36px));
+  height: min(620px, calc(100dvh - 36px));
   max-height: min(620px, calc(100vh - 36px));
   max-height: min(620px, calc(100dvh - 36px));
   min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  justify-content: center;
+  justify-content: flex-start;
+  overflow: hidden;
 }
 
 .item-modal-v2-host .item-modal-v2-card {
@@ -2274,6 +2290,7 @@ button.chip {
 .shop-offer-modal-spanel {
   margin-bottom: 0;
 }
+.item-modal-v2-cta,
 .shop-offer-modal-cta {
   margin-top: 8px;
   margin-bottom: 12px;
@@ -2429,11 +2446,11 @@ button.chip {
 }
 
 .item-modal-v2-host .item-modal-v2-card > header.item-modal-v2-hdr {
-  position: relative;
-  top: auto;
+  position: sticky;
+  top: 0;
   left: auto;
   right: auto;
-  z-index: 4;
+  z-index: 6;
   margin: 0;
   flex-shrink: 0;
 }
@@ -6328,7 +6345,7 @@ body.page-shop {
   overflow: hidden;
   background: #140e08;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
 }
 .shop-stage-bg {
   position: absolute;

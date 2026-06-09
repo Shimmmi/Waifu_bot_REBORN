@@ -615,6 +615,16 @@ async def guild_raid_leave(
     return await leave_raid(session, player_id)
 
 
+@router.post("/guilds/raid/cancel", tags=["guild"])
+async def guild_raid_cancel(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.guild_raid_v2_service import leader_cancel_raid
+
+    return await leader_cancel_raid(session, player_id)
+
+
 @router.get("/guilds/raid/loot", tags=["guild"])
 async def guild_raid_loot_pending(
     player_id: int = Depends(get_player_id),

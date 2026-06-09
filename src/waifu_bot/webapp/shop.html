@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Магазин</title>
-  <link rel="stylesheet" href="./styles.css?v=waifu-webapp-v25" />
+  <link rel="stylesheet" href="./styles.css?v=waifu-webapp-v29" />
   <style>
     :root {
       --ink: #0d0a08; /* основной фон */
@@ -46,9 +46,21 @@
       overflow: auto;
       display: none;
       flex-direction: column;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
     }
     body.page-shop .shop-tab-panel.active {
       display: flex;
+    }
+    body.page-shop #tab-buy .shop-refresh-foot,
+    body.page-shop .shop-buy-grid {
+      flex-shrink: 0;
+    }
+    @media (max-height: 640px) {
+      body.page-shop .shop-hero {
+        max-height: 24vh;
+      }
     }
 
     /* Hero banner */
@@ -977,17 +989,14 @@
     }
     body.page-shop .shop-smith-pick-card {
       position: relative;
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-      gap: 6px;
-      padding: 6px 4px 8px;
+      aspect-ratio: 1;
+      padding: 0;
       border-radius: 10px;
       border: 1px solid rgba(200, 146, 42, 0.35);
       background: rgba(0, 0, 0, 0.28);
       color: var(--cream);
       cursor: pointer;
-      text-align: center;
+      overflow: hidden;
       min-height: 0;
       font: inherit;
     }
@@ -1006,49 +1015,38 @@
       right: 4px;
       font-size: 12px;
       line-height: 1;
-      z-index: 2;
+      z-index: 3;
       filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8));
     }
-    body.page-shop .shop-smith-pick-card-top {
-      position: relative;
+    body.page-shop .shop-smith-pick-art {
+      position: absolute;
+      inset: 0;
       width: 100%;
-      aspect-ratio: 1 / 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      border-radius: 8px;
+      height: 100%;
       background: rgba(0, 0, 0, 0.35);
-      border: 1px solid rgba(200, 146, 42, 0.12);
-      overflow: hidden;
-      min-height: 0;
     }
-    body.page-shop .shop-smith-pick-icon {
-      flex: 1;
-      min-height: 0;
+    body.page-shop .shop-smith-pick-art img {
+      position: absolute;
+      inset: 0;
       width: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 4px;
-    }
-    body.page-shop .shop-smith-pick-icon img {
-      max-width: 100%;
-      max-height: 100%;
-      object-fit: contain;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      display: block;
     }
     body.page-shop .shop-smith-pick-lv {
-      flex-shrink: 0;
-      padding: 0 4px 4px;
-      font-size: 9px;
-      line-height: 1.2;
-    }
-    body.page-shop .shop-smith-pick-name {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      z-index: 2;
       font-size: 10px;
-      line-height: 1.25;
-      word-break: break-word;
-      max-height: 3.6em;
-      overflow: hidden;
+      padding: 2px 5px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.72);
+      color: var(--amber-glow, #e8b84b);
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      line-height: 1.2;
+      pointer-events: none;
     }
     body.page-shop .shop-smith-preview {
       min-height: 72px;
@@ -1164,7 +1162,7 @@
   <link rel="stylesheet" href="./assets/tutorial.css" />
   <script src="./vendor/telegram-web-app.js"></script>
   <script defer src="./assets/tutorial.js"></script>
-  <script defer src="./app.js?v=waifu-webapp-v25"></script>
+  <script defer src="./app.js?v=waifu-webapp-v29"></script>
 </head>
 <body class="page-shop">
   <header class="attic">
@@ -1497,18 +1495,18 @@
             <div class="item-modal-v2-req-pills" id="item-modal-requirements" aria-live="polite"></div>
           </div>
           <div class="item-modal-v2-desc" id="item-modal-desc" style="display:none;"></div>
-          <div class="item-modal-v2-scroll-pad" aria-hidden="true"></div>
-        </div>
-        <footer class="item-modal-v2-footer">
-          <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
-            <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip" type="button" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Надеть</button>
-            <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
-            <button class="item-modal-v2-btn item-modal-v2-btn--ench item-modal-v2-btn--icon" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;" aria-label="Заточить" title="Заточить">⚒</button>
-            <button class="item-modal-v2-btn item-modal-v2-btn--neutral item-modal-v2-btn--icon" id="item-modal-dismantle" type="button" onclick="WaifuApp.openItemDismantleConfirmOverlay()" style="display:none;" aria-label="Распылить" title="Распылить">✨</button>
-            <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
-            <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
+          <div class="item-modal-v2-cta">
+            <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
+              <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip" type="button" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Надеть</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--ench item-modal-v2-btn--icon" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;" aria-label="Заточить" title="Заточить">⚒</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--neutral item-modal-v2-btn--icon" id="item-modal-dismantle" type="button" onclick="WaifuApp.openItemDismantleConfirmOverlay()" style="display:none;" aria-label="Распылить" title="Распылить">✨</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
+            </div>
           </div>
-        </footer>
+          <div class="item-modal-v2-scroll-pad shop-offer-modal-scroll-pad" aria-hidden="true"></div>
+        </div>
       </div>
     </div>
     <div
