@@ -238,13 +238,28 @@ def _media_type_from_message(message: Message) -> MediaType:
 
 
 async def _capture_tavern_audio_safe(bot: Bot, message: Message) -> None:
+    chat_id = getattr(message.chat, "id", None)
+    player_id = getattr(message.from_user, "id", None) if message.from_user else None
     try:
         from waifu_bot.services.tavern_audio import save_chat_audio_from_message
 
         await save_chat_audio_from_message(bot, message)
-    except Exception:
-        chat_id = getattr(message.chat, "id", None)
-        logger.debug("tavern audio capture failed chat=%s", chat_id, exc_info=True)
+    except Exception as exc:
+        from waifu_bot.services.tavern_audio import log_tavern_audio_task_failed
+
+        log_tavern_audio_task_failed(chat_id, player_id, exc)
+        logger.warning("tavern audio capture failed chat=%s", chat_id, exc_info=True)
+
+
+def _tavern_audio_task_done(task: asyncio.Task, chat_id: int | None, player_id: int | None) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is None:
+        return
+    from waifu_bot.services.tavern_audio import log_tavern_audio_task_failed
+
+    log_tavern_audio_task_failed(chat_id, player_id, exc)
 
 
 @router.message(_group_message_eligible_for_buffer_or_solo_combat)
@@ -263,11 +278,20 @@ async def group_message_damage(message: Message, bot: Bot) -> None:
     player_id = message.from_user.id
 
     # Cache dropped audio files (not voice) for tavern BGM — fire-and-forget.
-    if message.audio:
-        asyncio.create_task(
+    from waifu_bot.services.tavern_audio import (
+        log_tavern_audio_enqueue,
+        log_tavern_audio_reject_document,
+        message_has_tavern_audio,
+    )
+
+    log_tavern_audio_reject_document(message, chat_id, player_id)
+    if message_has_tavern_audio(message):
+        task = asyncio.create_task(
             _capture_tavern_audio_safe(bot, message),
             name=f"tavern_audio:{chat_id}",
         )
+        task.add_done_callback(lambda t: _tavern_audio_task_done(t, chat_id, player_id))
+        log_tavern_audio_enqueue(message, chat_id, player_id)
 
     media_type = _media_type_from_message(message)
     message_text = message.text or message.caption

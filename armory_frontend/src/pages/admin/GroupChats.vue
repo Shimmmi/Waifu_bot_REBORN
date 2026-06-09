@@ -78,6 +78,7 @@ watch(statusFilter, () => {
     <nav class="tabs" style="margin: 1rem 0">
       <RouterLink to="/admin/players" class="tab">Игроки</RouterLink>
       <RouterLink to="/admin/group-chats" class="tab">Групповые чаты</RouterLink>
+      <RouterLink to="/admin/tavern-bgm" class="tab">Tavern BGM</RouterLink>
       <RouterLink to="/admin/actions" class="tab">Журнал действий</RouterLink>
     </nav>
     <div style="margin: 1rem 0; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">

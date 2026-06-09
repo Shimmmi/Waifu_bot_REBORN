@@ -134,41 +134,351 @@ function setTavernPageLoading(on) {
 }
 
 const TAVERN_BGM_MUTED_KEY = "waifu_tavern_bgm_muted";
+const TAVERN_BGM_CONFIG_KEY = "waifu_tavern_bgm_config";
+const TAVERN_BGM_VOLUME_KEY = "waifu_tavern_bgm_volume";
+const TAVERN_BGM_DEFAULT_VOLUME = 0.7;
 
 let tavernBgmAudio = null;
 let tavernBgmFadeRaf = null;
-let tavernBgmLastIndex = -1;
 let tavernBgmHooksBound = false;
 let tavernBgmGestureArmed = false;
-let tavernChatBgmUrls = [];
+let tavernBgmPaused = false;
+let tavernBgmPlaylists = [];
+let tavernBgmActivePlaylistId = null;
+let tavernBgmActivePlaylist = null;
+let tavernBgmCatalog = [];
+let tavernBgmActiveTracks = [];
+let tavernBgmChats = [];
+let tavernBgmPlayOrder = [];
+let tavernBgmPlayOrderPos = 0;
+let tavernBgmCurrentSourceIndex = -1;
+let tavernBgmSelectedPlaylistId = null;
+let tavernBgmSelectedPlaylist = null;
+let tavernBgmVolumeOverlayOpen = false;
+let tavernBgmAudioProgressCleanup = null;
+let tavernBgmAddPlaylistTrackIds = new Set();
+let tavernBgmVolumeOutsideHandler = null;
+let tavernBgmVolumeRepositionHandler = null;
 
-async function loadTavernChatBgm() {
+function formatTavernTrackTitle(t) {
+  const title = String(t?.title || "").trim();
+  const performer = String(t?.performer || "").trim();
+  if (title && performer) return `${performer} — ${title}`;
+  return title || performer || "Без названия";
+}
+
+function formatTavernTrackDuration(sec) {
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  const m = Math.floor(n / 60);
+  const s = Math.floor(n % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function readTavernBgmConfigLegacy() {
   try {
-    const res = await apiFetch("/tavern/bgm/tracks");
-    const tracks = Array.isArray(res?.tracks) ? res.tracks : [];
-    tavernChatBgmUrls = tracks
-      .map((t) => t?.url)
-      .filter((u) => typeof u === "string" && u.length > 0);
+    const raw = localStorage.getItem(TAVERN_BGM_CONFIG_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    const chatId = Number(data?.chatId);
+    const trackIds = Array.isArray(data?.trackIds)
+      ? data.trackIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+      : [];
+    if (!Number.isFinite(chatId) || !trackIds.length) return null;
+    const repeat = String(data?.repeat || "all");
+    const repeatOk = repeat === "off" || repeat === "one" || repeat === "all" ? repeat : "all";
+    return {
+      chatId,
+      trackIds,
+      shuffle: Boolean(data?.shuffle),
+      repeat: repeatOk,
+    };
   } catch (e) {
-    tavernChatBgmUrls = [];
+    return null;
   }
 }
 
-function getTavernBgmPlaylist() {
-  // Group-chat audio first; bundled static tracks as fallback.
+function getTavernBgmShuffle() {
+  return Boolean(tavernBgmActivePlaylist?.shuffle);
+}
+
+function getTavernBgmRepeat() {
+  const repeat = tavernBgmActivePlaylist?.repeat || "all";
+  return repeat === "off" || repeat === "one" || repeat === "all" ? repeat : "all";
+}
+
+function tavernBgmAuthHeaders() {
+  const headers = {};
+  const initData = window.Telegram?.WebApp?.initData;
+  if (initData) {
+    headers["X-Telegram-Init-Data"] = initData;
+  } else {
+    const params = new URLSearchParams(window.location.search);
+    const devPid = params.get("player_id");
+    if (devPid) headers["X-Player-Id"] = devPid;
+  }
+  return headers;
+}
+
+function getTavernBgmStaticSources() {
   const tavernBase = window.TAVERN_STATIC_BASE || "/static/game/ui/tavern";
-  const staticUrls = (window.TAVERN_BGM_TRACKS || []).map(
-    (name) => `${tavernBase}/audio/${name}`
-  );
-  const chat = Array.isArray(tavernChatBgmUrls) ? tavernChatBgmUrls.slice() : [];
-  return chat.concat(staticUrls);
+  return (window.TAVERN_BGM_TRACKS || []).map((name, i) => ({
+    id: `static-${i}`,
+    url: `${tavernBase}/audio/${name}`,
+    title: name,
+    performer: null,
+    duration: null,
+  }));
+}
+
+function getTavernBgmSources() {
+  if (Array.isArray(tavernBgmActiveTracks) && tavernBgmActiveTracks.length) {
+    return tavernBgmActiveTracks.slice();
+  }
+  return [];
+}
+
+async function fetchTavernBgmPlaylists() {
+  const res = await apiFetch("/tavern/bgm/playlists");
+  tavernBgmPlaylists = Array.isArray(res?.playlists) ? res.playlists : [];
+  tavernBgmActivePlaylistId = Number.isFinite(Number(res?.active_playlist_id))
+    ? Number(res.active_playlist_id)
+    : null;
+  return res;
+}
+
+async function loadTavernBgmConfig() {
+  tavernBgmActiveTracks = [];
+  tavernBgmActivePlaylist = null;
+  try {
+    const res = await apiFetch("/tavern/bgm/playlists/active");
+    const pl = res?.playlist || null;
+    tavernBgmActivePlaylist = pl;
+    tavernBgmActivePlaylistId = pl?.id != null ? Number(pl.id) : null;
+    tavernBgmActiveTracks = Array.isArray(pl?.tracks) ? pl.tracks.slice() : [];
+    if (!tavernBgmActiveTracks.length) {
+      tavernBgmActivePlaylist = null;
+      tavernBgmActivePlaylistId = null;
+    }
+  } catch (e) {
+    tavernBgmActiveTracks = [];
+    tavernBgmActivePlaylist = null;
+    tavernBgmActivePlaylistId = null;
+  }
+}
+
+async function migrateTavernBgmLocalConfig() {
+  const legacy = readTavernBgmConfigLegacy();
+  if (!legacy) return;
+  try {
+    const res = await fetchTavernBgmPlaylists();
+    if ((res?.playlists || []).length > 0) {
+      localStorage.removeItem(TAVERN_BGM_CONFIG_KEY);
+      return;
+    }
+    const created = await apiFetch("/tavern/bgm/playlists", {
+      method: "POST",
+      body: JSON.stringify({ chat_id: legacy.chatId, name: "Мой плейлист" }),
+    });
+    const id = Number(created?.playlist?.id);
+    if (!Number.isFinite(id)) return;
+    await apiFetch(`/tavern/bgm/playlists/${id}/tracks`, {
+      method: "PUT",
+      body: JSON.stringify({ track_ids: legacy.trackIds }),
+    });
+    await apiFetch(`/tavern/bgm/playlists/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ shuffle: legacy.shuffle, repeat: legacy.repeat }),
+    });
+    await apiFetch(`/tavern/bgm/playlists/${id}/activate`, { method: "POST" });
+    localStorage.removeItem(TAVERN_BGM_CONFIG_KEY);
+  } catch (e) {
+    /* ignore migration errors */
+  }
+}
+
+function getTavernBgmVolume() {
+  try {
+    const raw = localStorage.getItem(TAVERN_BGM_VOLUME_KEY);
+    if (raw == null || raw === "") return TAVERN_BGM_DEFAULT_VOLUME;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return TAVERN_BGM_DEFAULT_VOLUME;
+    return Math.max(0, Math.min(1, n));
+  } catch (e) {
+    return TAVERN_BGM_DEFAULT_VOLUME;
+  }
+}
+
+function setTavernBgmVolume(v) {
+  const vol = Math.max(0, Math.min(1, Number(v)));
+  try {
+    localStorage.setItem(TAVERN_BGM_VOLUME_KEY, String(vol));
+  } catch (e) {
+    /* ignore */
+  }
+  applyTavernBgmVolumeToAudio();
+  syncTavernBgmVolumeUi();
+}
+
+function applyTavernBgmVolumeToAudio() {
+  if (!tavernBgmAudio || tavernBgmFadeRaf != null) return;
+  tavernBgmAudio.volume = getTavernBgmVolume();
+}
+
+function syncTavernBgmVolumeUi() {
+  const slider = document.getElementById("tavern-bgm-volume");
+  const icon = document.getElementById("tavern-bgm-volume-icon");
+  const volBtn = document.getElementById("tavern-bgm-volume-btn");
+  const vol = getTavernBgmVolume();
+  if (slider) slider.value = String(Math.round(vol * 100));
+  const iconChar = vol <= 0.01 ? "🔇" : vol < 0.45 ? "🔈" : "🔊";
+  if (icon) icon.textContent = iconChar;
+  if (volBtn) volBtn.textContent = iconChar;
+}
+
+function positionTavernBgmVolumeOverlay() {
+  const overlay = document.getElementById("tavern-bgm-volume-overlay");
+  const btn = document.getElementById("tavern-bgm-volume-btn");
+  if (!overlay || !btn || overlay.classList.contains("hidden")) return;
+  const rect = btn.getBoundingClientRect();
+  const overlayRect = overlay.getBoundingClientRect();
+  const gap = 8;
+  let left = rect.left + rect.width / 2 - overlayRect.width / 2;
+  let top = rect.top - overlayRect.height - gap;
+  const margin = 8;
+  const maxLeft = window.innerWidth - overlayRect.width - margin;
+  left = Math.max(margin, Math.min(left, maxLeft));
+  if (top < margin) top = rect.bottom + gap;
+  overlay.style.left = `${Math.round(left)}px`;
+  overlay.style.top = `${Math.round(top)}px`;
+}
+
+function unbindTavernBgmVolumeOverlayListeners() {
+  const modal = document.getElementById("tavern-bgm-player-modal");
+  if (tavernBgmVolumeOutsideHandler && modal) {
+    modal.removeEventListener("pointerdown", tavernBgmVolumeOutsideHandler, true);
+    tavernBgmVolumeOutsideHandler = null;
+  }
+  if (tavernBgmVolumeRepositionHandler) {
+    window.removeEventListener("resize", tavernBgmVolumeRepositionHandler);
+    const sheet = document.querySelector(".tavern-bgm-modal-sheet");
+    if (sheet) sheet.removeEventListener("scroll", tavernBgmVolumeRepositionHandler);
+    tavernBgmVolumeRepositionHandler = null;
+  }
+}
+
+function bindTavernBgmVolumeOverlayListeners() {
+  unbindTavernBgmVolumeOverlayListeners();
+  const modal = document.getElementById("tavern-bgm-player-modal");
+  const overlay = document.getElementById("tavern-bgm-volume-overlay");
+  const volBtn = document.getElementById("tavern-bgm-volume-btn");
+  if (!modal || !overlay) return;
+
+  tavernBgmVolumeOutsideHandler = (event) => {
+    if (!tavernBgmVolumeOverlayOpen) return;
+    const target = event.target;
+    if (overlay.contains(target) || volBtn?.contains(target)) return;
+    closeTavernBgmVolumeOverlay();
+  };
+  modal.addEventListener("pointerdown", tavernBgmVolumeOutsideHandler, true);
+
+  tavernBgmVolumeRepositionHandler = () => positionTavernBgmVolumeOverlay();
+  window.addEventListener("resize", tavernBgmVolumeRepositionHandler);
+  const sheet = document.querySelector(".tavern-bgm-modal-sheet");
+  if (sheet) sheet.addEventListener("scroll", tavernBgmVolumeRepositionHandler, { passive: true });
+}
+
+function toggleTavernBgmVolumeOverlay() {
+  const overlay = document.getElementById("tavern-bgm-volume-overlay");
+  if (!overlay) return;
+  if (tavernBgmVolumeOverlayOpen) {
+    closeTavernBgmVolumeOverlay();
+    return;
+  }
+  tavernBgmVolumeOverlayOpen = true;
+  overlay.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    positionTavernBgmVolumeOverlay();
+    requestAnimationFrame(() => positionTavernBgmVolumeOverlay());
+  });
+  bindTavernBgmVolumeOverlayListeners();
+}
+
+function closeTavernBgmVolumeOverlay() {
+  tavernBgmVolumeOverlayOpen = false;
+  const overlay = document.getElementById("tavern-bgm-volume-overlay");
+  if (overlay) overlay.classList.add("hidden");
+  unbindTavernBgmVolumeOverlayListeners();
+}
+
+function getTavernBgmTrackDurationSec() {
+  const sources = getTavernBgmSources();
+  const track = sources[tavernBgmCurrentSourceIndex];
+  const meta = Number(track?.duration);
+  if (Number.isFinite(meta) && meta > 0) return meta;
+  const audioDur = Number(tavernBgmAudio?.duration);
+  if (Number.isFinite(audioDur) && audioDur > 0) return audioDur;
+  return 0;
+}
+
+function syncTavernBgmProgress() {
+  const elapsedEl = document.getElementById("tavern-bgm-elapsed");
+  const durationEl = document.getElementById("tavern-bgm-duration");
+  const fill = document.getElementById("tavern-bgm-progress-fill");
+  const progress = document.getElementById("tavern-bgm-progress");
+  const current = Number(tavernBgmAudio?.currentTime) || 0;
+  const total = getTavernBgmTrackDurationSec();
+  if (elapsedEl) elapsedEl.textContent = formatTavernTrackDuration(current) || "0:00";
+  if (durationEl) durationEl.textContent = total > 0 ? formatTavernTrackDuration(total) : "—";
+  if (fill) fill.style.width = total > 0 ? `${(current / total) * 100}%` : "0%";
+  if (progress && total > 0) {
+    progress.setAttribute("aria-valuenow", String(Math.round((current / total) * 100)));
+  }
+}
+
+function seekTavernBgmProgress(event) {
+  const audio = tavernBgmAudio;
+  const bar = document.getElementById("tavern-bgm-progress");
+  if (!audio || !bar) return;
+  const rect = bar.getBoundingClientRect();
+  if (!rect.width) return;
+  const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+  const total = getTavernBgmTrackDurationSec();
+  if (!Number.isFinite(total) || total <= 0) return;
+  audio.currentTime = ratio * total;
+  syncTavernBgmProgress();
+}
+
+function bindTavernBgmAudioProgress(audio) {
+  if (tavernBgmAudioProgressCleanup) {
+    try {
+      tavernBgmAudioProgressCleanup();
+    } catch (e) {
+      /* ignore */
+    }
+    tavernBgmAudioProgressCleanup = null;
+  }
+  const onTime = () => syncTavernBgmProgress();
+  const onMeta = () => syncTavernBgmProgress();
+  audio.addEventListener("timeupdate", onTime);
+  audio.addEventListener("loadedmetadata", onMeta);
+  tavernBgmAudioProgressCleanup = () => {
+    audio.removeEventListener("timeupdate", onTime);
+    audio.removeEventListener("loadedmetadata", onMeta);
+  };
+}
+
+function onTavernBgmVolumeChange(value) {
+  setTavernBgmVolume(Number(value) / 100);
 }
 
 function isTavernBgmMuted() {
   try {
-    return localStorage.getItem(TAVERN_BGM_MUTED_KEY) === "1";
+    const v = localStorage.getItem(TAVERN_BGM_MUTED_KEY);
+    if (v === null) return true;
+    return v === "1";
   } catch (e) {
-    return false;
+    return true;
   }
 }
 
@@ -184,29 +494,45 @@ function setTavernBgmMuted(muted) {
 function syncTavernBgmMuteButton() {
   const btn = document.getElementById("tavern-bgm-toggle");
   if (!btn) return;
-  const muted = isTavernBgmMuted();
-  btn.classList.toggle("tavern-tab-bgm--muted", muted);
-  btn.setAttribute("aria-pressed", muted ? "true" : "false");
-  if (muted) {
-    btn.textContent = "🔇";
-    btn.title = "Включить музыку";
-    btn.setAttribute("aria-label", "Включить музыку");
+  const paused = isTavernBgmMuted();
+  btn.classList.toggle("tavern-tab-bgm--muted", paused);
+  btn.setAttribute("aria-pressed", paused ? "true" : "false");
+  if (paused) {
+    btn.textContent = "⏸";
+    btn.title = "Продолжить";
+    btn.setAttribute("aria-label", "Продолжить");
   } else {
     btn.textContent = "🔊";
-    btn.title = "Выключить музыку";
-    btn.setAttribute("aria-label", "Выключить музыку");
+    btn.title = "Пауза";
+    btn.setAttribute("aria-label", "Пауза");
   }
 }
 
 function toggleTavernBgmMuted() {
   if (isTavernBgmMuted()) {
     setTavernBgmMuted(false);
-    loadTavernChatBgm().then(() => {
-      if (!isTavernBgmMuted()) startTavernBgm();
+    loadTavernBgmConfig().then(() => {
+      if (isTavernBgmMuted()) return;
+      if (tavernBgmAudio && tavernBgmPaused) {
+        tavernBgmAudio
+          .play()
+          .then(() => {
+            tavernBgmPaused = false;
+            syncTavernBgmMuteButton();
+            syncTavernBgmPlayerUi();
+          })
+          .catch(() => armTavernBgmUserGesture());
+      } else if (!tavernBgmAudio) {
+        startTavernBgm();
+      }
+      syncTavernBgmMuteButton();
+      syncTavernBgmPlayerUi();
     });
   } else {
     setTavernBgmMuted(true);
-    stopTavernBgm(400);
+    pauseTavernBgm();
+    syncTavernBgmMuteButton();
+    syncTavernBgmPlayerUi();
   }
 }
 
@@ -231,11 +557,14 @@ function cancelTavernBgmFade() {
 function stopTavernBgm(fadeOutMs = 400) {
   cancelTavernBgmFade();
   const a = tavernBgmAudio;
-  if (!a) return;
+  if (!a) {
+    syncTavernBgmPlayerUi();
+    return;
+  }
   const startVol = Number(a.volume) || 0;
   const t0 = performance.now();
   const dur = Math.max(0, fadeOutMs);
-  if (dur === 0 || startVol <= 0.01) {
+  const finish = () => {
     try {
       a.pause();
     } catch (e) {
@@ -243,6 +572,10 @@ function stopTavernBgm(fadeOutMs = 400) {
     }
     a.src = "";
     tavernBgmAudio = null;
+    syncTavernBgmPlayerUi();
+  };
+  if (dur === 0 || startVol <= 0.01) {
+    finish();
     return;
   }
   function tick(now) {
@@ -250,13 +583,7 @@ function stopTavernBgm(fadeOutMs = 400) {
     a.volume = startVol * (1 - t);
     if (t >= 1) {
       tavernBgmFadeRaf = null;
-      try {
-        a.pause();
-      } catch (e) {
-        /* ignore */
-      }
-      a.src = "";
-      tavernBgmAudio = null;
+      finish();
       return;
     }
     tavernBgmFadeRaf = requestAnimationFrame(tick);
@@ -266,6 +593,7 @@ function stopTavernBgm(fadeOutMs = 400) {
 
 function fadeInTavernBgm(audio, durationMs) {
   cancelTavernBgmFade();
+  const targetVol = getTavernBgmVolume();
   const t0 = performance.now();
   const dur = Math.max(200, durationMs);
   function tick(now) {
@@ -274,7 +602,7 @@ function fadeInTavernBgm(audio, durationMs) {
       return;
     }
     const t = Math.min(1, (now - t0) / dur);
-    audio.volume = t;
+    audio.volume = targetVol * t;
     if (t >= 1) {
       tavernBgmFadeRaf = null;
       return;
@@ -285,12 +613,150 @@ function fadeInTavernBgm(audio, durationMs) {
   tavernBgmFadeRaf = requestAnimationFrame(tick);
 }
 
-function pickTavernBgmStartIndex(n) {
+function buildTavernBgmPlayOrder(count, startSourceIndex = 0) {
+  if (count <= 0) return [];
+  const order = [];
+  for (let i = 0; i < count; i += 1) order.push(i);
+  if (getTavernBgmShuffle()) {
+    for (let i = order.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+  } else if (startSourceIndex > 0) {
+    const rotated = [];
+    for (let k = 0; k < count; k += 1) rotated.push((startSourceIndex + k) % count);
+    return rotated;
+  }
+  if (getTavernBgmShuffle() && startSourceIndex >= 0 && order.includes(startSourceIndex)) {
+    const pos = order.indexOf(startSourceIndex);
+    order.splice(pos, 1);
+    order.unshift(startSourceIndex);
+  }
+  return order;
+}
+
+function pickTavernBgmRandomIndex(n) {
   if (n <= 0) return -1;
   if (n === 1) return 0;
   let i = Math.floor(Math.random() * n);
-  if (i === tavernBgmLastIndex) i = (i + 1) % n;
+  if (i === tavernBgmCurrentSourceIndex) i = (i + 1) % n;
   return i;
+}
+
+function syncTavernBgmPlaylistCaption() {
+  const btn = document.getElementById("tavern-bgm-playlist-picker-btn");
+  if (!btn) return;
+  const name = String(tavernBgmActivePlaylist?.name || "").trim();
+  const hasActive = Boolean(name && tavernBgmActiveTracks.length > 0);
+  if (hasActive) {
+    btn.textContent = name;
+    btn.classList.add("tavern-bgm-playlist-picker-btn--active");
+    btn.title = "Сменить плейлист";
+  } else {
+    btn.textContent = "Выбрать плейлист";
+    btn.classList.remove("tavern-bgm-playlist-picker-btn--active");
+    btn.title = "Выбрать плейлист";
+  }
+}
+
+function isTavernBgmPlaylistPickerOpen() {
+  const el = document.getElementById("tavern-bgm-playlist-picker");
+  return Boolean(el && !el.classList.contains("hidden"));
+}
+
+function closeTavernBgmPlaylistPicker() {
+  const el = document.getElementById("tavern-bgm-playlist-picker");
+  if (el) el.classList.add("hidden");
+}
+
+function renderTavernBgmPlaylistPickerList() {
+  const box = document.getElementById("tavern-bgm-playlist-picker-list");
+  if (!box) return;
+  if (!tavernBgmPlaylists.length) {
+    box.innerHTML = `<div class="muted tiny" style="padding:8px;text-align:center;">Нет плейлистов</div>
+      <button type="button" class="tavern-bgm-text-btn tavern-bgm-text-btn--primary" style="width:100%;margin-top:8px;" onclick="WaifuApp.openTavernBgmPlaylistTabFromPicker()">Создать плейлист</button>`;
+    return;
+  }
+  const activeId = Number(tavernBgmActivePlaylistId);
+  box.innerHTML = tavernBgmPlaylists
+    .map((p) => {
+      const id = Number(p.id);
+      const isActive = Number.isFinite(activeId) && id === activeId;
+      const name = escapeHtml(String(p.name || "Плейлист"));
+      const count = Number(p.track_count) || 0;
+      return `<div class="tavern-bgm-playlist-picker-row${isActive ? " tavern-bgm-playlist-picker-row--active" : ""}" role="button" tabindex="0" onclick="WaifuApp.selectTavernBgmPlaylistFromPicker(${id})">
+        <span class="tavern-bgm-playlist-picker-row-name">${name}</span>
+        <span class="tavern-bgm-playlist-picker-row-meta">${count}</span>
+        ${isActive ? '<span aria-hidden="true">✓</span>' : ""}
+      </div>`;
+    })
+    .join("");
+}
+
+async function openTavernBgmPlaylistPicker() {
+  closeTavernBgmVolumeOverlay();
+  await fetchTavernBgmPlaylists();
+  renderTavernBgmPlaylistPickerList();
+  const el = document.getElementById("tavern-bgm-playlist-picker");
+  if (el) el.classList.remove("hidden");
+}
+
+function onTavernBgmPlaylistPickerBackdropClick(event) {
+  if (event.target.id === "tavern-bgm-playlist-picker") closeTavernBgmPlaylistPicker();
+}
+
+async function selectTavernBgmPlaylistFromPicker(playlistId) {
+  const id = Number(playlistId);
+  if (!Number.isFinite(id)) return;
+  await loadTavernBgmPlaylistDetail(id);
+  const ok = await applyTavernBgmPlaylistSilent(id, { restartPlayback: true });
+  if (!ok) return;
+  closeTavernBgmPlaylistPicker();
+  const select = document.getElementById("tavern-bgm-playlist-select");
+  if (select) select.value = String(id);
+  syncTavernBgmPlayerUi();
+}
+
+function openTavernBgmPlaylistTabFromPicker() {
+  closeTavernBgmPlaylistPicker();
+  switchTavernBgmModalTab("playlist");
+}
+
+function syncTavernBgmNowPlaying() {
+  const el = document.getElementById("tavern-bgm-now-playing");
+  if (!el) return;
+  const sources = getTavernBgmSources();
+  if (tavernBgmCurrentSourceIndex < 0 || !sources[tavernBgmCurrentSourceIndex]) {
+    el.textContent = "—";
+    return;
+  }
+  el.textContent = formatTavernTrackTitle(sources[tavernBgmCurrentSourceIndex]);
+}
+
+function syncTavernBgmPlayerUi() {
+  syncTavernBgmPlaylistCaption();
+  syncTavernBgmNowPlaying();
+  syncTavernBgmProgress();
+  const playBtn = document.getElementById("tavern-bgm-play-btn");
+  if (playBtn) {
+    const playing = Boolean(tavernBgmAudio) && !tavernBgmPaused && !tavernBgmAudio.paused;
+    playBtn.textContent = playing ? "⏸" : "▶";
+    playBtn.title = playing ? "Пауза" : "Воспроизведение";
+  }
+  const shuffleBtn = document.getElementById("tavern-bgm-shuffle-btn");
+  if (shuffleBtn) shuffleBtn.classList.toggle("tavern-bgm-ctrl-btn--active", getTavernBgmShuffle());
+  const repeatBtn = document.getElementById("tavern-bgm-repeat-btn");
+  if (repeatBtn) {
+    const repeat = getTavernBgmRepeat();
+    repeatBtn.classList.toggle("tavern-bgm-ctrl-btn--active", repeat !== "off");
+    repeatBtn.textContent = repeat === "one" ? "🔂" : "🔁";
+    repeatBtn.title =
+      repeat === "one" ? "Повтор трека" : repeat === "all" ? "Повтор плейлиста" : "Без повтора";
+  }
+  const openBtn = document.getElementById("tavern-bgm-player-open");
+  if (openBtn) {
+    openBtn.classList.toggle("tavern-tab-bgm-player--active", Boolean(tavernBgmActiveTracks.length));
+  }
 }
 
 function armTavernBgmUserGesture() {
@@ -305,64 +771,764 @@ function armTavernBgmUserGesture() {
   document.body.addEventListener("pointerdown", unlock, { once: true, capture: true });
 }
 
+function playTavernBgmSourceAt(sourceIndex, opts = {}) {
+  const fadeIn = opts.fadeIn !== false;
+  const sources = getTavernBgmSources();
+  if (!sources.length || sourceIndex < 0 || sourceIndex >= sources.length) return;
+  if (typeof document === "undefined" || !document.body?.classList?.contains("page-tavern")) return;
+  if (isTavernBgmMuted()) return;
+
+  ensureTavernBgmPageHooks();
+  cancelTavernBgmFade();
+  const prev = tavernBgmAudio;
+  if (prev) {
+    try {
+      prev.pause();
+    } catch (e) {
+      /* ignore */
+    }
+    prev.src = "";
+    tavernBgmAudio = null;
+  }
+
+  const src = sources[sourceIndex];
+  const repeat = getTavernBgmRepeat();
+  const a = new Audio();
+  a.loop = repeat === "one";
+  a.preload = "auto";
+  a.volume = fadeIn ? 0 : getTavernBgmVolume();
+  const fail = () => {
+    a.removeEventListener("error", fail);
+    try {
+      a.pause();
+    } catch (e) {
+      /* ignore */
+    }
+    a.src = "";
+    if (tavernBgmAudio === a) tavernBgmAudio = null;
+    advanceTavernBgmTrack(true);
+  };
+  a.addEventListener("error", fail, { once: true });
+  if (repeat !== "one") {
+    a.addEventListener("ended", () => {
+      if (tavernBgmAudio !== a) return;
+      advanceTavernBgmTrack(false);
+    });
+  }
+  a.src = src.url;
+  a.load();
+  bindTavernBgmAudioProgress(a);
+  a.play()
+    .then(() => {
+      a.removeEventListener("error", fail);
+      tavernBgmCurrentSourceIndex = sourceIndex;
+      tavernBgmAudio = a;
+      tavernBgmPaused = false;
+      if (fadeIn) fadeInTavernBgm(a, 1200);
+      syncTavernBgmPlayerUi();
+    })
+    .catch(() => {
+      armTavernBgmUserGesture();
+      syncTavernBgmPlayerUi();
+    });
+}
+
+function advanceTavernBgmTrack(fromError = false) {
+  const sources = getTavernBgmSources();
+  const n = sources.length;
+  if (!n) return;
+  const repeat = getTavernBgmRepeat();
+  if (n === 1) {
+    if (repeat === "off" && !fromError) {
+      stopTavernBgm(400);
+      tavernBgmPaused = true;
+    }
+    return;
+  }
+  tavernBgmPlayOrderPos += 1;
+  if (tavernBgmPlayOrderPos >= tavernBgmPlayOrder.length) {
+    if (repeat === "off") {
+      stopTavernBgm(400);
+      tavernBgmPaused = true;
+      syncTavernBgmPlayerUi();
+      return;
+    }
+    tavernBgmPlayOrder = buildTavernBgmPlayOrder(n);
+    tavernBgmPlayOrderPos = 0;
+  }
+  playTavernBgmSourceAt(tavernBgmPlayOrder[tavernBgmPlayOrderPos], { fadeIn: true });
+}
+
 function startTavernBgm() {
   if (typeof document === "undefined" || !document.body?.classList?.contains("page-tavern")) return;
   if (isTavernBgmMuted()) return;
-  const playlist = getTavernBgmPlaylist();
-  if (!playlist.length) return;
-  ensureTavernBgmPageHooks();
-  stopTavernBgm(0);
+  const sources = getTavernBgmSources();
+  if (!sources.length) return;
+  tavernBgmPaused = false;
+  const n = sources.length;
+  const startIdx =
+    tavernBgmCurrentSourceIndex >= 0 && tavernBgmCurrentSourceIndex < n
+      ? tavernBgmCurrentSourceIndex
+      : pickTavernBgmRandomIndex(n);
+  tavernBgmPlayOrder = buildTavernBgmPlayOrder(n, startIdx);
+  tavernBgmPlayOrderPos = 0;
+  playTavernBgmSourceAt(tavernBgmPlayOrder[0], { fadeIn: true });
+}
 
-  const n = playlist.length;
-  const startIdx = pickTavernBgmStartIndex(n);
-  if (startIdx < 0) return;
-  const order = [];
-  for (let k = 0; k < n; k += 1) {
-    order.push((startIdx + k) % n);
+function pauseTavernBgm() {
+  if (!tavernBgmAudio) return;
+  try {
+    tavernBgmAudio.pause();
+  } catch (e) {
+    /* ignore */
   }
-  let i = 0;
+  tavernBgmPaused = true;
+  syncTavernBgmPlayerUi();
+}
 
-  function tryNext() {
-    if (i >= order.length) return;
-    const idx = order[i++];
-    const url = playlist[idx];
-    const a = new Audio();
-    // A single track loops forever; a multi-track playlist advances on "ended".
-    a.loop = n === 1;
-    a.preload = "auto";
-    a.volume = 0;
-    const fail = () => {
-      a.removeEventListener("error", fail);
-      try {
-        a.pause();
-      } catch (e) {
-        /* ignore */
-      }
-      a.src = "";
-      tryNext();
-    };
-    a.addEventListener("error", fail, { once: true });
-    if (n > 1) {
-      a.addEventListener("ended", () => {
-        if (tavernBgmAudio !== a) return;
-        if (i >= order.length) i = 0; // wrap the playlist on natural end
-        tryNext();
-      });
-    }
-    a.src = url;
-    a.load();
-    a.play()
+function playTavernBgm() {
+  if (isTavernBgmMuted()) return;
+  if (tavernBgmAudio && tavernBgmPaused) {
+    tavernBgmAudio.play()
       .then(() => {
-        a.removeEventListener("error", fail);
-        tavernBgmLastIndex = idx;
-        tavernBgmAudio = a;
-        fadeInTavernBgm(a, 3200);
+        tavernBgmPaused = false;
+        syncTavernBgmPlayerUi();
       })
-      .catch(() => {
-        armTavernBgmUserGesture();
-      });
+      .catch(() => armTavernBgmUserGesture());
+    return;
   }
-  tryNext();
+  startTavernBgm();
+}
+
+function toggleTavernBgmPlayPause() {
+  if (tavernBgmAudio && !tavernBgmPaused && !tavernBgmAudio.paused) pauseTavernBgm();
+  else playTavernBgm();
+}
+
+function nextTavernBgmTrack() {
+  const sources = getTavernBgmSources();
+  if (!sources.length) return;
+  if (!tavernBgmPlayOrder.length) tavernBgmPlayOrder = buildTavernBgmPlayOrder(sources.length);
+  tavernBgmPlayOrderPos = (tavernBgmPlayOrderPos + 1) % tavernBgmPlayOrder.length;
+  playTavernBgmSourceAt(tavernBgmPlayOrder[tavernBgmPlayOrderPos], { fadeIn: false });
+}
+
+function prevTavernBgmTrack() {
+  const sources = getTavernBgmSources();
+  if (!sources.length) return;
+  if (!tavernBgmPlayOrder.length) tavernBgmPlayOrder = buildTavernBgmPlayOrder(sources.length);
+  tavernBgmPlayOrderPos =
+    (tavernBgmPlayOrderPos - 1 + tavernBgmPlayOrder.length) % tavernBgmPlayOrder.length;
+  playTavernBgmSourceAt(tavernBgmPlayOrder[tavernBgmPlayOrderPos], { fadeIn: false });
+}
+
+async function setTavernBgmShuffleEnabled(enabled) {
+  const shuffle = Boolean(enabled);
+  const playlistId = tavernBgmActivePlaylistId;
+  if (!playlistId) return;
+  try {
+    const res = await apiFetch(`/tavern/bgm/playlists/${playlistId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ shuffle }),
+    });
+    if (res?.playlist) {
+      tavernBgmActivePlaylist = { ...tavernBgmActivePlaylist, ...res.playlist };
+      if (Array.isArray(tavernBgmActivePlaylist.tracks)) {
+        /* keep tracks */
+      } else if (tavernBgmActiveTracks.length) {
+        tavernBgmActivePlaylist.tracks = tavernBgmActiveTracks.slice();
+      }
+    }
+  } catch (e) {
+    showToast("Не удалось сохранить настройку", "error");
+    return;
+  }
+  syncTavernBgmPlayerUi();
+}
+
+function toggleTavernBgmShuffle() {
+  setTavernBgmShuffleEnabled(!getTavernBgmShuffle());
+  const sources = getTavernBgmSources();
+  if (sources.length && tavernBgmAudio) {
+    tavernBgmPlayOrder = buildTavernBgmPlayOrder(sources.length, tavernBgmCurrentSourceIndex);
+    tavernBgmPlayOrderPos = Math.max(0, tavernBgmPlayOrder.indexOf(tavernBgmCurrentSourceIndex));
+  }
+}
+
+async function setTavernBgmRepeatMode(repeat) {
+  const mode = repeat === "off" || repeat === "one" || repeat === "all" ? repeat : "all";
+  const playlistId = tavernBgmActivePlaylistId;
+  if (!playlistId) return;
+  try {
+    const res = await apiFetch(`/tavern/bgm/playlists/${playlistId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ repeat: mode }),
+    });
+    if (res?.playlist) {
+      tavernBgmActivePlaylist = { ...tavernBgmActivePlaylist, ...res.playlist };
+      if (tavernBgmActiveTracks.length && !Array.isArray(tavernBgmActivePlaylist.tracks)) {
+        tavernBgmActivePlaylist.tracks = tavernBgmActiveTracks.slice();
+      }
+    }
+  } catch (e) {
+    showToast("Не удалось сохранить настройку", "error");
+    return;
+  }
+  if (tavernBgmAudio) tavernBgmAudio.loop = mode === "one";
+  syncTavernBgmPlayerUi();
+}
+
+function cycleTavernBgmRepeat() {
+  const order = ["off", "one", "all"];
+  const cur = getTavernBgmRepeat();
+  const next = order[(order.indexOf(cur) + 1) % order.length];
+  setTavernBgmRepeatMode(next);
+}
+
+async function refreshTavernBgmAddPlaylistTrackIds() {
+  const val = document.getElementById("tavern-bgm-add-playlist-select")?.value;
+  if (!val || val === "__new__") {
+    tavernBgmAddPlaylistTrackIds = new Set();
+    return;
+  }
+  try {
+    const res = await apiFetch(`/tavern/bgm/playlists/${val}`);
+    tavernBgmAddPlaylistTrackIds = new Set(
+      (res?.playlist?.tracks || []).map((t) => Number(t.id))
+    );
+  } catch (e) {
+    tavernBgmAddPlaylistTrackIds = new Set();
+  }
+}
+
+function getTavernBgmAddChatId() {
+  const fromSelect = Number(document.getElementById("tavern-bgm-add-chat-select")?.value);
+  if (Number.isFinite(fromSelect)) return fromSelect;
+  if (tavernBgmChats.length) return Number(tavernBgmChats[0].chat_id);
+  return null;
+}
+
+async function createTavernBgmPlaylistWithPrompt(chatId, defaultName = "Новый плейлист") {
+  const cid = Number(chatId);
+  if (!Number.isFinite(cid)) {
+    showToast("Сначала выберите чат", "error");
+    return null;
+  }
+  const name = window.prompt("Название плейлиста", defaultName);
+  if (!name || !String(name).trim()) return null;
+  try {
+    const res = await apiFetch("/tavern/bgm/playlists", {
+      method: "POST",
+      body: JSON.stringify({ chat_id: cid, name: String(name).trim() }),
+    });
+    const id = Number(res?.playlist?.id);
+    if (!Number.isFinite(id)) return null;
+    await refreshTavernBgmPlaylistsUi(id);
+    const addSelect = document.getElementById("tavern-bgm-add-playlist-select");
+    if (addSelect) addSelect.value = String(id);
+    showToast("Плейлист создан", "success");
+    return id;
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось создать плейлист", "error");
+    return null;
+  }
+}
+
+async function getTavernBgmAddPlaylistId() {
+  const select = document.getElementById("tavern-bgm-add-playlist-select");
+  const val = select?.value;
+  const id = Number(val);
+  if (Number.isFinite(id) && id > 0) return id;
+  return createTavernBgmPlaylistWithPrompt(getTavernBgmAddChatId());
+}
+
+function syncTavernBgmPlaylistToolbar() {
+  const filled = document.getElementById("tavern-bgm-playlist-toolbar-filled");
+  const empty = document.getElementById("tavern-bgm-playlist-toolbar-empty");
+  const hasPlaylists = tavernBgmPlaylists.length > 0;
+  if (filled) filled.style.display = hasPlaylists ? "" : "none";
+  if (empty) empty.style.display = hasPlaylists ? "none" : "";
+  if (!hasPlaylists) {
+    tavernBgmSelectedPlaylistId = null;
+    tavernBgmSelectedPlaylist = null;
+    const box = document.getElementById("tavern-bgm-playlist-tracks");
+    if (box) box.innerHTML = `<div class="muted tiny">Создайте плейлист</div>`;
+  }
+}
+
+function renderTavernBgmAddCatalog() {
+  const box = document.getElementById("tavern-bgm-add-catalog");
+  if (!box) return;
+  const chatId = getTavernBgmAddChatId();
+  const playlistTracks = tavernBgmAddPlaylistTrackIds;
+  if (!tavernBgmCatalog.length) {
+    box.innerHTML = `<div class="muted tiny">В этом чате пока нет сохранённых аудиозаписей</div>`;
+    return;
+  }
+  box.innerHTML = tavernBgmCatalog
+    .map((t) => {
+      const id = Number(t.id);
+      const added = playlistTracks.has(id);
+      const dur = formatTavernTrackDuration(t.duration);
+      const chatOk = Number.isFinite(chatId);
+      return `
+        <div class="tavern-bgm-track-row ${added ? "tavern-bgm-track-row--in-playlist" : ""}">
+          <div class="tavern-bgm-track-info">
+            <div class="tavern-bgm-track-title">${escapeHtml(formatTavernTrackTitle(t))}</div>
+            <div class="tavern-bgm-track-meta">${dur ? escapeHtml(dur) : "—"}</div>
+          </div>
+          <button type="button" class="tavern-bgm-track-btn" title="Добавить в плейлист"
+                  onclick="WaifuApp.addTrackToTavernBgmPlaylist(${id})" ${added || !chatOk ? "disabled" : ""}>+</button>
+        </div>`;
+    })
+    .join("");
+}
+
+function renderTavernBgmPlaylistTracks() {
+  const box = document.getElementById("tavern-bgm-playlist-tracks");
+  if (!box) return;
+  const tracks = Array.isArray(tavernBgmSelectedPlaylist?.tracks)
+    ? tavernBgmSelectedPlaylist.tracks
+    : [];
+  if (!tavernBgmSelectedPlaylistId) {
+    box.innerHTML = `<div class="muted tiny">Выберите плейлист</div>`;
+    return;
+  }
+  if (!tracks.length) {
+    box.innerHTML = `<div class="muted tiny">Плейлист пуст — добавьте треки на вкладке «Музыка»</div>`;
+    return;
+  }
+  box.innerHTML = tracks
+    .map((t) => {
+      const id = Number(t.id);
+      const dur = formatTavernTrackDuration(t.duration);
+      return `
+        <div class="tavern-bgm-track-row">
+          <div class="tavern-bgm-track-info">
+            <div class="tavern-bgm-track-title">${escapeHtml(formatTavernTrackTitle(t))}</div>
+            <div class="tavern-bgm-track-meta">${dur ? escapeHtml(dur) : "—"}</div>
+          </div>
+          <button type="button" class="tavern-bgm-track-btn" title="Убрать из плейлиста"
+                  onclick="WaifuApp.removeTrackFromTavernBgmPlaylist(${id})">−</button>
+        </div>`;
+    })
+    .join("");
+}
+
+function populateTavernBgmPlaylistSelect(selectEl, preferredId) {
+  if (!selectEl) return;
+  if (!tavernBgmPlaylists.length) {
+    selectEl.innerHTML = `<option value="">Нет плейлистов</option>`;
+    return;
+  }
+  selectEl.innerHTML = tavernBgmPlaylists
+    .map(
+      (p) =>
+        `<option value="${Number(p.id)}">${escapeHtml(String(p.name || "Плейлист"))} (${Number(p.track_count) || 0})</option>`
+    )
+    .join("");
+  const pref = Number(preferredId);
+  const hasPref = tavernBgmPlaylists.some((p) => Number(p.id) === pref);
+  const selected = hasPref ? pref : Number(tavernBgmPlaylists[0].id);
+  selectEl.value = String(selected);
+}
+
+function populateTavernBgmAddPlaylistSelect(chatId) {
+  const select = document.getElementById("tavern-bgm-add-playlist-select");
+  if (!select) return;
+  const cid = Number(chatId);
+  const forChat = tavernBgmPlaylists.filter((p) => Number(p.chat_id) === cid);
+  if (!Number.isFinite(cid)) {
+    select.innerHTML = `<option value="">Выберите чат</option>`;
+    return;
+  }
+  const opts = forChat
+    .map(
+      (p) =>
+        `<option value="${Number(p.id)}">${escapeHtml(String(p.name || "Плейлист"))}</option>`
+    )
+    .join("");
+  select.innerHTML = `<option value="__new__">Создать новый</option>${opts}`;
+  if (forChat.length) select.value = String(forChat[0].id);
+  else select.value = "__new__";
+}
+
+async function loadTavernBgmAddCatalog(chatId) {
+  const cid = Number(chatId);
+  tavernBgmCatalog = [];
+  if (!Number.isFinite(cid)) {
+    renderTavernBgmAddCatalog();
+    return;
+  }
+  const box = document.getElementById("tavern-bgm-add-catalog");
+  if (box) box.innerHTML = `<div class="muted tiny">Загрузка…</div>`;
+  try {
+    const res = await apiFetch(`/tavern/bgm/tracks?chat_id=${encodeURIComponent(cid)}`);
+    tavernBgmCatalog = Array.isArray(res?.tracks) ? res.tracks : [];
+  } catch (e) {
+    tavernBgmCatalog = [];
+  }
+  renderTavernBgmAddCatalog();
+}
+
+async function populateTavernBgmAddChatSelect(preferredChatId) {
+  const select = document.getElementById("tavern-bgm-add-chat-select");
+  const hintEl = document.getElementById("tavern-bgm-add-chat-hint");
+  if (!select) return;
+  select.innerHTML = `<option value="">Загрузка…</option>`;
+  if (hintEl) {
+    hintEl.style.display = "none";
+    hintEl.textContent = "";
+  }
+  try {
+    const res = await apiFetch("/tavern/bgm/chats");
+    tavernBgmChats = Array.isArray(res?.chats) ? res.chats : [];
+    if (!tavernBgmChats.length) {
+      select.innerHTML = `<option value="">Нет доступных чатов</option>`;
+      if (hintEl && res?.hint) {
+        hintEl.textContent = String(res.hint);
+        hintEl.style.display = "";
+      }
+      tavernBgmCatalog = [];
+      renderTavernBgmAddCatalog();
+      return;
+    }
+    select.innerHTML = tavernBgmChats
+      .map(
+        (c) =>
+          `<option value="${Number(c.chat_id)}">${escapeHtml(String(c.title || c.chat_id))} (${Number(c.track_count) || 0})</option>`
+      )
+      .join("");
+    const pref = Number(preferredChatId);
+    const hasPref = tavernBgmChats.some((c) => Number(c.chat_id) === pref);
+    const selected = hasPref ? pref : Number(tavernBgmChats[0].chat_id);
+    select.value = String(selected);
+    populateTavernBgmAddPlaylistSelect(selected);
+    await refreshTavernBgmAddPlaylistTrackIds();
+    await loadTavernBgmAddCatalog(selected);
+  } catch (e) {
+    select.innerHTML = `<option value="">Ошибка загрузки</option>`;
+  }
+}
+
+async function loadTavernBgmPlaylistDetail(playlistId) {
+  const id = Number(playlistId);
+  if (!Number.isFinite(id)) {
+    tavernBgmSelectedPlaylist = null;
+    tavernBgmSelectedPlaylistId = null;
+    renderTavernBgmPlaylistTracks();
+    return;
+  }
+  try {
+    const res = await apiFetch(`/tavern/bgm/playlists/${id}`);
+    tavernBgmSelectedPlaylist = res?.playlist || null;
+    tavernBgmSelectedPlaylistId = id;
+  } catch (e) {
+    tavernBgmSelectedPlaylist = null;
+    tavernBgmSelectedPlaylistId = null;
+  }
+  renderTavernBgmPlaylistTracks();
+}
+
+async function refreshTavernBgmPlaylistsUi(preferredPlaylistId) {
+  await fetchTavernBgmPlaylists();
+  const select = document.getElementById("tavern-bgm-playlist-select");
+  populateTavernBgmPlaylistSelect(select, preferredPlaylistId || tavernBgmActivePlaylistId);
+  const selectedId = Number(select?.value);
+  await loadTavernBgmPlaylistDetail(selectedId);
+  const addChatSelect = document.getElementById("tavern-bgm-add-chat-select");
+  if (addChatSelect?.value) {
+    populateTavernBgmAddPlaylistSelect(Number(addChatSelect.value));
+    await refreshTavernBgmAddPlaylistTrackIds();
+  }
+  renderTavernBgmAddCatalog();
+  syncTavernBgmPlaylistToolbar();
+}
+
+async function createTavernBgmPlaylistFromTab() {
+  const id = await createTavernBgmPlaylistWithPrompt(getTavernBgmAddChatId());
+  if (!id) return;
+  await loadTavernBgmPlaylistDetail(id);
+  await applyTavernBgmPlaylistSilent(id, { restartPlayback: false });
+}
+
+function switchTavernBgmModalTab(name) {
+  closeTavernBgmVolumeOverlay();
+  closeTavernBgmPlaylistPicker();
+  const tab = name === "playlist" || name === "add" ? name : "player";
+  document.querySelectorAll("#tavern-bgm-player-modal [data-bgm-tab]").forEach((btn) => {
+    btn.classList.toggle("active", btn.getAttribute("data-bgm-tab") === tab);
+  });
+  const playerPanel = document.getElementById("tavern-bgm-tab-player");
+  const playlistPanel = document.getElementById("tavern-bgm-tab-playlist");
+  const addPanel = document.getElementById("tavern-bgm-tab-add");
+  if (playerPanel) playerPanel.classList.toggle("tavern-bgm-tab-panel--hidden", tab !== "player");
+  if (playlistPanel) playlistPanel.classList.toggle("tavern-bgm-tab-panel--hidden", tab !== "playlist");
+  if (addPanel) addPanel.classList.toggle("tavern-bgm-tab-panel--hidden", tab !== "add");
+}
+
+async function openTavernBgmPlayer() {
+  const modal = document.getElementById("tavern-bgm-player-modal");
+  if (!modal) return;
+  closeTavernBgmVolumeOverlay();
+  modal.classList.remove("hidden");
+  modal.style.display = "flex";
+  document.body.classList.add("tavern-modal-scroll-lock");
+  await migrateTavernBgmLocalConfig();
+  await loadTavernBgmConfig();
+  await refreshTavernBgmPlaylistsUi(tavernBgmActivePlaylistId);
+  const preferredChat =
+    tavernBgmActivePlaylist?.chat_id ||
+    tavernBgmPlaylists[0]?.chat_id ||
+    readTavernBgmConfigLegacy()?.chatId;
+  await populateTavernBgmAddChatSelect(preferredChat);
+  switchTavernBgmModalTab(tavernBgmActiveTracks.length ? "player" : "add");
+  syncTavernBgmVolumeUi();
+  syncTavernBgmPlayerUi();
+}
+
+function closeTavernBgmPlayer() {
+  const modal = document.getElementById("tavern-bgm-player-modal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.style.display = "none";
+  document.body.classList.remove("tavern-modal-scroll-lock");
+  closeTavernBgmVolumeOverlay();
+  closeTavernBgmPlaylistPicker();
+}
+
+function onTavernBgmModalBackdropClick(event) {
+  if (event.target.id !== "tavern-bgm-player-modal") return;
+  if (isTavernBgmPlaylistPickerOpen()) {
+    closeTavernBgmPlaylistPicker();
+    return;
+  }
+  closeTavernBgmPlayer();
+}
+
+async function applyTavernBgmPlaylistSilent(playlistId, opts = {}) {
+  const id = Number(playlistId);
+  if (!Number.isFinite(id)) return false;
+  const tracks = Array.isArray(tavernBgmSelectedPlaylist?.tracks)
+    ? tavernBgmSelectedPlaylist.tracks
+    : [];
+  if (!tracks.length) {
+    showToast("Добавьте треки в плейлист", "error");
+    return false;
+  }
+  try {
+    const res = await apiFetch(`/tavern/bgm/playlists/${id}/activate`, { method: "POST" });
+    tavernBgmActivePlaylist = res?.playlist || null;
+    tavernBgmActivePlaylistId = id;
+    tavernBgmActiveTracks = Array.isArray(res?.playlist?.tracks) ? res.playlist.tracks.slice() : [];
+    tavernBgmCurrentSourceIndex = -1;
+    tavernBgmPlayOrder = [];
+    tavernBgmPlayOrderPos = 0;
+    await fetchTavernBgmPlaylists();
+    syncTavernBgmPlayerUi();
+    const restart = opts.restartPlayback !== false;
+    if (!isTavernBgmMuted() && tavernBgmActiveTracks.length && restart) startTavernBgm();
+    return true;
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось применить плейлист", "error");
+    return false;
+  }
+}
+
+async function onTavernBgmPlaylistSelectChange() {
+  const select = document.getElementById("tavern-bgm-playlist-select");
+  const playlistId = Number(select?.value);
+  await loadTavernBgmPlaylistDetail(playlistId);
+  if (Number.isFinite(playlistId)) {
+    await applyTavernBgmPlaylistSilent(playlistId, { restartPlayback: true });
+  }
+}
+
+async function onTavernBgmAddChatChange() {
+  const select = document.getElementById("tavern-bgm-add-chat-select");
+  const chatId = Number(select?.value);
+  populateTavernBgmAddPlaylistSelect(chatId);
+  await refreshTavernBgmAddPlaylistTrackIds();
+  await loadTavernBgmAddCatalog(chatId);
+}
+
+async function onTavernBgmAddPlaylistChange() {
+  const select = document.getElementById("tavern-bgm-add-playlist-select");
+  const val = select?.value;
+  if (val === "__new__") {
+    const id = await createTavernBgmPlaylistWithPrompt(getTavernBgmAddChatId());
+    if (!id && tavernBgmPlaylists.length) select.value = String(tavernBgmPlaylists[0].id);
+    return;
+  }
+  await refreshTavernBgmAddPlaylistTrackIds();
+  renderTavernBgmAddCatalog();
+}
+
+async function addTrackToTavernBgmPlaylist(trackId) {
+  const playlistId = await getTavernBgmAddPlaylistId();
+  const id = Number(trackId);
+  if (!Number.isFinite(playlistId) || playlistId <= 0) return;
+  try {
+    await apiFetch(`/tavern/bgm/playlists/${playlistId}/tracks`, {
+      method: "POST",
+      body: JSON.stringify({ track_id: id }),
+    });
+    await refreshTavernBgmPlaylistsUi(playlistId);
+    const addSelect = document.getElementById("tavern-bgm-add-playlist-select");
+    if (addSelect) addSelect.value = String(playlistId);
+    if (tavernBgmActivePlaylistId === playlistId) {
+      await loadTavernBgmPlaylistDetail(playlistId);
+      await applyTavernBgmPlaylistSilent(playlistId, { restartPlayback: false });
+    }
+    showToast("Трек добавлен", "success");
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось добавить трек", "error");
+  }
+}
+
+async function removeTrackFromTavernBgmPlaylist(trackId) {
+  const playlistId = tavernBgmSelectedPlaylistId;
+  const id = Number(trackId);
+  if (!Number.isFinite(playlistId)) return;
+  try {
+    await apiFetch(`/tavern/bgm/playlists/${playlistId}/tracks/${id}`, { method: "DELETE" });
+    await refreshTavernBgmPlaylistsUi(playlistId);
+    await loadTavernBgmPlaylistDetail(playlistId);
+    if (tavernBgmActivePlaylistId === playlistId) {
+      const tracksLeft = Array.isArray(tavernBgmSelectedPlaylist?.tracks)
+        ? tavernBgmSelectedPlaylist.tracks.length
+        : 0;
+      if (tracksLeft) {
+        await applyTavernBgmPlaylistSilent(playlistId, { restartPlayback: true });
+      } else {
+        await loadTavernBgmConfig();
+        stopTavernBgm(400);
+      }
+    }
+    syncTavernBgmPlayerUi();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось убрать трек", "error");
+  }
+}
+
+async function renameTavernBgmPlaylist() {
+  const playlistId = tavernBgmSelectedPlaylistId;
+  if (!playlistId || !tavernBgmSelectedPlaylist) {
+    showToast("Выберите плейлист", "error");
+    return;
+  }
+  const name = window.prompt("Новое название", tavernBgmSelectedPlaylist.name || "");
+  if (!name || !String(name).trim()) return;
+  try {
+    await apiFetch(`/tavern/bgm/playlists/${playlistId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: String(name).trim() }),
+    });
+    await refreshTavernBgmPlaylistsUi(playlistId);
+    if (tavernBgmActivePlaylistId === playlistId && tavernBgmActivePlaylist) {
+      tavernBgmActivePlaylist.name = String(name).trim();
+      syncTavernBgmPlaylistCaption();
+    }
+    showToast("Название сохранено", "success");
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось переименовать", "error");
+  }
+}
+
+async function deleteTavernBgmPlaylist() {
+  const playlistId = tavernBgmSelectedPlaylistId;
+  if (!playlistId) {
+    showToast("Выберите плейлист", "error");
+    return;
+  }
+  if (!window.confirm("Удалить этот плейлист?")) return;
+  try {
+    await apiFetch(`/tavern/bgm/playlists/${playlistId}`, { method: "DELETE" });
+    if (tavernBgmActivePlaylistId === playlistId) {
+      tavernBgmActivePlaylistId = null;
+      tavernBgmActivePlaylist = null;
+      tavernBgmActiveTracks = [];
+      stopTavernBgm(400);
+    }
+    await refreshTavernBgmPlaylistsUi();
+    await loadTavernBgmConfig();
+    syncTavernBgmPlayerUi();
+    showToast("Плейлист удалён", "success");
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось удалить", "error");
+  }
+}
+
+function openTavernBgmUploadPicker() {
+  const chatId = Number(document.getElementById("tavern-bgm-add-chat-select")?.value);
+  if (!Number.isFinite(chatId)) {
+    showToast("Сначала выберите чат", "error");
+    return;
+  }
+  document.getElementById("tavern-bgm-upload-input")?.click();
+}
+
+async function readAudioDurationSec(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const audio = new Audio();
+    audio.preload = "metadata";
+    audio.src = url;
+    const done = (sec) => {
+      URL.revokeObjectURL(url);
+      resolve(sec);
+    };
+    audio.addEventListener("loadedmetadata", () => {
+      const d = Number(audio.duration);
+      done(Number.isFinite(d) && d > 0 ? Math.round(d) : null);
+    });
+    audio.addEventListener("error", () => done(null));
+    setTimeout(() => done(null), 8000);
+  });
+}
+
+async function onTavernBgmUploadSelected(input) {
+  const file = input?.files?.[0];
+  if (input) input.value = "";
+  if (!file) return;
+  const chatId = Number(document.getElementById("tavern-bgm-add-chat-select")?.value);
+  if (!Number.isFinite(chatId)) {
+    showToast("Сначала выберите чат", "error");
+    return;
+  }
+  const duration = await readAudioDurationSec(file);
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("chat_id", String(chatId));
+  if (duration) fd.append("duration", String(duration));
+  try {
+    const res = await fetch("/api/tavern/bgm/upload", {
+      method: "POST",
+      headers: tavernBgmAuthHeaders(),
+      body: fd,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || "upload failed");
+    }
+    const data = await res.json();
+    showToast("Трек загружен в чат", "success");
+    await loadTavernBgmAddCatalog(chatId);
+    const trackId = Number(data?.track?.id);
+    const playlistVal = document.getElementById("tavern-bgm-add-playlist-select")?.value;
+    if (Number.isFinite(trackId) && playlistVal && playlistVal !== "__new__") {
+      await addTrackToTavernBgmPlaylist(trackId);
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось загрузить трек", "error");
+  }
 }
 
 function firstAvailableTavernSlot(available) {
@@ -668,9 +1834,12 @@ async function loadTavernWithProfile(profile, opts = {}) {
       setTavernPageLoading(false);
       syncTavernBgmMuteButton();
       if (loadOk && !isTavernBgmMuted()) {
-        loadTavernChatBgm().then(() => {
+        loadTavernBgmConfig().then(() => {
+          syncTavernBgmPlayerUi();
           if (!isTavernBgmMuted()) startTavernBgm();
         });
+      } else {
+        syncTavernBgmPlayerUi();
       }
     }
   }
@@ -1360,19 +2529,9 @@ function dismissTavernWaifu() {
   openTavernDismissConfirm();
 }
 
-/** Кнопка 🔄 у вкладок: у игрока — перезагрузка с сервера; у админа — принудительное обновление слотов найма. */
+/** Кнопка 🔄 (admin-only): принудительное обновление слотов найма. */
 async function refreshTavernPage() {
-  if (isAdminUser()) {
-    await adminRefreshTavern();
-    return;
-  }
-  showTavernError("");
-  try {
-    resetTavernRosterCache();
-    await loadTavernWithProfile({ act: tavernState.act }, { loadRoster: true });
-  } catch (e) {
-    showTavernError("Не удалось обновить таверну.", "danger");
-  }
+  await adminRefreshTavern();
 }
 
 async function adminRefreshTavern() {
@@ -1417,4 +2576,33 @@ Object.assign(window.WaifuApp, {
   adminRefreshTavern,
   refreshTavernPage,
   toggleTavernBgmMuted,
+  openTavernBgmPlayer,
+  closeTavernBgmPlayer,
+  onTavernBgmModalBackdropClick,
+  openTavernBgmPlaylistPicker,
+  closeTavernBgmPlaylistPicker,
+  onTavernBgmPlaylistPickerBackdropClick,
+  selectTavernBgmPlaylistFromPicker,
+  openTavernBgmPlaylistTabFromPicker,
+  switchTavernBgmModalTab,
+  onTavernBgmVolumeChange,
+  toggleTavernBgmVolumeOverlay,
+  seekTavernBgmProgress,
+  onTavernBgmPlaylistSelectChange,
+  onTavernBgmAddChatChange,
+  onTavernBgmAddPlaylistChange,
+  addTrackToTavernBgmPlaylist,
+  removeTrackFromTavernBgmPlaylist,
+  renameTavernBgmPlaylist,
+  deleteTavernBgmPlaylist,
+  createTavernBgmPlaylistFromTab,
+  openTavernBgmUploadPicker,
+  onTavernBgmUploadSelected,
+  toggleTavernBgmPlayPause,
+  playTavernBgm,
+  pauseTavernBgm,
+  nextTavernBgmTrack,
+  prevTavernBgmTrack,
+  toggleTavernBgmShuffle,
+  cycleTavernBgmRepeat,
 });

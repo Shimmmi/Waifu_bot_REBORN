@@ -722,9 +722,11 @@ async def telegram_webhook(
         frm = msg.get("from") or {}
         raw_text = msg.get("text")
         cmd_like = bool(isinstance(raw_text, str) and raw_text.lstrip().startswith("/"))
+        doc_obj = msg.get("document") or {}
         logger.info(
             "webhook update received: update_id=%s chat_id=%s chat_type=%s from_id=%s "
-            "has_text=%s has_caption=%s cmd_like=%s",
+            "has_text=%s has_caption=%s cmd_like=%s has_audio=%s has_document=%s has_voice=%s "
+            "doc_mime=%s doc_name=%s",
             (body or {}).get("update_id"),
             chat.get("id"),
             chat.get("type"),
@@ -732,6 +734,11 @@ async def telegram_webhook(
             bool(msg.get("text")),
             bool(msg.get("caption")),
             cmd_like,
+            bool(msg.get("audio")),
+            bool(msg.get("document")),
+            bool(msg.get("voice")),
+            doc_obj.get("mime_type"),
+            doc_obj.get("file_name"),
         )
     except Exception:
         logger.exception("Failed to log webhook update summary")

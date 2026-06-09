@@ -23,7 +23,7 @@ class PlayerChatRewardWallet(Base):
 
 
 class PlayerChatActivityDaily(Base):
-    """Per-day chat activity stats (UTC) for caps and history."""
+    """Per-day chat activity stats (MSK) for caps and history."""
 
     __tablename__ = "player_chat_activity_daily"
     __table_args__ = (UniqueConstraint("player_id", "day", name="uq_player_chat_activity_daily_player_day"),)

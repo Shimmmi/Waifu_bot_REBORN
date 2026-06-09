@@ -87,6 +87,10 @@ class GroupChatsRefreshBody(BaseModel):
     chat_ids: list[int] | None = None
 
 
+class TavernBgmRetryBody(BaseModel):
+    file_unique_id: str = Field(min_length=1, max_length=128)
+
+
 def _bot_id_from_token() -> str:
     if settings.telegram_oidc_client_id:
         return str(settings.telegram_oidc_client_id)
@@ -723,6 +727,103 @@ async def admin_refresh_group_chats(
     from waifu_bot.services.webhook import get_bot
 
     return await refresh_bot_group_chats(session, get_bot(), body.chat_ids)
+
+
+@router.get("/admin/tavern-bgm/overview")
+async def admin_tavern_bgm_overview(
+    admin_id: ArmoryAdmin,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    await rate_limit_by_user(redis, admin_id, "admin_tavern_bgm", 120)
+    from waifu_bot.services.tavern_audio import admin_bgm_overview
+
+    return await admin_bgm_overview(session)
+
+
+@router.get("/admin/tavern-bgm/chats")
+async def admin_tavern_bgm_chats(
+    admin_id: ArmoryAdmin,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    q: str = Query("", max_length=128),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    await rate_limit_by_user(redis, admin_id, "admin_tavern_bgm", 120)
+    from waifu_bot.services.tavern_audio import admin_bgm_chats
+
+    return await admin_bgm_chats(session, q=q, page=page, page_size=page_size)
+
+
+@router.get("/admin/tavern-bgm/chats/{chat_id}/tracks")
+async def admin_tavern_bgm_chat_tracks(
+    chat_id: int,
+    admin_id: ArmoryAdmin,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    await rate_limit_by_user(redis, admin_id, "admin_tavern_bgm", 120)
+    from waifu_bot.services.tavern_audio import admin_bgm_tracks
+
+    return await admin_bgm_tracks(session, chat_id)
+
+
+@router.get("/admin/tavern-bgm/events")
+async def admin_tavern_bgm_events(
+    admin_id: ArmoryAdmin,
+    redis=Depends(get_redis),
+    limit: int = Query(100, ge=1, le=200),
+):
+    await rate_limit_by_user(redis, admin_id, "admin_tavern_bgm", 120)
+    from waifu_bot.services.tavern_audio import list_recent_tavern_audio_events
+
+    return {"events": list_recent_tavern_audio_events(limit)}
+
+
+@router.get("/admin/tavern-bgm/player-preview")
+async def admin_tavern_bgm_player_preview(
+    admin_id: ArmoryAdmin,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    player_id: int = Query(..., ge=1),
+):
+    await rate_limit_by_user(redis, admin_id, "admin_tavern_bgm", 120)
+    from waifu_bot.services.tavern_audio import admin_bgm_player_preview
+
+    return await admin_bgm_player_preview(session, player_id)
+
+
+@router.get("/admin/tavern-bgm/pending")
+async def admin_tavern_bgm_pending(
+    admin_id: ArmoryAdmin,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    chat_id: int | None = Query(None),
+    status: str | None = Query(None, max_length=16),
+    limit: int = Query(100, ge=1, le=200),
+):
+    await rate_limit_by_user(redis, admin_id, "admin_tavern_bgm", 120)
+    from waifu_bot.services.tavern_audio import admin_bgm_pending
+
+    return await admin_bgm_pending(session, chat_id=chat_id, status=status, limit=limit)
+
+
+@router.post("/admin/tavern-bgm/pending/retry")
+async def admin_tavern_bgm_pending_retry(
+    body: TavernBgmRetryBody,
+    admin_id: ArmoryAdmin,
+    redis=Depends(get_redis),
+):
+    await rate_limit_by_user(redis, admin_id, "admin_tavern_bgm_retry", 10)
+    from waifu_bot.services.tavern_audio import list_recent_tavern_audio_events, retry_pending_capture
+    from waifu_bot.services.webhook import get_bot
+
+    result = await retry_pending_capture(get_bot(), body.file_unique_id.strip())
+    return {
+        **result,
+        "events": list_recent_tavern_audio_events(20),
+    }
 
 
 @router.get("/admin/actions")

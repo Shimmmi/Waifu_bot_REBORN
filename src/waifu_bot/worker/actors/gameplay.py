@@ -111,6 +111,13 @@ def tick_guild_quest_weekly_reset() -> None:
     _run_tick("guild_quest_weekly_reset", _guild_quest_weekly_reset_fn)
 
 
+@dramatiq.actor(queue_name="default", actor_name="tick_chat_rewards_daily_claim", max_retries=1, time_limit=600_000)
+def tick_chat_rewards_daily_claim() -> None:
+    from waifu_bot.services.background import _chat_rewards_daily_claim_fn
+
+    _run_tick("chat_rewards_daily_claim", _chat_rewards_daily_claim_fn)
+
+
 TICK_ACTORS: dict[str, dramatiq.Actor] = {
     "chat_rewards_flush": tick_chat_rewards_flush,
     "expedition_notify": tick_expedition_notify,
@@ -124,4 +131,5 @@ TICK_ACTORS: dict[str, dramatiq.Actor] = {
     "abyss_weekly_reset": tick_abyss_weekly_reset,
     "guild_quest_daily_reset": tick_guild_quest_daily_reset,
     "guild_quest_weekly_reset": tick_guild_quest_weekly_reset,
+    "chat_rewards_daily_claim": tick_chat_rewards_daily_claim,
 }

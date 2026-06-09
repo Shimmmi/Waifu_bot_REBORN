@@ -42,6 +42,7 @@ from waifu_bot.db.models import (  # noqa: F401
     GDEventTemplate,
     GDCompletion,
     ChatAudioTrack,
+    ChatAudioCapturePending,
     AbyssProgress,
     AbyssCheckpointBoss,
     AbyssGrace,

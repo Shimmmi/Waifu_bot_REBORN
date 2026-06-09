@@ -5862,6 +5862,7 @@ function renderChatRewardsStatus(data) {
   const chests = Number(data.wallet?.pending_chests || 0);
   bag.classList.toggle("chat-reward-bag-btn--chest", chests > 0);
   bag.classList.toggle("chat-reward-bag-btn--gold", chests <= 0);
+  bag.title = "Награды за чат · авто-начисление в 00:00 МСК · нажмите, чтобы забрать досрочно";
 
   if (!bag.dataset.bound) {
     bag.dataset.bound = "1";
