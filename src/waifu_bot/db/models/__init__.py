@@ -86,7 +86,13 @@ from waifu_bot.db.models.guild_extended import (
 from waifu_bot.db.models.skill import Skill, WaifuSkill
 from waifu_bot.db.models.battle import BattleLog
 from waifu_bot.db.models.tavern import TavernHireSlot, TavernState
-from waifu_bot.db.models.tavern_audio import ChatAudioCapturePending, ChatAudioTrack
+from waifu_bot.db.models.tavern_audio import (
+    ChatAudioCapturePending,
+    ChatAudioTrack,
+    PlayerBgmPlaylist,
+    PlayerBgmPlaylistTrack,
+    PlayerBgmPrefs,
+)
 from waifu_bot.db.models.expedition import ExpeditionAffix, ExpeditionSlot, ActiveExpedition
 from waifu_bot.db.models.group_dungeon import (
     GDDungeonTemplate,
@@ -206,6 +212,9 @@ __all__ = [
     "TavernState",
     "ChatAudioTrack",
     "ChatAudioCapturePending",
+    "PlayerBgmPlaylist",
+    "PlayerBgmPlaylistTrack",
+    "PlayerBgmPrefs",
     "ExpeditionAffix",
     "ExpeditionSlot",
     "ActiveExpedition",

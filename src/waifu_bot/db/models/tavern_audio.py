@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from waifu_bot.db.base import Base
@@ -61,4 +61,49 @@ class ChatAudioCapturePending(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class PlayerBgmPlaylist(Base):
+    """A named BGM playlist owned by a player for one group chat."""
+
+    __tablename__ = "player_bgm_playlists"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    player_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    shuffle: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    repeat: Mapped[str] = mapped_column(String(8), nullable=False, default="all")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class PlayerBgmPlaylistTrack(Base):
+    """Ordered track membership in a player BGM playlist."""
+
+    __tablename__ = "player_bgm_playlist_tracks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    playlist_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("player_bgm_playlists.id", ondelete="CASCADE"), nullable=False
+    )
+    track_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("chat_audio_tracks.id", ondelete="CASCADE"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class PlayerBgmPrefs(Base):
+    """Per-player tavern BGM preferences (active playlist for playback)."""
+
+    __tablename__ = "player_bgm_prefs"
+
+    player_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    active_playlist_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("player_bgm_playlists.id", ondelete="SET NULL"), nullable=True
     )

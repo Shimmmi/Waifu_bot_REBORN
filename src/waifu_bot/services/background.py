@@ -222,6 +222,7 @@ _last_abyss_daily_reset = None
 _last_abyss_weekly_reset = None
 _last_guild_quest_daily_reset = None
 _last_guild_quest_weekly_reset = None
+_last_chat_rewards_daily_claim = None
 
 
 async def _abyss_daily_reset_fn() -> None:
@@ -363,6 +364,37 @@ async def _guild_quest_weekly_reset_fn() -> None:
         break
     _last_guild_quest_weekly_reset = cur_week
     logger.info("guild quest weekly reset applied for week=%s (MSK)", cur_week)
+
+
+async def _chat_rewards_daily_claim_fn() -> None:
+    """Auto-claim accumulated chat rewards at MSK midnight."""
+    global _last_chat_rewards_daily_claim
+    from waifu_bot.services.abyss_service import msk_today
+
+    today = msk_today()
+    if _last_chat_rewards_daily_claim is None:
+        _last_chat_rewards_daily_claim = today
+        return
+    if _last_chat_rewards_daily_claim == today:
+        return
+
+    from waifu_bot.core import redis as redis_core
+    from waifu_bot.db.session import get_session, init_engine
+    from waifu_bot.services import chat_rewards as chat_rewards_svc
+
+    init_engine()
+    redis_client = redis_core.get_redis()
+    claimed: list[tuple[int, chat_rewards_svc.ClaimResult]] = []
+    async for session in get_session():
+        claimed = await chat_rewards_svc.auto_claim_all_wallets(session, redis_client)
+        await session.commit()
+        break
+    _last_chat_rewards_daily_claim = today
+    logger.info(
+        "chat rewards daily auto-claim applied for %s (MSK), players=%d",
+        today,
+        len(claimed),
+    )
 
 
 # ---------------------------------------------------------------------------

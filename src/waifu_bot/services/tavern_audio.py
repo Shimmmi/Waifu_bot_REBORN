@@ -7,9 +7,11 @@ written under ``static/`` and deduplicated by Telegram ``file_unique_id``.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 import time
+import uuid
 from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -19,11 +21,18 @@ from urllib.parse import urlparse
 
 import httpx
 from aiogram.exceptions import TelegramNetworkError
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.core.config import settings
-from waifu_bot.db.models import BotGroupChat, ChatAudioCapturePending, ChatAudioTrack
+from waifu_bot.db.models import (
+    BotGroupChat,
+    ChatAudioCapturePending,
+    ChatAudioTrack,
+    PlayerBgmPlaylist,
+    PlayerBgmPlaylistTrack,
+    PlayerBgmPrefs,
+)
 from waifu_bot.db.session import get_session
 from waifu_bot.paths import repository_root
 from waifu_bot.services.bot_group_chats import ACTIVE_STATUSES
@@ -686,6 +695,11 @@ _BGM_EMPTY_CHATS_HINT = (
 )
 
 
+def _is_telegram_chat_track(t: ChatAudioTrack) -> bool:
+    """Telegram-captured chat audio only; webapp uploads use ``web:`` file_unique_id."""
+    return not str(t.file_unique_id or "").startswith("web:")
+
+
 def _track_dict(t: ChatAudioTrack) -> dict:
     return {
         "id": int(t.id),
@@ -722,7 +736,10 @@ async def list_bgm_chats_for_player(session: AsyncSession, player_id: int) -> di
     count_rows = (
         await session.execute(
             select(ChatAudioTrack.chat_id, func.count(ChatAudioTrack.id))
-            .where(ChatAudioTrack.chat_id.in_(allowed_ids))
+            .where(
+                ChatAudioTrack.chat_id.in_(allowed_ids),
+                ~ChatAudioTrack.file_unique_id.startswith("web:"),
+            )
             .group_by(ChatAudioTrack.chat_id)
         )
     ).all()
@@ -761,7 +778,10 @@ async def list_tracks_for_player_chat(
         return None
     stmt = (
         select(ChatAudioTrack)
-        .where(ChatAudioTrack.chat_id == cid)
+        .where(
+            ChatAudioTrack.chat_id == cid,
+            ~ChatAudioTrack.file_unique_id.startswith("web:"),
+        )
         .order_by(ChatAudioTrack.created_at.desc(), ChatAudioTrack.id.desc())
         .limit(int(limit))
     )
@@ -776,7 +796,10 @@ async def list_tracks_for_player(session: AsyncSession, player_id: int, limit: i
         return []
     stmt = (
         select(ChatAudioTrack)
-        .where(ChatAudioTrack.chat_id.in_(chat_ids))
+        .where(
+            ChatAudioTrack.chat_id.in_(chat_ids),
+            ~ChatAudioTrack.file_unique_id.startswith("web:"),
+        )
         .order_by(ChatAudioTrack.created_at.desc(), ChatAudioTrack.id.desc())
         .limit(int(limit))
     )
@@ -961,6 +984,383 @@ async def admin_bgm_tracks(session: AsyncSession, chat_id: int) -> dict[str, Any
         ).scalars().all()
     )
     return {"chat_id": cid, "tracks": [_admin_track_dict(t) for t in rows]}
+
+
+_REPEAT_MODES = frozenset({"off", "one", "all"})
+
+
+def _normalize_repeat(value: str | None) -> str:
+    repeat = str(value or "all").strip().lower()
+    return repeat if repeat in _REPEAT_MODES else "all"
+
+
+def _playlist_dict(p: PlayerBgmPlaylist, track_count: int = 0) -> dict[str, Any]:
+    return {
+        "id": int(p.id),
+        "player_id": int(p.player_id),
+        "chat_id": int(p.chat_id),
+        "name": p.name,
+        "shuffle": bool(p.shuffle),
+        "repeat": _normalize_repeat(p.repeat),
+        "track_count": int(track_count),
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+    }
+
+
+async def _get_player_playlist(
+    session: AsyncSession, player_id: int, playlist_id: int
+) -> PlayerBgmPlaylist | None:
+    return await session.scalar(
+        select(PlayerBgmPlaylist).where(
+            PlayerBgmPlaylist.id == int(playlist_id),
+            PlayerBgmPlaylist.player_id == int(player_id),
+        )
+    )
+
+
+async def _ensure_chat_allowed(session: AsyncSession, player_id: int, chat_id: int) -> bool:
+    allowed = await _player_active_bot_chat_ids(session, player_id)
+    return int(chat_id) in allowed
+
+
+async def _get_or_create_prefs(session: AsyncSession, player_id: int) -> PlayerBgmPrefs:
+    prefs = await session.get(PlayerBgmPrefs, int(player_id))
+    if prefs is None:
+        prefs = PlayerBgmPrefs(player_id=int(player_id), active_playlist_id=None)
+        session.add(prefs)
+        await session.flush()
+    return prefs
+
+
+async def list_playlists_for_player(session: AsyncSession, player_id: int) -> dict[str, Any]:
+    pid = int(player_id)
+    count_rows = (
+        await session.execute(
+            select(PlayerBgmPlaylistTrack.playlist_id, func.count(PlayerBgmPlaylistTrack.id))
+            .join(PlayerBgmPlaylist, PlayerBgmPlaylist.id == PlayerBgmPlaylistTrack.playlist_id)
+            .where(PlayerBgmPlaylist.player_id == pid)
+            .group_by(PlayerBgmPlaylistTrack.playlist_id)
+        )
+    ).all()
+    counts = {int(r[0]): int(r[1]) for r in count_rows}
+
+    rows = list(
+        (
+            await session.execute(
+                select(PlayerBgmPlaylist)
+                .where(PlayerBgmPlaylist.player_id == pid)
+                .order_by(PlayerBgmPlaylist.updated_at.desc(), PlayerBgmPlaylist.id.desc())
+            )
+        ).scalars().all()
+    )
+    prefs = await session.get(PlayerBgmPrefs, pid)
+    active_id = int(prefs.active_playlist_id) if prefs and prefs.active_playlist_id else None
+    return {
+        "playlists": [_playlist_dict(p, counts.get(int(p.id), 0)) for p in rows],
+        "active_playlist_id": active_id,
+    }
+
+
+async def create_playlist(
+    session: AsyncSession,
+    player_id: int,
+    chat_id: int,
+    name: str,
+) -> dict[str, Any] | None:
+    pid = int(player_id)
+    cid = int(chat_id)
+    if not await _ensure_chat_allowed(session, pid, cid):
+        return None
+    clean_name = str(name or "").strip()[:128] or "Новый плейлист"
+    playlist = PlayerBgmPlaylist(
+        player_id=pid,
+        chat_id=cid,
+        name=clean_name,
+        shuffle=False,
+        repeat="all",
+    )
+    session.add(playlist)
+    await session.commit()
+    await session.refresh(playlist)
+    return _playlist_dict(playlist, 0)
+
+
+async def update_playlist(
+    session: AsyncSession,
+    player_id: int,
+    playlist_id: int,
+    *,
+    name: str | None = None,
+    shuffle: bool | None = None,
+    repeat: str | None = None,
+) -> dict[str, Any] | None:
+    playlist = await _get_player_playlist(session, player_id, playlist_id)
+    if playlist is None:
+        return None
+    if name is not None:
+        clean = str(name).strip()[:128]
+        if clean:
+            playlist.name = clean
+    if shuffle is not None:
+        playlist.shuffle = bool(shuffle)
+    if repeat is not None:
+        playlist.repeat = _normalize_repeat(repeat)
+    await session.commit()
+    await session.refresh(playlist)
+    count = await session.scalar(
+        select(func.count(PlayerBgmPlaylistTrack.id)).where(
+            PlayerBgmPlaylistTrack.playlist_id == int(playlist.id)
+        )
+    )
+    return _playlist_dict(playlist, int(count or 0))
+
+
+async def delete_playlist(session: AsyncSession, player_id: int, playlist_id: int) -> bool:
+    playlist = await _get_player_playlist(session, player_id, playlist_id)
+    if playlist is None:
+        return False
+    prefs = await session.get(PlayerBgmPrefs, int(player_id))
+    if prefs and prefs.active_playlist_id == int(playlist.id):
+        prefs.active_playlist_id = None
+    await session.delete(playlist)
+    await session.commit()
+    return True
+
+
+async def get_playlist_with_tracks(
+    session: AsyncSession, player_id: int, playlist_id: int
+) -> dict[str, Any] | None:
+    playlist = await _get_player_playlist(session, player_id, playlist_id)
+    if playlist is None:
+        return None
+    rows = list(
+        (
+            await session.execute(
+                select(ChatAudioTrack, PlayerBgmPlaylistTrack.position)
+                .join(
+                    PlayerBgmPlaylistTrack,
+                    PlayerBgmPlaylistTrack.track_id == ChatAudioTrack.id,
+                )
+                .where(PlayerBgmPlaylistTrack.playlist_id == int(playlist.id))
+                .order_by(PlayerBgmPlaylistTrack.position.asc(), PlayerBgmPlaylistTrack.id.asc())
+            )
+        ).all()
+    )
+    tracks = [_track_dict(t) for t, _pos in rows]
+    out = _playlist_dict(playlist, len(tracks))
+    out["tracks"] = tracks
+    return out
+
+
+async def _validate_track_for_playlist(
+    session: AsyncSession, playlist: PlayerBgmPlaylist, track_id: int
+) -> ChatAudioTrack | None:
+    track = await session.get(ChatAudioTrack, int(track_id))
+    if track is None:
+        return None
+    if int(track.chat_id) != int(playlist.chat_id):
+        return None
+    return track
+
+
+async def set_playlist_tracks(
+    session: AsyncSession,
+    player_id: int,
+    playlist_id: int,
+    track_ids: list[int],
+) -> dict[str, Any] | None:
+    playlist = await _get_player_playlist(session, player_id, playlist_id)
+    if playlist is None:
+        return None
+    seen: set[int] = set()
+    ordered: list[int] = []
+    for raw in track_ids:
+        tid = int(raw)
+        if tid in seen:
+            continue
+        track = await _validate_track_for_playlist(session, playlist, tid)
+        if track is None:
+            return None
+        seen.add(tid)
+        ordered.append(tid)
+
+    await session.execute(
+        delete(PlayerBgmPlaylistTrack).where(
+            PlayerBgmPlaylistTrack.playlist_id == int(playlist.id)
+        )
+    )
+    for pos, tid in enumerate(ordered):
+        session.add(
+            PlayerBgmPlaylistTrack(
+                playlist_id=int(playlist.id),
+                track_id=int(tid),
+                position=pos,
+            )
+        )
+    await session.commit()
+    return await get_playlist_with_tracks(session, player_id, playlist_id)
+
+
+async def add_track_to_playlist(
+    session: AsyncSession,
+    player_id: int,
+    playlist_id: int,
+    track_id: int,
+) -> dict[str, Any] | None:
+    playlist = await _get_player_playlist(session, player_id, playlist_id)
+    if playlist is None:
+        return None
+    track = await _validate_track_for_playlist(session, playlist, track_id)
+    if track is None:
+        return None
+    existing = await session.scalar(
+        select(PlayerBgmPlaylistTrack.id).where(
+            PlayerBgmPlaylistTrack.playlist_id == int(playlist.id),
+            PlayerBgmPlaylistTrack.track_id == int(track_id),
+        )
+    )
+    if existing:
+        return await get_playlist_with_tracks(session, player_id, playlist_id)
+
+    max_pos = await session.scalar(
+        select(func.max(PlayerBgmPlaylistTrack.position)).where(
+            PlayerBgmPlaylistTrack.playlist_id == int(playlist.id)
+        )
+    )
+    next_pos = int(max_pos) + 1 if max_pos is not None else 0
+    session.add(
+        PlayerBgmPlaylistTrack(
+            playlist_id=int(playlist.id),
+            track_id=int(track_id),
+            position=next_pos,
+        )
+    )
+    await session.commit()
+    return await get_playlist_with_tracks(session, player_id, playlist_id)
+
+
+async def remove_track_from_playlist(
+    session: AsyncSession,
+    player_id: int,
+    playlist_id: int,
+    track_id: int,
+) -> dict[str, Any] | None:
+    playlist = await _get_player_playlist(session, player_id, playlist_id)
+    if playlist is None:
+        return None
+    row = await session.scalar(
+        select(PlayerBgmPlaylistTrack).where(
+            PlayerBgmPlaylistTrack.playlist_id == int(playlist.id),
+            PlayerBgmPlaylistTrack.track_id == int(track_id),
+        )
+    )
+    if row is None:
+        return await get_playlist_with_tracks(session, player_id, playlist_id)
+    removed_pos = int(row.position)
+    await session.delete(row)
+    await session.flush()
+    later_rows = list(
+        (
+            await session.execute(
+                select(PlayerBgmPlaylistTrack)
+                .where(
+                    PlayerBgmPlaylistTrack.playlist_id == int(playlist.id),
+                    PlayerBgmPlaylistTrack.position > removed_pos,
+                )
+                .order_by(PlayerBgmPlaylistTrack.position.asc())
+            )
+        ).scalars().all()
+    )
+    for r in later_rows:
+        r.position = int(r.position) - 1
+    await session.commit()
+    return await get_playlist_with_tracks(session, player_id, playlist_id)
+
+
+async def set_active_playlist(
+    session: AsyncSession, player_id: int, playlist_id: int
+) -> dict[str, Any] | None:
+    playlist = await _get_player_playlist(session, player_id, playlist_id)
+    if playlist is None:
+        return None
+    prefs = await _get_or_create_prefs(session, player_id)
+    prefs.active_playlist_id = int(playlist.id)
+    await session.commit()
+    return await get_playlist_with_tracks(session, player_id, playlist_id)
+
+
+async def get_active_playlist(
+    session: AsyncSession, player_id: int
+) -> dict[str, Any] | None:
+    prefs = await session.get(PlayerBgmPrefs, int(player_id))
+    if not prefs or not prefs.active_playlist_id:
+        return None
+    return await get_playlist_with_tracks(session, player_id, int(prefs.active_playlist_id))
+
+
+async def upload_chat_audio_from_web(
+    session: AsyncSession,
+    player_id: int,
+    chat_id: int,
+    raw: bytes,
+    file_name: str | None,
+    mime_type: str | None,
+    duration: int | None = None,
+) -> dict[str, Any]:
+    """Upload an audio file from the webapp into a group chat track library."""
+    pid = int(player_id)
+    cid = int(chat_id)
+    if not await _ensure_chat_allowed(session, pid, cid):
+        raise ValueError("chat_not_allowed")
+    if not raw:
+        raise ValueError("empty_file")
+    if len(raw) > MAX_AUDIO_BYTES:
+        raise ValueError("file_too_large")
+    if not (_is_audio_mime(mime_type) or _is_audio_file_name(file_name)):
+        raise ValueError("invalid_audio_type")
+
+    digest = hashlib.sha256(raw).hexdigest()
+    file_unique_id = f"web:{digest[:64]}"
+    existing = await session.scalar(
+        select(ChatAudioTrack.id).where(ChatAudioTrack.file_unique_id == file_unique_id)
+    )
+    if existing:
+        track = await session.get(ChatAudioTrack, int(existing))
+        if track:
+            return {"ok": True, "status": "dedupe", "track": _track_dict(track)}
+
+    ext = _ext_for_audio(file_name, mime_type)
+    uid_part = _safe_component(digest[:16], "upload")
+    rel_dir = f"game/tavern_tracks/{_safe_component(str(cid), 'chat')}"
+    rel_path = f"{rel_dir}/{uid_part}{ext}"
+    dest = _static_root() / rel_path
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(raw)
+
+    title = _title_from_file_name(file_name)
+    track = ChatAudioTrack(
+        chat_id=cid,
+        file_unique_id=file_unique_id,
+        file_id=f"web_upload:{uuid.uuid4().hex}",
+        relative_path=rel_path,
+        title=title,
+        performer=None,
+        duration=int(duration) if duration is not None and int(duration) > 0 else None,
+        mime_type=(mime_type or "").strip() or None,
+        file_size=len(raw),
+        uploader_player_id=pid,
+    )
+    session.add(track)
+    await session.commit()
+    await session.refresh(track)
+    log_tavern_audio_event(
+        "web_upload",
+        chat_id=cid,
+        player_id=pid,
+        detail=f"track_id={track.id} bytes={len(raw)} path={rel_path}",
+    )
+    return {"ok": True, "status": "cached", "track": _track_dict(track)}
 
 
 async def admin_bgm_player_preview(session: AsyncSession, player_id: int) -> dict[str, Any]:

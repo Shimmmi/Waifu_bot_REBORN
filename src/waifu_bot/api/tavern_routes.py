@@ -1,7 +1,8 @@
 import logging
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -155,6 +156,273 @@ async def tavern_bgm_tracks(
         logger.exception("tavern_bgm_tracks failed for player %s", player_id)
         tracks = []
     return {"tracks": tracks}
+
+
+class TavernBgmCreatePlaylistIn(BaseModel):
+    chat_id: int
+    name: str = Field(min_length=1, max_length=128)
+
+
+class TavernBgmUpdatePlaylistIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    shuffle: bool | None = None
+    repeat: str | None = None
+
+
+class TavernBgmSetTracksIn(BaseModel):
+    track_ids: list[int] = Field(default_factory=list)
+
+
+class TavernBgmAddTrackIn(BaseModel):
+    track_id: int
+
+
+@router.get("/tavern/bgm/playlists", tags=["tavern"])
+async def tavern_bgm_playlists(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.tavern_audio import list_playlists_for_player
+
+    try:
+        return await list_playlists_for_player(session, player_id)
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_playlists failed for player %s", player_id)
+        return {"playlists": [], "active_playlist_id": None}
+
+
+@router.get("/tavern/bgm/playlists/active", tags=["tavern"])
+async def tavern_bgm_active_playlist(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.tavern_audio import get_active_playlist
+
+    try:
+        playlist = await get_active_playlist(session, player_id)
+        return {"playlist": playlist}
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_active_playlist failed for player %s", player_id)
+        return {"playlist": None}
+
+
+@router.get("/tavern/bgm/playlists/{playlist_id}", tags=["tavern"])
+async def tavern_bgm_playlist_detail(
+    playlist_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.tavern_audio import get_playlist_with_tracks
+
+    try:
+        playlist = await get_playlist_with_tracks(session, player_id, int(playlist_id))
+        if playlist is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="playlist_not_found")
+        return {"playlist": playlist}
+    except HTTPException:
+        raise
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_playlist_detail failed for player %s", player_id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="db_error") from None
+
+
+@router.post("/tavern/bgm/playlists", tags=["tavern"])
+async def tavern_bgm_create_playlist(
+    body: TavernBgmCreatePlaylistIn,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.tavern_audio import create_playlist
+
+    try:
+        playlist = await create_playlist(session, player_id, body.chat_id, body.name)
+        if playlist is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="chat_not_allowed")
+        return {"playlist": playlist}
+    except HTTPException:
+        raise
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_create_playlist failed for player %s", player_id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="db_error") from None
+
+
+@router.patch("/tavern/bgm/playlists/{playlist_id}", tags=["tavern"])
+async def tavern_bgm_update_playlist(
+    playlist_id: int,
+    body: TavernBgmUpdatePlaylistIn,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.tavern_audio import update_playlist
+
+    try:
+        playlist = await update_playlist(
+            session,
+            player_id,
+            int(playlist_id),
+            name=body.name,
+            shuffle=body.shuffle,
+            repeat=body.repeat,
+        )
+        if playlist is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="playlist_not_found")
+        return {"playlist": playlist}
+    except HTTPException:
+        raise
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_update_playlist failed for player %s", player_id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="db_error") from None
+
+
+@router.delete("/tavern/bgm/playlists/{playlist_id}", tags=["tavern"])
+async def tavern_bgm_delete_playlist(
+    playlist_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.tavern_audio import delete_playlist
+
+    try:
+        ok = await delete_playlist(session, player_id, int(playlist_id))
+        if not ok:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="playlist_not_found")
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_delete_playlist failed for player %s", player_id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="db_error") from None
+
+
+@router.put("/tavern/bgm/playlists/{playlist_id}/tracks", tags=["tavern"])
+async def tavern_bgm_set_playlist_tracks(
+    playlist_id: int,
+    body: TavernBgmSetTracksIn,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.tavern_audio import set_playlist_tracks
+
+    try:
+        playlist = await set_playlist_tracks(
+            session, player_id, int(playlist_id), body.track_ids
+        )
+        if playlist is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="playlist_not_found_or_invalid_track",
+            )
+        return {"playlist": playlist}
+    except HTTPException:
+        raise
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_set_playlist_tracks failed for player %s", player_id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="db_error") from None
+
+
+@router.post("/tavern/bgm/playlists/{playlist_id}/tracks", tags=["tavern"])
+async def tavern_bgm_add_playlist_track(
+    playlist_id: int,
+    body: TavernBgmAddTrackIn,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.tavern_audio import add_track_to_playlist
+
+    try:
+        playlist = await add_track_to_playlist(
+            session, player_id, int(playlist_id), body.track_id
+        )
+        if playlist is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="playlist_not_found_or_invalid_track",
+            )
+        return {"playlist": playlist}
+    except HTTPException:
+        raise
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_add_playlist_track failed for player %s", player_id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="db_error") from None
+
+
+@router.delete("/tavern/bgm/playlists/{playlist_id}/tracks/{track_id}", tags=["tavern"])
+async def tavern_bgm_remove_playlist_track(
+    playlist_id: int,
+    track_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.tavern_audio import remove_track_from_playlist
+
+    try:
+        playlist = await remove_track_from_playlist(
+            session, player_id, int(playlist_id), int(track_id)
+        )
+        if playlist is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="playlist_not_found")
+        return {"playlist": playlist}
+    except HTTPException:
+        raise
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_remove_playlist_track failed for player %s", player_id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="db_error") from None
+
+
+@router.post("/tavern/bgm/playlists/{playlist_id}/activate", tags=["tavern"])
+async def tavern_bgm_activate_playlist(
+    playlist_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.tavern_audio import set_active_playlist
+
+    try:
+        playlist = await set_active_playlist(session, player_id, int(playlist_id))
+        if playlist is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="playlist_not_found")
+        return {"playlist": playlist}
+    except HTTPException:
+        raise
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_activate_playlist failed for player %s", player_id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="db_error") from None
+
+
+@router.post("/tavern/bgm/upload", tags=["tavern"])
+async def tavern_bgm_upload(
+    file: UploadFile = File(...),
+    chat_id: int = Form(...),
+    duration: int | None = Form(default=None),
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.tavern_audio import upload_chat_audio_from_web
+
+    raw = await file.read()
+    try:
+        return await upload_chat_audio_from_web(
+            session,
+            player_id,
+            int(chat_id),
+            raw,
+            file.filename,
+            file.content_type,
+            duration,
+        )
+    except ValueError as e:
+        code = str(e)
+        if code == "file_too_large":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": code},
+            ) from e
+        if code in ("chat_not_allowed", "empty_file", "invalid_audio_type"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from e
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from e
+    except SQLAlchemyError:
+        logger.exception("tavern_bgm_upload failed for player %s", player_id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="db_error") from None
 
 
 @router.post("/tavern/keeper-banter", tags=["tavern"])

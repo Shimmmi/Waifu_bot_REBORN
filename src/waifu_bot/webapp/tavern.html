@@ -122,6 +122,59 @@
         letter-spacing: 0.04em;
         margin: 12px 0 6px;
       }
+      .page-tavern .tavern-bgm-add-filters-row {
+        display: flex;
+        gap: 8px;
+        align-items: flex-end;
+        flex-shrink: 0;
+      }
+      .page-tavern .tavern-bgm-add-filter {
+        flex: 1;
+        min-width: 0;
+      }
+      .page-tavern .tavern-bgm-add-filter .tavern-bgm-section-label {
+        margin: 0 0 4px;
+      }
+      .page-tavern .tavern-bgm-catalog-wrap {
+        position: relative;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        margin-top: 8px;
+      }
+      .page-tavern .tavern-bgm-catalog-wrap .tavern-bgm-section-label {
+        margin: 0 0 6px;
+      }
+      .page-tavern #tavern-bgm-add-catalog {
+        padding-bottom: 44px;
+      }
+      .page-tavern .tavern-bgm-upload-fab {
+        position: absolute;
+        right: 8px;
+        bottom: 8px;
+        z-index: 2;
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        min-height: 36px;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        background: rgba(200, 146, 42, 0.18);
+        color: var(--cream);
+        font-size: 16px;
+        line-height: 1;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+      }
+      .page-tavern .tavern-bgm-upload-fab:hover {
+        background: rgba(200, 146, 42, 0.32);
+        border-color: rgba(232, 184, 75, 0.55);
+      }
       .page-tavern .tavern-bgm-chat-select {
         width: 100%;
         padding: 10px 12px;
@@ -194,43 +247,224 @@
         font-size: 14px;
         line-height: 1;
       }
-      .page-tavern .tavern-bgm-toolbar {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin-top: 8px;
+      .page-tavern #tavern-bgm-player-modal.modal {
+        z-index: 125;
+        align-items: center;
+        justify-content: center;
+        padding: 12px;
+        box-sizing: border-box;
+        background: rgba(5, 3, 2, 0.55);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
       }
-      .page-tavern .tavern-bgm-toolbar .secondary {
+      .page-tavern #tavern-bgm-player-modal.modal:not(.hidden) {
+        display: flex !important;
+      }
+      .page-tavern .tavern-bgm-modal-sheet {
+        background: var(--parchment);
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        border-radius: 20px;
+        width: 100%;
+        max-width: min(480px, 100%);
+        padding: 12px 20px 28px;
+        min-height: min(50vh, 400px);
+        max-height: calc(100vh - 24px);
+        max-height: calc(100dvh - 24px);
+        overflow-y: auto;
+        overflow-x: hidden;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+      }
+      .page-tavern .tavern-bgm-tab-panels {
+        flex: 1;
+        min-height: 320px;
+        position: relative;
+        margin-top: 4px;
+      }
+      .page-tavern .tavern-bgm-tab-panel {
+        position: absolute;
+        inset: 0;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+      }
+      .page-tavern .tavern-bgm-tab-panel--hidden {
+        visibility: hidden;
+        pointer-events: none;
+        opacity: 0;
+      }
+      .page-tavern .tavern-bgm-progress {
+        margin-top: 12px;
+        height: 6px;
+        border-radius: 3px;
+        background: rgba(200, 146, 42, 0.15);
+        cursor: pointer;
+        position: relative;
+        overflow: hidden;
+      }
+      .page-tavern .tavern-bgm-progress-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, var(--amber), var(--amber-glow));
+        border-radius: 3px;
+        pointer-events: none;
+        transition: width 0.1s linear;
+      }
+      .page-tavern .tavern-bgm-controls-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(200, 146, 42, 0.18);
+        flex-shrink: 0;
+      }
+      .page-tavern .tavern-bgm-time {
+        font-size: 11px;
+        color: var(--ash);
+        min-width: 36px;
+        flex-shrink: 0;
+        font-variant-numeric: tabular-nums;
+      }
+      .page-tavern .tavern-bgm-time:last-child {
+        text-align: right;
+      }
+      .page-tavern .tavern-bgm-volume-overlay {
+        position: fixed;
+        z-index: 130;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 10px;
+        border-radius: 12px;
+        background: rgba(13, 10, 8, 0.92);
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+        pointer-events: auto;
+      }
+      .page-tavern .tavern-bgm-volume-overlay.hidden {
+        display: none;
+      }
+      .page-tavern .tavern-bgm-volume-overlay input[type="range"] {
+        writing-mode: vertical-lr;
+        direction: rtl;
+        width: 28px;
+        height: 120px;
+        accent-color: var(--amber-glow);
+        margin: 0;
+      }
+      .page-tavern .tavern-bgm-tab-short {
+        display: none;
+      }
+      @media (max-width: 380px) {
+        .page-tavern .tavern-bgm-tab-long {
+          display: none;
+        }
+        .page-tavern .tavern-bgm-tab-short {
+          display: inline;
+        }
+        .page-tavern .tavern-bgm-modal-tabs .tab {
+          font-size: 11px;
+          padding: 7px 6px;
+        }
+      }
+      .page-tavern .tavern-bgm-playlist-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+        align-items: center;
+      }
+      .page-tavern .tavern-bgm-playlist-toolbar select {
         flex: 1;
         min-width: 120px;
       }
-      .page-tavern .tavern-bgm-apply-btn {
-        width: 100%;
+      .page-tavern .tavern-bgm-text-btn {
+        padding: 8px 12px;
+        font-size: 11px;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        background: rgba(200, 146, 42, 0.1);
+        color: var(--amber-glow);
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .page-tavern .tavern-bgm-text-btn--primary {
+        background: linear-gradient(135deg, #c8922a, #e8b84b);
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .page-tavern .tavern-bgm-toolbar-row {
+        display: flex;
+        gap: 8px;
         margin-top: 10px;
+        flex-shrink: 0;
+      }
+      .page-tavern .tavern-bgm-action-btn {
+        flex: 1;
+        min-height: 40px;
+        padding: 0;
+        border-radius: 10px;
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        background: rgba(200, 146, 42, 0.1);
+        color: var(--amber-glow);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.15s, border-color 0.15s;
+      }
+      .page-tavern .tavern-bgm-action-btn:hover {
+        background: rgba(200, 146, 42, 0.2);
+        border-color: rgba(232, 184, 75, 0.5);
+      }
+      .page-tavern .tavern-bgm-action-btn--primary {
+        background: linear-gradient(135deg, #c8922a, #e8b84b);
+        border-color: rgba(232, 184, 75, 0.55);
+        color: var(--ink);
+        font-weight: 700;
+      }
+      .page-tavern .tavern-bgm-action-btn--primary:hover {
+        filter: brightness(1.05);
       }
       .page-tavern .tavern-bgm-controls {
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 10px;
-        margin-top: 14px;
-        padding-top: 12px;
-        border-top: 1px solid rgba(200, 146, 42, 0.18);
+        gap: 8px;
+        flex: 1;
+        min-width: 0;
       }
       .page-tavern .tavern-bgm-ctrl-btn {
         width: 36px;
         height: 36px;
-        border-radius: 50%;
+        min-width: 36px;
+        min-height: 36px;
+        flex-shrink: 0;
+        border-radius: 8px;
         border: 1px solid rgba(200, 146, 42, 0.3);
         background: rgba(200, 146, 42, 0.12);
         color: var(--cream);
         cursor: pointer;
         font-size: 15px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
       }
       .page-tavern .tavern-bgm-ctrl-btn--main {
-        width: 44px;
-        height: 44px;
+        width: 40px;
+        height: 40px;
+        min-width: 40px;
+        min-height: 40px;
         font-size: 18px;
+        border-radius: 10px;
       }
       .page-tavern .tavern-bgm-ctrl-btn--active {
         border-color: rgba(232, 184, 75, 0.7);
@@ -245,6 +479,141 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+      .page-tavern .tavern-bgm-track-title {
+        text-align: center;
+        font-size: 11px;
+        color: rgba(200, 180, 150, 0.65);
+        margin-top: 4px;
+        min-height: 16px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .page-tavern .tavern-bgm-playlist-picker-btn {
+        display: block;
+        width: 100%;
+        margin: 0 auto;
+        padding: 6px 12px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ash);
+        font-size: 12px;
+        cursor: pointer;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .page-tavern .tavern-bgm-playlist-picker-btn--active {
+        color: var(--amber-glow);
+        font-weight: 600;
+      }
+      .page-tavern .tavern-bgm-playlist-picker-btn:hover {
+        background: rgba(200, 146, 42, 0.1);
+      }
+      .page-tavern .tavern-bgm-playlist-picker {
+        position: fixed;
+        inset: 0;
+        z-index: 125;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        background: rgba(0, 0, 0, 0.45);
+        pointer-events: auto;
+      }
+      .page-tavern .tavern-bgm-playlist-picker.hidden {
+        display: none;
+      }
+      .page-tavern .tavern-bgm-playlist-picker-sheet {
+        width: 100%;
+        max-width: min(400px, 100%);
+        padding: 16px;
+        border-radius: 14px;
+        background: var(--parchment);
+        border: 1px solid rgba(200, 146, 42, 0.3);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: min(60vh, 420px);
+      }
+      .page-tavern .tavern-bgm-playlist-picker-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--cream);
+        text-align: center;
+      }
+      .page-tavern #tavern-bgm-playlist-picker-list {
+        flex: 1;
+        min-height: 80px;
+        max-height: min(50vh, 300px);
+        margin: 0;
+      }
+      .page-tavern .tavern-bgm-playlist-picker-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 10px;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        cursor: pointer;
+        font-size: 13px;
+        color: var(--cream);
+      }
+      .page-tavern .tavern-bgm-playlist-picker-row:hover {
+        background: rgba(200, 146, 42, 0.1);
+        border-color: rgba(200, 146, 42, 0.2);
+      }
+      .page-tavern .tavern-bgm-playlist-picker-row--active {
+        background: rgba(200, 146, 42, 0.15);
+        border-color: rgba(232, 184, 75, 0.45);
+        color: var(--amber-glow);
+      }
+      .page-tavern .tavern-bgm-playlist-picker-row-name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .page-tavern .tavern-bgm-playlist-picker-row-meta {
+        font-size: 11px;
+        color: var(--ash);
+        flex-shrink: 0;
+      }
+      .page-tavern .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      .page-tavern .tavern-bgm-modal-tabs {
+        display: flex;
+        gap: 6px;
+        margin: 4px 0 10px;
+      }
+      .page-tavern .tavern-bgm-modal-tabs .tab {
+        flex: 1;
+        padding: 8px 10px;
+        font-size: 12px;
+        border-radius: 9px;
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        background: rgba(13, 10, 8, 0.35);
+        color: var(--ash);
+        cursor: pointer;
+      }
+      .page-tavern .tavern-bgm-modal-tabs .tab.active {
+        color: var(--amber-glow);
+        border-color: rgba(232, 184, 75, 0.55);
+        background: rgba(200, 146, 42, 0.18);
       }
       /* Отряд / Леч / LVL: тёмно-золотой фон вместо глобального --card */
       .page-tavern #tab-squad .section,
@@ -1162,13 +1531,21 @@
         <button type="button" class="tab" data-tab="squad" onclick="WaifuApp.switchTavernTab('squad')">🛡 Отряд</button>
         <button type="button" class="tab" data-tab="heal" onclick="WaifuApp.switchTavernTab('heal')">💊 Леч.</button>
         <button type="button" class="tab" data-tab="upgrade" onclick="WaifuApp.switchTavernTab('upgrade')">⬆ LVL</button>
-        <button type="button" class="tavern-tab-refresh" title="Обновить данные таверны" aria-label="Обновить" onclick="WaifuApp.refreshTavernPage()">🔄</button>
+        <button
+          type="button"
+          class="tavern-tab-refresh admin-only"
+          id="tavern-admin-refresh"
+          style="display:none;"
+          title="Обновить слоты найма (админ)"
+          aria-label="Обновить слоты найма"
+          onclick="WaifuApp.adminRefreshTavern()"
+        >🔄</button>
         <button
           type="button"
           id="tavern-bgm-toggle"
           class="tavern-tab-refresh tavern-tab-bgm"
-          title="Выключить музыку"
-          aria-label="Выключить музыку"
+          title="Пауза"
+          aria-label="Пауза"
           aria-pressed="false"
           onclick="WaifuApp.toggleTavernBgmMuted()"
         >
@@ -1369,47 +1746,102 @@
       </div>
     </div>
 
-    <div id="tavern-bgm-player-modal" class="modal hidden" role="dialog" aria-labelledby="tavern-bgm-player-title">
-      <div class="modal-content tavern-modal-sheet modal-sheet">
-        <div class="modal-handle"></div>
-        <button class="modal-close" type="button" onclick="WaifuApp.closeTavernBgmPlayer()" aria-label="Закрыть">✕</button>
-        <div class="modal-title" id="tavern-bgm-player-title">Музыка таверны</div>
-        <div class="modal-subtitle" style="font-size:12px;color:var(--ash);margin-top:4px;">
-          Выберите групповой чат и соберите плейлист из MP3/аудиофайлов (не голосовых)
+    <div id="tavern-bgm-player-modal" class="modal hidden" role="dialog" aria-labelledby="tavern-bgm-sr-title" onclick="WaifuApp.onTavernBgmModalBackdropClick(event)">
+      <div class="modal-content tavern-bgm-modal-sheet modal-sheet" onclick="event.stopPropagation()">
+        <span id="tavern-bgm-sr-title" class="sr-only">Музыка таверны</span>
+        <div class="tavern-bgm-modal-tabs">
+          <button type="button" class="tab active" data-bgm-tab="player" onclick="WaifuApp.switchTavernBgmModalTab('player')">Плеер</button>
+          <button type="button" class="tab" data-bgm-tab="playlist" onclick="WaifuApp.switchTavernBgmModalTab('playlist')">Плейлист</button>
+          <button type="button" class="tab" data-bgm-tab="add" title="Музыка" onclick="WaifuApp.switchTavernBgmModalTab('add')">Музыка</button>
         </div>
-        <label class="tavern-bgm-section-label" for="tavern-bgm-chat-select">Чат</label>
-        <select id="tavern-bgm-chat-select" class="tavern-bgm-chat-select" onchange="WaifuApp.onTavernBgmChatChange()">
-          <option value="">Загрузка…</option>
-        </select>
-        <div id="tavern-bgm-chat-hint" class="tavern-bgm-hint" style="display:none;"></div>
-        <div class="tavern-bgm-lists">
-          <div>
-            <div class="tavern-bgm-section-label">Треки в чате</div>
-            <div id="tavern-bgm-catalog" class="tavern-bgm-list-panel">
-              <div class="muted tiny">Выберите чат</div>
+        <div class="tavern-bgm-tab-panels">
+          <div id="tavern-bgm-tab-player" class="tavern-bgm-tab-panel">
+            <button type="button" id="tavern-bgm-playlist-picker-btn" class="tavern-bgm-playlist-picker-btn" style="margin-top:0;" onclick="WaifuApp.openTavernBgmPlaylistPicker()">Выбрать плейлист</button>
+            <div id="tavern-bgm-now-playing" class="tavern-bgm-track-title">—</div>
+            <div
+              id="tavern-bgm-progress"
+              class="tavern-bgm-progress"
+              role="slider"
+              aria-label="Позиция трека"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              tabindex="0"
+              onclick="WaifuApp.seekTavernBgmProgress(event)"
+            >
+              <div id="tavern-bgm-progress-fill" class="tavern-bgm-progress-fill"></div>
+            </div>
+            <div class="tavern-bgm-controls-row">
+              <span id="tavern-bgm-elapsed" class="tavern-bgm-time">0:00</span>
+              <div class="tavern-bgm-controls">
+                <button type="button" id="tavern-bgm-shuffle-btn" class="tavern-bgm-ctrl-btn" title="Случайный порядок" aria-label="Случайный порядок" onclick="WaifuApp.toggleTavernBgmShuffle()">🔀</button>
+                <button type="button" id="tavern-bgm-prev-btn" class="tavern-bgm-ctrl-btn" title="Предыдущий" aria-label="Предыдущий" onclick="WaifuApp.prevTavernBgmTrack()">⏮</button>
+                <button type="button" id="tavern-bgm-play-btn" class="tavern-bgm-ctrl-btn tavern-bgm-ctrl-btn--main" title="Воспроизведение" aria-label="Воспроизведение" onclick="WaifuApp.toggleTavernBgmPlayPause()">⏯</button>
+                <button type="button" id="tavern-bgm-next-btn" class="tavern-bgm-ctrl-btn" title="Следующий" aria-label="Следующий" onclick="WaifuApp.nextTavernBgmTrack()">⏭</button>
+                <button type="button" id="tavern-bgm-repeat-btn" class="tavern-bgm-ctrl-btn" title="Повтор" aria-label="Повтор" onclick="WaifuApp.cycleTavernBgmRepeat()">🔁</button>
+                <button type="button" id="tavern-bgm-volume-btn" class="tavern-bgm-ctrl-btn" title="Громкость" aria-label="Громкость" onclick="WaifuApp.toggleTavernBgmVolumeOverlay()">🔈</button>
+              </div>
+              <span id="tavern-bgm-duration" class="tavern-bgm-time">0:00</span>
             </div>
           </div>
-          <div>
-            <div class="tavern-bgm-section-label">Мой плейлист</div>
-            <div id="tavern-bgm-playlist" class="tavern-bgm-list-panel">
-              <div class="muted tiny">Добавьте треки из списка выше</div>
+          <div id="tavern-bgm-tab-playlist" class="tavern-bgm-tab-panel tavern-bgm-tab-panel--hidden">
+            <div id="tavern-bgm-playlist-toolbar-filled" class="tavern-bgm-playlist-toolbar">
+              <select id="tavern-bgm-playlist-select" class="tavern-bgm-chat-select" onchange="WaifuApp.onTavernBgmPlaylistSelectChange()">
+                <option value="">Загрузка…</option>
+              </select>
+              <button type="button" class="tavern-bgm-text-btn" onclick="WaifuApp.renameTavernBgmPlaylist()">Переименовать</button>
+              <button type="button" class="tavern-bgm-text-btn" onclick="WaifuApp.deleteTavernBgmPlaylist()">Удалить</button>
+            </div>
+            <div id="tavern-bgm-playlist-toolbar-empty" style="display:none;">
+              <button type="button" class="tavern-bgm-text-btn tavern-bgm-text-btn--primary" style="width:100%;" onclick="WaifuApp.createTavernBgmPlaylistFromTab()">Создать плейлист</button>
+            </div>
+            <div id="tavern-bgm-playlist-tracks" class="tavern-bgm-list-panel" style="margin-top:10px;flex:1;">
+              <div class="muted tiny">Выберите плейлист</div>
+            </div>
+          </div>
+          <div id="tavern-bgm-tab-add" class="tavern-bgm-tab-panel tavern-bgm-tab-panel--hidden">
+            <div class="tavern-bgm-add-filters-row">
+              <div class="tavern-bgm-add-filter">
+                <label class="tavern-bgm-section-label" for="tavern-bgm-add-chat-select">Чат</label>
+                <select id="tavern-bgm-add-chat-select" class="tavern-bgm-chat-select" onchange="WaifuApp.onTavernBgmAddChatChange()">
+                  <option value="">Загрузка…</option>
+                </select>
+              </div>
+              <div class="tavern-bgm-add-filter">
+                <label class="tavern-bgm-section-label" for="tavern-bgm-add-playlist-select">Плейлист</label>
+                <select id="tavern-bgm-add-playlist-select" class="tavern-bgm-chat-select" onchange="WaifuApp.onTavernBgmAddPlaylistChange()">
+                  <option value="">Выберите чат</option>
+                </select>
+              </div>
+            </div>
+            <div id="tavern-bgm-add-chat-hint" class="tavern-bgm-hint" style="display:none;"></div>
+            <input type="file" id="tavern-bgm-upload-input" accept="audio/*,.mp3,.ogg,.m4a,.aac,.flac,.wav,.weba" style="display:none;" onchange="WaifuApp.onTavernBgmUploadSelected(this)" />
+            <div class="tavern-bgm-catalog-wrap">
+              <div class="tavern-bgm-section-label">Треки в чате</div>
+              <div id="tavern-bgm-add-catalog" class="tavern-bgm-list-panel" style="flex:1;">
+                <div class="muted tiny">Выберите чат</div>
+              </div>
+              <button type="button" class="tavern-bgm-upload-fab" title="Загрузить свой трек" aria-label="Загрузить свой трек" onclick="WaifuApp.openTavernBgmUploadPicker()">📥</button>
             </div>
           </div>
         </div>
-        <div class="tavern-bgm-toolbar">
-          <button type="button" class="secondary" onclick="WaifuApp.addAllTavernBgmDraft()">Добавить все</button>
-          <button type="button" class="secondary" onclick="WaifuApp.clearTavernBgmDraft()">Очистить</button>
-        </div>
-        <button type="button" class="primary tavern-bgm-apply-btn" onclick="WaifuApp.applyTavernBgmPlaylist()">
-          Загрузить плейлист
-        </button>
-        <div id="tavern-bgm-now-playing" class="tavern-bgm-now-playing">—</div>
-        <div class="tavern-bgm-controls">
-          <button type="button" id="tavern-bgm-shuffle-btn" class="tavern-bgm-ctrl-btn" title="Случайный порядок" aria-label="Случайный порядок" onclick="WaifuApp.toggleTavernBgmShuffle()">🔀</button>
-          <button type="button" id="tavern-bgm-prev-btn" class="tavern-bgm-ctrl-btn" title="Предыдущий" aria-label="Предыдущий" onclick="WaifuApp.prevTavernBgmTrack()">⏮</button>
-          <button type="button" id="tavern-bgm-play-btn" class="tavern-bgm-ctrl-btn tavern-bgm-ctrl-btn--main" title="Воспроизведение" aria-label="Воспроизведение" onclick="WaifuApp.toggleTavernBgmPlayPause()">⏯</button>
-          <button type="button" id="tavern-bgm-next-btn" class="tavern-bgm-ctrl-btn" title="Следующий" aria-label="Следующий" onclick="WaifuApp.nextTavernBgmTrack()">⏭</button>
-          <button type="button" id="tavern-bgm-repeat-btn" class="tavern-bgm-ctrl-btn" title="Повтор" aria-label="Повтор" onclick="WaifuApp.cycleTavernBgmRepeat()">🔁</button>
+      </div>
+      <div id="tavern-bgm-volume-overlay" class="tavern-bgm-volume-overlay hidden" onclick="event.stopPropagation()">
+        <span id="tavern-bgm-volume-icon" aria-hidden="true">🔈</span>
+        <input
+          type="range"
+          id="tavern-bgm-volume"
+          min="0"
+          max="100"
+          value="70"
+          aria-label="Громкость"
+          oninput="WaifuApp.onTavernBgmVolumeChange(this.value)"
+        />
+      </div>
+      <div id="tavern-bgm-playlist-picker" class="tavern-bgm-playlist-picker hidden" onclick="WaifuApp.onTavernBgmPlaylistPickerBackdropClick(event)">
+        <div class="tavern-bgm-playlist-picker-sheet" onclick="event.stopPropagation()">
+          <div class="tavern-bgm-playlist-picker-title">Плейлисты</div>
+          <div id="tavern-bgm-playlist-picker-list" class="tavern-bgm-list-panel"></div>
+          <button type="button" class="tavern-bgm-text-btn" style="width:100%;" onclick="WaifuApp.closeTavernBgmPlaylistPicker()">Закрыть</button>
         </div>
       </div>
     </div>

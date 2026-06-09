@@ -6,8 +6,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from waifu_bot.services.tavern_audio import (
+    _is_telegram_chat_track,
+    create_playlist,
     list_bgm_chats_for_player,
+    list_playlists_for_player,
     list_tracks_for_player_chat,
+    set_active_playlist,
+    upload_chat_audio_from_web,
 )
 
 
@@ -67,12 +72,18 @@ def test_list_bgm_chats_empty_returns_hint():
     asyncio.run(_run())
 
 
+def test_is_telegram_chat_track_excludes_web_uploads():
+    assert _is_telegram_chat_track(SimpleNamespace(file_unique_id="AgADBAAD"))
+    assert not _is_telegram_chat_track(SimpleNamespace(file_unique_id="web:abc123"))
+
+
 def test_list_tracks_for_player_chat_allowed():
     async def _run():
         session = AsyncMock()
         track = SimpleNamespace(
             id=7,
             chat_id=-100111,
+            file_unique_id="AgADBAAD",
             relative_path="game/tavern_tracks/-100111/u1.mp3",
             title="Song",
             performer="Artist",
@@ -105,5 +116,84 @@ def test_list_tracks_for_player_chat_denied():
         ):
             out = await list_tracks_for_player_chat(session, 42, -100999)
         assert out is None
+
+    asyncio.run(_run())
+
+
+def test_create_playlist_denied_when_chat_not_allowed():
+    async def _run():
+        session = AsyncMock()
+        with patch(
+            "waifu_bot.services.tavern_audio._ensure_chat_allowed",
+            AsyncMock(return_value=False),
+        ):
+            out = await create_playlist(session, 42, -100999, "Test")
+        assert out is None
+
+    asyncio.run(_run())
+
+
+def test_list_playlists_for_player_empty():
+    async def _run():
+        session = AsyncMock()
+        session.execute = AsyncMock(side_effect=[_rows_all([]), _scalars_all([])])
+        session.get = AsyncMock(return_value=None)
+        out = await list_playlists_for_player(session, 42)
+        assert out["playlists"] == []
+        assert out["active_playlist_id"] is None
+
+    asyncio.run(_run())
+
+
+def test_set_active_playlist_not_found():
+    async def _run():
+        session = AsyncMock()
+        with patch(
+            "waifu_bot.services.tavern_audio._get_player_playlist",
+            AsyncMock(return_value=None),
+        ):
+            out = await set_active_playlist(session, 42, 99)
+        assert out is None
+
+    asyncio.run(_run())
+
+
+def test_upload_chat_audio_rejects_disallowed_chat():
+    async def _run():
+        session = AsyncMock()
+        with patch(
+            "waifu_bot.services.tavern_audio._ensure_chat_allowed",
+            AsyncMock(return_value=False),
+        ):
+            try:
+                await upload_chat_audio_from_web(
+                    session, 42, -100111, b"fake", "song.mp3", "audio/mpeg"
+                )
+                assert False, "expected ValueError"
+            except ValueError as e:
+                assert str(e) == "chat_not_allowed"
+
+    asyncio.run(_run())
+
+
+def test_upload_chat_audio_rejects_oversized():
+    async def _run():
+        session = AsyncMock()
+        with patch(
+            "waifu_bot.services.tavern_audio._ensure_chat_allowed",
+            AsyncMock(return_value=True),
+        ):
+            try:
+                await upload_chat_audio_from_web(
+                    session,
+                    42,
+                    -100111,
+                    b"x" * (21 * 1024 * 1024),
+                    "song.mp3",
+                    "audio/mpeg",
+                )
+                assert False, "expected ValueError"
+            except ValueError as e:
+                assert str(e) == "file_too_large"
 
     asyncio.run(_run())

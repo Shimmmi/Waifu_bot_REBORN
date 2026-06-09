@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db.models import (
@@ -49,8 +49,10 @@ _MEDIA_POINTS: dict[MediaType, int] = {
 }
 
 
-def _today_utc() -> date:
-    return datetime.now(timezone.utc).date()
+def _today_msk() -> date:
+    from waifu_bot.services.abyss_service import msk_today
+
+    return msk_today()
 
 
 def _buf_key(player_id: int) -> str:
@@ -290,7 +292,7 @@ async def buffer_chat_reward(
     if not redis or (gold <= 0 and exp <= 0 and points <= 0):
         return
     key = _buf_key(player_id)
-    d = day or _today_utc()
+    d = day or _today_msk()
     try:
         pipe = redis.pipeline()
         if gold > 0:
@@ -334,7 +336,7 @@ async def try_award_chat_message(
         except Exception:
             logger.exception("chat reward cooldown check failed player_id=%s", player_id)
 
-    day = _today_utc()
+    day = _today_msk()
     daily_cap = cfg_int(cfg, "chat_reward.daily_points_cap", 600)
     today_pts = await _get_today_points(session, redis, player_id, day)
     if today_pts >= daily_cap:
@@ -422,7 +424,7 @@ async def _flush_player_buffer(
     wallet.exp = int(wallet.exp or 0) + exp
     wallet.last_buffered_at = datetime.now(timezone.utc)
 
-    day = _today_utc()
+    day = _today_msk()
     daily = await _ensure_daily(session, player_id, day)
     daily.points = int(daily.points or 0) + points
     daily.gold_earned = int(daily.gold_earned or 0) + gold
@@ -592,10 +594,35 @@ async def claim_wallet(session: AsyncSession, redis: Any, player_id: int) -> Cla
     )
 
 
+async def auto_claim_all_wallets(
+    session: AsyncSession,
+    redis: Any,
+) -> list[tuple[int, ClaimResult]]:
+    """Flush Redis buffers then claim every non-empty wallet."""
+    await flush_buffer_to_db(session, redis)
+    player_ids = (
+        await session.execute(
+            select(PlayerChatRewardWallet.player_id).where(
+                or_(
+                    PlayerChatRewardWallet.gold > 0,
+                    PlayerChatRewardWallet.exp > 0,
+                    PlayerChatRewardWallet.pending_chests > 0,
+                )
+            )
+        )
+    ).scalars().all()
+    out: list[tuple[int, ClaimResult]] = []
+    for player_id in player_ids:
+        result = await claim_wallet(session, redis, int(player_id))
+        if result.ok and (result.gold > 0 or result.exp > 0 or result.chests > 0):
+            out.append((int(player_id), result))
+    return out
+
+
 async def get_status(session: AsyncSession, redis: Any, player_id: int) -> dict[str, Any]:
     """Wallet + today stats + lifetime progress for UI."""
     cfg = await get_game_config_map(session)
-    day = _today_utc()
+    day = _today_msk()
     step = max(1, cfg_int(cfg, "chat_reward.chest_milestone_step", 1000))
     daily_cap = cfg_int(cfg, "chat_reward.daily_points_cap", 600)
 

@@ -16,3 +16,4 @@ def test_registry_has_gd_v1_round():
     names = [s.name for s in get_background_tick_registry()]
     assert "gd_v1_round" in names
     assert "chat_rewards_flush" in names
+    assert "chat_rewards_daily_claim" in names
