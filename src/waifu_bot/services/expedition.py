@@ -81,7 +81,7 @@ from waifu_bot.game.expedition_narrative_catalog import (
     resolve_archetype_and_mode,
     slot_preview_name,
 )
-from waifu_bot.services.expedition_ticks import run_one_tick
+from waifu_bot.services.expedition_ticks import run_one_tick, tick_narrative_history
 
 logger = logging.getLogger(__name__)
 
@@ -1327,6 +1327,7 @@ class ExpeditionService:
             narrative_brief=brief if isinstance(brief, dict) else None,
             mode_name=mode.name_ru if mode else None,
             archetype_name=arch.name_ru if arch else None,
+            tick_summaries=tick_narrative_history(ts),
             squad_prepared=squad_prepared if isinstance(squad_prepared, bool) else None,
         )
         if event_text:
@@ -1470,10 +1471,7 @@ class ExpeditionService:
         brief = getattr(active, "narrative_brief", None) or {}
         arch = archetype_for_id(getattr(active, "location_archetype_id", None))
         mode = mode_for_id(getattr(active, "expedition_mode_id", None))
-        tick_summaries: list[str] = []
         ts = active.tick_state or {}
-        if ts.get("last_narrative"):
-            tick_summaries.append(str(ts["last_narrative"]))
         squad_prepared = ts.get("squad_prepared")
         try:
             return await asyncio.wait_for(
@@ -1487,16 +1485,13 @@ class ExpeditionService:
                     narrative_brief=brief if isinstance(brief, dict) else None,
                     mode_name=mode.name_ru if mode else None,
                     archetype_name=arch.name_ru if arch else None,
-                    tick_summaries=tick_summaries,
+                    tick_summaries=tick_narrative_history(ts),
                     squad_prepared=squad_prepared if isinstance(squad_prepared, bool) else None,
                 ),
                 timeout=65.0,
             )
         except asyncio.TimeoutError:
-            return (
-                f"Отряд вернулся из экспедиции «{expedition_name}». "
-                f"Награда: {gold} золота, {exp} опыта наёмницам."
-            )
+            return f"Отряд вернулся из экспедиции «{expedition_name}» — усталый, но живой."
 
     async def finalize_completed_expedition(
         self, session: AsyncSession, active: ActiveExpedition

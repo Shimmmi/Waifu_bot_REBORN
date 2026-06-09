@@ -1,12 +1,13 @@
 """Guild raid v2: weekly chronicle (muster, chat log, daily MSK pipeline)."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,6 +21,7 @@ from waifu_bot.db.models import (
     GuildRaidDailyLog,
     GuildRaidMuster,
     GuildRaidParticipant,
+    GuildRaidSlotSummary,
     GuildRaidTemplate,
     MainWaifu,
     Player,
@@ -37,21 +39,23 @@ from waifu_bot.services.guild_raid_mechanics import (
     outcome_tier,
     resolve_daily_tactic,
 )
+from waifu_bot.game.constants import RAID_V2_SLOT_COUNT, RAID_V2_SLOT_HOURS
 from waifu_bot.services.guild_raid_narrative_ai import (
-    generate_raid_daily_narrative,
+    _strip_leaked_json,
+    compose_raid_daily_narrative,
+    generate_raid_daily_tactics,
     generate_raid_defeat_epilogue,
     generate_raid_finale,
     generate_raid_prologue,
+    generate_raid_slot_summary,
+    msk_slot_label,
+    pick_raid_adventure_goal,
     pick_random_raid_setting,
 )
 from waifu_bot.services.guild_progress import add_gxp
 
 logger = logging.getLogger(__name__)
 _MSK = ZoneInfo("Europe/Moscow")
-
-_last_guild_raid_daily_gen: date | None = None
-_last_guild_raid_daily_deliver: date | None = None
-_last_guild_raid_daily_resolve: date | None = None
 
 MUSTER_STATUS_PENDING = "pending"
 MUSTER_STATUS_COMPLETED = "completed"
@@ -403,6 +407,24 @@ async def respond_muster(
     if int(player_id) not in pids:
         return {"error": "not_invited"}
     responses = dict(muster.responses_json or {})
+    prev = responses.get(str(player_id))
+    if accept and prev == "accepted":
+        if all(responses.get(str(pid)) == "accepted" for pid in pids):
+            return await _complete_muster_and_start_raid(session, muster)
+        return {
+            "success": True,
+            "status": "pending",
+            "muster": muster_public_state(muster),
+            "idempotent": True,
+        }
+    if not accept and prev == "declined":
+        return {
+            "success": True,
+            "status": "cancelled",
+            "reason": "declined",
+            "player_id": player_id,
+            "idempotent": True,
+        }
     responses[str(player_id)] = "accepted" if accept else "declined"
     muster.responses_json = responses
     if not accept:
@@ -440,7 +462,63 @@ async def tick_muster_deadlines(session: AsyncSession) -> None:
     await session.commit()
 
 
+def _schedule_raid_prologue(raid_id: int) -> None:
+    asyncio.create_task(_finish_raid_prologue(raid_id), name=f"raid_prologue:{raid_id}")
+
+
+async def _finish_raid_prologue(raid_id: int) -> None:
+    from waifu_bot.db.session import get_session, init_engine
+
+    init_engine()
+    try:
+        async for session in get_session():
+            raid = await session.get(GuildRaid, raid_id)
+            if not raid:
+                return
+            guild = await session.get(Guild, raid.guild_id)
+            if not guild:
+                return
+            part_rows = (
+                await session.execute(
+                    select(GuildRaidParticipant.player_id).where(GuildRaidParticipant.raid_id == raid_id)
+                )
+            ).scalars().all()
+            pids = [int(x) for x in part_rows]
+            party = list(raid.party_snapshot_json or [])
+            loc_id = str(raid.location_archetype_id or "forest")
+            meta = dict(raid.adventure_meta_json or {})
+            tpl = await session.get(GuildRaidTemplate, raid.template_id)
+            goal = str(
+                meta.get("adventure_goal")
+                or pick_raid_adventure_goal(loc_id, template_name=tpl.name if tpl else None)
+            )
+            prologue = await generate_raid_prologue(
+                guild_name=str(meta.get("guild_name") or guild.name or ""),
+                guild_tag=str(meta.get("guild_tag") or guild.tag or ""),
+                location_archetype_id=loc_id,
+                party=party,
+                adventure_goal=goal,
+                template_name=tpl.name if tpl else None,
+            )
+            meta["prologue_html"] = prologue
+            meta["adventure_goal"] = goal
+            raid.adventure_meta_json = meta
+            await session.commit()
+            await _deliver_prologue(session, raid, guild, prologue, pids)
+            break
+    except Exception:
+        logger.exception("finish raid prologue failed raid_id=%s", raid_id)
+
+
 async def _complete_muster_and_start_raid(session: AsyncSession, muster: GuildRaidMuster) -> dict[str, Any]:
+    if muster.status == MUSTER_STATUS_COMPLETED and muster.raid_id:
+        return {
+            "success": True,
+            "status": "started",
+            "raid_id": muster.raid_id,
+            "muster": muster_public_state(muster),
+            "idempotent": True,
+        }
     guild = await session.get(Guild, muster.guild_id)
     if not guild or guild.raid_active_id:
         muster.status = MUSTER_STATUS_CANCELLED
@@ -454,20 +532,13 @@ async def _complete_muster_and_start_raid(session: AsyncSession, muster: GuildRa
 
     pids = [int(x) for x in (muster.participant_ids_json or [])]
     party = await _build_party_snapshot(session, pids)
-    loc_id, style_id = pick_random_raid_setting()
+    loc_id, _style_id = pick_random_raid_setting()
+    goal = pick_raid_adventure_goal(loc_id, template_name=tpl.name)
     chat_id = int(guild.telegram_chat_id or 0)
     if not chat_id:
         muster.status = MUSTER_STATUS_CANCELLED
         await session.commit()
         return {"error": "need_guild_chat"}
-
-    prologue = await generate_raid_prologue(
-        guild_name=guild.name,
-        guild_tag=guild.tag,
-        location_archetype_id=loc_id,
-        narrative_style_id=style_id,
-        party=party,
-    )
 
     now = _utc_now()
     raid = GuildRaid(
@@ -487,9 +558,14 @@ async def _complete_muster_and_start_raid(session: AsyncSession, muster: GuildRa
         story_progress=0,
         day_index=0,
         location_archetype_id=loc_id,
-        narrative_style_id=style_id,
+        narrative_style_id=0,
         party_snapshot_json=party,
-        adventure_meta_json={"prologue_html": prologue, "guild_tag": guild.tag, "guild_name": guild.name},
+        adventure_meta_json={
+            "prologue_html": "",
+            "guild_tag": guild.tag,
+            "guild_name": guild.name,
+            "adventure_goal": goal,
+        },
     )
     session.add(raid)
     await session.flush()
@@ -501,7 +577,7 @@ async def _complete_muster_and_start_raid(session: AsyncSession, muster: GuildRa
     await session.commit()
     await session.refresh(raid)
 
-    await _deliver_prologue(session, raid, guild, prologue, pids)
+    _schedule_raid_prologue(raid.id)
     return {"success": True, "status": "started", "raid_id": raid.id, "muster": muster_public_state(muster)}
 
 
@@ -571,53 +647,206 @@ async def log_raid_chat_event(
 
 def _msk_slot_index(dt: datetime) -> int:
     local = dt.astimezone(_MSK)
-    return min(7, local.hour // 3)
+    return min(RAID_V2_SLOT_COUNT - 1, local.hour // RAID_V2_SLOT_HOURS)
 
 
 def _slot_label(idx: int) -> str:
-    start = idx * 3
-    end = start + 2
-    return f"{start:02d}:00–{end:02d}:59 МСК"
+    return msk_slot_label(idx)
+
+
+def _slot_start_msk(game_date: date, slot_index: int) -> datetime:
+    hour = slot_index * RAID_V2_SLOT_HOURS
+    return datetime(game_date.year, game_date.month, game_date.day, hour, 0, tzinfo=_MSK)
+
+
+def _slot_end_msk(game_date: date, slot_index: int) -> datetime:
+    if slot_index >= RAID_V2_SLOT_COUNT - 1:
+        next_day = game_date + timedelta(days=1)
+        return datetime(next_day.year, next_day.month, next_day.day, 0, 0, tzinfo=_MSK)
+    hour = (slot_index + 1) * RAID_V2_SLOT_HOURS
+    return datetime(game_date.year, game_date.month, game_date.day, hour, 0, tzinfo=_MSK)
+
+
+async def aggregate_chat_slot(
+    session: AsyncSession,
+    raid_id: int,
+    for_date: date,
+    slot_index: int,
+    *,
+    min_event_ts: datetime | None = None,
+    max_previews_per_slot: int = 5,
+) -> dict[str, Any]:
+    slot_start = _slot_start_msk(for_date, slot_index).astimezone(timezone.utc)
+    slot_end = _slot_end_msk(for_date, slot_index).astimezone(timezone.utc)
+    if min_event_ts is not None and min_event_ts > slot_start:
+        slot_start = min_event_ts
+    filters = [
+        GuildRaidChatEvent.raid_id == raid_id,
+        GuildRaidChatEvent.event_ts >= slot_start,
+        GuildRaidChatEvent.event_ts < slot_end,
+    ]
+    q = await session.execute(select(GuildRaidChatEvent).where(*filters))
+    events = q.scalars().all()
+    beat: dict[str, Any] = {
+        "slot_index": slot_index,
+        "slot_label": _slot_label(slot_index),
+        "rest": True,
+        "active_players": [],
+        "messages": 0,
+        "previews": [],
+    }
+    player_names: dict[int, str] = {}
+    raid = await session.get(GuildRaid, raid_id)
+    for p in raid.party_snapshot_json or [] if raid else []:
+        player_names[int(p.get("player_id") or 0)] = str(p.get("name") or "")
+    by_player: dict[int, int] = {}
+    previews: list[str] = []
+    for ev in events:
+        by_player[int(ev.player_id)] = by_player.get(int(ev.player_id), 0) + 1
+        beat["rest"] = False
+        beat["messages"] = int(beat["messages"]) + 1
+        preview = (ev.text_preview or "").strip()
+        if preview and len(previews) < max_previews_per_slot:
+            previews.append(preview)
+    active = []
+    for pid, cnt in sorted(by_player.items(), key=lambda x: -x[1]):
+        nm = player_names.get(pid) or f"Игрок {pid}"
+        active.append(f"{nm} ({cnt})")
+    beat["active_players"] = active
+    beat["previews"] = previews
+    return beat
 
 
 async def aggregate_chat_slots(
     session: AsyncSession,
     raid_id: int,
     for_date: date,
+    *,
+    min_event_ts: datetime | None = None,
+    max_previews_per_slot: int = 5,
 ) -> list[dict[str, Any]]:
     day_start = datetime(for_date.year, for_date.month, for_date.day, tzinfo=_MSK).astimezone(timezone.utc)
     day_end = day_start + timedelta(days=1)
-    q = await session.execute(
-        select(GuildRaidChatEvent).where(
-            GuildRaidChatEvent.raid_id == raid_id,
-            GuildRaidChatEvent.event_ts >= day_start,
-            GuildRaidChatEvent.event_ts < day_end,
-        )
-    )
+    filters = [
+        GuildRaidChatEvent.raid_id == raid_id,
+        GuildRaidChatEvent.event_ts >= day_start,
+        GuildRaidChatEvent.event_ts < day_end,
+    ]
+    if min_event_ts is not None:
+        filters.append(GuildRaidChatEvent.event_ts >= min_event_ts)
+    q = await session.execute(select(GuildRaidChatEvent).where(*filters))
     events = q.scalars().all()
     slots: list[dict[str, Any]] = []
-    for idx in range(8):
-        slots.append({"slot_index": idx, "slot_label": _slot_label(idx), "rest": True, "active_players": [], "messages": 0})
+    for idx in range(RAID_V2_SLOT_COUNT):
+        slots.append(
+            {
+                "slot_index": idx,
+                "slot_label": _slot_label(idx),
+                "rest": True,
+                "active_players": [],
+                "messages": 0,
+                "previews": [],
+            }
+        )
 
     player_names: dict[int, str] = {}
     raid = await session.get(GuildRaid, raid_id)
     for p in raid.party_snapshot_json or [] if raid else []:
         player_names[int(p.get("player_id") or 0)] = str(p.get("name") or "")
 
-    by_slot: dict[int, dict[int, int]] = {i: {} for i in range(8)}
+    by_slot: dict[int, dict[int, int]] = {i: {} for i in range(RAID_V2_SLOT_COUNT)}
+    previews_by_slot: dict[int, list[str]] = {i: [] for i in range(RAID_V2_SLOT_COUNT)}
     for ev in events:
         si = _msk_slot_index(ev.event_ts)
         by_slot[si][int(ev.player_id)] = by_slot[si].get(int(ev.player_id), 0) + 1
         slots[si]["rest"] = False
         slots[si]["messages"] = int(slots[si]["messages"]) + 1
+        preview = (ev.text_preview or "").strip()
+        if preview and len(previews_by_slot[si]) < max_previews_per_slot:
+            previews_by_slot[si].append(preview)
 
-    for idx in range(8):
+    for idx in range(RAID_V2_SLOT_COUNT):
         active = []
         for pid, cnt in sorted(by_slot[idx].items(), key=lambda x: -x[1]):
             nm = player_names.get(pid) or f"Игрок {pid}"
             active.append(f"{nm} ({cnt})")
         slots[idx]["active_players"] = active
+        slots[idx]["previews"] = previews_by_slot[idx]
     return slots
+
+
+def _poll_log_matches(pv: dict[str, Any], telegram_poll_id: str) -> bool:
+    pid = str(telegram_poll_id)
+    if str(pv.get("group_poll_id") or pv.get("__telegram_poll_id__") or "") == pid:
+        return True
+    dm = pv.get("dm_poll_ids")
+    if isinstance(dm, dict):
+        return pid in {str(v) for v in dm.values()}
+    return False
+
+
+async def tick_raid_4h_summaries(session: AsyncSession) -> None:
+    """Generate 4-hour slot summaries for completed MSK windows."""
+    now_msk = msk_now()
+    q = await session.execute(
+        select(GuildRaid).where(GuildRaid.status == "active", GuildRaid.raid_version >= 2)
+    )
+    raids = q.scalars().all()
+    for raid in raids:
+        if not raid.started_at:
+            continue
+        guild = await session.get(Guild, raid.guild_id)
+        if not guild:
+            continue
+        party = list(raid.party_snapshot_json or [])
+        loc_id = str(raid.location_archetype_id or "forest")
+        start_date = raid.started_at.astimezone(_MSK).date()
+        end_date = now_msk.date()
+        current = start_date
+        while current <= end_date:
+            for si in range(RAID_V2_SLOT_COUNT):
+                slot_end = _slot_end_msk(current, si)
+                if now_msk < slot_end:
+                    continue
+                slot_start_utc = _slot_start_msk(current, si).astimezone(timezone.utc)
+                if raid.started_at >= slot_end.astimezone(timezone.utc):
+                    continue
+                existing = (
+                    await session.execute(
+                        select(GuildRaidSlotSummary).where(
+                            GuildRaidSlotSummary.raid_id == raid.id,
+                            GuildRaidSlotSummary.game_date == current,
+                            GuildRaidSlotSummary.slot_index == si,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if existing:
+                    continue
+                min_ts = raid.started_at if raid.started_at > slot_start_utc else None
+                beat = await aggregate_chat_slot(
+                    session, raid.id, current, si, min_event_ts=min_ts
+                )
+                summary = await generate_raid_slot_summary(
+                    guild_name=guild.name,
+                    guild_tag=guild.tag,
+                    location_archetype_id=loc_id,
+                    party=party,
+                    slot_label=_slot_label(si),
+                    slot_beat=beat,
+                )
+                session.add(
+                    GuildRaidSlotSummary(
+                        raid_id=raid.id,
+                        game_date=current,
+                        slot_index=si,
+                        slot_label=_slot_label(si),
+                        summary_html=summary,
+                        slot_beats_json=[beat],
+                        generated_at=_utc_now(),
+                    )
+                )
+            current += timedelta(days=1)
+    await session.flush()
 
 
 async def record_poll_vote_by_poll_id(
@@ -635,7 +864,7 @@ async def record_poll_vote_by_poll_id(
     )
     for log in q.scalars():
         pv = log.poll_votes_json or {}
-        if str(pv.get("__telegram_poll_id__") or "") != str(telegram_poll_id):
+        if not _poll_log_matches(pv, telegram_poll_id):
             continue
         inner = pv.get("votes") if isinstance(pv.get("votes"), dict) else {}
         inner[str(player_id)] = option_ids
@@ -691,7 +920,7 @@ async def _pick_winning_tactic(
     return dict(options[best_idx])
 
 
-async def process_raid_daily_generate(
+async def compose_raid_daily_log(
     session: AsyncSession, raid: GuildRaid, *, force: bool = False
 ) -> GuildRaidDailyLog | None:
     if int(getattr(raid, "raid_version", 1) or 1) < 2 or raid.status != "active":
@@ -720,8 +949,54 @@ async def process_raid_daily_generate(
     if not guild:
         return None
 
-    game_date = msk_today()
-    slot_beats = await aggregate_chat_slots(session, raid.id, game_date)
+    game_date = msk_today() - timedelta(days=1)
+    slot_rows = (
+        await session.execute(
+            select(GuildRaidSlotSummary)
+            .where(
+                GuildRaidSlotSummary.raid_id == raid.id,
+                GuildRaidSlotSummary.game_date == game_date,
+            )
+            .order_by(GuildRaidSlotSummary.slot_index)
+        )
+    ).scalars().all()
+    slot_summaries = [
+        {
+            "slot_index": r.slot_index,
+            "slot_label": r.slot_label,
+            "summary_html": r.summary_html,
+        }
+        for r in slot_rows
+    ]
+    if not slot_summaries and day_index == 1 and raid.started_at:
+        min_event_ts = None
+        started_local = raid.started_at.astimezone(_MSK)
+        if started_local.date() == game_date:
+            min_event_ts = raid.started_at
+        beats = await aggregate_chat_slots(
+            session, raid.id, game_date, min_event_ts=min_event_ts
+        )
+        from waifu_bot.services.guild_raid_narrative_ai import (
+            _build_slot_fallback_summary,
+            _location_name,
+        )
+
+        loc = _location_name(str(raid.location_archetype_id or "forest"))
+        for beat in beats:
+            if beat.get("rest"):
+                continue
+            slot_summaries.append(
+                {
+                    "slot_index": beat.get("slot_index"),
+                    "slot_label": beat.get("slot_label"),
+                    "summary_html": _build_slot_fallback_summary(
+                        slot_label=str(beat.get("slot_label") or ""),
+                        slot_beat=beat,
+                        location=loc,
+                    ),
+                }
+            )
+
     chronicle: list[str] = []
     prev_logs = (
         await session.execute(
@@ -734,34 +1009,52 @@ async def process_raid_daily_generate(
         if pl.narrative_html:
             chronicle.append(pl.narrative_html)
 
-    narrative, raw_tactics = await generate_raid_daily_narrative(
+    party = list(raid.party_snapshot_json or [])
+    loc_id = str(raid.location_archetype_id or "forest")
+    narrative = await compose_raid_daily_narrative(
         guild_name=guild.name,
         guild_tag=guild.tag,
         day_index=day_index,
-        location_archetype_id=str(raid.location_archetype_id or "forest"),
-        narrative_style_id=int(raid.narrative_style_id or 1),
-        party=list(raid.party_snapshot_json or []),
-        slot_beats=slot_beats,
+        location_archetype_id=loc_id,
+        party=party,
+        slot_summaries=slot_summaries,
         company_vitality=int(raid.company_vitality or 0),
         story_progress=int(raid.story_progress or 0),
         last_tactic=raid.last_tactic_choice_json,
         last_resolve=raid.last_resolve_json,
         chronicle_summaries=chronicle,
     )
+    narrative = _strip_leaked_json(narrative)
+    raw_tactics = await generate_raid_daily_tactics(
+        guild_name=guild.name,
+        guild_tag=guild.tag,
+        day_index=day_index,
+        location_archetype_id=loc_id,
+        party=party,
+        narrative_preview=narrative,
+        last_tactic=raid.last_tactic_choice_json,
+    )
     tactics = _tactic_options_with_mechanics(raw_tactics)
+    slot_beats = [dict(r.slot_beats_json[0]) for r in slot_rows if r.slot_beats_json]
 
     log = GuildRaidDailyLog(
         raid_id=raid.id,
         day_index=day_index,
         game_date=game_date,
         narrative_html=narrative,
-        slot_beats_json=slot_beats,
+        slot_beats_json=slot_beats or None,
         tactic_poll_options_json=tactics,
         generated_at=_utc_now(),
     )
     session.add(log)
     await session.flush()
     return log
+
+
+async def process_raid_daily_generate(
+    session: AsyncSession, raid: GuildRaid, *, force: bool = False
+) -> GuildRaidDailyLog | None:
+    return await compose_raid_daily_log(session, raid, force=force)
 
 
 async def deliver_raid_daily(session: AsyncSession, log: GuildRaidDailyLog) -> None:
@@ -772,52 +1065,86 @@ async def deliver_raid_daily(session: AsyncSession, log: GuildRaidDailyLog) -> N
         return
     guild = await session.get(Guild, raid.guild_id)
     if not guild or not guild.telegram_chat_id:
+        logger.warning("deliver_raid_daily skipped: no guild chat raid_id=%s log_id=%s", log.raid_id, log.id)
         return
 
-    from waifu_bot.services.webhook import get_bot
+    claim_ts = _utc_now()
+    claimed = (
+        await session.execute(
+            update(GuildRaidDailyLog)
+            .where(GuildRaidDailyLog.id == log.id, GuildRaidDailyLog.delivered_at.is_(None))
+            .values(delivered_at=claim_ts)
+            .returning(GuildRaidDailyLog.id)
+        )
+    ).scalar_one_or_none()
+    if not claimed:
+        await session.refresh(log)
+        return
+    log.delivered_at = claim_ts
+    await session.flush()
 
-    bot = get_bot()
-    chat_id = int(guild.telegram_chat_id)
-    narrative = (log.narrative_html or "")[:4000]
-    await bot.send_message(chat_id=chat_id, text=narrative)
+    try:
+        from waifu_bot.services.webhook import get_bot
 
-    options = [str(t.get("label") or f"Вариант {i+1}")[:90] for i, t in enumerate(log.tactic_poll_options_json or [])]
-    if not options:
-        options = [NEUTRAL_TACTIC["label"], "Форсировать переход", "Рискованный рейд"]
+        bot = get_bot()
+        chat_id = int(guild.telegram_chat_id)
+        narrative = _strip_leaked_json(log.narrative_html or "")[:4000]
+        await bot.send_message(chat_id=chat_id, text=narrative)
 
-    poll_msg = await bot.send_poll(
-        chat_id=chat_id,
-        question=f"Тактика на день {log.day_index} (3 ч)",
-        options=options,
-        is_anonymous=False,
-        allows_multiple_answers=False,
-    )
-    log.poll_message_id = poll_msg.message_id
-    log.poll_chat_id = chat_id
-    log.poll_deadline_at = _utc_now() + timedelta(hours=TACTIC_POLL_HOURS)
-    log.delivered_at = _utc_now()
-    poll_id = poll_msg.poll.id if poll_msg.poll else None
-    log.poll_votes_json = {"__telegram_poll_id__": poll_id, "votes": {}}
-    raid.day_index = int(log.day_index)
+        options = [
+            str(t.get("label") or f"Вариант {i+1}")[:90]
+            for i, t in enumerate(log.tactic_poll_options_json or [])
+        ]
+        if not options:
+            options = [NEUTRAL_TACTIC["label"], "Форсировать переход", "Рискованный рейд"]
 
-    parts = (
-        await session.execute(select(GuildRaidParticipant.player_id).where(GuildRaidParticipant.raid_id == raid.id))
-    ).scalars().all()
-    for pid in parts:
-        try:
-            dm_poll = await bot.send_poll(
-                chat_id=int(pid),
-                question=f"Рейд: тактика дня {log.day_index}",
-                options=options,
-                is_anonymous=False,
-                allows_multiple_answers=False,
+        poll_msg = await bot.send_poll(
+            chat_id=chat_id,
+            question=f"Тактика на день {log.day_index} (3 ч)",
+            options=options,
+            is_anonymous=False,
+            allows_multiple_answers=False,
+        )
+        log.poll_message_id = poll_msg.message_id
+        log.poll_chat_id = chat_id
+        log.poll_deadline_at = _utc_now() + timedelta(hours=TACTIC_POLL_HOURS)
+        poll_id = poll_msg.poll.id if poll_msg.poll else None
+        dm_poll_ids: dict[str, str] = {}
+        parts = (
+            await session.execute(
+                select(GuildRaidParticipant.player_id).where(GuildRaidParticipant.raid_id == raid.id)
             )
-            if not log.poll_votes_json:
-                log.poll_votes_json = {}
-        except Exception:
-            logger.debug("raid poll DM failed pid=%s", pid)
+        ).scalars().all()
+        for pid in parts:
+            try:
+                dm_msg = await bot.send_poll(
+                    chat_id=int(pid),
+                    question=f"Рейд: тактика дня {log.day_index}",
+                    options=options,
+                    is_anonymous=False,
+                    allows_multiple_answers=False,
+                )
+                if dm_msg.poll:
+                    dm_poll_ids[str(int(pid))] = str(dm_msg.poll.id)
+            except Exception:
+                logger.debug("raid poll DM failed pid=%s", pid)
 
-    await session.commit()
+        log.poll_votes_json = {
+            "group_poll_id": poll_id,
+            "__telegram_poll_id__": poll_id,
+            "dm_poll_ids": dm_poll_ids,
+            "votes": {},
+        }
+        raid.day_index = int(log.day_index)
+        await session.commit()
+    except Exception:
+        logger.exception("deliver_raid_daily failed raid_id=%s log_id=%s", log.raid_id, log.id)
+        await session.execute(
+            update(GuildRaidDailyLog)
+            .where(GuildRaidDailyLog.id == log.id)
+            .values(delivered_at=None)
+        )
+        await session.commit()
 
 
 async def resolve_raid_daily_poll(session: AsyncSession, log: GuildRaidDailyLog) -> None:
@@ -927,13 +1254,54 @@ _last_guild_raid_daily_deliver: date | None = None
 _last_guild_raid_daily_resolve: date | None = None
 
 
-async def tick_raid_daily_msk(session: AsyncSession) -> None:
-    """Run 04:50 generate, 05:00 deliver, 08:00 resolve once per MSK day window."""
-    global _last_guild_raid_daily_gen, _last_guild_raid_daily_deliver, _last_guild_raid_daily_resolve
+async def _pending_daily_log_for_deliver(
+    session: AsyncSession, raid_id: int, day_index: int
+) -> GuildRaidDailyLog | None:
+    result = await session.execute(
+        select(GuildRaidDailyLog).where(
+            GuildRaidDailyLog.raid_id == raid_id,
+            GuildRaidDailyLog.day_index == day_index,
+            GuildRaidDailyLog.generated_at.isnot(None),
+            GuildRaidDailyLog.delivered_at.is_(None),
+        )
+    )
+    return result.scalar_one_or_none()
 
+
+async def _pending_daily_log_for_resolve(session: AsyncSession, raid_id: int) -> GuildRaidDailyLog | None:
+    result = await session.execute(
+        select(GuildRaidDailyLog)
+        .where(
+            GuildRaidDailyLog.raid_id == raid_id,
+            GuildRaidDailyLog.delivered_at.isnot(None),
+            GuildRaidDailyLog.resolved_at.is_(None),
+        )
+        .order_by(GuildRaidDailyLog.day_index.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _daily_log_generated(
+    session: AsyncSession, raid_id: int, day_index: int
+) -> GuildRaidDailyLog | None:
+    result = await session.execute(
+        select(GuildRaidDailyLog).where(
+            GuildRaidDailyLog.raid_id == raid_id,
+            GuildRaidDailyLog.day_index == day_index,
+            GuildRaidDailyLog.generated_at.isnot(None),
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def tick_raid_daily_msk(session: AsyncSession) -> None:
+    """Run 04:30 compose, 05:00 deliver, 08:00 resolve (MSK) with catch-up via DB state."""
     now_msk = msk_now()
-    today = now_msk.date()
-    h, m = now_msk.hour, now_msk.minute
+    minutes_msk = now_msk.hour * 60 + now_msk.minute
+    compose_from = 4 * 60 + 30
+    deliver_from = 5 * 60
+    resolve_from = 8 * 60
 
     q = await session.execute(
         select(GuildRaid).where(GuildRaid.status == "active", GuildRaid.raid_version >= 2)
@@ -944,39 +1312,26 @@ async def tick_raid_daily_msk(session: AsyncSession) -> None:
 
     for raid in raids:
         try:
-            if h == 4 and m >= 50 and _last_guild_raid_daily_gen != today:
-                log = await process_raid_daily_generate(session, raid)
-                if log:
-                    _last_guild_raid_daily_gen = today
-                    await session.commit()
-            elif h == 5 and m < 10 and _last_guild_raid_daily_deliver != today:
-                day_index = int(raid.day_index or 0) + 1
-                if day_index > RAID_WEEK_DAYS:
-                    continue
-                dl_q = await session.execute(
-                    select(GuildRaidDailyLog).where(
-                        GuildRaidDailyLog.raid_id == raid.id,
-                        GuildRaidDailyLog.day_index == day_index,
-                        GuildRaidDailyLog.generated_at.isnot(None),
-                        GuildRaidDailyLog.delivered_at.is_(None),
-                    )
-                )
-                log = dl_q.scalar_one_or_none()
+            next_day = int(raid.day_index or 0) + 1
+            if next_day > RAID_WEEK_DAYS:
+                continue
+
+            if minutes_msk >= compose_from:
+                existing = await _daily_log_generated(session, raid.id, next_day)
+                if not existing:
+                    log = await compose_raid_daily_log(session, raid)
+                    if log:
+                        await session.commit()
+
+            if minutes_msk >= deliver_from:
+                log = await _pending_daily_log_for_deliver(session, raid.id, next_day)
                 if log:
                     await deliver_raid_daily(session, log)
-                    _last_guild_raid_daily_deliver = today
-            elif h == 8 and m < 10 and _last_guild_raid_daily_resolve != today:
-                dl_q = await session.execute(
-                    select(GuildRaidDailyLog).where(
-                        GuildRaidDailyLog.raid_id == raid.id,
-                        GuildRaidDailyLog.delivered_at.isnot(None),
-                        GuildRaidDailyLog.resolved_at.is_(None),
-                    ).order_by(GuildRaidDailyLog.day_index.desc()).limit(1)
-                )
-                log = dl_q.scalar_one_or_none()
-                if log:
+
+            if minutes_msk >= resolve_from:
+                log = await _pending_daily_log_for_resolve(session, raid.id)
+                if log and log.poll_deadline_at and _utc_now() >= log.poll_deadline_at:
                     await resolve_raid_daily_poll(session, log)
-                    _last_guild_raid_daily_resolve = today
         except Exception:
             logger.exception("raid daily tick failed raid_id=%s", raid.id)
     await session.commit()
@@ -1058,6 +1413,28 @@ async def resolve_active_v2_raid(
     return guild, raid
 
 
+async def admin_force_slot_summaries(session: AsyncSession, raid: GuildRaid) -> dict[str, Any]:
+    before = (
+        await session.execute(
+            select(GuildRaidSlotSummary).where(GuildRaidSlotSummary.raid_id == raid.id)
+        )
+    ).scalars().all()
+    before_n = len(before)
+    await tick_raid_4h_summaries(session)
+    await session.flush()
+    after = (
+        await session.execute(
+            select(GuildRaidSlotSummary).where(GuildRaidSlotSummary.raid_id == raid.id)
+        )
+    ).scalars().all()
+    return {
+        "success": True,
+        "raid_id": int(raid.id),
+        "slot_summaries_total": len(after),
+        "slot_summaries_created": max(0, len(after) - before_n),
+    }
+
+
 async def admin_force_generate(session: AsyncSession, raid: GuildRaid) -> dict[str, Any]:
     log = await process_raid_daily_generate(session, raid, force=True)
     if not log:
@@ -1126,6 +1503,58 @@ async def admin_force_resolve(session: AsyncSession, raid: GuildRaid) -> dict[st
     }
 
 
+_CANCEL_RAID_MESSAGES: dict[str, str] = {
+    "admin": "Рейд гильдии [{tag}] отменён администратором.",
+    "leader_left": "Рейд гильдии [{tag}] отменён: глава покинул отряд.",
+    "leader_cancel": "Рейд гильдии [{tag}] отменён главой гильдии.",
+    "no_participants": "Рейд гильдии [{tag}] отменён: в отряде не осталось участников.",
+}
+
+
+async def leader_cancel_raid(session: AsyncSession, player_id: int) -> dict[str, Any]:
+    ctx = await _require_guild_leader(session, player_id)
+    if isinstance(ctx, dict):
+        return ctx
+    _mem, guild = ctx
+    if not guild.raid_active_id:
+        return {"error": "no_active_raid"}
+    raid = await session.get(GuildRaid, guild.raid_active_id)
+    if not raid or raid.status != "active":
+        guild.raid_active_id = None
+        await session.commit()
+        return {"error": "no_active_raid"}
+    await cancel_guild_raid(session, raid, guild, reason="leader_cancel")
+    await session.commit()
+    return {"success": True, "raid_id": int(raid.id)}
+
+
+async def cancel_guild_raid(
+    session: AsyncSession,
+    raid: GuildRaid,
+    guild: Guild,
+    *,
+    reason: str = "admin",
+    notify: bool = True,
+) -> None:
+    raid.status = "cancelled"
+    guild.raid_active_id = None
+    await session.flush()
+    if not notify:
+        return
+    try:
+        from waifu_bot.services.webhook import get_bot
+
+        bot = get_bot()
+        if bot and guild.telegram_chat_id:
+            template = _CANCEL_RAID_MESSAGES.get(reason, _CANCEL_RAID_MESSAGES["admin"])
+            await bot.send_message(
+                chat_id=int(guild.telegram_chat_id),
+                text=template.format(tag=guild.tag),
+            )
+    except Exception:
+        logger.exception("cancel_guild_raid notify failed raid_id=%s reason=%s", raid.id, reason)
+
+
 async def admin_stop_raid(
     session: AsyncSession,
     raid: GuildRaid,
@@ -1138,20 +1567,7 @@ async def admin_stop_raid(
         await session.commit()
         return {"success": True, "mode": "defeat", "raid_id": int(raid.id)}
 
-    raid.status = "cancelled"
-    guild.raid_active_id = None
-    await session.flush()
-    try:
-        from waifu_bot.services.webhook import get_bot
-
-        bot = get_bot()
-        if bot and guild.telegram_chat_id:
-            await bot.send_message(
-                chat_id=int(guild.telegram_chat_id),
-                text=f"Рейд гильдии [{guild.tag}] отменён администратором.",
-            )
-    except Exception:
-        logger.exception("admin_stop_raid notify failed raid_id=%s", raid.id)
+    await cancel_guild_raid(session, raid, guild, reason="admin")
     return {"success": True, "mode": "abort", "raid_id": int(raid.id)}
 
 

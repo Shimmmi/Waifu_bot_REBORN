@@ -4,17 +4,48 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Подземелья</title>
-    <link rel="stylesheet" href="/webapp/styles.css?v=waifu-webapp-v25" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v29" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v26'" />
+    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v29" />
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
     <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
-    <script defer src="/webapp/app.js?v=waifu-webapp-v25"></script>
-    <script defer src="/webapp/pages/dungeons.js?v=waifu-webapp-v25"></script>
+    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v29" onerror="console.warn('combat island skipped')"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v29" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v26'"></script>
+    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v29" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v26'"></script>
     <style>
       .hp-fill-monster.monster-hp-fill--unknown {
         opacity: 0.35;
         filter: grayscale(1);
       }
+      #monster-visual.solo-hit-flash {
+        animation: solo-hit-flash 0.35s ease-out;
+      }
+      @keyframes solo-hit-flash {
+        0% { filter: brightness(1.6); transform: scale(1.02); }
+        100% { filter: brightness(1); transform: scale(1); }
+      }
+      .solo-damage-float {
+        position: absolute;
+        top: 28%;
+        left: 50%;
+        transform: translateX(-50%);
+        font-weight: 800;
+        font-size: 1.25rem;
+        color: #f87171;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+        pointer-events: none;
+        animation: solo-dmg-float 0.85s ease-out forwards;
+        z-index: 5;
+      }
+      .solo-damage-float--crit {
+        color: #fbbf24;
+        font-size: 1.45rem;
+      }
+      @keyframes solo-dmg-float {
+        0% { opacity: 1; transform: translate(-50%, 0); }
+        100% { opacity: 0; transform: translate(-50%, -28px); }
+      }
+      #monster-visual { position: relative; }
       /* ОЧ — палитра как в магазине / таверне, читаемый текст */
       body.page-dungeons {
         background: #0d0a08;
@@ -1953,7 +1984,7 @@
       }
     </style>
   </head>
-  <body class="page-dungeons" onload="WaifuApp.bootstrapPage('dungeons', WaifuApp.populateDungeonsPage);">
+  <body class="page-dungeons" onload="WaifuApp?.bootstrapPage?.('dungeons', WaifuApp.populateDungeonsPage);">
     <div class="screen">
       <header class="attic">
         <div class="attic-row" aria-label="Основной чердак">
@@ -2002,6 +2033,7 @@
                 <span id="solo-dungeon-name" class="solo-dungeon-title">—</span>
                 <span id="solo-dungeon-progress" class="solo-dungeon-progress" aria-label="Прогресс комнат"></span>
               </div>
+              <div id="solo-combat-island" aria-live="polite"></div>
 
               <div class="monster-visual"
                    id="monster-visual"
@@ -2025,36 +2057,15 @@
                      height="400"
                      loading="eager"
                      decoding="async"
-                     onload="WaifuApp.onMonsterImageLoad(this)"
-                     onerror="WaifuApp.onMonsterImageError(this)" />
+                     onload="WaifuApp?.onMonsterImageLoad?.(this)"
+                     onerror="WaifuApp?.onMonsterImageError?.(this)" />
                 <div class="monster-overlay-bottom">
                   <span class="monster-name-badge monster-name-text" id="monster-name-text">—</span>
                   <div class="monster-type-badge" id="monster-name-type" style="display:none;" aria-label="Тип монстра"></div>
                 </div>
               </div>
 
-              <div class="hp-bar-wrap" aria-label="HP монстра">
-                <div class="hp-bar-labels">
-                  <span class="hp-bar-label-name">❤️ Монстр</span>
-                  <span id="monster-hp-text" class="hp-bar-label-value">—</span>
-                </div>
-                <div class="hp-bar">
-                  <div id="monster-hp-fill" class="hp-fill hp-fill-monster" style="width:100%"></div>
-                </div>
-                <p id="monster-hp-codex-hint" class="muted tiny" style="display:none;margin:4px 0 0;"></p>
-              </div>
-
               <div id="monster-affixes" class="monster-affixes" style="display:none;" aria-label="Аффиксы монстра"></div>
-
-              <div class="hp-bar-wrap" aria-label="HP персонажа">
-                <div class="hp-bar-labels">
-                  <span class="hp-bar-label-name">🌸 <span id="solo-waifu-name">—</span></span>
-                  <span id="solo-waifu-hp-text" class="hp-bar-label-value">—</span>
-                </div>
-                <div class="hp-bar">
-                  <div id="solo-waifu-hp-fill" class="hp-fill hp-fill-waifu" style="width:100%"></div>
-                </div>
-              </div>
 
               <div class="solo-dungeon-admin admin-only" id="solo-dungeons-admin-buttons" style="display:none;" aria-label="Админ: соло-бой">
                 <button type="button" class="dungeon-tab-sm" title="Убить монстра" aria-label="Убить монстра" onclick="WaifuApp.adminKillMonster()">💀</button>
@@ -2454,18 +2465,18 @@
               <div class="item-modal-v2-req-pills" id="item-modal-requirements" aria-live="polite"></div>
             </div>
             <div class="item-modal-v2-desc" id="item-modal-desc" style="display:none;"></div>
-            <div class="item-modal-v2-scroll-pad" aria-hidden="true"></div>
-          </div>
-          <footer class="item-modal-v2-footer">
-            <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
-              <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip" type="button" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Надеть</button>
-              <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
-              <button class="item-modal-v2-btn item-modal-v2-btn--ench item-modal-v2-btn--icon" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;" aria-label="Заточить" title="Заточить">⚒</button>
-              <button class="item-modal-v2-btn item-modal-v2-btn--neutral item-modal-v2-btn--icon" id="item-modal-dismantle" type="button" onclick="WaifuApp.openItemDismantleConfirmOverlay()" style="display:none;" aria-label="Распылить" title="Распылить">✨</button>
-              <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
-              <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
+            <div class="item-modal-v2-cta">
+              <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
+                <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip" type="button" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Надеть</button>
+                <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
+                <button class="item-modal-v2-btn item-modal-v2-btn--ench item-modal-v2-btn--icon" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;" aria-label="Заточить" title="Заточить">⚒</button>
+                <button class="item-modal-v2-btn item-modal-v2-btn--neutral item-modal-v2-btn--icon" id="item-modal-dismantle" type="button" onclick="WaifuApp.openItemDismantleConfirmOverlay()" style="display:none;" aria-label="Распылить" title="Распылить">✨</button>
+                <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
+                <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
+              </div>
             </div>
-          </footer>
+            <div class="item-modal-v2-scroll-pad shop-offer-modal-scroll-pad" aria-hidden="true"></div>
+          </div>
         </div>
         </div>
         <div

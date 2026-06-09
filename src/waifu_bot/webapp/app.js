@@ -3362,16 +3362,11 @@ function renderSmithPickPage() {
       const equipped = it.equipment_slot != null;
       const sel = shopState.smithSelectedId === it.id ? " shop-smith-pick-card--selected" : "";
       const lv = it.total_level != null ? safeNumber(it.total_level, 1) : safeNumber(it.level, 1);
-      const lvLine = equipped
-        ? `<div class="shop-smith-pick-lv muted tiny">t${safeNumber(it.tier, 1)} · ${lv}</div>`
-        : "";
-      return `<button type="button" class="shop-smith-pick-card ${cls}${sel}" data-id="${it.id}" onclick="WaifuApp.pickSmithItem(${it.id})">
+      const label = composeItemDisplayName(it).replace(/<[^>]+>/g, "").trim();
+      return `<button type="button" class="shop-smith-pick-card ${cls}${sel}" data-id="${it.id}" aria-label="${escapeHtml(label)}" onclick="WaifuApp.pickSmithItem(${it.id})">
         ${equipped ? '<span class="shop-smith-pick-equipped" title="Экипировано">⚔</span>' : ""}
-        <div class="shop-smith-pick-card-top">
-          <div class="shop-smith-pick-icon">${itemArtHtml(it)}</div>
-          ${lvLine}
-        </div>
-        <div class="shop-smith-pick-name tiny">${composeItemDisplayName(it)}</div>
+        <div class="shop-smith-pick-art">${itemArtHtml(it)}${itemEnchantOverlayHtml(it, "bag")}</div>
+        <span class="shop-smith-pick-lv">Ур. ${lv}</span>
       </button>`;
     })
     .join("");
@@ -4554,7 +4549,11 @@ function openItemEquipRingOverlay() {
 
 function closeItemModal() {
   const m = document.getElementById("item-modal");
-  if (m) m.style.display = "none";
+  if (m) {
+    m.classList.remove("item-modal-v2--open");
+    m.style.removeProperty("--attic-bar-height");
+    m.style.display = "none";
+  }
   closeItemSellConfirmOverlay();
   closeItemDismantleConfirmOverlay();
   closeItemEquipRingOverlay();
@@ -6492,6 +6491,11 @@ function openItemModal(item) {
     actionsRow.setAttribute("data-cols", String(Math.max(1, Math.min(visibleFooter, 4))));
   }
 
+  const atticEl = document.querySelector("header.attic, .attic");
+  const atticH = atticEl ? Math.ceil(atticEl.getBoundingClientRect().height) : 58;
+  modal.style.setProperty("--attic-bar-height", `${atticH}px`);
+
+  modal.classList.add("item-modal-v2--open");
   modal.style.display = "grid";
 }
 
@@ -7485,6 +7489,8 @@ function guildApiErrorToUser(detail, fallback) {
     invalid_role: "Недопустимое звание.",
     target_not_found: "Участник не найден.",
     raid_already_active: "Рейд уже идёт.",
+    no_active_raid: "Нет активного рейда.",
+    not_in_raid: "Вы не участник этого рейда.",
     need_participants: "Нужно минимум 2 участника.",
     need_guild_chat: "Выберите групповой чат для рейда.",
     invalid_raid_chat: "Этот чат недоступен для рейда.",
@@ -10145,11 +10151,27 @@ async function leaveGuildRaid() {
       showToast(guildApiErrorToUser(res, "Ошибка"), "error");
       return;
     }
-    showToast("Вы вышли из рейда");
+    showToast(res?.raid_cancelled ? "Рейд завершён — можно начать новый" : "Вы вышли из рейда");
     await populateGuildHall();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(detail, "error");
+  }
+}
+
+async function cancelGuildRaid() {
+  if (!confirmAction("Отменить текущий рейд? Отряд не получит награду.")) return;
+  try {
+    const res = await apiFetch("/guilds/raid/cancel", { method: "POST" });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Ошибка"), "error");
+      return;
+    }
+    showToast("Рейд отменён — можно начать новый");
+    await populateGuildHall();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
   }
 }
 
@@ -10611,13 +10633,19 @@ function renderGuildRaidPane(d) {
           ${c.winning_tactic ? `<p class="muted tiny">Тактика: ${escapeHtml(c.winning_tactic.label || "—")}</p>` : ""}
         </details>`;
       });
+      if (isGuildLeader(d)) {
+        html += `<button type="button" class="btn secondary" style="margin-top:8px" onclick="WaifuApp.cancelGuildRaid()">Отменить рейд</button>`;
+      }
       html += `<button type="button" class="btn secondary" style="margin-top:8px" onclick="WaifuApp.leaveGuildRaid()">Покинуть рейд</button>`;
     } else {
       const hpPct =
         active.hp_max > 0 ? Math.round((safeInt(active.hp, 0) / safeInt(active.hp_max, 1)) * 100) : 0;
       html += `<h4 class="guild-activity-section-title">Активный рейд (legacy)</h4>
-        <p>Этап ${active.stage ?? "—"} · HP ${active.hp ?? 0}/${active.hp_max ?? 0} (${hpPct}%)</p>
-        <button type="button" class="btn secondary" onclick="WaifuApp.leaveGuildRaid()">Покинуть рейд</button>`;
+        <p>Этап ${active.stage ?? "—"} · HP ${active.hp ?? 0}/${active.hp_max ?? 0} (${hpPct}%)</p>`;
+      if (isGuildLeader(d)) {
+        html += `<button type="button" class="btn secondary" onclick="WaifuApp.cancelGuildRaid()">Отменить рейд</button>`;
+      }
+      html += `<button type="button" class="btn secondary" onclick="WaifuApp.leaveGuildRaid()">Покинуть рейд</button>`;
     }
   } else if (isGuildLeader(d) && !muster) {
     html += `<h4 class="guild-activity-section-title">Начать рейд</h4>
@@ -13631,6 +13659,65 @@ function closeSmithHelpModal() {
   modal.setAttribute("aria-hidden", "true");
 }
 
+// Page IIFE bundles (dungeons.min.js, tavern.min.js) resolve shell helpers via window.*
+function exportWebAppShellGlobals() {
+  Object.assign(window, {
+    GAME_STATIC_BASE,
+    DUNGEONS_STATIC_BASE,
+    TAVERN_STATIC_BASE,
+    EXPEDITION_BIOMES_BASE,
+    EXPEDITION_ARCHETYPES_BASE,
+    TAVERN_BGM_TRACKS,
+    expeditionArchetypeArtVersion,
+    PERK_ICONS,
+    PERK_DESCS,
+    PERK_EXPEDITION_COUNTER_HINT,
+    WAIFU_RACES,
+    WAIFU_CLASSES,
+    apiFetch,
+    loadProfile,
+    safeNumber,
+    safeInt,
+    clamp01,
+    escapeHtml,
+    setText,
+    setHTML,
+    showToast,
+    parseHttpErrorDetail,
+    confirmAction,
+    getPlusLevelForDungeon,
+    setPlusLevelForDungeon,
+    dungeonPlusStatusById,
+    selectedPlusLevelByDungeonId,
+    fetchActiveDungeon,
+    invalidateActiveDungeonCache,
+    formatMonsterTypeLabelRu,
+    setSoloExitBtnVisible,
+    renderAtticDungeon,
+    refreshAtticChips,
+    appendEvent,
+    expeditionState,
+    expeditionUiCache,
+    expeditionSend,
+    rarityLabel,
+    rarityClass,
+    slotTypeLabel,
+    itemIconForSlotType,
+    hiredWaifuImageUrl,
+    classIcon,
+    raceIcon,
+    waifuPortraitEmoji,
+    openItemModal,
+    isAdminUser,
+    isAdminUiEnabled,
+    profileState,
+    tg,
+    className,
+    raceName,
+  });
+}
+exportWebAppShellGlobals();
+
 // Expose helpers globally for inline usage (merge, don't clobber handlers assigned earlier)
 window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   initPage,
@@ -13840,6 +13927,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   startGuildRaidMuster,
   startGuildRaid,
   leaveGuildRaid,
+  cancelGuildRaid,
   loadGuildWarTargetsForUi,
   declareGuildWar,
   respondGuildWar,

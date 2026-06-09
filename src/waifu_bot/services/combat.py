@@ -5,6 +5,7 @@ from typing import Optional
 
 from datetime import datetime
 import random
+from dataclasses import dataclass
 
 from sqlalchemy import select, and_, func, text, delete, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -39,6 +40,12 @@ from waifu_bot.game.constants import (
     MediaType,
 )
 from waifu_bot.game.monster_affix_behavior import media_type_matches_immune
+from waifu_bot.game.solo_rewards import (
+    apply_solo_kill_reward_amounts,
+    compute_solo_reward_fractions,
+    dungeon_plus_reward_mult,
+    guild_reward_fractions,
+)
 from waifu_bot.game.formulas import (
     apply_equipment_damage_flats,
     blend_rarity_weights_with_magic_find,
@@ -461,20 +468,90 @@ async def _maybe_log_guild_combat_rewards(
         pass
 
 
-async def _apply_guild_solo_reward_mults_to_state(
-    session: AsyncSession,
-    player_id: int,
-    gold_mult: float,
-    exp_mult: float,
-) -> tuple[float, float, list]:
-    try:
-        from waifu_bot.services.guild_skill_effects import apply_guild_solo_reward_mults, effect_values_for_player
+@dataclass
+class SoloRewardPctContext:
+    is_boss: bool = False
+    is_elite: bool = False
+    bestiary_exp_pct: float = 0.0
+    bestiary_gold_pct: float = 0.0
+    apply_first_clear: bool = False
+    plus_level: int = 0
+    legendary_gold_mult: float = 1.0
 
+
+async def _solo_reward_pct_totals(
+    session: AsyncSession,
+    combat: "CombatService",
+    *,
+    player_id: int,
+    waifu: MainWaifu,
+    sec: dict[str, float],
+    ps: dict,
+    hs: dict,
+    ctx: SoloRewardPctContext,
+) -> tuple[float, float, list]:
+    """Additive % fractions for solo kill rewards (gear+hidden+passive already in sec)."""
+    from waifu_bot.services.guild_skill_effects import apply_guild_solo_reward_mults, effect_values_for_player
+
+    gear_exp = float(sec.get("exp_bonus_pct", 0.0) or 0.0)
+    gear_gold = float(sec.get("gold_bonus_pct", 0.0) or 0.0)
+
+    int_mult = await combat._experience_int_multiplier(
+        session, player_id, waifu, cached_psb=ps, cached_hs=hs
+    )
+    intelligence_exp = float(int_mult) - 1.0
+
+    eff_luck = await combat._effective_luck_for_rewards(
+        session, player_id, waifu, cached_psb=ps, cached_hs=hs
+    )
+    luck_gold = float(eff_luck) * float(LCK_GOLD_COEFF)
+
+    guild_exp_frac = 0.0
+    guild_gold_frac = 0.0
+    guild_contribs: list = []
+    try:
         gfx = await effect_values_for_player(session, int(player_id))
-        g_gold_m, g_exp_m, contribs = apply_guild_solo_reward_mults(gfx)
-        return gold_mult * g_gold_m, exp_mult * g_exp_m, contribs
+        guild_exp_frac, guild_gold_frac = guild_reward_fractions(gfx)
+        _, _, guild_contribs = apply_guild_solo_reward_mults(gfx)
     except Exception:
-        return gold_mult, exp_mult, []
+        pass
+
+    boss_exp = 0.0
+    boss_gold = 0.0
+    if ctx.is_boss:
+        boss_exp = float(hs.get("boss_reward_pct", 0) or 0) / 100.0 + float(ps.get("boss_reward_pct", 0) or 0)
+        boss_gold = boss_exp
+
+    elite_gold = float(hs.get("elite_drop_pct", 0) or 0) / 100.0 if ctx.is_elite else 0.0
+
+    quest_exp = 0.0
+    try:
+        from waifu_bot.services.guild_quest_service import get_quest_exp_bonus_pct
+
+        quest_exp = float(await get_quest_exp_bonus_pct(session, int(player_id)) or 0) / 100.0
+    except Exception:
+        pass
+
+    first_clear_exp = 0.0
+    if ctx.apply_first_clear:
+        first_clear_exp = float(hs.get("first_clear_exp_pct", 0) or 0) / 100.0
+
+    exp_frac, gold_frac = compute_solo_reward_fractions(
+        gear_exp_frac=gear_exp,
+        gear_gold_frac=gear_gold,
+        intelligence_exp_frac=intelligence_exp,
+        luck_gold_frac=luck_gold,
+        guild_exp_frac=guild_exp_frac,
+        guild_gold_frac=guild_gold_frac,
+        bestiary_exp_frac=float(ctx.bestiary_exp_pct or 0.0),
+        bestiary_gold_frac=float(ctx.bestiary_gold_pct or 0.0),
+        boss_exp_frac=boss_exp,
+        boss_gold_frac=boss_gold,
+        elite_gold_frac=elite_gold,
+        quest_exp_frac=quest_exp,
+        first_clear_exp_frac=first_clear_exp,
+    )
+    return exp_frac, gold_frac, guild_contribs
 
 
 def _solo_monster_reward_log_payload(
@@ -585,6 +662,13 @@ class CombatService:
 
         run = await self._get_active_run(session, player_id)
         progress = None
+        if run:
+            try:
+                from waifu_bot.services import solo_active_cache as solo_active_cache_mod
+
+                await solo_active_cache_mod.mark_solo_active(self.redis, player_id)
+            except Exception:
+                pass
         if not run:
             progress = await self._get_active_progress(session, player_id)
             if progress:
@@ -1567,6 +1651,8 @@ class CombatService:
             "weapon_damage": weapon_damage,
             "monster_hp": monster_hp_after,
             "monster_max_hp": (run_monster.max_hp if run_monster else monster.max_hp),
+            "waifu_current_hp": int(waifu.current_hp or 0),
+            "waifu_max_hp": int(waifu.max_hp or 0),
             "monster_defeated": False,
             "damage_breakdown": damage_breakdown,
             "summary_ru": summary_ru,
@@ -1845,14 +1931,14 @@ class CombatService:
             hs = await get_hidden_skill_bonuses(session, player_id)
             bonuses["exp_bonus_pct"] = float(bonuses.get("exp_bonus_pct", 0.0) or 0.0) + float(
                 hs.get("exp_bonus_pct", 0) or 0
-            )
+            ) / 100.0
             bonuses["gold_bonus_pct"] = float(bonuses.get("gold_bonus_pct", 0.0) or 0.0) + float(
                 hs.get("gold_drop_pct", 0) or 0
-            )
+            ) / 100.0
             if is_night_moscow():
                 bonuses["gold_bonus_pct"] = float(bonuses.get("gold_bonus_pct", 0.0) or 0.0) + float(
                     hs.get("gold_night_pct", 0) or 0
-                )
+                ) / 100.0
         except Exception:
             pass
         try:
@@ -1964,8 +2050,6 @@ class CombatService:
     ) -> dict:
         """Handle monster defeat and advance to next or complete dungeon."""
         sec = await self._get_waifu_armor_and_secondary(session, int(waifu.player_id))
-        exp_mult = 1.0 + float(sec.get("exp_bonus_pct", 0.0) or 0.0)
-        gold_mult = 1.0 + float(sec.get("gold_bonus_pct", 0.0) or 0.0)
         armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
         ps_cl = await get_passive_skill_bonuses(session, int(waifu.player_id))
         msf_cl = int(ps_cl.get("main_stats_flat", 0) or 0)
@@ -1974,35 +2058,27 @@ class CombatService:
 
         hs_cl = await get_hidden_skill_bonuses(session, int(waifu.player_id))
 
-        if getattr(monster, "is_boss", False):
-            brp = float(ps_cl.get("boss_reward_pct", 0) or 0)
-            if brp > 0:
-                exp_mult *= 1.0 + brp
-                gold_mult *= 1.0 + brp
-
+        exp_frac, gold_frac, guild_contribs = await _solo_reward_pct_totals(
+            session,
+            self,
+            player_id=int(waifu.player_id),
+            waifu=waifu,
+            sec=sec,
+            ps=ps_cl,
+            hs=hs_cl,
+            ctx=SoloRewardPctContext(is_boss=bool(getattr(monster, "is_boss", False))),
+        )
         eff_luck_rw = await self._effective_luck_for_rewards(
             session, int(waifu.player_id), waifu, cached_psb=ps_cl, cached_hs=hs_cl
         )
-        gold_mult *= 1.0 + float(eff_luck_rw) * LCK_GOLD_COEFF
-
-        # Вторичка/пассивы — в exp_mult выше; ИНТ — отдельный множитель (не смешивать с exp_bonus_pct предметов)
-        exp_mult *= await self._experience_int_multiplier(
-            session, int(waifu.player_id), waifu, cached_psb=ps_cl, cached_hs=hs_cl
+        plus_mult = dungeon_plus_reward_mult(0)
+        exp_reward, _ = apply_solo_kill_reward_amounts(
+            int(monster.experience_reward or 0),
+            0,
+            exp_frac,
+            0.0,
+            plus_reward_mult=plus_mult,
         )
-        try:
-            from waifu_bot.services.guild_quest_service import get_quest_exp_bonus_pct
-
-            quest_exp_pct = await get_quest_exp_bonus_pct(session, int(waifu.player_id))
-            if quest_exp_pct > 0:
-                exp_mult *= 1.0 + float(quest_exp_pct) / 100.0
-        except Exception:
-            pass
-
-        gold_mult, exp_mult, guild_contribs = await _apply_guild_solo_reward_mults_to_state(
-            session, int(waifu.player_id), gold_mult, exp_mult
-        )
-
-        exp_reward = max(0, int(round(int(monster.experience_reward or 0) * exp_mult)))
         if killing_media_type is not None and killing_media_type not in (MediaType.TEXT, MediaType.LINK):
             mk = float(ps_cl.get("media_kill_reward_pct", 0) or ps_cl.get("media_kill_gold_pct", 0) or 0)
             if mk > 0:
@@ -2133,7 +2209,13 @@ class CombatService:
         gold_gain = 0
         if player and dungeon:
             per_monster = max(1, int(dungeon.base_gold) // max(1, int(dungeon.obstacle_count)))
-            gold_gain = max(0, int(round(per_monster * gold_mult)))
+            _, gold_gain = apply_solo_kill_reward_amounts(
+                0,
+                per_monster,
+                0.0,
+                gold_frac,
+                plus_reward_mult=plus_mult,
+            )
             if killing_media_type is not None and killing_media_type not in (
                 MediaType.TEXT,
                 MediaType.LINK,
@@ -2385,61 +2467,22 @@ class CombatService:
         pid = int(run.player_id)
         sec = await self._get_waifu_armor_and_secondary(session, pid)
         ps_run = await get_passive_skill_bonuses(session, pid)
-        exp_mult = 1.0 + float(sec.get("exp_bonus_pct", 0.0) or 0.0)
-        gold_mult = 1.0 + float(sec.get("gold_bonus_pct", 0.0) or 0.0)
         armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
         msf_run = int(ps_run.get("main_stats_flat", 0) or 0)
         end_reduce = float(calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_run))
         sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
 
         hs = await get_hidden_skill_bonuses(session, pid)
-        if run_monster.is_boss:
-            br = float(hs.get("boss_reward_pct", 0) or 0) / 100.0
-            exp_mult *= 1.0 + br
-            gold_mult *= 1.0 + br
-        if run_monster.is_elite:
-            gold_mult *= 1.0 + float(hs.get("elite_drop_pct", 0) or 0) / 100.0
 
-        if run_monster.is_boss:
-            brp = float(ps_run.get("boss_reward_pct", 0) or 0)
-            if brp > 0:
-                exp_mult *= 1.0 + brp
-                gold_mult *= 1.0 + brp
-
-        eff_luck_rw = await self._effective_luck_for_rewards(
-            session, pid, waifu, cached_psb=ps_run, cached_hs=hs
-        )
-        gold_mult *= 1.0 + float(eff_luck_rw) * LCK_GOLD_COEFF
-        lb_st = run.battle_state if isinstance(getattr(run, "battle_state", None), dict) else {}
-        gold_mult *= float(lb_st.get("_legendary_gold_mult", 1.0) or 1.0)
-
-        exp_mult *= await self._experience_int_multiplier(
-            session, pid, waifu, cached_psb=ps_run, cached_hs=hs
-        )
-        try:
-            from waifu_bot.services.guild_quest_service import get_quest_exp_bonus_pct
-
-            quest_exp_pct = await get_quest_exp_bonus_pct(session, pid)
-            if quest_exp_pct > 0:
-                exp_mult *= 1.0 + float(quest_exp_pct) / 100.0
-        except Exception:
-            pass
-
-        gold_mult, exp_mult, guild_contribs = await _apply_guild_solo_reward_mults_to_state(
-            session, pid, gold_mult, exp_mult
-        )
-
-        # Bestiary: per-monster reward + incoming-damage bonuses, based on the
-        # discovery tier the player had *before* this kill is recorded below.
         bestiary_dmg_taken_pct = 0.0
+        bestiary_exp_pct = 0.0
+        bestiary_gold_pct = 0.0
         try:
             _bb = await bestiary_service.get_bestiary_bonuses(
                 session, pid, getattr(run_monster, "template_id", None), redis=self.redis
             )
-            if _bb.exp_pct:
-                exp_mult *= 1.0 + float(_bb.exp_pct)
-            if _bb.gold_pct:
-                gold_mult *= 1.0 + float(_bb.gold_pct)
+            bestiary_exp_pct = float(_bb.exp_pct or 0.0)
+            bestiary_gold_pct = float(_bb.gold_pct or 0.0)
             bestiary_dmg_taken_pct = float(_bb.dmg_taken_pct or 0.0)
         except Exception:
             bestiary_dmg_taken_pct = 0.0
@@ -2453,10 +2496,34 @@ class CombatService:
                 DungeonRun.status == "completed",
             )
         )
-        if int(run.current_position or 0) >= int(run.total_monsters or 0) and int(prev_completed_runs or 0) == 0:
-            fc_exp = float(hs.get("first_clear_exp_pct", 0) or 0)
-            if fc_exp > 0:
-                exp_mult *= 1.0 + fc_exp / 100.0
+        apply_first_clear = (
+            int(run.current_position or 0) >= int(run.total_monsters or 0)
+            and int(prev_completed_runs or 0) == 0
+        )
+
+        exp_frac, gold_frac, guild_contribs = await _solo_reward_pct_totals(
+            session,
+            self,
+            player_id=pid,
+            waifu=waifu,
+            sec=sec,
+            ps=ps_run,
+            hs=hs,
+            ctx=SoloRewardPctContext(
+                is_boss=bool(run_monster.is_boss),
+                is_elite=bool(run_monster.is_elite),
+                bestiary_exp_pct=bestiary_exp_pct,
+                bestiary_gold_pct=bestiary_gold_pct,
+                apply_first_clear=apply_first_clear,
+                plus_level=int(getattr(run, "plus_level", 0) or 0),
+            ),
+        )
+        eff_luck_rw = await self._effective_luck_for_rewards(
+            session, pid, waifu, cached_psb=ps_run, cached_hs=hs
+        )
+        plus_mult = dungeon_plus_reward_mult(int(getattr(run, "plus_level", 0) or 0))
+        lb_st = run.battle_state if isinstance(getattr(run, "battle_state", None), dict) else {}
+        legendary_gold_mult = float(lb_st.get("_legendary_gold_mult", 1.0) or 1.0)
 
         await increment_skill_counter(session, pid, "dungeon_kill", 1)
         await _guild_quest_record(session, pid, "monsters_killed", 1)
@@ -2516,8 +2583,14 @@ class CombatService:
             await increment_skill_counter(session, pid, "slow_kill", 1)
 
         # Rewards
-        exp_gain = max(0, int(round(int(run_monster.exp_reward or 0) * exp_mult)))
-        gold_gain = max(0, int(round(int(run_monster.gold_reward or 0) * gold_mult)))
+        exp_gain, gold_gain = apply_solo_kill_reward_amounts(
+            int(run_monster.exp_reward or 0),
+            int(run_monster.gold_reward or 0),
+            exp_frac,
+            gold_frac,
+            plus_reward_mult=plus_mult,
+            legendary_gold_mult=legendary_gold_mult,
+        )
         if killing_media_type is not None and killing_media_type not in (MediaType.TEXT, MediaType.LINK):
             mk = float(ps_run.get("media_kill_reward_pct", 0) or ps_run.get("media_kill_gold_pct", 0) or 0)
             if mk > 0:

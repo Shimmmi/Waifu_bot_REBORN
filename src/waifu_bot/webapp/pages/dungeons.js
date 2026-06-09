@@ -61,6 +61,26 @@ function dungeonTypeLabel(type) {
 let dungeonsFinishBlockedMsg = null;
 let soloActiveMonsterTemplateId = null;
 let soloActiveStoryBossId = null;
+/** @type {object | null} Snapshot for incremental SSE battle updates */
+let soloActiveSnapshot = null;
+let soloHpRefetchTimer = null;
+
+function scheduleSoloHpRefetch() {
+  clearTimeout(soloHpRefetchTimer);
+  soloHpRefetchTimer = setTimeout(() => {
+    soloHpRefetchTimer = null;
+    refreshSoloActive({ includeLog: false }).catch(() => {});
+  }, 150);
+}
+
+function canUpdateSoloBattleHp() {
+  if (soloActiveSnapshot) return true;
+  const host = document.getElementById("solo-active");
+  if (!host || host.style.display === "none") return false;
+  const content = document.getElementById("solo-active-content");
+  if (content && content.style.display === "none") return false;
+  return true;
+}
 
 function showDungeonsError(message, kind = "info") {
   const box = document.getElementById("dungeons-error");
@@ -95,7 +115,8 @@ function renderSoloDungeonTile(d, waifuLevel) {
     (pl > 0 ? !isPlusLocked : baseCanEnter);
   const act = safeInt(d?.act, 1);
   const dungeonNum = safeInt(d?.dungeon_number, 1);
-  const artUrl = `${DUNGEONS_STATIC_BASE}/act-${act}/dungeon-${dungeonNum}.webp`;
+  const dungeonArtBase = window.DUNGEONS_STATIC_BASE || "/static/game/dungeons";
+  const artUrl = `${dungeonArtBase}/act-${act}/dungeon-${dungeonNum}.webp`;
   const lockedClass = canEnter ? "" : "locked";
   let lockReason = "";
   if (!canEnter) {
@@ -218,7 +239,8 @@ function buildStageDots(pos, total) {
 
 // ─── Monster image (WebP) system ─────────────────────────────────────────
 const MONSTER_STATIC_BASE =
-  (typeof window !== "undefined" && window.APP_CONFIG?.staticBase) || `${GAME_STATIC_BASE}/monsters`;
+  (typeof window !== "undefined" && window.APP_CONFIG?.staticBase) ||
+  `${window.GAME_STATIC_BASE || "/static/game"}/monsters`;
 
 // Cache-bust version for a monster's generated art: prefer the freshest of the
 // session-generated timestamp and the API's image_updated_at.
@@ -345,6 +367,121 @@ function onMonsterImageError(img) {
   }
 }
 
+function flashSoloHitFeedback(payload) {
+  const visual = document.getElementById("monster-visual");
+  if (!visual) return;
+  if (payload?.monster_dodged || payload?.solo_shock_skip) return;
+  visual.classList.remove("solo-hit-flash");
+  void visual.offsetWidth;
+  visual.classList.add("solo-hit-flash");
+  const dmg = payload?.damage;
+  if (typeof dmg === "number" && dmg > 0) {
+    const floater = document.createElement("span");
+    floater.className = "solo-damage-float" + (payload.is_crit ? " solo-damage-float--crit" : "");
+    floater.textContent = `-${dmg}`;
+    visual.appendChild(floater);
+    setTimeout(() => floater.remove(), 900);
+  }
+}
+
+/**
+ * Apply battle SSE payload to HP bars immediately (no API round-trip).
+ * Returns true if solo-active UI was updated.
+ */
+function applySoloBattleSsePayload(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  if (!canUpdateSoloBattleHp()) return false;
+
+  const snap = soloActiveSnapshot || {};
+  const hpMax = Math.max(
+    1,
+    safeNumber(payload.monster_max_hp ?? snap.monster_max_hp ?? snap.monster?.max_hp, 1)
+  );
+  const hpCur =
+    payload.monster_hp != null
+      ? safeNumber(payload.monster_hp, 0)
+      : safeNumber(snap.monster_current_hp ?? snap.monster?.current_hp, 0);
+
+  const waifuMax = Math.max(
+    1,
+    safeNumber(payload.waifu_max_hp ?? snap.waifu_max_hp ?? snap.waifu?.max_hp, 1)
+  );
+  let waifuCur =
+    payload.waifu_current_hp != null
+      ? safeNumber(payload.waifu_current_hp, 0)
+      : safeNumber(snap.waifu_current_hp ?? snap.waifu?.current_hp, 0);
+  if (payload.reflect_damage_taken > 0 && payload.waifu_current_hp == null && snap.waifu) {
+    waifuCur = Math.max(0, safeNumber(snap.waifu.current_hp, 0) - safeNumber(payload.reflect_damage_taken, 0));
+  }
+
+  const damage = payload.damage != null ? safeNumber(payload.damage, null) : null;
+  const isCrit = payload.is_crit === true;
+  if (damage != null) {
+    window._lastSoloDamage = damage;
+    window._lastSoloCrit = isCrit;
+    const dealtFromHp = Math.max(0, hpMax - hpCur);
+    window._lastSoloDealt =
+      dealtFromHp > 0
+        ? dealtFromHp
+        : damage > 0
+          ? safeNumber(snap.damage_done ?? window._lastSoloDealt ?? 0, 0) + damage
+          : safeNumber(snap.damage_done ?? window._lastSoloDealt ?? 0, 0);
+  }
+
+  const monster = {
+    ...(snap.monster || {}),
+    current_hp: hpCur,
+    max_hp: hpMax,
+    hp_known: snap.monster?.hp_known !== false,
+    name_known: snap.monster?.name_known !== false,
+    type_known: snap.monster?.type_known !== false,
+  };
+  const waifu = {
+    ...(snap.waifu || { name: "—" }),
+    current_hp: waifuCur,
+    max_hp: waifuMax,
+  };
+  const dungeon = snap.dungeon || { name: "", total_rooms: 0, current_room: 1 };
+
+  soloActiveSnapshot = {
+    ...snap,
+    monster,
+    waifu,
+    dungeon,
+    monster_current_hp: hpCur,
+    monster_max_hp: hpMax,
+    waifu_current_hp: waifuCur,
+    waifu_max_hp: waifuMax,
+    damage_done: window._lastSoloDealt,
+  };
+
+  ensureCombatIslandMounted();
+  window.WaifuCombatIsland?.applyPayload?.(payload);
+
+  const host = document.getElementById("solo-active");
+  const content = document.getElementById("solo-active-content");
+  if (
+    host &&
+    host.style.display !== "none" &&
+    (!content || content.style.display !== "none")
+  ) {
+    renderSoloBattleCard(monster, dungeon, waifu);
+    flashSoloHitFeedback(payload);
+  }
+  return true;
+}
+
+function ensureCombatIslandMounted() {
+  if (window._combatIslandMounted) return;
+  if (typeof window.WaifuCombatIslandMount === "function") {
+    const host = document.getElementById("solo-combat-island");
+    if (host) {
+      window.WaifuCombatIslandMount(host);
+      window._combatIslandMounted = true;
+    }
+  }
+}
+
 function renderSoloBattleCard(monster, dungeon, waifu) {
   const card = document.getElementById("solo-active");
   if (!card) return;
@@ -362,7 +499,6 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
   if (progressEl) progressEl.textContent = progressDots;
 
   const nameKnown = monster.name_known !== false;
-  const hpKnown = monster.hp_known !== false;
   const typeKnown = monster.type_known !== false;
 
   const visual = document.getElementById("monster-visual");
@@ -421,31 +557,6 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
     onMonsterImageLoad(img);
   }
 
-  const monsterPct = monster.max_hp > 0 ? Math.max(0, Math.min(100, (monster.current_hp / monster.max_hp) * 100)) : 0;
-  setText("monster-hp-text", hpKnown ? `${monster.current_hp} / ${monster.max_hp}` : "??? / ???");
-  const hpFill = document.getElementById("monster-hp-fill");
-  if (hpFill) {
-    if (hpKnown) {
-      hpFill.style.width = monsterPct + "%";
-      hpFill.classList.remove("monster-hp-fill--unknown");
-    } else {
-      hpFill.style.width = "100%";
-      hpFill.classList.add("monster-hp-fill--unknown");
-    }
-  }
-  const hpHintEl = document.getElementById("monster-hp-codex-hint");
-  if (hpHintEl) {
-    if (!hpKnown) {
-      const tier = Number(monster.codex_tier ?? 0);
-      const need = tier < 1 ? 1 : 5;
-      hpHintEl.textContent = `Убейте этого монстра ${need}×, чтобы узнать имя${need >= 5 ? " и HP" : ""}.`;
-      hpHintEl.style.display = "block";
-    } else {
-      hpHintEl.textContent = "";
-      hpHintEl.style.display = "none";
-    }
-  }
-
   const affixesEl = document.getElementById("monster-affixes");
   if (affixesEl) {
     if (monster.is_elite && monster.affixes?.length) {
@@ -456,12 +567,6 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
       affixesEl.style.display = "none";
     }
   }
-
-  setText("solo-waifu-name", waifu.name ?? "—");
-  setText("solo-waifu-hp-text", `${waifu.current_hp} / ${waifu.max_hp}`);
-  const waifuPct = waifu.max_hp > 0 ? Math.max(0, Math.min(100, (waifu.current_hp / waifu.max_hp) * 100)) : 0;
-  const waifuHpFill = document.getElementById("solo-waifu-hp-fill");
-  if (waifuHpFill) waifuHpFill.style.width = waifuPct + "%";
 
   const unconsciousBanner = document.getElementById("unconscious-banner");
   if (unconsciousBanner) unconsciousBanner.style.display = waifu.current_hp <= 0 ? "block" : "none";
@@ -488,6 +593,7 @@ function renderSoloActiveProgress(active) {
   if (!active?.active) {
     soloActiveMonsterTemplateId = null;
     soloActiveStoryBossId = null;
+    soloActiveSnapshot = null;
     host.style.display = "none";
     list.style.display = "";
     setSoloExitBtnVisible(false);
@@ -558,7 +664,19 @@ function renderSoloActiveProgress(active) {
   const fallback = document.getElementById("solo-active-fallback");
   if (content) content.style.display = "";
   if (fallback) fallback.style.display = "none";
+  soloActiveSnapshot = {
+    monster,
+    waifu,
+    dungeon,
+    monster_current_hp: hpCur,
+    monster_max_hp: hpMax,
+    waifu_current_hp: waifu.current_hp,
+    waifu_max_hp: waifu.max_hp,
+    damage_done: dealt,
+  };
+  ensureCombatIslandMounted();
   renderSoloBattleCard(monster, dungeon, waifu);
+  window.WaifuCombatIsland?.setBaseline?.({ monster, waifu });
   const logEntries = active.battle_log_entries;
   if (Array.isArray(logEntries) && logEntries.length) {
     mountSoloBattleLog(logEntries);
@@ -616,6 +734,7 @@ async function refreshSoloActive(options = {}) {
 }
 
 async function populateDungeonsPage(profile) {
+  ensureCombatIslandMounted();
   const p = profile || (await loadProfile({ lite: true }));
   // attic: show act in compact header
   if (p?.act != null) setText("badge-act", p.act);
@@ -624,47 +743,64 @@ async function populateDungeonsPage(profile) {
   // Load Dungeon+ status for the global selector (per-dungeon unlock caps)
   try {
     const st = await apiFetch("/dungeons/plus/status");
-    dungeonPlusStatusById = {};
+    const byId = window.dungeonPlusStatusById;
+    for (const k of Object.keys(byId)) delete byId[k];
     for (const r of st?.status || []) {
-      dungeonPlusStatusById[Number(r.dungeon_id)] = r;
+      byId[Number(r.dungeon_id)] = r;
     }
-    initPlusSelect(Boolean(st?.global_unlocked), dungeonPlusStatusById);
+    initPlusSelect(Boolean(st?.global_unlocked), byId);
   } catch {
     initPlusSelect(false, {});
   }
 
-  // Page-scoped SSE handler: refresh progress, show reward modal on completion.
-  let refreshTimer;
+  // Page-scoped SSE handler: instant HP from payload; debounced API fallback for reliability.
+  let logSyncTimer;
+  window.WaifuApp.refreshBattleState = () =>
+    refreshSoloActive({ includeLog: false }).catch(() => {});
   window.WaifuApp.onSseEvent = (evt) => {
     if (evt && evt.type === "gd") {
-      clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => {
+      clearTimeout(logSyncTimer);
+      logSyncTimer = setTimeout(() => {
         loadActiveGdDungeons().catch?.(() => {});
         updateGdSessionUI().catch?.(() => {});
       }, 150);
       return;
     }
     if (!evt || evt.type !== "battle") return;
-    // Debounced refresh of active progress
-    clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => {
-      refreshSoloActive({ includeLog: false }).catch?.(() => {});
-    }, 250);
     const payload = evt.payload || {};
     if (payload.finish_blocked) {
       const msg = payload.message || "Не хватает здоровья для победы.";
       dungeonsFinishBlockedMsg = msg;
+      const applied = applySoloBattleSsePayload(payload);
+      if (!applied) scheduleSoloHpRefetch();
       showDungeonsError(msg, "danger");
       return;
     }
-    // clear once we receive any normal battle payload
+    const applied = applySoloBattleSsePayload(payload);
     if (dungeonsFinishBlockedMsg && (payload.damage != null || payload.monster_defeated || payload.dungeon_completed)) {
       dungeonsFinishBlockedMsg = null;
       showDungeonsError("");
     }
-    if (payload.dungeon_completed) {
-      dungeonsFinishBlockedMsg = null;
-      openRewardModal(payload);
+    clearTimeout(logSyncTimer);
+    if (payload.dungeon_completed || payload.monster_defeated) {
+      clearTimeout(soloHpRefetchTimer);
+      soloHpRefetchTimer = null;
+      refreshSoloActive({ includeLog: true }).catch?.(() => {});
+      if (payload.dungeon_completed) {
+        dungeonsFinishBlockedMsg = null;
+        openRewardModal(payload);
+      }
+      return;
+    }
+    if (!applied) {
+      scheduleSoloHpRefetch();
+    } else if (payload.damage != null || payload.monster_hp != null || payload.waifu_current_hp != null) {
+      scheduleSoloHpRefetch();
+    }
+    if (payload.damage_breakdown?.length || payload.summary_ru) {
+      logSyncTimer = setTimeout(() => {
+        refreshSoloActive({ includeLog: true }).catch?.(() => {});
+      }, 800);
     }
   };
 
@@ -1621,14 +1757,16 @@ function biomeImageUrls(tag, archetypeId) {
     .toLowerCase()
     .replace(/ /g, "_")
     .replace(/-/g, "_");
+  const archetypesBase = window.EXPEDITION_ARCHETYPES_BASE || "/static/game/expeditions/archetypes";
+  const biomesBase = window.EXPEDITION_BIOMES_BASE || "/static/game/expeditions/biomes";
   if (archKey) {
-    const v = expeditionArchetypeArtVersion[archKey];
+    const v = (window.expeditionArchetypeArtVersion || {})[archKey];
     const q = v ? `?v=${encodeURIComponent(v)}` : "";
-    urls.push(`${EXPEDITION_ARCHETYPES_BASE}/${encodeURIComponent(archKey)}.webp${q}`);
+    urls.push(`${archetypesBase}/${encodeURIComponent(archKey)}.webp${q}`);
   }
   const key = normalizeBiomeTag(tag);
-  if (key) urls.push(`${EXPEDITION_BIOMES_BASE}/${encodeURIComponent(key)}.webp`);
-  urls.push(`${EXPEDITION_BIOMES_BASE}/default.webp`);
+  if (key) urls.push(`${biomesBase}/${encodeURIComponent(key)}.webp`);
+  urls.push(`${biomesBase}/default.webp`);
   return urls;
 }
 
@@ -2634,12 +2772,12 @@ async function claimAndShowExpeditionResult(expeditionId, resultReady) {
   if (expeditionClaimInFlight) return;
   expeditionClaimInFlight = true;
   showExpeditionResultModal({ loading: !resultReady });
-  loadExpeditionTab({ force: true }).catch(() => {});
-  loadProfile().catch(() => {});
   try {
     const result = await apiFetch(`/expeditions/${expeditionId}/claim`, { method: "POST" });
     fillExpeditionResult(result);
     showExpeditionResultModal({ content: true });
+    await loadExpeditionTab({ force: true });
+    loadProfile().catch(() => {});
   } catch (e) {
     const modal = document.getElementById("expedition-result-modal");
     if (modal) modal.style.display = "none";
@@ -2728,6 +2866,7 @@ function fillExpeditionResult(result) {
 function closeExpeditionResult() {
   const modal = document.getElementById("expedition-result-modal");
   if (modal) modal.style.display = "none";
+  loadExpeditionTab({ force: true }).catch(() => {});
 }
 
 async function cancelExpedition(activeId) {
@@ -2781,7 +2920,8 @@ async function adminGenerateExpeditionArt(btn) {
       .trim()
       .toLowerCase();
     if (arch) {
-      expeditionArchetypeArtVersion[arch] = Date.now();
+      const cache = window.expeditionArchetypeArtVersion || (window.expeditionArchetypeArtVersion = {});
+      cache[arch] = Date.now();
     }
     wireExpeditionCardBiomes(document.getElementById("exp-active-grid"));
     wireExpeditionCardBiomes(document.getElementById("exp-daily-grid"));
@@ -3249,6 +3389,8 @@ Object.assign(window.WaifuApp, {
   showTab,
   populateDungeonsPage,
   refreshSoloActive,
+  refreshBattleState: () => refreshSoloActive({ includeLog: false }).catch(() => {}),
+  applySoloBattleSsePayload,
   loadExpeditionTab,
   submitExpeditionStart,
   expSelDiff,

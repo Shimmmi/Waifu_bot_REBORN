@@ -5,7 +5,7 @@ import logging
 import random
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -116,6 +116,8 @@ async def start_raid(
 
 
 async def leave_raid(session: AsyncSession, player_id: int) -> dict:
+    from waifu_bot.services.guild_raid_v2_service import _build_party_snapshot, cancel_guild_raid
+
     mem = (
         await session.execute(select(GuildMember).where(GuildMember.player_id == player_id))
     ).scalar_one_or_none()
@@ -124,11 +126,46 @@ async def leave_raid(session: AsyncSession, player_id: int) -> dict:
     guild = await session.get(Guild, mem.guild_id)
     if not guild or not guild.raid_active_id:
         return {"error": "no_active_raid"}
-    part = await _participant(session, guild.raid_active_id, player_id)
-    if part:
-        await session.delete(part)
+    raid = await session.get(GuildRaid, guild.raid_active_id)
+    if not raid:
+        guild.raid_active_id = None
+        await session.commit()
+        return {"error": "no_active_raid"}
+    part = await _participant(session, raid.id, player_id)
+    if not part:
+        return {"error": "not_in_raid"}
+    await session.delete(part)
+    await session.flush()
+
+    remaining = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(GuildRaidParticipant)
+            .where(GuildRaidParticipant.raid_id == raid.id)
+        )
+        or 0
+    )
+
+    if mem.is_leader:
+        await cancel_guild_raid(session, raid, guild, reason="leader_left")
+        await session.commit()
+        return {"success": True, "raid_cancelled": True, "reason": "leader_left"}
+
+    if remaining == 0:
+        await cancel_guild_raid(session, raid, guild, reason="no_participants")
+        await session.commit()
+        return {"success": True, "raid_cancelled": True, "reason": "no_participants"}
+
+    if int(getattr(raid, "raid_version", 1) or 1) >= 2:
+        pids = (
+            await session.execute(
+                select(GuildRaidParticipant.player_id).where(GuildRaidParticipant.raid_id == raid.id)
+            )
+        ).scalars().all()
+        raid.party_snapshot_json = await _build_party_snapshot(session, [int(x) for x in pids])
+
     await session.commit()
-    return {"success": True}
+    return {"success": True, "raid_cancelled": False}
 
 
 async def _raid_online_member_count(session: AsyncSession, guild_id: int) -> int:

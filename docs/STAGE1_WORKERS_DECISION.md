@@ -42,6 +42,15 @@
 - Отдельный systemd unit: `waifu-worker` (gameplay) + опционально `waifu-llm-worker`.
 - Миграция: dual-run tick (loop + task) → shadow → отключить loop (Roadmap Phase 3).
 
+## Автоматическая проверка gate
+
+После сбора baseline (`./scripts/collect_perf_baseline.sh`):
+
+```bash
+./scripts/check_worker_gate.sh
+# Exit 1 → рассмотреть BACKGROUND_MODE=worker + LLM_WORKER_ENABLED=true
+```
+
 ## Что не делать преждевременно
 
 - Celery «потому что в старых ТЗ» — в репо живые loops, не Celery.

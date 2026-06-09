@@ -978,6 +978,13 @@ class DungeonService:
                     except Exception:
                         story_modal = None
                 await session.commit()
+                try:
+                    from waifu_bot.core import redis as redis_core
+                    from waifu_bot.services import solo_active_cache as solo_active_cache_mod
+
+                    await solo_active_cache_mod.mark_solo_active(redis_core.get_redis(), player_id)
+                except Exception:
+                    pass
                 out = {
                     "success": True,
                     "dungeon_id": dungeon_id,
@@ -1030,6 +1037,13 @@ class DungeonService:
             except Exception:
                 story_modal = None
         await session.commit()
+        try:
+            from waifu_bot.core import redis as redis_core
+            from waifu_bot.services import solo_active_cache as solo_active_cache_mod
+
+            await solo_active_cache_mod.mark_solo_active(redis_core.get_redis(), player_id)
+        except Exception:
+            pass
         out = {
             "success": True,
             "dungeon_id": dungeon_id,
@@ -1340,6 +1354,13 @@ class DungeonService:
                 if progress:
                     progress.is_active = False
                 await session.commit()
+                try:
+                    from waifu_bot.core import redis as redis_core
+                    from waifu_bot.services import solo_active_cache as solo_active_cache_mod
+
+                    await solo_active_cache_mod.clear_solo_active(redis_core.get_redis(), player_id)
+                except Exception:
+                    pass
                 return {"success": True, "exp_gained": exp_gained, "gold_gained": gold_gained}
             except SQLAlchemyError:
                 await session.rollback()
@@ -1348,5 +1369,12 @@ class DungeonService:
         if progress:
             progress.is_active = False
             await session.commit()
+        try:
+            from waifu_bot.core import redis as redis_core
+            from waifu_bot.services import solo_active_cache as solo_active_cache_mod
+
+            await solo_active_cache_mod.clear_solo_active(redis_core.get_redis(), player_id)
+        except Exception:
+            pass
         return {"success": True, "exp_gained": exp_gained, "gold_gained": gold_gained}
 

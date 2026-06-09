@@ -1,0 +1,19 @@
+{
+  "collected_at": "2026-06-07T00:00:00+00:00",
+  "source_log": "/var/log/waifu-bot/app.log",
+  "metrics": {
+    "group_message_damage_ms": {
+      "count": 0,
+      "p50_ms": 0,
+      "p95_ms": 0,
+      "max_ms": 0
+    },
+    "llm_post_chat_completions_ms": {
+      "count": 0,
+      "p50_ms": 0,
+      "p95_ms": 0,
+      "max_ms": 0
+    }
+  },
+  "notes": "Replace with output of scripts/collect_perf_baseline.sh after PERF_METRICS_ENABLED=true for 1–2 weeks."
+}

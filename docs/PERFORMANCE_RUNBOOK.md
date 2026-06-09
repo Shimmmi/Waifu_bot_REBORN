@@ -85,7 +85,9 @@ Optional: `test_abyss.py::test_handle_abyss_attack_no_session_skips_for_update`.
 - **PgBouncer + Redis AOF:** [STAGE1_INFRA.md](STAGE1_INFRA.md), `infra/pgbouncer/`, `infra/redis/`
 - **Alerts script:** `scripts/check_perf_alerts.sh` (cron every 15 min optional)
 - **Index audit:** `scripts/pg_index_audit.sql` after migration `0096_performance_hot_path_indexes`
-- **Baseline P95:** set `PERF_METRICS_ENABLED=true` in `.env` for 1–2 weeks; grep logs for `perf_metric summary` (`group_message_damage_ms`, `llm_post_chat_completions_ms`)
+- **Baseline P95:** `PERF_METRICS_ENABLED=true` for 1–2 weeks; `./scripts/collect_perf_baseline.sh` → `info/perf_metrics_baseline.json`; `./scripts/check_worker_gate.sh`
+- **Stage 1 ops cutover:** `./scripts/stage1_ops_cutover.sh` (PgBouncer check, migrate 0096, index audit)
+- **WebApp bundle:** `./scripts/build_webapp.sh` → `src/waifu_bot/webapp/bundle/` (minified JS + Vue combat island)
 - **Workers gate:** [STAGE1_WORKERS_DECISION.md](STAGE1_WORKERS_DECISION.md) — `BACKGROUND_MODE`, Dramatiq, [DOCKER.md](DOCKER.md)
 - **Stage 2 gate:** [STAGE2_GATE.md](STAGE2_GATE.md)
 - **Full stage analysis:** [OPTIMIZATION_STAGES_ANALYSIS.md](OPTIMIZATION_STAGES_ANALYSIS.md)

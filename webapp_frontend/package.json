@@ -1,0 +1,13 @@
+{
+  "name": "waifu-webapp-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build --config vite.app.config.js && vite build --config vite.styles.config.js && vite build --config vite.dungeons.config.js && vite build --config vite.tavern.config.js",
+    "dev": "vite build --config vite.app.config.js --watch"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}
