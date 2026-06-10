@@ -273,7 +273,9 @@ def _build_item_entry(row: object, seen: bool) -> dict:
         "level_max": int(_row_get(row, "level_max", 0) or 0) if seen else None,
     }
     if seen:
-        entry["art_key"] = derive_item_art_key(slot_type, weapon_type, base_name)
+        entry["art_key"] = derive_item_art_key(
+            slot_type, weapon_type, base_name, display_name=base_name
+        )
         dmg_min = int(_row_get(row, "dmg_min", 0) or 0)
         dmg_max = int(_row_get(row, "dmg_max", 0) or 0)
         if dmg_min > 0 or dmg_max > 0:
@@ -467,6 +469,8 @@ def build_admin_template_entry(row: object) -> dict:
     entry["legendary_bonus_ids"] = leg_ids
     entry["base_grade"] = int(_row_get(row, "base_grade", 0) or 0)
     entry["has_curated_legendary"] = len(leg_ids) > 0
+    leg_name = str(_row_get(row, "legendary_name_ru", "") or "").strip()
+    entry["legendary_name_ru"] = leg_name or None
     return entry
 
 

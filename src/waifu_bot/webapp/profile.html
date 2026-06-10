@@ -6,7 +6,7 @@
     <title>Профиль вайфу — Waifu REBORN</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css?v=waifu-webapp-v29" />
+    <link rel="stylesheet" href="./styles.css?v=waifu-webapp-v32" />
     <style>
       /* Палитра как у магазина / таверны */
       body.page-profile .profile-missing-waifu {
@@ -1290,7 +1290,7 @@
     <link rel="stylesheet" href="./assets/tutorial.css" />
     <script src="./vendor/telegram-web-app.js"></script>
     <script defer src="./assets/tutorial.js"></script>
-    <script defer src="./app.js?v=waifu-webapp-v29"></script>
+    <script defer src="./app.js?v=waifu-webapp-v32"></script>
   </head>
   <body class="page-profile" onload="WaifuApp.bootstrapPage('profile', WaifuApp.populateProfile);">
     <header class="attic">
@@ -1739,11 +1739,15 @@
           <input id="admin-spawn-search" type="search" placeholder="Предмет…" />
           <select id="admin-spawn-tier">
             <option value="all">Все тиры</option>
-            <option value="legendary">Легендарные</option>
             <option value="1">T1</option><option value="2">T2</option><option value="3">T3</option>
             <option value="4">T4</option><option value="5">T5</option><option value="6">T6</option>
             <option value="7">T7</option><option value="8">T8</option><option value="9">T9</option>
             <option value="10">T10</option>
+          </select>
+          <select id="admin-spawn-item-kind">
+            <option value="all">Все типы</option>
+            <option value="base">Базовые</option>
+            <option value="legendary">Легендарные</option>
           </select>
           <select id="admin-spawn-slot">
             <option value="all">Все слоты</option>

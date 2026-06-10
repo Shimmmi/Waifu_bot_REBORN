@@ -1,0 +1,4448 @@
+{
+  "version": 1,
+  "profiles": {
+    "1": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "2": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "3": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "4": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "5": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "6": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "7": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "8": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "9": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "10": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "11": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "12": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "13": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "14": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "15": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "16": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "17": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "18": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "19": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "20": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "21": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "22": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "23": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "24": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "25": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "26": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "27": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "28": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "30": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "31": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "32": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "33": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "34": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "35": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "36": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "37": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "39": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "40": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "41": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "42": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "43": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "44": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "45": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "46": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "47": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "48": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "49": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "50": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "51": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "52": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "53": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "54": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "55": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "56": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "57": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "58": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "59": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "60": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "61": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "62": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "63": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "64": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "65": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "66": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "67": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "68": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "69": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "70": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "71": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "72": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "73": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "74": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "75": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "76": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "77": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "78": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "79": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "80": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "81": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "82": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "83": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "84": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "85": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "86": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "87": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "88": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "89": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "90": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "91": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "92": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "93": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "94": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "95": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "96": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "97": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "98": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "99": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "101": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "102": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "103": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "104": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "105": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "106": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "107": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "108": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "109": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "110": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "111": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "112": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "113": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "114": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "115": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_photo",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "116": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "117": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "118": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "119": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "120": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "121": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "122": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "123": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "124": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "125": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "126": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "127": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "128": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "129": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "130": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "131": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "132": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "133": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "134": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "135": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "136": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "137": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "139": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "140": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "141": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "142": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "143": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "144": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "145": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "146": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "147": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "148": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "149": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "150": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "151": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "152": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "153": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "154": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "155": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "156": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "157": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "158": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "159": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "160": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "161": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "162": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "163": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "164": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "165": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "166": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "167": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "169": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "170": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "171": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "172": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "173": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "174": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "175": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "177": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "178": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "179": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "180": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "181": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "182": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "183": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "184": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "185": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "186": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "187": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "188": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "189": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "190": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "191": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "192": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "193": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "194": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "195": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "196": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "197": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "198": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "199": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "200": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "201": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "202": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "203": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "204": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "205": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "206": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "207": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "208": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "209": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "210": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "211": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "212": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "213": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "214": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "216": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "217": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "218": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "219": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "220": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "221": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "222": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "223": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "224": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "225": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "226": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "227": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "228": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "229": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "230": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "231": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "232": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "233": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "234": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "235": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "236": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "237": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "238": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "239": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "240": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "241": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "242": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "243": [
+      {
+        "family_id": "p_primary_charm",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "244": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "245": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "246": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "247": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "248": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "250": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "251": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "252": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "253": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "254": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "255": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_gif",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "256": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "257": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "258": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "259": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "260": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "262": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_media_text",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "263": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "264": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "265": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "266": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "267": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "268": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "269": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "270": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "271": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "272": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "273": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "274": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_sticker",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "275": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "276": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "277": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "278": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "279": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "280": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "281": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_media_voice",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "282": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "283": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "284": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "285": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "286": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "287": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "288": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "289": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "290": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "291": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "292": [
+      {
+        "family_id": "p_primary_agility",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_ranged",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "293": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "294": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "295": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "296": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "297": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      }
+    ],
+    "298": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "299": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "300": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_melee",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "301": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "302": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "303": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "304": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "p_dmg_magic",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "305": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "306": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "307": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "308": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "309": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "310": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "311": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "312": [
+      {
+        "family_id": "p_primary_strength",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      }
+    ],
+    "313": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "314": [
+      {
+        "family_id": "p_primary_endurance",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "315": [
+      {
+        "family_id": "p_primary_intelligence",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_crit_chance_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ],
+    "316": [
+      {
+        "family_id": "p_primary_luck",
+        "kind": "prefix"
+      },
+      {
+        "family_id": "s_sec_dmg_reduce_pct",
+        "kind": "suffix"
+      },
+      {
+        "family_id": "s_sec_hp_max_pct",
+        "kind": "suffix"
+      }
+    ]
+  },
+  "source": "rulebased"
+}

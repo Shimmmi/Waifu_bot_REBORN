@@ -160,3 +160,170 @@ def test_generate_admin_multi_affix_high_ilvl() -> None:
             await session.rollback()
 
     asyncio.run(_run())
+
+
+def test_build_admin_template_entry_includes_legendary_name_ru() -> None:
+    from waifu_bot.api.library_routes import build_admin_template_entry
+
+    entry = build_admin_template_entry(
+        {
+            "id": 21,
+            "name": "Ручной топор",
+            "tier": 1,
+            "item_type": "weapon",
+            "subtype": "one_hand",
+            "legendary_bonus_ids": [139],
+            "legendary_name_ru": "Осадный молот титанов",
+            "base_grade": 0,
+        }
+    )
+    assert entry["name"] == "Ручной топор"
+    assert entry["legendary_name_ru"] == "Осадный молот титанов"
+    assert entry["has_curated_legendary"] is True
+
+
+def test_generate_admin_non_legendary_hand_axe() -> None:
+    from sqlalchemy import text
+
+    from waifu_bot.db.session import get_session, init_engine
+
+    async def _run() -> None:
+        init_engine()
+        async for session in get_session():
+            svc = ItemService()
+            if not await svc._item_base_templates_has_content(session):
+                pytest.skip("item_base_templates not seeded")
+            row = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT id FROM item_base_templates
+                        WHERE name = 'Ручной топор' AND tier = 1
+                          AND COALESCE(base_grade, 0) = 0
+                        LIMIT 1
+                        """
+                    )
+                )
+            ).first()
+            if not row:
+                pytest.skip("Ручной топор template missing")
+            tid = int(row[0])
+            inv, _, _ = await svc.generate_admin_inventory_item(
+                session,
+                None,
+                base_template_id=tid,
+                act=1,
+                rarity=2,
+                is_legendary=False,
+                affixes=[],
+            )
+            assert inv.is_legendary is False
+            assert int(inv.rarity) == 2
+            assert inv.item.name == "Ручной топор"
+            assert len(inv.legendary_bonus_ids or []) == 0
+            await session.rollback()
+
+    asyncio.run(_run())
+
+
+def test_generate_admin_legendary_hand_axe() -> None:
+    from sqlalchemy import text
+
+    from waifu_bot.db.session import get_session, init_engine
+
+    async def _run() -> None:
+        init_engine()
+        async for session in get_session():
+            svc = ItemService()
+            if not await svc._item_base_templates_has_content(session):
+                pytest.skip("item_base_templates not seeded")
+            row = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT id FROM item_base_templates
+                        WHERE name = 'Ручной топор' AND tier = 1
+                          AND COALESCE(base_grade, 0) = 0
+                        LIMIT 1
+                        """
+                    )
+                )
+            ).first()
+            if not row:
+                pytest.skip("Ручной топор template missing")
+            tid = int(row[0])
+            inv1, _, _ = await svc.generate_admin_inventory_item(
+                session,
+                None,
+                base_template_id=tid,
+                act=1,
+                rarity=5,
+                is_legendary=True,
+                affixes=[],
+            )
+            inv2, _, _ = await svc.generate_admin_inventory_item(
+                session,
+                None,
+                base_template_id=tid,
+                act=1,
+                rarity=5,
+                is_legendary=True,
+                affixes=[],
+            )
+            assert inv1.is_legendary is True
+            assert int(inv1.rarity) == 5
+            assert len(inv1.legendary_bonus_ids or []) >= 1
+            assert len(inv1.affixes or []) >= 3
+            assert int(inv1.base_stat_value or 0) >= 2
+            fam1 = sorted((a.stat for a in inv1.affixes))
+            fam2 = sorted((a.stat for a in inv2.affixes))
+            assert fam1 == fam2
+            await session.rollback()
+
+    asyncio.run(_run())
+
+
+def test_generate_admin_legendary_seventh_legion_mace() -> None:
+    from sqlalchemy import text
+
+    from waifu_bot.db.session import get_session, init_engine
+
+    async def _run() -> None:
+        init_engine()
+        async for session in get_session():
+            svc = ItemService()
+            if not await svc._item_base_templates_has_content(session):
+                pytest.skip("item_base_templates not seeded")
+            row = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT id, legendary_bonus_ids FROM item_base_templates
+                        WHERE id = 71 AND COALESCE(base_grade, 0) = 0
+                        LIMIT 1
+                        """
+                    )
+                )
+            ).first()
+            if not row:
+                pytest.skip("template 71 missing")
+            tid = int(row[0])
+            tpl_bonus_ids = list(row[1] or [])
+            inv, _, _ = await svc.generate_admin_inventory_item(
+                session,
+                None,
+                base_template_id=tid,
+                act=1,
+                rarity=5,
+                is_legendary=True,
+                affixes=[],
+            )
+            assert inv.is_legendary is True
+            assert inv.item.name == "Бич седьмого легиона"
+            assert getattr(inv, "_display_name", None) == "Бич седьмого легиона"
+            assert len(inv.legendary_bonus_ids or []) >= 1
+            if tpl_bonus_ids:
+                assert int(inv.legendary_bonus_ids[0]) == int(tpl_bonus_ids[0])
+            await session.rollback()
+
+    asyncio.run(_run())

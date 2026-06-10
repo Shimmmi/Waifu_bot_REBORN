@@ -334,6 +334,8 @@ async def handle_abyss_attack(
                 legendary_bridge.prep_message_patch(progress.battle_state or {}, media_type)
             )
             merged = merge_battle_state(progress.battle_state or {}, legendary_state_patch)
+            from waifu_bot.services.legendary_combat import build_legendary_extra_data
+
             leg_ctx = legendary_bridge.build_context(
                 player_id=player_id,
                 waifu=waifu,
@@ -344,6 +346,7 @@ async def handle_abyss_attack(
                 message_length=msg_len,
                 player_gold=int(player.gold or 0) if player else 0,
                 monster=LegendaryMonsterView.from_abyss_monster(monster, floor),
+                extra_data=build_legendary_extra_data(media_type, message_text),
             )
             leg_force_crit, leg_crit_mult, pre_patch = legendary_bridge.apply_pre_crit(leg_ctx)
             legendary_state_patch.update(pre_patch or {})

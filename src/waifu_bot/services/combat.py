@@ -66,6 +66,7 @@ from waifu_bot.game.legendary_bonuses.state import initial_battle_state
 from waifu_bot.services.legendary_combat import (
     LegendaryCombatBridge,
     apply_remaining_monsters_splash,
+    build_legendary_extra_data,
     persist_battle_state,
 )
 from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
@@ -1227,7 +1228,7 @@ class CombatService:
                 media_type=media_type,
                 message_length=msg_len,
                 player_gold=int(combat_player.gold or 0) if combat_player else 0,
-                extra_data={},
+                extra_data=build_legendary_extra_data(media_type, message_text),
             )
             leg_force_crit, leg_crit_mult, pre_patch = legendary_bridge.apply_pre_crit(leg_ctx)
             legendary_state_patch.update(pre_patch or {})

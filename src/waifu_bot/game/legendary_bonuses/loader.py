@@ -121,12 +121,14 @@ async def fetch_legendary_bonus_payloads(
         for bid in raw:
             row = by_id.get(int(bid))
             if row:
+                desc_tpl = str(row.get("description_tpl") or "")
                 payload.append(
                     {
                         "id": int(row["id"]),
                         "bonus_key": row["bonus_key"],
                         "name": row["name"],
-                        "description_tpl": row["description_tpl"],
+                        "description": desc_tpl,
+                        "description_tpl": desc_tpl,
                         "params": row.get("params") or {},
                     }
                 )

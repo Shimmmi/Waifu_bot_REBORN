@@ -22,12 +22,16 @@ def _inv(
     *,
     base: str = "Мантия демонов жизни",
     affixes: list[SimpleNamespace] | None = None,
+    is_legendary: bool = False,
+    rarity: int = 2,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         item=SimpleNamespace(name=base),
         slot_type="costume",
         weapon_type=None,
         affixes=affixes or [],
+        is_legendary=is_legendary,
+        rarity=rarity,
     )
 
 
@@ -52,6 +56,23 @@ def test_compose_multi_prefix_suffix() -> None:
 
 def test_inflect_prefix_feminine() -> None:
     assert inflect_adj_ru("мощный", "f") == "мощная"
+
+
+def test_compose_legendary_skips_affix_rollup() -> None:
+    inv = _inv(
+        base="Бич седьмого легиона",
+        affixes=[
+            _affix("мощный", "affix"),
+            _affix("рубящий", "affix"),
+            _affix("стойкости", "suffix"),
+        ],
+        is_legendary=True,
+        rarity=5,
+    )
+    base, display = compose_item_display_name_ru(inv)
+    assert base == "Бич седьмого легиона"
+    assert display == "Бич седьмого легиона"
+    assert "мощный" not in display.lower()
 
 
 def test_resolve_base_name_fallback() -> None:

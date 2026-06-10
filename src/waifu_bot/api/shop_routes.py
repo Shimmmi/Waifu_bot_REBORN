@@ -14,10 +14,7 @@ from waifu_bot.services.llm_client import has_llm_configured
 from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
 from waifu_bot.services.passive_skills import apply_passive_buy_price
 from waifu_bot.services.item_art import enrich_items_with_image_urls
-from waifu_bot.api.inventory_routes import (
-    _enrich_items_with_template_stats,
-    _to_inventory_item,
-)
+from waifu_bot.services.inventory_payload import build_inventory_payloads
 from waifu_bot.game.msk_time import msk_next_midnight_utc_iso
 
 logger = logging.getLogger(__name__)
@@ -187,8 +184,8 @@ async def gamble(
                     player_id,
                 )
             else:
-                await _enrich_items_with_template_stats(session, [inv])
-                item_payload = _to_inventory_item(inv)
+                rows = await build_inventory_payloads(session, [inv])
+                item_payload = rows[0] if rows else {}
                 try:
                     await enrich_items_with_image_urls(session, [item_payload])
                 except Exception:
@@ -238,8 +235,8 @@ async def gamble_buy_slot(
                 ],
             )
             if inv and int(inv.player_id) == int(player_id):
-                await _enrich_items_with_template_stats(session, [inv])
-                item_payload = _to_inventory_item(inv)
+                rows = await build_inventory_payloads(session, [inv])
+                item_payload = rows[0] if rows else {}
                 try:
                     await enrich_items_with_image_urls(session, [item_payload])
                 except Exception:

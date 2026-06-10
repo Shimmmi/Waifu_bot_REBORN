@@ -262,9 +262,60 @@ def derive_item_art_key(
     display_name: str | None = None,
 ) -> str:
     """Full tiered art key: ``derive_art_key(...) / slugify(base_name)``."""
-    cat = derive_art_key(slot_type, weapon_type, display_name)
+    label = display_name or base_name
+    cat = derive_art_key(slot_type, weapon_type, label)
     slug = slugify_item_base_name(base_name)
     return f"{cat}/{slug}"
+
+
+def _slug_from_art_key(art_key: str) -> str | None:
+    k = str(art_key or "").strip()
+    if "/" not in k:
+        return None
+    slug = k.rsplit("/", 1)[-1].strip()
+    return slug or None
+
+
+async def _lookup_item_art_row(
+    session: AsyncSession,
+    art_key: str,
+    tier: int,
+) -> m.ItemArt | None:
+    """Exact (art_key, tier) match, then slug+tier fallback for legacy admin paths."""
+    k = str(art_key or "").strip()
+    t = normalize_tier(tier)
+    if not k:
+        return None
+    row = (
+        await session.execute(
+            select(m.ItemArt).where(
+                m.ItemArt.art_key == k,
+                m.ItemArt.tier == t,
+                m.ItemArt.enabled.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
+    if row is not None:
+        return row
+    slug = _slug_from_art_key(k)
+    if not slug:
+        return None
+    alt_rows = (
+        (
+            await session.execute(
+                select(m.ItemArt).where(
+                    m.ItemArt.art_key.like(f"%/{slug}"),
+                    m.ItemArt.tier == t,
+                    m.ItemArt.enabled.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(alt_rows) == 1:
+        return alt_rows[0]
+    return None
 
 
 def default_relative_path(art_key: str, tier: int) -> str:
@@ -298,14 +349,7 @@ async def resolve_item_art_relative_path(
     t = normalize_tier(tier)
     if not k:
         return default_relative_path("misc/base", t)
-    res = await session.execute(
-        select(m.ItemArt).where(
-            m.ItemArt.art_key == k,
-            m.ItemArt.tier == t,
-            m.ItemArt.enabled.is_(True),
-        )
-    )
-    row = res.scalar_one_or_none()
+    row = await _lookup_item_art_row(session, k, t)
     if row and (row.relative_path or "").strip():
         return str(row.relative_path).strip()
     return default_relative_path(k, t)
@@ -342,7 +386,13 @@ async def enrich_items_with_image_urls(session: AsyncSession, items: list[Any]) 
         if not k:
             continue
         t = normalize_tier(_get_field(it, "tier"))
-        rel = art_map.get((k, t)) or default_relative_path(k, t)
+        rel = art_map.get((k, t))
+        if not rel:
+            row = await _lookup_item_art_row(session, k, t)
+            if row and (row.relative_path or "").strip():
+                rel = str(row.relative_path).strip()
+        if not rel:
+            rel = default_relative_path(k, t)
         _set_field(it, "image_url", game_asset_public_url(rel))
 
     return items

@@ -95,6 +95,8 @@ def compose_item_display_name_ru(
             suffixes.append(name)
 
     base_name = resolve_base_name_ru(inv)
+    if getattr(inv, "is_legendary", False) is True or int(getattr(inv, "rarity", 0) or 0) >= 5:
+        return base_name, base_name
     if inflect_prefixes and prefixes:
         gender = guess_gender_ru(base_name)
         prefixes = [inflect_adj_ru(p, gender) for p in prefixes]

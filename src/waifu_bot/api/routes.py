@@ -22,6 +22,8 @@ from waifu_bot.services import sse as sse_service
 from waifu_bot.game.solo_rewards import enrich_profile_reward_bonus_pcts, guild_reward_fractions
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
 from waifu_bot.game.item_display_name import compose_item_display_name_ru
+from waifu_bot.game.item_template_names import resolve_art_base_name_ru
+from waifu_bot.game.legendary_bonuses.loader import fetch_legendary_bonus_payloads
 from waifu_bot.services.item_art import (
     derive_image_key,
     derive_item_art_key,
@@ -597,7 +599,12 @@ def check_item_requirements(inv: m.InventoryItem, waifu: m.MainWaifu) -> tuple[b
     return len(errors) == 0, errors
 
 
-def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> schemas.GearItemOut:
+def _to_gear_item(
+    inv: m.InventoryItem,
+    waifu: m.MainWaifu | None = None,
+    *,
+    legendary_bonuses: list | None = None,
+) -> schemas.GearItemOut:
     slot = SLOT_MAP.get(inv.equipment_slot or 0, "inventory")
     affixes = []
     for a in inv.affixes or []:
@@ -614,9 +621,10 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
         )
 
     base_name, display_name = compose_item_display_name_ru(inv)
+    art_base_name = resolve_art_base_name_ru(inv, base_name)
     image_key = derive_image_key(inv.slot_type, inv.weapon_type, display_name)
     art_key = derive_item_art_key(
-        inv.slot_type, inv.weapon_type, base_name, display_name=display_name
+        inv.slot_type, inv.weapon_type, art_base_name, display_name=art_base_name
     )
     
     can_equip = None
@@ -662,6 +670,7 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
         enchant_sec_step=float(getattr(inv, "enchant_sec_step", 0.0) or 0.0),
         is_broken=bool(getattr(inv, "is_broken", False)),
         is_legendary=inv.is_legendary,
+        legendary_bonuses=list(legendary_bonuses or []),
         requirements=inv.requirements,
         affixes=affixes,
         slot_type=inv.slot_type,
@@ -990,7 +999,15 @@ async def get_profile(
                     main_details = None
 
                 try:
-                    equipment_payload = [_to_gear_item(inv, main_waifu) for inv in equipped_items]
+                    eq_bonus_map = await fetch_legendary_bonus_payloads(session, equipped_items)
+                    equipment_payload = [
+                        _to_gear_item(
+                            inv,
+                            main_waifu,
+                            legendary_bonuses=eq_bonus_map.get(int(inv.id), []),
+                        )
+                        for inv in equipped_items
+                    ]
                 except Exception:
                     equipment_payload = []
                 try:
@@ -1141,10 +1158,19 @@ async def get_equipment(
     )
     items = inv_items.scalars().all()
     await _enrich_items_with_template_stats(session, items)
+    bonus_map = await fetch_legendary_bonus_payloads(session, items)
     player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
     waifu = player.main_waifu if player else None
-    equipped = [_to_gear_item(i, waifu) for i in items if i.equipment_slot]
-    inventory = [_to_gear_item(i, waifu) for i in items if not i.equipment_slot]
+    equipped = [
+        _to_gear_item(i, waifu, legendary_bonuses=bonus_map.get(int(i.id), []))
+        for i in items
+        if i.equipment_slot
+    ]
+    inventory = [
+        _to_gear_item(i, waifu, legendary_bonuses=bonus_map.get(int(i.id), []))
+        for i in items
+        if not i.equipment_slot
+    ]
     try:
         await enrich_items_with_image_urls(session, equipped)
         await enrich_items_with_image_urls(session, inventory)

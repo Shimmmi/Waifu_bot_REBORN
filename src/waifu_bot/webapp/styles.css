@@ -2131,9 +2131,58 @@ button.chip {
   color: #999077;
   margin-bottom: 10px;
 }
+
+.item-modal-v2-subpanel {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.item-modal-v2-subpanel--base {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.item-modal-v2-subpanel--legendary {
+  border-color: rgba(230, 180, 42, 0.4);
+  background: rgba(230, 180, 42, 0.08);
+}
+.item-modal-v2-subpanel .item-modal-v2-srow:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.item-modal-v2-subpanel .item-modal-v2-srow:first-child {
+  padding-top: 0;
+}
+.item-modal-v2-leg-entry + .item-modal-v2-leg-entry {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(230, 180, 42, 0.2);
+}
+.item-modal-v2-leg-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e6b42a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.item-modal-v2-leg-star {
+  color: #e6b42a;
+}
+.item-modal-v2-leg-desc {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: #c9b896;
+  margin-top: 4px;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
 #item-modal-body,
 #shop-offer-modal-body {
-  max-height: 220px;
+  max-height: 280px;
   overflow-y: auto;
   overflow-x: hidden;
   font-size: 12px;
@@ -2146,6 +2195,24 @@ button.chip {
   padding: 8px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   gap: 8px;
+}
+.item-modal-v2-srow--compact {
+  padding: 3px 0;
+  gap: 6px;
+}
+.item-modal-v2-other-stats .item-modal-v2-srow-l {
+  gap: 0;
+}
+.item-modal-v2-other-stats .item-modal-v2-srow--compact:first-child {
+  padding-top: 0;
+}
+.item-modal-v2-other-stats .item-modal-v2-srow--compact:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.item-modal-v2-other-stats .item-modal-v2-ssec {
+  margin-top: 1px;
+  line-height: 1.25;
 }
 .item-modal-v2-srow:last-child {
   border-bottom: none;
@@ -2569,6 +2636,25 @@ button.chip {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.035);
   font-size: 12px;
+}
+
+.item-mtg-cluster .legendary-unique-bonuses {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.item-mtg-cluster .legendary-unique-bonus-row {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(230, 180, 42, 0.12);
+  border: 1px solid rgba(230, 180, 42, 0.35);
+  font-size: 12px;
+}
+
+.item-mtg-cluster .legendary-unique-bonus-star {
+  color: #e6b42a;
 }
 
 .item-mtg-cluster + .item-mtg-cluster {

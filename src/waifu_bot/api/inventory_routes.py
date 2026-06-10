@@ -13,8 +13,8 @@ from waifu_bot.services.enchanting import build_enchant_preview, enchant_invento
 from waifu_bot.services.craft_enchant import build_craft_enchant_preview, craft_enchant_inventory_item
 from waifu_bot.services.dismantle import dismantle_inventory_item, preview_dismantle_dust
 from waifu_bot.services.inventory_payload import (
+    build_inventory_payloads,
     enrich_inventory_items_with_template_stats,
-    serialize_inventory_item,
 )
 from waifu_bot.services.item_art import enrich_items_with_image_urls
 from waifu_bot.services.shop import compute_player_shop_sell_price
@@ -45,10 +45,6 @@ async def _enrich_items_with_template_stats(session: AsyncSession, items: list[m
     await enrich_inventory_items_with_template_stats(session, items)
 
 
-def _to_inventory_item(inv: m.InventoryItem) -> dict:
-    return serialize_inventory_item(inv)
-
-
 @router.get("/inventory", tags=["inventory"])
 async def list_inventory(
     player_id: int = Depends(get_player_id),
@@ -70,12 +66,9 @@ async def list_inventory(
 
     res = await session.execute(query.offset(offset).limit(limit))
     items = res.scalars().all()
-    await _enrich_items_with_template_stats(session, items)
-    payload = []
-    for inv in items:
-        row = _to_inventory_item(inv)
+    payload = await build_inventory_payloads(session, items)
+    for inv, row in zip(items, payload):
         row["sell_price"] = await _inventory_item_sell_price(session, player_id, inv)
-        payload.append(row)
     try:
         await enrich_items_with_image_urls(session, payload)
     except Exception:
@@ -100,8 +93,8 @@ async def get_inventory_item(
     inv = result.scalar_one_or_none()
     if not inv:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item_not_found")
-    await _enrich_items_with_template_stats(session, [inv])
-    payload = _to_inventory_item(inv)
+    rows = await build_inventory_payloads(session, [inv])
+    payload = rows[0] if rows else {}
     payload["sell_price"] = await _inventory_item_sell_price(session, player_id, inv)
     try:
         await enrich_items_with_image_urls(session, [payload])
