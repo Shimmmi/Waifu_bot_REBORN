@@ -7,10 +7,19 @@ from waifu_bot.game.legendary_bonuses.compat import (
     slot_allowed,
 )
 from waifu_bot.game.legendary_bonuses.context import BonusContext
+from waifu_bot.game.legendary_bonuses.generic import (
+    GENERIC_HANDLERS,
+    generic_media,
+    generic_text_content,
+    generic_text_length,
+)
+from waifu_bot.game.legendary_bonuses.engine import run_outgoing_handlers
 from waifu_bot.game.legendary_bonuses.handlers import (
     handler_survivor_spirit,
     handler_type_hunter,
 )
+from waifu_bot.services.legendary_combat import build_legendary_extra_data
+from waifu_bot.game.constants import MediaType
 from waifu_bot.game.legendary_bonuses.state import (
     initial_battle_state,
     merge_battle_state,
@@ -76,3 +85,91 @@ def test_slot_restrictions():
 def test_incompatible_pairs():
     assert not bonuses_compatible({"AGONY"}, "LAST_BREATH")
     assert bonuses_compatible({"GOLD_PULSE"}, "AFFIX_MASTERY")
+
+
+def test_generic_media_sticker_triple():
+    ctx = _ctx(
+        message_type="sticker",
+        bonus_key="STICKER_TRIPLE",
+        bonus_params={
+            "handler": "media",
+            "media_types": ["sticker"],
+            "effects": {"damage_multiplier": 3.0},
+        },
+    )
+    res = generic_media(ctx)
+    assert res.damage_multiplier == 3.0
+
+
+def test_generic_text_length_lucky_seven():
+    ctx = _ctx(
+        message_type="text",
+        message_length=7,
+        bonus_key="LUCKY_SEVEN_CHARS",
+        bonus_params={
+            "handler": "text_length",
+            "op": "eq",
+            "length": 7,
+            "effects": {"damage_multiplier": 3.0},
+        },
+    )
+    res = generic_text_length(ctx)
+    assert res.damage_multiplier == 3.0
+
+
+def test_generic_text_content_caps():
+    ctx = _ctx(
+        message_type="text",
+        bonus_key="CAPS_FURY",
+        bonus_params={
+            "handler": "text_content",
+            "mode": "caps",
+            "effects": {"damage_multiplier": 2.0},
+        },
+        extra_data={"text": "ATTACK"},
+    )
+    res = generic_text_content(ctx)
+    assert res.damage_multiplier == 2.0
+
+
+def test_engine_dispatches_generic_handler_by_params():
+    ctx = _ctx(message_type="gif")
+    rows = [
+        {
+            "bonus_key": "GIF_LOOP",
+            "params": {
+                "handler": "media",
+                "media_types": ["gif"],
+                "effects": {"damage_multiplier": 2.5},
+            },
+            "inventory_item_id": 1,
+            "slot_type": "weapon_two_hand",
+        }
+    ]
+    agg = run_outgoing_handlers(rows, ctx)
+    assert agg.damage_multiplier == 2.5
+
+
+def test_build_legendary_extra_data_includes_text():
+    data = build_legendary_extra_data(MediaType.TEXT, "hello")
+    assert data["text"] == "hello"
+
+
+def test_generic_handler_registry_covers_primitives():
+    expected = {
+        "media",
+        "time_window",
+        "tempo",
+        "text_length",
+        "text_content",
+        "counter",
+        "hp_state",
+        "monster_state",
+        "session_scale",
+        "economy",
+        "meta_scale",
+        "state_flag",
+        "random_proc",
+        "passive",
+    }
+    assert expected.issubset(set(GENERIC_HANDLERS))

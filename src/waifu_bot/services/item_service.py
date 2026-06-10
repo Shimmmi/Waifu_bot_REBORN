@@ -1,4 +1,6 @@
 """Item generation and management service (templates + affixes)."""
+import json
+import math
 import random
 import re
 from types import SimpleNamespace
@@ -12,6 +14,7 @@ from waifu_bot.db import models as m
 from waifu_bot.game.affix_display_names import resolve_prefix_name_ru, resolve_suffix_name_ru
 from waifu_bot.game.passive_affix_ilvl import passive_node_level_add_allowed
 from waifu_bot.game.item_secondary import snapshot_secondaries_from_template, template_row_from_mapping
+from waifu_bot.game.item_template_names import template_item_name
 from waifu_bot.services.enchanting import apply_enchant_steps_to_inventory_item
 from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
 
@@ -403,7 +406,7 @@ class ItemService:
 
         weapon_type = str(base.get("subtype") or "") or None
         attack_type = str(base.get("attack_type") or "") or None
-        name = str(base.get("name") or "Предмет")
+        name = template_item_name(base, legendary=int(rarity) >= 5)
 
         base_value = max(1, int(20 * int(target_total_level) * int(rarity)))
         item = m.Item(
@@ -578,6 +581,9 @@ class ItemService:
         if base.get("id") is not None:
             inv._base_template_id = int(base["id"])  # type: ignore[attr-defined]
             inv._base_grade = int(base.get("base_grade") or 0)  # type: ignore[attr-defined]
+        canon = str(base.get("name") or "").strip()
+        if canon:
+            inv._canonical_base_name = canon  # type: ignore[attr-defined]
         await apply_enchant_steps_to_inventory_item(session, inv)
         await self._register_inventory_codex(session, player_id, inv)
         return inv
@@ -607,8 +613,10 @@ class ItemService:
         max_g = _max_base_grade_for_plus(plus_level)
         base_grade = _roll_base_grade(max_g)
         tier = _tier_from_item_level_and_grade(target_total_level, base_grade)
+        # Legendary identity (name + unique bonuses) lives on base_grade=0 templates only.
+        pick_grade = 0 if int(rarity) >= 5 else base_grade
         base = await self._pick_item_base_template_for_tier_grade(
-            session, tier, base_grade, item_rarity=int(rarity)
+            session, tier, pick_grade, item_rarity=int(rarity)
         )
         if not base:
             raise RuntimeError("No item_base_templates available")
@@ -660,7 +668,7 @@ class ItemService:
 
         weapon_type = str(base.get("subtype") or "") or None
         attack_type = str(base.get("attack_type") or "") or None
-        name = str(base.get("name") or "Предмет")
+        name = template_item_name(base, legendary=int(rarity) >= 5)
 
         base_value = max(1, int(20 * int(target_total_level) * int(rarity)))
         item = m.Item(
@@ -711,114 +719,22 @@ class ItemService:
         session.add(inv)
         await session.flush()
 
-        min_a, max_a = AFFIX_COUNT.get(int(rarity), (0, 0))
-        count = random.randint(min_a, max_a)
-        pseudo_base = SimpleNamespace(
-            slot_type=slot_type,
-            attack_type=attack_type,
-        )
-        tier_cap = _affix_tier_cap_for_generation(act, target_total_level)
-        pairs = await self._get_diablo_candidates(
-            session, pseudo_base, tier_cap, target_total_level, item_rarity=int(rarity)
-        )
-
-        prefixes: list[tuple[m.AffixFamily, m.AffixFamilyTier]] = []
-        suffixes: list[tuple[m.AffixFamily, m.AffixFamilyTier]] = []
-        for fam, tr in pairs:
-            k = (getattr(fam, "kind", "") or "").lower()
-            if k == "prefix":
-                prefixes.append((fam, tr))
-            elif k == "suffix":
-                suffixes.append((fam, tr))
-
-        chosen: list[tuple[m.AffixFamily, m.AffixFamilyTier]] = []
-        used_family_ids: set[int] = set()
-        used_excl: set[str] = set()
-
-        def _try_add(pool: list[tuple[m.AffixFamily, m.AffixFamilyTier]]) -> bool:
-            if not pool:
-                return False
-            fam, tr = random.choice(pool)
-            if fam.id in used_family_ids:
-                return False
-            eg = str(getattr(fam, "exclusive_group", "") or "")
-            if eg and eg in used_excl:
-                return False
-            used_family_ids.add(fam.id)
-            if eg:
-                used_excl.add(eg)
-            chosen.append((fam, tr))
-            return True
-
-        if count >= 1 and prefixes:
-            _try_add(prefixes)
-        attempts = 0
-        while len(chosen) < count and attempts < 50:
-            attempts += 1
-            pool = suffixes if (suffixes and random.random() < 0.35) else prefixes
-            if not pool:
-                pool = prefixes or suffixes
-            if not pool:
-                break
-            _try_add(pool)
-
-        for fam, tr in chosen:
-            vmin = int(tr.value_min or 0)
-            vmax = int(tr.value_max or 0)
-            if vmax < vmin:
-                vmin, vmax = vmax, vmin
-            value = random.randint(vmin, vmax) if vmax >= vmin else vmin
-
-            effect_key = str(getattr(fam, "effect_key", "") or "")
-            affix_tier = int(getattr(tr, "affix_tier", 1) or 1)
-            if effect_key in self._PRIMARY_STATS:
-                level_delta = self._compute_level_delta_primary_stat(affix_tier, value, vmin)
-            else:
-                level_delta = self._compute_level_delta_scaled(
-                    value=value,
-                    value_min=vmin,
-                    value_max=vmax,
-                    level_delta_min=int(tr.level_delta_min or 0),
-                    level_delta_max=int(tr.level_delta_max or 0),
-                )
-            ek_low = effect_key.lower()
-            if ek_low.startswith("passive_node_level_add:"):
-                level_delta = int(level_delta) * int(self._PASSIVE_NODE_AFFIX_LEVEL_DELTA_MULT)
-
-            fam_kind = (getattr(fam, "kind", "") or "").lower()
-            inv_kind = "affix" if fam_kind == "prefix" else "suffix"
-            if inv_kind == "affix":
-                name_ru = self._resolve_prefix_name_ru(
-                    effect_key, affix_tier, family_id=str(getattr(fam, "family_id", "") or "") or None
-                )
-            else:
-                name_ru = self._resolve_suffix_name_ru(str(getattr(fam, "family_id", "") or ""), affix_tier)
-
-            inv.affixes.append(
-                m.InventoryAffix(
-                    inventory_item_id=inv.id,
-                    name=name_ru,
-                    stat=effect_key,
-                    value=str(int(value)),
-                    is_percent=bool(self._is_percent_effect_key(effect_key)),
-                    kind=inv_kind,
-                    tier=int(affix_tier),
-                    family_id=fam.id,
-                    affix_tier=int(affix_tier),
-                    exclusive_group=getattr(fam, "exclusive_group", None),
-                    level_delta=int(level_delta),
-                )
+        if int(rarity) >= 5:
+            await self._apply_legendary_static_affixes(
+                session, inv, item, base, act, target_total_level
             )
-
-            if inv.damage_min is not None and effect_key == "damage_flat":
-                inv.damage_min += int(value)
-            if inv.damage_max is not None and effect_key == "damage_flat":
-                inv.damage_max += int(value)
-            if inv.damage_min is not None and effect_key == "damage_percent":
-                inv.damage_min = int(inv.damage_min * (1 + int(value) / 100))
-            if inv.damage_max is not None and effect_key == "damage_percent":
-                inv.damage_max = int(inv.damage_max * (1 + int(value) / 100))
-            inv.total_level = int(inv.total_level) + int(level_delta)
+        else:
+            await self._roll_random_diablo_affixes(
+                session,
+                inv,
+                item,
+                slot_type=slot_type,
+                attack_type=attack_type,
+                weapon_type=weapon_type,
+                act=act,
+                target_total_level=target_total_level,
+                rarity=int(rarity),
+            )
 
         tpl_ilvl = self._template_secondary_total_level_bonus(base)
         if tpl_ilvl:
@@ -977,7 +893,11 @@ class ItemService:
         if item.damage is not None:
             item.damage = inv.damage_max or inv.damage_min
         if inv.base_stat_value is not None:
-            inv.base_stat_value = max(1, int(round(int(inv.base_stat_value) * mult)))
+            raw_stat = int(inv.base_stat_value)
+            boosted = max(1, int(math.ceil(raw_stat * mult)))
+            if raw_stat >= 1:
+                boosted = max(2, boosted)
+            inv.base_stat_value = boosted
         stat2 = int(base.get("stat2_value") or 0)
         if stat2 > 0:
             code2 = str(base.get("stat2_type") or "").upper()
@@ -1301,6 +1221,9 @@ class ItemService:
         if base.get("id") is not None:
             inv._base_template_id = int(base["id"])  # type: ignore[attr-defined]
             inv._base_grade = int(base.get("base_grade") or 0)  # type: ignore[attr-defined]
+        canon = str(base.get("name") or "").strip()
+        if canon:
+            inv._canonical_base_name = canon  # type: ignore[attr-defined]
         await apply_enchant_steps_to_inventory_item(session, inv)
         return inv
 
@@ -1449,6 +1372,222 @@ class ItemService:
         await self._register_inventory_codex(session, player_id, inv)
         return inv
 
+    def _parse_legendary_static_affixes(self, base: dict[str, Any]) -> list[dict[str, str]]:
+        raw = base.get("legendary_static_affixes") or []
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                raw = []
+        if not isinstance(raw, list):
+            return []
+        out: list[dict[str, str]] = []
+        for entry in raw:
+            if not isinstance(entry, dict):
+                continue
+            fid = str(entry.get("family_id") or "").strip()
+            if not fid:
+                continue
+            kind = str(entry.get("kind") or ("suffix" if fid.startswith("s_") else "prefix"))
+            out.append({"family_id": fid, "kind": kind})
+        return out
+
+    async def _resolve_legendary_grade0_base(
+        self, session: AsyncSession, base: dict[str, Any]
+    ) -> dict[str, Any]:
+        if int(base.get("base_grade") or 0) == 0:
+            return base
+        row = (
+            await session.execute(
+                text(
+                    """
+                    SELECT *
+                    FROM item_base_templates
+                    WHERE tier = :tier
+                      AND item_type = :item_type
+                      AND subtype = :subtype
+                      AND COALESCE(stat1_type, '') = COALESCE(:stat1, '')
+                      AND COALESCE(base_grade, 0) = 0
+                      AND cardinality(COALESCE(legendary_bonus_ids, '{}')) > 0
+                    ORDER BY id
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "tier": int(base.get("tier") or 1),
+                    "item_type": str(base.get("item_type") or ""),
+                    "subtype": str(base.get("subtype") or ""),
+                    "stat1": base.get("stat1_type"),
+                },
+            )
+        ).mappings().first()
+        return dict(row) if row else base
+
+    async def _pick_diablo_tier_row_for_template_tier(
+        self,
+        session: AsyncSession,
+        family_db_id: int,
+        template_tier: int,
+        target_total_level: int,
+        tier_cap: int,
+    ) -> tuple[m.AffixFamily, m.AffixFamilyTier] | None:
+        fam = await session.get(m.AffixFamily, int(family_db_id))
+        if not fam:
+            return None
+        tt = max(1, min(10, int(template_tier)))
+        res = await session.execute(
+            select(m.AffixFamilyTier)
+            .where(
+                m.AffixFamilyTier.family_id == int(family_db_id),
+                m.AffixFamilyTier.affix_tier <= tt,
+            )
+            .order_by(m.AffixFamilyTier.affix_tier.desc())
+            .limit(1)
+        )
+        tr = res.scalars().first()
+        if tr is not None:
+            return fam, tr
+        return await self._pick_diablo_tier_row_for_admin(
+            session, int(family_db_id), target_total_level, tier_cap
+        )
+
+    async def _resolve_static_affix_family(
+        self,
+        session: AsyncSession,
+        family_id_str: str,
+        template_tier: int,
+        target_total_level: int,
+        tier_cap: int,
+    ) -> tuple[m.AffixFamily, m.AffixFamilyTier] | None:
+        fam = (
+            await session.execute(
+                select(m.AffixFamily).where(m.AffixFamily.family_id == str(family_id_str))
+            )
+        ).scalars().first()
+        if not fam:
+            return None
+        return await self._pick_diablo_tier_row_for_template_tier(
+            session, int(fam.id), template_tier, target_total_level, tier_cap
+        )
+
+    async def _roll_random_diablo_affixes(
+        self,
+        session: AsyncSession,
+        inv: m.InventoryItem,
+        item: m.Item,
+        *,
+        slot_type: str,
+        attack_type: str | None,
+        weapon_type: str | None,
+        act: int,
+        target_total_level: int,
+        rarity: int,
+        count_range: tuple[int, int] | None = None,
+    ) -> None:
+        if count_range is not None:
+            min_a, max_a = count_range
+        else:
+            min_a, max_a = AFFIX_COUNT.get(int(rarity), (0, 0))
+        count = random.randint(min_a, max_a)
+        if count <= 0:
+            return
+        pseudo_base = SimpleNamespace(
+            slot_type=slot_type,
+            attack_type=attack_type,
+        )
+        tier_cap = _affix_tier_cap_for_generation(act, target_total_level)
+        pairs = await self._get_diablo_candidates(
+            session, pseudo_base, tier_cap, target_total_level, item_rarity=int(rarity)
+        )
+        prefixes: list[tuple[m.AffixFamily, m.AffixFamilyTier]] = []
+        suffixes: list[tuple[m.AffixFamily, m.AffixFamilyTier]] = []
+        for fam, tr in pairs:
+            k = (getattr(fam, "kind", "") or "").lower()
+            if k == "prefix":
+                prefixes.append((fam, tr))
+            elif k == "suffix":
+                suffixes.append((fam, tr))
+        chosen: list[tuple[m.AffixFamily, m.AffixFamilyTier]] = []
+        used_family_ids: set[int] = set()
+        used_excl: set[str] = set()
+
+        def _try_add(pool: list[tuple[m.AffixFamily, m.AffixFamilyTier]]) -> bool:
+            if not pool:
+                return False
+            fam, tr = random.choice(pool)
+            if fam.id in used_family_ids:
+                return False
+            eg = str(getattr(fam, "exclusive_group", "") or "")
+            if eg and eg in used_excl:
+                return False
+            used_family_ids.add(fam.id)
+            if eg:
+                used_excl.add(eg)
+            chosen.append((fam, tr))
+            return True
+
+        if count >= 1 and prefixes:
+            _try_add(prefixes)
+        attempts = 0
+        while len(chosen) < count and attempts < 50:
+            attempts += 1
+            pool = suffixes if (suffixes and random.random() < 0.35) else prefixes
+            if not pool:
+                pool = prefixes or suffixes
+            if not pool:
+                break
+            _try_add(pool)
+        for fam, tr in chosen:
+            self._append_diablo_affix_to_inv(inv, item, fam, tr, roll_random=True)
+
+    async def _apply_legendary_static_affixes(
+        self,
+        session: AsyncSession,
+        inv: m.InventoryItem,
+        item: m.Item,
+        base: dict[str, Any],
+        act: int,
+        target_total_level: int,
+    ) -> None:
+        profile = self._parse_legendary_static_affixes(base)
+        template_tier = int(base.get("tier") or 1)
+        tier_cap = _affix_tier_cap_for_generation(act, target_total_level)
+        if not profile:
+            await self._roll_random_diablo_affixes(
+                session,
+                inv,
+                item,
+                slot_type=str(inv.slot_type or ""),
+                attack_type=inv.attack_type,
+                weapon_type=inv.weapon_type,
+                act=act,
+                target_total_level=target_total_level,
+                rarity=5,
+                count_range=(3, 4),
+            )
+            return
+        used_families: set[int] = set()
+        for entry in profile:
+            picked = await self._resolve_static_affix_family(
+                session,
+                str(entry["family_id"]),
+                template_tier,
+                target_total_level,
+                tier_cap,
+            )
+            if not picked:
+                continue
+            fam, tr = picked
+            ek = str(getattr(fam, "effect_key", "") or "")
+            if not self._weapon_damage_effect_matches_item(
+                ek, inv.slot_type, inv.attack_type, inv.weapon_type
+            ):
+                continue
+            if fam.id in used_families:
+                continue
+            used_families.add(int(fam.id))
+            self._append_diablo_affix_to_inv(inv, item, fam, tr, roll_random=True)
+
     async def _fetch_base_template_dict(
         self, session: AsyncSession, base_template_id: int
     ) -> dict[str, Any] | None:
@@ -1537,12 +1676,17 @@ class ItemService:
         item: m.Item,
         fam: m.AffixFamily,
         tr: m.AffixFamilyTier,
+        *,
+        roll_random: bool = False,
     ) -> None:
         vmin = int(tr.value_min or 0)
         vmax = int(tr.value_max or 0)
         if vmax < vmin:
             vmin, vmax = vmax, vmin
-        value = (vmin + vmax) // 2 if vmax >= vmin else vmin
+        if roll_random and vmax >= vmin:
+            value = random.randint(vmin, vmax)
+        else:
+            value = (vmin + vmax) // 2 if vmax >= vmin else vmin
 
         effect_key = str(getattr(fam, "effect_key", "") or "")
         affix_tier = int(getattr(tr, "affix_tier", 1) or 1)
@@ -1622,6 +1766,9 @@ class ItemService:
         if not base:
             raise ValueError("base_template_not_found")
 
+        if is_legendary:
+            base = await self._resolve_legendary_grade0_base(session, base)
+
         eff_rarity = 5 if is_legendary else max(1, min(5, int(rarity)))
         bg = max(0, min(2, int(base_grade or 0)))
         base_tier = int(base.get("tier") or 1)
@@ -1665,7 +1812,7 @@ class ItemService:
 
         weapon_type = str(base.get("subtype") or "") or None
         attack_type = str(base.get("attack_type") or "") or None
-        name = str(base.get("name") or "Предмет")
+        name = template_item_name(base, legendary=bool(is_legendary) or int(eff_rarity) >= 5)
 
         item = m.Item(
             name=name,
@@ -1714,6 +1861,16 @@ class ItemService:
         )
         session.add(inv)
         await session.flush()
+
+        if int(eff_rarity) >= 5:
+            await self._apply_legendary_static_affixes(
+                session,
+                inv,
+                item,
+                base,
+                act,
+                int(inv.total_level),
+            )
 
         pseudo_base = SimpleNamespace(slot_type=slot_type, attack_type=attack_type)
 
@@ -1788,13 +1945,13 @@ class ItemService:
         await self._apply_legendary_item_finalization(session, item, inv, base, int(eff_rarity))
 
         await session.flush()
-        from waifu_bot.game.item_display_name import compose_item_display_name_ru
-
-        _base, display_name = compose_item_display_name_ru(inv)
-        inv._display_name = display_name  # type: ignore[attr-defined]
+        inv._display_name = item.name  # type: ignore[attr-defined]
         if base.get("id") is not None:
             inv._base_template_id = int(base["id"])  # type: ignore[attr-defined]
             inv._base_grade = int(base.get("base_grade") or 0)  # type: ignore[attr-defined]
+        canon = str(base.get("name") or "").strip()
+        if canon:
+            inv._canonical_base_name = canon  # type: ignore[attr-defined]
         await apply_enchant_steps_to_inventory_item(session, inv)
         if player_id is not None:
             await self._register_inventory_codex(session, int(player_id), inv)

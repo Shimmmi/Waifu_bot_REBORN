@@ -473,6 +473,7 @@ function onTavernBgmVolumeChange(value) {
 }
 
 function isTavernBgmMuted() {
+  if (!window.WaifuApp?.isAdminUiEnabled?.()) return true;
   try {
     const v = localStorage.getItem(TAVERN_BGM_MUTED_KEY);
     if (v === null) return true;

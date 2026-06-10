@@ -4643,11 +4643,25 @@ function renderItemBonusesHtml(item) {
   return `<div class="affixes">${lines.join("")}</div>`;
 }
 
+function renderLegendaryBonusesHtml(item) {
+  if (!item) return "";
+  const rows = Array.isArray(item.legendary_bonuses) ? item.legendary_bonuses : [];
+  if (!rows.length) return "";
+  const lines = rows.map((b) => {
+    const name = escapeHtml(String(b.name || b.bonus_key || "Уникальный бонус"));
+    const desc = escapeHtml(String(b.description || b.description_tpl || "").trim());
+    const descHtml = desc ? `<div class="legendary-unique-bonus-desc muted tiny">${desc}</div>` : "";
+    return `<div class="legendary-unique-bonus-row"><span class="legendary-unique-bonus-star" aria-hidden="true">★</span> <strong>${name}</strong>${descHtml}</div>`;
+  });
+  return `<div class="legendary-unique-bonuses">${lines.join("")}</div>`;
+}
+
 /** Вторичный бонус + стат/аффиксы — компактный блок карты предмета */
 function renderCombinedBonusesHtml(item) {
   const secondary = renderSecondaryBonusHtml(item);
+  const legendary = renderLegendaryBonusesHtml(item);
   const bonuses = renderItemBonusesHtml(item);
-  const parts = [secondary, bonuses].filter(Boolean);
+  const parts = [secondary, legendary, bonuses].filter(Boolean);
   if (!parts.length) return "";
   return `<div class="item-mtg-cluster">${parts.join("")}</div>`;
 }
@@ -4931,10 +4945,18 @@ function itemModalV2NextIcon() {
 }
 itemModalV2NextIcon._i = 0;
 
-function itemModalV2StatRow(name, valHtml, valCls, secHtml) {
-  const [emoji, icl] = itemModalV2NextIcon();
+function itemModalV2StatRow(name, valHtml, valCls, secHtml, compact = false) {
   const sec = secHtml ? `<div class="item-modal-v2-ssec">${secHtml}</div>` : "";
   const vc = valCls ? ` ${valCls}` : "";
+  if (compact) {
+    return `<div class="item-modal-v2-srow item-modal-v2-srow--compact">
+    <div class="item-modal-v2-srow-l">
+      <div><div class="item-modal-v2-sname">${escapeHtml(name)}</div>${sec}</div>
+    </div>
+    <span class="item-modal-v2-sval${vc}">${valHtml}</span>
+  </div>`;
+  }
+  const [emoji, icl] = itemModalV2NextIcon();
   return `<div class="item-modal-v2-srow">
     <div class="item-modal-v2-srow-l">
       <div class="item-modal-v2-sico ${icl}" aria-hidden="true">${emoji}</div>
@@ -4976,10 +4998,36 @@ function buildItemModalEnchantRowHtml(item) {
   return `<div class="item-modal-v2-pips">${pips}</div>`;
 }
 
+function itemModalV2Subpanel(modifierClass, innerHtml) {
+  if (!innerHtml) return "";
+  const mod = String(modifierClass || "").trim();
+  return `<div class="item-modal-v2-subpanel${mod ? ` ${mod}` : ""}">${innerHtml}</div>`;
+}
+
+function renderItemModalV2LegendaryBlockHtml(bonuses) {
+  const rows = Array.isArray(bonuses) ? bonuses : [];
+  if (!rows.length) return "";
+  const entries = rows
+    .map((b) => {
+      const name = String(b.name || b.bonus_key || "Уникальный бонус");
+      const desc = String(b.description || b.description_tpl || "").trim();
+      const descHtml = desc
+        ? `<div class="item-modal-v2-leg-desc">${escapeHtml(desc)}</div>`
+        : "";
+      return `<div class="item-modal-v2-leg-entry">
+        <div class="item-modal-v2-leg-name"><span class="item-modal-v2-leg-star" aria-hidden="true">★</span> ${escapeHtml(name)}</div>
+        ${descHtml}
+      </div>`;
+    })
+    .join("");
+  return entries;
+}
+
 function renderItemModalV2CharacteristicsHtml(item) {
   if (!item) return "";
   itemModalV2NextIcon._i = 0;
-  const rows = [];
+  const baseRows = [];
+  const otherRows = [];
 
   const armorEff =
     item?.armor_effective != null
@@ -4993,17 +5041,17 @@ function renderItemModalV2CharacteristicsHtml(item) {
   const isAccessory = st.includes("ring") || st.includes("amulet");
 
   if (!isWeapon && !isAccessory && armorEff > 0) {
-    rows.push(
+    baseRows.push(
       itemModalV2StatRow("Броня", escapeHtml(String(armorEff)), "item-modal-v2-sv-te", null)
     );
   }
   if (isWeapon && Number.isFinite(dmgMinE) && Number.isFinite(dmgMaxE)) {
-    rows.push(
+    baseRows.push(
       itemModalV2StatRow("Урон", escapeHtml(`${dmgMinE}–${dmgMaxE}`), "item-modal-v2-sv-re", null)
     );
   }
   if (isWeapon && speed != null) {
-    rows.push(
+    baseRows.push(
       itemModalV2StatRow("Скорость атаки", escapeHtml(String(speed)), "item-modal-v2-sv-go", null)
     );
   }
@@ -5015,7 +5063,7 @@ function renderItemModalV2CharacteristicsHtml(item) {
       String(item.base_stat).includes("strength") || String(item.base_stat).includes("damage")
         ? "item-modal-v2-sv-re"
         : "item-modal-v2-sv-pu";
-    rows.push(itemModalV2StatRow(m.short, escapeHtml(v), cls, null));
+    otherRows.push(itemModalV2StatRow(m.short, escapeHtml(v), cls, null, true));
   }
 
   const t = String(item?.secondary_bonus_type || "").trim();
@@ -5025,12 +5073,13 @@ function renderItemModalV2CharacteristicsHtml(item) {
   if (t && Number.isFinite(vEff) && vEff > 0) {
     const label = secondaryBonusTitleRu(t);
     const valDisp = formatSecondaryBonusValueDisplay(t, vEff);
-    rows.push(
+    otherRows.push(
       itemModalV2StatRow(
         label,
         escapeHtml(valDisp),
         "item-modal-v2-sv-go",
-        secondaryBonusModalSubtitle(t)
+        secondaryBonusModalSubtitle(t),
+        true
       )
     );
   }
@@ -5041,12 +5090,13 @@ function renderItemModalV2CharacteristicsHtml(item) {
       ? Number(item.secondary_fraction_effective)
       : Number(item?.secondary_fraction_value ?? 0);
   if (ft && Number.isFinite(fvEff) && fvEff > 0) {
-    rows.push(
+    otherRows.push(
       itemModalV2StatRow(
         secondaryBonusTitleRu(ft),
         escapeHtml(formatSecondaryBonusValueDisplay(ft, fvEff)),
         "item-modal-v2-sv-go",
-        "Fraction-вторичка (растёт от заточки)"
+        "Fraction-вторичка (растёт от заточки)",
+        true
       )
     );
   }
@@ -5065,10 +5115,20 @@ function renderItemModalV2CharacteristicsHtml(item) {
     ) {
       v = `${v} ур.`;
     }
-    rows.push(itemModalV2StatRow(label, escapeHtml(v), "item-modal-v2-sv-pu", null));
+    otherRows.push(itemModalV2StatRow(label, escapeHtml(v), "item-modal-v2-sv-pu", null, true));
   });
 
-  return rows.join("");
+  const leg = Array.isArray(item.legendary_bonuses) ? item.legendary_bonuses : [];
+  const basePanel = itemModalV2Subpanel("item-modal-v2-subpanel--base", baseRows.join(""));
+  const legendaryPanel = itemModalV2Subpanel(
+    "item-modal-v2-subpanel--legendary",
+    renderItemModalV2LegendaryBlockHtml(leg)
+  );
+  const otherHtml = otherRows.length
+    ? `<div class="item-modal-v2-other-stats">${otherRows.join("")}</div>`
+    : "";
+
+  return [basePanel, legendaryPanel, otherHtml].filter(Boolean).join("");
 }
 
 function goShopSmithEnchant(inventoryItemId) {
@@ -6751,7 +6811,7 @@ async function adminClearAllItems() {
 
 const adminSpawnState = {
   catalog: null,
-  filters: { search: "", tier: "all", slot: "all", baseGrade: "all" },
+  filters: { search: "", tier: "all", itemKind: "all", slot: "all", baseGrade: "all" },
   affixFilters: { search: "", kind: "all", category: "all" },
   selectedTemplateId: null,
   rarity: 2,
@@ -6852,14 +6912,43 @@ function adminSpawnResolveBaseGrade(tpl) {
   return Number(tpl?.base_grade) || 0;
 }
 
-function adminSpawnResolveSubmitRarity(tpl) {
-  if (tpl?.has_curated_legendary) return 5;
+function adminSpawnResolveIsLegendary() {
+  return adminSpawnState.filters.itemKind === "legendary";
+}
+
+function adminSpawnResolveSubmitRarity() {
+  if (adminSpawnResolveIsLegendary()) return 5;
   return Math.max(1, Math.min(4, Number(adminSpawnState.rarity) || 2));
+}
+
+function adminSpawnDisplayName(it) {
+  if (!it) return "?";
+  if (adminSpawnState.filters.itemKind === "legendary") {
+    return String(it.legendary_name_ru || it.name || "?").trim() || "?";
+  }
+  return String(it.name || "?").trim() || "?";
+}
+
+function adminSpawnDisplaySubtitle(it) {
+  if (!it || adminSpawnState.filters.itemKind !== "legendary") return "";
+  const canon = String(it.name || "").trim();
+  const leg = String(it.legendary_name_ru || "").trim();
+  if (!canon || !leg || canon === leg) return "";
+  return canon;
+}
+
+function adminSpawnSyncRarityControl() {
+  const rarity = document.getElementById("admin-spawn-rarity");
+  if (!rarity) return;
+  const leg = adminSpawnResolveIsLegendary();
+  rarity.disabled = leg;
+  rarity.title = leg ? "Редкость фиксирована для легендарных предметов" : "";
 }
 
 function adminSpawnBindFilterHandlers() {
   const search = document.getElementById("admin-spawn-search");
   const tier = document.getElementById("admin-spawn-tier");
+  const itemKind = document.getElementById("admin-spawn-item-kind");
   const slot = document.getElementById("admin-spawn-slot");
   const baseGrade = document.getElementById("admin-spawn-base-grade-filter");
   const rarity = document.getElementById("admin-spawn-rarity");
@@ -6875,6 +6964,16 @@ function adminSpawnBindFilterHandlers() {
     tier.addEventListener("change", () => {
       adminSpawnState.filters.tier = tier.value;
       adminSpawnRenderGrid();
+      adminSpawnRenderConfig();
+    });
+  }
+  if (itemKind && !itemKind.dataset.bound) {
+    itemKind.dataset.bound = "1";
+    itemKind.addEventListener("change", () => {
+      adminSpawnState.filters.itemKind = itemKind.value;
+      adminSpawnSyncRarityControl();
+      adminSpawnRenderGrid();
+      adminSpawnRenderConfig();
     });
   }
   if (slot && !slot.dataset.bound) {
@@ -6895,6 +6994,7 @@ function adminSpawnBindFilterHandlers() {
     rarity.dataset.bound = "1";
     rarity.addEventListener("change", () => {
       adminSpawnState.rarity = Math.max(1, Math.min(4, parseInt(rarity.value, 10) || 2));
+      adminSpawnRenderConfig();
     });
   }
 }
@@ -6935,11 +7035,12 @@ function adminSpawnRenderGrid() {
   if (f.search) {
     items = items.filter((it) => String(it.name || "").toLowerCase().includes(f.search));
   }
-  if (f.tier === "legendary") {
-    items = items.filter((it) => Boolean(it.has_curated_legendary));
-  } else if (f.tier !== "all") {
+  if (f.tier !== "all") {
     const t = Number(f.tier);
     items = items.filter((it) => Number(it.tier) === t);
+  }
+  if (f.itemKind === "legendary") {
+    items = items.filter((it) => Boolean(it.has_curated_legendary) && Boolean(it.legendary_name_ru));
   }
   if (f.baseGrade !== "all") {
     const bg = Number(f.baseGrade);
@@ -6954,15 +7055,22 @@ function adminSpawnRenderGrid() {
       const tid = Number(it.base_template_id);
       const tierCls = libraryTierClass(Math.max(1, Number(it.tier) || 1));
       const selected = tid === selId ? " selected admin-spawn-card" : " admin-spawn-card";
-      const legBadge = it.has_curated_legendary
-        ? `<span class="admin-spawn-leg-badge">★ curated</span>`
+      const displayName = adminSpawnDisplayName(it);
+      const subtitle = adminSpawnDisplaySubtitle(it);
+      const legBadge =
+        f.itemKind !== "legendary" && it.has_curated_legendary
+          ? `<span class="admin-spawn-leg-badge">★</span>`
+          : "";
+      const subtitleHtml = subtitle
+        ? `<div class="lib-card-sub muted tiny">${escapeHtml(subtitle)}</div>`
         : "";
       return `
         <div class="lib-card ${tierCls}${selected}" role="button" tabindex="0" data-template-id="${tid}"
           onclick="WaifuApp.adminSpawnSelectTemplate(${tid})">
           ${adminSpawnCardArtHtml(it)}
           <div class="lib-card-meta">
-            <div class="lib-card-name">${escapeHtml(it.name || "?")}</div>
+            <div class="lib-card-name">${escapeHtml(displayName)}</div>
+            ${subtitleHtml}
             <div class="lib-card-tier">T${Number(it.tier) || "?"}${legBadge}</div>
           </div>
         </div>`;
@@ -6991,10 +7099,13 @@ function adminSpawnRenderConfig() {
     return;
   }
   adminSpawnSetFabEnabled(true);
-  const leg = tpl.has_curated_legendary ? " · ★ легендарный шаблон" : "";
-  const rar = adminSpawnResolveSubmitRarity(tpl);
+  const displayName = adminSpawnDisplayName(tpl);
+  const subtitle = adminSpawnDisplaySubtitle(tpl);
+  const spawnLeg = adminSpawnResolveIsLegendary();
+  const rar = adminSpawnResolveSubmitRarity();
   const rarLabels = ["", "обычная", "необычная", "редкая", "эпическая", "легендарная"];
-  box.innerHTML = `<strong>${escapeHtml(tpl.name || "")}</strong> · T${Number(tpl.tier) || "?"}${leg} · редкость: ${escapeHtml(rarLabels[rar] || String(rar))} · ilvl по аффиксам · аффиксов: ${adminSpawnState.selectedAffixKeys.size}`;
+  const subLine = subtitle ? ` <span class="muted">(${escapeHtml(subtitle)})</span>` : "";
+  box.innerHTML = `<strong>${escapeHtml(displayName)}</strong>${subLine} · T${Number(tpl.tier) || "?"} · редкость: ${escapeHtml(rarLabels[rar] || String(rar))}${spawnLeg ? " · легендарный" : ""} · ilvl по аффиксам · аффиксов: ${adminSpawnState.selectedAffixKeys.size}`;
 }
 
 function adminSpawnRenderAffixList() {
@@ -7100,8 +7211,13 @@ async function adminOpenSpawnItemModal() {
     return;
   }
   adminSpawnBindFilterHandlers();
+  const tierSel = document.getElementById("admin-spawn-tier");
+  const kindSel = document.getElementById("admin-spawn-item-kind");
   const raritySel = document.getElementById("admin-spawn-rarity");
+  if (tierSel) tierSel.value = adminSpawnState.filters.tier;
+  if (kindSel) kindSel.value = adminSpawnState.filters.itemKind;
   if (raritySel) raritySel.value = String(adminSpawnState.rarity);
+  adminSpawnSyncRarityControl();
   adminSpawnUpdateAffixBtn();
   adminSpawnRenderGrid();
   adminSpawnRenderConfig();
@@ -7162,8 +7278,13 @@ async function adminSpawnSubmit() {
   }
   const fab = document.getElementById("admin-spawn-submit-fab");
   if (fab) fab.disabled = true;
-  const isLegendary = Boolean(tpl.has_curated_legendary);
-  const rarity = adminSpawnResolveSubmitRarity(tpl);
+  const isLegendary = adminSpawnResolveIsLegendary();
+  const rarity = adminSpawnResolveSubmitRarity();
+  if (isLegendary && !tpl.legendary_name_ru) {
+    showToast("У шаблона нет легендарного имени", "error");
+    if (fab) fab.disabled = false;
+    return;
+  }
   try {
     const payload = await apiFetch("/admin/inventory/spawn-item", {
       method: "POST",

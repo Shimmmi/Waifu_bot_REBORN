@@ -13,6 +13,26 @@ from sqlalchemy.orm.attributes import flag_modified
 from waifu_bot.db.models.dungeon import DungeonRun, DungeonRunMonster
 from waifu_bot.db.models.waifu import MainWaifu
 from waifu_bot.game.constants import MediaType
+
+
+def build_legendary_extra_data(
+    media_type: MediaType,
+    message_text: str | None = None,
+    *,
+    voice_duration: float | None = None,
+    sticker_file_unique_id: str | None = None,
+) -> dict[str, Any]:
+    """Payload for BonusContext.extra_data (generic text_content / voice / sticker handlers)."""
+    data: dict[str, Any] = {}
+    if message_text:
+        data["text"] = message_text
+    if voice_duration is not None:
+        data["voice_duration"] = voice_duration
+    if sticker_file_unique_id:
+        data["sticker_file_unique_id"] = sticker_file_unique_id
+    if media_type == MediaType.VOICE and voice_duration is None:
+        data.setdefault("voice_duration", 0.0)
+    return data
 from waifu_bot.game.legendary_bonuses.engine import (
     AggregatedLegendaryResult,
     apply_outgoing_to_damage,

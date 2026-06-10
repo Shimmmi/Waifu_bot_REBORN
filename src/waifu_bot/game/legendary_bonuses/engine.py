@@ -7,6 +7,11 @@ from typing import Any
 
 from waifu_bot.game.constants import MediaType
 from waifu_bot.game.legendary_bonuses.context import BonusContext, BonusResult
+from waifu_bot.game.legendary_bonuses.generic import (
+    GENERIC_DEATH_PRIMITIVE,
+    GENERIC_HANDLERS,
+    generic_on_kill,
+)
 from waifu_bot.game.legendary_bonuses.handlers import (
     BONUS_HANDLERS,
     DEATH_HANDLERS,
@@ -109,6 +114,11 @@ def run_outgoing_handlers(
             continue
         handler = BONUS_HANDLERS.get(key)
         if not handler:
+            primitive = str((row.get("params") or {}).get("handler") or "")
+            if primitive == GENERIC_DEATH_PRIMITIVE:
+                continue
+            handler = GENERIC_HANDLERS.get(primitive)
+        if not handler:
             continue
         ctx = BonusContext(
             player_id=ctx_base.player_id,
@@ -164,16 +174,21 @@ def run_death_handlers(
     results: list[BonusResult] = []
     for row in active_rows:
         key = str(row.get("bonus_key") or "")
-        if key != "KILLING_BLOW_HEAL":
+        params = dict(row.get("params") or {})
+        is_generic_death = str(params.get("handler") or "") == GENERIC_DEATH_PRIMITIVE
+        if key != "KILLING_BLOW_HEAL" and not is_generic_death:
             continue
         ctx = BonusContext(
             **{
                 **ctx_base.__dict__,
                 "bonus_key": key,
-                "bonus_params": dict(row.get("params") or {}),
+                "bonus_params": params,
             }
         )
-        results.append(handler_killing_blow_heal_on_death(ctx))
+        if is_generic_death:
+            results.append(generic_on_kill(ctx))
+        else:
+            results.append(handler_killing_blow_heal_on_death(ctx))
     return _aggregate(results, max_mult=999.0)
 
 
@@ -264,7 +279,7 @@ def charge_revenge_crystal(active_rows: list[dict[str, Any]], damage_received: i
 
 def on_retaliation_dodge(active_rows: list[dict[str, Any]]) -> dict[str, Any]:
     for row in active_rows:
-        if str(row.get("bonus_key") or "") == "COUNTER_DODGE":
+        if str(row.get("bonus_key") or "") == "COUNTER_DODGE" or (row.get("params") or {}).get("listen_dodge"):
             return {"counter_dodge_ready": True}
     return {}
 
@@ -286,8 +301,9 @@ def on_phoenix_revive(active_rows: list[dict[str, Any]], params_by_key: dict[str
 
 
 def on_monster_debuff_applied(active_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    if any(str(r.get("bonus_key") or "") == "COUNTER_CURSE" for r in active_rows):
-        return {"curse_counter_ready": True}
+    for row in active_rows:
+        if str(row.get("bonus_key") or "") == "COUNTER_CURSE" or (row.get("params") or {}).get("listen_debuff"):
+            return {"curse_counter_ready": True}
     return {}
 
 

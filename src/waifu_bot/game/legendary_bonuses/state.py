@@ -6,7 +6,9 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
-FIGHT_LEVEL_KEYS: tuple[str, ...] = (
+from waifu_bot.game.legendary_bonuses.generic import GENERIC_FIGHT_KEYS
+
+FIGHT_LEVEL_KEYS: tuple[str, ...] = GENERIC_FIGHT_KEYS + (
     "consecutive_text_count",
     "consecutive_crit_count",
     "total_messages_in_fight",

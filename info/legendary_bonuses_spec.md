@@ -169,9 +169,14 @@ ALTER TABLE item_base_templates ADD COLUMN IF NOT EXISTS
 -- Snapshot copied to instance at generation (rarity 5)
 ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS
     legendary_bonus_ids INTEGER[] NOT NULL DEFAULT '{}';
+
+-- Deterministic static affix profile (family_id + kind); values rolled at spawn
+ALTER TABLE item_base_templates ADD COLUMN IF NOT EXISTS
+    legendary_static_affixes JSONB NOT NULL DEFAULT '[]';
+-- [{"family_id": "p_primary_strength", "kind": "prefix"}, ...]  — 3–4 rows per legendary template
 ```
 
-Легендарный предмет (rarity **5**, integer): **фиксированные** base stats на шаблоне (× `legendary.base_stat_mult` при генерации), вторички/enchant как у обычных, **0 rolled affixes**, `is_legendary = TRUE`, 1–2 id из `legendary_bonuses`.
+Легендарный предмет (rarity **5**, integer): **фиксированные** base stats на шаблоне (× `legendary.base_stat_mult`, минимум +2 на T1 при `stat1_value≥1`), вторички/enchant как у обычных, **3–4 статических аффикса** из `legendary_static_affixes` шаблона (не random epic-roll), `is_legendary = TRUE`, 1–2 id из `legendary_bonuses`.
 
 ### Таблица `dungeon_runs` / `abyss_progress` — `battle_state`
 
@@ -1770,4 +1775,187 @@ final_multiplier = min(aggregated_multiplier, MAX_TOTAL_MULTIPLIER)
 
 ---
 
-*Документ актуален для версии механики 0.2. При изменении базовых формул урона (раздел «Боевая механика» ТЗ) пересмотреть балансировочные params в таблице `legendary_bonuses`.*
+## 10. Пул бонусов v2 (316, без привязки к предметам)
+
+> Добавлено в билде миграций `0105` / `0106`. Полный каталог: [`legendary_bonuses_catalog.md`](legendary_bonuses_catalog.md).
+
+### Модель
+
+| Слой | Описание |
+|------|----------|
+| **46 legacy** | Ключи из `0091` — bespoke handlers в `handlers.py` (`BONUS_HANDLERS`) |
+| **270 pool** | Семейства по триггерам — generic primitives в `generic.py` |
+| **Итого 316** | Уникальные `bonus_key`; **не** привязаны к `item_base_templates` |
+
+Распределение бонусов по 316 шаблонам предметов (D2-стиль: один базовый предмет на разных тирах — разная identity) — **отдельная задача**, миграция `legendary_bonus_ids` позже.
+
+### 12 семейств (trigger_group)
+
+| # | trigger_group | шт. | primitives |
+|---|---------------|-----|------------|
+| 1 | `media_type` | 36 | `media` |
+| 2 | `time_calendar` | 21 | `time_window` |
+| 3 | `tempo` | 17 | `tempo` |
+| 4 | `text_content` | 22 | `text_length`, `text_content` |
+| 5 | `combo_counter` | 24 | `counter` |
+| 6 | `crit` | 17 | `media`, `counter`, `state_flag`, … |
+| 7 | `hp_state` | 22 | `hp_state` |
+| 8 | `reactive` | 25 | `state_flag`, `random_proc`, … |
+| 9 | `dungeon_progress` | 23 | `monster_state`, `session_scale`, … |
+| 10 | `economy` | 18 | `economy`, `session_scale` |
+| 11 | `meta_inventory` | 18 | `meta_scale`, `passive` |
+| 12 | `exotic` | 34 | `random_proc`, `on_kill`, … |
+
+Legacy-бонусы сохраняют старые `trigger_group` (`time_trigger`, `combo_chain`, …).
+
+### Generic dispatch
+
+Строки пула несут в `params`:
+
+```json
+{
+  "handler": "media",
+  "media_types": ["sticker"],
+  "effects": {"damage_multiplier": 3.0}
+}
+```
+
+Движок (`engine.run_outgoing_handlers`):
+
+1. Ищет `BONUS_HANDLERS[bonus_key]` (legacy).
+2. Иначе — `GENERIC_HANDLERS[params.handler]`.
+3. `params.effects` переводится в `BonusResult` через `build_effects()`.
+
+Death-phase: `params.handler = "on_kill"` → `run_death_handlers` → `generic_on_kill`.
+
+### Pipeline hooks для generic
+
+| Hook | params-флаги / условие |
+|------|------------------------|
+| Retaliation dodge | `listen_dodge: true` → `counter_dodge_ready` |
+| Debuff applied | `listen_debuff: true` → `curse_counter_ready` |
+| `extra_data["text"]` | `text_content` primitives (combat + abyss) |
+
+### Активация
+
+- Seed: `0105_legendary_bonus_pool` — INSERT 270 строк.
+- `0106_activate_text_content_bonuses` — 14 content-бонусов после подачи `extra_data.text`.
+- `is_active = false` — бонус не загружается в бой (`loader.get_active_legendary_bonuses`).
+
+### Верификация БД (2026-06)
+
+- `item_base_templates` base_grade=0: **316** шаблонов (948 всего с grade 1–2).
+- `legendary_bonuses`: **316** строк после `0105`.
+- Curated `legendary_bonus_ids`: **8** шаблонов (Экскалибур без Мистерикла — tier mismatch в `0092`: указан tier 8, в импорте tier 9).
+
+---
+
+## 11. Распределение по шаблонам (D2-стиль)
+
+> Миграция `0107_legendary_template_distribution`, скрипт `scripts/assign_legendary_bonus_distribution.py`, матрица [`legendary_bonus_distribution.md`](legendary_bonus_distribution.md).
+
+### Политика
+
+| Правило | Описание |
+|---------|----------|
+| **Шаблон grade=0** | Каноническое имя + `legendary_bonus_ids`; только 316 строк `base_grade=0` |
+| **Дроп rarity 5** | `_pick_item_base_template_for_tier_grade` вызывается с `base_grade=0` (rolled grade — только для статов инстанса) |
+| **Биекция бонусов** | Каждый из 316 `bonus_key` используется ровно один раз |
+| **Curated (9 шт.)** | Закреплены пары из `0092` + фикс **Мистерикл tier 9**; при раскидке «вытесняют» по 1 обычному шаблону |
+| **9 шаблонов без бонуса** | Обычные grade=0 без `legendary_bonus_ids` — жертва curated-пар (не дропаются как легендарки с бонусом) |
+
+### D2-модель линейки
+
+Внутри `line_key` (одна вещь на 10 тиров) **меняется семейство** бонуса по tier-band:
+
+| Tier | Семейства (приоритет) |
+|------|----------------------|
+| 1–2 | `media_type`, `text_content` |
+| 3–4 | `tempo`, `time_calendar` |
+| 5–6 | `combo_counter`, `crit` |
+| 7–8 | `hp_state`, `reactive`, `dungeon_progress` |
+| 9–10 | `exotic`, `economy`, `meta_inventory` |
+
+Сдвиг: `rotate(families, hash(line_key) % 12)` — разные линейки на одном тире не совпадают.
+
+### Curated (pin)
+
+| Шаблон | tier | bonus_keys |
+|--------|------|------------|
+| Экскалибур | 10 | BOSS_SLAYER, SNIPER_SHOT |
+| Теневое жало | 10 | MYSTIC_SEVEN, QUICK_REFLEX |
+| Звёздный лук | 10 | TYPE_HUNTER, HUNT_FRENZY |
+| Топор бури | 10 | WOUND_FURY, BREAKTHROUGH |
+| Рунный меч | 9 | GOLD_PULSE, AFFIX_MASTERY |
+| Серебряная дуга | 9 | IMMUNITY_BREAKER, REVENGE_THIRST |
+| Мистерикл | **9** | PIERCING_SCREAM, VERBOSITY |
+| Кольцо вечности | 10 | SURVIVOR_SPIRIT, RARITY_SYNERGY |
+| Медальон стражника | 5 | MORNING_RITUAL, FIRST_DAILY_DUNGEON |
+
+### Ограничения слота
+
+`compat.slot_allowed`: `BOSS_SLAYER` не на ring/amulet; `LAST_BREATH` не на ring. Splash/reactive-тяжёлые бонусы prefer weapon/armor.
+
+### Перегенерация
+
+```bash
+PYTHONPATH=src python3 scripts/assign_legendary_bonus_distribution.py --migration
+alembic upgrade head
+```
+
+---
+
+## 12. Статические аффиксы легендарок и переименование
+
+> Миграция `0109_legendary_static_affixes`, матрица [`legendary_static_affixes.md`](legendary_static_affixes.md), данные `scripts/data/legendary_static_affixes.json`.
+
+### Статический профиль (rarity 5)
+
+| Этап | Поведение |
+|------|-----------|
+| **Шаблон** | `legendary_static_affixes`: 3–4 записи `{family_id, kind}` на каждый grade=0 с непустым `legendary_bonus_ids` (307 шт.) |
+| **Спавн (drop + admin)** | `_apply_legendary_static_affixes`: для каждого `family_id` — roll `value` ∈ `[value_min..value_max]` из `affix_family_tiers` где `affix_tier = template.tier` |
+| **Детерминизм** | Два инстанса одного `base_template_id` → одинаковые `family_id`; значения могут отличаться в пределах tier-диапазона |
+| **Epic (r4)** | Без изменений — random `_roll_diablo_affixes` |
+| **AFFIX_COUNT[5]** | `(0, 0)` — случайный epic-roll для r5 **не** используется |
+
+Валидация при генерации профиля и спавне: `_weapon_damage_effect_matches_item`, `_family_allows_base`, `exclusive_group`, запрет `passive_branch_level_add`.
+
+Админ-спавн `is_legendary`: резолв канонического `base_grade=0` (`_resolve_legendary_grade0_base`); ручные аффиксы из модалки — только если профиль пуст (fallback).
+
+### LLM / seed pipeline (static affixes)
+
+```bash
+# Rule-based (без API) или LLM:
+PYTHONPATH=src python3 scripts/generate_legendary_static_affixes_rulebased.py
+# PYTHONPATH=src python3 scripts/generate_legendary_static_affixes_llm.py --batch-size 15 --resume
+
+PYTHONPATH=src python3 scripts/seed_legendary_static_affixes.py
+PYTHONPATH=src python3 scripts/export_legendary_static_affixes_md.py
+alembic upgrade head   # 0109 — колонка legendary_static_affixes
+```
+
+### UI
+
+`inventory_payload` отдаёт `legendary_bonuses[]`; WebApp (`app.js`) — блок «★ Уникальный бонус» (`renderLegendaryBonusesHtml`) отдельно от rolled affixes.
+
+### Переименование легендарок (display names)
+
+Скрипты: `scripts/lib/legendary_name_llm.py`, `generate_legendary_item_names_llm.py`, `seed_legendary_item_names.py`.
+
+| Шаг | Команда |
+|-----|---------|
+| Генерация | `PYTHONPATH=src python3 scripts/generate_legendary_item_names_llm.py --batch-size 15 --resume` → `scripts/data/legendary_item_names_ru.json` |
+| Seed по id | `PYTHONPATH=src python3 scripts/seed_legendary_item_names.py` → колонка `legendary_name_ru` |
+| Восстановление канона | `alembic upgrade head` (0111) + `PYTHONPATH=src python3 scripts/seed_item_base_grades.py` |
+| Backfill инстансов | `PYTHONPATH=src python3 scripts/backfill_item_names_after_legendary_restore.py` |
+
+**Канон vs легендарка:** `item_base_templates.name` — базовое имя (common–epic, webp slug); `legendary_name_ru` — display-name для rarity 5. Seed **не перезаписывает** `name`.
+
+**Не переименовывать:** 9 curated (`CURATED_SKIP` в `legendary_name_llm.py`), 9 vacant (пустой `legendary_bonus_ids`). Grade 1/2 имена не трогаем — дроп rarity 5 всё равно pick `base_grade=0`.
+
+Distribution по id: миграция `0110` (rename-safe). Старый name-keyed `0107` — только для исторических деплоев.
+
+---
+
+*Документ актуален для версии механики 0.2 + pool v2. При изменении базовых формул урона (раздел «Боевая механика» ТЗ) пересмотреть балансировочные params в таблице `legendary_bonuses`.*

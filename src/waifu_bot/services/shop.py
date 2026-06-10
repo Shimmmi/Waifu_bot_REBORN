@@ -14,12 +14,7 @@ from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
 from waifu_bot.game.formulas import calculate_gamble_price, shop_buy_price_from_merchant_discount
 from waifu_bot.services.item_service import ItemService
 from waifu_bot.services.enchanting import get_effective_params
-from waifu_bot.game.item_secondary import (
-    attach_resolved_attrs,
-    effective_fraction_combat,
-    resolve_item_secondaries,
-    template_row_from_mapping,
-)
+from waifu_bot.game.item_secondary import effective_fraction_combat, resolve_item_secondaries
 from waifu_bot.services.hidden_skills import (
     get_hidden_skill_bonuses,
     increment_skill_counter,
@@ -127,28 +122,9 @@ class ShopService:
 
     async def _enrich_inv_with_template_stats(self, session: AsyncSession, inv: InventoryItem) -> None:
         """Attach armor/secondary template values for shop serialization."""
-        item_name = str(getattr(getattr(inv, "item", None), "name", "") or "").strip()
-        tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 0)
-        if not item_name or tier <= 0:
-            return
-        row = (
-            await session.execute(
-                text(
-                    """
-                    SELECT armor_base, secondary_bonus_type, secondary_bonus_value
-                    FROM item_base_templates
-                    WHERE name = :name AND tier = :tier
-                    LIMIT 1
-                    """
-                ),
-                {"name": item_name, "tier": tier},
-            )
-        ).first()
-        if not row:
-            return
-        template = template_row_from_mapping(row)
-        resolved = resolve_item_secondaries(inv, template)
-        attach_resolved_attrs(inv, resolved)
+        from waifu_bot.services.inventory_payload import enrich_inventory_items_with_template_stats
+
+        await enrich_inventory_items_with_template_stats(session, [inv])
 
     async def buy_item(
         self, session: AsyncSession, player_id: int, act: int, slot: int
@@ -482,13 +458,16 @@ class ShopService:
         if not isinstance(req_raw, dict) and getattr(inv, "item", None) is not None:
             req_raw = getattr(inv.item, "requirements", None)
         requirements_out = req_raw if isinstance(req_raw, dict) else None
+        from waifu_bot.game.item_template_names import resolve_art_base_name_ru
+
         display_name_for_art = full_name or base_name
+        art_base_name = resolve_art_base_name_ru(inv, base_name)
         image_key = derive_image_key(inv.slot_type, inv.weapon_type, display_name_for_art)
         art_key = derive_item_art_key(
             inv.slot_type,
             inv.weapon_type,
-            base_name,
-            display_name=display_name_for_art,
+            art_base_name,
+            display_name=art_base_name,
         )
         return {
             "offer_id": offer.id,
