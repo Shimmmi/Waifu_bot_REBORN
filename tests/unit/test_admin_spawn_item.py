@@ -180,6 +180,8 @@ def test_build_admin_template_entry_includes_legendary_name_ru() -> None:
     assert entry["name"] == "Ручной топор"
     assert entry["legendary_name_ru"] == "Осадный молот титанов"
     assert entry["has_curated_legendary"] is True
+    assert entry["art_key"] == "weapon_axe_1h/ruchnoy_topor"
+    assert entry["legendary_art_key"] == "legendary/weapon_axe_1h/ruchnoy_topor"
 
 
 def test_generate_admin_non_legendary_hand_axe() -> None:

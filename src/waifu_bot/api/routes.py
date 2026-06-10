@@ -22,12 +22,11 @@ from waifu_bot.services import sse as sse_service
 from waifu_bot.game.solo_rewards import enrich_profile_reward_bonus_pcts, guild_reward_fractions
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
 from waifu_bot.game.item_display_name import compose_item_display_name_ru
-from waifu_bot.game.item_template_names import resolve_art_base_name_ru
 from waifu_bot.game.legendary_bonuses.loader import fetch_legendary_bonus_payloads
 from waifu_bot.services.item_art import (
     derive_image_key,
-    derive_item_art_key,
     enrich_items_with_image_urls,
+    resolve_inventory_item_art_key,
     normalize_tier,
     read_game_asset_data_url,
     resolve_item_art_relative_path,
@@ -621,11 +620,8 @@ def _to_gear_item(
         )
 
     base_name, display_name = compose_item_display_name_ru(inv)
-    art_base_name = resolve_art_base_name_ru(inv, base_name)
     image_key = derive_image_key(inv.slot_type, inv.weapon_type, display_name)
-    art_key = derive_item_art_key(
-        inv.slot_type, inv.weapon_type, art_base_name, display_name=art_base_name
-    )
+    art_key = resolve_inventory_item_art_key(inv, display_base_name=base_name)
     
     can_equip = None
     requirement_errors = None

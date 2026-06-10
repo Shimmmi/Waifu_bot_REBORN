@@ -144,6 +144,10 @@ class LegendaryCombatBridge:
         affixes = list(mv.affixes or [])
         msg_n = int(mv.messages_on_monster or 0)
         sid = int(session_id or (run.id if run else 0))
+        bs = battle_state or {}
+        seq = int(bs.get("monsters_killed_session", 0) or 0) + 1
+        if run_monster is not None and int(run_monster.position or 0) > 0:
+            seq = int(run_monster.position)
         return BonusContext(
             player_id=int(player_id),
             waifu_id=int(waifu.id),
@@ -154,6 +158,7 @@ class LegendaryCombatBridge:
             message_timestamp=datetime.now(timezone.utc),
             seconds_since_last_attack=seconds_since_last_attack(battle_state),
             monster_id=int(mv.id),
+            monster_sequence_index=seq,
             monster_hp_current=int(mv.current_hp),
             monster_hp_max=int(mv.max_hp or 1),
             monster_affixes=affixes,

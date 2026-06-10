@@ -300,7 +300,11 @@ def generic_counter(ctx: BonusContext) -> BonusResult:
     min_stacks?, effects.
     """
     state = ctx.battle_state
-    total = int(state.get("total_messages_in_fight", 0) or 0)
+    scope = str(_p(ctx, "scope", "fight"))
+    if scope == "session":
+        total = int(state.get("total_messages_in_session", 0) or 0)
+    else:
+        total = int(state.get("total_messages_in_fight", 0) or 0)
     mode = str(_p(ctx, "mode", "every_n"))
     if mode == "every_n":
         n = int(_p(ctx, "n", 5))
@@ -410,7 +414,8 @@ def generic_monster_state(ctx: BonusContext) -> BonusResult:
         return _effects(ctx, stacks=min(n, int(_p(ctx, "max_stacks", 5)))) if n else BonusResult()
     if cond == "id_mod":
         mod = int(_p(ctx, "mod", 7))
-        if mod > 0 and ctx.monster_id % mod == int(_p(ctx, "remainder", 0)):
+        seq = int(ctx.monster_sequence_index or 0)
+        if mod > 0 and seq > 0 and seq % mod == int(_p(ctx, "remainder", 0)):
             return _effects(ctx)
         return BonusResult()
     if cond == "big_hp":

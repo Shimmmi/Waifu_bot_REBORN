@@ -16,9 +16,12 @@ from waifu_bot.game.item_secondary import (
     resolve_item_secondaries,
     template_row_from_mapping,
 )
-from waifu_bot.game.item_template_names import resolve_art_base_name_ru
 from waifu_bot.services.enchanting import get_effective_params
-from waifu_bot.services.item_art import derive_image_key, derive_item_art_key, enrich_items_with_image_urls
+from waifu_bot.services.item_art import (
+    derive_image_key,
+    enrich_items_with_image_urls,
+    resolve_inventory_item_art_key,
+)
 from waifu_bot.services.passive_skills import normalize_passive_level_affix_value
 from waifu_bot.game.legendary_bonuses.loader import fetch_legendary_bonus_payloads
 
@@ -190,12 +193,8 @@ def serialize_inventory_item(
     ]
 
     base_name, display_name = compose_item_display_name_ru(inv)
-    art_base_name = resolve_art_base_name_ru(inv, base_name)
-
     image_key = derive_image_key(inv.slot_type, inv.weapon_type, display_name)
-    art_key = derive_item_art_key(
-        inv.slot_type, inv.weapon_type, art_base_name, display_name=art_base_name
-    )
+    art_key = resolve_inventory_item_art_key(inv, display_base_name=base_name)
 
     ab = int(getattr(inv, "_armor_base", 0) or 0)
     resolved = getattr(inv, "_resolved_secondaries", None) or resolve_item_secondaries(inv, None)

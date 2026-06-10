@@ -20,7 +20,7 @@ from waifu_bot.game.affix_display_names import (
     resolve_suffix_name_ru,
 )
 from waifu_bot.game.affix_effect_ui import effect_bonus_category, effect_stat_description_ru
-from waifu_bot.services.item_art import derive_item_art_key
+from waifu_bot.services.item_art import derive_item_art_key, with_legendary_art_prefix
 from waifu_bot.services.item_codex import CATALOG_DIABLO, CATALOG_LEGACY
 
 logger = logging.getLogger(__name__)
@@ -471,6 +471,9 @@ def build_admin_template_entry(row: object) -> dict:
     entry["has_curated_legendary"] = len(leg_ids) > 0
     leg_name = str(_row_get(row, "legendary_name_ru", "") or "").strip()
     entry["legendary_name_ru"] = leg_name or None
+    base_art = str(entry.get("art_key") or "").strip()
+    if base_art and (leg_ids or leg_name):
+        entry["legendary_art_key"] = with_legendary_art_prefix(base_art)
     return entry
 
 

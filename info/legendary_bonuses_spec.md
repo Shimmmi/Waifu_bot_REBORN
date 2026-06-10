@@ -280,7 +280,35 @@ FIGHT_LEVEL_KEYS = [
 ]
 ```
 
-**Session-level** ключи (`monsters_killed_session`, `total_damage_dealt_session` и др.) сбрасываются только при завершении подземелья.
+**Session-level** ключи (`monsters_killed_session`, `total_damage_dealt_session`, `total_messages_in_session` и др.) сбрасываются только при завершении подземелья.
+
+### Семантика счётчиков сообщений
+
+| Ключ | Область | Сброс |
+|------|---------|-------|
+| `total_messages_in_fight` | Сообщения по **текущему монстру** | Убийство монстра |
+| `total_messages_in_session` | Сообщения за **весь данж** | Новый `DungeonRun` / новый заход в Бездну |
+| `consecutive_text_count` | Серия текстов подряд | Медиа-сообщение или смена монстра |
+
+Бонусы `counter` / `mode: milestone` по умолчанию используют `total_messages_in_fight` (`scope: fight`).
+Для CENTURION, MILESTONE_25, MILESTONE_50 задано `scope: session` — считают `total_messages_in_session`.
+
+Режимы `fibonacci` и `prime` проверяют номер сообщения по **текущему монстру** (фиксированные множества до 89 / 97).
+
+### Номер монстра (`id_mod`)
+
+Бонусы EVEN_PREY, SEVENTH_VICTIM, MONSTER_WHISPERER срабатывают по **порядковому номеру монстра в прохождении** (`monster_sequence_index`), а не по `monster.id` из БД:
+
+- solo: `DungeonRunMonster.position` или `monsters_killed_session + 1`
+- Бездна: `monsters_killed_session + 1` в `battle_state`
+
+### Самоповреждение монстра (`monster_self_damage`)
+
+Эффекты `monster_self_damage_pct_base` / `monster_self_damage` из `build_effects` применяются к HP монстра **в том же ударе** (после исходящего урона), если удар не был уклонён.
+
+### Бездна (Abyss)
+
+При убийстве монстра в Бездне вызывается тот же `on_monster_killed`, что и в solo: сброс fight-ключей и `monsters_killed_session++`.
 
 ---
 
@@ -1950,7 +1978,7 @@ alembic upgrade head   # 0109 — колонка legendary_static_affixes
 | Восстановление канона | `alembic upgrade head` (0111) + `PYTHONPATH=src python3 scripts/seed_item_base_grades.py` |
 | Backfill инстансов | `PYTHONPATH=src python3 scripts/backfill_item_names_after_legendary_restore.py` |
 
-**Канон vs легендарка:** `item_base_templates.name` — базовое имя (common–epic, webp slug); `legendary_name_ru` — display-name для rarity 5. Seed **не перезаписывает** `name`.
+**Канон vs легендарка:** `item_base_templates.name` — каноническое имя и slug для обычных предметов (rarity 1–4); `legendary_name_ru` — display-name для rarity 5. Webp легендарок: `legendary/{category}/{canonical_slug}` (отдельные файлы от базовых). Seed **не перезаписывает** `name`.
 
 **Не переименовывать:** 9 curated (`CURATED_SKIP` в `legendary_name_llm.py`), 9 vacant (пустой `legendary_bonus_ids`). Grade 1/2 имена не трогаем — дроп rarity 5 всё равно pick `base_grade=0`.
 

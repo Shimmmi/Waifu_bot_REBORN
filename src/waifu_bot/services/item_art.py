@@ -268,6 +268,41 @@ def derive_item_art_key(
     return f"{cat}/{slug}"
 
 
+LEGENDARY_ART_PREFIX = "legendary"
+
+
+def with_legendary_art_prefix(art_key: str) -> str:
+    """Prefix base art_key for legendary-tier icons: ``legendary/cat/slug``."""
+    k = str(art_key or "").strip().strip("/")
+    if not k or k.startswith(f"{LEGENDARY_ART_PREFIX}/"):
+        return k
+    return f"{LEGENDARY_ART_PREFIX}/{k}"
+
+
+def is_legendary_art_key(art_key: str) -> bool:
+    return str(art_key or "").strip().startswith(f"{LEGENDARY_ART_PREFIX}/")
+
+
+def resolve_inventory_item_art_key(
+    inv: Any,
+    *,
+    display_base_name: str,
+) -> str:
+    """Art key for an inventory item; legendaries use ``legendary/`` prefix."""
+    from waifu_bot.game.item_template_names import resolve_art_base_name_ru
+
+    art_base = resolve_art_base_name_ru(inv, display_base_name)
+    base_key = derive_item_art_key(
+        getattr(inv, "slot_type", None),
+        getattr(inv, "weapon_type", None),
+        art_base,
+        display_name=art_base,
+    )
+    if getattr(inv, "is_legendary", False) or int(getattr(inv, "rarity", 0) or 0) >= 5:
+        return with_legendary_art_prefix(base_key)
+    return base_key
+
+
 def _slug_from_art_key(art_key: str) -> str | None:
     k = str(art_key or "").strip()
     if "/" not in k:
@@ -300,11 +335,33 @@ async def _lookup_item_art_row(
     slug = _slug_from_art_key(k)
     if not slug:
         return None
+    if is_legendary_art_key(k):
+        leg_rows = (
+            (
+                await session.execute(
+                    select(m.ItemArt).where(
+                        m.ItemArt.art_key.like(f"{LEGENDARY_ART_PREFIX}/%/{slug}"),
+                        m.ItemArt.tier == t,
+                        m.ItemArt.enabled.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if len(leg_rows) == 1:
+            return leg_rows[0]
+        if len(leg_rows) > 1:
+            for row in leg_rows:
+                if row.art_key == k:
+                    return row
+        return None
     alt_rows = (
         (
             await session.execute(
                 select(m.ItemArt).where(
                     m.ItemArt.art_key.like(f"%/{slug}"),
+                    m.ItemArt.art_key.not_like(f"{LEGENDARY_ART_PREFIX}/%"),
                     m.ItemArt.tier == t,
                     m.ItemArt.enabled.is_(True),
                 )

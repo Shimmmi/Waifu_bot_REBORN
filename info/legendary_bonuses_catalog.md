@@ -1477,8 +1477,8 @@
 | GIF_CAROUSEL | Гиф-карусель | medium | yes | counter | Подряд идущие гифки: +20% за каждую, до 6 стаков. |
 | GOLDEN_SPIRAL | Золотая спираль | medium | yes | counter | Сообщения с номером Фибоначчи (1, 2, 3, 5, 8, 13…) наносят ×2.5 урона. |
 | MEDIA_RAIN | Медиа-ливень | medium | yes | counter | Подряд идущие медиа (не текст): +12% за каждое, до 8 стаков. |
-| MILESTONE_25 | Четвертьсотня | easy | yes | counter | 25-е сообщение боя наносит ×8 урона. |
-| MILESTONE_50 | Полусотня | easy | yes | counter | 50-е сообщение боя: ×10 урона и лечение 20% макс. HP. |
+| MILESTONE_25 | Четвертьсотня | easy | yes | counter | 25-е сообщение за данж наносит ×8 урона. |
+| MILESTONE_50 | Полусотня | easy | yes | counter | 50-е сообщение за данж: ×10 урона и лечение 20% макс. HP. |
 | OPENING_GAMBIT | Дебютный гамбит | easy | yes | counter | Первое сообщение боя наносит ×2 урона. |
 | PENTA_BEAT | Пентабит | easy | yes | counter | Каждое 5-е сообщение наносит ×2 урона. |
 | PHOTO_SESSION | Фотосессия | medium | yes | counter | Подряд идущие фото: +18% за каждое, до 6 стаков. |
@@ -1640,6 +1640,7 @@
     "params": {
       "handler": "counter",
       "mode": "milestone",
+      "scope": "session",
       "n": 25,
       "effects": {
         "damage_multiplier": 8.0,
@@ -1653,6 +1654,7 @@
     "params": {
       "handler": "counter",
       "mode": "milestone",
+      "scope": "session",
       "n": 50,
       "effects": {
         "damage_multiplier": 10.0,

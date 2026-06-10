@@ -130,6 +130,7 @@ def run_outgoing_handlers(
             message_timestamp=ctx_base.message_timestamp,
             seconds_since_last_attack=ctx_base.seconds_since_last_attack,
             monster_id=ctx_base.monster_id,
+            monster_sequence_index=ctx_base.monster_sequence_index,
             monster_hp_current=ctx_base.monster_hp_current,
             monster_hp_max=ctx_base.monster_hp_max,
             monster_affixes=list(ctx_base.monster_affixes),

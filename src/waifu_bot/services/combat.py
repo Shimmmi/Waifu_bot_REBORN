@@ -1213,6 +1213,7 @@ class CombatService:
         leg_crit_mult = 1.0
         leg_ignore_dodge = False
         leg_ignore_affixes = False
+        legendary_self_dmg = 0
         if run and legendary_bridge.active and run_monster is not None:
             if combat_player is None:
                 combat_player = await session.get(Player, player_id)
@@ -1313,6 +1314,7 @@ class CombatService:
                 legendary_state_patch["_remaining_monsters_mult"] = float(
                     leg_agg.remaining_monsters_damage_multiplier
                 )
+            legendary_self_dmg = int(leg_agg.monster_self_damage or 0)
 
         if not monster_media_immune and not media_blocked:
             if not leg_ignore_dodge and monster_evade_pct > 0 and random.random() < (monster_evade_pct / 100.0):
@@ -1453,6 +1455,14 @@ class CombatService:
 
         if run and run_monster and affix_rows:
             update_berserk_elite_state(run_monster, affix_rows, int(run_monster.current_hp or 0))
+
+        if legendary_self_dmg > 0 and not monster_dodged:
+            if run and run_monster:
+                run_monster.current_hp = max(0, int(run_monster.current_hp or 0) - legendary_self_dmg)
+                monster_hp_after = int(run_monster.current_hp or 0)
+            elif progress is not None:
+                progress.current_monster_hp = max(0, int(progress.current_monster_hp or 0) - legendary_self_dmg)
+                monster_hp_after = int(progress.current_monster_hp or 0)
 
         if not monster_dodged and damage > 0:
             if run_monster is not None:

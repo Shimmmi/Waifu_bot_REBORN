@@ -6867,9 +6867,19 @@ function adminSpawnOnArtError(img) {
   }
 }
 
+function adminSpawnResolveArtKey(entry) {
+  if (adminSpawnResolveIsLegendary()) {
+    const legKey = String(entry?.legendary_art_key || "").trim();
+    if (legKey) return legKey;
+    const base = String(entry?.art_key || "").trim();
+    if (base) return `legendary/${base}`;
+  }
+  return String(entry?.art_key || "").trim();
+}
+
 function adminSpawnCardArtHtml(entry) {
-  const artKey = String(entry?.art_key || "").trim();
-  const itemName = String(entry?.name || "").trim();
+  const artKey = adminSpawnResolveArtKey(entry);
+  const itemName = adminSpawnDisplayName(entry) || String(entry?.name || "").trim();
   const fakeItem = {
     art_key: artKey,
     tier: entry?.tier,

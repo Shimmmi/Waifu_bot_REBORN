@@ -40,6 +40,7 @@ def initial_battle_state(*, first_daily_dungeon: bool = False) -> dict[str, Any]
         "consecutive_text_count": 0,
         "consecutive_crit_count": 0,
         "total_messages_in_fight": 0,
+        "total_messages_in_session": 0,
         "total_damage_dealt_fight": 0,
         "media_types_used": [],
         "last_message_type": None,
@@ -124,8 +125,10 @@ def touch_attack_timestamp(state: dict[str, Any], now: datetime | None = None) -
 
 def increment_message_counters(state: dict[str, Any], message_type: str) -> dict[str, Any]:
     total = int((state or {}).get("total_messages_in_fight", 0) or 0) + 1
+    total_session = int((state or {}).get("total_messages_in_session", 0) or 0) + 1
     patch: dict[str, Any] = {
         "total_messages_in_fight": total,
+        "total_messages_in_session": total_session,
         "last_message_type": message_type,
     }
     if message_type == "text":
