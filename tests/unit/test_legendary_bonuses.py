@@ -9,18 +9,23 @@ from waifu_bot.game.legendary_bonuses.compat import (
 from waifu_bot.game.legendary_bonuses.context import BonusContext
 from waifu_bot.game.legendary_bonuses.generic import (
     GENERIC_HANDLERS,
+    generic_counter,
+    generic_monster_state,
     generic_media,
     generic_text_content,
     generic_text_length,
 )
 from waifu_bot.game.legendary_bonuses.engine import run_outgoing_handlers
 from waifu_bot.game.legendary_bonuses.handlers import (
+    handler_charged_discharge,
     handler_survivor_spirit,
     handler_type_hunter,
 )
+from waifu_bot.services.legendary_combat import LegendaryCombatBridge
 from waifu_bot.services.legendary_combat import build_legendary_extra_data
 from waifu_bot.game.constants import MediaType
 from waifu_bot.game.legendary_bonuses.state import (
+    increment_message_counters,
     initial_battle_state,
     merge_battle_state,
     reset_fight_level_keys,
@@ -153,6 +158,144 @@ def test_engine_dispatches_generic_handler_by_params():
 def test_build_legendary_extra_data_includes_text():
     data = build_legendary_extra_data(MediaType.TEXT, "hello")
     assert data["text"] == "hello"
+
+
+def test_id_mod_uses_sequence_not_db_id():
+    ctx_hit = _ctx(
+        monster_id=49,
+        monster_sequence_index=7,
+        bonus_params={
+            "handler": "monster_state",
+            "condition": "id_mod",
+            "mod": 7,
+            "remainder": 0,
+            "effects": {"damage_multiplier": 2.5},
+        },
+    )
+    assert generic_monster_state(ctx_hit).damage_multiplier == 2.5
+
+    ctx_miss = _ctx(
+        monster_id=49,
+        monster_sequence_index=6,
+        bonus_params={
+            "handler": "monster_state",
+            "condition": "id_mod",
+            "mod": 7,
+            "remainder": 0,
+            "effects": {"damage_multiplier": 2.5},
+        },
+    )
+    assert generic_monster_state(ctx_miss).damage_multiplier == 1.0
+
+
+def test_monster_self_damage_from_generic_passive():
+    ctx = _ctx(
+        base_damage=200,
+        bonus_params={
+            "handler": "passive",
+            "effects": {"monster_self_damage_pct_base": 0.25},
+        },
+    )
+    res = GENERIC_HANDLERS["passive"](ctx)
+    assert res.monster_self_damage == 50
+
+
+def test_milestone_session_scope_centurion():
+    state = initial_battle_state()
+    state["total_messages_in_session"] = 100
+    state["total_messages_in_fight"] = 5
+    ctx = _ctx(
+        message_type="text",
+        battle_state=state,
+        bonus_params={
+            "handler": "counter",
+            "mode": "milestone",
+            "scope": "session",
+            "n": 100,
+            "effects": {"damage_multiplier": 20.0},
+        },
+    )
+    assert generic_counter(ctx).damage_multiplier == 20.0
+
+    ctx_fight_only = _ctx(
+        message_type="text",
+        battle_state=state,
+        bonus_params={
+            "handler": "counter",
+            "mode": "milestone",
+            "n": 100,
+            "effects": {"damage_multiplier": 20.0},
+        },
+    )
+    assert generic_counter(ctx_fight_only).damage_multiplier == 1.0
+
+
+def test_fibonacci_resets_per_monster():
+    st = initial_battle_state()
+    st["total_messages_in_fight"] = 55
+    out = reset_fight_level_keys(st)
+    assert out["total_messages_in_fight"] == 0
+
+    st2 = merge_battle_state(out, increment_message_counters(out, "text"))
+    ctx = _ctx(
+        message_type="text",
+        battle_state=st2,
+        bonus_params={
+            "handler": "counter",
+            "mode": "fibonacci",
+            "effects": {"damage_multiplier": 2.5},
+        },
+    )
+    assert generic_counter(ctx).damage_multiplier == 2.5
+
+
+def test_charged_discharge_requires_five_texts_not_three():
+    state = initial_battle_state()
+    for _ in range(4):
+        state = merge_battle_state(state, increment_message_counters(state, "text"))
+    ctx = _ctx(
+        message_type="text",
+        battle_state=state,
+        bonus_key="CHARGED_DISCHARGE",
+        bonus_params={"text_count_required": 5},
+    )
+    res = handler_charged_discharge(ctx)
+    assert not res.battle_state_patch.get("discharge_ready")
+
+    state = merge_battle_state(state, increment_message_counters(state, "text"))
+    ctx_ready = _ctx(
+        message_type="text",
+        battle_state=state,
+        bonus_key="CHARGED_DISCHARGE",
+        bonus_params={"text_count_required": 5},
+    )
+    res_ready = handler_charged_discharge(ctx_ready)
+    assert res_ready.battle_state_patch.get("discharge_ready") is True
+
+
+def test_abyss_kill_resets_fight_counters():
+    bridge = LegendaryCombatBridge()
+    st = initial_battle_state()
+    st["total_messages_in_fight"] = 20
+    st["consecutive_text_count"] = 8
+    st["total_damage_dealt_fight"] = 500
+    out = bridge.on_monster_killed(st, 500)
+    assert out["total_messages_in_fight"] == 0
+    assert out["consecutive_text_count"] == 0
+    assert out["monsters_killed_session"] == 1
+    assert out["prev_fight_total_damage"] == 500
+
+
+def test_increment_message_counters_tracks_session_total():
+    st = initial_battle_state()
+    p1 = increment_message_counters(st, "text")
+    assert p1["total_messages_in_fight"] == 1
+    assert p1["total_messages_in_session"] == 1
+    st2 = merge_battle_state(st, p1)
+    st2 = merge_battle_state(st2, reset_fight_level_keys(st2))
+    p2 = increment_message_counters(st2, "text")
+    assert p2["total_messages_in_fight"] == 1
+    assert p2["total_messages_in_session"] == 2
 
 
 def test_generic_handler_registry_covers_primitives():

@@ -391,8 +391,8 @@ def handler_charged_discharge(ctx: BonusContext) -> BonusResult:
     state = ctx.battle_state
     req = int(_p(ctx, "text_count_required", 5))
     if ctx.message_type == "text":
-        new_count = int(state.get("consecutive_text_count", 0) or 0) + 1
-        patch = {"consecutive_text_count": new_count}
+        new_count = int(state.get("consecutive_text_count", 0) or 0)
+        patch = {}
         if new_count >= req:
             patch["discharge_ready"] = True
         return BonusResult(battle_state_patch=patch)

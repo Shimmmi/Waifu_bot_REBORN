@@ -6,6 +6,8 @@
 
 `python3 scripts/generate_image_placeholders.py`
 
+Скрипт **не перезаписывает** уже загруженные slug-арты (`{family}/{slug}.webp` больше 4 KB). Создаёт только отсутствующие файлы и обновляет `_family*`, `_unknown`. Принудительная пересборка всех заглушек: `--force-monsters`. Только предметы и биомы, без монстров: `--skip-monsters`.
+
 - **Базовый URL:** `/static/game/monsters/`
 - **Цепочка fallback:**  
   `{family}/{slug}.webp` → `{family}/_family_t{tier}.webp` → `{family}/_family.webp` → `_unknown.webp`

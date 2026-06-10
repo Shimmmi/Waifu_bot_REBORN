@@ -20,6 +20,7 @@ class BonusContext:
     seconds_since_last_attack: float = 0.0
 
     monster_id: int = 0
+    monster_sequence_index: int = 1
     monster_hp_current: int = 0
     monster_hp_max: int = 1
     monster_affixes: list[str] = field(default_factory=list)

@@ -313,7 +313,9 @@ async def handle_abyss_attack(
     legendary_gold_mult = 1.0
     legendary_drop_mult = 1.0
     legendary_ignore_death = False
+    legendary_self_dmg = 0
     leg_ctx = None
+    legendary_bridge = None
     if not block_reason:
         damage = calculate_message_damage(
             media_type,
@@ -367,6 +369,7 @@ async def handle_abyss_attack(
             legendary_gold_mult *= float(leg_agg.gold_multiplier or 1.0)
             legendary_drop_mult *= float(leg_agg.drop_chance_multiplier or 1.0)
             legendary_ignore_death = legendary_ignore_death or bool(leg_agg.ignore_monster_death_damage)
+            legendary_self_dmg = int(leg_agg.monster_self_damage or 0)
             crit_patch = legendary_bridge.post_crit(leg_ctx, is_crit)
             legendary_state_patch.update(crit_patch or {})
 
@@ -389,6 +392,8 @@ async def handle_abyss_attack(
 
     # --- Apply to monster ---
     monster["current_hp"] = int(monster.get("current_hp") or 0) - damage
+    if legendary_self_dmg > 0 and not block_reason:
+        monster["current_hp"] = max(0, int(monster.get("current_hp") or 0) - legendary_self_dmg)
     _maybe_phase_rage(monster)
 
     # Reflect (boss) + ABYSS_MIRROR affix on a landed hit.
@@ -451,6 +456,12 @@ async def handle_abyss_attack(
     result["monster_killed"] = True
     monster["current_hp"] = 0
     progress.total_monsters_killed = int(progress.total_monsters_killed or 0) + 1
+
+    if legendary_bridge is not None and legendary_bridge.active:
+        bs = progress.battle_state if isinstance(getattr(progress, "battle_state", None), dict) else {}
+        tf = int(bs.get("total_damage_dealt_fight", 0) or 0)
+        kill_patch = legendary_bridge.on_monster_killed(bs, tf)
+        persist_progress_battle_state(progress, kill_patch)
 
     # Monster retaliation (only on kill, like solo dungeons).
     took = await _monster_retaliation(session, player_id, waifu, monster, eff, combat_grace, rng)
