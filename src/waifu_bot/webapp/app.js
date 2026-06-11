@@ -22,6 +22,31 @@ const API_BASE = "/api";
 const PLAYER_EXP_BASE = 16;
 const PLAYER_MAX_LEVEL = 60;
 const GAME_STATIC_BASE = "/static/game";
+
+/** Synced with CACHE_VERSION in sw.js (bump via scripts/bump_webapp_version.sh). */
+function resolveWebappShellVersion() {
+  if (typeof window !== "undefined" && window.WAIFU_WEBAPP_VERSION) {
+    return String(window.WAIFU_WEBAPP_VERSION);
+  }
+  if (typeof document !== "undefined") {
+    try {
+      for (const el of document.querySelectorAll('script[src], link[href]')) {
+        const u = el.src || el.href || "";
+        const m = u.match(/[?&]v=(waifu-webapp-v\d+)/);
+        if (m) return m[1];
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  return "waifu-webapp-v34";
+}
+
+const WAIFU_WEBAPP_VERSION = resolveWebappShellVersion();
+if (typeof window !== "undefined") {
+  window.WAIFU_WEBAPP_VERSION = WAIFU_WEBAPP_VERSION;
+  window.monsterArtVersion = window.monsterArtVersion || {};
+}
 const CARAVAN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/caravan`;
 const DUNGEONS_STATIC_BASE = `${GAME_STATIC_BASE}/dungeons`;
 const SHOP_STATIC_BASE = `${GAME_STATIC_BASE}/ui/shop`;
@@ -11373,11 +11398,17 @@ async function adminGenerateMonsterArt() {
     const family = payload?.family || visual?.dataset?.family || "unknown";
     const slug = payload?.slug || visual?.dataset?.slug || "unknown";
     const tier = Number(visual?.dataset?.tier) || 1;
+    const bust = Date.now();
+    window.monsterArtVersion = window.monsterArtVersion || {};
+    window.monsterArtVersion[templateId] = bust;
     let override = String(payload?.image_url || "").trim();
     if (override) {
-      override = override + (override.includes("?") ? "&" : "?") + "v=" + Date.now();
+      override = override + (override.includes("?") ? "&" : "?") + "v=" + bust;
     }
-    loadMonsterImage(family, slug, tier, override || null);
+    const loadMonster = window.WaifuApp?.loadMonsterImage;
+    if (typeof loadMonster === "function") {
+      loadMonster(family, slug, tier, override || null, String(bust));
+    }
     showToast("Изображение монстра сохранено");
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -11733,7 +11764,8 @@ function libraryArtCacheBust(templateId, imageUpdatedAt) {
     const t = Date.parse(imageUpdatedAt);
     if (!Number.isNaN(t)) v = Math.max(v, t);
   }
-  return v > 0 ? String(v) : null;
+  if (v > 0) return String(v);
+  return WAIFU_WEBAPP_VERSION || null;
 }
 
 function libraryMonsterImageUrls(e) {
@@ -11747,7 +11779,7 @@ function libraryMonsterImageUrls(e) {
     `${LIBRARY_MONSTER_BASE}/${family}/${slug}.webp${q}`,
     `${LIBRARY_MONSTER_BASE}/${family}/_family_t${tier}.webp${q}`,
     `${LIBRARY_MONSTER_BASE}/${family}/_family.webp${q}`,
-    `${LIBRARY_MONSTER_BASE}/_unknown.webp`,
+    `${LIBRARY_MONSTER_BASE}/_unknown.webp${q}`,
   ];
 }
 
@@ -13795,6 +13827,7 @@ function closeSmithHelpModal() {
 function exportWebAppShellGlobals() {
   Object.assign(window, {
     GAME_STATIC_BASE,
+    WAIFU_WEBAPP_VERSION,
     DUNGEONS_STATIC_BASE,
     TAVERN_STATIC_BASE,
     EXPEDITION_BIOMES_BASE,
