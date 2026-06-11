@@ -1,5 +1,5 @@
 /** Service worker: cache static game assets; network-first shell JS/CSS for fresh deploys. */
-const CACHE_VERSION = "waifu-webapp-v33";
+const CACHE_VERSION = "waifu-webapp-v34";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
@@ -71,11 +71,15 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/static/game/")) {
     event.respondWith(
       caches.open(STATIC_CACHE).then(async (cache) => {
-        const cached = await cache.match(req);
-        if (cached) return cached;
-        const res = await fetch(req);
-        if (res.ok) cache.put(req, res.clone());
-        return res;
+        try {
+          const res = await fetch(req);
+          if (res.ok) await cache.put(req, res.clone());
+          return res;
+        } catch (err) {
+          const cached = await cache.match(req);
+          if (cached) return cached;
+          throw err;
+        }
       })
     );
     return;

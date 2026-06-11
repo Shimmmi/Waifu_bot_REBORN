@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, time, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -32,8 +32,13 @@ from waifu_bot.services.abyss_service import msk_now, msk_today
 from waifu_bot.services.guild_raid_mechanics import (
     MUSTER_HOURS,
     NEUTRAL_TACTIC,
+    RAID_DAILY_COMPOSE_HOUR,
+    RAID_DAILY_COMPOSE_MINUTE,
+    RAID_DAILY_DELIVER_HOUR,
+    RAID_DAILY_DELIVER_MINUTE,
+    RAID_DAILY_RESOLVE_HOUR,
+    RAID_DAILY_RESOLVE_MINUTE,
     RAID_WEEK_DAYS,
-    TACTIC_POLL_HOURS,
     gxp_multiplier_for_outcome,
     mechanics_for_tactic_option,
     outcome_tier,
@@ -69,6 +74,48 @@ _GUILD_ONLINE_TTL = timedelta(minutes=5)
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def raid_start_date_msk(raid: GuildRaid) -> date | None:
+    if not raid.started_at:
+        return None
+    return raid.started_at.astimezone(_MSK).date()
+
+
+def daily_compose_due_msk(raid: GuildRaid, day_index: int) -> datetime | None:
+    start_date = raid_start_date_msk(raid)
+    if start_date is None:
+        return None
+    due_date = start_date + timedelta(days=int(day_index))
+    return datetime.combine(
+        due_date,
+        time(RAID_DAILY_COMPOSE_HOUR, RAID_DAILY_COMPOSE_MINUTE),
+        tzinfo=_MSK,
+    )
+
+
+def daily_deliver_due_msk(raid: GuildRaid, day_index: int) -> datetime | None:
+    start_date = raid_start_date_msk(raid)
+    if start_date is None:
+        return None
+    due_date = start_date + timedelta(days=int(day_index))
+    return datetime.combine(
+        due_date,
+        time(RAID_DAILY_DELIVER_HOUR, RAID_DAILY_DELIVER_MINUTE),
+        tzinfo=_MSK,
+    )
+
+
+def daily_resolve_due_msk(raid: GuildRaid, day_index: int) -> datetime | None:
+    start_date = raid_start_date_msk(raid)
+    if start_date is None:
+        return None
+    due_date = start_date + timedelta(days=int(day_index))
+    return datetime.combine(
+        due_date,
+        time(RAID_DAILY_RESOLVE_HOUR, RAID_DAILY_RESOLVE_MINUTE),
+        tzinfo=_MSK,
+    )
 
 
 def _can_manage_raid(member: GuildMember) -> bool:
@@ -929,6 +976,11 @@ async def compose_raid_daily_log(
     if day_index > RAID_WEEK_DAYS:
         return None
 
+    if not force:
+        compose_due = daily_compose_due_msk(raid, day_index)
+        if compose_due is None or msk_now() < compose_due:
+            return None
+
     existing = (
         await session.execute(
             select(GuildRaidDailyLog).where(
@@ -1100,14 +1152,17 @@ async def deliver_raid_daily(session: AsyncSession, log: GuildRaidDailyLog) -> N
 
         poll_msg = await bot.send_poll(
             chat_id=chat_id,
-            question=f"Тактика на день {log.day_index} (3 ч)",
+            question=f"Тактика на день {log.day_index} (до 08:00 МСК)",
             options=options,
             is_anonymous=False,
             allows_multiple_answers=False,
         )
         log.poll_message_id = poll_msg.message_id
         log.poll_chat_id = chat_id
-        log.poll_deadline_at = _utc_now() + timedelta(hours=TACTIC_POLL_HOURS)
+        resolve_due = daily_resolve_due_msk(raid, int(log.day_index))
+        log.poll_deadline_at = (
+            resolve_due.astimezone(timezone.utc) if resolve_due else _utc_now() + timedelta(hours=3)
+        )
         poll_id = poll_msg.poll.id if poll_msg.poll else None
         dm_poll_ids: dict[str, str] = {}
         parts = (
@@ -1249,11 +1304,6 @@ async def _finish_raid(session: AsyncSession, raid: GuildRaid, guild: Guild, out
         logger.exception("raid finish delivery failed raid_id=%s", raid.id)
 
 
-_last_guild_raid_daily_gen: date | None = None
-_last_guild_raid_daily_deliver: date | None = None
-_last_guild_raid_daily_resolve: date | None = None
-
-
 async def _pending_daily_log_for_deliver(
     session: AsyncSession, raid_id: int, day_index: int
 ) -> GuildRaidDailyLog | None:
@@ -1296,13 +1346,8 @@ async def _daily_log_generated(
 
 
 async def tick_raid_daily_msk(session: AsyncSession) -> None:
-    """Run 04:30 compose, 05:00 deliver, 08:00 resolve (MSK) with catch-up via DB state."""
+    """Run compose/deliver/resolve per raid calendar (MSK) anchored at started_at."""
     now_msk = msk_now()
-    minutes_msk = now_msk.hour * 60 + now_msk.minute
-    compose_from = 4 * 60 + 30
-    deliver_from = 5 * 60
-    resolve_from = 8 * 60
-
     q = await session.execute(
         select(GuildRaid).where(GuildRaid.status == "active", GuildRaid.raid_version >= 2)
     )
@@ -1312,26 +1357,32 @@ async def tick_raid_daily_msk(session: AsyncSession) -> None:
 
     for raid in raids:
         try:
+            if not raid.started_at:
+                continue
+
+            pending_resolve = await _pending_daily_log_for_resolve(session, raid.id)
+            if pending_resolve:
+                resolve_due = daily_resolve_due_msk(raid, int(pending_resolve.day_index))
+                if resolve_due and now_msk >= resolve_due:
+                    await resolve_raid_daily_poll(session, pending_resolve)
+
             next_day = int(raid.day_index or 0) + 1
             if next_day > RAID_WEEK_DAYS:
                 continue
 
-            if minutes_msk >= compose_from:
+            compose_due = daily_compose_due_msk(raid, next_day)
+            if compose_due and now_msk >= compose_due:
                 existing = await _daily_log_generated(session, raid.id, next_day)
                 if not existing:
                     log = await compose_raid_daily_log(session, raid)
                     if log:
                         await session.commit()
 
-            if minutes_msk >= deliver_from:
+            deliver_due = daily_deliver_due_msk(raid, next_day)
+            if deliver_due and now_msk >= deliver_due:
                 log = await _pending_daily_log_for_deliver(session, raid.id, next_day)
                 if log:
                     await deliver_raid_daily(session, log)
-
-            if minutes_msk >= resolve_from:
-                log = await _pending_daily_log_for_resolve(session, raid.id)
-                if log and log.poll_deadline_at and _utc_now() >= log.poll_deadline_at:
-                    await resolve_raid_daily_poll(session, log)
         except Exception:
             logger.exception("raid daily tick failed raid_id=%s", raid.id)
     await session.commit()

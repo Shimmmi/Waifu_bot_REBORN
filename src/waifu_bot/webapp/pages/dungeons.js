@@ -242,12 +242,23 @@ const MONSTER_STATIC_BASE =
   (typeof window !== "undefined" && window.APP_CONFIG?.staticBase) ||
   `${window.GAME_STATIC_BASE || "/static/game"}/monsters`;
 
+if (typeof window !== "undefined") {
+  window.monsterArtVersion = window.monsterArtVersion || {};
+}
+
+function globalMonsterArtCacheBust() {
+  return (typeof window !== "undefined" && window.WAIFU_WEBAPP_VERSION) || null;
+}
+
 // Cache-bust version for a monster's generated art: prefer the freshest of the
 // session-generated timestamp and the API's image_updated_at.
 function monsterArtCacheBust(templateId, imageUpdatedAt) {
   let v = 0;
   try {
-    const sess = templateId != null ? monsterArtVersion[templateId] : 0;
+    const sess =
+      templateId != null && window.monsterArtVersion
+        ? window.monsterArtVersion[templateId]
+        : 0;
     if (sess) v = Math.max(v, Number(sess) || 0);
   } catch (e) {
     /* monsterArtVersion may be undefined in isolation; ignore */
@@ -256,17 +267,21 @@ function monsterArtCacheBust(templateId, imageUpdatedAt) {
     const t = Date.parse(imageUpdatedAt);
     if (!Number.isNaN(t)) v = Math.max(v, t);
   }
-  return v > 0 ? String(v) : null;
+  if (v > 0) return String(v);
+  return globalMonsterArtCacheBust();
 }
 
 function buildMonsterImageUrls(family, slug, tier, imageOverride, version) {
-  if (imageOverride) return [imageOverride, `${MONSTER_STATIC_BASE}/_unknown.webp`];
-  const q = version ? `?v=${encodeURIComponent(version)}` : "";
+  const ver = version || globalMonsterArtCacheBust();
+  const q = ver ? `?v=${encodeURIComponent(ver)}` : "";
+  if (imageOverride) {
+    return [imageOverride, `${MONSTER_STATIC_BASE}/_unknown.webp${q}`];
+  }
   return [
     `${MONSTER_STATIC_BASE}/${family}/${slug}.webp${q}`,
-    `${MONSTER_STATIC_BASE}/${family}/_family_t${tier}.webp`,
-    `${MONSTER_STATIC_BASE}/${family}/_family.webp`,
-    `${MONSTER_STATIC_BASE}/_unknown.webp`,
+    `${MONSTER_STATIC_BASE}/${family}/_family_t${tier}.webp${q}`,
+    `${MONSTER_STATIC_BASE}/${family}/_family.webp${q}`,
+    `${MONSTER_STATIC_BASE}/_unknown.webp${q}`,
   ];
 }
 
@@ -289,13 +304,17 @@ function loadMonsterImage(family, slug, tier, imageOverride, version) {
 
   img.style.display = "";
   img.alt = `Монстр ${slug}`;
+  const targetUrl = urls[0];
   // If the same URL is already loaded, onload may not refire — reveal it manually
   // so the emoji overlay does not stay stuck over a valid image.
-  if (img.getAttribute("src") === urls[0] && img.complete && img.naturalWidth > 0) {
+  if (img.getAttribute("src") === targetUrl && img.complete && img.naturalWidth > 0) {
     onMonsterImageLoad(img);
     return;
   }
-  img.src = urls[0];
+  img.src = targetUrl;
+  if (img.complete && img.naturalWidth > 0) {
+    onMonsterImageLoad(img);
+  }
 }
 
 function onMonsterImageLoad(img) {
@@ -537,24 +556,26 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
   if (placeholderLabel) placeholderLabel.textContent = typeKnown ? (monster.family ?? "") : "";
 
   const img = document.getElementById("monster-img");
+  const placeholder = document.getElementById("monster-placeholder");
   if (img) img.classList.add("fading");
-  const monsterArtVersionStr = monster.has_image
-    ? monsterArtCacheBust(monster.template_id, monster.image_updated_at)
-    : null;
+  const monsterArtVersionStr = monsterArtCacheBust(
+    monster.template_id,
+    monster.image_updated_at
+  );
   const artKey = `${monster.family || "unknown"}|${monster.slug || "unknown"}|${monster.tier ?? 1}|${monsterArtVersionStr || ""}`;
+  const family = monster.family || "unknown";
+  const slug = monster.slug || "unknown";
+  const tier = monster.tier ?? 1;
+  const imageOverride = monster.image_override ?? null;
   if (visual && visual.dataset.monsterArtKey !== artKey) {
     visual.dataset.monsterArtKey = artKey;
     setTimeout(() => {
-      loadMonsterImage(
-        monster.family || "unknown",
-        monster.slug || "unknown",
-        monster.tier ?? 1,
-        monster.image_override ?? null,
-        monsterArtVersionStr
-      );
+      loadMonsterImage(family, slug, tier, imageOverride, monsterArtVersionStr);
     }, 150);
   } else if (img && img.complete && img.naturalWidth > 0) {
     onMonsterImageLoad(img);
+  } else if (placeholder?.classList.contains("visible") && img) {
+    loadMonsterImage(family, slug, tier, imageOverride, monsterArtVersionStr);
   }
 
   const affixesEl = document.getElementById("monster-affixes");
@@ -3371,6 +3392,9 @@ function showTab(name) {
 
 
 Object.assign(window.WaifuApp, {
+  loadMonsterImage,
+  buildMonsterImageUrls,
+  monsterArtCacheBust,
   loadDungeons,
   handleSoloDungeonTileClick,
   startDungeon,

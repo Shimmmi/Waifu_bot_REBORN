@@ -90,6 +90,18 @@ window.apiFetch = async (path) => {
 
 vm.runInNewContext(dungeons, window);
 
+if (typeof window.WaifuApp.buildMonsterImageUrls !== "function") {
+  throw new Error("WaifuApp.buildMonsterImageUrls not registered");
+}
+const monsterUrls = window.WaifuApp.buildMonsterImageUrls("beast", "wolf", 2, null, "waifu-webapp-v34");
+if (!monsterUrls.every((u) => u.includes("?v="))) {
+  throw new Error(`buildMonsterImageUrls missing ?v= on all fallbacks: ${monsterUrls.join(", ")}`);
+}
+const bust = window.WaifuApp.monsterArtCacheBust(null, null);
+if (!bust || !String(bust).includes("waifu-webapp-v")) {
+  throw new Error(`monsterArtCacheBust global fallback expected, got: ${bust}`);
+}
+
 if (typeof window.WaifuApp.showTab !== "function") {
   throw new Error("WaifuApp.showTab not registered");
 }
