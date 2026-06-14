@@ -34,12 +34,19 @@ RAID_SYSTEM_PROMPT = (
 )
 
 _COMPOSE_INSTRUCTIONS = (
-    "Собери утренний SUMMARY вчерашнего дня из готовых 4-часовых абзацев:\n"
-    "- Каждый активный слот — отдельный абзац (можно слегка сгладить стиль).\n"
-    "- Неактивные слоты объедини в ОДИН абзац про привал.\n"
-    "- Если активности не было — один абзац про тихие сутки.\n"
-    "- В конце добавь ОДИН абзац-переход к выбору тактики на сегодня (без перечисления вариантов).\n"
-    "Не добавляй JSON, не перечисляй механики."
+    "Собери утренний SUMMARY вчерашнего дня как ЕДИНЫЙ связный рассказ (2–4 абзаца):\n"
+    "- НЕ перечисляй 4-часовые слоты по одному абзацу — синтезируй события в сюжет.\n"
+    "- Тихие/пустые слоты — одно короткое упоминание (лагерь молчал), без выдуманных действий.\n"
+    "- Двигай сюжет к цели приключения; учитывай день недели и прогресс.\n"
+    "- Если есть блок про вчерашнюю тактику — отдельный абзац с <b>названием тактики</b> и последствиями словами.\n"
+    "- Запрещено: одинаковые зачины абзацев, повтор одних метафор, шаблон «X косплеил Y» в каждом абзаце.\n"
+    "- В конце — ОДИН абзац-переход к выбору тактики на сегодня (без перечисления вариантов).\n"
+    "Не добавляй JSON, не перечисляй числа механик."
+)
+
+_SLOT_FACT_SYSTEM = (
+    "Ты — хроникёр гильдейского рейда. Пиши на русском, Telegram HTML (<b> для имён). "
+    "Только факты из данных слота. Без выдумок, без JSON, без markdown."
 )
 
 _TACTICS_JSON_INSTRUCTIONS = (
@@ -120,7 +127,13 @@ def _bold_proper_nouns(
     return out
 
 
-async def _call_llm_raw(user_prompt: str, *, caller: str, max_tokens: int = 900) -> str | None:
+async def _call_llm_raw(
+    user_prompt: str,
+    *,
+    caller: str,
+    max_tokens: int = 900,
+    system_prompt: str | None = None,
+) -> str | None:
     if not has_llm_configured():
         return None
     payload = {
@@ -128,7 +141,7 @@ async def _call_llm_raw(user_prompt: str, *, caller: str, max_tokens: int = 900)
         "max_tokens": max_tokens,
         "temperature": 0.85,
         "messages": [
-            {"role": "system", "content": RAID_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt or RAID_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
         **_openrouter_text_extra(),
@@ -163,6 +176,7 @@ async def _finalize_narrative_html(
     guild_name: str | None = None,
     guild_tag: str | None = None,
     length_hint: str = "3–5 абзацев, Telegram HTML",
+    rewrite_max_tokens: int = 320,
 ) -> str | None:
     if not raw:
         return None
@@ -175,6 +189,7 @@ async def _finalize_narrative_html(
         caller=caller,
         length_hint=length_hint,
         preserve_html=True,
+        max_tokens=rewrite_max_tokens,
     )
     if not rewritten:
         return None
@@ -252,6 +267,68 @@ def _slot_summaries_block(slot_summaries: list[dict[str, Any]]) -> str:
     return "\n".join(lines) if lines else "Summary пусты — тихие сутки."
 
 
+def _rest_slot_summary_html(*, slot_label: str, location: str) -> str:
+    return (
+        f"[{escape_telegram_html(slot_label)}] привал в <b>{escape_telegram_html(location)}</b> — "
+        "чат молчал."
+    )
+
+
+def _story_arc_hint(day_index: int, story_progress: int) -> str:
+    if day_index <= 2:
+        phase = "завязка: знакомство с локацией, первые препятствия на пути к цели"
+    elif day_index <= 4:
+        phase = "осложнения: отряд углубляется, риски растут"
+    elif day_index <= 6:
+        phase = "кульминация: решающие выборы перед финалом"
+    else:
+        phase = "финал недели: исход приключения на кону"
+    return f"Сюжетная фаза: {phase}. Прогресс к цели ~{story_progress}%."
+
+
+def _vitality_narrative(delta: int) -> str:
+    if delta <= -10:
+        return "Отряд сильно вымотан"
+    if delta < 0:
+        return "Силы на исходе"
+    if delta == 0:
+        return "Выносливость держится"
+    if delta <= 8:
+        return "Отряд окреп"
+    return "Отряд бодр и готов к новому"
+
+
+def _progress_narrative(delta: int) -> str:
+    if delta <= 0:
+        return "путь к цели почти не сдвинулся"
+    if delta <= 8:
+        return "медленно продвигаются к цели"
+    if delta <= 14:
+        return "заметно приблизились к цели"
+    return "рванули вперёд к цели"
+
+
+def _format_last_tactic_story(
+    last_tactic: dict[str, Any] | None,
+    last_resolve: dict[str, Any] | None,
+) -> str:
+    if not last_tactic:
+        return ""
+    label = str(last_tactic.get("label") or "?")
+    if not last_resolve:
+        return (
+            f"Обязательный абзац: вчера отряд выбрал тактику <b>{escape_telegram_html(label)}</b> — "
+            "опиши, как это повлияло на ночь и утро."
+        )
+    vd = int(last_resolve.get("vitality_delta") or 0)
+    pd = int(last_resolve.get("progress_delta") or 0)
+    return (
+        f"Обязательный абзац: вчера отряд выбрал тактику <b>{escape_telegram_html(label)}</b>. "
+        f"{_vitality_narrative(vd)}; {_progress_narrative(pd)}. "
+        "Опиши последствия выбора сюжетно, без чисел и формул."
+    )
+
+
 def _build_slot_fallback_summary(
     *,
     slot_label: str,
@@ -285,19 +362,19 @@ def _build_compose_fallback_narrative(
     slot_summaries: list[dict[str, Any]],
     company_vitality: int,
     story_progress: int,
+    last_tactic: dict[str, Any] | None = None,
+    last_resolve: dict[str, Any] | None = None,
 ) -> str:
     if not slot_summaries:
-        return (
-            f"<b>День {day_index}.</b> Отряд в <b>{loc}</b> провёл спокойные сутки на привале. "
-            f"Выносливость {company_vitality}, прогресс {story_progress}."
-        )
-    parts = [f"<b>День {day_index}.</b> Хроника вчерашнего дня в <b>{loc}</b>:"]
-    for row in sorted(slot_summaries, key=lambda x: int(x.get("slot_index", 0))):
-        html = str(row.get("summary_html") or "").strip()
-        if html:
-            parts.append(html)
+        body = f"Отряд в <b>{loc}</b> провёл спокойные сутки на привале."
+    else:
+        body = f"Вчера в <b>{loc}</b> отряд двигался к цели — активность была, но без отдельной хроники по часам."
+    tactic_block = _format_last_tactic_story(last_tactic, last_resolve)
+    parts = [f"<b>День {day_index}.</b> {body}"]
+    if tactic_block:
+        parts.append(_strip_html(tactic_block))
     parts.append(
-        f"Утро. Отряд собирается выбрать тактику на новый день. "
+        "Утро. Отряд собирается выбрать тактику на новый день. "
         f"Выносливость {company_vitality}, прогресс {story_progress}."
     )
     return "\n\n".join(parts)
@@ -349,24 +426,32 @@ async def generate_raid_slot_summary(
     slot_beat: dict[str, Any],
 ) -> str:
     loc = _location_name(location_archetype_id)
+    if slot_beat.get("rest"):
+        return _rest_slot_summary_html(slot_label=slot_label, location=loc)
+
     user = (
-        f"4-часовой слот {slot_label}. Гильдия [{guild_tag}] «{guild_name}». Локация: {loc}.\n"
-        f"Состав:\n{_party_block(party)}\n\n"
+        f"4-часовой слот {slot_label}. Локация: {loc}.\n"
         f"Данные слота:\n{_slot_summary([slot_beat])}\n\n"
-        "Напиши РОВНО ОДИН абзац summary этого 4-часового отрезка. "
-        "Укажи, кто был активнее, настроение чата. Без JSON."
+        "Напиши 1–2 предложения: только факты из фрагментов чата и списка активных. "
+        "Не выдумывай событий, которых нет в данных. "
+        "Не повторяй шутки и образы из других слотов. Без JSON."
     )
-    out = await _call_llm(
+    raw = await _call_llm_raw(
         user,
         caller="guild raid slot summary",
-        max_tokens=400,
-        party=party,
-        location=loc,
-        guild_name=guild_name,
-        guild_tag=guild_tag,
+        max_tokens=200,
+        system_prompt=_SLOT_FACT_SYSTEM,
     )
-    if out:
-        return out
+    if raw:
+        cleaned = escape_telegram_html(_strip_html(raw))
+        if cleaned:
+            return _bold_proper_nouns(
+                cleaned,
+                party=party,
+                location=loc,
+                guild_name=guild_name,
+                guild_tag=guild_tag,
+            )
     return _build_slot_fallback_summary(slot_label=slot_label, slot_beat=slot_beat, location=loc)
 
 
@@ -383,34 +468,35 @@ async def compose_raid_daily_narrative(
     last_tactic: dict[str, Any] | None,
     last_resolve: dict[str, Any] | None,
     chronicle_summaries: list[str],
+    adventure_goal: str | None = None,
 ) -> str:
     loc = _location_name(location_archetype_id)
-    prev = ""
-    if last_tactic and last_resolve:
-        tactic_label = last_tactic.get("label", "?")
-        prev = (
-            f"Вчера отряд выбрал тактику «{tactic_label}». "
-            f"Последствия: выносливость {last_resolve.get('vitality_delta', '?')}, "
-            f"прогресс +{last_resolve.get('progress_delta', '?')}."
-        )
+    prev = _format_last_tactic_story(last_tactic, last_resolve)
+    goal_line = f"Цель приключения: {adventure_goal}.\n" if adventure_goal else ""
+    arc = _story_arc_hint(day_index, story_progress)
     hist = "\n".join(f"- {_strip_html(s)[:200]}" for s in chronicle_summaries[-3:])
     user = (
         f"День {day_index} из 7. Гильдия [{guild_tag}] «{guild_name}». Локация: {loc}.\n"
+        f"{goal_line}"
+        f"{arc}\n"
         f"Выносливость: {company_vitality}/100. Прогресс: {story_progress}/100.\n"
         f"{prev}\n\n"
-        f"4-часовые summary за вчера:\n{_slot_summaries_block(slot_summaries)}\n\n"
+        f"Заметки по 4-часовым слотам за вчера (сырьё, не копируй дословно):\n"
+        f"{_slot_summaries_block(slot_summaries)}\n\n"
         f"Недавняя хроника:\n{hist or '(нет)'}\n\n"
         f"Состав:\n{_party_block(party)}\n\n"
         f"{_COMPOSE_INSTRUCTIONS}"
     )
-    out = await _call_llm(
-        user,
+    raw = await _call_llm_raw(user, caller="guild raid daily compose", max_tokens=1200)
+    out = await _finalize_narrative_html(
+        raw,
         caller="guild raid daily compose",
-        max_tokens=1200,
         party=party,
         location=loc,
         guild_name=guild_name,
         guild_tag=guild_tag,
+        length_hint="4–6 абзацев, Telegram HTML",
+        rewrite_max_tokens=1200,
     )
     if out:
         return _strip_leaked_json(out)
@@ -420,6 +506,8 @@ async def compose_raid_daily_narrative(
         slot_summaries=slot_summaries,
         company_vitality=company_vitality,
         story_progress=story_progress,
+        last_tactic=last_tactic,
+        last_resolve=last_resolve,
     )
 
 
@@ -432,18 +520,20 @@ async def generate_raid_daily_tactics(
     party: list[dict[str, Any]],
     narrative_preview: str,
     last_tactic: dict[str, Any] | None,
+    last_resolve: dict[str, Any] | None = None,
+    story_progress: int = 0,
 ) -> list[dict[str, Any]]:
     loc = _location_name(location_archetype_id)
     arch = archetype_for_id(location_archetype_id or "")
     biome = arch.biome_tag if arch else "forest"
-    prev = ""
-    if last_tactic:
-        prev = f"Вчера выбрали: {last_tactic.get('label', '?')}."
+    prev = _format_last_tactic_story(last_tactic, last_resolve) if last_tactic else ""
     user = (
         f"День {day_index}. Гильдия [{guild_tag}] «{guild_name}». Локация: {loc} (biome: {biome}).\n"
+        f"Прогресс сюжета: {story_progress}/100.\n"
         f"{prev}\n"
         f"Контекст утреннего summary:\n{_strip_html(narrative_preview)[:800]}\n\n"
         f"Состав:\n{_party_block(party)}\n\n"
+        "Варианты тактик должны логично продолжать вчерашний исход и текущий прогресс сюжета.\n"
         f"{_TACTICS_JSON_INSTRUCTIONS}"
     )
     raw = await _call_llm_raw(user, caller="guild raid daily tactics", max_tokens=600)
