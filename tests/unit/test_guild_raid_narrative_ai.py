@@ -10,12 +10,14 @@ from waifu_bot.game.constants import RAID_V2_SLOT_COUNT
 from waifu_bot.services.guild_raid_narrative_ai import (
     _bold_proper_nouns,
     _build_compose_fallback_narrative,
+    _format_last_tactic_story,
     _parse_tactics_json,
     _slot_summary,
     _strip_leaked_json,
     compose_raid_daily_narrative,
     generate_raid_daily_narrative,
     generate_raid_daily_tactics,
+    generate_raid_slot_summary,
     msk_slot_index_for_dt,
     msk_slot_label,
 )
@@ -133,13 +135,82 @@ def test_generate_raid_daily_narrative_fallback_without_llm():
     asyncio.run(_run())
 
 
+def test_format_last_tactic_story_includes_label():
+    text = _format_last_tactic_story(
+        {"label": "Обход с фланга"},
+        {"vitality_delta": -5, "progress_delta": 8},
+    )
+    assert "Обход с фланга" in text
+    assert "вымотан" in text.lower() or "Силы" in text
+
+
+def test_rest_slot_summary_skips_llm():
+    async def _run():
+        with patch(
+            "waifu_bot.services.guild_raid_narrative_ai._call_llm_raw",
+            new_callable=AsyncMock,
+        ) as llm_mock:
+            out = await generate_raid_slot_summary(
+                guild_name="G",
+                guild_tag="T",
+                location_archetype_id="bridge_town",
+                party=[{"name": "A"}],
+                slot_label="00:00–03:59 МСК",
+                slot_beat={
+                    "rest": True,
+                    "active_players": [],
+                    "previews": [],
+                },
+            )
+        llm_mock.assert_not_awaited()
+        assert "молчал" in out.lower() or "привал" in out.lower()
+
+    asyncio.run(_run())
+
+
+def test_compose_includes_tactic_in_prompt():
+    async def _run():
+        with patch(
+            "waifu_bot.services.guild_raid_narrative_ai._call_llm_raw",
+            new_callable=AsyncMock,
+            return_value="Draft",
+        ) as raw_mock, patch(
+            "waifu_bot.services.guild_raid_narrative_ai._finalize_narrative_html",
+            new_callable=AsyncMock,
+            return_value="Final",
+        ):
+            await compose_raid_daily_narrative(
+                guild_name="G",
+                guild_tag="T",
+                day_index=2,
+                location_archetype_id="forest",
+                party=[{"name": "Bob", "class_id": 1, "race_id": 1, "level": 1}],
+                slot_summaries=[{"slot_index": 0, "slot_label": "00:00", "summary_html": "x"}],
+                company_vitality=90,
+                story_progress=10,
+                last_tactic={"label": "Обход с фланга"},
+                last_resolve={"vitality_delta": -3, "progress_delta": 6},
+                chronicle_summaries=[],
+                adventure_goal="найти артефакт",
+            )
+        prompt = raw_mock.await_args.args[0]
+        assert "Обход с фланга" in prompt
+        assert "найти артефакт" in prompt
+
+    asyncio.run(_run())
+
+
 def test_compose_strips_json_from_llm_output():
     async def _run():
         leaked = 'Summary text {"tactics":[{"label":"x"}]}'
         with patch(
-            "waifu_bot.services.guild_raid_narrative_ai._call_llm",
+            "waifu_bot.services.guild_raid_narrative_ai._call_llm_raw",
             new_callable=AsyncMock,
             return_value=leaked,
+        ), patch(
+            "waifu_bot.services.guild_raid_narrative_ai._finalize_narrative_html",
+            new_callable=AsyncMock,
+            return_value="Summary text",
         ):
             out = await compose_raid_daily_narrative(
                 guild_name="G",
@@ -176,7 +247,17 @@ def test_generate_raid_daily_tactics_fallback():
     asyncio.run(_run())
 
 
-def test_poll_log_matches_group_and_dm():
+def test_poll_log_matches_group_only():
+    pv = {
+        "group_poll_id": "abc",
+        "__telegram_poll_id__": "abc",
+        "votes": {},
+    }
+    assert _poll_log_matches(pv, "abc")
+    assert not _poll_log_matches(pv, "zzz")
+
+
+def test_poll_log_matches_group_and_dm_legacy():
     pv = {
         "group_poll_id": "abc",
         "__telegram_poll_id__": "abc",
@@ -186,6 +267,55 @@ def test_poll_log_matches_group_and_dm():
     assert _poll_log_matches(pv, "abc")
     assert _poll_log_matches(pv, "dm456")
     assert not _poll_log_matches(pv, "zzz")
+
+
+def test_deliver_poll_group_only():
+    async def _run():
+        from zoneinfo import ZoneInfo
+
+        msk = ZoneInfo("Europe/Moscow")
+        log = SimpleNamespace(
+            id=1,
+            raid_id=10,
+            day_index=1,
+            narrative_html="Hello",
+            tactic_poll_options_json=[{"label": "A"}],
+            delivered_at=None,
+            poll_message_id=None,
+            poll_chat_id=None,
+            poll_deadline_at=None,
+            poll_votes_json=None,
+        )
+        raid = SimpleNamespace(
+            id=10,
+            status="active",
+            day_index=0,
+            guild_id=1,
+            started_at=datetime(2026, 6, 7, 12, 0, tzinfo=msk),
+        )
+        guild = SimpleNamespace(id=1, telegram_chat_id=-100)
+        session = AsyncMock()
+        session.get = AsyncMock(side_effect=lambda model, pk: raid if pk == 10 else guild)
+        claim_result = MagicMock()
+        claim_result.scalar_one_or_none.return_value = 1
+        session.execute = AsyncMock(return_value=claim_result)
+        session.refresh = AsyncMock()
+        session.flush = AsyncMock()
+        session.commit = AsyncMock()
+
+        bot = AsyncMock()
+        poll_msg = SimpleNamespace(message_id=99, poll=SimpleNamespace(id="poll1"))
+        bot.send_message = AsyncMock()
+        bot.send_poll = AsyncMock(return_value=poll_msg)
+
+        with patch("waifu_bot.services.webhook.get_bot", return_value=bot):
+            await deliver_raid_daily(session, log)
+
+        assert bot.send_poll.await_count == 1
+        assert log.poll_votes_json.get("group_poll_id") == "poll1"
+        assert "dm_poll_ids" not in log.poll_votes_json
+
+    asyncio.run(_run())
 
 
 def test_deliver_raid_daily_idempotent_claim():

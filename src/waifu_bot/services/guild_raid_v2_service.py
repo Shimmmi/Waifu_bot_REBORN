@@ -1063,6 +1063,8 @@ async def compose_raid_daily_log(
 
     party = list(raid.party_snapshot_json or [])
     loc_id = str(raid.location_archetype_id or "forest")
+    meta = dict(raid.adventure_meta_json or {})
+    adventure_goal = str(meta.get("adventure_goal") or "").strip() or None
     narrative = await compose_raid_daily_narrative(
         guild_name=guild.name,
         guild_tag=guild.tag,
@@ -1075,6 +1077,7 @@ async def compose_raid_daily_log(
         last_tactic=raid.last_tactic_choice_json,
         last_resolve=raid.last_resolve_json,
         chronicle_summaries=chronicle,
+        adventure_goal=adventure_goal,
     )
     narrative = _strip_leaked_json(narrative)
     raw_tactics = await generate_raid_daily_tactics(
@@ -1085,6 +1088,8 @@ async def compose_raid_daily_log(
         party=party,
         narrative_preview=narrative,
         last_tactic=raid.last_tactic_choice_json,
+        last_resolve=raid.last_resolve_json,
+        story_progress=int(raid.story_progress or 0),
     )
     tactics = _tactic_options_with_mechanics(raw_tactics)
     slot_beats = [dict(r.slot_beats_json[0]) for r in slot_rows if r.slot_beats_json]
@@ -1164,30 +1169,10 @@ async def deliver_raid_daily(session: AsyncSession, log: GuildRaidDailyLog) -> N
             resolve_due.astimezone(timezone.utc) if resolve_due else _utc_now() + timedelta(hours=3)
         )
         poll_id = poll_msg.poll.id if poll_msg.poll else None
-        dm_poll_ids: dict[str, str] = {}
-        parts = (
-            await session.execute(
-                select(GuildRaidParticipant.player_id).where(GuildRaidParticipant.raid_id == raid.id)
-            )
-        ).scalars().all()
-        for pid in parts:
-            try:
-                dm_msg = await bot.send_poll(
-                    chat_id=int(pid),
-                    question=f"Рейд: тактика дня {log.day_index}",
-                    options=options,
-                    is_anonymous=False,
-                    allows_multiple_answers=False,
-                )
-                if dm_msg.poll:
-                    dm_poll_ids[str(int(pid))] = str(dm_msg.poll.id)
-            except Exception:
-                logger.debug("raid poll DM failed pid=%s", pid)
 
         log.poll_votes_json = {
             "group_poll_id": poll_id,
             "__telegram_poll_id__": poll_id,
-            "dm_poll_ids": dm_poll_ids,
             "votes": {},
         }
         raid.day_index = int(log.day_index)

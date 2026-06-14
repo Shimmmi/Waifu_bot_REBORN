@@ -174,6 +174,7 @@ async def rhythm_rewrite_narrative(
     caller: str,
     length_hint: str,
     preserve_html: bool = False,
+    max_tokens: int = 320,
 ) -> str:
     """
     Второй проход OpenRouter: rhythm-rewrite без meta-анализа.
@@ -205,7 +206,7 @@ async def rhythm_rewrite_narrative(
                 {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 320,
+                    "max_tokens": max(128, int(max_tokens)),
                     "temperature": 0.72,
                     **_openrouter_text_extra(),
                 },
