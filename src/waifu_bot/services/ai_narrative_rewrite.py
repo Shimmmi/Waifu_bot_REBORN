@@ -9,7 +9,8 @@ import httpx
 
 from waifu_bot.core.config import settings
 from waifu_bot.game.constants import AI_NARRATIVE_RHYTHM_REWRITE_RU
-from waifu_bot.services.llm_client import has_llm_configured, post_chat_completions
+from waifu_bot.services.ai_presets import SinglePreset, resolve_preset
+from waifu_bot.services.llm_client import has_text_llm_configured, post_chat_completions_routerai
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,7 @@ async def rhythm_rewrite_narrative(
     source = (draft or "").strip()
     if not source:
         return draft
-    if not has_llm_configured():
+    if not has_text_llm_configured():
         return draft
 
     html_note = ""
@@ -193,7 +194,12 @@ async def rhythm_rewrite_narrative(
             "Не добавляй другие HTML-теги."
         )
 
-    model = settings.openrouter_model
+    try:
+        fast_cfg, _ = resolve_preset("fast")
+        model = fast_cfg.model if isinstance(fast_cfg, SinglePreset) else "google/gemini-3.5-flash"
+    except Exception:
+        model = "google/gemini-3.5-flash"
+
     prompt = (
         AI_NARRATIVE_RHYTHM_REWRITE_RU.format(draft=source, length_hint=length_hint)
         + html_note
@@ -201,15 +207,15 @@ async def rhythm_rewrite_narrative(
 
     try:
         async with httpx.AsyncClient(timeout=25.0) as client:
-            r = await post_chat_completions(
+            r = await post_chat_completions_routerai(
                 client,
                 {
-                    "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": max(128, int(max_tokens)),
                     "temperature": 0.72,
                     **_openrouter_text_extra(),
                 },
+                model=model,
                 caller=f"rhythm rewrite ({caller})",
             )
             if r.status_code != 200:

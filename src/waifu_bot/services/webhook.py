@@ -8,7 +8,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
-from aiogram.types import ErrorEvent, Update
+from aiogram.types import ErrorEvent, MenuButtonWebApp, Update, WebAppInfo
 
 from waifu_bot.core.config import settings
 from waifu_bot.services.bot_handlers import router as bot_router
@@ -90,6 +90,19 @@ def get_bot() -> Bot:
     return _bot
 
 
+async def ensure_telegram_menu_button() -> None:
+    """Point the bot menu button at the game title screen (not site root)."""
+    webapp_url = f"{str(settings.public_base_url).rstrip('/')}/webapp/index.html"
+    label = (settings.webapp_menu_button_text or "Играть").strip() or "Играть"
+    try:
+        await _bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(text=label, web_app=WebAppInfo(url=webapp_url)),
+        )
+        logger.info("Telegram menu button WebApp URL set: %s", webapp_url)
+    except Exception:
+        logger.exception("set_chat_menu_button failed for url=%s", webapp_url)
+
+
 async def log_bot_identity() -> None:
     """В лог: @username и id бота по токену (диагностика: /команда@другой_бот не обрабатывается)."""
     try:
@@ -101,6 +114,7 @@ async def log_bot_identity() -> None:
             me.username or "?",
             me.id,
         )
+        await ensure_telegram_menu_button()
     except Exception:
         logger.exception(
             "get_me() failed; проверьте BOT_TOKEN, TELEGRAM_API_BASE_URL / TELEGRAM_BOT_PROXY и сеть"
@@ -156,6 +170,8 @@ async def setup_webhook() -> None:
             "Telegram did NOT confirm secret_token — likely the API proxy does not "
             "forward this parameter. Webhook will work but without secret validation."
         )
+
+    await ensure_telegram_menu_button()
 
 
 async def start_polling() -> None:

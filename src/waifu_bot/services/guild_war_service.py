@@ -233,9 +233,10 @@ async def war_state_for_player(session: AsyncSession, player_id: int) -> dict:
 async def generate_war_narrative_batch(session: AsyncSession) -> list[tuple[int, str]]:
     """Returns (player_id, text) for DMs. Uses LLM when configured."""
     from waifu_bot.core.config import settings
-    from waifu_bot.services.llm_client import has_llm_configured, post_chat_completions
+    from waifu_bot.services.ai_service import generate as ai_generate
+    from waifu_bot.services.llm_client import has_text_llm_configured
 
-    if not has_llm_configured():
+    if not has_text_llm_configured():
         return []
     cfg = await get_game_config_map(session)
     interval_h = cfg_int(cfg, "guild_war.narrative_interval_hours", 6)
@@ -254,30 +255,14 @@ async def generate_war_narrative_batch(session: AsyncSession) -> list[tuple[int,
             "Напиши 2–3 предложения хроники битвы на русском, без прямых чисел."
         )
         try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                r = await post_chat_completions(
-                    client,
-                    {
-                        "model": settings.openrouter_model,
-                        "messages": [
-                            {"role": "system", "content": "Ты летописец гильдейской войны. Кратко, ярко."},
-                            {"role": "user", "content": brief},
-                        ],
-                    },
-                    caller="guild war narrative",
-                )
-                if not r.is_success:
-                    text = ""
-                else:
-                    data = r.json()
-                    text = (
-                        (data.get("choices") or [{}])[0]
-                        .get("message", {})
-                        .get("content", "")
-                        .strip()
-                    )
+            text = await ai_generate(
+                brief,
+                system="Ты летописец гильдейской войны. Кратко, ярко.",
+                preset=settings.ai_preset_narrative,
+                caller="guild war narrative",
+                timeout_sec=20.0,
+                post_process_rhythm=False,
+            ) or ""
         except Exception:
             logger.exception("war narrative failed")
             text = ""

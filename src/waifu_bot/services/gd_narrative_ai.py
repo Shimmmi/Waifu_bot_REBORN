@@ -5,8 +5,6 @@ import json
 import logging
 from typing import Any, Literal
 
-import httpx
-
 from waifu_bot.core.config import settings
 from waifu_bot.game.constants import (
     AI_NARRATIVE_GROTESQUE_HUMOR_RU,
@@ -16,8 +14,9 @@ from waifu_bot.game.constants import (
     WAIFU_RACE_LABEL_RU,
 )
 from waifu_bot.services.ai_narrative_rewrite import escape_telegram_html, rhythm_rewrite_narrative
+from waifu_bot.services.ai_service import generate as ai_generate
 from waifu_bot.services.gd_round_engine import _attack_type_for_class
-from waifu_bot.services.llm_client import has_llm_configured, post_chat_completions
+from waifu_bot.services.llm_client import has_text_llm_configured
 
 logger = logging.getLogger(__name__)
 
@@ -335,27 +334,6 @@ ongoing — стычка не закончена. НЕ убивай монстр
 party_wiped — монстр торжествует, отряд без сознания, намёк на возвращение."""
 
 
-def _assistant_text(choice: object) -> str:
-    if not isinstance(choice, dict):
-        return ""
-    msg = choice.get("message")
-    if isinstance(msg, dict):
-        raw = msg.get("content")
-        if isinstance(raw, str) and raw.strip():
-            return raw.strip()
-        if isinstance(raw, list):
-            parts = []
-            for block in raw:
-                if isinstance(block, dict) and isinstance(block.get("text"), str):
-                    parts.append(block["text"])
-            if parts:
-                return "\n".join(parts).strip()
-        r = msg.get("reasoning")
-        if isinstance(r, str) and r.strip():
-            return r.strip()
-    return ""
-
-
 def build_user_prompt_round(ctx: dict[str, Any]) -> str:
     """§6.3 dynamic user prompt from structured_context."""
     party = list(ctx.get("party") or [])
@@ -510,39 +488,31 @@ async def generate_gd_start_narrative(
         f"Отряд собирается у входа в «{dungeon_name}». "
         "Впереди тёмные коридоры — пора действовать."
     )
-    if not has_llm_configured() or not party:
+    if not has_text_llm_configured() or not party:
         return None, stub
     user_prompt = build_user_prompt_start(dungeon_name, biome_tag, party)
-    payload = {
-        "model": model or getattr(settings, "openrouter_model", None) or "anthropic/claude-3.5-sonnet",
-        "max_tokens": 400,
-        "temperature": 0.85,
-        "messages": [
-            {"role": "system", "content": GD_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-    }
     try:
-        async with httpx.AsyncClient(timeout=timeout_sec) as client:
-            r = await post_chat_completions(client, payload, caller="gd-start")
-            r.raise_for_status()
-            data = r.json()
-            choices = data.get("choices") or []
-            if not choices:
-                return None, stub
-            text = _assistant_text(choices[0])
-            if not text:
-                return None, stub
-            final = await rhythm_rewrite_narrative(
-                text,
-                caller="gd-start",
-                length_hint="4–6 предложений, 2 абзаца",
-                preserve_html=True,
-            )
-            out = final or escape_telegram_html(text)
-            return out, out
+        text = await ai_generate(
+            user_prompt,
+            system=GD_SYSTEM_PROMPT,
+            preset=settings.ai_preset_narrative,
+            caller="gd-start",
+            timeout_sec=timeout_sec,
+            max_tokens=400,
+            post_process_rhythm=False,
+        )
+        if not text:
+            return None, stub
+        final = await rhythm_rewrite_narrative(
+            text,
+            caller="gd-start",
+            length_hint="4–6 предложений, 2 абзаца",
+            preserve_html=True,
+        )
+        out = final or escape_telegram_html(text)
+        return out, out
     except Exception:
-        logger.exception("GD start narrative OpenRouter failed")
+        logger.exception("GD start narrative failed")
         return None, stub
 
 
@@ -557,76 +527,60 @@ async def generate_gd_round_narrative(
     On failure: (None, stub).
     """
     stub = f"[Раунд {ctx.get('round', 1)}. Бой продолжается...]"
-    if not has_llm_configured():
+    if not has_text_llm_configured():
         return None, stub
     user_prompt = build_user_prompt_round(ctx)
-    payload = {
-        "model": model or getattr(settings, "openrouter_model", None) or "anthropic/claude-3.5-sonnet",
-        "max_tokens": 512,
-        "temperature": 0.85,
-        "messages": [
-            {"role": "system", "content": GD_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-    }
     try:
-        async with httpx.AsyncClient(timeout=timeout_sec) as client:
-            r = await post_chat_completions(client, payload, caller="gd-round")
-            r.raise_for_status()
-            data = r.json()
-            choices = data.get("choices") or []
-            if not choices:
-                return None, stub
-            text = _assistant_text(choices[0])
-            if not text:
-                return None, stub
-            final = await rhythm_rewrite_narrative(
-                text,
-                caller="gd-round",
-                length_hint="3–5 предложений, 2–3 абзаца",
-                preserve_html=True,
-            )
-            out = final or escape_telegram_html(text)
-            return out, out
+        text = await ai_generate(
+            user_prompt,
+            system=GD_SYSTEM_PROMPT,
+            preset=settings.ai_preset_narrative,
+            caller="gd-round",
+            timeout_sec=timeout_sec,
+            max_tokens=512,
+            post_process_rhythm=False,
+        )
+        if not text:
+            return None, stub
+        final = await rhythm_rewrite_narrative(
+            text,
+            caller="gd-round",
+            length_hint="3–5 предложений, 2–3 абзаца",
+            preserve_html=True,
+        )
+        out = final or escape_telegram_html(text)
+        return out, out
     except Exception:
-        logger.exception("GD narrative OpenRouter failed")
+        logger.exception("GD narrative failed")
         return None, stub
 
 
 async def generate_gd_finale_narrative(ctx: dict[str, Any], *, timeout_sec: float = 20.0) -> tuple[str | None, str]:
     """§7.3 epilogue: MVP + lowest contributor."""
     stub = "Герои вышли из подземелья — впереди новые приключения."
-    if not has_llm_configured():
+    if not has_text_llm_configured():
         return None, stub
     extra = build_user_prompt_finale(ctx)
-    payload = {
-        "model": getattr(settings, "openrouter_model", None) or "anthropic/claude-3.5-sonnet",
-        "max_tokens": 500,
-        "temperature": 0.85,
-        "messages": [
-            {"role": "system", "content": GD_SYSTEM_PROMPT},
-            {"role": "user", "content": extra},
-        ],
-    }
     try:
-        async with httpx.AsyncClient(timeout=timeout_sec) as client:
-            r = await post_chat_completions(client, payload, caller="gd-finale")
-            r.raise_for_status()
-            data = r.json()
-            choices = data.get("choices") or []
-            if not choices:
-                return None, stub
-            text = _assistant_text(choices[0])
-            if not text:
-                return None, stub
-            final = await rhythm_rewrite_narrative(
-                text,
-                caller="gd-finale",
-                length_hint="4–6 предложений, 2 абзаца",
-                preserve_html=True,
-            )
-            out = final or escape_telegram_html(text)
-            return out, out
+        text = await ai_generate(
+            extra,
+            system=GD_SYSTEM_PROMPT,
+            preset=settings.ai_preset_narrative,
+            caller="gd-finale",
+            timeout_sec=timeout_sec,
+            max_tokens=500,
+            post_process_rhythm=False,
+        )
+        if not text:
+            return None, stub
+        final = await rhythm_rewrite_narrative(
+            text,
+            caller="gd-finale",
+            length_hint="4–6 предложений, 2 абзаца",
+            preserve_html=True,
+        )
+        out = final or escape_telegram_html(text)
+        return out, out
     except Exception:
         logger.exception("GD finale narrative failed")
         return None, stub

@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 
 FALLBACK_HTTP_STATUSES: tuple[int, ...] = (402,)
 _LLM_MAX_CONCURRENT = 2
+_FUSION_MAX_CONCURRENT = 1
 _llm_sem: asyncio.Semaphore | None = None
+_fusion_sem: asyncio.Semaphore | None = None
 
 
 def _get_llm_semaphore() -> asyncio.Semaphore:
@@ -23,6 +25,13 @@ def _get_llm_semaphore() -> asyncio.Semaphore:
     if _llm_sem is None:
         _llm_sem = asyncio.Semaphore(_LLM_MAX_CONCURRENT)
     return _llm_sem
+
+
+def _get_fusion_semaphore() -> asyncio.Semaphore:
+    global _fusion_sem
+    if _fusion_sem is None:
+        _fusion_sem = asyncio.Semaphore(_FUSION_MAX_CONCURRENT)
+    return _fusion_sem
 
 
 @dataclass(frozen=True)
@@ -94,6 +103,15 @@ def has_llm_configured() -> bool:
     return bool(llm_provider_chain())
 
 
+def has_routerai_configured() -> bool:
+    return _routerai_provider() is not None
+
+
+def has_text_llm_configured() -> bool:
+    """Text presets require RouterAI (RouterAI-only strategy)."""
+    return has_routerai_configured()
+
+
 def primary_provider() -> LlmProvider | None:
     chain = llm_provider_chain()
     return chain[0] if chain else None
@@ -124,7 +142,7 @@ async def _post_chat_completions_via_worker(
     from waifu_bot.worker.actors.llm import llm_post_chat_completions_task
 
     message = llm_post_chat_completions_task.send(payload, caller, use_image_model)
-    result = await asyncio.to_thread(message.get_result, timeout=180_000)
+    result = await asyncio.to_thread(message.get_result, block=True, timeout=180_000)
     return httpx.Response(
         status_code=int(result["status_code"]),
         content=result["content"],
@@ -133,9 +151,17 @@ async def _post_chat_completions_via_worker(
     )
 
 
-def _payload_with_model(payload: dict, provider: LlmProvider, *, use_image_model: bool) -> dict:
+def _payload_with_model(
+    payload: dict,
+    provider: LlmProvider,
+    *,
+    use_image_model: bool,
+    preserve_explicit_model: bool = False,
+) -> dict:
     """OpenRouter: model из payload. RouterAI: подставить ROUTERAI_MODEL* если заданы."""
     out = dict(payload)
+    if preserve_explicit_model and out.get("model"):
+        return out
     if provider.name != "routerai":
         if use_image_model and not out.get("model"):
             out["model"] = provider.image_model
@@ -221,6 +247,45 @@ async def _post_chat_completions_locked(
 
     assert last is not None
     return last
+
+
+async def post_chat_completions_routerai(
+    client: httpx.AsyncClient,
+    payload: dict,
+    *,
+    model: str,
+    caller: str,
+    use_fusion_semaphore: bool = False,
+) -> httpx.Response:
+    """Direct RouterAI call with explicit model slug (fusion / ai presets)."""
+    provider = _routerai_provider()
+    if not provider:
+        raise RuntimeError("post_chat_completions_routerai called without ROUTERAI_API_KEY")
+
+    body = dict(payload)
+    body["model"] = model.strip()
+    url = chat_completions_url(provider.base_url)
+
+    from waifu_bot.services.perf_metrics import track_async
+
+    async def _post() -> httpx.Response:
+        async with track_async("llm_post_chat_completions_ms"):
+            resp = await client.post(url, headers=llm_request_headers(provider.api_key), json=body)
+            if not resp.is_success:
+                logger.warning(
+                    "LLM %s: routerai model=%s HTTP %s body=%s",
+                    caller,
+                    model,
+                    resp.status_code,
+                    (resp.text or "")[:400],
+                )
+            return resp
+
+    if use_fusion_semaphore:
+        async with _get_fusion_semaphore():
+            return await _post()
+    async with _get_llm_semaphore():
+        return await _post()
 
 
 def openrouter_url_for_compat() -> str:
