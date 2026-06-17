@@ -9,19 +9,16 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import httpx
-
 from waifu_bot.core.config import settings
 from waifu_bot.game.constants import RAID_V2_NARRATIVE_STYLE_RU, RAID_V2_SLOT_COUNT, RAID_V2_SLOT_HOURS
 from waifu_bot.game.expedition_narrative_catalog import archetype_for_id
 from waifu_bot.services.ai_narrative_rewrite import (
-    _extract_openrouter_assistant_text,
-    _openrouter_text_extra,
     escape_telegram_html,
     rhythm_rewrite_narrative,
 )
 from waifu_bot.services.gd_narrative_ai import format_gd_party_member_line
-from waifu_bot.services.llm_client import has_llm_configured, post_chat_completions
+from waifu_bot.services.ai_service import generate as ai_generate
+from waifu_bot.services.llm_client import has_text_llm_configured
 
 logger = logging.getLogger(__name__)
 _MSK = ZoneInfo("Europe/Moscow")
@@ -134,34 +131,18 @@ async def _call_llm_raw(
     max_tokens: int = 900,
     system_prompt: str | None = None,
 ) -> str | None:
-    if not has_llm_configured():
+    if not has_text_llm_configured():
         return None
-    payload = {
-        "model": settings.openrouter_model,
-        "max_tokens": max_tokens,
-        "temperature": 0.85,
-        "messages": [
-            {"role": "system", "content": system_prompt or RAID_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        **_openrouter_text_extra(),
-    }
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await post_chat_completions(client, payload, caller=caller)
-        if not r.is_success:
-            logger.warning(
-                "guild raid LLM HTTP %s caller=%s body=%s",
-                r.status_code,
-                caller,
-                (r.text or "")[:400],
-            )
-            return None
-        data = r.json()
-        choices = data.get("choices") or []
-        if not isinstance(choices, list) or not choices:
-            return None
-        return _extract_openrouter_assistant_text(choices[0]) or None
+        return await ai_generate(
+            user_prompt,
+            system=system_prompt or RAID_SYSTEM_PROMPT,
+            preset=settings.ai_preset_narrative,
+            caller=caller,
+            max_tokens=max_tokens,
+            timeout_sec=30.0,
+            post_process_rhythm=False,
+        )
     except Exception:
         logger.exception("guild raid narrative LLM failed caller=%s", caller)
         return None

@@ -77,6 +77,7 @@ API: `/api/armory/*` (отдельно от Telegram WebApp `/webapp`).
 - Подготовка к async Postgres (SQLAlchemy) через `db/session.py`.
 - Техническое ТЗ: `docs/technical_spec.md`.
 - **Полная архитектура и цепочки взаимодействий (EN):** `docs/ARCHITECTURE_AND_INTERACTIONS.md` — runtime reference for performance and operability analysis.
+- **GAME_AGENT_BRIEF (RU):** `docs/GAME_AGENT_BRIEF.md` — презентационный бриф игровых механик для ИИ-агента и миграции WebApp → Steam. Сборка: `PYTHONPATH=src python3 scripts/build_game_agent_brief.py --preset expert --resume`.
 - **Сверка FIX_OPTIMISATION с кодом (RU):** `docs/FIX_OPTIMISATION_ANALYSIS.md` — верификация 12 пунктов производительности и выводы.
 - **Performance runbook (EN):** `docs/PERFORMANCE_RUNBOOK.md` — мониторинг Redis/GD, флаги `game_config`, откат оптимизаций.
 - **Этапы оптимизации (RU):** `docs/OPTIMIZATION_STAGES_ANALYSIS.md` — Этап 1 (малый онлайн) и анализ Этапа 2; `docs/STAGE1_INFRA.md`, `docs/STAGE1_WORKERS_DECISION.md`, `docs/STAGE2_GATE.md`.

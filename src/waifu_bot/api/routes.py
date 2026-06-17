@@ -1915,10 +1915,10 @@ async def caravan_driver_tip(
     )
     out = {"text": text}
     if text is None:
-        from waifu_bot.services.llm_client import has_llm_configured
+        from waifu_bot.services.llm_client import has_text_llm_configured
 
-        if not has_llm_configured():
-            out["error"] = "OPENROUTER_API_KEY или ROUTERAI_API_KEY не задан в .env"
+        if not has_text_llm_configured():
+            out["error"] = "ROUTERAI_API_KEY не задан в .env"
         else:
             out["error"] = "LLM не вернул текст (см. логи [caravan driver-tip])"
     return out

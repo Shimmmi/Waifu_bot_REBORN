@@ -13,7 +13,7 @@ from waifu_bot.core.config import settings
 from waifu_bot.db import models as m
 from waifu_bot.game.constants import TAVERN_SLOTS_PER_DAY
 from waifu_bot.services.expedition_events_ai import generate_tavern_keeper_banter
-from waifu_bot.services.llm_client import has_llm_configured
+from waifu_bot.services.llm_client import has_text_llm_configured
 from waifu_bot.services.narrative import build_narrative_prompt_context
 from waifu_bot.services.tavern import TavernService, compute_effective_tavern_hire_price
 
@@ -448,8 +448,8 @@ async def tavern_keeper_banter(
     )
     out: dict = {"text": text}
     if text is None:
-        if not has_llm_configured():
-            out["error"] = "OPENROUTER_API_KEY или ROUTERAI_API_KEY не задан в .env"
+        if not has_text_llm_configured():
+            out["error"] = "ROUTERAI_API_KEY не задан в .env"
         else:
             out["error"] = "LLM не вернул текст (см. логи [tavern keeper])"
     return out

@@ -4,7 +4,7 @@ import asyncio
 import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
@@ -17,6 +17,25 @@ from waifu_bot.services.webhook import setup_webhook, start_polling, stop_pollin
 from waifu_bot.services.background import start_all_background_tasks, cancel_all_background_tasks
 
 logger = logging.getLogger(__name__)
+
+_WEBAPP_FRAME_ANCESTORS_CSP = (
+    "frame-ancestors 'self' "
+    "https://web.telegram.org https://*.telegram.org "
+    "https://oauth.telegram.org https://telegram.org"
+)
+
+
+class TelegramWebAppHeadersMiddleware(BaseHTTPMiddleware):
+    """Allow Telegram Mini App iframe embedding for /webapp static shell."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if not request.url.path.startswith("/webapp"):
+            return response
+        response.headers["Content-Security-Policy"] = _WEBAPP_FRAME_ANCESTORS_CSP
+        if "x-frame-options" in response.headers:
+            del response.headers["x-frame-options"]
+        return response
 
 
 class ArmoryCORSMiddleware(BaseHTTPMiddleware):
@@ -110,8 +129,13 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(ArmoryCORSMiddleware)
+    app.add_middleware(TelegramWebAppHeadersMiddleware)
 
     app.include_router(api_router, prefix="/api")
+
+    @app.get("/", include_in_schema=False)
+    async def root_to_webapp() -> RedirectResponse:
+        return RedirectResponse(url="/webapp/index.html", status_code=302)
 
     if webapp_dir.exists():
         app.mount("/webapp", StaticFiles(directory=str(webapp_dir), html=True), name="webapp")

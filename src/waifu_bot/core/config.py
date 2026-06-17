@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     webhook_drop_pending: bool = Field(True, alias="WEBHOOK_DROP_PENDING")
     telegram_update_mode: str = Field("webhook", alias="TELEGRAM_UPDATE_MODE",
                                        description="webhook|polling — polling bypasses VPS inbound network issues")
+    webapp_menu_button_text: str = Field("Играть", alias="WEBAPP_MENU_BUTTON_TEXT")
 
     # db / cache
     postgres_dsn: str = Field(..., alias="POSTGRES_DSN")
@@ -90,11 +91,18 @@ class Settings(BaseSettings):
     openrouter_model_hire: str | None = Field(None, alias="OPENROUTER_MODEL_HIRE")
     openrouter_model_image: str = Field("sourceful/riverflow-v2-fast", alias="OPENROUTER_MODEL_IMAGE")
 
-    # RouterAI: fallback при HTTP 402 от OpenRouter (OpenAI-compatible API)
+    # RouterAI: primary text provider + fallback при HTTP 402 от OpenRouter (OpenAI-compatible API)
     routerai_api_key: str | None = Field(None, alias="ROUTERAI_API_KEY")
     routerai_base_url: str = Field("https://routerai.ru/api/v1", alias="ROUTERAI_BASE_URL")
     routerai_model: str | None = Field(None, alias="ROUTERAI_MODEL")
     routerai_model_image: str | None = Field(None, alias="ROUTERAI_MODEL_IMAGE")
+
+    # AI presets (RouterAI fusion)
+    ai_presets_path: str = Field("config/ai_presets.yaml", alias="AI_PRESETS_PATH")
+    ai_default_preset: str = Field("fast", alias="AI_DEFAULT_PRESET")
+    ai_preset_narrative: str = Field("fast", alias="AI_PRESET_NARRATIVE")
+    ai_preset_balance: str = Field("expert", alias="AI_PRESET_BALANCE")
+    ai_preset_architect: str = Field("architect", alias="AI_PRESET_ARCHITECT")
 
     # Image API (опционально; альтернатива OpenRouter для портретов наёмниц)
     together_api_key: str | None = Field(None, alias="TOGETHER_API_KEY")

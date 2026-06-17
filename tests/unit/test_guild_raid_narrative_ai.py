@@ -96,7 +96,7 @@ def test_build_compose_fallback_one_paragraph_when_no_activity():
 
 def test_generate_raid_daily_narrative_fallback_without_llm():
     async def _run():
-        with patch("waifu_bot.services.guild_raid_narrative_ai.has_llm_configured", return_value=False):
+        with patch("waifu_bot.services.guild_raid_narrative_ai.has_text_llm_configured", return_value=False):
             narrative, tactics = await generate_raid_daily_narrative(
                 guild_name="Test Guild",
                 guild_tag="lolol",
@@ -232,7 +232,7 @@ def test_compose_strips_json_from_llm_output():
 
 def test_generate_raid_daily_tactics_fallback():
     async def _run():
-        with patch("waifu_bot.services.guild_raid_narrative_ai.has_llm_configured", return_value=False):
+        with patch("waifu_bot.services.guild_raid_narrative_ai.has_text_llm_configured", return_value=False):
             tactics = await generate_raid_daily_tactics(
                 guild_name="G",
                 guild_tag="T",

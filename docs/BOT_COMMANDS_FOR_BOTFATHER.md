@@ -6,7 +6,19 @@
 
 Кнопка меню с мини-приложением должна открывать **стартовый экран** игры, а не сразу профиль:
 
-- URL: `https://<ваш-домен>/webapp/index.html` (или корень `/webapp/`, если `index.html` отдаётся по умолчанию).
+- **URL (обязательно):** `https://<ваш-домен>/webapp/index.html`
+- Не указывайте корень домена (`https://<домен>/`) — Telegram откроет iframe на `/`, и при `X-Frame-Options: SAMEORIGIN` в nginx Mini App не загрузится (пустой экран, в консоли `horizontalMenu.ts` в Telegram Desktop).
+
+Бот при старте выставляет Menu Button на `{PUBLIC_BASE_URL}/webapp/index.html` (текст кнопки: `WEBAPP_MENU_BUTTON_TEXT`, по умолчанию «Играть»). После смены домена достаточно перезапустить API.
+
+### Проверка заголовков (production)
+
+```bash
+./scripts/verify_webapp_headers.sh https://<ваш-домен>
+curl -sI https://<ваш-домен>/webapp/index.html | grep -iE 'frame|content-security'
+```
+
+Для `location /webapp/` в nginx **не** добавляйте `X-Frame-Options SAMEORIGIN` / `DENY` — иначе Linux Telegram Desktop заблокирует iframe. Вместо этого задайте CSP `frame-ancestors` (см. [infra/nginx/waifu-bot-webapp-snippet.conf](../infra/nginx/waifu-bot-webapp-snippet.conf)); на сервере правка в `/etc/nginx/sites-available/waifu-bot`, затем `sudo nginx -t && sudo systemctl reload nginx`.
 
 С экрана «Новая игра» / «Продолжить» игрок переходит в генератор или в профиль.
 

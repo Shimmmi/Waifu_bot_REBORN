@@ -10,7 +10,7 @@ from waifu_bot.db import models as m
 from waifu_bot.services.shop import ShopService, shop_size_for_act
 from waifu_bot.services.gamble import GambleService
 from waifu_bot.services.expedition_events_ai import generate_shop_merchant_line
-from waifu_bot.services.llm_client import has_llm_configured
+from waifu_bot.services.llm_client import has_text_llm_configured
 from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
 from waifu_bot.services.passive_skills import apply_passive_buy_price
 from waifu_bot.services.item_art import enrich_items_with_image_urls
@@ -81,8 +81,8 @@ async def get_shop_merchant_line(
     )
     out = {"text": text}
     if text is None:
-        if not has_llm_configured():
-            out["error"] = "OPENROUTER_API_KEY или ROUTERAI_API_KEY не задан в .env"
+        if not has_text_llm_configured():
+            out["error"] = "ROUTERAI_API_KEY не задан в .env"
         else:
             out["error"] = "LLM не вернул текст (см. логи приложения [shop merchant-line])"
     return out

@@ -29,14 +29,39 @@ from waifu_bot.game.expedition_narrative_catalog import (
     narrative_style_prompt_block,
 )
 from waifu_bot.services.ai_narrative_rewrite import rhythm_rewrite_narrative
+from waifu_bot.services.ai_service import generate as ai_generate
 from waifu_bot.services.llm_client import (
     has_llm_configured,
+    has_text_llm_configured,
     openrouter_headers_for_compat as _openrouter_headers,
     openrouter_url_for_compat as _openrouter_url,
     post_chat_completions,
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _ai_text(
+    prompt: str,
+    *,
+    caller: str,
+    max_tokens: int = 512,
+    temperature: float = 0.85,
+    timeout_sec: float = 30.0,
+    system: str | None = None,
+) -> str | None:
+    if not has_text_llm_configured():
+        return None
+    return await ai_generate(
+        prompt,
+        system=system,
+        preset=settings.ai_preset_narrative,
+        caller=caller,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout_sec=timeout_sec,
+        post_process_rhythm=False,
+    )
 
 
 def _expedition_style_prompt_from_brief(brief: dict | None) -> str:
@@ -186,10 +211,9 @@ async def generate_expedition_narrative_brief(
     """
     Генерирует JSON-бриф экспедиции при старте: название, сеттинг, план эпизодов.
     """
-    if not has_llm_configured():
+    if not has_text_llm_configured():
         return None
 
-    model = settings.openrouter_model
     payload = {
         "archetype": {
             "id": archetype_id,
@@ -236,61 +260,42 @@ async def generate_expedition_narrative_brief(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await post_chat_completions(
-                client,
-                {
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 650,
-                    "temperature": 0.88,
-                    **_openrouter_text_extra(),
-                },
-                caller="expedition brief",
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "LLM expedition brief: HTTP %s body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
+        text = await _ai_text(
+            prompt,
+            caller="expedition brief",
+            max_tokens=650,
+            temperature=0.88,
+            timeout_sec=45.0,
+        )
+        if not text:
+            return None
+        parsed = _parse_narrative_brief_json(text)
+        if parsed and narrative_style:
+            parsed.setdefault("narrative_style_id", narrative_style.id)
+            parsed.setdefault("narrative_style_name", narrative_style.name_ru)
+        if parsed and not parsed.get("intro_narrative"):
+            parsed["intro_narrative"] = parsed.get("setting_summary") or ""
+        if parsed and len(parsed.get("event_beats") or []) != int(events_total):
+            beats = list(parsed.get("event_beats") or [])
+            while len(beats) < int(events_total):
+                beats.append(f"Эпизод {len(beats) + 1}: развитие сюжета")
+            parsed["event_beats"] = beats[: int(events_total)]
+        if parsed:
+            setting = str(parsed.get("setting_summary") or "").strip()
+            if setting:
+                parsed["setting_summary"] = await refine_expedition_narrative_draft(
+                    setting,
+                    caller="brief setting",
+                    length_hint="2–3 предложения",
                 )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("expedition brief", first, text)
-                return None
-            parsed = _parse_narrative_brief_json(text)
-            if parsed and narrative_style:
-                parsed.setdefault("narrative_style_id", narrative_style.id)
-                parsed.setdefault("narrative_style_name", narrative_style.name_ru)
-            if parsed and not parsed.get("intro_narrative"):
-                parsed["intro_narrative"] = parsed.get("setting_summary") or ""
-            if parsed and len(parsed.get("event_beats") or []) != int(events_total):
-                beats = list(parsed.get("event_beats") or [])
-                while len(beats) < int(events_total):
-                    beats.append(f"Эпизод {len(beats) + 1}: развитие сюжета")
-                parsed["event_beats"] = beats[: int(events_total)]
-            if parsed:
-                setting = str(parsed.get("setting_summary") or "").strip()
-                if setting:
-                    parsed["setting_summary"] = await refine_expedition_narrative_draft(
-                        setting,
-                        caller="brief setting",
-                        length_hint="2–3 предложения",
-                    )
-                intro = str(parsed.get("intro_narrative") or "").strip()
-                if intro:
-                    parsed["intro_narrative"] = await refine_expedition_narrative_draft(
-                        intro,
-                        caller="brief intro",
-                        length_hint="3–5 предложений",
-                    )
-            return parsed
+            intro = str(parsed.get("intro_narrative") or "").strip()
+            if intro:
+                parsed["intro_narrative"] = await refine_expedition_narrative_draft(
+                    intro,
+                    caller="brief intro",
+                    length_hint="3–5 предложений",
+                )
+        return parsed
     except Exception as e:
         logger.warning("OpenRouter expedition brief error: %s", e)
         return None
@@ -351,10 +356,9 @@ async def generate_expedition_tick_narrative(
     Короткий нарратив одного тика экспедиции v1.3 (2–4 предложения, RU).
     Контекст структурирован по ТЗ (биом, испытание, отряд, исход, твист).
     """
-    if not has_llm_configured():
+    if not has_text_llm_configured():
         return None
 
-    model = settings.openrouter_model
     ctx = {
         "location": location,
         "biome_tags": [t for t in biome_tags if t],
@@ -418,35 +422,16 @@ async def generate_expedition_tick_narrative(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await post_chat_completions(
-                client,
-                {
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 320,
-                    "temperature": 0.82,
-                    **_openrouter_text_extra(),
-                },
-                caller="expedition tick",
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "LLM expedition tick: HTTP %s body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("expedition tick", first, text)
-                return None
-            return await refine_expedition_narrative_draft(
+        text = await _ai_text(
+            prompt,
+            caller="expedition tick",
+            max_tokens=320,
+            temperature=0.82,
+            timeout_sec=30.0,
+        )
+        if not text:
+            return None
+        return await refine_expedition_narrative_draft(
                 text,
                 caller="tick",
                 length_hint="2–4 предложения",
@@ -475,10 +460,8 @@ async def generate_expedition_event(
     Компонует эпизоды в связное повествование без цифр и наград.
     Возвращает None, если ключ не задан или запрос не удался.
     """
-    if not has_llm_configured():
+    if not has_text_llm_configured():
         return None
-
-    model = settings.openrouter_model
 
     outcome = "успешно завершили" if success else "не справились и вернулись с пустыми руками"
     names = ", ".join(squad_names[:5]) if squad_names else "отряд"
@@ -518,41 +501,22 @@ async def generate_expedition_event(
     prompt += "\nБез вступления, только текст итога."
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await post_chat_completions(
-                client,
-                {
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 280,
-                    "temperature": 0.7,
-                    **_openrouter_text_extra(),
-                },
-                caller="expedition event",
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "LLM expedition event: HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("expedition event", first, text)
-                return None
-            return await refine_expedition_narrative_draft(
-                text,
-                caller="event",
-                length_hint="3–5 предложений",
-            )
+        text = await _ai_text(
+            prompt,
+            caller="expedition event",
+            max_tokens=280,
+            temperature=0.7,
+            timeout_sec=30.0,
+        )
+        if not text:
+            return None
+        return await refine_expedition_narrative_draft(
+            text,
+            caller="event",
+            length_hint="3–5 предложений",
+        )
     except Exception as e:
-        logger.warning("OpenRouter expedition event error: %s", e)
+        logger.warning("expedition event error: %s", e)
         return None
 
 
@@ -599,10 +563,9 @@ async def generate_hire_waifu_name_and_bio(
     ИИ придумывает уникальное фэнтезийное женское имя (любой длины, с разнообразной фонетикой)
     по расе/классу и 2–3 предложения био. Возвращает (name, bio) или None при ошибке/недоступности.
     """
-    if not has_llm_configured():
+    if not has_text_llm_configured():
         return None
 
-    model = settings.openrouter_model_hire or settings.openrouter_model
     skills_str = ", ".join(perk_names) if perk_names else "разнообразный опыт"
 
     prompt = f"""Ты — рассказчик в фэнтезийной RPG-игре про вайфу-наёмниц.
@@ -620,42 +583,22 @@ async def generate_hire_waifu_name_and_bio(
 {{"name": "Имя", "bio": "Биография..."}}"""
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await post_chat_completions(
-                client,
-                {
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 300,
-                    "temperature": 1.0,
-                    **_openrouter_text_extra(),
-                },
-                caller="hire name+bio",
+        text = await _ai_text(
+            prompt,
+            caller="hire name+bio",
+            max_tokens=300,
+            temperature=1.0,
+            timeout_sec=60.0,
+        )
+        parsed = _parse_name_bio_json(text or "")
+        if not parsed and text:
+            logger.warning(
+                "hire name+bio: не удалось распарсить JSON, фрагмент ответа: %s",
+                text[:240].replace("\n", " "),
             )
-            if r.status_code != 200:
-                logger.warning(
-                    "LLM hire name+bio: HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("hire name+bio", first, text)
-            parsed = _parse_name_bio_json(text)
-            if not parsed and text:
-                logger.warning(
-                    "OpenRouter hire name+bio: не удалось распарсить JSON, фрагмент ответа: %s",
-                    text[:240].replace("\n", " "),
-                )
-            return parsed
+        return parsed
     except Exception as e:
-        logger.warning("OpenRouter hire name+bio error: %s", e)
+        logger.warning("hire name+bio error: %s", e)
         return None
 
 
@@ -671,18 +614,17 @@ async def generate_shop_merchant_line(
     context: buy — продаёшь со витрины; sell — покупаешь у странника; gamble — зовёшь на гембу.
     Использует ту же модель, что и генерация BIO наёмных вайфу (OPENROUTER_MODEL_HIRE или OPENROUTER_MODEL).
     """
-    if not has_llm_configured():
-        logger.warning("[shop merchant-line] Пропуск: не задан OPENROUTER_API_KEY или ROUTERAI_API_KEY")
+    if not has_text_llm_configured():
+        logger.warning("[shop merchant-line] Пропуск: не задан ROUTERAI_API_KEY")
         return None
 
-    model = settings.openrouter_model_hire or settings.openrouter_model
     ctx = (context or "buy").strip().lower()
     if ctx not in ("buy", "sell", "gamble", "smith"):
         ctx = "buy"
 
     logger.info(
-        "[shop merchant-line] Запрос OpenRouter: model=%s context=%s item=%s level=%s rarity=%s",
-        model,
+        "[shop merchant-line] Запрос AI preset=%s context=%s item=%s level=%s rarity=%s",
+        settings.ai_preset_narrative,
         ctx,
         item_name,
         item_level,
@@ -720,37 +662,17 @@ async def generate_shop_merchant_line(
         )
 
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await post_chat_completions(
-                client,
-                {
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 120,
-                    "temperature": 0.8,
-                    **_openrouter_text_extra(),
-                },
-                caller="shop merchant-line",
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "[shop merchant-line] LLM HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                logger.warning("[shop merchant-line] OpenRouter вернул пустой или некорректный choices: %s", data.get("error") or data)
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("shop merchant-line", first, text)
-                return None
-            logger.info("[shop merchant-line] Успех, длина текста=%d", len(text))
-            return text
+        text = await _ai_text(
+            prompt,
+            caller="shop merchant-line",
+            max_tokens=120,
+            temperature=0.8,
+            timeout_sec=45.0,
+        )
+        if not text:
+            return None
+        logger.info("[shop merchant-line] Успех, длина текста=%d", len(text))
+        return text
     except Exception as e:
         logger.warning("[shop merchant-line] Ошибка запроса: %s", e, exc_info=True)
         return None
@@ -845,8 +767,8 @@ async def generate_caravan_driver_tip(
     """
     Короткий совет погонщицы каравана (2–4 предложения, RU), опирается на переданные игровые факты из БД.
     """
-    if not has_llm_configured():
-        logger.warning("[caravan driver-tip] Пропуск: не задан OPENROUTER_API_KEY или ROUTERAI_API_KEY")
+    if not has_text_llm_configured():
+        logger.warning("[caravan driver-tip] Пропуск: не задан ROUTERAI_API_KEY")
         return None
 
     gk = game_knowledge if game_knowledge is not None else {"skills": [], "monsters": []}
@@ -867,7 +789,6 @@ async def generate_caravan_driver_tip(
             f"{narrative_context_for_prompt_json(narrative_context)}\n\n"
         )
 
-    model = settings.openrouter_model_hire or settings.openrouter_model
     prompt = (
         "Ты опытная погонщица каравана в фэнтезийном мире. Обращайся к собеседнику на «вы» как к страннику или командиру каравана. "
         f"Сейчас путь проходит через акт {int(current_act)} (доступно до акта {int(max_act)}); у странника примерно {int(gold)} монет золота — не перечисляй цифры сухим списком, можно намёк.\n\n"
@@ -886,34 +807,13 @@ async def generate_caravan_driver_tip(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await post_chat_completions(
-                client,
-                {
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 280,
-                    "temperature": 0.75,
-                    **_openrouter_text_extra(),
-                },
-                caller="caravan driver-tip",
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "[caravan driver-tip] LLM HTTP %s body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("caravan driver-tip", first, text)
-            return text or None
+        return await _ai_text(
+            prompt,
+            caller="caravan driver-tip",
+            max_tokens=280,
+            temperature=0.75,
+            timeout_sec=45.0,
+        )
     except Exception as e:
         logger.warning("[caravan driver-tip] Ошибка: %s", e)
         return None
@@ -928,8 +828,8 @@ async def generate_tavern_keeper_banter(
     tavern_facts: Optional[dict[str, Any]] = None,
 ) -> Optional[str]:
     """Короткая реплика тавернщика (слухи, быт), RU — OpenRouter."""
-    if not has_llm_configured():
-        logger.warning("[tavern keeper] Пропуск: не задан OPENROUTER_API_KEY или ROUTERAI_API_KEY")
+    if not has_text_llm_configured():
+        logger.warning("[tavern keeper] Пропуск: не задан ROUTERAI_API_KEY")
         return None
 
     tf = tavern_facts if isinstance(tavern_facts, dict) else {}
@@ -943,7 +843,6 @@ async def generate_tavern_keeper_banter(
             f"{narrative_context_for_prompt_json(narrative_context)}\n\n"
         )
 
-    model = settings.openrouter_model_hire or settings.openrouter_model
     prompt = (
         "Ты хозяин постоялого двора в фэнтезийном мире: грубоватый, но не злой. Обращайся на «вы». "
         f"Регион по акту {int(current_act)} (гость видел дороги до акта {int(max_act)}); в кошельке у гостя примерно {int(gold)} монет — без сухого перечисления цифр.\n\n"
@@ -957,34 +856,13 @@ async def generate_tavern_keeper_banter(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await post_chat_completions(
-                client,
-                {
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 300,
-                    "temperature": 0.78,
-                    **_openrouter_text_extra(),
-                },
-                caller="tavern keeper",
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "[tavern keeper] LLM HTTP %s body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("tavern keeper", first, text)
-            return text or None
+        return await _ai_text(
+            prompt,
+            caller="tavern keeper",
+            max_tokens=300,
+            temperature=0.78,
+            timeout_sec=45.0,
+        )
     except Exception as e:
         logger.warning("[tavern keeper] Ошибка: %s", e)
         return None
@@ -1005,8 +883,8 @@ async def generate_main_waifu_bio(
     class_ru: str,
 ) -> Optional[str]:
     """2–4 предложения на русском для основной вайфу при создании (OpenRouter)."""
-    if not has_llm_configured():
-        logger.warning("[main waifu bio] Пропуск: не задан OPENROUTER_API_KEY или ROUTERAI_API_KEY")
+    if not has_text_llm_configured():
+        logger.warning("[main waifu bio] Пропуск: не задан ROUTERAI_API_KEY")
         return None
 
     from waifu_bot.services.narrative import load_narrative_bible
@@ -1021,7 +899,6 @@ async def generate_main_waifu_bio(
     if isinstance(act1, list) and act1:
         hook = str(act1[0]).strip()
 
-    model = settings.openrouter_model_hire or settings.openrouter_model
     prompt = (
         "Напиши краткую биографию героини для игры в жанре фэнтези (аниме-стилистика допустима). "
         "Только русский язык, 2–4 предложения, без списков и без markdown.\n\n"
@@ -1040,34 +917,14 @@ async def generate_main_waifu_bio(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await post_chat_completions(
-                client,
-                {
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 400,
-                    "temperature": 0.72,
-                    **_openrouter_text_extra(),
-                },
-                caller="main waifu bio",
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "[main waifu bio] LLM HTTP %s body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("main waifu bio", first, text)
-            return text.strip() or None
+        text = await _ai_text(
+            prompt,
+            caller="main waifu bio",
+            max_tokens=400,
+            temperature=0.72,
+            timeout_sec=45.0,
+        )
+        return text.strip() if text else None
     except Exception as e:
         logger.warning("[main waifu bio] Ошибка: %s", e)
         return None
@@ -1903,10 +1760,9 @@ async def generate_hire_waifu_perk_moment_ru(
     """
     Одно короткое предложение на русском: визуальный момент для аниме-портрета, связанный с перком.
     """
-    if not has_llm_configured():
+    if not has_text_llm_configured():
         return None
 
-    model = settings.openrouter_model_hire or settings.openrouter_model
     bio_short = (bio or "").strip()
     if len(bio_short) > 400:
         bio_short = bio_short[:400].rstrip() + "…"
@@ -1920,36 +1776,17 @@ async def generate_hire_waifu_perk_moment_ru(
 Без markdown, без кавычек, без списков, без чисел и игровых механик, без обращения к зрителю. Только текст предложения."""
 
     try:
-        async with httpx.AsyncClient(timeout=40.0) as client:
-            r = await post_chat_completions(
-                client,
-                {
-                    "model": model,
-                    "messages": [{"role": "user", "content": user_prompt}],
-                    "max_tokens": 120,
-                    "temperature": 1.05,
-                    **_openrouter_text_extra(),
-                },
-                caller="hire portrait moment",
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "[HIRE PORTRAIT MOMENT] HTTP %s body=%s",
-                    r.status_code,
-                    (r.text or "")[:300],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("hire perk moment", first, text)
-                return None
-            out = _sanitize_hire_perk_moment_ru(text)
-            return out or None
+        text = await _ai_text(
+            user_prompt,
+            caller="hire portrait moment",
+            max_tokens=120,
+            temperature=1.05,
+            timeout_sec=40.0,
+        )
+        if not text:
+            return None
+        out = _sanitize_hire_perk_moment_ru(text)
+        return out or None
     except Exception as e:
         logger.warning("[HIRE PORTRAIT MOMENT] error: %s", e)
         return None

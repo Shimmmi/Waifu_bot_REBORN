@@ -11288,8 +11288,12 @@ async function populateGuildHall(profile) {
 async function initPage(page) {
   applyTheme();
   if (tg) {
-    tg.ready();
-    tg.expand();
+    try {
+      tg.ready();
+      tg.expand();
+    } catch (err) {
+      console.warn("Telegram WebApp init:", err);
+    }
   }
   setActiveNav(page);
   if (page !== "index") {
