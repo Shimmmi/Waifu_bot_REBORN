@@ -455,28 +455,53 @@ async def _group_message_damage_body(
             _redis = redis_core.get_redis()
             solo_cached = await solo_active_cache_mod.has_solo_active_cached(_redis, player_id)
             if solo_cached is not False:
-                result = await combat_service.process_message_damage(
-                    session=session,
-                    player_id=player_id,
-                    media_type=media_type,
-                    message_text=message_text,
-                    message_length=msg_len,
-                    source_chat_id=chat_id,
-                    source_chat_type=getattr(message.chat, "type", None),
-                    source_message_id=message.message_id,
-                )
-                if result.get("error"):
-                    logger.info(
-                        "group combat result: error=%s player=%s chat_id=%s",
-                        result.get("error"), player_id, chat_id,
+                try:
+                    result = await combat_service.process_message_damage(
+                        session=session,
+                        player_id=player_id,
+                        media_type=media_type,
+                        message_text=message_text,
+                        message_length=msg_len,
+                        source_chat_id=chat_id,
+                        source_chat_type=getattr(message.chat, "type", None),
+                        source_message_id=message.message_id,
                     )
+                except Exception as combat_exc:
+                    logger.exception(
+                        "solo combat failed pid=%s chat=%s", player_id, chat_id
+                    )
+                    try:
+                        await session.rollback()
+                        from waifu_bot.services.combat import log_solo_combat_processing_error
+
+                        await log_solo_combat_processing_error(
+                            session,
+                            player_id,
+                            media_type=media_type,
+                            message_text=message_text,
+                            error_summary=str(combat_exc),
+                            source_chat_id=chat_id,
+                            source_message_id=message.message_id,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "failed to log solo combat error pid=%s chat=%s",
+                            player_id,
+                            chat_id,
+                        )
                 else:
-                    logger.info(
-                        "group combat hit: player=%s chat_id=%s dmg=%s",
-                        player_id, chat_id, result.get("damage"),
-                    )
-                    if result.get("dungeon_completed"):
-                        await solo_active_cache_mod.mark_solo_inactive(_redis, player_id)
+                    if result.get("error"):
+                        logger.info(
+                            "group combat result: error=%s player=%s chat_id=%s",
+                            result.get("error"), player_id, chat_id,
+                        )
+                    else:
+                        logger.info(
+                            "group combat hit: player=%s chat_id=%s dmg=%s",
+                            player_id, chat_id, result.get("damage"),
+                        )
+                        if result.get("dungeon_completed"):
+                            await solo_active_cache_mod.mark_solo_inactive(_redis, player_id)
 
             # Бездна: взаимоисключимо с соло-данжем — no-op, если нет активной сессии.
             if solo_cached is not False:
