@@ -142,7 +142,94 @@ async def append_solo_battle_log(session: AsyncSession, log: BattleLog) -> None:
     await prune_solo_battle_log(session, int(log.player_id), int(log.dungeon_id))
 
 
+async def log_solo_combat_processing_error(
+    session: AsyncSession,
+    player_id: int,
+    *,
+    media_type: MediaType,
+    message_text: str | None,
+    error_summary: str,
+    source_chat_id: int | None = None,
+    source_message_id: int | None = None,
+) -> None:
+    """Записать сбой обработки удара в журнал соло-данжа (если есть активный забег)."""
+    stmt = (
+        select(DungeonRun)
+        .where(DungeonRun.player_id == int(player_id), DungeonRun.status == "active")
+        .order_by(DungeonRun.started_at.desc(), DungeonRun.id.desc())
+        .limit(1)
+    )
+    run = (await session.execute(stmt)).scalar_one_or_none()
+    if not run:
+        return
+    _lmk = media_type_to_log_media_key(media_type)
+    summary = (error_summary or "ошибка обработки удара").strip()[:200]
+    battle_log = BattleLog(
+        player_id=int(player_id),
+        dungeon_id=int(run.dungeon_id),
+        event_type="no_damage",
+        event_data={
+            "reason": "combat_error",
+            "summary_ru": f"Атака не обработана: {summary}",
+            "log_media_key": _lmk,
+            "media_type": media_type.value,
+            "source_chat_id": source_chat_id,
+            "source_message_id": source_message_id,
+        },
+        message_text=message_text,
+    )
+    await append_solo_battle_log(session, battle_log)
+    await session.commit()
+
+
 TOTAL_INCOMING_REDUCE_CAP = 0.90
+
+# Temporary offset when shifting run monster positions on SPLIT death (avoids UNIQUE collisions).
+SPLIT_POSITION_TEMP_OFFSET = 100_000
+
+
+async def shift_run_monster_positions_for_split(
+    session: AsyncSession,
+    *,
+    run_id: int,
+    after_position: int,
+    delta: int,
+) -> None:
+    """Shift monsters with position > after_position by delta without uq (run_id, position) clashes."""
+    temp = SPLIT_POSITION_TEMP_OFFSET
+    await session.execute(
+        update(DungeonRunMonster)
+        .where(
+            DungeonRunMonster.run_id == run_id,
+            DungeonRunMonster.position > after_position,
+        )
+        .values(position=DungeonRunMonster.position + temp)
+    )
+    await session.flush()
+    await session.execute(
+        update(DungeonRunMonster)
+        .where(
+            DungeonRunMonster.run_id == run_id,
+            DungeonRunMonster.position > after_position + temp,
+        )
+        .values(position=DungeonRunMonster.position - temp + delta)
+    )
+
+
+def _solo_message_too_short_summary_ru(
+    min_chars: int,
+    msg_len: int,
+    message_text: str | None,
+) -> str:
+    preview = (message_text or "").strip()
+    if len(preview) > 40:
+        preview = preview[:40] + "…"
+    if preview:
+        return (
+            f"Атака отменена: для оружия нужно ≥{min_chars} симв., "
+            f"в сообщении {msg_len} («{preview}»)."
+        )
+    return f"Атака отменена: для оружия нужно ≥{min_chars} симв., в сообщении {msg_len}."
 
 
 def compute_incoming_damage_after_mitigation(
@@ -800,7 +887,9 @@ class CombatService:
                     "source_chat_id": source_chat_id,
                     "source_chat_type": source_chat_type,
                     "source_message_id": source_message_id,
-                    "summary_ru": f"Атака отменена: нужно ≥{min_chars} симв., получено {msg_len}.",
+                    "summary_ru": _solo_message_too_short_summary_ru(
+                        min_chars, msg_len, message_text
+                    ),
                 },
                 monster_hp_before=(run_monster.current_hp if run and run_monster else (progress.current_monster_hp or monster.max_hp)),
                 monster_hp_after=(run_monster.current_hp if run and run_monster else (progress.current_monster_hp or monster.max_hp)),
@@ -3208,13 +3297,8 @@ class CombatService:
         mx = max(1, int(dying.max_hp or 1))
         dmg = max(1, int(dying.damage or 1))
 
-        await session.execute(
-            update(DungeonRunMonster)
-            .where(
-                DungeonRunMonster.run_id == run_id,
-                DungeonRunMonster.position > pos,
-            )
-            .values(position=DungeonRunMonster.position + delta)
+        await shift_run_monster_positions_for_split(
+            session, run_id=run_id, after_position=pos, delta=delta
         )
         await session.flush()
         await session.delete(dying)
