@@ -39,6 +39,49 @@ PASSIVE_NODE_LABELS_RU: dict[str, str] = {
     "m_arch": "Архимаг",
 }
 
+# Genitive phrase for suffix names: «{эпитет} {genitive}»
+PASSIVE_NODE_GENITIVE_RU: dict[str, str] = {
+    "w_bash": "удара",
+    "w_tough": "закалки",
+    "w_cry": "боевого духа",
+    "w_heavy": "тяжёлого удара",
+    "w_iron": "железной кожи",
+    "w_blood": "кровавой ярости",
+    "w_berserk": "берсерка",
+    "w_fort": "крепости",
+    "w_last": "последнего рубежа",
+    "w_wrath": "гнева героя",
+    "w_imm": "бессмертия",
+    "s_keen": "острого глаза",
+    "s_nimble": "проворства",
+    "s_media": "чутья",
+    "s_crit_m": "мастера крита",
+    "s_shadow": "шага тени",
+    "s_exploit": "уязвимости",
+    "s_nth": "серии смерти",
+    "s_ghost": "призрака",
+    "s_amp": "усиления медиа",
+    "s_lethal": "смертельного удара",
+    "s_phantom": "фантома",
+    "m_arcane": "аркан",
+    "m_wisdom": "мудрости",
+    "m_trade": "торговца",
+    "m_media_m": "медиамага",
+    "m_lore": "знаний",
+    "m_bargain": "сделки",
+    "m_surge": "магического всплеска",
+    "m_cmd": "командования",
+    "m_rune": "рунной брони",
+    "m_trans": "трансценденции",
+    "m_arch": "архимага",
+}
+
+PASSIVE_BRANCH_GENITIVE_RU: dict[str, str] = {
+    "warrior": "воина",
+    "shadow": "тени",
+    "sage": "мудреца",
+}
+
 PASSIVE_BRANCH_LABELS_RU: dict[str, str] = {
     "warrior": "воина",
     "shadow": "тени",
@@ -53,6 +96,25 @@ def passive_node_id_from_family_id(family_id: str) -> str | None:
             return fid[len(prefix) :]
     if fid in ("p_passive_all", "s_passive_all"):
         return None
+    return None
+
+
+def passive_node_genitive_ru(family_id: str, effect_key: str) -> str | None:
+    node = passive_node_id_from_family_id(family_id)
+    if node:
+        if node in PASSIVE_BRANCH_GENITIVE_RU:
+            return PASSIVE_BRANCH_GENITIVE_RU[node]
+        if node in PASSIVE_NODE_GENITIVE_RU:
+            return PASSIVE_NODE_GENITIVE_RU[node]
+    low = str(effect_key or "").lower()
+    if low.startswith("passive_node_level_add:"):
+        nid = low.split(":", 1)[1].strip()
+        return PASSIVE_NODE_GENITIVE_RU.get(nid)
+    if low.startswith("passive_branch_level_add:"):
+        br = low.split(":", 1)[1].strip().lower()
+        return PASSIVE_BRANCH_GENITIVE_RU.get(br)
+    if low == "passive_all_nodes_level_add":
+        return "всех пассивов"
     return None
 
 

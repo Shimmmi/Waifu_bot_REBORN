@@ -1,0 +1,994 @@
+{
+  "version": 1,
+  "amulet_count": 34,
+  "profiles": [
+    {
+      "name": "Торговый амулет",
+      "tier": 1,
+      "level_min": 1,
+      "level_max": 5,
+      "stat1_type": "CHA",
+      "stat1_value": 1,
+      "stat2_type": null,
+      "stat2_value": 0,
+      "base_price": 6,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "gold_bonus_pct",
+      "current_secondary_value": 0.005,
+      "legendary_bonus_keys": [
+        "VOICE_SIREN"
+      ],
+      "legendary_bonus_ids": [
+        73
+      ],
+      "line_key": "cha_luk",
+      "proposed_bonus_key": "crit_chance_pct",
+      "proposed_bonus_value": 0.005,
+      "proposed_bonus_display": "+0.5%",
+      "scaling_formula": "tier × 0.005",
+      "rationale_ru": "Rule-based: тематика линии cha_luk, ключ из пула.",
+      "implementation_tier": "sql_only",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Амулет купца",
+      "tier": 2,
+      "level_min": 6,
+      "level_max": 10,
+      "stat1_type": "CHA",
+      "stat1_value": 1,
+      "stat2_type": "LUK",
+      "stat2_value": 1,
+      "base_price": 14,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "gold_bonus_pct",
+      "current_secondary_value": 0.01,
+      "legendary_bonus_keys": [
+        "VOICE_LULLABY"
+      ],
+      "legendary_bonus_ids": [
+        72
+      ],
+      "line_key": "cha_luk",
+      "proposed_bonus_key": "merchant_discount_flat",
+      "proposed_bonus_value": 1.0,
+      "proposed_bonus_display": "+1",
+      "scaling_formula": "⌊(tier+1)/2⌋",
+      "rationale_ru": "Rule-based: тематика линии cha_luk, ключ из пула.",
+      "implementation_tier": "needs_code",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Медальон торговца",
+      "tier": 3,
+      "level_min": 11,
+      "level_max": 15,
+      "stat1_type": "CHA",
+      "stat1_value": 2,
+      "stat2_type": "LUK",
+      "stat2_value": 1,
+      "base_price": 28,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "gold_bonus_pct",
+      "current_secondary_value": 0.015,
+      "legendary_bonus_keys": [
+        "SNIPER_BREATH"
+      ],
+      "legendary_bonus_ids": [
+        109
+      ],
+      "line_key": "cha_luk",
+      "proposed_bonus_key": "magic_find_pct",
+      "proposed_bonus_value": 0.015,
+      "proposed_bonus_display": "+1.5%",
+      "scaling_formula": "tier × 0.005",
+      "rationale_ru": "Rule-based: тематика линии cha_luk, ключ из пула.",
+      "implementation_tier": "sql_only",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Амулет удачи",
+      "tier": 4,
+      "level_min": 16,
+      "level_max": 20,
+      "stat1_type": "LUK",
+      "stat1_value": 2,
+      "stat2_type": "CHA",
+      "stat2_value": 2,
+      "base_price": 46,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "gold_bonus_pct",
+      "current_secondary_value": 0.02,
+      "legendary_bonus_keys": [
+        "SUNDAY_SERMON"
+      ],
+      "legendary_bonus_ids": [
+        99
+      ],
+      "line_key": "cha_luk",
+      "proposed_bonus_key": "media_damage_photo_percent",
+      "proposed_bonus_value": 4.0,
+      "proposed_bonus_display": "+4%",
+      "scaling_formula": "tier × 1",
+      "rationale_ru": "Rule-based: тематика линии cha_luk, ключ из пула.",
+      "implementation_tier": "needs_code",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Счастливый амулет",
+      "tier": 5,
+      "level_min": 21,
+      "level_max": 25,
+      "stat1_type": "LUK",
+      "stat1_value": 3,
+      "stat2_type": "CHA",
+      "stat2_value": 2,
+      "base_price": 72,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "gold_bonus_pct",
+      "current_secondary_value": 0.025,
+      "legendary_bonus_keys": [
+        "ELITE_PIERCER"
+      ],
+      "legendary_bonus_ids": [
+        182
+      ],
+      "line_key": "cha_luk",
+      "proposed_bonus_key": "evade_pct",
+      "proposed_bonus_value": 0.025,
+      "proposed_bonus_display": "+2.5%",
+      "scaling_formula": "tier × 0.005",
+      "rationale_ru": "Rule-based: тематика линии cha_luk, ключ из пула.",
+      "implementation_tier": "sql_only",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Амулет фортуны",
+      "tier": 6,
+      "level_min": 26,
+      "level_max": 30,
+      "stat1_type": "LUK",
+      "stat1_value": 3,
+      "stat2_type": "CHA",
+      "stat2_value": 3,
+      "base_price": 106,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "gold_bonus_pct",
+      "current_secondary_value": 0.03,
+      "legendary_bonus_keys": [
+        "ALL_IN"
+      ],
+      "legendary_bonus_ids": [
+        183
+      ],
+      "line_key": "cha_luk",
+      "proposed_bonus_key": "luck",
+      "proposed_bonus_value": 3.0,
+      "proposed_bonus_display": "+3",
+      "scaling_formula": "floor((tier+1)/2)",
+      "rationale_ru": "Усиливает основную характеристику удачи для повышения шанса критического успеха.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет судьбы",
+      "tier": 7,
+      "level_min": 31,
+      "level_max": 35,
+      "stat1_type": "LUK",
+      "stat1_value": 4,
+      "stat2_type": "CHA",
+      "stat2_value": 3,
+      "base_price": 150,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "gold_bonus_pct",
+      "current_secondary_value": 0.035,
+      "legendary_bonus_keys": [
+        "GOLD_RUSH_KILLS"
+      ],
+      "legendary_bonus_ids": [
+        226
+      ],
+      "line_key": "cha_luk",
+      "proposed_bonus_key": "charm",
+      "proposed_bonus_value": 4.0,
+      "proposed_bonus_display": "+4",
+      "scaling_formula": "floor((tier+1)/2)",
+      "rationale_ru": "Повышает природное обаяние владельца, улучшая результаты в торговых сделках.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет богини удачи",
+      "tier": 8,
+      "level_min": 36,
+      "level_max": 40,
+      "stat1_type": "LUK",
+      "stat1_value": 4,
+      "stat2_type": "CHA",
+      "stat2_value": 4,
+      "base_price": 205,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "gold_bonus_pct",
+      "current_secondary_value": 0.04,
+      "legendary_bonus_keys": [
+        "EVEN_PREY"
+      ],
+      "legendary_bonus_ids": [
+        244
+      ],
+      "line_key": "cha_luk",
+      "proposed_bonus_key": "media_damage_voice_percent",
+      "proposed_bonus_value": 8.0,
+      "proposed_bonus_display": "+8%",
+      "scaling_formula": "tier × 1",
+      "rationale_ru": "Rule-based: тематика линии cha_luk, ключ из пула.",
+      "implementation_tier": "needs_code",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Амулет провидца",
+      "tier": 9,
+      "level_min": 41,
+      "level_max": 45,
+      "stat1_type": "LUK",
+      "stat1_value": 5,
+      "stat2_type": "CHA",
+      "stat2_value": 4,
+      "base_price": 272,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "gold_bonus_pct",
+      "current_secondary_value": 0.045,
+      "legendary_bonus_keys": [],
+      "legendary_bonus_ids": [],
+      "line_key": "cha_luk",
+      "proposed_bonus_key": "damage_vs_monster_type_flat:fae",
+      "proposed_bonus_value": 18.0,
+      "proposed_bonus_display": "+18",
+      "scaling_formula": "tier × 2",
+      "rationale_ru": "Rule-based: тематика линии cha_luk, ключ из пула.",
+      "implementation_tier": "needs_code",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Амулет Вселенной",
+      "tier": 10,
+      "level_min": 46,
+      "level_max": 50,
+      "stat1_type": "LUK",
+      "stat1_value": 5,
+      "stat2_type": "CHA",
+      "stat2_value": 5,
+      "base_price": 352,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "gold_bonus_pct",
+      "current_secondary_value": 0.05,
+      "legendary_bonus_keys": [
+        "FULL_REGALIA"
+      ],
+      "legendary_bonus_ids": [
+        268
+      ],
+      "line_key": "cha_luk",
+      "proposed_bonus_key": "exp_bonus_pct",
+      "proposed_bonus_value": 0.05,
+      "proposed_bonus_display": "+5.0%",
+      "scaling_formula": "tier × 0.005",
+      "rationale_ru": "Гармония с мирозданием ускоряет получение опыта в любых начинаниях.",
+      "implementation_tier": "sql_only",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Магический амулет",
+      "tier": 1,
+      "level_min": 1,
+      "level_max": 5,
+      "stat1_type": "INT",
+      "stat1_value": 1,
+      "stat2_type": null,
+      "stat2_value": 0,
+      "base_price": 6,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "exp_bonus_pct",
+      "current_secondary_value": 0.005,
+      "legendary_bonus_keys": [
+        "VOICE_COMMAND"
+      ],
+      "legendary_bonus_ids": [
+        71
+      ],
+      "line_key": "int_dex",
+      "proposed_bonus_key": "intelligence",
+      "proposed_bonus_value": 1.0,
+      "proposed_bonus_display": "+1",
+      "scaling_formula": "floor((tier+1)/2)",
+      "rationale_ru": "Базовый амулет для начинающих магов, усиливающий интеллект.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет мага",
+      "tier": 2,
+      "level_min": 6,
+      "level_max": 10,
+      "stat1_type": "INT",
+      "stat1_value": 1,
+      "stat2_type": "DEX",
+      "stat2_value": 1,
+      "base_price": 14,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "exp_bonus_pct",
+      "current_secondary_value": 0.01,
+      "legendary_bonus_keys": [
+        "GIF_FRENZY"
+      ],
+      "legendary_bonus_ids": [
+        62
+      ],
+      "line_key": "int_dex",
+      "proposed_bonus_key": "magic_damage_flat",
+      "proposed_bonus_value": 4.0,
+      "proposed_bonus_display": "+4",
+      "scaling_formula": "tier × 2",
+      "rationale_ru": "Амулет мага дает плоский бонус к магическому урону для заклинаний.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Медальон тайн",
+      "tier": 3,
+      "level_min": 11,
+      "level_max": 15,
+      "stat1_type": "INT",
+      "stat1_value": 2,
+      "stat2_type": "DEX",
+      "stat2_value": 1,
+      "base_price": 28,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "exp_bonus_pct",
+      "current_secondary_value": 0.015,
+      "legendary_bonus_keys": [
+        "PATIENT_BLADE"
+      ],
+      "legendary_bonus_ids": [
+        115
+      ],
+      "line_key": "int_dex",
+      "proposed_bonus_key": "media_damage_text_percent",
+      "proposed_bonus_value": 3.0,
+      "proposed_bonus_display": "+3%",
+      "scaling_formula": "tier × 1",
+      "rationale_ru": "Тайные знания усиливают магический урон от текстовых сообщений.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет знаний",
+      "tier": 4,
+      "level_min": 16,
+      "level_max": 20,
+      "stat1_type": "INT",
+      "stat1_value": 2,
+      "stat2_type": "DEX",
+      "stat2_value": 2,
+      "base_price": 46,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "exp_bonus_pct",
+      "current_secondary_value": 0.02,
+      "legendary_bonus_keys": [
+        "OVERCLOCK"
+      ],
+      "legendary_bonus_ids": [
+        119
+      ],
+      "line_key": "int_dex",
+      "proposed_bonus_key": "damage_vs_monster_type_flat:undead",
+      "proposed_bonus_value": 8.0,
+      "proposed_bonus_display": "+8",
+      "scaling_formula": "tier × 2",
+      "rationale_ru": "Знания об экзорцизме позволяют эффективнее бороться с нежитью.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет архимага",
+      "tier": 5,
+      "level_min": 21,
+      "level_max": 25,
+      "stat1_type": "INT",
+      "stat1_value": 3,
+      "stat2_type": "DEX",
+      "stat2_value": 2,
+      "base_price": 72,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "exp_bonus_pct",
+      "current_secondary_value": 0.025,
+      "legendary_bonus_keys": [
+        "TEXT_CRESCENDO"
+      ],
+      "legendary_bonus_ids": [
+        143
+      ],
+      "line_key": "int_dex",
+      "proposed_bonus_key": "media_damage_voice_percent",
+      "proposed_bonus_value": 5.0,
+      "proposed_bonus_display": "+5%",
+      "scaling_formula": "tier × 1",
+      "rationale_ru": "Архимаг вкладывает магическую силу в голосовые команды.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет пророка",
+      "tier": 6,
+      "level_min": 26,
+      "level_max": 30,
+      "stat1_type": "INT",
+      "stat1_value": 3,
+      "stat2_type": "DEX",
+      "stat2_value": 3,
+      "base_price": 106,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "exp_bonus_pct",
+      "current_secondary_value": 0.03,
+      "legendary_bonus_keys": [
+        "MILESTONE_25"
+      ],
+      "legendary_bonus_ids": [
+        150
+      ],
+      "line_key": "int_dex",
+      "proposed_bonus_key": "evade_pct",
+      "proposed_bonus_value": 0.03,
+      "proposed_bonus_display": "+3.0%",
+      "scaling_formula": "tier × 0.005",
+      "rationale_ru": "Пророческий дар позволяет предсказывать атаки и уклоняться от них.",
+      "implementation_tier": "sql_only",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет звёзд",
+      "tier": 7,
+      "level_min": 31,
+      "level_max": 35,
+      "stat1_type": "INT",
+      "stat1_value": 4,
+      "stat2_type": "DEX",
+      "stat2_value": 3,
+      "base_price": 150,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "exp_bonus_pct",
+      "current_secondary_value": 0.035,
+      "legendary_bonus_keys": [
+        "FRESH_TARGET"
+      ],
+      "legendary_bonus_ids": [
+        194
+      ],
+      "line_key": "int_dex",
+      "proposed_bonus_key": "luck",
+      "proposed_bonus_value": 4.0,
+      "proposed_bonus_display": "+4",
+      "scaling_formula": "floor((tier+1)/2)",
+      "rationale_ru": "Звезды благоволят владельцу, повышая удачу в критические моменты.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет вечности",
+      "tier": 8,
+      "level_min": 36,
+      "level_max": 40,
+      "stat1_type": "INT",
+      "stat1_value": 4,
+      "stat2_type": "DEX",
+      "stat2_value": 4,
+      "base_price": 205,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "exp_bonus_pct",
+      "current_secondary_value": 0.04,
+      "legendary_bonus_keys": [
+        "SCALES_OF_FATE"
+      ],
+      "legendary_bonus_ids": [
+        204
+      ],
+      "line_key": "int_dex",
+      "proposed_bonus_key": "damage_vs_monster_type_flat:demon",
+      "proposed_bonus_value": 16.0,
+      "proposed_bonus_display": "+16",
+      "scaling_formula": "tier × 2",
+      "rationale_ru": "Древняя магия вечности направлена на изгнание демонических сущностей.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет бездны",
+      "tier": 9,
+      "level_min": 41,
+      "level_max": 45,
+      "stat1_type": "INT",
+      "stat1_value": 5,
+      "stat2_type": "DEX",
+      "stat2_value": 4,
+      "base_price": 272,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "exp_bonus_pct",
+      "current_secondary_value": 0.045,
+      "legendary_bonus_keys": [
+        "JACKPOT"
+      ],
+      "legendary_bonus_ids": [
+        287
+      ],
+      "line_key": "int_dex",
+      "proposed_bonus_key": "media_damage_sticker_percent",
+      "proposed_bonus_value": 9.0,
+      "proposed_bonus_display": "+9%",
+      "scaling_formula": "tier × 1",
+      "rationale_ru": "Сила бездны искажает реальность, усиливая урон от стикеров.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет Творения",
+      "tier": 10,
+      "level_min": 46,
+      "level_max": 50,
+      "stat1_type": "INT",
+      "stat1_value": 5,
+      "stat2_type": "DEX",
+      "stat2_value": 5,
+      "base_price": 352,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "exp_bonus_pct",
+      "current_secondary_value": 0.05,
+      "legendary_bonus_keys": [
+        "HIGH_ROLLER"
+      ],
+      "legendary_bonus_ids": [
+        304
+      ],
+      "line_key": "int_dex",
+      "proposed_bonus_key": "hp_max_pct",
+      "proposed_bonus_value": 0.05,
+      "proposed_bonus_display": "+5.0%",
+      "scaling_formula": "tier × 0.005",
+      "rationale_ru": "Магия созидания укрепляет жизненную силу владельца, увеличивая максимальное HP.",
+      "implementation_tier": "sql_only",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет четырёх стихий",
+      "tier": 4,
+      "level_min": 16,
+      "level_max": 20,
+      "stat1_type": "INT",
+      "stat1_value": 3,
+      "stat2_type": "DEX",
+      "stat2_value": 2,
+      "base_price": 54,
+      "required_race": null,
+      "required_class": 4,
+      "current_secondary_type": null,
+      "current_secondary_value": null,
+      "legendary_bonus_keys": [
+        "SIESTA"
+      ],
+      "legendary_bonus_ids": [
+        101
+      ],
+      "line_key": "restricted",
+      "proposed_bonus_key": "hp_max_pct",
+      "proposed_bonus_value": 0.025,
+      "proposed_bonus_display": "+2.5%",
+      "scaling_formula": "tier × 0.005",
+      "rationale_ru": "Rule-based: тематика линии restricted, ключ из пула.",
+      "implementation_tier": "sql_only",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Амулет нисхождения",
+      "tier": 5,
+      "level_min": 21,
+      "level_max": 25,
+      "stat1_type": "VIT",
+      "stat1_value": 4,
+      "stat2_type": "STR",
+      "stat2_value": 3,
+      "base_price": 84,
+      "required_race": 4,
+      "required_class": null,
+      "current_secondary_type": null,
+      "current_secondary_value": null,
+      "legendary_bonus_keys": [
+        "CENTURION"
+      ],
+      "legendary_bonus_ids": [
+        166
+      ],
+      "line_key": "restricted",
+      "proposed_bonus_key": "dmg_reduce_pct",
+      "proposed_bonus_value": 0.0312,
+      "proposed_bonus_display": "+3.1%",
+      "scaling_formula": "tier × 0.005",
+      "rationale_ru": "Rule-based: тематика линии restricted, ключ из пула.",
+      "implementation_tier": "sql_only",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Амулет нижнего договора",
+      "tier": 9,
+      "level_min": 41,
+      "level_max": 45,
+      "stat1_type": "VIT",
+      "stat1_value": 6,
+      "stat2_type": "STR",
+      "stat2_value": 5,
+      "base_price": 314,
+      "required_race": 6,
+      "required_class": null,
+      "current_secondary_type": null,
+      "current_secondary_value": null,
+      "legendary_bonus_keys": [
+        "KILL_ECHO"
+      ],
+      "legendary_bonus_ids": [
+        44
+      ],
+      "line_key": "restricted",
+      "proposed_bonus_key": "magic_damage_flat",
+      "proposed_bonus_value": 22.0,
+      "proposed_bonus_display": "+22",
+      "scaling_formula": "tier × 2",
+      "rationale_ru": "Rule-based: тематика линии restricted, ключ из пула.",
+      "implementation_tier": "needs_code",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Амулет торговых дорог",
+      "tier": 10,
+      "level_min": 46,
+      "level_max": 50,
+      "stat1_type": "LUK",
+      "stat1_value": 6,
+      "stat2_type": "CHA",
+      "stat2_value": 6,
+      "base_price": 406,
+      "required_race": null,
+      "required_class": 7,
+      "current_secondary_type": null,
+      "current_secondary_value": null,
+      "legendary_bonus_keys": [
+        "SCHOLAR"
+      ],
+      "legendary_bonus_ids": [
+        275
+      ],
+      "line_key": "restricted",
+      "proposed_bonus_key": "gold_bonus_pct",
+      "proposed_bonus_value": 0.0625,
+      "proposed_bonus_display": "+6.2%",
+      "scaling_formula": "tier × 0.005",
+      "rationale_ru": "Rule-based: тематика линии restricted, ключ из пула.",
+      "implementation_tier": "sql_only",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Простой амулет",
+      "tier": 1,
+      "level_min": 1,
+      "level_max": 5,
+      "stat1_type": "VIT",
+      "stat1_value": 1,
+      "stat2_type": null,
+      "stat2_value": 0,
+      "base_price": 6,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "hp_max_pct",
+      "current_secondary_value": 0.005,
+      "legendary_bonus_keys": [
+        "INTERROGATION"
+      ],
+      "legendary_bonus_ids": [
+        138
+      ],
+      "line_key": "vit_str",
+      "proposed_bonus_key": "endurance",
+      "proposed_bonus_value": 1.0,
+      "proposed_bonus_display": "+1",
+      "scaling_formula": "floor((tier+1)/2)",
+      "rationale_ru": "Базовый амулет для выживания, дающий прибавку к выносливости.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет стойкости",
+      "tier": 2,
+      "level_min": 6,
+      "level_max": 10,
+      "stat1_type": "VIT",
+      "stat1_value": 1,
+      "stat2_type": "STR",
+      "stat2_value": 1,
+      "base_price": 14,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "hp_max_pct",
+      "current_secondary_value": 0.01,
+      "legendary_bonus_keys": [
+        "ODD_COUNT"
+      ],
+      "legendary_bonus_ids": [
+        125
+      ],
+      "line_key": "vit_str",
+      "proposed_bonus_key": "damage_vs_monster_type_flat:construct",
+      "proposed_bonus_value": 4.0,
+      "proposed_bonus_display": "+4",
+      "scaling_formula": "tier × 2",
+      "rationale_ru": "Rule-based: тематика линии vit_str, ключ из пула.",
+      "implementation_tier": "needs_code",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Медальон воина",
+      "tier": 3,
+      "level_min": 11,
+      "level_max": 15,
+      "stat1_type": "VIT",
+      "stat1_value": 2,
+      "stat2_type": "STR",
+      "stat2_value": 1,
+      "base_price": 28,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "hp_max_pct",
+      "current_secondary_value": 0.015,
+      "legendary_bonus_keys": [
+        "EVENING_RITUAL"
+      ],
+      "legendary_bonus_ids": [
+        86
+      ],
+      "line_key": "vit_str",
+      "proposed_bonus_key": "melee_damage_flat",
+      "proposed_bonus_value": 6.0,
+      "proposed_bonus_display": "+6",
+      "scaling_formula": "tier  2",
+      "rationale_ru": "Классический медальон для воина, усиливающий физические атаки ближнего боя.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет защиты",
+      "tier": 4,
+      "level_min": 16,
+      "level_max": 20,
+      "stat1_type": "VIT",
+      "stat1_value": 2,
+      "stat2_type": "STR",
+      "stat2_value": 2,
+      "base_price": 46,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "hp_max_pct",
+      "current_secondary_value": 0.02,
+      "legendary_bonus_keys": [
+        "NIGHT_STICKERS"
+      ],
+      "legendary_bonus_ids": [
+        98
+      ],
+      "line_key": "vit_str",
+      "proposed_bonus_key": "dmg_reduce_pct",
+      "proposed_bonus_value": 0.02,
+      "proposed_bonus_display": "+2.0%",
+      "scaling_formula": "tier  0.005",
+      "rationale_ru": "Снижает входящий урон, подчеркивая защитную направленность амулета.",
+      "implementation_tier": "sql_only",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Медальон стражника",
+      "tier": 5,
+      "level_min": 21,
+      "level_max": 25,
+      "stat1_type": "VIT",
+      "stat1_value": 3,
+      "stat2_type": "STR",
+      "stat2_value": 2,
+      "base_price": 72,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "hp_max_pct",
+      "current_secondary_value": 0.025,
+      "legendary_bonus_keys": [
+        "MORNING_RITUAL",
+        "FIRST_DAILY_DUNGEON"
+      ],
+      "legendary_bonus_ids": [
+        17,
+        28
+      ],
+      "line_key": "vit_str",
+      "proposed_bonus_key": "strength",
+      "proposed_bonus_value": 3.0,
+      "proposed_bonus_display": "+3",
+      "scaling_formula": "floor((tier+1)/2)",
+      "rationale_ru": "Дает бонус к силе, необходимый стражнику для удержания позиций.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет паладина",
+      "tier": 6,
+      "level_min": 26,
+      "level_max": 30,
+      "stat1_type": "VIT",
+      "stat1_value": 3,
+      "stat2_type": "STR",
+      "stat2_value": 3,
+      "base_price": 106,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "hp_max_pct",
+      "current_secondary_value": 0.03,
+      "legendary_bonus_keys": [
+        "BOSS_PIERCER"
+      ],
+      "legendary_bonus_ids": [
+        175
+      ],
+      "line_key": "vit_str",
+      "proposed_bonus_key": "damage_vs_monster_type_flat:undead",
+      "proposed_bonus_value": 12.0,
+      "proposed_bonus_display": "+12",
+      "scaling_formula": "tier  2",
+      "rationale_ru": "Святой амулет, дающий преимущество в бою против нежити.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет хранителя",
+      "tier": 7,
+      "level_min": 31,
+      "level_max": 35,
+      "stat1_type": "VIT",
+      "stat1_value": 4,
+      "stat2_type": "STR",
+      "stat2_value": 3,
+      "base_price": 150,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "hp_max_pct",
+      "current_secondary_value": 0.035,
+      "legendary_bonus_keys": [
+        "DEATHS_DOOR"
+      ],
+      "legendary_bonus_ids": [
+        186
+      ],
+      "line_key": "vit_str",
+      "proposed_bonus_key": "evade_pct",
+      "proposed_bonus_value": 0.035,
+      "proposed_bonus_display": "+3.5%",
+      "scaling_formula": "tier  0.005",
+      "rationale_ru": "Хранитель должен уметь уклоняться от ударов, чтобы дольше оставаться в строю.",
+      "implementation_tier": "sql_only",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет бессмертия",
+      "tier": 8,
+      "level_min": 36,
+      "level_max": 40,
+      "stat1_type": "VIT",
+      "stat1_value": 4,
+      "stat2_type": "STR",
+      "stat2_value": 4,
+      "base_price": 205,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "hp_max_pct",
+      "current_secondary_value": 0.04,
+      "legendary_bonus_keys": [
+        "BLOOD_PACT"
+      ],
+      "legendary_bonus_ids": [
+        197
+      ],
+      "line_key": "vit_str",
+      "proposed_bonus_key": "hp_max_pct",
+      "proposed_bonus_value": 0.04,
+      "proposed_bonus_display": "+4.0%",
+      "scaling_formula": "tier × 0.005",
+      "rationale_ru": "Rule-based: тематика линии vit_str, ключ из пула.",
+      "implementation_tier": "sql_only",
+      "profile_source": "rule_based"
+    },
+    {
+      "name": "Амулет титана",
+      "tier": 9,
+      "level_min": 41,
+      "level_max": 45,
+      "stat1_type": "VIT",
+      "stat1_value": 5,
+      "stat2_type": "STR",
+      "stat2_value": 4,
+      "base_price": 272,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "hp_max_pct",
+      "current_secondary_value": 0.045,
+      "legendary_bonus_keys": [
+        "DEVILS_BARGAIN"
+      ],
+      "legendary_bonus_ids": [
+        296
+      ],
+      "line_key": "vit_str",
+      "proposed_bonus_key": "damage_flat",
+      "proposed_bonus_value": 18.0,
+      "proposed_bonus_display": "+18",
+      "scaling_formula": "tier * 2",
+      "rationale_ru": "Огромная мощь титана, увеличивающая любой наносимый физический урон.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    },
+    {
+      "name": "Амулет богов",
+      "tier": 10,
+      "level_min": 46,
+      "level_max": 50,
+      "stat1_type": "VIT",
+      "stat1_value": 5,
+      "stat2_type": "STR",
+      "stat2_value": 5,
+      "base_price": 352,
+      "required_race": null,
+      "required_class": null,
+      "current_secondary_type": "hp_max_pct",
+      "current_secondary_value": 0.05,
+      "legendary_bonus_keys": [
+        "MIRROR_IMAGE"
+      ],
+      "legendary_bonus_ids": [
+        289
+      ],
+      "line_key": "vit_str",
+      "proposed_bonus_key": "luck",
+      "proposed_bonus_value": 5.0,
+      "proposed_bonus_display": "+5",
+      "scaling_formula": "floor((tier+1)/2)",
+      "rationale_ru": "Божественное благословение, дарующее удачу в самых сложных испытаниях.",
+      "implementation_tier": "needs_code",
+      "profile_source": "llm"
+    }
+  ],
+  "meta": {
+    "preset": "expert",
+    "source": "llm"
+  }
+}

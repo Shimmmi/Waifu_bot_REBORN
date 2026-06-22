@@ -18,23 +18,23 @@ presets:
     parallel_experts: true
     experts:
       - google/gemini-3.1-flash-lite
-      - deepseek/deepseek-v4-pro
-    judge: deepseek/deepseek-v4-pro
+      - z-ai/glm-5.2
+    judge: z-ai/glm-5.2
     judge_prompt: |
       Сравни ответы экспертов. Выбери лучшее, исправь ошибки, верни финальный ответ.
 
   architect:
     mode: fusion_roles
     roles:
-      claude-sonnet-4.6:
-        model: anthropic/claude-sonnet-4.6
+      GLM-5.2:
+        model: z-ai/glm-5.2
         system: "Ты software architect. Предложи структуру решения."
-      deepseek-v4-pro:
-        model: deepseek/deepseek-v4-pro
+      glm-5.2-dev:
+        model: z-ai/glm-5.2
         system: "Ты ведущий разработчик. Найди проблемы в архитектуре."
       gemini-flash:
         model: google/gemini-3.1-flash-lite
         system: "Ты QA-инженер. Найди уязвимости и слабые места."
     judge:
-      model: anthropic/claude-sonnet-4.6
+      model: z-ai/glm-5.2
       system: "На основе мнений трёх экспертов сформируй итоговое решение."

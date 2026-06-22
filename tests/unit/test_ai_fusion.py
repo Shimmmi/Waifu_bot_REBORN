@@ -21,8 +21,8 @@ def _ok_response(text: str) -> httpx.Response:
 class TestAiFusion(unittest.IsolatedAsyncioTestCase):
     async def test_fusion_judge_synthesis(self) -> None:
         preset = FusionPreset(
-            experts=["google/gemini-3.5-flash", "deepseek/deepseek-v4-pro"],
-            judge="deepseek/deepseek-v4-pro",
+            experts=["google/gemini-3.5-flash", "z-ai/glm-5.2"],
+            judge="z-ai/glm-5.2",
         )
         defaults = PresetDefaults()
         messages = [{"role": "user", "content": "Balance this item"}]
@@ -32,7 +32,7 @@ class TestAiFusion(unittest.IsolatedAsyncioTestCase):
                 return _ok_response("Final balanced answer")
             if "gemini" in model:
                 return _ok_response("Gemini says increase HP")
-            return _ok_response("DeepSeek says reduce damage")
+            return _ok_response("GLM says reduce damage")
 
         with patch(
             "waifu_bot.services.ai_fusion.post_chat_completions_routerai",
@@ -49,7 +49,7 @@ class TestAiFusion(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out, "Final balanced answer")
 
     async def test_fusion_judge_fallback_to_expert(self) -> None:
-        preset = FusionPreset(experts=["google/gemini-3.5-flash"], judge="deepseek/deepseek-v4-pro")
+        preset = FusionPreset(experts=["google/gemini-3.5-flash"], judge="z-ai/glm-5.2")
         defaults = PresetDefaults()
         messages = [{"role": "user", "content": "Hello"}]
 
@@ -76,7 +76,7 @@ class TestAiFusion(unittest.IsolatedAsyncioTestCase):
         preset = FusionRolesPreset(
             roles={
                 "architect": FusionRoleSpec(model="anthropic/claude-sonnet-4.6", system="architect"),
-                "engineer": FusionRoleSpec(model="deepseek/deepseek-v4-pro", system="engineer"),
+                "engineer": FusionRoleSpec(model="z-ai/glm-5.2", system="engineer"),
             },
             judge=FusionRolesJudge(model="anthropic/claude-sonnet-4.6", system="judge"),
         )

@@ -25,6 +25,12 @@ class TestAiPresetsLoader(unittest.TestCase):
         self.assertIsInstance(cfg.presets["fast"], SinglePreset)
         self.assertIsInstance(cfg.presets["expert"], FusionPreset)
         self.assertIsInstance(cfg.presets["architect"], FusionRolesPreset)
+        expert = cfg.presets["expert"]
+        assert isinstance(expert, FusionPreset)
+        self.assertIn("z-ai/glm-5.2", expert.experts)
+        self.assertEqual(expert.judge, "z-ai/glm-5.2")
+        for role in cfg.presets["architect"].roles.values():
+            self.assertNotIn("deepseek", role.model)
 
     def test_resolve_unknown_preset_raises(self) -> None:
         root = Path(__file__).resolve().parents[2]

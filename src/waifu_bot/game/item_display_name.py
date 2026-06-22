@@ -8,6 +8,41 @@ if TYPE_CHECKING:
     from waifu_bot.db import models as m
 
 
+from waifu_bot.game.affix_display_names import (
+    _is_raw_affix_name,
+    resolve_prefix_name_ru,
+    resolve_suffix_name_ru,
+)
+
+
+def _affix_family_string_id(affix: "m.InventoryAffix") -> str | None:
+    fam = getattr(affix, "family", None)
+    if fam is not None:
+        fid = getattr(fam, "family_id", None)
+        if fid:
+            return str(fid)
+    stored = str(getattr(affix, "name", "") or "").strip()
+    if stored.startswith(("s_", "p_")) and _is_raw_affix_name(stored, family_id=stored):
+        return stored
+    return None
+
+
+def resolve_stored_affix_name_ru(affix: "m.InventoryAffix") -> str:
+    """Re-resolve affix display name when DB holds a raw effect_key / family_id placeholder."""
+    stored = str(getattr(affix, "name", "") or "").strip()
+    kind = getattr(affix, "kind", None)
+    tier = int(getattr(affix, "affix_tier", None) or getattr(affix, "tier", None) or 1)
+    stat = str(getattr(affix, "stat", "") or "")
+    if stored and not _is_raw_affix_name(stored, effect_key=stat):
+        return stored
+    fam_key = _affix_family_string_id(affix)
+    if kind == "suffix":
+        if fam_key:
+            return resolve_suffix_name_ru(fam_key, tier)
+        return stored
+    return resolve_prefix_name_ru(stat, tier, family_id=fam_key)
+
+
 def fallback_base_name_ru(inv: "m.InventoryItem") -> str:
     st = (inv.slot_type or "").lower()
     wt = (inv.weapon_type or "").lower()
@@ -64,15 +99,29 @@ def inflect_adj_ru(adj: str, gender: str) -> str:
     if not a or gender == "m":
         return a
     low = a.lower()
+
+    def _cap(stem: str, ending: str) -> str:
+        if not stem:
+            return ending
+        if stem[0].isupper():
+            return stem[0] + stem[1:] + ending
+        return stem + ending
+
+    if low.endswith("ский") or low.endswith("ческий"):
+        stem = a[:-2]
+        return _cap(stem, "ая" if gender == "f" else "ое")
+    if low.endswith("ённый") or low.endswith("енный"):
+        stem = a[:-2]
+        return _cap(stem, "ая" if gender == "f" else "ое")
     if low.endswith("ый") or low.endswith("ой"):
         stem = a[:-2]
-        return stem + ("ая" if gender == "f" else "ое")
+        return _cap(stem, "ая" if gender == "f" else "ое")
     if low.endswith(("кий", "гий", "хий")):
         stem = a[:-2]
-        return stem + ("ая" if gender == "f" else "ое")
+        return _cap(stem, "ая" if gender == "f" else "ое")
     if low.endswith("ий"):
         stem = a[:-2]
-        return stem + ("яя" if gender == "f" else "ее")
+        return _cap(stem, "яя" if gender == "f" else "ее")
     return a
 
 
@@ -86,7 +135,7 @@ def compose_item_display_name_ru(
     suffixes: list[str] = []
     for a in inv.affixes or []:
         kind = getattr(a, "kind", None)
-        name = str(getattr(a, "name", "") or "").strip()
+        name = resolve_stored_affix_name_ru(a)
         if not name:
             continue
         if kind == "affix":

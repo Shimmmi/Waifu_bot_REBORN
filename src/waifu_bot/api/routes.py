@@ -12,6 +12,7 @@ from waifu_bot.api.deps import get_db, get_player_id, get_redis, require_admin
 from waifu_bot.core.config import settings
 from waifu_bot.api import schemas
 from waifu_bot.db import models as m
+from waifu_bot.db.inventory_load_options import inventory_item_load_options
 from sqlalchemy import delete, func, select, text, tuple_
 from sqlalchemy.orm import selectinload
 
@@ -912,7 +913,7 @@ async def get_profile(
                 try:
                     inv_items = await session.execute(
                         select(m.InventoryItem)
-                        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+                        .options(*inventory_item_load_options())
                         .where(m.InventoryItem.player_id == player_id, m.InventoryItem.equipment_slot.isnot(None))
                     )
                     equipped_items = inv_items.scalars().all()
@@ -1149,7 +1150,7 @@ async def get_equipment(
 ):
     inv_items = await session.execute(
         select(m.InventoryItem)
-        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+        .options(*inventory_item_load_options())
         .where(m.InventoryItem.player_id == player_id)
     )
     items = inv_items.scalars().all()
@@ -1185,7 +1186,7 @@ async def equip_item(
     inv = await session.get(
         m.InventoryItem,
         inventory_item_id,
-        options=[selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes)],
+        options=[*inventory_item_load_options()],
     )
     if not inv or inv.player_id != player_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item not found")
@@ -1310,7 +1311,7 @@ async def get_available_items_for_slot(
     # Получить все предметы из инвентаря (не экипированные)
     inv_items = await session.execute(
         select(m.InventoryItem)
-        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+        .options(*inventory_item_load_options())
         .where(
             m.InventoryItem.player_id == player_id,
             m.InventoryItem.equipment_slot.is_(None),
@@ -1466,7 +1467,7 @@ async def _build_paperdoll_equipment_context(
     """Equipment summary + item image refs + average tier for paperdoll generation."""
     result = await session.execute(
         select(m.InventoryItem)
-        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+        .options(*inventory_item_load_options())
         .where(
             m.InventoryItem.player_id == player_id,
             m.InventoryItem.equipment_slot.isnot(None),

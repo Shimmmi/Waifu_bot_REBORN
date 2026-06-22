@@ -1,0 +1,752 @@
+# Expedition archetype image prompts (watercolor, 3:2)
+# Total: 50
+
+========================================================================
+ID: city
+Name: Город
+Biome: urban
+Hints: улицы, толпа, фонари, переулки
+Output: static/game/expeditions/archetypes/city.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Город» (id: city).
+Biome tag: urban.
+Visual atmosphere hints: улиц.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: slums
+Name: Трущобы
+Biome: urban
+Hints: лачуги, канализация, контрабанда
+Output: static/game/expeditions/archetypes/slums.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Трущобы» (id: slums).
+Biome tag: urban.
+Visual atmosphere hints: лачу.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: market
+Name: Рынок
+Biome: urban
+Hints: лавки, торг, запахи специй
+Output: static/game/expeditions/archetypes/market.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Рынок» (id: market).
+Biome tag: urban.
+Visual atmosphere hints: лавк.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: night_club
+Name: Ночной клуб
+Biome: urban
+Hints: неон, музыка, VIP-залы
+Output: static/game/expeditions/archetypes/night_club.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Ночной клуб» (id: night_club).
+Biome tag: urban.
+Visual atmosphere hints: неон.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: theater
+Name: Театр
+Biome: indoor
+Hints: сцена, кулисы, маски
+Output: static/game/expeditions/archetypes/theater.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Театр» (id: theater).
+Biome tag: indoor.
+Visual atmosphere hints: сцен.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: harbor
+Name: Гавань
+Biome: coast
+Hints: причалы, чайки, контейнеры
+Output: static/game/expeditions/archetypes/harbor.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Гавань» (id: harbor).
+Biome tag: coast.
+Visual atmosphere hints: прич.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: train_station
+Name: Вокзал
+Biome: urban
+Hints: платформы, расписание, толпа
+Output: static/game/expeditions/archetypes/train_station.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Вокзал» (id: train_station).
+Biome tag: urban.
+Visual atmosphere hints: плат.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: bridge_town
+Name: Город на мосту
+Biome: urban
+Hints: висячие дома, пропасть, ветер
+Output: static/game/expeditions/archetypes/bridge_town.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Город на мосту» (id: bridge_town).
+Biome tag: urban.
+Visual atmosphere hints: вися.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: casino
+Name: Казино
+Biome: indoor
+Hints: рулетка, фишки, криминал
+Output: static/game/expeditions/archetypes/casino.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Казино» (id: casino).
+Biome tag: indoor.
+Visual atmosphere hints: руле.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: graveyard
+Name: Кладбище
+Biome: crypt
+Hints: надгробия, туман, старые могилы
+Output: static/game/expeditions/archetypes/graveyard.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Кладбище» (id: graveyard).
+Biome tag: crypt.
+Visual atmosphere hints: надг.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: forest
+Name: Лес
+Biome: forest
+Hints: чаща, тропы, эхо
+Output: static/game/expeditions/archetypes/forest.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Лес» (id: forest).
+Biome tag: forest.
+Visual atmosphere hints: чаща.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: jungle
+Name: Джунгли
+Biome: forest
+Hints: лианы, влажность, хищники
+Output: static/game/expeditions/archetypes/jungle.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Джунгли» (id: jungle).
+Biome tag: forest.
+Visual atmosphere hints: лиан.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: mountains
+Name: Горы
+Biome: mountain
+Hints: обрывы, ветер, перевалы
+Output: static/game/expeditions/archetypes/mountains.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Горы» (id: mountains).
+Biome tag: mountain.
+Visual atmosphere hints: обры.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: arctic
+Name: Арктика
+Biome: arctic
+Hints: лед, метель, одиночество
+Output: static/game/expeditions/archetypes/arctic.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Арктика» (id: arctic).
+Biome tag: arctic.
+Visual atmosphere hints: лед,.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: desert
+Name: Пустыня
+Biome: desert
+Hints: дюны, жара, миражи
+Output: static/game/expeditions/archetypes/desert.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Пустыня» (id: desert).
+Biome tag: desert.
+Visual atmosphere hints: дюны.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: swamp
+Name: Болота
+Biome: swamp
+Hints: трясина, туман, болотный газ
+Output: static/game/expeditions/archetypes/swamp.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Болота» (id: swamp).
+Biome tag: swamp.
+Visual atmosphere hints: тряс.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: coast
+Name: Побережье
+Biome: coast
+Hints: прилив, скалы, маяки
+Output: static/game/expeditions/archetypes/coast.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Побережье» (id: coast).
+Biome tag: coast.
+Visual atmosphere hints: прил.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: volcano
+Name: Вулкан
+Biome: volcano
+Hints: лава, пепел, жар
+Output: static/game/expeditions/archetypes/volcano.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Вулкан» (id: volcano).
+Biome tag: volcano.
+Visual atmosphere hints: лава.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: tundra
+Name: Тундра
+Biome: tundra
+Hints: мох, холод, простор
+Output: static/game/expeditions/archetypes/tundra.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Тундра» (id: tundra).
+Biome tag: tundra.
+Visual atmosphere hints: мох,.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: dark_forest
+Name: Тёмный лес
+Biome: forest
+Hints: сумрак, корни, шёпот
+Output: static/game/expeditions/archetypes/dark_forest.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Тёмный лес» (id: dark_forest).
+Biome tag: forest.
+Visual atmosphere hints: сумр.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: cave
+Name: Пещера
+Biome: cave
+Hints: сталактиты, эхо, темнота
+Output: static/game/expeditions/archetypes/cave.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Пещера» (id: cave).
+Biome tag: cave.
+Visual atmosphere hints: стал.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: catacombs
+Name: Катакомбы
+Biome: crypt
+Hints: кости, узкие ходы, свечи
+Output: static/game/expeditions/archetypes/catacombs.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Катакомбы» (id: catacombs).
+Biome tag: crypt.
+Visual atmosphere hints: кост.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: ruins
+Name: Руины
+Biome: ruins
+Hints: обвалившиеся стены, артефакты, пыль
+Output: static/game/expeditions/archetypes/ruins.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Руины» (id: ruins).
+Biome tag: ruins.
+Visual atmosphere hints: обва.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: mine
+Name: Шахта
+Biome: cave
+Hints: рельсы, забои, газ
+Output: static/game/expeditions/archetypes/mine.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Шахта» (id: mine).
+Biome tag: cave.
+Visual atmosphere hints: рель.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: sewer
+Name: Канализация
+Biome: cave
+Hints: трубы, сток, крысы
+Output: static/game/expeditions/archetypes/sewer.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Канализация» (id: sewer).
+Biome tag: cave.
+Visual atmosphere hints: труб.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: crypt
+Name: Склеп
+Biome: crypt
+Hints: саркофаги, печати, холод
+Output: static/game/expeditions/archetypes/crypt.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Склеп» (id: crypt).
+Biome tag: crypt.
+Visual atmosphere hints: сарк.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: mage_tower
+Name: Башня мага
+Biome: indoor
+Hints: руны, книги, эксперименты
+Output: static/game/expeditions/archetypes/mage_tower.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Башня мага» (id: mage_tower).
+Biome tag: indoor.
+Visual atmosphere hints: руны.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: enchanted_garden
+Name: Зачарованный сад
+Biome: forest
+Hints: цветы, иллюзии, феи
+Output: static/game/expeditions/archetypes/enchanted_garden.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Зачарованный сад» (id: enchanted_garden).
+Biome tag: forest.
+Visual atmosphere hints: цвет.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: floating_island
+Name: Парящий остров
+Biome: sky
+Hints: пропасть, ветер, облака
+Output: static/game/expeditions/archetypes/floating_island.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Парящий остров» (id: floating_island).
+Biome tag: sky.
+Visual atmosphere hints: проп.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: sky_castle
+Name: Небесный замок
+Biome: sky
+Hints: облачные мосты, высота, башни
+Output: static/game/expeditions/archetypes/sky_castle.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Небесный замок» (id: sky_castle).
+Biome tag: sky.
+Visual atmosphere hints: обла.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: fae_realm
+Name: Царство фей
+Biome: forest
+Hints: гламур, обман, пир
+Output: static/game/expeditions/archetypes/fae_realm.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Царство фей» (id: fae_realm).
+Biome tag: forest.
+Visual atmosphere hints: глам.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: demon_gate
+Name: Врата демонов
+Biome: abyss
+Hints: трещины, сера, шёпот
+Output: static/game/expeditions/archetypes/demon_gate.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Врата демонов» (id: demon_gate).
+Biome tag: abyss.
+Visual atmosphere hints: трещ.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: crystal_caves
+Name: Кристальные пещеры
+Biome: cave
+Hints: сияние, резонанс, отражения
+Output: static/game/expeditions/archetypes/crystal_caves.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Кристальные пещеры» (id: crystal_caves).
+Biome tag: cave.
+Visual atmosphere hints: сиян.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: abyss
+Name: Бездна
+Biome: abyss
+Hints: пустота, эхо без ответа, головокружение
+Output: static/game/expeditions/archetypes/abyss.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Бездна» (id: abyss).
+Biome tag: abyss.
+Visual atmosphere hints: пуст.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: temple
+Name: Храм
+Biome: ruins
+Hints: алтарь, молитвы, священники
+Output: static/game/expeditions/archetypes/temple.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Храм» (id: temple).
+Biome tag: ruins.
+Visual atmosphere hints: алта.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: monastery
+Name: Монастырь
+Biome: fortress
+Hints: кельи, молчание, сад
+Output: static/game/expeditions/archetypes/monastery.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Монастырь» (id: monastery).
+Biome tag: fortress.
+Visual atmosphere hints: кель.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: university
+Name: Университет
+Biome: indoor
+Hints: аудитории, архивы, студенты
+Output: static/game/expeditions/archetypes/university.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Университет» (id: university).
+Biome tag: indoor.
+Visual atmosphere hints: ауди.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: palace
+Name: Дворец
+Biome: fortress
+Hints: тронный зал, интриги, охрана
+Output: static/game/expeditions/archetypes/palace.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Дворец» (id: palace).
+Biome tag: fortress.
+Visual atmosphere hints: трон.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: prison
+Name: Тюрьма
+Biome: fortress
+Hints: камеры, решётки, бунт
+Output: static/game/expeditions/archetypes/prison.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Тюрьма» (id: prison).
+Biome tag: fortress.
+Visual atmosphere hints: каме.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: hospital
+Name: Лазарет
+Biome: indoor
+Hints: палаты, запах трав, раненые
+Output: static/game/expeditions/archetypes/hospital.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Лазарет» (id: hospital).
+Biome tag: indoor.
+Visual atmosphere hints: пала.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: carnival
+Name: Карнавал
+Biome: urban
+Hints: аттракционы, маски, фокусники
+Output: static/game/expeditions/archetypes/carnival.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Карнавал» (id: carnival).
+Biome tag: urban.
+Visual atmosphere hints: аттр.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: factory
+Name: Фабрика
+Biome: indoor
+Hints: конвейеры, пар, шум
+Output: static/game/expeditions/archetypes/factory.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Фабрика» (id: factory).
+Biome tag: indoor.
+Visual atmosphere hints: конв.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: library
+Name: Библиотека
+Biome: indoor
+Hints: полки, пыльные тома, тишина
+Output: static/game/expeditions/archetypes/library.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Библиотека» (id: library).
+Biome tag: indoor.
+Visual atmosphere hints: полк.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: observatory
+Name: Обсерватория
+Biome: indoor
+Hints: телескоп, звёзды, карты неба
+Output: static/game/expeditions/archetypes/observatory.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Обсерватория» (id: observatory).
+Biome tag: indoor.
+Visual atmosphere hints: теле.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: arena
+Name: Арена
+Biome: fortress
+Hints: трибуны, песок, крики
+Output: static/game/expeditions/archetypes/arena.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Арена» (id: arena).
+Biome tag: fortress.
+Visual atmosphere hints: триб.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: shipwreck
+Name: Затонувший корабль
+Biome: sea_depth
+Hints: корпус, водоросли, сокровища
+Output: static/game/expeditions/archetypes/shipwreck.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Затонувший корабль» (id: shipwreck).
+Biome tag: sea_depth.
+Visual atmosphere hints: корп.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: underwater_city
+Name: Подводный город
+Biome: sea_depth
+Hints: купол, руины, давление
+Output: static/game/expeditions/archetypes/underwater_city.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Подводный город» (id: underwater_city).
+Biome tag: sea_depth.
+Visual atmosphere hints: купо.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: fortress
+Name: Крепость
+Biome: fortress
+Hints: стены, гарнизон, осада
+Output: static/game/expeditions/archetypes/fortress.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Крепость» (id: fortress).
+Biome tag: fortress.
+Visual atmosphere hints: стен.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: lighthouse
+Name: Маяк
+Biome: coast
+Hints: луч света, скалы, шторм
+Output: static/game/expeditions/archetypes/lighthouse.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Маяк» (id: lighthouse).
+Biome tag: coast.
+Visual atmosphere hints: луч .
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.
+
+========================================================================
+ID: vineyard
+Name: Виноградник
+Biome: forest
+Hints: лозы, бочки, урожай
+Output: static/game/expeditions/archetypes/vineyard.webp
+
+Generate ONE fantasy RPG expedition location landscape illustration.
+Art style: watercolor painting — soft translucent washes, subtle paper grain within the painted areas, painterly brushwork. NOT photorealistic, NOT anime, NOT pixel art, NOT 3D render.
+Location archetype: «Виноградник» (id: vineyard).
+Biome tag: forest.
+Visual atmosphere hints: лозы.
+Composition: wide establishing shot of the location — environment and mood only. Full-bleed edge-to-edge painting: the watercolor scene fills the entire canvas to all four borders. No white margins, no blank paper border, no unpainted padding, no mat or frame around the artwork. No characters, no creatures in foreground, no text, no letters, no watermark, no UI frame. SFW only.
+Output aspect: landscape 3:2.

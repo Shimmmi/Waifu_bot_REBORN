@@ -10,6 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
 from waifu_bot.db.models import Player, InventoryItem, Item, ItemTemplate, Affix, ShopOffer
+from waifu_bot.db.inventory_load_options import inventory_item_load_options
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
 from waifu_bot.game.formulas import calculate_gamble_price, shop_buy_price_from_merchant_discount
 from waifu_bot.services.item_service import ItemService
@@ -89,7 +90,7 @@ class ShopService:
             # for relationships in some environments; use an explicit SELECT to guarantee eager loading.
             inv = await session.scalar(
                 select(InventoryItem)
-                .options(selectinload(InventoryItem.item), selectinload(InventoryItem.affixes))
+                .options(*inventory_item_load_options())
                 .where(InventoryItem.id == off.inventory_item_id)
             )
             if not inv:
@@ -147,7 +148,7 @@ class ShopService:
             return {"error": "already_purchased"}
         inv = await session.scalar(
             select(InventoryItem)
-            .options(selectinload(InventoryItem.item), selectinload(InventoryItem.affixes))
+            .options(*inventory_item_load_options())
             .where(InventoryItem.id == offer.inventory_item_id)
         )
         if not inv:

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from waifu_bot.db import models as m
+from waifu_bot.db.inventory_load_options import inventory_item_load_options
 from waifu_bot.game.constants import WAIFU_CLASS_LABEL_RU, WAIFU_RACE_LABEL_RU
 from waifu_bot.game.effective_stats import resolve_solo_combat_primary_four
 from waifu_bot.game.main_waifu_base_stats import compute_main_waifu_base_stats
@@ -75,7 +76,7 @@ async def build_public_summary(
 
     equipped_q = await session.execute(
         select(m.InventoryItem)
-        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+        .options(*inventory_item_load_options())
         .where(
             m.InventoryItem.player_id == tg_id,
             m.InventoryItem.equipment_slot > 0,
@@ -215,7 +216,7 @@ async def build_stats_detail(session: AsyncSession, tg_id: int) -> dict[str, Any
 async def build_inventory_list(session: AsyncSession, tg_id: int) -> list[dict[str, Any]]:
     result = await session.execute(
         select(m.InventoryItem)
-        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+        .options(*inventory_item_load_options())
         .where(m.InventoryItem.player_id == tg_id)
         .order_by(m.InventoryItem.equipment_slot.desc(), m.InventoryItem.id)
     )

@@ -23,8 +23,10 @@ sys.path.insert(0, str(SCRIPTS_DIR / "lib"))
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from affix_name_llm import (  # noqa: E402
+    _name_owner_map,
     build_system_prompt,
     build_user_prompt,
+    collect_passive_t1_prefix_names,
     collect_used_names,
     copy_legacy_names,
     families_for_llm,
@@ -32,7 +34,9 @@ from affix_name_llm import (  # noqa: E402
     load_names_out,
     merge_name_maps,
     parse_names_response,
+    passive_family_ids,
     save_names_out,
+    strip_family_names,
     synthesize_passive_unique_names,
 )
 
@@ -77,15 +81,17 @@ async def _generate_batch_with_retry(
     caller: str,
     preset: str,
     used_names: set[str],
+    name_owners: dict[str, str],
+    passive_t1_prefix_used: set[str] | None = None,
 ) -> dict[str, dict[str, str]]:
     expected = [it["family_id"] for it in batch]
     user = build_user_prompt(batch)
     max_tokens = min(12000, max(1500, 120 * len(batch) * 10))
 
-    for attempt in range(2):
+    for attempt in range(3):
         user_msg = user
         if attempt > 0:
-            user_msg = user + "\n\nВерни ТОЛЬКО валидный JSON без markdown."
+            user_msg = user + "\n\nВерни ТОЛЬКО валидный JSON без markdown. Имена не должны повторяться между разными family_id в батче."
         raw = await _request_batch(
             system=system,
             user=user_msg,
@@ -94,10 +100,16 @@ async def _generate_batch_with_retry(
             preset=preset,
         )
         try:
-            return parse_names_response(raw, expected, used_names=used_names)
+            return parse_names_response(
+                raw,
+                expected,
+                used_names=used_names,
+                name_owners=name_owners,
+                passive_t1_prefix_used=passive_t1_prefix_used,
+            )
         except (ValueError, json.JSONDecodeError) as e:
             logger.warning("batch parse failed (attempt %s): %s", attempt + 1, e)
-            if attempt == 1:
+            if attempt == 2:
                 raise
     raise RuntimeError("unreachable")
 
@@ -108,12 +120,14 @@ async def run(args: argparse.Namespace) -> int:
     names = load_names_out(out_path) if args.resume else {}
 
     if args.copy_legacy:
-        legacy = copy_legacy_names(fams, tiers_by_family)
+        legacy = copy_legacy_names(fams, tiers_by_family, skip_passive=args.skip_passive)
         names = merge_name_maps(names, legacy)
         save_names_out(out_path, names, model="legacy", provider="copy-legacy")
         logger.info("copy-legacy: %s families -> %s", len(legacy), out_path)
     if args.synthesize_passive:
-        synth = synthesize_passive_unique_names(fams, tiers_by_family)
+        synth = synthesize_passive_unique_names(fams, tiers_by_family, existing=names)
+        if args.resume:
+            synth = {k: v for k, v in synth.items() if k not in names}
         names = merge_name_maps(names, synth)
         save_names_out(out_path, names, model="synthesize", provider="deterministic")
         logger.info("synthesize-passive: %s families -> %s", len(synth), out_path)
@@ -131,12 +145,20 @@ async def run(args: argparse.Namespace) -> int:
         )
         return 0
 
+    if args.only_passive and args.force:
+        pfids = passive_family_ids(fams)
+        names = strip_family_names(names, pfids)
+        logger.info("Stripped %s passive families for regen", len(pfids))
+    if args.only_family and args.force:
+        names = strip_family_names(names, {args.only_family})
+
     pending = families_for_llm(
         fams,
         tiers_by_family,
         only_passive=args.only_passive,
         only_family=args.only_family,
-        existing=names if args.resume else None,
+        existing=names if args.resume and not args.force else None,
+        force_regen=args.force,
     )
 
     if args.dry_run:
@@ -158,8 +180,19 @@ async def run(args: argparse.Namespace) -> int:
         return 1
 
     preset = args.preset or settings.ai_default_preset
-    used_names = collect_used_names(names)
-    forbidden = sorted(used_names)[:80]
+    if args.only_passive:
+        used_names = collect_used_names(names, family_prefix="p_passive_") | collect_used_names(
+            names, family_prefix="s_passive_"
+        )
+        name_owners = _name_owner_map(
+            {fid: per for fid, per in names.items() if "passive" in fid}
+        )
+        passive_t1 = collect_passive_t1_prefix_names(names)
+    else:
+        used_names = collect_used_names(names)
+        name_owners = _name_owner_map(names)
+        passive_t1 = None
+    forbidden = sorted(used_names)[:120]
 
     system = build_system_prompt(forbidden)
     batches: list[list[dict]] = []
@@ -176,14 +209,40 @@ async def run(args: argparse.Namespace) -> int:
                 caller=f"affix names batch {idx}",
                 preset=preset,
                 used_names=used_names,
+                name_owners=name_owners,
+                passive_t1_prefix_used=passive_t1,
             )
         except Exception as e:
             logger.error("Batch %s failed: %s", idx, e)
+            if args.only_passive and args.synthesize_on_failure:
+                fids = {b["family_id"] for b in batch}
+                subset = [f for f in fams if str(f.get("family_id") or "") in fids]
+                synth = synthesize_passive_unique_names(subset, tiers_by_family, existing=names)
+                names = merge_name_maps(names, synth)
+                save_names_out(out_path, names, model=preset, provider="routerai+synth-fallback")
+                logger.info("Synthesize fallback for %s families", len(synth))
+                name_owners = _name_owner_map(
+                    {fid: per for fid, per in names.items() if "passive" in fid}
+                )
+                passive_t1 = collect_passive_t1_prefix_names(names)
+                used_names = collect_used_names(names, family_prefix="p_passive_") | collect_used_names(
+                    names, family_prefix="s_passive_"
+                )
+                continue
             save_names_out(out_path, names, model=preset, provider="routerai")
             return 1
 
         names = merge_name_maps(names, parsed)
-        forbidden = sorted(collect_used_names(names))[:80]
+        name_owners = _name_owner_map(names)
+        if args.only_passive:
+            used_names = collect_used_names(names, family_prefix="p_passive_") | collect_used_names(
+                names, family_prefix="s_passive_"
+            )
+            passive_t1 = collect_passive_t1_prefix_names(names)
+        else:
+            used_names = collect_used_names(names)
+            passive_t1 = None
+        forbidden = sorted(used_names)[:120]
         system = build_system_prompt(forbidden)
         save_names_out(out_path, names, model=preset, provider="routerai")
         logger.info("Checkpoint: %s families", len(names))
@@ -208,6 +267,16 @@ def main() -> None:
     )
     parser.add_argument("--copy-legacy", action="store_true", help="Fill from hardcoded affix_display_names")
     parser.add_argument(
+        "--skip-passive",
+        action="store_true",
+        help="With --copy-legacy, skip passive families (for LLM regen)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Regenerate even if family already exists in output JSON",
+    )
+    parser.add_argument(
         "--synthesize-passive",
         action="store_true",
         help="Deterministic unique passive names (no API)",
@@ -218,6 +287,11 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--delay", type=float, default=1.0)
+    parser.add_argument(
+        "--synthesize-on-failure",
+        action="store_true",
+        help="On LLM batch failure (only-passive), fill with deterministic fallback",
+    )
     args = parser.parse_args()
 
     if not args.copy_legacy and not args.synthesize_passive and args.provider == "skip":

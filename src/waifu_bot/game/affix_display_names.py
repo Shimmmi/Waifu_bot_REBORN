@@ -31,7 +31,7 @@ _PREFIX_NAME_BY_STAT: dict[str, dict[tuple[int, int], str]] = {
         (3, 4): "Мистический",
         (5, 6): "Арканный",
         (7, 8): "Этерический",
-        (9, 10): "Трансцендентный",
+        (9, 10): "Первозданный",
     },
     "damage_flat": {
         (1, 2): "Острый",
@@ -72,10 +72,22 @@ _SUFFIX_NAME_BY_FAMILY_ID: dict[str, dict[int, str]] = {
     "s_media_audio": {2: "диджея", 4: "звукорежиссёра", 6: "резонанса", 8: "саундтрека", 10: "симфонии"},
     "s_media_voice": {2: "оратора", 4: "говоруна", 6: "эхо", 8: "голоса бездны", 10: "пророчества"},
     "s_media_video": {2: "монтажёра", 4: "режиссёра", 6: "киношника", 8: "стримера", 10: "кинолегенды"},
-    "s_media_link": {2: "линкера", 4: "URL-мастера", 6: "гиперссылки", 8: "веба", 10: "интернета"},
+    "s_media_link": {2: "линкера", 4: "мастера ссылок", 6: "гиперссылки", 8: "веба", 10: "интернета"},
     "s_dmg_melee": {2: "ближнего боя", 4: "рукопашной резни", 6: "тесаков", 8: "титанов", 10: "бездны ударов"},
     "s_dmg_ranged": {2: "дальнего боя", 4: "меткости", 6: "дождя стрел", 8: "ветра", 10: "небесного лука"},
     "s_dmg_magic": {2: "чар", 4: "заклинаний", 6: "арканы", 8: "бездны маны", 10: "апокалипсиса магии"},
+    "s_merchant_cut": {
+        1: "купца",
+        2: "торгаша",
+        3: "базара",
+        4: "лотка",
+        5: "скупки",
+        6: "выгоды",
+        7: "расчёта",
+        8: "контракта",
+        9: "империи торговли",
+        10: "золотого ключика",
+    },
     "s_sec_crit_chance_pct": {
         1: "остроты",
         2: "точности",
@@ -190,7 +202,7 @@ _PASSIVE_LEVEL_ADD_PREFIX: dict[tuple[int, int], str] = {
     (1, 3): "Наставнический",
     (4, 6): "Мастерский",
     (7, 8): "Просветляющий",
-    (9, 10): "Трансцендентный",
+    (9, 10): "Первозданный",
 }
 
 _PASSIVE_LEVEL_ADD_SUFFIX: dict[int, str] = {
@@ -272,6 +284,20 @@ _SECONDARY_PREFIX_NAMES: dict[str, dict[tuple[int, int], str]] = {
         (7, 8): "Мифический",
         (9, 10): "Сокровищный",
     },
+    "merchant_discount_flat": {
+        (1, 2): "Торговый",
+        (3, 4): "Скупой",
+        (5, 6): "Выгодный",
+        (7, 8): "Расчётливый",
+        (9, 10): "Купеческий",
+    },
+    "merchant_discount_percent": {
+        (1, 2): "Торговый",
+        (3, 4): "Скупой",
+        (5, 6): "Выгодный",
+        (7, 8): "Расчётливый",
+        (9, 10): "Купеческий",
+    },
     "sell_price_bonus_percent": {
         (1, 2): "Выгодный",
         (3, 4): "Скупочный",
@@ -339,10 +365,34 @@ _SECONDARY_PREFIX_NAMES: dict[str, dict[tuple[int, int], str]] = {
         (1, 2): "Линкованный",
         (3, 4): "Гиперссылочный",
         (5, 6): "Вебовый",
-        (7, 8): "URL-ный",
+        (7, 8): "Ссылочный",
         (9, 10): "Интернетный",
     },
 }
+
+
+_FAMILY_ID_RE = re.compile(r"^(p|s)_[a-z0-9_]+$", re.IGNORECASE)
+_EFFECT_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$", re.IGNORECASE)
+
+
+def _is_raw_affix_name(
+    name: str, *, effect_key: str | None = None, family_id: str | None = None
+) -> bool:
+    """True when name is an untranslated effect_key or family_id placeholder."""
+    s = str(name or "").strip()
+    if not s:
+        return False
+    if family_id and s == family_id:
+        return True
+    if effect_key and s.lower() == str(effect_key).lower():
+        return True
+    if _FAMILY_ID_RE.match(s):
+        return True
+    if _EFFECT_KEY_RE.match(s):
+        return True
+    if re.search(r"[A-Za-z_]", s) and "_" in s:
+        return True
+    return False
 
 
 def _resolve_prefix_name_ru_legacy(stat: str, affix_tier: int) -> str:
@@ -379,7 +429,7 @@ def resolve_prefix_name_ru(
     from waifu_bot.game.affix_display_names_llm import lookup_affix_display_name_ru
 
     cached = lookup_affix_display_name_ru(family_id, affix_tier)
-    if cached:
+    if cached and not _is_raw_affix_name(cached, effect_key=stat, family_id=family_id):
         return cached
     return _resolve_prefix_name_ru_legacy(stat, affix_tier)
 
@@ -392,7 +442,14 @@ def _resolve_suffix_name_ru_legacy(family_key: str, affix_tier: int) -> str:
         return _PASSIVE_LEVEL_ADD_SUFFIX.get(int(affix_tier), "наставления")
     per_tier = _SUFFIX_NAME_BY_FAMILY_ID.get(family_key) or {}
     if per_tier:
-        return per_tier.get(int(affix_tier), family_key)
+        t = int(affix_tier)
+        if t in per_tier:
+            return per_tier[t]
+        keys = sorted(int(k) for k in per_tier)
+        for k in reversed(keys):
+            if k <= t:
+                return per_tier[k]
+        return per_tier[keys[0]]
     mm = re.match(r"^s_monster_(\w+)_(flat|pct)$", fk, re.IGNORECASE)
     if mm:
         fam = mm.group(1).lower()
@@ -404,7 +461,7 @@ def resolve_suffix_name_ru(family_key: str, affix_tier: int) -> str:
     from waifu_bot.game.affix_display_names_llm import lookup_affix_display_name_ru
 
     cached = lookup_affix_display_name_ru(family_key, affix_tier)
-    if cached:
+    if cached and not _is_raw_affix_name(cached, family_id=family_key):
         return cached
     return _resolve_suffix_name_ru_legacy(family_key, affix_tier)
 
