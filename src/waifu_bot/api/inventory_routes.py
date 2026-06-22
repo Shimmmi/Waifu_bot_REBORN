@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from waifu_bot.api.deps import get_db, get_player_id
 from waifu_bot.api import schemas
 from waifu_bot.db import models as m
+from waifu_bot.db.inventory_load_options import inventory_item_load_options
 from waifu_bot.services.enchanting import build_enchant_preview, enchant_inventory_item
 from waifu_bot.services.craft_enchant import build_craft_enchant_preview, craft_enchant_inventory_item
 from waifu_bot.services.dismantle import dismantle_inventory_item, preview_dismantle_dust
@@ -54,7 +55,7 @@ async def list_inventory(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    query = select(m.InventoryItem).options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes)).where(
+    query = select(m.InventoryItem).options(*inventory_item_load_options()).where(
         m.InventoryItem.player_id == player_id
     )
     if rarity:
@@ -86,7 +87,7 @@ async def get_inventory_item(
     """Get a single inventory item by id (must belong to the requesting player)."""
     query = (
         select(m.InventoryItem)
-        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+        .options(*inventory_item_load_options())
         .where(m.InventoryItem.id == item_id, m.InventoryItem.player_id == player_id)
     )
     result = await session.execute(query)

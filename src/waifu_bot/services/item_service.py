@@ -740,6 +740,8 @@ class ItemService:
         if tpl_ilvl:
             inv.total_level = int(inv.total_level) + int(tpl_ilvl)
 
+        self._apply_template_fixed_bonus(inv, base, tier=base_tier)
+
         inv.level = int(inv.total_level)
         item.level = int(inv.total_level)
         item.base_value = max(1, int(20 * int(inv.total_level) * int(rarity)))
@@ -872,6 +874,47 @@ class ItemService:
         if st in self._TEMPLATE_FRACTION_SECONDARIES:
             return max(0, min(6, int(round(sv * 200))))
         return 0
+
+    def _apply_template_fixed_bonus(
+        self,
+        inv: m.InventoryItem,
+        base: dict[str, Any],
+        *,
+        tier: int,
+    ) -> None:
+        """Append template fixed_bonus as implicit affix (non-fraction amulet bonuses)."""
+        from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
+
+        fix_type = str(base.get("fixed_bonus_type") or "").strip() or None
+        try:
+            fix_val = float(base.get("fixed_bonus_value") or 0.0)
+        except (TypeError, ValueError):
+            fix_val = 0.0
+        if not fix_type or fix_val <= 0:
+            return
+
+        stat = fix_type
+        is_pct = self._is_percent_effect_key(stat)
+        if is_pct:
+            value_str = str(int(round(fix_val)))
+        else:
+            value_str = str(int(round(fix_val)))
+
+        label = effect_stat_description_ru(stat)
+        name = f"Базовый: {label}" if label else f"Базовый бонус"
+
+        inv.affixes.append(
+            m.InventoryAffix(
+                inventory_item_id=inv.id,
+                name=name,
+                stat=stat,
+                value=value_str,
+                is_percent=is_pct,
+                kind="implicit",
+                tier=max(1, min(10, int(tier))),
+                level_delta=0,
+            )
+        )
 
     async def _apply_legendary_item_finalization(
         self,
@@ -1941,6 +1984,8 @@ class ItemService:
         inv.level = int(inv.total_level)
         item.level = int(inv.total_level)
         item.base_value = max(1, int(20 * int(inv.total_level) * int(eff_rarity)))
+
+        self._apply_template_fixed_bonus(inv, base, tier=base_tier)
 
         await self._apply_legendary_item_finalization(session, item, inv, base, int(eff_rarity))
 

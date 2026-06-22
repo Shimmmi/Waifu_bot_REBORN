@@ -246,6 +246,7 @@ class InventoryAffix(Base):
     )
 
     inventory_item: Mapped["InventoryItem"] = relationship("InventoryItem", back_populates="affixes")
+    family: Mapped["AffixFamily | None"] = relationship("AffixFamily", foreign_keys=[family_id])
 
 
 class PlayerItemCodex(Base):

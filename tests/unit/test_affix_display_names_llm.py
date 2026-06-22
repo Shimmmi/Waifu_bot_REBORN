@@ -87,6 +87,30 @@ def test_production_cache_passive_prefixes_unique() -> None:
     assert len(tier1) == len(set(tier1))
 
 
+def test_production_cache_no_latin() -> None:
+    import re
+
+    from waifu_bot.game.affix_display_names import _is_raw_affix_name
+    from waifu_bot.game.affix_display_names_llm import (
+        affix_display_names_json_path,
+        clear_affix_display_names_cache,
+        load_affix_display_names_cache,
+    )
+
+    path = affix_display_names_json_path()
+    if not path.is_file():
+        pytest.skip("affix_display_names_ru.json not generated")
+    clear_affix_display_names_cache()
+    cache = load_affix_display_names_cache()
+    latin = re.compile(r"[A-Za-z_]")
+    for fid, per in cache.items():
+        for tier, val in per.items():
+            assert not latin.search(str(val)), f"{fid} tier {tier}: {val!r}"
+            assert not _is_raw_affix_name(str(val), family_id=fid), (
+                f"{fid} tier {tier}: raw key {val!r}"
+            )
+
+
 def test_parse_names_response_script() -> None:
     sys_path = Path(__file__).resolve().parents[2] / "scripts" / "lib"
     import sys
@@ -104,7 +128,7 @@ def test_parse_names_response_script() -> None:
     )
     out = parse_names_response(raw, ["p_test", "s_test"], used_names=used)
     assert out["p_test"]["1"] == "Меткий"
-    assert validate_name("bad name", kind="prefix") in ("prefix_has_space", "invalid_chars")
+    assert validate_name("bad name", kind="prefix") in ("prefix_has_space", "invalid_chars", "latin")
     with pytest.raises(ValueError, match="duplicate"):
         parse_names_response(
             json.dumps({"p_x": {"1": "Меткий"}, "p_y": {"1": "Меткий"}}),

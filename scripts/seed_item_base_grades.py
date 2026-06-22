@@ -564,6 +564,8 @@ def _apply_grade_row(row: dict, grade: int, new_name: str, salt: int) -> dict:
             _scaled_int(int(row["weight"] or 100), 0.72 if grade == 1 else 0.48),
         ),
         "secondary_bonus_value": float(row["secondary_bonus_value"] or 0.0) * mult_sec,
+        "fixed_bonus_type": row.get("fixed_bonus_type"),
+        "fixed_bonus_value": float(row.get("fixed_bonus_value") or 0.0) * mult_sec,
         "required_race": row.get("required_race"),
         "required_class": row.get("required_class"),
     }
@@ -589,6 +591,7 @@ async def seed() -> None:
                     stat1_type, stat1_value, stat2_type, stat2_value,
                     base_price, boss_allowed, weight,
                     secondary_bonus_type, secondary_bonus_value,
+                    fixed_bonus_type, fixed_bonus_value,
                     required_race, required_class
                 FROM item_base_templates
                 WHERE COALESCE(base_grade, 0) = 0
@@ -610,6 +613,7 @@ async def seed() -> None:
                 stat1_type, stat1_value, stat2_type, stat2_value,
                 base_price, boss_allowed, weight,
                 secondary_bonus_type, secondary_bonus_value, base_grade,
+                fixed_bonus_type, fixed_bonus_value,
                 required_race, required_class
             ) VALUES (
                 :name, :item_type, :subtype, :attack_type, :tier, :level_min, :level_max,
@@ -617,6 +621,7 @@ async def seed() -> None:
                 :stat1_type, :stat1_value, :stat2_type, :stat2_value,
                 :base_price, :boss_allowed, :weight,
                 :secondary_bonus_type, :secondary_bonus_value, :base_grade,
+                :fixed_bonus_type, :fixed_bonus_value,
                 :required_race, :required_class
             )
             """
@@ -668,6 +673,8 @@ async def seed() -> None:
                         "weight": payload["weight"],
                         "secondary_bonus_type": payload["secondary_bonus_type"],
                         "secondary_bonus_value": payload["secondary_bonus_value"],
+                        "fixed_bonus_type": payload.get("fixed_bonus_type"),
+                        "fixed_bonus_value": payload.get("fixed_bonus_value"),
                         "base_grade": g,
                         "required_race": payload.get("required_race"),
                         "required_class": payload.get("required_class"),
