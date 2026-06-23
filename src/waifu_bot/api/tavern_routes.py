@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Literal, Optional
 
@@ -24,16 +25,6 @@ router = APIRouter()
 tavern_service = TavernService()
 
 
-def _tavern_perks_for_response():
-    """Список перков для ответа таверны (избегаем 404 от отдельного /expeditions/perks)."""
-    from waifu_bot.game.expedition_data import PERKS
-
-    return [
-        schemas.ExpeditionPerkOut(id=p.id, name=p.name, counters=list(p.counters), category=p.category)
-        for p in PERKS
-    ]
-
-
 def _hired_waifu_in_squad(w: m.HiredWaifu) -> bool:
     pos = getattr(w, "squad_position", None)
     if pos is None:
@@ -57,12 +48,11 @@ def _hired_waifu_status(w: m.HiredWaifu) -> Literal["expedition", "wounded", "sq
     return "ready"
 
 
-def _hired_waifu_portrait_path(waifu_id: int) -> str:
-    return f"/api/tavern/hired-waifus/{int(waifu_id)}/portrait"
+from waifu_bot.api.hired_waifu_media import hired_waifu_portrait_url
 
 
 def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
-    image_url = _hired_waifu_portrait_path(w.id) if getattr(w, "image_data", None) else None
+    image_url = hired_waifu_portrait_url(w)
     return schemas.HiredWaifuOut(
         id=w.id,
         name=w.name,
@@ -93,10 +83,14 @@ async def tavern_available(
     session: AsyncSession = Depends(get_db),
 ):
     try:
-        slots = await tavern_service.get_available_waifus(session, player_id)
+        slots, hire_price = await asyncio.gather(
+            tavern_service.get_available_waifus(session, player_id),
+            compute_effective_tavern_hire_price(session, player_id),
+        )
     except SQLAlchemyError:
         slots = []
-    hire_price = int(await compute_effective_tavern_hire_price(session, player_id))
+        hire_price = int(await compute_effective_tavern_hire_price(session, player_id))
+    hire_price = int(hire_price)
     first_hire_free = hire_price == 0
     out = []
     for s in slots:
@@ -115,7 +109,6 @@ async def tavern_available(
         total=int(TAVERN_SLOTS_PER_DAY),
         price=hire_price,
         first_hire_free=first_hire_free,
-        perks=_tavern_perks_for_response(),
     )
 
 

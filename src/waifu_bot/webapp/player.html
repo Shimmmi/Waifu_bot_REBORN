@@ -28,7 +28,7 @@
     <script defer src="./assets/tutorial.js"></script>
     <script defer src="./app.js?v=waifu-webapp-v34"></script>
   </head>
-  <body class="page-player player-chrome--overview" onload="WaifuApp.bootstrapPage('player', WaifuApp.initPlayerPage);">
+  <body class="page-player player-chrome--overview" onload="WaifuApp.bootstrapPlayerPage();">
     <div id="player-overflow-menu" class="player-overflow-menu" hidden role="menu">
       <button type="button" class="player-overflow-item" data-player-section="overview" role="menuitem">Обзор</button>
       <button type="button" class="player-overflow-item" data-player-section="mail" role="menuitem" id="player-menu-mail">
@@ -86,7 +86,7 @@
               <div id="player-campaign-compact" class="player-progress-chip"></div>
               <div id="player-abyss-compact" class="player-progress-chip"></div>
             </div>
-            <img id="player-waifu-showcase-img" class="player-waifu-showcase-img" alt="" hidden />
+            <img id="player-waifu-showcase-img" class="player-waifu-showcase-img" alt="" hidden decoding="async" />
             <p id="player-waifu-showcase-empty" class="muted player-waifu-showcase-empty" hidden>Нет изображения вайфу</p>
           </div>
         </section>

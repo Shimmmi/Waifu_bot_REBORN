@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { ArmoryItem } from '../api/client'
 import {
   itemDisplayName,
@@ -9,12 +9,22 @@ import {
   statLabel,
   formatAffixLine,
 } from '../utils/items'
+import ItemArtGenerateButton from './ItemArtGenerateButton.vue'
 
-const props = defineProps<{ item: ArmoryItem | null }>()
+const props = defineProps<{ item: ArmoryItem | null; adminMode?: boolean }>()
 const open = defineModel<boolean>({ default: false })
 
+const imageSrc = ref('')
 const imageUrl = computed(() => (props.item ? itemImageUrl(props.item) : ''))
 const itemRarity = computed(() => rarityLabel(props.item?.rarity))
+
+watch(
+  [() => props.item, imageUrl],
+  () => {
+    imageSrc.value = imageUrl.value
+  },
+  { immediate: true },
+)
 
 const statRows = computed(() => {
   const item = props.item
@@ -56,6 +66,10 @@ function onImgError(ev: Event) {
     img.src = `/static/game/items/svg/${encodeURIComponent(props.item.image_key)}.svg`
   }
 }
+
+function onArtGenerated(url: string) {
+  imageSrc.value = url
+}
 </script>
 
 <template>
@@ -74,8 +88,16 @@ function onImgError(ev: Event) {
         </div>
         <div class="item-modal-art-wrap">
           <div class="item-modal-art">
-            <img v-if="imageUrl" :src="imageUrl" alt="" @error="onImgError" />
-            <span v-else>⚔</span>
+            <span class="item-art-admin-wrap">
+              <img v-if="imageSrc" :src="imageSrc" alt="" @error="onImgError" />
+              <span v-else>⚔</span>
+              <ItemArtGenerateButton
+                v-if="item"
+                :item="item"
+                :admin-mode="adminMode"
+                @generated="onArtGenerated"
+              />
+            </span>
           </div>
         </div>
         <div v-if="statRows.length" class="item-modal-stats">

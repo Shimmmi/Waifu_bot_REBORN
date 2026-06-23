@@ -26,6 +26,7 @@ from waifu_bot.db.models import (
     MainWaifu,
     Player,
 )
+from waifu_bot.api.main_waifu_media import guild_member_portrait_url
 from waifu_bot.services.bot_group_chats import ACTIVE_STATUSES, build_telegram_group_url
 from waifu_bot.services.player_chats import players_seen_in_group_chat, resolve_player_group_chats
 from waifu_bot.services.abyss_service import msk_now, msk_today
@@ -279,10 +280,7 @@ def _member_public_dict(
         player_id_out = int(pl.id)
         telegram_username = un or None
     mw = waifu_by_player.get(int(gm.player_id))
-    portrait_url = None
-    if mw and getattr(mw, "image_data", None):
-        mime = getattr(mw, "image_mime", None) or "image/webp"
-        portrait_url = f"data:{mime};base64,{mw.image_data}"
+    portrait_url = guild_member_portrait_url(mw, int(gm.player_id)) if mw else None
     if gm.is_leader:
         rank = "Глава"
     elif gm.is_officer:

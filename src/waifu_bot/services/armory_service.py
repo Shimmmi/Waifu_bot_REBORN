@@ -23,18 +23,17 @@ from waifu_bot.services.inventory_payload import build_inventory_payloads
 from waifu_bot.services.paperdoll_quota import paperdoll_generations_remaining
 
 
+from waifu_bot.services.waifu_media_service import resolve_main_waifu_portrait_url
+
+
 def _waifu_portrait_url(waifu: m.MainWaifu) -> str | None:
-    if getattr(waifu, "image_data", None):
-        mime = getattr(waifu, "image_mime", None) or "image/webp"
-        return f"data:{mime};base64,{waifu.image_data}"
-    return None
+    return resolve_main_waifu_portrait_url(waifu, int(waifu.player_id))
 
 
 def _waifu_paperdoll_url(waifu: m.MainWaifu) -> str | None:
-    if getattr(waifu, "paperdoll_image_data", None):
-        mime = getattr(waifu, "paperdoll_image_mime", None) or "image/png"
-        return f"data:{mime};base64,{waifu.paperdoll_image_data}"
-    return None
+    from waifu_bot.api.main_waifu_media import main_waifu_profile_paperdoll_url
+
+    return main_waifu_profile_paperdoll_url(waifu, int(waifu.player_id))
 
 
 def compute_gear_score(equipped_items: list[m.InventoryItem]) -> int:

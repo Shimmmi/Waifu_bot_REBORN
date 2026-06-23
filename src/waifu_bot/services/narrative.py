@@ -95,28 +95,36 @@ async def is_dungeon_plus_globally_unlocked(session: AsyncSession, player_id: in
         return False
 
 
-async def compute_linear_story_position(session: AsyncSession, player_id: int) -> dict[str, Any]:
-    """
-    Линейная цепочка соло-данжей 1–1 … 5–5: следующая цель и узел канона для фокуса.
-    """
-    bible = load_narrative_bible()
+async def _linear_story_dungeons(session: AsyncSession) -> list[Dungeon]:
     res = await session.execute(
         select(Dungeon)
         .where(Dungeon.act.between(1, 5), Dungeon.dungeon_type == 1)
         .order_by(Dungeon.act.asc(), Dungeon.dungeon_number.asc())
     )
-    dungeons: list[Dungeon] = list(res.scalars().all())
-    completed: dict[int, bool] = {}
-    for d in dungeons:
-        pr = await session.execute(
-            select(DungeonProgress.is_completed).where(
-                DungeonProgress.player_id == int(player_id),
-                DungeonProgress.dungeon_id == int(d.id),
-            )
-        )
-        row = pr.first()
-        completed[int(d.id)] = bool(row and row[0])
+    return list(res.scalars().all())
 
+
+async def _linear_story_dungeon_completed(
+    session: AsyncSession, player_id: int, dungeons: list[Dungeon]
+) -> dict[int, bool]:
+    if not dungeons:
+        return {}
+    ids = [int(d.id) for d in dungeons]
+    res = await session.execute(
+        select(DungeonProgress.dungeon_id, DungeonProgress.is_completed).where(
+            DungeonProgress.player_id == int(player_id),
+            DungeonProgress.dungeon_id.in_(ids),
+        )
+    )
+    completed = {i: False for i in ids}
+    for did, done in res.all():
+        completed[int(did)] = bool(done)
+    return completed
+
+
+def _linear_story_targets(
+    dungeons: list[Dungeon], completed: dict[int, bool]
+) -> tuple[Dungeon | None, Dungeon | None, bool]:
     last_completed: Dungeon | None = None
     next_target: Dungeon | None = None
     for d in dungeons:
@@ -124,8 +132,33 @@ async def compute_linear_story_position(session: AsyncSession, player_id: int) -
             next_target = d
             break
         last_completed = d
+    return last_completed, next_target, next_target is None
 
-    main_campaign_complete = next_target is None
+
+async def compute_linear_story_position_lite(
+    session: AsyncSession, player_id: int
+) -> dict[str, Any]:
+    """Campaign chip fields only — no narrative bible / waifu templating."""
+    dungeons = await _linear_story_dungeons(session)
+    completed = await _linear_story_dungeon_completed(session, player_id, dungeons)
+    last_completed, next_target, main_campaign_complete = _linear_story_targets(dungeons, completed)
+    return {
+        "main_campaign_complete": main_campaign_complete,
+        "story_next_dungeon_name": next_target.name if next_target else None,
+        "story_next_act": int(next_target.act) if next_target else None,
+        "story_next_dungeon_number": int(next_target.dungeon_number) if next_target else None,
+        "story_last_completed_dungeon_name": last_completed.name if last_completed else None,
+    }
+
+
+async def compute_linear_story_position(session: AsyncSession, player_id: int) -> dict[str, Any]:
+    """
+    Линейная цепочка соло-данжей 1–1 … 5–5: следующая цель и узел канона для фокуса.
+    """
+    bible = load_narrative_bible()
+    dungeons = await _linear_story_dungeons(session)
+    completed = await _linear_story_dungeon_completed(session, player_id, dungeons)
+    last_completed, next_target, main_campaign_complete = _linear_story_targets(dungeons, completed)
 
     focus_dungeon = next_target or (dungeons[-1] if dungeons else None)
     focus_key = (

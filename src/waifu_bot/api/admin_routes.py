@@ -577,8 +577,7 @@ async def admin_generate_item_art(
     session: AsyncSession = Depends(get_db),
 ):
     """Admin: generate pixel-art WEBP icon via OpenRouter; save under static/game/items/webp/."""
-    from waifu_bot.paths import static_game_directory
-    from waifu_bot.services.item_art import game_asset_public_url
+    from waifu_bot.services.item_art import ItemArtPersistError, persist_item_art_webp
 
     try:
         from waifu_bot.services.item_art_generation import generate_item_pixel_art_webp, normalize_art_key
@@ -608,57 +607,21 @@ async def admin_generate_item_art(
             detail="item_art_generation_failed",
         )
 
-    out_dir = static_game_directory() / "items" / "webp" / ak
-    out_file = out_dir / f"t{tier}.webp"
     try:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_file.write_bytes(webp)
-    except OSError:
-        logger.exception(
-            "admin_generate_item_art write failed path=%s (check REPO_ROOT / filesystem permissions)",
-            out_file,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="item_art_write_failed",
-        )
-
-    db_rel = f"items_webp/{ak}/t{tier}.webp"
-    row = (
-        await session.execute(
-            select(m.ItemArt).where(m.ItemArt.art_key == ak, m.ItemArt.tier == int(tier))
-        )
-    ).scalar_one_or_none()
-    if row:
-        row.relative_path = db_rel
-        row.mime = "image/webp"
-        row.enabled = True
-    else:
-        session.add(
-            m.ItemArt(
-                art_key=ak,
-                tier=int(tier),
-                relative_path=db_rel,
-                mime="image/webp",
-                enabled=True,
-            )
-        )
-    try:
-        await session.commit()
-    except SQLAlchemyError:
-        await session.rollback()
-        logger.exception("admin_generate_item_art DB commit failed art_key=%s tier=%s", ak, tier)
-        try:
-            out_file.unlink(missing_ok=True)
-        except OSError:
-            logger.exception("admin_generate_item_art unlink after DB fail path=%s", out_file)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="item_art_db_failed")
+        image_url = await persist_item_art_webp(session, ak, tier, webp)
+    except ItemArtPersistError as exc:
+        code = exc.code
+        if code == "invalid_art_key":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code)
+        if code == "item_art_db_failed":
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=code)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=code)
 
     return {
         "success": True,
         "art_key": ak,
         "tier": int(tier),
-        "image_url": game_asset_public_url(db_rel),
+        "image_url": image_url,
     }
 
 

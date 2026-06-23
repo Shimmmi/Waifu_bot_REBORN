@@ -129,7 +129,7 @@ export function rarityClass(rarity?: number | null): string {
 
 export function itemArtTierNormalized(item: Pick<ArmoryItem, 'tier'>): number {
   const t = Number(item?.tier ?? 1)
-  return Number.isFinite(t) && t > 0 ? Math.min(5, Math.floor(t)) : 1
+  return Number.isFinite(t) && t > 0 ? Math.min(10, Math.floor(t)) : 1
 }
 
 export function encodeArtKeyPath(artKey: string): string {

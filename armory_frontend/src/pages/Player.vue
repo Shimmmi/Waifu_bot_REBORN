@@ -7,6 +7,7 @@ import {
   type PlayerEventsResponse,
   type ArmoryItem,
 } from '../api/client'
+import { useAuthStore } from '../stores/auth'
 import ItemCard from '../components/ItemCard.vue'
 import EventFeed from '../components/EventFeed.vue'
 import AchievementList from '../components/AchievementList.vue'
@@ -16,6 +17,9 @@ import ProfileTabBar from '../components/ProfileTabBar.vue'
 import ItemDetailModal from '../components/ItemDetailModal.vue'
 
 const props = defineProps<{ id: string }>()
+
+const auth = useAuthStore()
+const isAdmin = computed(() => !!auth.user?.is_admin)
 
 type ProfileTab = 'stats' | 'achievements' | 'events' | 'dungeons' | 'inventory'
 
@@ -112,6 +116,7 @@ onMounted(() => loadSummary().then(loadExtra))
       :gear-score="summary.gear_score"
       :gold="summary.gold"
       :current-act="summary.current_act"
+      :admin-mode="isAdmin"
       @item-click="openModal"
     />
 
@@ -164,13 +169,19 @@ onMounted(() => loadSummary().then(loadExtra))
 
       <div v-show="activeTab === 'inventory'">
         <div v-if="inventory.length" class="inventory-grid">
-          <ItemCard v-for="item in inventory" :key="item.id" :item="item" @click="openModal" />
+          <ItemCard
+            v-for="item in inventory"
+            :key="item.id"
+            :item="item"
+            :admin-mode="isAdmin"
+            @click="openModal"
+          />
         </div>
         <p v-else class="empty-hint">Инвентарь пуст</p>
       </div>
     </div>
 
-    <ItemDetailModal v-model="modalOpen" :item="modalItem" />
+    <ItemDetailModal v-model="modalOpen" :item="modalItem" :admin-mode="isAdmin" />
   </div>
 </template>
 

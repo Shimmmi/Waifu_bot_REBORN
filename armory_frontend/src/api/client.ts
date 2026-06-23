@@ -25,6 +25,32 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   return res.json()
 }
 
+export async function apiPostQuery<T>(
+  path: string,
+  params: Record<string, string | number | undefined | null>,
+): Promise<T> {
+  const qs = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null && value !== '') qs.set(key, String(value))
+  }
+  const query = qs.toString()
+  const url = query ? `${API}${path}?${query}` : `${API}${path}`
+  const res = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'X-CSRF-Token': csrfToken() },
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export interface ItemArtGenerateResponse {
+  success: boolean
+  art_key: string
+  tier: number
+  image_url: string
+}
+
 export interface AuthMe {
   authenticated: true
   telegram_id: number
@@ -82,6 +108,7 @@ export interface ArmoryItem {
   image_url?: string | null
   affixes?: ArmoryAffix[]
   slot_type?: string
+  weapon_type?: string
   damage_min?: number
   damage_max?: number
   damage_min_effective?: number

@@ -1,5 +1,5 @@
 /** Service worker: cache static game assets; network-first shell JS/CSS for fresh deploys. */
-const CACHE_VERSION = "waifu-webapp-v34";
+const CACHE_VERSION = "waifu-webapp-v35";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
@@ -42,6 +42,25 @@ async function networkFirstShell(cache, req) {
   }
 }
 
+async function cacheFirstStatic(cache, req) {
+  const cached = await cache.match(req);
+  if (cached) {
+    fetch(req)
+      .then((res) => {
+        if (res.ok) cache.put(req, res.clone());
+      })
+      .catch(() => undefined);
+    return cached;
+  }
+  try {
+    const res = await fetch(req);
+    if (res.ok) await cache.put(req, res.clone());
+    return res;
+  } catch (err) {
+    throw err;
+  }
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_URLS).catch(() => undefined))
@@ -70,17 +89,17 @@ self.addEventListener("fetch", (event) => {
 
   if (url.pathname.startsWith("/static/game/")) {
     event.respondWith(
-      caches.open(STATIC_CACHE).then(async (cache) => {
-        try {
-          const res = await fetch(req);
-          if (res.ok) await cache.put(req, res.clone());
-          return res;
-        } catch (err) {
-          const cached = await cache.match(req);
-          if (cached) return cached;
-          throw err;
-        }
-      })
+      caches.open(STATIC_CACHE).then((cache) => cacheFirstStatic(cache, req))
+    );
+    return;
+  }
+
+  if (
+    url.pathname.startsWith("/static/guild_banners/") ||
+    url.pathname.startsWith("/static/guild_icons/")
+  ) {
+    event.respondWith(
+      caches.open(STATIC_CACHE).then((cache) => cacheFirstStatic(cache, req))
     );
     return;
   }

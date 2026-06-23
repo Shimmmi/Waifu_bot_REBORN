@@ -132,6 +132,8 @@ class MainWaifu(Base):
     paperdoll_bonus_generations: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False
     )
+    portrait_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    paperdoll_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     bio: Mapped[str | None] = mapped_column(Text(), nullable=True)
 

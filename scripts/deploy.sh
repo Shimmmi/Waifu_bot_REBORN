@@ -27,6 +27,14 @@ if [ -f armory_frontend/package.json ]; then
     echo "WARN: npm not found — skip armory frontend build"
   fi
 fi
+if [ -f webapp_frontend/package.json ]; then
+  echo "==> build webapp bundles"
+  if command -v npm >/dev/null 2>&1; then
+    ./scripts/build_webapp.sh
+  else
+    echo "WARN: npm not found — skip webapp bundle build"
+  fi
+fi
 echo "==> apply migrations"
 PYTHONPATH=${REPO_DIR}/src python3 -m waifu_bot.cli migrate || true
 echo "==> restart services"

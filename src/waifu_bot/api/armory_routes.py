@@ -826,6 +826,78 @@ async def admin_tavern_bgm_pending_retry(
     }
 
 
+@router.post("/admin/item-art/generate", dependencies=[Depends(verify_csrf)])
+async def admin_armory_generate_item_art(
+    request: Request,
+    admin_id: ArmoryAdmin,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    art_key: str = Query(..., min_length=1, max_length=191),
+    tier: int = Query(..., ge=1, le=10),
+    weapon_type: str | None = Query(None, max_length=64),
+    display_label: str | None = Query(None, max_length=200),
+):
+    """Armory admin: generate pixel-art WEBP icon via OpenRouter; save under static/game/items/webp/."""
+    from waifu_bot.services.item_art import ItemArtPersistError, persist_item_art_webp
+
+    await rate_limit_by_user(redis, admin_id, "item_art_generate", 30)
+
+    try:
+        from waifu_bot.services.item_art_generation import generate_item_pixel_art_webp, normalize_art_key
+    except ImportError:
+        logger.exception("admin_armory_generate_item_art: Pillow/item_art_generation import failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="item_art_pillow_unavailable",
+        )
+
+    ak = normalize_art_key(art_key)
+    if not ak:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_art_key")
+
+    wt_hint = (weapon_type or "").strip() or None
+    if wt_hint and len(wt_hint) > 64:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_weapon_type")
+    dl = (display_label or "").strip() or None
+    if dl and ("\n" in dl or "\r" in dl):
+        dl = " ".join(dl.splitlines()).strip() or None
+
+    webp = await generate_item_pixel_art_webp(
+        ak, tier, weapon_type=wt_hint, display_label=dl
+    )
+    if not webp:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="item_art_generation_failed",
+        )
+
+    try:
+        image_url = await persist_item_art_webp(session, ak, tier, webp)
+    except ItemArtPersistError as exc:
+        code = exc.code
+        if code == "invalid_art_key":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code)
+        if code == "item_art_db_failed":
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=code)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=code)
+
+    await _admin_audit(
+        session,
+        request,
+        admin_id,
+        "item_art_generate",
+        payload={"art_key": ak, "tier": int(tier)},
+    )
+    await session.commit()
+
+    return {
+        "success": True,
+        "art_key": ak,
+        "tier": int(tier),
+        "image_url": image_url,
+    }
+
+
 @router.get("/admin/actions")
 async def admin_actions_log(
     admin_id: ArmoryAdmin,

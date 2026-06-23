@@ -509,25 +509,36 @@ async def get_passive_contributions_for_log(
     return out
 
 
+def compute_passive_buy_price_from_bonuses(
+    price: int,
+    ps: dict[str, float],
+    hs: dict[str, float] | None = None,
+) -> int:
+    """Цена после скидки и торгового бонуса (без запросов к БД)."""
+    sd = float(ps.get("shop_discount_pct", 0) or 0)
+    if hs:
+        sd += float(hs.get("shop_discount_pct", 0) or 0) / 100.0
+    p = max(1, int(round(int(price) * (1.0 - min(0.85, max(0.0, sd))))))
+    tf = int(ps.get("trade_flat", 0) or 0)
+    if tf > 0:
+        p = max(1, p - tf)
+    return p
+
+
 async def apply_passive_buy_price(session: AsyncSession, player_id: int, price: int) -> int:
     """Цена покупки в магазине / казино после скидки и торгового бонуса."""
     try:
         ps = await get_passive_skill_bonuses(session, player_id)
     except Exception:
         return max(1, int(price))
-    sd = float(ps.get("shop_discount_pct", 0) or 0)
+    hs: dict[str, float] | None = None
     try:
         from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
 
         hs = await get_hidden_skill_bonuses(session, player_id)
-        sd += float(hs.get("shop_discount_pct", 0) or 0) / 100.0
     except Exception:
         pass
-    p = max(1, int(round(int(price) * (1.0 - min(0.85, max(0.0, sd))))))
-    tf = int(ps.get("trade_flat", 0) or 0)
-    if tf > 0:
-        p = max(1, p - tf)
-    return p
+    return compute_passive_buy_price_from_bonuses(int(price), ps, hs)
 
 
 async def apply_passive_hire_cost(session: AsyncSession, player_id: int, base_cost: int) -> int:
@@ -610,6 +621,17 @@ def apply_charm_training_discount(cost: int, charm: int) -> int:
 
     f = _charm_discount_fraction(charm, CHM_TRAINING_DISCOUNT_COEFF)
     return max(1, int(round(int(cost) * (1.0 - f))))
+
+
+def compute_passive_learn_cost_from_bonuses(
+    base_cost: int,
+    ps: dict[str, float],
+    hs: dict[str, float] | None,
+    charm: int,
+) -> int:
+    """Золото за уровень пассивки: торговля + скидка тренировок от ОБА (без БД)."""
+    after_passive = compute_passive_buy_price_from_bonuses(int(base_cost), ps, hs)
+    return apply_charm_training_discount(after_passive, charm)
 
 
 async def compute_tavern_hire_price(session: AsyncSession, player_id: int, base_cost: int) -> int:
@@ -828,6 +850,19 @@ async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[
 
     bundle = await collect_passive_node_level_bonus_from_session(session, player_id)
 
+    try:
+        ps_bonuses = await get_passive_skill_bonuses(session, player_id)
+    except Exception:
+        ps_bonuses = {}
+    hs_bonuses: dict[str, float] | None = None
+    try:
+        from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
+
+        hs_bonuses = await get_hidden_skill_bonuses(session, player_id)
+    except Exception:
+        pass
+    charm = await effective_main_waifu_charm(session, player_id)
+
     branches: dict[str, list[dict[str, Any]]] = {b: [] for b in BRANCHES}
 
     for n in nodes:
@@ -836,7 +871,9 @@ async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[
         if b not in branches:
             continue
         spent = bp.get(b, 0)
-        cost_gold_eff = await effective_passive_learn_cost(session, player_id, int(n.cost_gold or 0))
+        cost_gold_eff = compute_passive_learn_cost_from_bonuses(
+            int(n.cost_gold or 0), ps_bonuses, hs_bonuses, charm
+        )
         block = passive_learn_block_reason(
             waifu_level=waifu_lv,
             branch_spent=spent,
