@@ -13,6 +13,8 @@ from waifu_bot.game.item_secondary import (
     template_row_from_mapping,
 )
 from waifu_bot.services.enchanting import (
+    apply_enchant_chance_bonus,
+    apply_enchant_cost_bonus,
     calculate_enchant_steps,
     get_effective_params,
     roll_awakened_fraction,
@@ -136,3 +138,28 @@ def test_effective_fraction_for_enchant_uses_fraction_only() -> None:
     typ, val = effective_fraction_for_enchant(inv, resolved)
     assert typ == "evade_pct"
     assert val == pytest.approx(0.008)
+
+
+def test_apply_enchant_chance_bonus_negative_increases_chance() -> None:
+    assert apply_enchant_chance_bonus(0.70, -18) == pytest.approx(0.88)
+
+
+def test_apply_enchant_chance_bonus_zero_unchanged() -> None:
+    assert apply_enchant_chance_bonus(0.70, 0) == pytest.approx(0.70)
+
+
+def test_apply_enchant_chance_bonus_positive_decreases_chance() -> None:
+    assert apply_enchant_chance_bonus(0.70, 10) == pytest.approx(0.60)
+
+
+def test_apply_enchant_chance_bonus_clamped() -> None:
+    assert apply_enchant_chance_bonus(0.95, -50) == pytest.approx(0.99)
+    assert apply_enchant_chance_bonus(0.05, 50) == pytest.approx(0.01)
+
+
+def test_apply_enchant_cost_bonus_negative_reduces_cost() -> None:
+    assert apply_enchant_cost_bonus(1000, -18) == 820
+
+
+def test_apply_enchant_cost_bonus_zero_unchanged() -> None:
+    assert apply_enchant_cost_bonus(1000, 0) == 1000

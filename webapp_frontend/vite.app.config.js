@@ -7,7 +7,7 @@ const webappRoot = resolve(__dirname, "../src/waifu_bot/webapp");
 export default defineConfig({
   build: {
     outDir: resolve(webappRoot, "bundle"),
-    emptyOutDir: true,
+    emptyOutDir: false,
     minify: "esbuild",
     rollupOptions: {
       input: resolve(webappRoot, "app.js"),

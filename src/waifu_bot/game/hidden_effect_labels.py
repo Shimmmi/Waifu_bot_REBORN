@@ -71,7 +71,7 @@ def format_hidden_effect_value(effect_type: str, raw: Any) -> str:
         return f"{iv:+d}% к стоимости"
 
     if t == "enchant_chance_pct":
-        iv = int(round(n))
+        iv = int(round(-n))
         return f"{iv:+d}% к шансу"
 
     if t.endswith("_pct") or t.endswith("_reduce"):
