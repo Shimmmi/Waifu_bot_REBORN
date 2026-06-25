@@ -297,7 +297,9 @@ class ShopOffer(Base):
     )
     act: Mapped[int] = mapped_column(Integer, nullable=False)
     slot: Mapped[int] = mapped_column(Integer, nullable=False)
-    inventory_item_id: Mapped[int] = mapped_column(Integer, ForeignKey("inventory_items.id", ondelete="CASCADE"))
+    inventory_item_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("inventory_items.id", ondelete="SET NULL"), nullable=True
+    )
     price_base: Mapped[int] = mapped_column(Integer, nullable=False)
     purchased: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
