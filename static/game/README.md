@@ -11,6 +11,7 @@
 | `ui/tavern/` | `/static/game/ui/tavern/` | Таверна (фон по слотам найма) |
 | `ui/tavern/audio/` | `/static/game/ui/tavern/audio/` | Фоновая музыка таверны (MP3, см. `audio/README.md`) |
 | `ui/profile/` | `/static/game/ui/profile/` | Профиль |
+| `ui/nav/` | `/static/game/ui/nav/` | Иконки нижней навигации (8 кнопок) |
 | `ui/title/` | `/static/game/ui/title/` | Титульный экран (логотип, фон) |
 | `items/webp/` | `/static/game/items/webp/` | Иконки предметов по `art_key` и тиру `t1.webp`…`t10.webp` |
 | `items/svg/` | `/static/game/items/svg/` | Legacy SVG-заглушки по `image_key` |

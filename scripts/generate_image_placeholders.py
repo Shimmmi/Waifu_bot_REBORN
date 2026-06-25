@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate WebP placeholder files for items (tiered), monsters (from SQL seed), expedition biomes.
+"""Generate WebP placeholder files for items (tiered), monsters (from SQL seed), expedition biomes, nav icons.
 
 Uses existing tiered orb webp as source (same pattern as manual orb stubs).
 
@@ -17,14 +17,30 @@ import sys
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 ITEM_WEBP = ROOT / "static/game/items/webp"
 ORB = ITEM_WEBP / "orb"
 MONSTERS = ROOT / "static/game/monsters"
 EXPEDITION_BIOMES = ROOT / "static/game/expeditions/biomes"
+NAV_ICONS_DIR = ROOT / "static/game/ui/nav"
 SQL_FILE = ROOT / "info/monster_templates_import.sql"
+
+NAV_ICON_SPECS: dict[str, str] = {
+    "profile": "👤",
+    "dungeons": "🏰",
+    "shop": "🏪",
+    "tavern": "🍻",
+    "caravan": "🐫",
+    "guild": "🏛️",
+    "training": "💪",
+    "menu": "🏠",
+}
+
+_NAV_PLACEHOLDER_SIZE = 64
+_NAV_PLACEHOLDER_RGB = (26, 20, 16)  # #1a1410 — nav.basement palette
+_NAV_PLACEHOLDER_MAX_BYTES = 4096
 
 # biomeBg keys in app.js + BIOME_EMOJI extras (expedition_redesign.py)
 EXPEDITION_BIOME_TAGS = [
@@ -370,9 +386,107 @@ def fill_expedition_biomes() -> None:
     print(f"expeditions/biomes: default + {len(EXPEDITION_BIOME_TAGS)} tags -> {EXPEDITION_BIOMES}")
 
 
+def _nav_color_emoji_font(size: int) -> ImageFont.FreeTypeFont | None:
+    candidates = [
+        Path("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"),
+        Path("/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf"),
+    ]
+    for path in candidates:
+        if path.is_file():
+            try:
+                return ImageFont.truetype(str(path), size=size)
+            except OSError:
+                continue
+    return None
+
+
+def _nav_text_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    candidates = [
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+    ]
+    for path in candidates:
+        if path.is_file():
+            try:
+                return ImageFont.truetype(str(path), size=size)
+            except OSError:
+                continue
+    return ImageFont.load_default()
+
+
+def _draw_nav_marker(draw: ImageDraw.ImageDraw, emoji: str, stem: str, size: int) -> None:
+    font_size = max(18, size // 3)
+    emoji_font = _nav_color_emoji_font(font_size)
+    if emoji_font is not None:
+        marker = emoji
+        font = emoji_font
+        fill = None
+    else:
+        marker = stem[:2].upper()
+        font = _nav_text_font(font_size)
+        fill = (232, 184, 75)
+    bbox = draw.textbbox((0, 0), marker, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    x = (size - tw) // 2 - bbox[0]
+    y = (size - th) // 2 - bbox[1]
+    if fill is None:
+        try:
+            draw.text((x, y), marker, font=font, embedded_color=True)
+            return
+        except TypeError:
+            fill = (232, 184, 75)
+    draw.text((x, y), marker, fill=fill, font=font)
+
+
+def _write_nav_placeholder_webp(
+    out_path: Path,
+    *,
+    stem: str,
+    emoji: str,
+    skip_existing_art: bool = True,
+) -> str:
+    if (
+        skip_existing_art
+        and out_path.is_file()
+        and out_path.stat().st_size > _NAV_PLACEHOLDER_MAX_BYTES
+    ):
+        return "skipped"
+    existed = out_path.is_file()
+    size = _NAV_PLACEHOLDER_SIZE
+    img = Image.new("RGB", (size, size), _NAV_PLACEHOLDER_RGB)
+    draw = ImageDraw.Draw(img)
+    _draw_nav_marker(draw, emoji, stem, size)
+    buf = BytesIO()
+    img.save(buf, format="WEBP", quality=82, method=4)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(buf.getvalue())
+    return "overwritten" if existed else "created"
+
+
+def fill_nav_icons(*, force: bool = False) -> None:
+    """64×64 WebP stubs for bottom navigation (see static/game/ui/nav/README.md)."""
+    skip_existing_art = not force
+    counters = {"created": 0, "skipped": 0, "overwritten": 0}
+    for stem, emoji in NAV_ICON_SPECS.items():
+        status = _write_nav_placeholder_webp(
+            NAV_ICONS_DIR / f"{stem}.webp",
+            stem=stem,
+            emoji=emoji,
+            skip_existing_art=skip_existing_art,
+        )
+        counters[status] += 1
+    print(
+        f"ui/nav: {len(NAV_ICON_SPECS)} icons -> {NAV_ICONS_DIR}; "
+        f"created={counters['created']}, skipped={counters['skipped']}, "
+        f"overwritten={counters['overwritten']}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate WebP placeholders for items, monsters, and expedition biomes.",
+        description="Generate WebP placeholders for items, monsters, expedition biomes, and nav icons.",
     )
     parser.add_argument(
         "--skip-monsters",
@@ -389,6 +503,16 @@ def main() -> None:
         action="store_true",
         help="Overwrite all per-name item webp, including custom base art.",
     )
+    parser.add_argument(
+        "--skip-nav",
+        action="store_true",
+        help="Do not generate or update nav icon webp placeholders.",
+    )
+    parser.add_argument(
+        "--force-nav",
+        action="store_true",
+        help="Overwrite all nav icon webp, including custom art.",
+    )
     args = parser.parse_args()
 
     fill_item_webp_legacy()
@@ -396,6 +520,8 @@ def main() -> None:
     if not args.skip_monsters:
         fill_monsters(force=args.force_monsters)
     fill_expedition_biomes()
+    if not args.skip_nav:
+        fill_nav_icons(force=args.force_nav)
 
 
 if __name__ == "__main__":
