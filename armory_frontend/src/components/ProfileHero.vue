@@ -13,6 +13,7 @@ const props = defineProps<{
   gearScore: number
   gold: number
   currentAct: number
+  adminMode?: boolean
 }>()
 
 const emit = defineEmits<{ itemClick: [item: ArmoryItem] }>()
@@ -79,6 +80,7 @@ function onSlotClick(item: ArmoryItem | null) {
           :key="slot"
           :slot="slot"
           :item="itemForSlot(slot)"
+          :admin-mode="adminMode"
           @click="onSlotClick"
         />
       </div>

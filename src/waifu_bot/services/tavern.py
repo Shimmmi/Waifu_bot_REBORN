@@ -42,26 +42,25 @@ from waifu_bot.services.passive_skills import (
 
 async def is_first_hire_free(session: AsyncSession, player_id: int) -> bool:
     """True if the player has never successfully hired a mercenary before."""
-    hired_waifus = int(
-        await session.scalar(
-            select(func.count()).select_from(HiredWaifu).where(HiredWaifu.player_id == player_id)
-        )
-        or 0
+    hired_waifus_sq = (
+        select(func.count())
+        .select_from(HiredWaifu)
+        .where(HiredWaifu.player_id == player_id)
+        .scalar_subquery()
     )
-    if hired_waifus > 0:
-        return False
-    used_slots = int(
-        await session.scalar(
-            select(func.count())
-            .select_from(TavernHireSlot)
-            .where(
-                TavernHireSlot.player_id == player_id,
-                TavernHireSlot.hired_at.isnot(None),
-            )
+    used_slots_sq = (
+        select(func.count())
+        .select_from(TavernHireSlot)
+        .where(
+            TavernHireSlot.player_id == player_id,
+            TavernHireSlot.hired_at.isnot(None),
         )
-        or 0
+        .scalar_subquery()
     )
-    return used_slots == 0
+    row = (
+        await session.execute(select(hired_waifus_sq.label("hired"), used_slots_sq.label("used")))
+    ).one()
+    return int(row.hired or 0) == 0 and int(row.used or 0) == 0
 
 
 async def compute_effective_tavern_hire_price(session: AsyncSession, player_id: int) -> int:
@@ -70,10 +69,13 @@ async def compute_effective_tavern_hire_price(session: AsyncSession, player_id: 
         return 0
     cost = await compute_tavern_hire_price(session, player_id, TAVERN_HIRE_COST)
     try:
-        from waifu_bot.services.guild_skill_effects import apply_price_discount_pct, effect_values_for_player
+        from waifu_bot.services.guild_skill_effects import apply_price_discount_pct, guild_skill_contributions
 
-        gfx = await effect_values_for_player(session, player_id)
-        cost = apply_price_discount_pct(cost, float(gfx.get("tavern_hire_discount_pct", 0) or 0))
+        contribs = await guild_skill_contributions(
+            session, player_id, params={"tavern_hire_discount_pct"}
+        )
+        discount_pct = sum(float(c.value) for c in contribs)
+        cost = apply_price_discount_pct(cost, discount_pct)
     except Exception:
         pass
     return int(cost)

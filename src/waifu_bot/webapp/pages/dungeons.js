@@ -754,14 +754,11 @@ async function refreshSoloActive(options = {}) {
   }
 }
 
-async function populateDungeonsPage(profile) {
-  ensureCombatIslandMounted();
-  const p = profile || (await loadProfile({ lite: true }));
-  // attic: show act in compact header
-  if (p?.act != null) setText("badge-act", p.act);
-  showDungeonsError("");
-
-  // Load Dungeon+ status for the global selector (per-dungeon unlock caps)
+async function ensureSoloTabBootstrapped(profile) {
+  if (soloTabBootstrapped) return;
+  soloTabBootstrapped = true;
+  const p = profile || window.__lastProfileForDungeons || (await loadProfile({ lite: true }));
+  window.__lastProfileForDungeons = p;
   try {
     const st = await apiFetch("/dungeons/plus/status");
     const byId = window.dungeonPlusStatusById;
@@ -773,6 +770,24 @@ async function populateDungeonsPage(profile) {
   } catch {
     initPlusSelect(false, {});
   }
+  await renderSoloDungeonsForAct(p);
+  try {
+    const active = await fetchActiveDungeon({ includeLog: true, force: true });
+    renderAtticDungeon(active);
+    renderSoloActiveProgress(active);
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    renderSoloActiveProgress({ active: false });
+    showDungeonsError(`Не удалось проверить активный данж: ${detail || "ошибка"}`);
+  }
+}
+
+async function populateDungeonsPage(profile) {
+  ensureCombatIslandMounted();
+  const p = profile || (await loadProfile({ lite: true }));
+  // attic: show act in compact header
+  if (p?.act != null) setText("badge-act", p.act);
+  showDungeonsError("");
 
   // Page-scoped SSE handler: instant HP from payload; debounced API fallback for reliability.
   let logSyncTimer;
@@ -825,21 +840,16 @@ async function populateDungeonsPage(profile) {
     }
   };
 
-  // First render list for current act, then overlay active-progress if needed.
-  await renderSoloDungeonsForAct(p);
-  try {
-    const active = await fetchActiveDungeon({ includeLog: true, force: true });
-    renderAtticDungeon(active);
-    renderSoloActiveProgress(active);
-  } catch (e) {
-    // Don't break page if active endpoint fails.
-    const { detail } = parseHttpErrorDetail(e);
-    renderSoloActiveProgress({ active: false });
-    showDungeonsError(`Не удалось проверить активный данж: ${detail || "ошибка"}`);
+  const tabParam = new URLSearchParams(window.location.search).get("tab");
+  const skipSoloBootstrap =
+    tabParam === "expedition" || tabParam === "group" || tabParam === "abyss";
+
+  if (!skipSoloBootstrap) {
+    await ensureSoloTabBootstrapped(p);
+  } else {
+    window.__lastProfileForDungeons = p;
   }
 
-  // Open tab from URL (e.g. from ОЧ chip click)
-  const tabParam = new URLSearchParams(window.location.search).get("tab");
   if (tabParam === "solo" || tabParam === "expedition" || tabParam === "group" || tabParam === "abyss") {
     showTab(tabParam);
   }
@@ -1645,19 +1655,70 @@ function showExpeditionError(msg, tone = "danger") {
 }
 
 let expeditionTabDataLoaded = false;
+let expeditionRosterLoaded = false;
+let expeditionRosterInflight = null;
+let soloTabBootstrapped = false;
 let expSendLoadingInterval = null;
 let expeditionSendInFlight = false;
 
-const EXP_SEND_LOADING_STEPS = [
-  [12, "Красят губки..."],
-  [24, "Выбирают, что надеть..."],
-  [36, "Делают мейк-ап..."],
-  [48, "Заплетают косички..."],
-  [60, "Ищут второй носок..."],
-  [72, "Пакуют зелья в рюкзак..."],
-  [84, "Прощаются с котом..."],
-  [92, "Спорят, кто идёт первой..."],
+const EXP_SEND_LOADING_PCTS = [12, 24, 36, 48, 60, 72, 84, 92];
+
+const EXP_SEND_LOADING_MESSAGES = [
+  "Красят губки...",
+  "Выбирают, что надеть...",
+  "Делают мейк-ап...",
+  "Заплетают косички...",
+  "Ищут второй носок...",
+  "Пакуют зелья в рюкзак...",
+  "Прощаются с котом...",
+  "Спорят, кто идёт первой...",
+  "Подбирают серьги к доспехам...",
+  "Расчёсывают хвосты и косы...",
+  "Спорят, какой плащ «более героический»...",
+  "Намазывают крем от солнца и от драконов...",
+  "Проверяют, не торчит ли лента из шлема...",
+  "Делают селфи «на память перед боем»...",
+  "Ищут заколку, которая не слетит в бою...",
+  "Сверяют оттенок помады с цветом знамени...",
+  "Уговаривают одну не опаздывать...",
+  "Завязывают шнурки на сапогах (в третий раз)...",
+  "Прячут сладости от строгой целительницы...",
+  "Наносят боевой макияж — буквально...",
+  "Распределяют, кто несёт зеркальце...",
+  "Пытаются втиснуть ещё один флакон в сумку...",
+  "Поправляют чёлки под забралами...",
+  "Шепчут заклинание от статики в волосах...",
+  "Выбирают аромат «лес после дождя»...",
+  "Считают, хватит ли заколок на весь отряд...",
+  "Уговаривают кота отпустить лучший плащ...",
+  "Листают модный журнал «Доспехи осени»...",
+  "Проверяют маникюр на прочность хвата...",
+  "Договариваются, кто сегодня «лицо отряда»...",
+  "Запасают платочки «на всякий случай»...",
+  "Примеряют перчатки без пальцев — модно же...",
+  "Ищут блестки, которые не шумят в засаде...",
+  "Сверяют тональник с цветом заката в походе...",
+  "Прощаются с подушкой — «вернёмся красивыми»...",
 ];
+
+function shuffleExpSendLoadingMessages(messages) {
+  const arr = messages.slice();
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
+function buildExpSendLoadingSteps() {
+  const picked = shuffleExpSendLoadingMessages(EXP_SEND_LOADING_MESSAGES).slice(
+    0,
+    EXP_SEND_LOADING_PCTS.length,
+  );
+  return EXP_SEND_LOADING_PCTS.map((pct, idx) => [pct, picked[idx]]);
+}
 
 function openExpeditionSendLoading() {
   const modal = document.getElementById("exp-send-loading-modal");
@@ -1668,6 +1729,7 @@ function openExpeditionSendLoading() {
     clearInterval(expSendLoadingInterval);
     expSendLoadingInterval = null;
   }
+  const steps = buildExpSendLoadingSteps();
   modal.style.display = "flex";
   modal.setAttribute("aria-busy", "true");
   document.body.style.overflow = "hidden";
@@ -1675,11 +1737,11 @@ function openExpeditionSendLoading() {
     fill.style.width = "0%";
     fill.classList.remove("is-indeterminate");
   }
-  if (sub) sub.textContent = EXP_SEND_LOADING_STEPS[0][1];
+  if (sub) sub.textContent = steps[0][1];
   let stepIdx = 0;
   expSendLoadingInterval = setInterval(() => {
-    if (stepIdx < EXP_SEND_LOADING_STEPS.length && fill && sub) {
-      const [pct, text] = EXP_SEND_LOADING_STEPS[stepIdx++];
+    if (stepIdx < steps.length && fill && sub) {
+      const [pct, text] = steps[stepIdx++];
       fill.style.width = pct + "%";
       sub.textContent = text;
     }
@@ -1699,20 +1761,40 @@ function closeExpeditionSendLoading() {
   document.body.style.overflow = "";
 }
 
+async function ensureExpeditionRoster(opts = {}) {
+  const force = Boolean(opts && opts.force);
+  if (expeditionRosterLoaded && !force) return expeditionState.roster || [];
+  if (expeditionRosterInflight) return expeditionRosterInflight;
+  expeditionRosterInflight = apiFetch("/expeditions/roster")
+    .then((res) => {
+      expeditionState.roster = Array.isArray(res?.waifus) ? res.waifus : [];
+      expeditionRosterLoaded = true;
+      return expeditionState.roster;
+    })
+    .catch(() => {
+      expeditionState.roster = [];
+      expeditionRosterLoaded = true;
+      return [];
+    })
+    .finally(() => {
+      expeditionRosterInflight = null;
+    });
+  return expeditionRosterInflight;
+}
+
 async function loadExpeditionTab(opts = {}) {
   const force = Boolean(opts && opts.force);
+  if (force) expeditionRosterLoaded = false;
   showExpeditionError("");
   try {
     if (!expeditionTabDataLoaded || force) {
       if (!expeditionTabDataLoaded) expeditionTabDataLoaded = true;
-      const [slotsRes, activeRes, rosterRes] = await Promise.all([
+      const [slotsRes, activeRes] = await Promise.all([
         apiFetch("/expeditions/daily-slots").catch(() => apiFetch("/expeditions/slots")),
         apiFetch("/expeditions/active"),
-        apiFetch("/expeditions/roster").catch(() => ({ waifus: [] })),
       ]);
       expeditionState.slots = Array.isArray(slotsRes?.slots) ? slotsRes.slots : [];
       expeditionState.active = Array.isArray(activeRes?.active) ? activeRes.active : [];
-      expeditionState.roster = Array.isArray(rosterRes?.waifus) ? rosterRes.waifus : [];
       expeditionState.refreshAt = slotsRes?.refresh_at || null;
       expeditionUiCache.activeById = {};
       expeditionUiCache.dailyById = {};
@@ -1726,7 +1808,13 @@ async function loadExpeditionTab(opts = {}) {
     renderExpeditionGrids();
     updateExpeditionRefreshLabel();
     wireExpeditionTabTimers();
-    refreshAtticChips({ forceExpeditions: true });
+    refreshAtticChips({
+      forceExpeditions: true,
+      expeditionData: {
+        slots: expeditionState.slots,
+        active: expeditionState.active,
+      },
+    });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showExpeditionError(detail || "Ошибка загрузки экспедиций");
@@ -1771,6 +1859,46 @@ function normalizeBiomeTag(tag) {
     .replace(/-/g, "_");
 }
 
+const EXPEDITION_ARCHETYPE_ART = new Set([
+  "arctic",
+  "bridge_town",
+  "carnival",
+  "city",
+  "factory",
+  "fae_realm",
+  "hospital",
+  "jungle",
+  "library",
+  "market",
+  "night_club",
+  "observatory",
+  "sewer",
+  "slums",
+  "theater",
+  "train_station",
+  "university",
+]);
+const EXPEDITION_BIOME_ART = new Set([
+  "abyss",
+  "cave",
+  "coast",
+  "crypt",
+  "dark_temple",
+  "default",
+  "desert",
+  "dungeon",
+  "forest",
+  "fortress",
+  "mountain",
+  "ruins",
+  "sea_depth",
+  "sky",
+  "swamp",
+  "temple",
+  "tundra",
+  "volcano",
+]);
+
 function biomeImageUrls(tag, archetypeId) {
   const urls = [];
   const archKey = String(archetypeId || "")
@@ -1780,22 +1908,69 @@ function biomeImageUrls(tag, archetypeId) {
     .replace(/-/g, "_");
   const archetypesBase = window.EXPEDITION_ARCHETYPES_BASE || "/static/game/expeditions/archetypes";
   const biomesBase = window.EXPEDITION_BIOMES_BASE || "/static/game/expeditions/biomes";
-  if (archKey) {
+  if (archKey && EXPEDITION_ARCHETYPE_ART.has(archKey)) {
     const v = (window.expeditionArchetypeArtVersion || {})[archKey];
     const q = v ? `?v=${encodeURIComponent(v)}` : "";
     urls.push(`${archetypesBase}/${encodeURIComponent(archKey)}.webp${q}`);
   }
   const key = normalizeBiomeTag(tag);
-  if (key) urls.push(`${biomesBase}/${encodeURIComponent(key)}.webp`);
+  if (key && EXPEDITION_BIOME_ART.has(key)) urls.push(`${biomesBase}/${encodeURIComponent(key)}.webp`);
   urls.push(`${biomesBase}/default.webp`);
   return urls;
+}
+
+/** Кэш успешных URL фонов биомов экспедиций (tag|archetypeId → url). */
+const expeditionBiomeUrlCache = new Map();
+/** In-flight probes: cacheKey → Promise<url|null> */
+const expeditionBiomeProbeInflight = new Map();
+
+function applyExpeditionBiomeToElement(el, tag, emojiEl, archetypeId, url) {
+  const fallback = biomeBg(tag);
+  const isModal = el.classList.contains("exp-modal-img");
+  const biomeCls = isModal ? "exp-modal-img--biome" : "exp-card-img--biome";
+  el.classList.remove("exp-modal-img--biome", "exp-card-img--biome");
+  el.style.background = fallback;
+  el.style.backgroundImage = `url("${url}")`;
+  el.style.backgroundSize = "cover";
+  el.style.backgroundPosition = "center";
+  el.classList.add(biomeCls);
+  if (emojiEl) emojiEl.style.display = "none";
+}
+
+function probeExpeditionBiomeUrl(tag, archetypeId) {
+  const cacheKey = `${String(tag || "").trim()}|${String(archetypeId || "").trim()}`;
+  const cachedUrl = expeditionBiomeUrlCache.get(cacheKey);
+  if (cachedUrl) return Promise.resolve(cachedUrl);
+  const inflight = expeditionBiomeProbeInflight.get(cacheKey);
+  if (inflight) return inflight;
+  const urls = biomeImageUrls(tag, archetypeId);
+  const promise = new Promise((resolve) => {
+    let i = 0;
+    function tryNext() {
+      if (i >= urls.length) {
+        resolve(null);
+        return;
+      }
+      const url = urls[i++];
+      const probe = new Image();
+      probe.onload = () => {
+        expeditionBiomeUrlCache.set(cacheKey, url);
+        resolve(url);
+      };
+      probe.onerror = tryNext;
+      probe.src = url;
+    }
+    tryNext();
+  }).finally(() => {
+    expeditionBiomeProbeInflight.delete(cacheKey);
+  });
+  expeditionBiomeProbeInflight.set(cacheKey, promise);
+  return promise;
 }
 
 function applyExpeditionBiomeBackground(el, tag, emojiEl, archetypeId) {
   if (!el) return;
   const fallback = biomeBg(tag);
-  const isModal = el.classList.contains("exp-modal-img");
-  const biomeCls = isModal ? "exp-modal-img--biome" : "exp-card-img--biome";
   el.classList.remove("exp-modal-img--biome", "exp-card-img--biome");
   el.style.backgroundImage = "";
   el.style.background = fallback;
@@ -1803,33 +1978,13 @@ function applyExpeditionBiomeBackground(el, tag, emojiEl, archetypeId) {
   const cacheKey = `${String(tag || "").trim()}|${String(archetypeId || "").trim()}`;
   const cachedUrl = expeditionBiomeUrlCache.get(cacheKey);
   if (cachedUrl) {
-    el.style.background = fallback;
-    el.style.backgroundImage = `url("${cachedUrl}")`;
-    el.style.backgroundSize = "cover";
-    el.style.backgroundPosition = "center";
-    el.classList.add(biomeCls);
-    if (emojiEl) emojiEl.style.display = "none";
+    applyExpeditionBiomeToElement(el, tag, emojiEl, archetypeId, cachedUrl);
     return;
   }
-  const urls = biomeImageUrls(tag, archetypeId);
-  let i = 0;
-  function tryNext() {
-    if (i >= urls.length) return;
-    const url = urls[i++];
-    const probe = new Image();
-    probe.onload = () => {
-      expeditionBiomeUrlCache.set(cacheKey, url);
-      el.style.background = fallback;
-      el.style.backgroundImage = `url("${url}")`;
-      el.style.backgroundSize = "cover";
-      el.style.backgroundPosition = "center";
-      el.classList.add(biomeCls);
-      if (emojiEl) emojiEl.style.display = "none";
-    };
-    probe.onerror = tryNext;
-    probe.src = url;
-  }
-  tryNext();
+  probeExpeditionBiomeUrl(tag, archetypeId).then((url) => {
+    if (!url || !el.isConnected) return;
+    applyExpeditionBiomeToElement(el, tag, emojiEl, archetypeId, url);
+  });
 }
 
 function wireExpeditionCardBiomes(root) {
@@ -2250,8 +2405,6 @@ function renderExpeditionGrids() {
 let expeditionTimerId = null;
 let expeditionActivePollId = null;
 let expActiveModalTimer = null;
-/** Кэш успешных URL фонов биомов экспедиций (tag|archetypeId → url). */
-const expeditionBiomeUrlCache = new Map();
 
 function updateExpeditionActiveCardsOnly() {
   const active = expeditionState.active || [];
@@ -2291,7 +2444,13 @@ async function pollExpeditionActiveLight() {
       updateExpeditionActiveCardsOnly();
     }
     wireExpeditionTabTimers();
-    refreshAtticChips({ forceExpeditions: true });
+    refreshAtticChips({
+      forceExpeditions: true,
+      expeditionData: {
+        slots: expeditionState.slots,
+        active: expeditionState.active,
+      },
+    });
   } catch {
     // ignore light poll errors
   }
@@ -2621,9 +2780,13 @@ function expOpenPicker(slotIdx) {
   expeditionSend.pickerSlot = slotIdx;
   expeditionSend.pickerExcludedTags = new Set();
   wireExpPickerTagsFilter();
-  renderExpPickerContent();
+  const list = expG("exp-unit-list");
+  if (list) list.innerHTML = '<div class="placeholder muted tiny">Загрузка наёмниц…</div>';
   closeSendExpModal();
   expOpenOverlay("exp-picker-overlay");
+  ensureExpeditionRoster()
+    .then(() => renderExpPickerContent())
+    .catch(() => renderExpPickerContent());
 }
 
 function expPickUnit(id) {
@@ -3366,11 +3529,15 @@ function showTab(name) {
     }
   }
   if (name === "solo") {
+    const wasSoloBootstrapped = soloTabBootstrapped;
+    ensureSoloTabBootstrapped(window.__lastProfileForDungeons).catch(() => {});
     apiFetch("/abyss/status")
       .then((st) => {
         abyssState = st;
-        const profile = window.__lastProfileForDungeons;
-        if (profile) renderSoloDungeonsForAct(profile).catch(() => {});
+        if (wasSoloBootstrapped) {
+          const profile = window.__lastProfileForDungeons;
+          if (profile) renderSoloDungeonsForAct(profile).catch(() => {});
+        }
       })
       .catch(() => {});
   }

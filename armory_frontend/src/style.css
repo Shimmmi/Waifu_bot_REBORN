@@ -634,6 +634,116 @@ th { color: var(--muted); font-weight: 500; }
 }
 .item-modal-affixes ul { padding-left: 1.1rem; color: var(--muted); }
 
+.item-art-admin-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.item-card-art .item-art-admin-wrap,
+.profile-slot-art-wrap {
+  width: 100%;
+  height: 100%;
+}
+
+.item-modal-art .item-art-admin-wrap {
+  width: 100%;
+  max-width: 140px;
+  margin: 0 auto;
+}
+
+.item-art-generate-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 5;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(200, 146, 42, 0.45);
+  background: rgba(26, 20, 16, 0.92);
+  color: #e8b84b;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  line-height: 0;
+  font-size: 0.85rem;
+}
+
+.item-art-generate-btn:hover {
+  color: #fff3d6;
+  border-color: rgba(232, 184, 75, 0.75);
+}
+
+.item-art-generate-btn.is-loading {
+  opacity: 0.55;
+  cursor: wait;
+  pointer-events: none;
+}
+
+.item-art-gen-busy-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: rgba(8, 6, 12, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+body.item-art-gen-busy .item-art-gen-busy-overlay {
+  display: grid;
+}
+
+.item-art-gen-busy-panel {
+  max-width: 320px;
+  text-align: center;
+  padding: 28px 24px;
+  border-radius: 16px;
+  border: 1px solid rgba(200, 146, 42, 0.35);
+  background: rgba(22, 18, 28, 0.96);
+  color: var(--text);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+.item-art-gen-busy-panel p {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.item-art-gen-busy-panel .item-art-gen-busy-hint {
+  margin-top: 10px;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.item-art-gen-busy-spinner {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  border: 3px solid rgba(200, 146, 42, 0.2);
+  border-top-color: #e8b84b;
+  animation: item-art-gen-spin 0.85s linear infinite;
+}
+
+@keyframes item-art-gen-spin {
+  to { transform: rotate(360deg); }
+}
+
 .profile-meta-grid { margin-top: 1rem; }
 
 @media (max-width: 720px) {

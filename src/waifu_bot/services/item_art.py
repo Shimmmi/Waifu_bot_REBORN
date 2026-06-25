@@ -11,15 +11,27 @@ layout can change without code changes. Legacy DB paths may use `items_webp/...`
 from __future__ import annotations
 
 import base64
+import logging
 import re
 from pathlib import Path
 from typing import Any, Iterable
 
 from sqlalchemy import select, tuple_
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
 from waifu_bot.paths import static_game_directory
+
+logger = logging.getLogger(__name__)
+
+
+class ItemArtPersistError(Exception):
+    """Raised when generated item art cannot be written or registered."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
 
 GAME_STATIC_PREFIX = "/static/game"
 
@@ -377,6 +389,66 @@ async def _lookup_item_art_row(
 
 def default_relative_path(art_key: str, tier: int) -> str:
     return f"items_webp/{art_key}/t{tier}.webp"
+
+
+async def persist_item_art_webp(
+    session: AsyncSession,
+    art_key: str,
+    tier: int,
+    webp: bytes,
+) -> str:
+    """Write WebP bytes to static/game and upsert ``item_art`` row; return public URL."""
+    from waifu_bot.services.item_art_generation import normalize_art_key
+
+    ak = normalize_art_key(art_key)
+    if not ak:
+        raise ItemArtPersistError("invalid_art_key")
+
+    t = normalize_tier(tier)
+    out_dir = static_game_directory() / "items" / "webp" / ak
+    out_file = out_dir / f"t{t}.webp"
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_file.write_bytes(webp)
+    except OSError:
+        logger.exception(
+            "persist_item_art_webp write failed path=%s (check REPO_ROOT / filesystem permissions)",
+            out_file,
+        )
+        raise ItemArtPersistError("item_art_write_failed") from None
+
+    db_rel = default_relative_path(ak, t)
+    row = (
+        await session.execute(
+            select(m.ItemArt).where(m.ItemArt.art_key == ak, m.ItemArt.tier == t)
+        )
+    ).scalar_one_or_none()
+    if row:
+        row.relative_path = db_rel
+        row.mime = "image/webp"
+        row.enabled = True
+    else:
+        session.add(
+            m.ItemArt(
+                art_key=ak,
+                tier=t,
+                relative_path=db_rel,
+                mime="image/webp",
+                enabled=True,
+            )
+        )
+    try:
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.exception("persist_item_art_webp DB commit failed art_key=%s tier=%s", ak, t)
+        try:
+            out_file.unlink(missing_ok=True)
+        except OSError:
+            logger.exception("persist_item_art_webp unlink after DB fail path=%s", out_file)
+        raise ItemArtPersistError("item_art_db_failed") from None
+
+    return game_asset_public_url(db_rel)
 
 
 def _get_field(obj: Any, key: str) -> Any:

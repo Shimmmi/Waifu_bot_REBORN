@@ -1626,8 +1626,19 @@
             onHeroTap(tab).catch(() => {});
           });
         });
-        if (window.WaifuApp && typeof WaifuApp.bootstrapPage === "function") {
-          WaifuApp.bootstrapPage("shop", WaifuApp.shopPageBootstrap);
+        const stage = document.getElementById("shop-stage");
+        if (stage) {
+          stage.addEventListener("click", (e) => {
+            if (
+              !e.target.closest(".shop-hero") &&
+              document.querySelector("body.page-shop .shop-dialog.show")
+            ) {
+              WaifuApp.hideShopHeroDialogs?.();
+            }
+          });
+        }
+        if (window.WaifuApp && typeof WaifuApp.bootstrapShopPage === "function") {
+          WaifuApp.bootstrapShopPage();
         }
       });
       return { switchTab, onHeroTap, switchSmithSubTab };

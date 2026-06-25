@@ -22,5 +22,12 @@ onMounted(() => auth.fetchMe())
     <main class="container">
       <RouterView />
     </main>
+    <div class="item-art-gen-busy-overlay" aria-live="polite" aria-busy="true">
+      <div class="item-art-gen-busy-panel">
+        <div class="item-art-gen-busy-spinner" aria-hidden="true" />
+        <p>Генерация иконки…</p>
+        <p class="item-art-gen-busy-hint">OpenRouter может отвечать до 2 минут</p>
+      </div>
+    </div>
   </div>
 </template>

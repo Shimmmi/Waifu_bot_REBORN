@@ -706,7 +706,10 @@ class ExpeditionService:
     async def get_slots(self, session: AsyncSession) -> list[ExpeditionSlot]:
         """Слоты экспедиций на сегодня (3 шт.), при необходимости создаёт."""
         today = _moscow_today()
-        return await self._ensure_day_slots(session, today)
+        slots, created = await self._ensure_day_slots(session, today)
+        if created:
+            await session.commit()
+        return slots
 
     async def _lock_player_for_update(self, session: AsyncSession, player_id: int) -> Player | None:
         stmt = select(Player).where(Player.id == player_id).with_for_update()
@@ -1542,7 +1545,7 @@ class ExpeditionService:
         day,
         *,
         generation_nonce: str | None = None,
-    ) -> list[ExpeditionSlot]:
+    ) -> tuple[list[ExpeditionSlot], bool]:
         stmt = (
             select(ExpeditionSlot)
             .where(ExpeditionSlot.day == day)
@@ -1550,6 +1553,9 @@ class ExpeditionService:
         )
         existing = (await session.execute(stmt)).scalars().all()
         have = {int(s.slot) for s in existing}
+        if len(have) >= EXPEDITION_SLOTS_PER_DAY:
+            return list(existing), False
+        slots_created = False
         if generation_nonce:
             day_rng = random.Random(f"{day.isoformat()}-{generation_nonce}")
             trial_slot = (
@@ -1685,9 +1691,10 @@ class ExpeditionService:
                     expedition_mode_id=mode.id,
                 )
             )
+            slots_created = True
         await session.flush()
         result = await session.execute(stmt)
-        return list(result.scalars().all())
+        return list(result.scalars().all()), slots_created
 
     async def admin_refresh_slots(self, session: AsyncSession) -> list[ExpeditionSlot]:
         """
@@ -1730,4 +1737,6 @@ class ExpeditionService:
         await session.execute(delete(ExpeditionSlot).where(ExpeditionSlot.day == today))
         await session.flush()
         nonce = secrets.token_hex(8)
-        return await self._ensure_day_slots(session, today, generation_nonce=nonce)
+        slots, _created = await self._ensure_day_slots(session, today, generation_nonce=nonce)
+        await session.commit()
+        return slots

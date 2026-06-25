@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.api.deps import get_db, get_player_id
+from waifu_bot.db import models as m
 from waifu_bot.services import player_profile_service as pps
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,21 @@ async def get_player_profile_self(
         return await pps.get_self_profile(session, player_id)
     except ValueError as e:
         raise _profile_error(e) from e
+
+
+@router.get("/player/avatar", tags=["player"])
+async def get_player_avatar(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Lightweight avatar URL for attic header (no main_waifu media payload)."""
+    from sqlalchemy import select
+
+    res = await session.execute(select(m.Player).where(m.Player.id == player_id))
+    player = res.scalar_one_or_none()
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="player_not_found")
+    return {"avatar_url": pps.resolve_avatar_url(player)}
 
 
 @router.patch("/player/profile", tags=["player"])

@@ -9,6 +9,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.api.deps import get_db, get_player_id, get_redis, require_admin
+from waifu_bot.api.hired_waifu_media import hired_waifu_portrait_url
+from waifu_bot.api.main_waifu_media import (
+    main_waifu_profile_paperdoll_url,
+    main_waifu_profile_portrait_url,
+)
 from waifu_bot.core.config import settings
 from waifu_bot.api import schemas
 from waifu_bot.db import models as m
@@ -16,7 +21,12 @@ from waifu_bot.db.inventory_load_options import inventory_item_load_options
 from sqlalchemy import delete, func, select, text, tuple_
 from sqlalchemy.orm import selectinload
 
+from waifu_bot.services.waifu_media_service import (
+    sync_main_waifu_paperdoll_to_static,
+    sync_main_waifu_portrait_to_static,
+)
 from waifu_bot.services.energy import apply_regen
+from waifu_bot.services.enchanting import get_effective_params
 from waifu_bot.services.expedition import ExpeditionService
 from waifu_bot.services.webhook import process_update
 from waifu_bot.services import sse as sse_service
@@ -32,7 +42,6 @@ from waifu_bot.services.item_art import (
     read_game_asset_data_url,
     resolve_item_art_relative_path,
 )
-from waifu_bot.services.enchanting import get_effective_params
 from waifu_bot.services.passive_skills import (
     get_passive_skill_bonuses,
     merge_passive_into_profile_details,
@@ -1048,15 +1057,23 @@ async def get_profile(
                 current_endurance = base_endurance + total_bonuses["endurance"] + stat_flat
                 current_charm = base_charm + total_bonuses["charm"] + stat_flat
 
-                portrait_url = None
-                if getattr(main_waifu, "image_data", None):
-                    mime = getattr(main_waifu, "image_mime", None) or "image/webp"
-                    portrait_url = f"data:{mime};base64,{main_waifu.image_data}"
+                media_dirty = False
+                portrait_url = main_waifu_profile_portrait_url(main_waifu, player_id)
+                if portrait_url is None and getattr(main_waifu, "image_data", None):
+                    portrait_url = sync_main_waifu_portrait_to_static(main_waifu)
+                    media_dirty = media_dirty or bool(portrait_url)
 
                 paperdoll_url = None
-                if getattr(main_waifu, "paperdoll_image_data", None):
-                    pm = getattr(main_waifu, "paperdoll_image_mime", None) or "image/png"
-                    paperdoll_url = f"data:{pm};base64,{main_waifu.paperdoll_image_data}"
+                if not lite:
+                    paperdoll_url = main_waifu_profile_paperdoll_url(main_waifu, player_id)
+                    if paperdoll_url is None and getattr(main_waifu, "paperdoll_image_data", None):
+                        paperdoll_url = sync_main_waifu_paperdoll_to_static(main_waifu)
+                        media_dirty = media_dirty or bool(paperdoll_url)
+                if media_dirty:
+                    try:
+                        await session.commit()
+                    except Exception:
+                        logger.exception("Failed to commit waifu media sync player_id=%s", player_id)
 
                 main_payload = schemas.MainWaifuProfile(
                     id=main_waifu.id,
@@ -1613,6 +1630,7 @@ async def _run_paperdoll_generation_save(
     main.paperdoll_generated_at = datetime.now(tz=timezone.utc)
     if not replace_existing:
         consume_paperdoll_generation(main, had_image_before=had_image_before)
+    sync_main_waifu_paperdoll_to_static(main)
     try:
         await session.commit()
     except SQLAlchemyError:
@@ -1623,7 +1641,7 @@ async def _run_paperdoll_generation_save(
             detail="paperdoll_save_failed",
         )
 
-    url = f"data:{main.paperdoll_image_mime};base64,{main.paperdoll_image_data}"
+    url = main_waifu_profile_paperdoll_url(main, player_id) or ""
     return schemas.MainWaifuPaperdollResponse(paperdoll_url=url)
 
 
@@ -1777,6 +1795,8 @@ async def create_main_waifu(
             "account_created",
             {"character_name": main.name, "race": int(main.race), "class": int(main.class_)},
         )
+        if portrait_b64:
+            sync_main_waifu_portrait_to_static(main)
         await session.commit()
         await session.refresh(main)
     except Exception as e:
@@ -1787,10 +1807,7 @@ async def create_main_waifu(
             detail=f"create_main_waifu_failed: {type(e).__name__}",
         )
 
-    portrait_url = None
-    if getattr(main, "image_data", None):
-        mime = getattr(main, "image_mime", None) or "image/webp"
-        portrait_url = f"data:{mime};base64,{main.image_data}"
+    portrait_url = main_waifu_profile_portrait_url(main, player_id)
 
     return schemas.MainWaifuCreateResponse(
         main_waifu=schemas.MainWaifuProfile(
@@ -2140,10 +2157,7 @@ async def expeditions_roster(
         ratio = cur / max_hp
         cid = int(w.class_ or 1)
         pl = getattr(w, "perk_levels", None) or {}
-        image_url = None
-        if getattr(w, "image_data", None):
-            mime = getattr(w, "image_mime", None) or "image/webp"
-            image_url = f"data:{mime};base64,{w.image_data}"
+        image_url = hired_waifu_portrait_url(w)
         coverage = unit_coverage_detail(w)
         out.append({
             "id": w.id,
@@ -2176,7 +2190,6 @@ async def expeditions_slots(
     session: AsyncSession = Depends(get_db),
 ):
     slots = await expedition_service.get_slots(session)
-    await session.commit()
     used_slot_ids = await expedition_service.get_used_slot_ids(session, player_id)
     day_str = slots[0].day.isoformat() if slots else ""
     player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])

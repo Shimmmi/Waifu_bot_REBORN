@@ -39,7 +39,7 @@ function resolveWebappShellVersion() {
       /* ignore */
     }
   }
-  return "waifu-webapp-v34";
+  return "waifu-webapp-v35";
 }
 
 const WAIFU_WEBAPP_VERSION = resolveWebappShellVersion();
@@ -369,6 +369,60 @@ const PERK_DESCS = {
   passionate: "Снижает штраф от апатии",
 };
 
+// Русские названия перков (синхрон с expedition_data.PERKS) — для таверны без payload perks в API.
+const PERK_NAMES = {
+  gas_mask: "Газовая маска",
+  diver: "Водолаз",
+  fireproof: "Огнестойкий",
+  frostproof: "Морозостойкий",
+  navigator: "Штурман",
+  desert_walker: "Пустынник",
+  gas_filter: "Газовый фильтр",
+  snow_warrior: "Снежный воин",
+  acid_proof: "Кислотостойкий",
+  wind_walker: "Ветроход",
+  elf_slayer: "Убийца эльфов",
+  orc_hunter: "Охотник на орков",
+  priest: "Священник",
+  demon_slayer: "Демоноборец",
+  dragonslayer: "Драконоборец",
+  goblin_shaker: "Гоблинотряс",
+  troll_slayer: "Троллеубийца",
+  vampire_hunter: "Охотник на вампиров",
+  entomologist: "Энтомолог",
+  bat_hunter: "Охотник на летучих мышей",
+  mushroom_expert: "Грибник-знаток",
+  scout: "Разведчик",
+  archaeologist: "Археолог",
+  swamp_walker: "Болотный ходок",
+  spider_hunter: "Охотник на пауков",
+  chemist: "Химик",
+  magic_researcher: "Маг-исследователь",
+  exorcist: "Экзорцист",
+  mountain_engineer: "Горный инженер",
+  anti_magnet: "Анти-магнит",
+  curse_removal: "Снятие проклятий",
+  anti_mage: "Антимаг",
+  spatial_mage: "Пространственный маг",
+  light_protection: "Защита от света",
+  magic_resistance: "Сопротивление магии",
+  chronomancer: "Хрономант",
+  accelerator: "Ускоритель",
+  spatial_navigator: "Пространственный навигатор",
+  mana_shield: "Мана-щит",
+  lucky: "Удачливый",
+  mental_shield: "Ментальный щит",
+  strong_spirit: "Стойкий дух",
+  mental_clarity: "Ясность разума",
+  sleepless: "Бессонный",
+  trusting: "Доверчивый",
+  photographic_memory: "Фотографическая память",
+  calm: "Спокойствие",
+  optimist: "Оптимист",
+  anger_control: "Контроль гнева",
+  passionate: "Страстный",
+};
+
 // Иконки перков для экспедиций (id из expedition_data.PERKS)
 const PERK_ICONS = {
   gas_mask: "🫓",
@@ -582,11 +636,11 @@ function itemIconForSlotType(slotType) {
   return "🎁";
 }
 
-function hiredWaifuImageUrl(w) {
-  const u = w?.imageUrl ?? w?.image_url;
+function resolveImageUrl(url) {
+  if (!url) return "";
+  const u = String(url).trim();
   if (!u) return "";
-  const url = String(u);
-  if (!url.startsWith("/api/")) return url;
+  if (!u.startsWith("/api/")) return u;
   const params = new URLSearchParams();
   const initData = getInitData();
   if (initData) {
@@ -600,7 +654,12 @@ function hiredWaifuImageUrl(w) {
     }
   }
   const qs = params.toString();
-  return qs ? `${url}${url.includes("?") ? "&" : "?"}${qs}` : url;
+  return qs ? `${u}${u.includes("?") ? "&" : "?"}${qs}` : u;
+}
+
+function hiredWaifuImageUrl(w) {
+  const u = w?.imageUrl ?? w?.image_url;
+  return resolveImageUrl(u);
 }
 
 function waifuPortraitEmoji(w) {
@@ -1200,6 +1259,19 @@ function renderAtticExpeditions(slots, activeList) {
   });
 }
 
+function hasAtticChrome() {
+  return Boolean(document.getElementById("attic-dungeon-chip"));
+}
+
+function schedulePlayerMailBadgeRefresh() {
+  const run = () => refreshAtticMailBadge().catch(() => {});
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(run, { timeout: 2000 });
+  } else {
+    setTimeout(run, 0);
+  }
+}
+
 /** Fire-and-forget refresh of both dynamic ОЧ chips (dungeon + expeditions). */
 const ACTIVE_DUNGEON_CACHE_MS = 5000;
 const activeDungeonCache = {
@@ -1216,8 +1288,25 @@ function isDungeonsPage() {
   return typeof window !== "undefined" && window.location.pathname.endsWith("/dungeons.html");
 }
 
+function isGuildHallPage() {
+  return typeof window !== "undefined" && window.location.pathname.endsWith("/guild_hall.html");
+}
+
 function isProfilePage() {
   return typeof window !== "undefined" && window.location.pathname.endsWith("/profile.html");
+}
+
+function scheduleDeferredAtticRefresh(profile) {
+  const run = () => {
+    refreshAtticChips();
+    if (profile) renderAtticPlayerAvatar(profile);
+    startAtticMailBadgePolling();
+  };
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(() => run(), { timeout: 2000 });
+  } else {
+    setTimeout(run, 0);
+  }
 }
 
 async function fetchActiveDungeon(options = {}) {
@@ -1247,13 +1336,21 @@ async function fetchActiveDungeon(options = {}) {
 }
 
 function refreshAtticChips(opts = {}) {
+  if (!hasAtticChrome()) return;
   const skipDungeon = opts.skipDungeon === true || isDungeonsPage();
   const skipExpeditions =
-    opts.forceExpeditions !== true && (opts.skipExpeditions === true || isDungeonsPage());
+    opts.forceExpeditions !== true &&
+    (opts.skipExpeditions === true || isDungeonsPage() || isGuildHallPage());
   if (!skipDungeon) {
     fetchActiveDungeon({ includeLog: false }).then(renderAtticDungeon).catch(() => {});
   }
   if (skipExpeditions) return;
+  if (opts.expeditionData) {
+    const slots = opts.expeditionData.slots ?? [];
+    const active = opts.expeditionData.active ?? [];
+    renderAtticExpeditions(slots, active);
+    return;
+  }
   Promise.all([
     apiFetch("/expeditions/slots").catch(() => ({ slots: [] })),
     apiFetch("/expeditions/active").catch(() => ({ active: [] })),
@@ -1264,7 +1361,7 @@ function refreshAtticChips(opts = {}) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function populateFromProfile(profile) {
+function populateFromProfile(profile, opts = {}) {
   if (!profile) return;
   profileState.currentProfile = profile;
 
@@ -1318,10 +1415,11 @@ function populateFromProfile(profile) {
   }
 
   // Async: update dynamic ОЧ chips on every page load/refresh
-  refreshAtticChips();
-
-  renderAtticPlayerAvatar(profile);
-  startAtticMailBadgePolling();
+  if (!opts.skipAtticRefresh && hasAtticChrome()) {
+    refreshAtticChips();
+    renderAtticPlayerAvatar(profile);
+    startAtticMailBadgePolling();
+  }
 
   if (document.getElementById("shop-gamble-cost")) updateShopGambleCost();
 }
@@ -1367,7 +1465,7 @@ function applyPlayerAvatarUrl(avatarUrl, profile) {
 async function fetchPlayerAvatarUrl() {
   if (playerPageState.cachedAvatarUrl) return playerPageState.cachedAvatarUrl;
   try {
-    const d = await apiFetch("/player/profile");
+    const d = await apiFetch("/player/avatar");
     playerPageState.cachedAvatarUrl = d?.avatar_url || null;
     return playerPageState.cachedAvatarUrl;
   } catch {
@@ -2473,6 +2571,8 @@ const shopState = {
   merchantPickSellId: null,
   /** Подсветка совета торговца — только после нажатия на торговца */
   merchantAdviceUnlocked: false,
+  /** Кэш AI-реплик торговца (ключ: buy:slot / sell:id / gamble / smith) */
+  merchantLineCache: {},
   /** inventory_items.id выбранный для заточки */
   smithSelectedId: null,
   /** кэш списка для модалки выбора (сортировка: экип первыми) */
@@ -2616,20 +2716,41 @@ async function saveDmNotificationPrefsFromModal() {
   }
 }
 
+async function ensureDmNotificationPrefsLoaded() {
+  if (settingsState.dmPrefs) return settingsState.dmPrefs;
+  if (settingsState.dmPrefsLoadPromise) return settingsState.dmPrefsLoadPromise;
+  settingsState.dmPrefsLoadPromise = loadDmNotificationPrefs()
+    .then((prefs) => {
+      settingsState.dmPrefs = prefs;
+      applyDmPrefsToModal(prefs);
+      return prefs;
+    })
+    .catch((e) => {
+      console.warn("loadDmNotificationPrefs failed:", e);
+      return null;
+    })
+    .finally(() => {
+      settingsState.dmPrefsLoadPromise = null;
+    });
+  return settingsState.dmPrefsLoadPromise;
+}
+
 function openSettingsNotifyModal() {
   if (Date.now() < settingsState.notifyModalReadyAt) return;
   const modal = document.getElementById("settings-notify-modal");
   if (!modal) return;
-  if (settingsState.dmPrefs) applyDmPrefsToModal(settingsState.dmPrefs);
-  modal.style.display = "";
-  modal.classList.add("settings-notify-modal--open");
-  if (tg?.BackButton) {
-    if (!settingsState.notifyBackHandler) {
-      settingsState.notifyBackHandler = () => closeSettingsNotifyModal();
+  void ensureDmNotificationPrefsLoaded().then((prefs) => {
+    if (prefs) applyDmPrefsToModal(prefs);
+    modal.style.display = "";
+    modal.classList.add("settings-notify-modal--open");
+    if (tg?.BackButton) {
+      if (!settingsState.notifyBackHandler) {
+        settingsState.notifyBackHandler = () => closeSettingsNotifyModal();
+      }
+      tg.BackButton.onClick(settingsState.notifyBackHandler);
+      tg.BackButton.show();
     }
-    tg.BackButton.onClick(settingsState.notifyBackHandler);
-    tg.BackButton.show();
-  }
+  });
 }
 
 function closeSettingsNotifyModal() {
@@ -2643,7 +2764,7 @@ function closeSettingsNotifyModal() {
   }
 }
 
-async function initSettingsPage() {
+function initSettingsPageBindings() {
   resetSettingsNotifyModalDom();
   closeSettingsNotifyModal();
 
@@ -2715,7 +2836,10 @@ async function initSettingsPage() {
   }
 
   settingsState.notifyModalReadyAt = Date.now() + 300;
+}
 
+async function initSettingsPage() {
+  initSettingsPageBindings();
   try {
     const prefs = await loadDmNotificationPrefs();
     applyDmPrefsToModal(prefs);
@@ -2732,7 +2856,7 @@ async function loadProfile(options = {}) {
   if (lite) params.set("lite", "1");
   const qs = params.toString();
   const profile = await apiFetch(`/profile${qs ? `?${qs}` : ""}`);
-  populateFromProfile(profile);
+  populateFromProfile(profile, { skipAtticRefresh: options.skipAtticRefresh === true });
   return profile;
 }
 
@@ -2784,7 +2908,7 @@ async function bootstrapPage(page, afterLoad) {
   await initPage(page);
   let profile = null;
   try {
-    profile = await loadProfile({ lite: true });
+    profile = await loadProfile({ lite: page !== "profile" });
   } catch (err) {
     if (isWebAppUnauthorizedError(err)) {
       console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
@@ -2814,12 +2938,48 @@ async function bootstrapPage(page, afterLoad) {
     console.warn("Tutorial bootstrap failed:", err);
   }
 
-  if (page === "settings" || page === "player") {
+  if (page === "settings") {
     try {
       await initSettingsPage();
     } catch (err) {
       console.warn("initSettingsPage failed:", err);
     }
+  }
+
+  return profile;
+}
+
+async function bootstrapTrainingHall() {
+  await initPage("training");
+  let profile = null;
+  const profilePromise = loadProfile({ lite: true, skipAtticRefresh: true })
+    .then((p) => {
+      profile = p;
+      return p;
+    })
+    .catch((err) => {
+      if (isWebAppUnauthorizedError(err)) {
+        console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
+        profile = { __authRequired: true };
+        return profile;
+      }
+      console.error("Failed to load profile:", err);
+      return null;
+    });
+  await Promise.all([profilePromise, loadPassiveSkillTree()]);
+  bindHiddenSkillsListenersOnce();
+  scheduleDeferredAtticRefresh(profile);
+
+  try {
+    const forced = new URLSearchParams(window.location.search).get("tutorial");
+    const hasWaifu = Boolean(
+      profile?.main_waifu && (profile.main_waifu.id != null || profile.main_waifu.level != null),
+    );
+    if (hasWaifu) {
+      window.WaifuApp?.Tutorial?.maybeRun("training", profile?.tutorial, forced);
+    }
+  } catch (err) {
+    console.warn("Tutorial bootstrap failed:", err);
   }
 
   return profile;
@@ -2859,33 +3019,192 @@ async function applyShopSmithNavigationIntent(intent) {
   }
 }
 
+async function bootstrapShopPage() {
+  await initPage("shop");
+  let profile = null;
+  const actHint = safeInt(profileState.currentProfile?.act ?? shopState.act, 1);
+  const shopSmithNavIntent = consumeShopSmithIntent();
+  const profilePromise = loadProfile({ lite: true, skipAtticRefresh: true })
+    .then((p) => {
+      profile = p;
+      return p;
+    })
+    .catch((err) => {
+      if (isWebAppUnauthorizedError(err)) {
+        console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
+        profile = { __authRequired: true };
+        return profile;
+      }
+      console.error("Failed to load profile:", err);
+      return null;
+    });
+
+  await Promise.all([profilePromise, loadShop(actHint)]);
+
+  const p = profile || profileState.currentProfile;
+  const act = safeInt(p?.act ?? actHint, 1);
+  applyShopHeroImages(act);
+  updateShopProfileError(p);
+  if (act !== actHint) {
+    await loadShop(act);
+  }
+  if (shopSmithNavIntent.openSmith) {
+    await applyShopSmithNavigationIntent(shopSmithNavIntent);
+  }
+  ensureShopSellToolbar();
+  updateShopGambleCost();
+  scheduleDeferredAtticRefresh(profile);
+
+  try {
+    const forced = new URLSearchParams(window.location.search).get("tutorial");
+    const hasWaifu = Boolean(
+      p?.main_waifu && (p.main_waifu.id != null || p.main_waifu.level != null),
+    );
+    if (hasWaifu) {
+      window.WaifuApp?.Tutorial?.maybeRun("shop", p?.tutorial, forced);
+    }
+  } catch (err) {
+    console.warn("Tutorial bootstrap failed:", err);
+  }
+
+  return profile;
+}
+
+async function bootstrapTavernPage() {
+  await initPage("tavern");
+  let profile = null;
+  const profilePromise = loadProfile({ lite: true, skipAtticRefresh: true })
+    .then((p) => {
+      profile = p;
+      return p;
+    })
+    .catch((err) => {
+      if (isWebAppUnauthorizedError(err)) {
+        console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
+        profile = { __authRequired: true };
+        return profile;
+      }
+      console.error("Failed to load profile:", err);
+      return null;
+    });
+  const availablePromise = apiFetch("/tavern/available").catch((err) => {
+    console.error("Failed to load tavern available:", err);
+    return null;
+  });
+  const [, available] = await Promise.all([profilePromise, availablePromise]);
+  const p = profile || profileState.currentProfile || { act: 1 };
+  try {
+    await window.WaifuApp?.loadTavernWithProfile?.(p, { preloadedAvailable: available });
+  } catch (err) {
+    console.error("Failed to bootstrap tavern:", err);
+  }
+  scheduleDeferredAtticRefresh(profile);
+
+  try {
+    const forced = new URLSearchParams(window.location.search).get("tutorial");
+    const hasWaifu = Boolean(
+      p?.main_waifu && (p.main_waifu.id != null || p.main_waifu.level != null),
+    );
+    if (hasWaifu) {
+      window.WaifuApp?.Tutorial?.maybeRun("tavern", p?.tutorial, forced);
+    }
+  } catch (err) {
+    console.warn("Tutorial bootstrap failed:", err);
+  }
+
+  return profile;
+}
+
+async function bootstrapPlayerPage() {
+  await initPage("player");
+  initSettingsPageBindings();
+
+  const viewId = getPlayerViewIdFromQuery();
+  let profile = null;
+  const profilePromise = loadProfile({ lite: true, skipAtticRefresh: true })
+    .then((p) => {
+      profile = p;
+      return p;
+    })
+    .catch((err) => {
+      if (isWebAppUnauthorizedError(err)) {
+        console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
+        profile = { __authRequired: true };
+        return profile;
+      }
+      console.error("Failed to load profile:", err);
+      return null;
+    });
+
+  const playerProfilePromise =
+    viewId == null
+      ? apiFetch("/player/profile").catch((err) => {
+          console.error("Failed to load player profile:", err);
+          return null;
+        })
+      : profilePromise.then((p) => {
+          const selfId = p?.player_id != null ? Number(p.player_id) : null;
+          const path =
+            viewId != null && (selfId == null || viewId !== selfId)
+              ? `/player/${encodeURIComponent(viewId)}/profile`
+              : "/player/profile";
+          return apiFetch(path).catch((err) => {
+            console.error("Failed to load player profile:", err);
+            return null;
+          });
+        });
+
+  const [, preloadedPlayerProfile] = await Promise.all([profilePromise, playerProfilePromise]);
+  const p = profile || profileState.currentProfile || {};
+
+  try {
+    await initPlayerPage(p, { preloadedPlayerProfile });
+  } catch (err) {
+    console.error("Failed to bootstrap player page:", err);
+  }
+
+  schedulePlayerMailBadgeRefresh();
+
+  try {
+    const forced = new URLSearchParams(window.location.search).get("tutorial");
+    const hasWaifu = Boolean(
+      p?.main_waifu && (p.main_waifu.id != null || p.main_waifu.level != null),
+    );
+    if (hasWaifu) {
+      window.WaifuApp?.Tutorial?.maybeRun("player", p?.tutorial, forced);
+    }
+  } catch (err) {
+    console.warn("Tutorial bootstrap failed:", err);
+  }
+
+  return profile;
+}
+
+function updateShopProfileError(profile) {
+  const p = profile || profileState.currentProfile;
+  const errBox = document.getElementById("shop-profile-error");
+  if (!errBox) return;
+  if (!p?.main_waifu) {
+    errBox.textContent = "Сначала создайте вайфу.";
+    errBox.style.display = "";
+  } else {
+    errBox.style.display = "none";
+    errBox.textContent = "";
+  }
+}
+
 async function shopPageBootstrap(profile, merchantMeta) {
   void merchantMeta;
   const p = profile || profileState.currentProfile || { act: 1 };
   const act = safeInt(p?.act ?? shopState.act, 1);
   shopState.act = act;
   shopState.activeTab = shopState.activeTab || "buy";
-
-  applyShopHeroImages(act);
-
-  const errBox = document.getElementById("shop-profile-error");
-  if (errBox) {
-    if (!p?.main_waifu) {
-      errBox.textContent = "Сначала создайте вайфу.";
-      errBox.style.display = "";
-    } else {
-      errBox.style.display = "none";
-      errBox.textContent = "";
-    }
-  }
-
+  updateShopProfileError(p);
   await loadShop(act);
   return p;
 }
 
 async function loadShop(act) {
-  applyShopHeroImages(act);
-  const shopSmithNavIntent = consumeShopSmithIntent();
   const data = await apiFetch(`/shop/inventory?act=${act}`);
   shopState.act = act;
   shopState.size = safeInt(data?.size, 12);
@@ -2918,7 +3237,7 @@ async function loadShop(act) {
       const priceBottomStr = offer && !isSold && offer?.price != null
         ? `🪙 ${offer.price}`
         : (isSold ? "Продано" : "—");
-      const iconHtml = offer ? itemArtHtml(offer) : "🎁";
+      const iconHtml = offer ? itemArtHtml(offer, { lazy: true }) : "🎁";
       card.dataset.shopSlot = String(s);
       card.innerHTML = `
         <div class="item-icon">${iconHtml}</div>
@@ -2934,14 +3253,10 @@ async function loadShop(act) {
       newGrid.appendChild(card);
     }
 
-    generateMerchantLine(shopState.activeTab || "buy").catch(() => {});
     const sellBtn = document.getElementById("shop-sell-submit");
     if (sellBtn) sellBtn.style.display = (shopState.activeTab || "buy") === "sell" ? "" : "none";
     if ((shopState.activeTab || "buy") === "smith") {
       loadSmithTab().catch(() => {});
-    }
-    if (shopSmithNavIntent.openSmith) {
-      await applyShopSmithNavigationIntent(shopSmithNavIntent);
     }
     ensureShopSellToolbar();
     return data;
@@ -2989,7 +3304,7 @@ async function loadShop(act) {
     const priceBottomStr = offer && !isSold && offer?.price != null
       ? `🪙 ${offer.price}`
       : (isSold ? "Продано" : "—");
-    const iconHtml = offer ? itemArtHtml(offer) : "🎁";
+    const iconHtml = offer ? itemArtHtml(offer, { lazy: true }) : "🎁";
     card.dataset.shopSlot = String(slot);
     card.innerHTML = `
       <div class="item-icon">${iconHtml}</div>
@@ -3023,7 +3338,203 @@ function rarityClassFromValue(r) {
 }
 
 async function refreshMerchantLine() {
-  return generateMerchantLine(shopState.activeTab || "buy");
+  return onShopHeroAdvice(shopState.activeTab || "buy");
+}
+
+let shopHeroDialogTimer = null;
+const SHOP_HERO_DIALOG_MS = 5000;
+
+function hideShopHeroDialogs() {
+  clearTimeout(shopHeroDialogTimer);
+  shopHeroDialogTimer = null;
+  document.querySelectorAll("body.page-shop .shop-dialog.show").forEach((el) => {
+    el.classList.remove("show");
+  });
+}
+
+function updateShopHeroDialogText(tab, html) {
+  const textEl = document.getElementById(`shop-dialog-text-${tab}`);
+  if (textEl) textEl.innerHTML = html;
+}
+
+function showShopHeroDialog(tab, html) {
+  const ctx = tab || shopState.activeTab || "buy";
+  const dialog = document.getElementById(`shop-dialog-${ctx}`);
+  const textEl = document.getElementById(`shop-dialog-text-${ctx}`);
+  const fillEl = document.getElementById(`shop-dialog-timer-fill-${ctx}`);
+  if (!dialog || !textEl) return;
+
+  document.querySelectorAll("body.page-shop .shop-dialog.show").forEach((el) => {
+    if (el !== dialog) el.classList.remove("show");
+  });
+
+  textEl.innerHTML = html;
+  dialog.classList.add("show");
+
+  if (fillEl) {
+    fillEl.style.transition = "none";
+    fillEl.style.width = "100%";
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        fillEl.style.transition = `width ${SHOP_HERO_DIALOG_MS}ms linear`;
+        fillEl.style.width = "0%";
+      });
+    });
+  }
+
+  clearTimeout(shopHeroDialogTimer);
+  shopHeroDialogTimer = setTimeout(() => {
+    dialog.classList.remove("show");
+    shopHeroDialogTimer = null;
+  }, SHOP_HERO_DIALOG_MS);
+}
+
+function prepareMerchantAdvice(context) {
+  const ctx = context || shopState.activeTab || "buy";
+  shopState.merchantPickBuySlot = null;
+  shopState.merchantPickSellId = null;
+
+  if (ctx === "buy") {
+    const available = (shopState.offers || []).filter((o) => !o?.sold);
+    if (!available.length) {
+      return {
+        cacheKey: "buy:empty",
+        fallback: "На сегодня товара нет, странник. Загляни позже.",
+        apiBody: null,
+      };
+    }
+    const chosen = available[Math.floor(Math.random() * available.length)];
+    const slot = resolveShopOfferSlot(chosen);
+    if (slot != null) shopState.merchantPickBuySlot = slot;
+    const fallback = `Странник, присмотрись к <b>${escapeHtml(String(chosen?.display_name || chosen?.name || "товару"))}</b> — отличная вещь для твоего пути.`;
+    return {
+      cacheKey: `buy:${slot ?? chosen?.id ?? chosen?.name}`,
+      fallback,
+      apiBody: {
+        context: "buy",
+        name: chosen?.display_name || chosen?.name || "предмет",
+        level: Number(chosen?.level || 1),
+        rarity: rarityLabel(chosen?.rarity || 1),
+        bonuses: typeof getItemBonusesText === "function" ? getItemBonusesText(chosen) : "",
+      },
+    };
+  }
+
+  if (ctx === "sell") {
+    const items = shopState.sellItems || [];
+    if (!items.length) {
+      return {
+        cacheKey: "sell:empty",
+        fallback:
+          "Развяжи ремни сумки — покажи, что продаёшь, странник. Золото у меня есть, а терпение — на вес.",
+        apiBody: null,
+      };
+    }
+    const chosen = items[Math.floor(Math.random() * items.length)];
+    if (chosen?.id != null) shopState.merchantPickSellId = Number(chosen.id);
+    const fallback = `Дай глянуть на <b>${escapeHtml(String(chosen?.display_name || chosen?.name || "эту штуку"))}</b>, странник — может, сойдёмся в цене.`;
+    return {
+      cacheKey: `sell:${chosen?.id ?? chosen?.name}`,
+      fallback,
+      apiBody: {
+        context: "sell",
+        name: chosen?.display_name || chosen?.name || "предмет",
+        level: Number(chosen?.level || 1),
+        rarity: rarityLabel(chosen?.rarity || 1),
+        bonuses: typeof getItemBonusesText === "function" ? getItemBonusesText(chosen) : "",
+      },
+    };
+  }
+
+  if (ctx === "gamble") {
+    return {
+      cacheKey: "gamble",
+      fallback:
+        "Испытай удачу, странник! Мистическая гемба голодна по золоту — зато сыплет редкостями не хуже драконьего логова.",
+      apiBody: {
+        context: "gamble",
+        name: "",
+        level: 1,
+        rarity: "",
+        bonuses: "",
+      },
+    };
+  }
+
+  return {
+    cacheKey: "smith",
+    fallback:
+      "Кузнец затачивает сталь до звона. До +7 — без риска; выше удача решает судьбу клинка. Камень защиты убережёт от поломки.",
+    apiBody: {
+      context: "smith",
+      name: "заточка",
+      level: 1,
+      rarity: "",
+      bonuses: "",
+    },
+  };
+}
+
+async function fetchMerchantLineAi(apiBody, fallback, cacheKey) {
+  const cached = shopState.merchantLineCache[cacheKey];
+  if (cached) return cached;
+  try {
+    const payload = await apiFetch("/shop/merchant-line", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(apiBody),
+    });
+    const text = String(payload?.text || "").trim();
+    const out = text || fallback;
+    if (!text && payload?.error && typeof console !== "undefined" && console.warn) {
+      console.warn("[shop merchant-line]", payload.error);
+    }
+    shopState.merchantLineCache[cacheKey] = out;
+    return out;
+  } catch (e) {
+    if (typeof console !== "undefined" && console.warn) {
+      console.warn("[shop merchant-line] запрос не удался:", e?.message || e);
+    }
+    return fallback;
+  }
+}
+
+async function onShopHeroAdvice(tab) {
+  const ctx = tab || shopState.activeTab || "buy";
+  window.__shopMerchantTab = ctx;
+  shopState.merchantAdviceUnlocked = false;
+
+  const { cacheKey, fallback, apiBody } = prepareMerchantAdvice(ctx);
+  window.__shopMerchantLine = shopState.merchantLineCache[cacheKey] || fallback;
+
+  revealMerchantAdvice();
+  showShopHeroDialog(ctx, window.__shopMerchantLine);
+
+  if (!apiBody) return window.__shopMerchantLine;
+
+  const cached = shopState.merchantLineCache[cacheKey];
+  if (cached) return cached;
+
+  const text = await fetchMerchantLineAi(apiBody, fallback, cacheKey);
+  window.__shopMerchantLine = text;
+  const dialog = document.getElementById(`shop-dialog-${ctx}`);
+  if (dialog?.classList.contains("show")) {
+    updateShopHeroDialogText(ctx, text);
+  }
+  applyShopMerchantHighlight();
+  return text;
+}
+
+/**
+ * Подготовка реплики торговца (без сетевого запроса; AI — только через onShopHeroAdvice).
+ */
+async function generateMerchantLine(context) {
+  const ctx = context || shopState.activeTab || "buy";
+  const { cacheKey, fallback } = prepareMerchantAdvice(ctx);
+  window.__shopMerchantTab = ctx;
+  window.__shopMerchantLine = shopState.merchantLineCache[cacheKey] || fallback;
+  applyShopMerchantHighlight();
+  return window.__shopMerchantLine;
 }
 
 /** Цена гембы как на бэкенде (game.constants + formulas.calculate_gamble_price). */
@@ -3042,147 +3553,6 @@ function updateShopGambleCost() {
   const lvl = Number(w?.level) || 1;
   const price = calculateGamblePriceClient(lvl);
   el.textContent = `🪙 ${price.toLocaleString()} золота`;
-}
-
-/**
- * Подготовка реплики торговца под вкладку: buy / sell / gamble.
- * Выставляет window.__shopMerchantLine и window.__shopMerchantTab.
- */
-async function generateMerchantLine(context) {
-  const ctx = context || shopState.activeTab || "buy";
-  window.__shopMerchantTab = ctx;
-  shopState.merchantAdviceUnlocked = false;
-  shopState.merchantPickBuySlot = null;
-  shopState.merchantPickSellId = null;
-
-  try {
-    if (ctx === "buy") {
-      const items = shopState.offers || [];
-      const available = items.filter((o) => !o?.sold);
-      if (!available.length) {
-        window.__shopMerchantLine = "На сегодня товара нет, странник. Загляни позже.";
-        return;
-      }
-      const chosen = available[Math.floor(Math.random() * available.length)];
-      if (!chosen) return;
-
-      const slot = resolveShopOfferSlot(chosen);
-      if (slot != null) shopState.merchantPickBuySlot = slot;
-
-      const fallback = `Странник, присмотрись к <b>${escapeHtml(String(chosen?.display_name || chosen?.name || "товару"))}</b> — отличная вещь для твоего пути.`;
-
-      try {
-        const payload = await apiFetch("/shop/merchant-line", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            context: "buy",
-            name: chosen?.display_name || chosen?.name || "предмет",
-            level: Number(chosen?.level || 1),
-            rarity: rarityLabel(chosen?.rarity || 1),
-            bonuses: typeof getItemBonusesText === "function" ? getItemBonusesText(chosen) : "",
-          }),
-        });
-        const text = String(payload?.text || "").trim();
-        window.__shopMerchantLine = text || fallback;
-        if (!text && payload?.error && typeof console !== "undefined" && console.warn) {
-          console.warn("[shop merchant-line]", payload.error);
-        }
-      } catch (e) {
-        window.__shopMerchantLine = fallback;
-        if (typeof console !== "undefined" && console.warn) console.warn("[shop merchant-line] запрос не удался:", e?.message || e);
-      }
-      return;
-    }
-
-    if (ctx === "sell") {
-      const items = shopState.sellItems || [];
-      if (!items.length) {
-        window.__shopMerchantLine =
-          "Развяжи ремни сумки — покажи, что продаёшь, странник. Золото у меня есть, а терпение — на вес.";
-        return;
-      }
-      const chosen = items[Math.floor(Math.random() * items.length)];
-      if (chosen?.id != null) shopState.merchantPickSellId = Number(chosen.id);
-
-      const fallback = `Дай глянуть на <b>${escapeHtml(String(chosen?.display_name || chosen?.name || "эту штуку"))}</b>, странник — может, сойдёмся в цене.`;
-
-      try {
-        const payload = await apiFetch("/shop/merchant-line", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            context: "sell",
-            name: chosen?.display_name || chosen?.name || "предмет",
-            level: Number(chosen?.level || 1),
-            rarity: rarityLabel(chosen?.rarity || 1),
-            bonuses: typeof getItemBonusesText === "function" ? getItemBonusesText(chosen) : "",
-          }),
-        });
-        const text = String(payload?.text || "").trim();
-        window.__shopMerchantLine = text || fallback;
-        if (!text && payload?.error && typeof console !== "undefined" && console.warn) {
-          console.warn("[shop merchant-line]", payload.error);
-        }
-      } catch (e) {
-        window.__shopMerchantLine = fallback;
-        if (typeof console !== "undefined" && console.warn) console.warn("[shop merchant-line] запрос не удался:", e?.message || e);
-      }
-      return;
-    }
-
-    if (ctx === "gamble") {
-      const fallback =
-        "Испытай удачу, странник! Мистическая гемба голодна по золоту — зато сыплет редкостями не хуже драконьего логова.";
-      try {
-        const payload = await apiFetch("/shop/merchant-line", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            context: "gamble",
-            name: "",
-            level: 1,
-            rarity: "",
-            bonuses: "",
-          }),
-        });
-        const text = String(payload?.text || "").trim();
-        window.__shopMerchantLine = text || fallback;
-        if (!text && payload?.error && typeof console !== "undefined" && console.warn) {
-          console.warn("[shop merchant-line]", payload.error);
-        }
-      } catch (e) {
-        window.__shopMerchantLine = fallback;
-        if (typeof console !== "undefined" && console.warn) console.warn("[shop merchant-line] запрос не удался:", e?.message || e);
-      }
-      return;
-    }
-
-    if (ctx === "smith") {
-      const fallback =
-        "Кузнец затачивает сталь до звона. До +7 — без риска; выше удача решает судьбу клинка. Камень защиты убережёт от поломки.";
-      window.__shopMerchantLine = fallback;
-      try {
-        const payload = await apiFetch("/shop/merchant-line", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            context: "smith",
-            name: "заточка",
-            level: 1,
-            rarity: "",
-            bonuses: "",
-          }),
-        });
-        const text = String(payload?.text || "").trim();
-        if (text) window.__shopMerchantLine = text;
-      } catch {
-        /* keep fallback */
-      }
-    }
-  } finally {
-    applyShopMerchantHighlight();
-  }
 }
 
 const expeditionState = {
@@ -3225,22 +3595,14 @@ function switchShopTab(name) {
     const sellBtn = document.getElementById("shop-sell-submit");
     if (sellBtn) sellBtn.style.display = name === "sell" ? "" : "none";
     if (name === "sell") {
-      loadSellInventory()
-        .then(() => {
-          syncShopSellToolbarUI();
-          return generateMerchantLine("sell").catch(() => {});
-        })
-        .catch(console.error);
+      loadSellInventory().then(() => syncShopSellToolbarUI()).catch(console.error);
     } else if (name === "smith") {
       loadSmithTab().catch(console.error);
-      generateMerchantLine("smith").catch(() => {});
     } else if (name === "gamble") {
       loadGambleTab(shopState.act || 1).catch(console.error);
-      generateMerchantLine("gamble").catch(() => {});
-    } else {
-      generateMerchantLine(name).catch(() => {});
     }
   }
+  hideShopHeroDialogs();
 }
 
 function sortSmithInventoryItems(items) {
@@ -4284,7 +4646,6 @@ async function sellSelected() {
   await loadProfile().catch(console.error);
   await loadSellInventory().catch(console.error);
   updateSellResultHint();
-  await generateMerchantLine("sell").catch(() => {});
 }
 
 function openShopGambleResultModal(item, pricePaid, goldRemaining) {
@@ -4875,6 +5236,7 @@ function itemImageUrl(item) {
 function itemArtHtml(item, options = {}) {
   if (!item) return `${itemArtEmoji(item)}`;
   const adminGen = Boolean(options.adminGen);
+  const lazyLoad = Boolean(options.lazy);
   const maybeWrap = (img) => (adminGen ? wrapItemImageWithAdminGen(item, img) : img);
   const tier = itemArtTierNormalized(item);
   const artKey = String(item?.art_key || "").trim();
@@ -4892,12 +5254,16 @@ function itemArtHtml(item, options = {}) {
     const onErr = svgUrl
       ? `this.onerror=null;this.src='${svgUrl}';`
       : `this.onerror=null;this.remove();`;
-    const img = `<img src="${webpUrl}" alt="" onerror="${onErr}" />`;
+    const lazyAttrs = lazyLoad ? ' loading="lazy" decoding="async"' : "";
+    const img = `<img src="${webpUrl}" alt=""${lazyAttrs} onerror="${onErr}" />`;
     return maybeWrap(img);
   }
 
   const url = itemImageUrl(item);
-  if (url) return maybeWrap(`<img src="${url}" alt="" />`);
+  if (url) {
+    const lazyAttrs = lazyLoad ? ' loading="lazy" decoding="async"' : "";
+    return maybeWrap(`<img src="${url}" alt=""${lazyAttrs} />`);
+  }
   return `${itemArtEmoji(item)}`;
 }
 
@@ -5381,9 +5747,11 @@ function renderProfilePortrait(waifu) {
     metaEl.textContent = `${raceName(waifu?.race)} · ${className(waifu?.class ?? waifu?.class_)}`;
   }
 
-  const portraitUrl = String(
-    waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
-  ).trim();
+  const portraitUrl = resolveImageUrl(
+    String(
+      waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
+    ).trim()
+  );
   const bg = document.getElementById("profile-mtg-bg");
   const fallback = document.getElementById("profile-mtg-fallback");
   if (bg) {
@@ -5691,10 +6059,12 @@ function paperdollGenerationsRemaining(waifu) {
 }
 
 function renderProfilePaperDoll(waifu) {
-  const paperdollUrl = String(waifu?.paperdoll_url || "").trim();
-  const portraitUrl = String(
-    waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
-  ).trim();
+  const paperdollUrl = resolveImageUrl(String(waifu?.paperdoll_url || "").trim());
+  const portraitUrl = resolveImageUrl(
+    String(
+      waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
+    ).trim()
+  );
   const hasPortrait = Boolean(portraitUrl);
   const admin = isAdminUser();
   const gensLeft = paperdollGenerationsRemaining(waifu);
@@ -6054,10 +6424,10 @@ async function reloadProfileEquipment() {
 
 async function populateProfile(profile) {
   let p = profile;
-  if (isProfilePage()) {
-    p = await loadProfile({ lite: false });
+  if (!isProfilePage()) {
+    if (!p) p = await loadProfile({ lite: true });
   } else if (!p) {
-    p = await loadProfile({ lite: true });
+    p = await loadProfile({ lite: false });
   }
   const w = p?.main_waifu;
   const mainEl = document.querySelector("main.profile-layout");
@@ -6098,7 +6468,6 @@ async function populateProfile(profile) {
   renderStatsStrip("profile-stats-strip", w);
   renderStatsBreakdown("profile-stats-breakdown", w, profileState.currentDetails);
   renderProfileIndicators(w, profileState.currentDetails);
-  renderProfileStatistics();
   switchProfileInfoTab(profileState.infoTab);
 
   const invTabActive = document.getElementById("tab-inventory")?.classList.contains("active");
@@ -6117,7 +6486,14 @@ async function populateProfile(profile) {
     }
   }
 
-  await loadChatRewardsStatus().catch(() => null);
+  const scheduleChatRewards = () => {
+    loadChatRewardsStatus().catch(() => null);
+  };
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(scheduleChatRewards, { timeout: 2500 });
+  } else {
+    setTimeout(scheduleChatRewards, 0);
+  }
 
   try {
     const tab = new URLSearchParams(window.location.search).get("tab");
@@ -7604,9 +7980,50 @@ const guildHallState = {
   questsLoading: false,
   heroMenuListener: false,
   membersModalGuardUntil: 0,
+  historyLoaded: false,
 };
 
 const GUILD_MEMBERS_MODAL_GUARD_MS = 400;
+const GUILD_ME_CACHE_MS = 8000;
+const guildMeCache = { data: null, ts: 0, inFlight: null };
+
+function invalidateGuildMeCache() {
+  guildMeCache.data = null;
+  guildMeCache.ts = 0;
+  guildHallState.historyLoaded = false;
+}
+
+async function fetchGuildMe(opts = {}) {
+  const force = opts.force === true;
+  const now = Date.now();
+  if (!force && guildMeCache.data && now - guildMeCache.ts < GUILD_ME_CACHE_MS) {
+    return guildMeCache.data;
+  }
+  if (guildMeCache.inFlight) return guildMeCache.inFlight;
+  guildMeCache.inFlight = apiFetch("/guilds/me")
+    .then((data) => {
+      guildMeCache.data = data;
+      guildMeCache.ts = Date.now();
+      guildMeCache.inFlight = null;
+      return data;
+    })
+    .catch((err) => {
+      guildMeCache.inFlight = null;
+      throw err;
+    });
+  return guildMeCache.inFlight;
+}
+
+async function loadGuildHistoryTab() {
+  if (guildHallState.historyLoaded && Array.isArray(guildHallState.me?.history)) {
+    return guildHallState.me.history;
+  }
+  const data = await apiFetch("/guilds/me/history");
+  const history = Array.isArray(data?.history) ? data.history : [];
+  if (guildHallState.me) guildHallState.me.history = history;
+  guildHallState.historyLoaded = true;
+  return history;
+}
 
 function isGuildLeader(d) {
   if (!d) return false;
@@ -8049,9 +8466,9 @@ function guildMemberRankLabel(m) {
 }
 
 function guildMemberAvatarHtml(m) {
-  const url = (m.portrait_url || "").trim();
-  if (url) {
-    return `<img class="guild-member-avatar" src="${escapeHtml(url)}" alt="" loading="lazy" />`;
+  const url = resolveImageUrl((m.portrait_url || "").trim());
+  if (url && m.has_portrait !== false) {
+    return `<img class="guild-member-avatar" src="${escapeHtml(url)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'guild-member-avatar guild-member-avatar--fallback',textContent:'🧙',ariaHidden:'true'}))" />`;
   }
   return `<div class="guild-member-avatar guild-member-avatar--fallback" aria-hidden="true">🧙</div>`;
 }
@@ -8140,7 +8557,7 @@ async function guildKickMember(targetId) {
       return;
     }
     showToast("Участник исключён", "success");
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
     refreshGuildMembersModal();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -8172,7 +8589,7 @@ async function guildSetMemberRank(targetId, role) {
           ? "Участник назначен офицером"
           : "Офицер снят";
     showToast(toastMsg, "success");
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
     refreshGuildMembersModal();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -8432,7 +8849,7 @@ async function confirmGuildBankTake() {
     }
     showToast("Предмет взят из банка");
     closeGuildBankItemModal();
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -8491,7 +8908,7 @@ async function confirmGuildBankGoldDeposit() {
     }
     closeGuildBankGoldModal();
     await loadProfile().catch(() => {});
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -8514,7 +8931,7 @@ async function confirmGuildBankGoldTake() {
     showToast("Золото снято из банка");
     closeGuildBankGoldModal();
     await loadProfile().catch(() => {});
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -8651,7 +9068,7 @@ async function confirmGuildBankDepositItem() {
     }
     closeGuildBankDepositItemPreview();
     closeGuildBankDepositModal();
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -8774,7 +9191,7 @@ async function guildSkillUpgrade(skillId) {
     }
     showToast("Навык улучшен");
     closeGuildSkillModal();
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -8790,7 +9207,7 @@ async function guildSkillReset() {
       return;
     }
     showToast("Навыки сброшены");
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -9348,6 +9765,9 @@ function openPlayerSection(section) {
   if (playerPageState.activeSection === "guild") {
     renderPlayerGuildBlock().catch(() => {});
   }
+  if (playerPageState.activeSection === "settings") {
+    ensureDmNotificationPrefsLoaded().catch(() => {});
+  }
 }
 
 function applyPlayerHashSection() {
@@ -9394,7 +9814,10 @@ function renderPlayerWaifuShowcase(data) {
   }
   if (img) {
     if (url) {
-      img.src = url;
+      if (img.dataset.showcaseSrc !== url) {
+        img.dataset.showcaseSrc = url;
+        img.src = url;
+      }
       img.hidden = false;
       if (emptyEl) emptyEl.hidden = true;
     } else {
@@ -9804,6 +10227,36 @@ function initPlayerShowcaseToggle() {
   });
 }
 
+function fillPlayerAvatarPresetGrid(grid, closeModal) {
+  if (!grid || grid.__filled) return;
+  grid.__filled = true;
+  let html = "";
+  for (let i = 1; i <= PLAYER_AVATAR_PRESET_COUNT; i++) {
+    const url = `/static/game/ui/player-avatars/preset-${String(i).padStart(2, "0")}.webp`;
+    html += `<button type="button" class="player-avatar-preset-btn" data-preset-id="${i}" aria-label="Пресет ${i}"><img src="${url}" alt="" loading="lazy" decoding="async" /></button>`;
+  }
+  grid.innerHTML = html;
+  grid.querySelectorAll(".player-avatar-preset-btn").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const pid = Number(b.getAttribute("data-preset-id"));
+      try {
+        const data = await apiFetch("/player/profile", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ avatar_preset_id: pid, clear_custom_avatar: true }),
+        });
+        playerPageState.cachedAvatarUrl = data.avatar_url;
+        applyPlayerProfilePayload(data, profileState.currentProfile);
+        applyPlayerAvatarUrl(data.avatar_url, profileState.currentProfile);
+        if (typeof closeModal === "function") closeModal();
+      } catch (e) {
+        const { detail } = parseHttpErrorDetail(e);
+        showToast(detail || "Ошибка", "error");
+      }
+    });
+  });
+}
+
 function initPlayerAvatarModal() {
   if (window.__waifuPlayerAvatarModalBound) return;
   window.__waifuPlayerAvatarModalBound = true;
@@ -9814,48 +10267,21 @@ function initPlayerAvatarModal() {
   const fileInput = document.getElementById("player-avatar-file-input");
   const resetBtn = document.getElementById("player-avatar-reset-preset");
 
-  if (grid && !grid.__filled) {
-    grid.__filled = true;
-    let html = "";
-    for (let i = 1; i <= PLAYER_AVATAR_PRESET_COUNT; i++) {
-      const url = `/static/game/ui/player-avatars/preset-${String(i).padStart(2, "0")}.webp`;
-      html += `<button type="button" class="player-avatar-preset-btn" data-preset-id="${i}" aria-label="Пресет ${i}"><img src="${url}" alt="" /></button>`;
-    }
-    grid.innerHTML = html;
-    grid.querySelectorAll(".player-avatar-preset-btn").forEach((b) => {
-      b.addEventListener("click", async () => {
-        const pid = Number(b.getAttribute("data-preset-id"));
-        try {
-          const data = await apiFetch("/player/profile", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ avatar_preset_id: pid, clear_custom_avatar: true }),
-          });
-          playerPageState.cachedAvatarUrl = data.avatar_url;
-          applyPlayerProfilePayload(data, profileState.currentProfile);
-          applyPlayerAvatarUrl(data.avatar_url, profileState.currentProfile);
-          closeModal();
-        } catch (e) {
-          const { detail } = parseHttpErrorDetail(e);
-          showToast(detail || "Ошибка", "error");
-        }
-      });
-    });
-  }
+  const closeModal = () => {
+    if (!modal) return;
+    modal.classList.remove("player-avatar-modal--open");
+    modal.style.display = "none";
+  };
 
   const openModal = () => {
     if (playerPageState.isViewMode || !modal) return;
+    fillPlayerAvatarPresetGrid(grid, closeModal);
     const cur = playerPageState.profileData?.avatar_preset_id || 1;
     grid?.querySelectorAll(".player-avatar-preset-btn").forEach((x) => {
       x.classList.toggle("selected", Number(x.getAttribute("data-preset-id")) === Number(cur));
     });
     modal.style.display = "";
     modal.classList.add("player-avatar-modal--open");
-  };
-  const closeModal = () => {
-    if (!modal) return;
-    modal.classList.remove("player-avatar-modal--open");
-    modal.style.display = "none";
   };
 
   openBtn?.addEventListener("click", openModal);
@@ -9909,10 +10335,13 @@ function initPlayerAvatarModal() {
   });
 }
 
-async function initPlayerPage(profile) {
+async function initPlayerPage(profile, opts = {}) {
   const fallback = profile || profileState.currentProfile || {};
   const viewId = getPlayerViewIdFromQuery();
-  const selfId = fallback?.player_id != null ? Number(fallback.player_id) : null;
+  let selfId = fallback?.player_id != null ? Number(fallback.player_id) : null;
+  if (opts.preloadedPlayerProfile?.player_id != null && opts.preloadedPlayerProfile?.is_self) {
+    selfId = Number(opts.preloadedPlayerProfile.player_id);
+  }
   playerPageState.viewPlayerId = viewId;
   playerPageState.selfPlayerId = selfId;
   playerPageState.isViewMode = viewId != null && (selfId == null || viewId !== selfId);
@@ -9926,13 +10355,12 @@ async function initPlayerPage(profile) {
   syncPlayerViewModeUi();
 
   try {
-    if (playerPageState.isViewMode) {
+    if (opts.preloadedPlayerProfile != null) {
+      applyPlayerProfilePayload(opts.preloadedPlayerProfile, fallback);
+    } else if (playerPageState.isViewMode) {
       await loadPublicPlayerProfile(viewId, fallback);
     } else {
       await loadSelfPlayerProfile(fallback);
-      if (!playerPageState.isViewMode) {
-        refreshAtticMailBadge().catch(() => {});
-      }
     }
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -10118,7 +10546,7 @@ async function uploadGuildBanner(fileInput) {
     }
     showToast("Баннер гильдии обновлён");
     if (fileInput) fileInput.value = "";
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -10141,7 +10569,7 @@ async function uploadGuildIcon(fileInput) {
       throw new Error(`HTTP ${res.status}: ${text || "failed"}`);
     }
     showToast("Эмблема обновлена");
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail || "Ошибка загрузки"), "error");
@@ -10175,7 +10603,7 @@ async function createGuildFromHall() {
     await apiFetch(`/guilds${qs}`, { method: "POST" });
     showToast("Гильдия создана");
     await loadProfile().catch(() => {});
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     const msg = guildCreateErrorToUser(detail);
@@ -10194,7 +10622,7 @@ async function joinGuildFromSearch(guildId) {
       return;
     }
     showToast("Вы вступили в гильдию");
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -10211,7 +10639,7 @@ async function leaveGuildFromHall() {
     }
     showToast("Вы покинули гильдию");
     guildHallState.tab = "search";
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -10262,7 +10690,7 @@ async function startGuildRaidMuster() {
     guildHallState.raidEligibleMembers = null;
     guildHallState.raidParticipantIds = [];
     showToast("Сбор начат — приглашения в личку (3 ч)");
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -10296,7 +10724,7 @@ async function startGuildRaid(templateId) {
       return;
     }
     showToast("Рейд начат");
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -10311,7 +10739,7 @@ async function leaveGuildRaid() {
       return;
     }
     showToast(res?.raid_cancelled ? "Рейд завершён — можно начать новый" : "Вы вышли из рейда");
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(detail, "error");
@@ -10327,7 +10755,7 @@ async function cancelGuildRaid() {
       return;
     }
     showToast("Рейд отменён — можно начать новый");
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -10361,7 +10789,7 @@ async function declareGuildWar(targetGuildId, stakeGold) {
       return;
     }
     showToast("Война объявлена");
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -10380,7 +10808,7 @@ async function respondGuildWar(warId, accept) {
       return;
     }
     showToast(accept ? "Война принята" : "Война отклонена");
-    await populateGuildHall();
+    await refreshGuildHall({ force: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     showToast(guildApiErrorToUser(detail, detail), "error");
@@ -11161,7 +11589,14 @@ async function renderGuildTabContent() {
   }
 
   if (tab === "history") {
-    root.innerHTML = `<div class="guild-section-label">История</div>${renderGuildHistoryPane(d)}`;
+    root.innerHTML = `<p class="muted tiny" style="padding:12px 0;text-align:center">Загрузка истории…</p>`;
+    try {
+      await loadGuildHistoryTab();
+      root.innerHTML = `<div class="guild-section-label">История</div>${renderGuildHistoryPane(guildHallState.me)}`;
+    } catch (e) {
+      const { detail } = parseHttpErrorDetail(e);
+      root.innerHTML = `<p class="muted" style="color:#f87171">${escapeHtml(detail || "Не удалось загрузить историю")}</p>`;
+    }
     return;
   }
 
@@ -11217,7 +11652,11 @@ async function searchGuilds(query) {
   return runGuildSearch();
 }
 
-async function populateGuildHall(profile) {
+async function refreshGuildHall(opts = {}) {
+  return populateGuildHall(null, opts);
+}
+
+async function populateGuildHall(profile, opts = {}) {
   closeGuildMembersModal();
   const p = profile || profileState.currentProfile || {};
   guildHallState.profileGold = safeInt(p?.gold, 0);
@@ -11226,7 +11665,8 @@ async function populateGuildHall(profile) {
   const firstLoad = !guildHallState.me;
   if (firstLoad) setGuildPageLoading(true);
   try {
-    const data = await apiFetch("/guilds/me");
+    if (opts.force) guildHallState.historyLoaded = false;
+    const data = await fetchGuildMe({ force: Boolean(opts.force) || firstLoad });
     guildHallState.me = data;
     updateGuildHallChrome(Boolean(data?.in_guild));
     if (!data?.in_guild) {
@@ -11480,7 +11920,7 @@ function caravanPinImageUrls(act) {
 }
 
 /** Подбор картинки по цепочке URL (onerror → следующий). */
-function attachCaravanImage(el, urls, onGiveUp) {
+function attachCaravanImage(el, urls, onGiveUp, onResolved) {
   if (!el) {
     onGiveUp?.();
     return;
@@ -11494,9 +11934,15 @@ function attachCaravanImage(el, urls, onGiveUp) {
     }
     const url = urls[i];
     i += 1;
+    if (el.dataset.waifuResolvedImg === url) {
+      el.style.display = "";
+      return;
+    }
     el.onerror = () => next();
     el.onload = () => {
+      el.dataset.waifuResolvedImg = url;
       el.style.display = "";
+      onResolved?.(url);
     };
     el.src = url;
   }
@@ -11541,9 +11987,17 @@ const SHOP_HERO_KIND = { buy: "merchant", sell: "merchant", gamble: "gambler", s
 
 function applyShopHeroImages(currentAct) {
   const a = Math.max(1, Math.min(5, safeInt(currentAct, 1)));
+  const kindSrc = new Map();
   for (const [tab, kind] of Object.entries(SHOP_HERO_KIND)) {
     const img = document.getElementById(`shop-hero-img-${tab}`);
     const fb = document.getElementById(`shop-hero-fb-${tab}`);
+    const cachedSrc = kindSrc.get(kind);
+    if (cachedSrc && img) {
+      img.style.display = "";
+      img.src = cachedSrc;
+      if (fb) fb.style.display = "none";
+      continue;
+    }
     const heroUrls = [
       `${SHOP_STATIC_BASE}/act-${a}/${kind}.webp`,
       `${SHOP_STATIC_BASE}/${kind}_act${a}.webp`,
@@ -11552,10 +12006,17 @@ function applyShopHeroImages(currentAct) {
     if (img) {
       img.style.display = "";
       if (fb) fb.style.display = "none";
-      attachCaravanImage(img, heroUrls, () => {
-        img.style.display = "none";
-        if (fb) fb.style.display = "";
-      });
+      attachCaravanImage(
+        img,
+        heroUrls,
+        () => {
+          img.style.display = "none";
+          if (fb) fb.style.display = "";
+        },
+        (url) => {
+          kindSrc.set(kind, url);
+        },
+      );
     }
   }
 }
@@ -12935,6 +13396,8 @@ let trainingHallTab = "warrior";
 let passiveTreeListenersBound = false;
 let hiddenSkillsCache = [];
 let hiddenSkillsListenersBound = false;
+let hiddenSkillsLoaded = false;
+let hiddenSkillsLoadInFlight = null;
 const HIDDEN_SKILL_WEBP_BASE = `${GAME_STATIC_BASE}/hidden-skills/webp`;
 const PASSIVE_SKILL_PLACEHOLDER = `${GAME_STATIC_BASE}/passive-skill-placeholder.svg`;
 const PASSIVE_SKILL_WEBP_BASE = `${GAME_STATIC_BASE}/passive-skills/webp`;
@@ -13509,6 +13972,7 @@ function bindPassiveTreeListenersOnce() {
       trainingHallTab = key;
       if (key === "hidden") {
         applyTrainingHallTabUI();
+        loadHiddenSkillsIfNeeded();
         return;
       }
       passiveActiveBranch = key;
@@ -13731,38 +14195,34 @@ function bindHiddenSkillsListenersOnce() {
   });
 }
 
-async function populateTrainingHall() {
-  await loadPassiveSkillTree();
+async function renderHiddenSkillsList() {
   bindHiddenSkillsListenersOnce();
   const root = document.getElementById("hidden-skills-root");
   if (!root) return;
-  try {
-    const data = await apiFetch("/skills/hidden");
-    hiddenSkillsCache = Array.isArray(data?.skills) ? data.skills : [];
-    const skills = hiddenSkillsCache.filter((s) => Boolean(s.revealed));
-    if (!skills.length) {
-      root.textContent = "Нет открытых скрытых навыков.";
-      root.classList.remove("placeholder");
-      return;
-    }
-    const byCat = new Map();
-    skills.forEach((s) => {
-      const c = s.category || "Прочее";
-      if (!byCat.has(c)) byCat.set(c, []);
-      byCat.get(c).push(s);
-    });
-    const esc = (v) =>
-      String(v ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-    let html = "";
-    for (const [cat, list] of byCat) {
-      html += `<div class="hidden-skills-cat">${esc(cat)}</div>`;
-      list.forEach((s) => {
-        const lv = Number(s.level) || 0;
-        html += `<div class="hidden-skill-card" data-hidden-skill-id="${esc(s.id)}" role="button" tabindex="0" title="Подробнее">
+  const skills = hiddenSkillsCache.filter((s) => Boolean(s.revealed));
+  if (!skills.length) {
+    root.textContent = "Нет открытых скрытых навыков.";
+    root.classList.remove("placeholder");
+    return;
+  }
+  const byCat = new Map();
+  skills.forEach((s) => {
+    const c = s.category || "Прочее";
+    if (!byCat.has(c)) byCat.set(c, []);
+    byCat.get(c).push(s);
+  });
+  const esc = (v) =>
+    String(v ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  let html = "";
+  for (const [cat, list] of byCat) {
+    html += `<div class="hidden-skills-cat">${esc(cat)}</div>`;
+    list.forEach((s) => {
+      const lv = Number(s.level) || 0;
+      html += `<div class="hidden-skill-card" data-hidden-skill-id="${esc(s.id)}" role="button" tabindex="0" title="Подробнее">
           <div class="hidden-skill-card-inner">
             <div class="hidden-skill-card-title">${esc(s.name)}</div>
             <div class="hidden-skill-card-art">
@@ -13772,34 +14232,55 @@ async function populateTrainingHall() {
             </div>
           </div>
         </div>`;
-      });
-    }
-    root.classList.remove("placeholder");
-    root.innerHTML = html;
-    root.querySelectorAll(".hidden-skill-card[data-hidden-skill-id]").forEach((el) => {
-      const id = el.getAttribute("data-hidden-skill-id");
-      const skill = findHiddenSkillById(id);
-      if (!skill) return;
-      bindHiddenSkillArt(
-        el.querySelector(".hidden-skill-card-img"),
-        el.querySelector(".hidden-skill-card-art"),
-        skill,
-      );
     });
-  } catch (e) {
-    if (isWebAppUnauthorizedError(e)) {
-      console.warn("Скрытые навыки: нет авторизации Telegram WebApp.");
-    } else {
-      console.error(e);
-    }
-    root.classList.remove("placeholder");
-    if (isWebAppUnauthorizedError(e)) {
-      root.innerHTML = `<div class="webapp-auth-notice webapp-auth-notice--compact" role="alert"><p>Раздел недоступен без авторизации Telegram (см. блок выше).</p></div>`;
-    } else {
-      const { detail } = parseHttpErrorDetail(e);
-      root.textContent = detail || "Не удалось загрузить скрытые навыки.";
-    }
   }
+  root.classList.remove("placeholder");
+  root.innerHTML = html;
+  root.querySelectorAll(".hidden-skill-card[data-hidden-skill-id]").forEach((el) => {
+    const id = el.getAttribute("data-hidden-skill-id");
+    const skill = findHiddenSkillById(id);
+    if (!skill) return;
+    bindHiddenSkillArt(
+      el.querySelector(".hidden-skill-card-img"),
+      el.querySelector(".hidden-skill-card-art"),
+      skill,
+    );
+  });
+}
+
+async function loadHiddenSkillsIfNeeded() {
+  if (hiddenSkillsLoaded) return;
+  if (hiddenSkillsLoadInFlight) return hiddenSkillsLoadInFlight;
+  const root = document.getElementById("hidden-skills-root");
+  if (!root) return;
+  hiddenSkillsLoadInFlight = (async () => {
+    try {
+      const data = await apiFetch("/skills/hidden");
+      hiddenSkillsCache = Array.isArray(data?.skills) ? data.skills : [];
+      hiddenSkillsLoaded = true;
+      await renderHiddenSkillsList();
+    } catch (e) {
+      if (isWebAppUnauthorizedError(e)) {
+        console.warn("Скрытые навыки: нет авторизации Telegram WebApp.");
+      } else {
+        console.error(e);
+      }
+      root.classList.remove("placeholder");
+      if (isWebAppUnauthorizedError(e)) {
+        root.innerHTML = `<div class="webapp-auth-notice webapp-auth-notice--compact" role="alert"><p>Раздел недоступен без авторизации Telegram (см. блок выше).</p></div>`;
+      } else {
+        const { detail } = parseHttpErrorDetail(e);
+        root.textContent = detail || "Не удалось загрузить скрытые навыки.";
+      }
+    } finally {
+      hiddenSkillsLoadInFlight = null;
+    }
+  })();
+  return hiddenSkillsLoadInFlight;
+}
+
+async function populateTrainingHall() {
+  await loadHiddenSkillsIfNeeded();
 }
 
 const SMITH_HELP_HTML = `
@@ -13842,6 +14323,7 @@ function exportWebAppShellGlobals() {
     expeditionArchetypeArtVersion,
     PERK_ICONS,
     PERK_DESCS,
+    PERK_NAMES,
     PERK_EXPEDITION_COUNTER_HINT,
     WAIFU_RACES,
     WAIFU_CLASSES,
@@ -13875,6 +14357,7 @@ function exportWebAppShellGlobals() {
     slotTypeLabel,
     itemIconForSlotType,
     hiredWaifuImageUrl,
+    resolveImageUrl,
     classIcon,
     raceIcon,
     waifuPortraitEmoji,
@@ -13893,8 +14376,13 @@ exportWebAppShellGlobals();
 window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   initPage,
   bootstrapPage,
+  bootstrapTrainingHall,
+  bootstrapShopPage,
+  bootstrapTavernPage,
+  bootstrapPlayerPage,
   populateTrainingHall,
   loadPassiveSkillTree,
+  loadHiddenSkillsIfNeeded,
   closePassiveSkillModal,
   openHiddenSkillModal,
   closeHiddenSkillModal,
@@ -13904,6 +14392,8 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   refreshAtticChips,
   shopPageBootstrap,
   loadShop,
+  onShopHeroAdvice,
+  hideShopHeroDialogs,
   switchShopTab,
   switchSmithSubTab,
   loadSmithTab,
@@ -14019,6 +14509,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   loadSkills,
   searchGuilds,
   populateGuildHall,
+  refreshGuildHall,
   setGuildPageLoading,
   switchGuildTab,
   switchGuildActivityTab,

@@ -24,6 +24,8 @@ from waifu_bot.services.hidden_skills import (
 from waifu_bot.services.item_service import RARITY_WEIGHTS, _pick_weighted
 from waifu_bot.services.passive_skills import (
     apply_passive_buy_price,
+    compute_passive_buy_price_from_bonuses,
+    get_passive_skill_bonuses,
     merchant_discount_pct_for_player,
     normalize_passive_level_affix_value,
 )
@@ -84,17 +86,41 @@ class ShopService:
             )
         else:
             merchant_disc = None
+
+        inv_ids = [int(off.inventory_item_id) for off in offers if off.inventory_item_id]
+        inv_by_id: dict[int, InventoryItem] = {}
+        if inv_ids:
+            inv_rows = (
+                await session.execute(
+                    select(InventoryItem)
+                    .options(*inventory_item_load_options())
+                    .where(InventoryItem.id.in_(inv_ids))
+                )
+            ).scalars().all()
+            inv_by_id = {int(inv.id): inv for inv in inv_rows}
+
+        live_invs = [inv_by_id[int(off.inventory_item_id)] for off in offers if off.inventory_item_id and int(off.inventory_item_id) in inv_by_id]
+        if live_invs:
+            from waifu_bot.services.inventory_payload import enrich_inventory_items_with_template_stats
+
+            await enrich_inventory_items_with_template_stats(session, live_invs)
+
+        ps_bonuses: dict[str, float] = {}
+        hs_bonuses: dict[str, float] | None = None
+        if player_id is not None:
+            try:
+                ps_bonuses = await get_passive_skill_bonuses(session, int(player_id))
+            except Exception:
+                ps_bonuses = {}
+            try:
+                hs_bonuses = await get_hidden_skill_bonuses(session, int(player_id))
+            except Exception:
+                pass
+
         previews = []
         for off in offers:
-            # NOTE: AsyncSession.get(..., options=...) can still lead to lazy-load paths
-            # for relationships in some environments; use an explicit SELECT to guarantee eager loading.
-            inv = await session.scalar(
-                select(InventoryItem)
-                .options(*inventory_item_load_options())
-                .where(InventoryItem.id == off.inventory_item_id)
-            )
+            inv = inv_by_id.get(int(off.inventory_item_id)) if off.inventory_item_id else None
             if not inv:
-                # Если предмет удален, показываем пустую ячейку
                 previews.append({
                     "offer_id": off.id,
                     "slot": off.slot,
@@ -104,18 +130,16 @@ class ShopService:
                     "rarity": 0,
                 })
                 continue
-            # Проверяем, купил ли этот игрок предмет
             is_sold = bool(off.purchased)
             if player_id is not None and not is_sold:
                 from waifu_bot.services.item_codex import register_inventory_codex
 
                 await register_inventory_codex(session, int(player_id), inv)
-            await self._enrich_inv_with_template_stats(session, inv)
             preview = self._offer_to_preview(off, inv, act=act, merchant_discount_pct=merchant_disc)
             preview["sold"] = is_sold
             if player_id is not None and preview.get("price") is not None:
-                preview["price"] = await apply_passive_buy_price(
-                    session, player_id, int(preview["price"])
+                preview["price"] = compute_passive_buy_price_from_bonuses(
+                    int(preview["price"]), ps_bonuses, hs_bonuses
                 )
             previews.append(preview)
         await enrich_items_with_image_urls(session, previews)

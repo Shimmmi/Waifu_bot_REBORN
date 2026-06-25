@@ -1,6 +1,7 @@
 """Player profile: avatars, showcase, public guild-visible profile."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Optional
@@ -10,11 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from waifu_bot.db.models import GuildMember, MainWaifu, Player
+from waifu_bot.api.main_waifu_media import (
+    main_waifu_profile_paperdoll_url,
+    main_waifu_profile_portrait_url,
+)
 from waifu_bot.services.guild import GuildService
 
 _guild_service = GuildService()
 from waifu_bot.services.abyss_service import get_progress
-from waifu_bot.services.narrative import compute_linear_story_position
+from waifu_bot.services.narrative import compute_linear_story_position_lite
 from waifu_bot.services.player_mail_service import _assert_same_guild
 
 logger = logging.getLogger(__name__)
@@ -49,19 +54,12 @@ def resolve_avatar_url(player: Player | None) -> str | None:
 def _main_waifu_media(mw: MainWaifu | None) -> dict[str, Any]:
     if not mw:
         return {"name": None, "level": 1, "portrait_url": None, "paperdoll_url": None}
-    portrait_url = None
-    if getattr(mw, "image_data", None):
-        mime = getattr(mw, "image_mime", None) or "image/webp"
-        portrait_url = f"data:{mime};base64,{mw.image_data}"
-    paperdoll_url = None
-    if getattr(mw, "paperdoll_image_data", None):
-        pm = getattr(mw, "paperdoll_image_mime", None) or "image/png"
-        paperdoll_url = f"data:{pm};base64,{mw.paperdoll_image_data}"
+    pid = int(mw.player_id)
     return {
         "name": mw.name,
         "level": int(mw.level or 1),
-        "portrait_url": portrait_url,
-        "paperdoll_url": paperdoll_url,
+        "portrait_url": main_waifu_profile_portrait_url(mw, pid),
+        "paperdoll_url": main_waifu_profile_paperdoll_url(mw, pid),
     }
 
 
@@ -86,9 +84,12 @@ async def _guild_rank_for_player(session: AsyncSession, player_id: int) -> str |
     return "Участник"
 
 
-async def build_campaign_progress(session: AsyncSession, player_id: int) -> dict[str, Any]:
-    player = await session.get(Player, player_id)
-    story = await compute_linear_story_position(session, player_id)
+async def build_campaign_progress(
+    session: AsyncSession, player_id: int, *, player: Player | None = None
+) -> dict[str, Any]:
+    if player is None:
+        player = await session.get(Player, player_id)
+    story = await compute_linear_story_position_lite(session, player_id)
     return {
         "current_act": int(player.current_act or 1) if player else 1,
         "max_act": int(player.max_act or 1) if player else 1,
@@ -147,8 +148,10 @@ async def get_self_profile(session: AsyncSession, player_id: int) -> dict[str, A
     player = res.scalar_one_or_none()
     if not player:
         raise ValueError("player_not_found")
-    campaign = await build_campaign_progress(session, player_id)
-    abyss = await build_abyss_summary(session, player_id)
+    campaign, abyss = await asyncio.gather(
+        build_campaign_progress(session, player_id, player=player),
+        build_abyss_summary(session, player_id),
+    )
     return profile_self_dict(player, campaign=campaign, abyss=abyss)
 
 
@@ -167,8 +170,10 @@ async def get_public_profile(
     showcase = (player.profile_showcase or "portrait").strip().lower()
     if showcase not in VALID_SHOWCASE:
         showcase = "portrait"
-    campaign = await build_campaign_progress(session, target_player_id)
-    abyss = await build_abyss_summary(session, target_player_id)
+    campaign, abyss = await asyncio.gather(
+        build_campaign_progress(session, target_player_id, player=player),
+        build_abyss_summary(session, target_player_id),
+    )
     return {
         "player_id": int(player.id),
         "is_self": int(viewer_id) == int(target_player_id),

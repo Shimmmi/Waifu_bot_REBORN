@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,16 @@ from sqlalchemy.orm import selectinload
 
 from waifu_bot.api import schemas
 from waifu_bot.api.deps import get_db, get_player_id
+from waifu_bot.api.hired_waifu_media import hired_waifu_portrait_url
+from waifu_bot.api.main_waifu_media import (
+    guild_member_paperdoll_url,
+    guild_member_portrait_url,
+)
+from waifu_bot.services.waifu_media_service import (
+    has_main_waifu_portrait,
+    sync_main_waifu_paperdoll_to_static,
+    sync_main_waifu_portrait_to_static,
+)
 from waifu_bot.db import models as m
 from waifu_bot.services.guild import GuildService
 from waifu_bot.services.item_art import enrich_items_with_image_urls
@@ -20,6 +31,39 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 guild_service = GuildService()
+
+
+async def _assert_guild_mates(
+    session: AsyncSession, viewer_player_id: int, target_player_id: int
+) -> None:
+    viewer = await guild_service.get_guild_member(session, viewer_player_id)
+    if not viewer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_in_guild")
+    target_mem = await guild_service.get_guild_member(session, target_player_id)
+    if not target_mem or target_mem.guild_id != viewer.guild_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not_same_guild")
+
+
+async def _guild_member_main_waifu(
+    session: AsyncSession, viewer_player_id: int, target_player_id: int
+) -> m.MainWaifu | None:
+    await _assert_guild_mates(session, viewer_player_id, target_player_id)
+    return (
+        await session.execute(
+            select(m.MainWaifu).where(m.MainWaifu.player_id == target_player_id)
+        )
+    ).scalar_one_or_none()
+
+
+def _decode_waifu_image_blob(raw: str | bytes | None) -> bytes:
+    import base64
+
+    if not raw:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="image_not_available")
+    try:
+        return base64.b64decode(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="invalid_image_data") from exc
 
 
 def _to_guild(g: m.Guild) -> schemas.GuildOut:
@@ -246,10 +290,8 @@ async def guilds_me(
             player_id_out = int(pl.id)
             telegram_username = un or None
         mw = waifu_by_player.get(int(gm.player_id))
-        portrait_url = None
-        if mw and getattr(mw, "image_data", None):
-            mime = getattr(mw, "image_mime", None) or "image/webp"
-            portrait_url = f"data:{mime};base64,{mw.image_data}"
+        has_portrait = bool(mw and has_main_waifu_portrait(mw, player_id_out))
+        portrait_url = guild_member_portrait_url(mw, player_id_out) if has_portrait else None
         if gm.is_leader:
             rank = "Глава"
         elif gm.is_officer:
@@ -265,6 +307,7 @@ async def guilds_me(
                 "is_officer": bool(gm.is_officer),
                 "rank": rank,
                 "portrait_url": portrait_url,
+                "has_portrait": has_portrait,
                 "last_active": last_active_iso,
                 "online": online,
                 "member_power": member_power(waifu_by_player.get(int(gm.player_id))),
@@ -284,13 +327,11 @@ async def guilds_me(
         compute_guild_power,
         compute_guild_rating,
         fetch_guild_activity_feed,
-        fetch_guild_history,
     )
 
     guild_power = await compute_guild_power(session, guild.id)
     guild_rating = await compute_guild_rating(session, guild.id)
-    activity_feed = await fetch_guild_activity_feed(session, guild.id)
-    history = await fetch_guild_history(session, guild.id)
+    activity_feed = await fetch_guild_activity_feed(session, guild.id, limit=3)
 
     try:
         from waifu_bot.services.player_activity import touch_player_last_active
@@ -324,8 +365,62 @@ async def guilds_me(
         "guild_power": guild_power,
         "guild_rating": guild_rating,
         "activity_feed": activity_feed,
-        "history": history,
     }
+
+
+@router.get("/guilds/me/history", tags=["guild"])
+async def guilds_me_history(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=100),
+):
+    from waifu_bot.services.guild_activity import fetch_guild_history
+
+    mem = await guild_service.get_guild_member(session, player_id)
+    if not mem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_in_guild")
+    history = await fetch_guild_history(session, mem.guild_id, limit=limit)
+    return {"history": history}
+
+
+@router.get("/guilds/members/{target_player_id}/portrait", tags=["guild"])
+async def guild_member_portrait(
+    target_player_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Redirect to static portrait (legacy API path for old clients)."""
+    mw = await _guild_member_main_waifu(session, player_id, target_player_id)
+    if not mw:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="image_not_available")
+    url = guild_member_portrait_url(mw, target_player_id)
+    if not url:
+        url = sync_main_waifu_portrait_to_static(mw)
+        if url:
+            await session.commit()
+    if not url:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="image_not_available")
+    return RedirectResponse(url=url, status_code=302)
+
+
+@router.get("/guilds/members/{target_player_id}/paperdoll", tags=["guild"])
+async def guild_member_paperdoll(
+    target_player_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Redirect to static paperdoll (legacy API path for old clients)."""
+    mw = await _guild_member_main_waifu(session, player_id, target_player_id)
+    if not mw:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="image_not_available")
+    url = guild_member_paperdoll_url(mw, target_player_id)
+    if not url:
+        url = sync_main_waifu_paperdoll_to_static(mw)
+        if url:
+            await session.commit()
+    if not url:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="image_not_available")
+    return RedirectResponse(url=url, status_code=302)
 
 
 @router.get(
@@ -358,14 +453,8 @@ async def guild_member_preview(
     mw = tpl.main_waifu
     main_out: schemas.GuildMemberMainWaifuPreviewOut | None = None
     if mw:
-        portrait_url = None
-        if getattr(mw, "image_data", None):
-            mime = getattr(mw, "image_mime", None) or "image/webp"
-            portrait_url = f"data:{mime};base64,{mw.image_data}"
-        paperdoll_url = None
-        if getattr(mw, "paperdoll_image_data", None):
-            pm = getattr(mw, "paperdoll_image_mime", None) or "image/png"
-            paperdoll_url = f"data:{pm};base64,{mw.paperdoll_image_data}"
+        portrait_url = guild_member_portrait_url(mw, target_player_id)
+        paperdoll_url = guild_member_paperdoll_url(mw, target_player_id)
         main_out = schemas.GuildMemberMainWaifuPreviewOut(
             name=mw.name,
             level=int(mw.level or 1),
@@ -404,10 +493,7 @@ async def guild_member_preview(
     ).scalars().all()
     hired_out: list[schemas.GuildMemberHiredWaifuPreviewOut] = []
     for hw in hired_rows:
-        hw_portrait = None
-        if getattr(hw, "image_data", None):
-            hw_mime = getattr(hw, "image_mime", None) or "image/webp"
-            hw_portrait = f"data:{hw_mime};base64,{hw.image_data}"
+        hw_portrait = hired_waifu_portrait_url(hw)
         hired_out.append(
             schemas.GuildMemberHiredWaifuPreviewOut(
                 id=int(hw.id),

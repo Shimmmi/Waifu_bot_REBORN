@@ -1608,7 +1608,7 @@ function renderTavernHealList() {
       const pct = maxHp > 0 ? Math.round((cur / maxHp) * 100) : 0;
       const portrait = hiredWaifuImageUrl(w);
       const portraitHtml = portrait
-        ? `<img src="${escapeHtml(portrait)}" alt="">`
+        ? `<img src="${escapeHtml(portrait)}" alt="" loading="lazy" decoding="async">`
         : `<span aria-hidden="true">🛡️</span>`;
       return `
         <div class="tavern-heal-card" data-waifu-id="${w.id}" data-cost="${cost}" role="button" tabindex="0" aria-label="Лечить ${escapeHtml(w.name || "наёмницу")} за ${cost} золота">
@@ -1735,7 +1735,7 @@ function renderTavernUpgradeList() {
       const inExpedition = expId != null && Number(expId) > 0;
       const portrait = hiredWaifuImageUrl(w);
       const portraitInner = portrait
-        ? `<img src="${escapeHtml(portrait)}" alt="">`
+        ? `<img src="${escapeHtml(portrait)}" alt="" loading="lazy" decoding="async">`
         : `<span aria-hidden="true">🛡️</span>`;
       const perkGrid = tavernUpgradePerkGridHtml(w, perksMap, inExpedition);
       return `
@@ -1789,6 +1789,32 @@ function renderTavernUpgradeList() {
   });
 }
 
+function buildTavernPerksMap(available) {
+  const perksList = Array.isArray(available?.perks) ? available.perks : [];
+  if (perksList.length) {
+    return Object.fromEntries(perksList.map((x) => [x.id, x.name || x.id]));
+  }
+  return { ...(window.WaifuApp?.PERK_NAMES || {}) };
+}
+
+function scheduleTavernBgmStart() {
+  const run = () => {
+    if (isTavernBgmMuted()) {
+      syncTavernBgmPlayerUi();
+      return;
+    }
+    loadTavernBgmConfig().then(() => {
+      syncTavernBgmPlayerUi();
+      if (!isTavernBgmMuted()) startTavernBgm();
+    });
+  };
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(run, { timeout: 2500 });
+  } else {
+    setTimeout(run, 0);
+  }
+}
+
 async function loadTavernWithProfile(profile, opts = {}) {
   const inner = Boolean(opts.innerRefresh);
   if (!inner) {
@@ -1803,8 +1829,12 @@ async function loadTavernWithProfile(profile, opts = {}) {
 
     let available;
     if (loadRoster) {
+      const availPromise =
+        opts.preloadedAvailable != null && !inner
+          ? Promise.resolve(opts.preloadedAvailable)
+          : apiFetch("/tavern/available");
       const [availRes, squadRes, reserveRes] = await Promise.all([
-        apiFetch("/tavern/available"),
+        availPromise,
         apiFetch("/tavern/squad"),
         apiFetch("/tavern/reserve"),
       ]);
@@ -1812,22 +1842,18 @@ async function loadTavernWithProfile(profile, opts = {}) {
       tavernState.squad = Array.isArray(squadRes?.squad) ? squadRes.squad : [];
       tavernState.reserve = Array.isArray(reserveRes?.reserve) ? reserveRes.reserve : [];
       tavernRosterLoaded = true;
+    } else if (opts.preloadedAvailable != null) {
+      available = opts.preloadedAvailable;
     } else {
       available = await apiFetch("/tavern/available");
     }
 
     tavernState.available = available;
-    const perksList = Array.isArray(available?.perks) ? available.perks : [];
-    tavernState.perksMap = Object.fromEntries(perksList.map((x) => [x.id, x.name || x.id]));
+    tavernState.perksMap = buildTavernPerksMap(available);
 
     renderTavernHire(p, available);
     if (loadRoster) renderTavernSquad();
 
-    if (!inner) {
-      const pageBg = document.getElementById("tavern-page-bg");
-      const url = pageBg?.currentSrc || pageBg?.src || "";
-      preloadTavernBg(url);
-    }
     loadOk = true;
     return { available, squad: tavernState.squad, reserve: tavernState.reserve };
   } finally {
@@ -1835,10 +1861,7 @@ async function loadTavernWithProfile(profile, opts = {}) {
       setTavernPageLoading(false);
       syncTavernBgmMuteButton();
       if (loadOk && !isTavernBgmMuted()) {
-        loadTavernBgmConfig().then(() => {
-          syncTavernBgmPlayerUi();
-          if (!isTavernBgmMuted()) startTavernBgm();
-        });
+        scheduleTavernBgmStart();
       } else {
         syncTavernBgmPlayerUi();
       }
@@ -1981,7 +2004,9 @@ function renderTavernSquad() {
       : `<span class="muted tiny" style="opacity:.75;">—</span>`;
 
     const url = hiredWaifuImageUrl(w);
-    const portraitLayer = url ? `<img class="squad-mtg-bg-img" src="${escapeHtml(url)}" alt="" />` : "";
+    const portraitLayer = url
+      ? `<img class="squad-mtg-bg-img" src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />`
+      : "";
     const bgCls = url ? "squad-mtg-bg" : "squad-mtg-bg squad-mtg-bg--placeholder";
 
     const uiSt = hiredWaifuPoolUiStatus(w);
@@ -2540,8 +2565,7 @@ async function adminRefreshTavern() {
   try {
     const response = await apiFetch(`/admin/tavern/refresh`, { method: "POST" });
     tavernState.available = response;
-    const perksList = Array.isArray(response?.perks) ? response.perks : [];
-    tavernState.perksMap = Object.fromEntries(perksList.map((x) => [x.id, x.name || x.id]));
+    tavernState.perksMap = buildTavernPerksMap(response);
     renderTavernHire({ act: tavernState.act }, response);
     await loadProfile().catch(() => {});
     await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true }).catch(() => {});
@@ -2555,6 +2579,7 @@ async function adminRefreshTavern() {
 
 Object.assign(window.WaifuApp, {
   loadTavern,
+  loadTavernWithProfile,
   switchTavernTab,
   onTavernHirePrimaryClick,
   toggleHireResultFlip,
