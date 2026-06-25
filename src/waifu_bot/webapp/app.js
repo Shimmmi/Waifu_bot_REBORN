@@ -39,7 +39,7 @@ function resolveWebappShellVersion() {
       /* ignore */
     }
   }
-  return "waifu-webapp-v35";
+  return "waifu-webapp-v38";
 }
 
 const WAIFU_WEBAPP_VERSION = resolveWebappShellVersion();
@@ -51,6 +51,7 @@ const CARAVAN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/caravan`;
 const DUNGEONS_STATIC_BASE = `${GAME_STATIC_BASE}/dungeons`;
 const SHOP_STATIC_BASE = `${GAME_STATIC_BASE}/ui/shop`;
 const TAVERN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/tavern`;
+const NAV_STATIC_BASE = `${GAME_STATIC_BASE}/ui/nav`;
 const EXPEDITION_BIOMES_BASE = `${GAME_STATIC_BASE}/expeditions/biomes`;
 const EXPEDITION_ARCHETYPES_BASE = `${GAME_STATIC_BASE}/expeditions/archetypes`;
 /** Cache-bust для свежесгенерированных артов архетипов (archetype_id -> v). */
@@ -73,6 +74,27 @@ function setActiveNav(page) {
     } else {
       link.classList.remove("active");
     }
+  });
+}
+
+function initNavIcons() {
+  document.querySelectorAll(".nav.basement a[data-page]").forEach((link) => {
+    const page = String(link.dataset.page || "").trim();
+    if (!page) return;
+    const title = String(link.getAttribute("title") || link.getAttribute("aria-label") || page).trim();
+    if (title && !link.getAttribute("aria-label")) {
+      link.setAttribute("aria-label", title);
+    }
+    let img = link.querySelector("img.nav-icon");
+    if (!img) {
+      img = document.createElement("img");
+      img.className = "nav-icon";
+      img.alt = "";
+      img.decoding = "async";
+      link.textContent = "";
+      link.appendChild(img);
+    }
+    img.src = `${NAV_STATIC_BASE}/${page}.webp?v=${WAIFU_WEBAPP_VERSION}`;
   });
 }
 
@@ -11729,6 +11751,7 @@ async function populateGuildHall(profile, opts = {}) {
 
 async function initPage(page) {
   applyTheme();
+  initNavIcons();
   if (tg) {
     try {
       tg.ready();
