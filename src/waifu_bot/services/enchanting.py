@@ -252,6 +252,22 @@ def _inventory_item_level(inv: m.InventoryItem) -> int:
     return 1
 
 
+def apply_enchant_cost_bonus(base_cost: int, enchant_cost_pct: float) -> int:
+    """Hidden-skill discount: negative ``enchant_cost_pct`` reduces gold cost."""
+    ec = float(enchant_cost_pct or 0)
+    if not ec:
+        return int(base_cost)
+    return max(1, int(round(int(base_cost) * (1.0 + ec / 100.0))))
+
+
+def apply_enchant_chance_bonus(base_chance: float, enchant_chance_pct: float) -> float:
+    """Hidden-skill bonus: negative ``enchant_chance_pct`` increases success chance."""
+    chb = float(enchant_chance_pct or 0)
+    if not chb:
+        return float(base_chance)
+    return min(0.99, max(0.01, float(base_chance) - chb / 100.0))
+
+
 def enchant_cost_gold(
     base_value: int,
     current_enchant_level: int,
@@ -341,9 +357,7 @@ async def enchant_inventory_item(
     hs_enchant: dict[str, float] = {}
     try:
         hs_enchant = await get_hidden_skill_bonuses(session, int(player_id))
-        ec = float(hs_enchant.get("enchant_cost_pct", 0) or 0)
-        if ec:
-            cost = max(1, int(round(cost * (1.0 + ec / 100.0))))
+        cost = apply_enchant_cost_bonus(cost, float(hs_enchant.get("enchant_cost_pct", 0) or 0))
     except Exception:
         hs_enchant = {}
     if int(player.gold or 0) < cost:
@@ -372,9 +386,7 @@ async def enchant_inventory_item(
         10: cfg_float(cfg, "enchant.chance_10", 0.30),
     }
     chance = float(chances.get(target, 0.30))
-    chb = float(hs_enchant.get("enchant_chance_pct", 0) or 0)
-    if chb:
-        chance = min(0.99, max(0.01, chance + chb / 100.0))
+    chance = apply_enchant_chance_bonus(chance, float(hs_enchant.get("enchant_chance_pct", 0) or 0))
     roll = random.random()
 
     if roll < chance:
@@ -475,6 +487,16 @@ async def build_enchant_preview(session: AsyncSession, inventory_item_id: int, p
         item_rarity=_inventory_rarity(inv),
         item_level=_inventory_item_level(inv),
     )
+    hs_enchant: dict[str, float] = {}
+    try:
+        hs_enchant = await get_hidden_skill_bonuses(session, int(player_id))
+        cost = apply_enchant_cost_bonus(cost, float(hs_enchant.get("enchant_cost_pct", 0) or 0))
+        if chance is not None:
+            chance = apply_enchant_chance_bonus(
+                chance, float(hs_enchant.get("enchant_chance_pct", 0) or 0)
+            )
+    except Exception:
+        pass
     on_fail = "—"
     if is_risky:
         if target == 10:

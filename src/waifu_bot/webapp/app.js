@@ -14066,8 +14066,11 @@ function formatHiddenEffectValue(effectType, raw) {
   const t = String(effectType || "");
   if (t.startsWith("media_") && t.endsWith("_mult")) return `×${n.toFixed(2)}`;
   if (t === "all_stats_pct") return `+${Math.round(n)}% к СИЛ/ЛОВ/ИНТ/УДЧ`;
-  if (t === "enchant_cost_pct" || t === "enchant_chance_pct") {
+  if (t === "enchant_cost_pct") {
     return `${n > 0 ? "+" : ""}${Math.round(n)}%`;
+  }
+  if (t === "enchant_chance_pct") {
+    return `+${Math.round(-n)}%`;
   }
   return `+${Math.round(n)}%`;
 }

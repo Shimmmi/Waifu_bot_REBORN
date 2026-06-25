@@ -62,7 +62,7 @@ class GambleService:
         if len(offers) < GAMBLE_SIZE or self._needs_refresh(offers):
             offers = await self._regenerate(session, player_id, act)
 
-        inv_ids = [o.inventory_item_id for o in offers]
+        inv_ids = [o.inventory_item_id for o in offers if o.inventory_item_id is not None]
         inv_rows = list(
             (
                 await session.scalars(
@@ -81,7 +81,7 @@ class GambleService:
                 "price": o.price,
                 "purchased": bool(o.purchased),
             }
-            inv = inv_by_id.get(int(o.inventory_item_id))
+            inv = inv_by_id.get(int(o.inventory_item_id)) if o.inventory_item_id is not None else None
             if inv:
                 row.update(self._offer_type_preview(inv))
             previews.append(row)
@@ -110,9 +110,10 @@ class GambleService:
             inv_id = off.inventory_item_id
             await session.delete(off)
             await session.flush()
-            inv = await session.get(InventoryItem, inv_id)
-            if inv and inv.player_id is None:
-                await session.delete(inv)
+            if inv_id is not None:
+                inv = await session.get(InventoryItem, inv_id)
+                if inv and inv.player_id is None:
+                    await session.delete(inv)
 
         base_price = await self._base_price(session, player_id)
         now = datetime.now(timezone.utc)

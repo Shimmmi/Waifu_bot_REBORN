@@ -22,8 +22,8 @@ class GambleOffer(Base):
     player_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("players.id", ondelete="CASCADE"), index=True)
     act: Mapped[int] = mapped_column(Integer, nullable=False)
     slot: Mapped[int] = mapped_column(Integer, nullable=False)
-    inventory_item_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("inventory_items.id", ondelete="CASCADE"), nullable=False
+    inventory_item_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("inventory_items.id", ondelete="SET NULL"), nullable=True
     )
     price: Mapped[int] = mapped_column(Integer, nullable=False)
     purchased: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

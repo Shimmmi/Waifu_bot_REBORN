@@ -125,8 +125,8 @@ class ShopService:
                     "offer_id": off.id,
                     "slot": off.slot,
                     "act": act,
-                    "sold": True,
-                    "name": "Продано",
+                    "sold": bool(off.purchased),
+                    "name": "Продано" if off.purchased else "—",
                     "rarity": 0,
                 })
                 continue
@@ -332,9 +332,10 @@ class ShopService:
             inv_id = off.inventory_item_id
             await session.delete(off)
             await session.flush()
-            inv = await session.get(InventoryItem, inv_id)
-            if inv and inv.player_id is None:
-                await session.delete(inv)
+            if inv_id is not None:
+                inv = await session.get(InventoryItem, inv_id)
+                if inv and inv.player_id is None:
+                    await session.delete(inv)
         await session.flush()
 
         tier_cap = max(1, min(10, act * 2))
@@ -382,9 +383,10 @@ class ShopService:
                     inv_id = off.inventory_item_id
                     await session.delete(off)
                     await session.flush()
-                    inv = await session.get(InventoryItem, inv_id)
-                    if inv and inv.player_id is None:
-                        await session.delete(inv)
+                    if inv_id is not None:
+                        inv = await session.get(InventoryItem, inv_id)
+                        if inv and inv.player_id is None:
+                            await session.delete(inv)
                 await session.flush()
                 return await self._ensure_offers(session, player_id, act, size, _retry=False)
         return sorted(offers, key=lambda o: o.slot)[:size]
@@ -403,9 +405,10 @@ class ShopService:
             inv_id = off.inventory_item_id
             await session.delete(off)
             await session.flush()
-            inv = await session.get(InventoryItem, inv_id)
-            if inv and inv.player_id is None:
-                await session.delete(inv)
+            if inv_id is not None:
+                inv = await session.get(InventoryItem, inv_id)
+                if inv and inv.player_id is None:
+                    await session.delete(inv)
         await session.flush()
         return await self._ensure_offers(session, player_id, act, size=slot_count)
 
