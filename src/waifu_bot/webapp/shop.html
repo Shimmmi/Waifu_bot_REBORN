@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Магазин</title>
-  <link rel="stylesheet" href="./styles.css?v=waifu-webapp-v38" />
+  <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v43" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v43'" />
   <style>
     :root {
       --ink: #0d0a08; /* основной фон */
@@ -1160,9 +1160,9 @@
     }
   </style>
   <link rel="stylesheet" href="./assets/tutorial.css" />
-  <script src="./vendor/telegram-web-app.js"></script>
+  <script defer src="./vendor/telegram-web-app.js"></script>
   <script defer src="./assets/tutorial.js"></script>
-  <script defer src="./app.js?v=waifu-webapp-v38"></script>
+  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v43" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v43'"></script>
 </head>
 <body class="page-shop">
   <header class="attic">
@@ -1173,19 +1173,14 @@
         <span class="attic-player-mail-badge" id="attic-player-mail-badge" hidden aria-hidden="true"></span>
       </button>
       <div class="chip attic-level-chip" title="Уровень основной вайфу">
-        <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
+        <div class="attic-level-top"><strong id="badge-level">—</strong></div>
         <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
       </div>
       <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)">
         <span id="attic-dungeon-label">Нет боя</span>
-        <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden>
-          <div class="attic-dungeon-progress-track">
-            <div class="attic-dungeon-progress-fill" id="attic-dungeon-progress-fill"></div>
-          </div>
-        </div>
+        <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden></div>
       </div>
-      <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
-      <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
+      <div class="chip attic-gold-chip" title="Золото"><span class="attic-gold-ico" aria-hidden="true">🪙</span><strong id="badge-gold">—</strong></div>
     </div>
   </header>
 

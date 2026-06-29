@@ -288,23 +288,10 @@ class TavernService:
         return out
 
     def _apply_hired_regen(self, waifu: HiredWaifu, now: datetime) -> None:
-        """Применить реген HP со временем (на месте)."""
-        max_hp = getattr(waifu, "max_hp", 65) or 65
-        current = getattr(waifu, "current_hp", max_hp)
-        if current >= max_hp:
-            return
-        if current <= 0:
-            return
-        updated_at = getattr(waifu, "hp_updated_at", None)
-        if not updated_at:
-            waifu.hp_updated_at = now
-            return
-        minutes = (now - updated_at).total_seconds() / 60.0
-        add_hp = int(minutes / HIRED_HP_REGEN_MINUTES_PER_HP)
-        if add_hp <= 0:
-            return
-        waifu.current_hp = min(max_hp, current + add_hp)
-        waifu.hp_updated_at = now
+        """Deprecated: бесплатная регенерация отключена (v2). Синхронизация завершённого лечения."""
+        from waifu_bot.services.hired_waifu_state import sync_hired_hp_after_heal_complete
+
+        sync_hired_hp_after_heal_complete(waifu, now)
 
     async def get_squad(self, session: AsyncSession, player_id: int) -> List[HiredWaifu]:
         """Get player's squad (6 slots). Реген HP применяется при загрузке."""
@@ -354,7 +341,13 @@ class TavernService:
     async def heal_waifu(
         self, session: AsyncSession, player_id: int, hired_waifu_id: int
     ) -> dict:
-        """Лечение наёмницы за золото. При 0 HP (обморок) стоимость ×2."""
+        """Платное лечение во времени: оплата сразу, HP восстанавливается линейно до heal_complete_at."""
+        from waifu_bot.services.hired_waifu_state import (
+            effective_hired_hp,
+            is_healing,
+            start_heal_over_time,
+        )
+
         waifu = await session.get(HiredWaifu, hired_waifu_id)
         if not waifu or waifu.player_id != player_id:
             return {"error": "waifu_not_found"}
@@ -366,8 +359,21 @@ class TavernService:
                 "error": "waifu_on_expedition",
                 "hint": "Дождитесь возвращения из экспедиции.",
             }
+        now = datetime.now(timezone.utc)
         max_hp = getattr(waifu, "max_hp", 65) or 65
-        current_hp = getattr(waifu, "current_hp", max_hp)
+        current_hp, _ = effective_hired_hp(waifu, now)
+        if is_healing(waifu, now):
+            complete_at = getattr(waifu, "heal_complete_at", None)
+            return {
+                "success": True,
+                "already_healing": True,
+                "gold_spent": 0,
+                "gold_total": player.gold,
+                "current_hp": current_hp,
+                "max_hp": max_hp,
+                "heal_minutes": 0,
+                "heal_complete_at": complete_at.isoformat() if complete_at else None,
+            }
         need_heal = max(0, max_hp - current_hp)
         if need_heal == 0:
             return {"error": "full_hp", "current_hp": current_hp, "max_hp": max_hp}
@@ -400,15 +406,17 @@ class TavernService:
         if player.gold < cost:
             return {"error": "not_enough_gold", "required": cost, "gold": player.gold}
         player.gold -= cost
-        waifu.current_hp = max_hp
-        waifu.hp_updated_at = datetime.now(timezone.utc)
+        waifu.current_hp = current_hp
+        minutes = start_heal_over_time(waifu, now)
         await session.commit()
         out = {
             "success": True,
             "gold_spent": cost,
             "gold_total": player.gold,
-            "current_hp": max_hp,
+            "current_hp": current_hp,
             "max_hp": max_hp,
+            "heal_minutes": minutes,
+            "heal_complete_at": waifu.heal_complete_at.isoformat() if waifu.heal_complete_at else None,
         }
         if guild_heal_hint:
             out["guild_bonus_hint"] = guild_heal_hint
@@ -553,9 +561,9 @@ class TavernService:
         race = WaifuRace(random.randint(1, 7))
         class_ = WaifuClass(random.randint(1, 7))
 
-        power_base = {WaifuRarity.COMMON: 40, WaifuRarity.UNCOMMON: 55, WaifuRarity.RARE: 75, WaifuRarity.EPIC: 95, WaifuRarity.LEGENDARY: 120}
-        base_power = power_base.get(rarity, 40)
-        power = base_power + random.randint(0, 10) + (start_level - 1) * 2  # slight power scaling by level
+        from waifu_bot.game.expedition_overhaul import compute_hired_power
+
+        power = compute_hired_power(start_level, int(rarity.value))
         perk_count = {WaifuRarity.COMMON: 1, WaifuRarity.UNCOMMON: 2, WaifuRarity.RARE: 2, WaifuRarity.EPIC: 3, WaifuRarity.LEGENDARY: 4}
         max_perks = perk_count.get(rarity, 1)
         perk_ids: list[str] = []

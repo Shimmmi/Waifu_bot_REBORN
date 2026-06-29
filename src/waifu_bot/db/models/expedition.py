@@ -136,6 +136,10 @@ class ActiveExpedition(Base):
     expedition_mode_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     narrative_brief: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # v2 overhaul: тип награды и тир глубины (без ежедневного слота)
+    reward_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    depth_tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     __table_args__ = (
         Index(
             "uq_active_expedition_player_slot",

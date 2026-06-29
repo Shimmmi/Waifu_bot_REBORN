@@ -237,6 +237,13 @@ class HiredWaifu(Base):
     hp_updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    heal_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    heal_complete_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    heal_start_hp: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Expedition-focused attributes
     power: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

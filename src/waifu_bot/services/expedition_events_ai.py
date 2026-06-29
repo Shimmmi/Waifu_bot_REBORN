@@ -520,6 +520,70 @@ async def generate_expedition_event(
         return None
 
 
+def summarize_gate_log_fallback(
+    gate_log: list[dict],
+    *,
+    outcome: str,
+    expedition_name: str,
+) -> str:
+    """Лаконичный итог из gate_log без LLM."""
+    outcome_ru = {
+        "success": "успех",
+        "partial_success": "частичный успех",
+        "failure": "неудача",
+    }.get(str(outcome or ""), "завершение")
+    if not gate_log:
+        return f"«{expedition_name}»: отряд вернулся ({outcome_ru})."
+    lines = [str(e.get("text") or "").strip() for e in gate_log if e.get("text")]
+    if not lines:
+        return f"«{expedition_name}»: отряд вернулся ({outcome_ru})."
+    return f"«{expedition_name}» ({outcome_ru}): " + "; ".join(lines[:8])
+
+
+async def generate_gate_log_final_narrative(
+    *,
+    expedition_name: str,
+    outcome: str,
+    gate_log: list[dict],
+) -> str | None:
+    """Короткий итог (1–2 предложения) по gate_log; fallback — шаблон."""
+    fallback = summarize_gate_log_fallback(
+        gate_log, outcome=outcome, expedition_name=expedition_name
+    )
+    if not gate_log:
+        return fallback
+    if not has_text_llm_configured():
+        return fallback
+    entries_text = "\n".join(
+        f"- {str(e.get('text') or '').strip()}" for e in gate_log[:12] if e.get("text")
+    )
+    if not entries_text.strip():
+        return fallback
+    outcome_ru = {
+        "success": "успех",
+        "partial_success": "частичный успех",
+        "failure": "провал",
+    }.get(str(outcome or ""), "завершение")
+    prompt = (
+        f"По пунктам лога экспедиции «{expedition_name}» напиши итог в 1–2 коротких предложениях на русском. "
+        f"Исход похода: {outcome_ru}. Не упоминай золото, опыт, HP и проценты — только атмосферу и ключевые моменты.\n\n"
+        f"Пункты лога:\n{entries_text}\n\nТолько текст итога, без списка."
+    )
+    try:
+        text = await _ai_text(
+            prompt,
+            caller="expedition gate final",
+            max_tokens=120,
+            temperature=0.65,
+            timeout_sec=25.0,
+        )
+        if text and text.strip():
+            return text.strip()
+    except Exception as e:
+        logger.warning("gate log final narrative error: %s", e)
+    return fallback
+
+
 def _parse_name_bio_json(raw: str) -> Optional[tuple[str, str]]:
     """Извлекает name и bio из ответа ИИ. Защита от лишнего текста и markdown."""
     raw = (raw or "").strip()

@@ -28,13 +28,15 @@ def test_calc_tag_effectiveness_mult_n3_two_covered():
     active = frozenset({TAG_MONSTERS, TAG_UNDEAD, TAG_DARK_MAGIC})
     covered = frozenset({TAG_MONSTERS, TAG_UNDEAD})
     mult = calc_tag_effectiveness_mult(active, covered)
-    assert abs(mult - (2 / 3) ** 2) < 1e-9
+    # Линейный бленд: 1 - 0.95 × (2/3)
+    assert abs(mult - (1 - 0.95 * (2 / 3))) < 1e-9
 
 
 def test_calc_tag_effectiveness_mult_n4_one_covered():
     active = frozenset({"a", "b", "c", "d"})
     covered = frozenset({"a"})
-    assert abs(calc_tag_effectiveness_mult(active, covered) - 0.75) < 1e-9
+    # 1 - 0.95 × (1/4) = 0.7625
+    assert abs(calc_tag_effectiveness_mult(active, covered) - 0.7625) < 1e-9
 
 
 def test_dark_and_undead_suffix_tags():
@@ -57,7 +59,8 @@ def test_angel_healer_priest_covers_dark_and_undead():
     assert TAG_DARK_MAGIC in covered
     assert TAG_UNDEAD in covered
     mult = calc_tag_effectiveness_mult(active, covered)
-    assert abs(mult - 0.75 * 0.75) < 1e-9
+    # 2 of 4 covered, eff=1.0 → 1 - 0.95 × 0.5 = 0.525
+    assert abs(mult - 0.525) < 1e-9
 
 
 def test_calc_tick_challenge_adj_counter_minus_10():
@@ -106,7 +109,8 @@ def test_calc_tag_effectiveness_mult_perk_scaled():
     mult_full = calc_tag_effectiveness_mult(active, covered, squad=squad, affix_level=3)
     mult_weak = calc_tag_effectiveness_mult(active, covered, squad=squad, affix_level=5)
     assert mult_full < mult_weak
-    assert abs(mult_full - 0.5) < 1e-9  # (1 - 0.5 * 1.0) for N=2, eff=1.0
+    # N=2, 1 covered, eff=1.0 (priest lv3/affix3) → 1 - 0.95×0.5 = 0.525
+    assert abs(mult_full - 0.525) < 1e-9
 
 
 def test_calc_event_damage_v14_with_tags():

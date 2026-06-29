@@ -283,10 +283,13 @@ class HiredWaifuOut(BaseModel):
     squad_position: Optional[int] = None
     expedition_id: Optional[int] = None
     in_squad: bool = False
-    status: Literal["expedition", "wounded", "squad", "ready"] = "ready"
+    status: Literal["expedition", "wounded", "squad", "ready", "healing"] = "ready"
     image_url: Optional[str] = None  # data URL портрета (cursor_plan_7)
     current_hp: int = 65
     max_hp: int = 65
+    healing: bool = False
+    heal_complete_at: Optional[str] = None
+    eligible: bool = True
 
     @model_serializer(mode="wrap")
     def _serialize_hired_waifu(self, handler):
@@ -807,9 +810,10 @@ class ExpeditionSlotOut(BaseModel):
 class ExpeditionPreviewRequest(BaseModel):
     expedition_slot_id: Optional[int] = None
     squad_waifu_ids: List[int] = []
-    duration_minutes: Optional[int] = 60  # ТЗ v1.1: влияет на шанс и награды
-    difficulty_level: Optional[int] = None  # 1..5 — уровень препятствий I–V
-    # альтернативные имена для совместимости с планом
+    duration_minutes: Optional[int] = 60
+    difficulty_level: Optional[int] = None
+    reward_type: Optional[str] = None
+    depth_tier: Optional[int] = None
     slot_id: Optional[int] = None
     unit_ids: Optional[List[int]] = None
 
@@ -852,6 +856,16 @@ class ExpeditionPreviewOut(BaseModel):
     tag_effectiveness_mult: float = 1.0
     perk_effectiveness_pct: Optional[float] = None
     affix_level: Optional[int] = None
+    reward_type: Optional[str] = None
+    depth_tier: Optional[int] = None
+    depth_name: Optional[str] = None
+    squad_power: Optional[int] = None
+    min_squad_power: Optional[int] = None
+    power_ok: Optional[bool] = None
+    duration_minutes: Optional[int] = None
+    # v2.0: HP-прогноз по базовому урону тира (без тегов/твистов/variance)
+    damage_per_event_pct: Optional[float] = None
+    hp_forecast_pct: Optional[float] = None
 
 
 class ExpeditionSlotsResponse(BaseModel):
@@ -868,6 +882,9 @@ class ExpeditionSquadUnitOut(BaseModel):
     race: Optional[str] = None
     hp_current: int = 0
     hp_max: int = 1
+    power: Optional[int] = None
+    level: Optional[int] = None
+    rarity: Optional[int] = None
 
 
 class ExpeditionActiveOut(BaseModel):
@@ -901,6 +918,14 @@ class ExpeditionActiveOut(BaseModel):
     expedition_mode_name: Optional[str] = None
     narrative_title: Optional[str] = None
     result_ready: bool = False
+    # v2.0: метакарточки — тир, награда, мощность/HP
+    depth_tier: Optional[int] = None
+    depth_name: Optional[str] = None
+    reward_type: Optional[str] = None
+    reward_preview: Optional[str] = None
+    squad_power: Optional[int] = None
+    recommended_power: Optional[int] = None
+    squad_hp_pct: Optional[float] = None
 
 
 class ExpeditionActiveResponse(BaseModel):
@@ -908,10 +933,12 @@ class ExpeditionActiveResponse(BaseModel):
 
 
 class ExpeditionStartRequest(BaseModel):
-    """Слот + difficulty_level + v13 duration ИЛИ конструктор (affix_template_id + affix_level + display_base_location)."""
+    """v2: reward_type + depth_tier + отряд. Legacy: слот + difficulty + duration."""
     expedition_slot_id: Optional[int] = None
     squad_waifu_ids: List[int] = Field(default_factory=list)
     duration_minutes: int = 60
+    reward_type: Optional[str] = None
+    depth_tier: Optional[int] = None
     affix_template_id: Optional[int] = None
     affix_level: Optional[int] = None  # 1..5 (I–V) — конструктор
     difficulty_level: Optional[int] = None  # 1..5 — ежедневный слот + v13
@@ -933,19 +960,31 @@ class ExpeditionStartRequest(BaseModel):
 
 class ExpeditionStartResponse(BaseModel):
     success: bool = True
-    active_id: int
-    expedition_name: str
-    chance: float
-    success: bool
-    reward_gold: int
-    reward_experience: int
-    ends_at: str
-    duration_minutes: int
+    active_id: int = 0
+    expedition_name: str = ""
+    chance: float = 0.0
+    success_result: bool = False
+    reward_gold: int = 0
+    reward_experience: int = 0
+    reward_type: Optional[str] = None
+    depth_tier: Optional[int] = None
+    squad_power: Optional[int] = None
+    ends_at: str = ""
+    duration_minutes: int = 0
     affix_icon: Optional[str] = None
     affix_level_roman: Optional[str] = None
     events_total: Optional[int] = None
     start_intro_narrative: Optional[str] = None
     error: Optional[str] = None
+
+
+class ExpeditionGateLogEntryOut(BaseModel):
+    index: int = 0
+    category: str = ""
+    category_label: str = ""
+    damage: int = 0
+    covered: bool = False
+    text: str = ""
 
 
 class ExpeditionClaimResponse(BaseModel):
@@ -957,6 +996,12 @@ class ExpeditionClaimResponse(BaseModel):
     experience_gained: int
     gold_total: int
     event_text: Optional[str] = None  # ИИ-описание исхода (OpenRouter)
+    reward_type: Optional[str] = None
+    gate_log: List[ExpeditionGateLogEntryOut] = Field(default_factory=list)
+    items_earned: List[dict] = Field(default_factory=list)
+    enchant_stones: int = 0
+    waifu_exp_gained: int = 0
+    leveled_up_ids: List[int] = Field(default_factory=list)
     error: Optional[str] = None
 
 

@@ -1,9 +1,13 @@
 /** Service worker: cache static game assets; network-first shell JS/CSS for fresh deploys. */
-const CACHE_VERSION = "waifu-webapp-v38";
+const CACHE_VERSION = "waifu-webapp-v43";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
-/** Precache offline fallback only; HTML is not precached (always network). */
+/**
+ * Precache offline fallback only; HTML is not precached (always network).
+ * Pages request these with a ?v=waifu-webapp-vNN cache-busting query, so all
+ * cache lookups below use { ignoreSearch: true } to match these query-less keys.
+ */
 const SHELL_URLS = [
   "/webapp/app.js",
   "/webapp/styles.css",
@@ -36,7 +40,8 @@ async function networkFirstShell(cache, req) {
     if (res.ok) await cache.put(req, res.clone());
     return res;
   } catch (err) {
-    const cached = await cache.match(req);
+    // Fall back to the precached version (stored without the ?v= query).
+    const cached = await cache.match(req, { ignoreSearch: true });
     if (cached) return cached;
     throw err;
   }

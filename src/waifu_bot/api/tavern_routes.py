@@ -2,7 +2,18 @@ import asyncio
 import logging
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -36,11 +47,21 @@ def _hired_waifu_in_squad(w: m.HiredWaifu) -> bool:
     return 1 <= p <= 6
 
 
-def _hired_waifu_status(w: m.HiredWaifu) -> Literal["expedition", "wounded", "squad", "ready"]:
+def _hired_waifu_status(
+    w: m.HiredWaifu, *, now=None
+) -> Literal["expedition", "wounded", "squad", "ready", "healing"]:
+    from datetime import datetime, timezone
+
+    from waifu_bot.game.expedition_overhaul import is_healing
+
+    now = now or datetime.now(tz=timezone.utc)
     if getattr(w, "expedition_id", None):
         return "expedition"
-    max_hp = max(1, int(getattr(w, "max_hp", 65) or 1))
-    cur = int(getattr(w, "current_hp", max_hp) or 0)
+    if is_healing(w, now):
+        return "healing"
+    from waifu_bot.services.hired_waifu_state import effective_hired_hp
+
+    cur, max_hp = effective_hired_hp(w, now)
     if max_hp > 0 and cur / max_hp < 0.3:
         return "wounded"
     if _hired_waifu_in_squad(w):
@@ -52,6 +73,12 @@ from waifu_bot.api.hired_waifu_media import hired_waifu_portrait_url
 
 
 def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
+    from datetime import datetime, timezone
+
+    from waifu_bot.services.hired_waifu_state import hired_roster_payload
+
+    now = datetime.now(tz=timezone.utc)
+    hp_data = hired_roster_payload(w, now)
     image_url = hired_waifu_portrait_url(w)
     return schemas.HiredWaifuOut(
         id=w.id,
@@ -61,7 +88,7 @@ def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
         rarity=w.rarity,
         level=w.level,
         experience=w.experience,
-        power=getattr(w, "power", None),
+        power=hp_data.get("power") or getattr(w, "power", None),
         perks=getattr(w, "perks", None),
         bio=getattr(w, "bio", None),
         perk_upgrade_points=getattr(w, "perk_upgrade_points", 0),
@@ -70,10 +97,13 @@ def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
         squad_position=w.squad_position,
         expedition_id=getattr(w, "expedition_id", None),
         in_squad=_hired_waifu_in_squad(w),
-        status=_hired_waifu_status(w),
+        status=_hired_waifu_status(w, now=now),
         image_url=image_url,
-        current_hp=getattr(w, "current_hp", 65),
-        max_hp=getattr(w, "max_hp", 65),
+        current_hp=hp_data["current_hp"],
+        max_hp=hp_data["max_hp"],
+        healing=bool(hp_data.get("healing")),
+        heal_complete_at=hp_data.get("heal_complete_at"),
+        eligible=bool(hp_data.get("eligible", True)),
     )
 
 
@@ -505,11 +535,20 @@ async def tavern_reserve(
 @router.get("/tavern/hired-waifus/{waifu_id}/portrait", tags=["tavern"])
 async def hired_waifu_portrait(
     waifu_id: int,
+    request: Request,
+    variant: str = Query("full", description="full | thumb"),
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Binary portrait for a hired waifu (avoids base64 in JSON list responses)."""
-    import base64
+    """Binary portrait for a hired waifu (avoids base64 in JSON list responses).
+
+    Source portraits are stored at up to ~2 MB; we downscale/recode to webp and
+    cache the result so the tavern squad page stays light. ``variant=thumb``
+    returns a small list thumbnail, ``variant=full`` a larger detail image.
+    """
+    from fastapi.concurrency import run_in_threadpool
+
+    from waifu_bot.services import portrait_render
 
     waifu = await session.get(m.HiredWaifu, waifu_id)
     if not waifu or int(waifu.player_id) != int(player_id):
@@ -517,15 +556,31 @@ async def hired_waifu_portrait(
     raw = getattr(waifu, "image_data", None)
     if not raw:
         raise HTTPException(status_code=404, detail="Portrait not available")
+
+    variant = portrait_render.normalize_variant(variant)
+    generated_at = getattr(waifu, "image_generated_at", None)
+    version = generated_at.isoformat() if generated_at else str(len(raw))
+    cache_key = f"{waifu_id}:{version}"
+    etag = f'"{cache_key}:{variant}"'
+
+    # Cheap revalidation: unchanged portrait + variant -> 304, no body transfer.
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "public, max-age=604800"})
+
     try:
-        body = base64.b64decode(raw)
-    except Exception as exc:
+        body, content_type = await run_in_threadpool(
+            portrait_render.render_portrait, raw, variant=variant, cache_key=cache_key
+        )
+    except ValueError as exc:
         raise HTTPException(status_code=500, detail="Invalid portrait data") from exc
-    mime = getattr(waifu, "image_mime", None) or "image/webp"
+
     return Response(
         content=body,
-        media_type=mime,
-        headers={"Cache-Control": "private, max-age=86400"},
+        media_type=content_type,
+        headers={
+            "Cache-Control": "public, max-age=604800",
+            "ETag": etag,
+        },
     )
 
 
