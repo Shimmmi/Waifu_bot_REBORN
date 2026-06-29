@@ -697,6 +697,9 @@ def _apply_exp_to_hired_unit(unit: HiredWaifu, exp: int) -> tuple[bool, int]:
         new_max_hp = 50 + level * 15
         unit.max_hp = new_max_hp
         unit.current_hp = min(getattr(unit, "current_hp", new_max_hp), new_max_hp)
+        from waifu_bot.services.hired_waifu_state import refresh_hired_power
+
+        refresh_hired_power(unit)
     return (leveled_up, level)
 
 
@@ -821,16 +824,28 @@ class ExpeditionService:
         squad_waifu_ids: list[int],
         duration_minutes: int,
         *,
+        reward_type: str | None = None,
+        depth_tier: int | None = None,
         affix_template_id: int | None = None,
         affix_level: int | None = None,
         display_base_location: str | None = None,
         display_biome_tag: str | None = None,
         difficulty_level: int | None = None,
     ) -> dict:
-        """
-        Запуск экспедиции через ежедневный слот (v1.3).
-        Конструктор без слота и legacy-путь отключены в публичном API.
-        """
+        """Запуск экспедиции v2: тип награды + тир глубины + отряд."""
+        if reward_type is not None and depth_tier is not None:
+            from waifu_bot.services.expedition_v2_start import start_expedition_v2
+
+            return await start_expedition_v2(
+                self,
+                session,
+                player_id,
+                squad_waifu_ids,
+                str(reward_type),
+                int(depth_tier),
+            )
+
+        # Legacy daily-slot path (старые клиенты / активные миграции)
         if affix_template_id is not None and affix_level is not None and display_base_location:
             if expedition_slot_id is None:
                 return {"error": "constructor_disabled"}
@@ -845,10 +860,6 @@ class ExpeditionService:
         player = await self._lock_player_for_update(session, player_id)
         if not player:
             return {"error": "player_not_found"}
-
-        daily_err = await self._check_daily_start_limit(session, player_id)
-        if daily_err:
-            return daily_err
 
         return await self._start_daily_slot_v13(
             session,
@@ -1177,7 +1188,44 @@ class ExpeditionService:
         exp = active.reward_experience
         outcome = getattr(active, "outcome", None) or EXPEDITION_OUTCOME_FAILURE
 
-        player.gold += gold
+        reward_summary: dict[str, Any] = {}
+        leveled_up_ids: list[int] = []
+        items_earned: list[dict] = []
+        gate_log: list[dict] = []
+        ts = active.tick_state or {}
+        if isinstance(ts.get("gate_log"), list):
+            gate_log = list(ts.get("gate_log") or [])
+
+        if getattr(active, "reward_type", None):
+            from waifu_bot.db.models import MainWaifu
+
+            mw = await session.scalar(select(MainWaifu).where(MainWaifu.player_id == int(player_id)))
+            plv = int(mw.level or 1) if mw else 10
+            from waifu_bot.services.expedition_rewards import grant_expedition_rewards
+
+            reward_summary = await grant_expedition_rewards(
+                session,
+                player=player,
+                active=active,
+                outcome=outcome,
+                squad_ids=squad_ids,
+                player_level=plv,
+            )
+            gold = int(reward_summary.get("gold_gained") or 0)
+            exp = int(reward_summary.get("experience_gained") or 0)
+            leveled_up_ids = list(reward_summary.get("leveled_up_ids") or [])
+            items_earned = list(reward_summary.get("items_earned") or [])
+        else:
+            player.gold += gold
+            if exp and squad_ids:
+                per_waifu = max(0, exp // len(squad_ids))
+                for wid in squad_ids:
+                    w = await session.get(HiredWaifu, wid)
+                    if w and w.player_id == player_id:
+                        leveled, _ = _apply_exp_to_hired_unit(w, per_waifu)
+                        if leveled:
+                            leveled_up_ids.append(w.id)
+
         active.claimed = True
         active.finished_at = now
 
@@ -1196,17 +1244,6 @@ class ExpeditionService:
                     w.hp_updated_at = now
 
         await self._unlock_squad_expedition(session, squad_ids)
-
-        # Опыт только наёмницам отряда, поровну (ТЗ v1.1); ОВ не получает
-        leveled_up_ids: list[int] = []
-        if exp and squad_ids:
-            per_waifu = max(0, exp // len(squad_ids))
-            for wid in squad_ids:
-                w = await session.get(HiredWaifu, wid)
-                if w and w.player_id == player_id:
-                    leveled, _ = _apply_exp_to_hired_unit(w, per_waifu)
-                    if leveled:
-                        leveled_up_ids.append(w.id)
 
         slot = active.expedition_slot
         expedition_name = (
@@ -1264,6 +1301,11 @@ class ExpeditionService:
             "gold_total": player.gold,
             "event_text": getattr(active, "event_text", None) or event_text,
             "leveled_up_ids": leveled_up_ids,
+            "reward_type": getattr(active, "reward_type", None),
+            "items_earned": items_earned,
+            "gate_log": gate_log,
+            "enchant_stones": int(reward_summary.get("enchant_stones") or 0),
+            "waifu_exp_gained": int(reward_summary.get("waifu_exp_gained") or 0),
         }
 
     async def abort_early(
@@ -1470,6 +1512,25 @@ class ExpeditionService:
             w = await session.get(HiredWaifu, wid)
             if w and w.player_id == player_id:
                 squad_names.append(w.name or "Вайфу")
+
+        ts = active.tick_state or {}
+        gate_log = list(ts.get("gate_log") or []) if isinstance(ts.get("gate_log"), list) else []
+        if getattr(active, "reward_type", None):
+            from waifu_bot.services.expedition_events_ai import generate_gate_log_final_narrative
+
+            try:
+                text = await asyncio.wait_for(
+                    generate_gate_log_final_narrative(
+                        expedition_name=expedition_name,
+                        outcome=outcome,
+                        gate_log=gate_log,
+                    ),
+                    timeout=30.0,
+                )
+                if text:
+                    return text
+            except asyncio.TimeoutError:
+                pass
 
         brief = getattr(active, "narrative_brief", None) or {}
         arch = archetype_for_id(getattr(active, "location_archetype_id", None))

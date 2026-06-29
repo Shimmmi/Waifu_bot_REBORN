@@ -375,15 +375,17 @@ def calc_tag_effectiveness_mult(
     affix_level: int = 1,
 ) -> float:
     """
-    Π_{t ∈ active ∩ covered} (1 - (1/N) × eff_t), N = |active_tags|.
-    eff_t = 1.0 без squad (обратная совместимость); иначе tag_coverage_effectiveness.
+    Линейный бленд по доле покрытия: tag_mult = 1 - 0.95 × coverage_ratio.
+    coverage_ratio = (Σ eff_t для t ∈ active ∩ covered) / N, N = |active_tags|.
+    0% покрытия → 1.0 (полный урон), 100% → 0.05 (5% урона, «−95%»).
+    eff_t = tag_coverage_effectiveness (раса/класс = 1.0, перк = min(1, lv/affix_lv)).
     """
     if not active_tags:
         return 1.0
     n = len(active_tags)
     if n <= 0:
         return 1.0
-    mult = 1.0
+    eff_sum = 0.0
     for t in active_tags:
         if t not in covered_tags:
             continue
@@ -391,10 +393,10 @@ def calc_tag_effectiveness_mult(
             eff = 1.0
         else:
             eff = tag_coverage_effectiveness(squad, t, affix_level)
-        if eff <= 0:
-            continue
-        mult *= 1.0 - (1.0 / n) * eff
-    return mult
+        if eff > 0:
+            eff_sum += eff
+    coverage_ratio = eff_sum / n
+    return 1.0 - 0.95 * coverage_ratio
 
 
 def tag_effectiveness_pct(

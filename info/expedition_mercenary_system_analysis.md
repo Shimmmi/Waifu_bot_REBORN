@@ -1,5 +1,22 @@
 # Анализ системы экспедиций наёмных вайфу
 
+## v2 (2026-06): reward_type + depth_tier + мощь + heal-over-time
+
+С **миграции `0117_expedition_overhaul`** основной цикл экспедиций:
+
+| Параметр | Описание |
+|----------|----------|
+| **Тип награды** | `gold`, `waifu_exp`, `items`, `enchant`, `merc_exp`, `mixed` — выбор игрока при старте |
+| **Тир глубины** | 5 тиров (`DEPTH_TIERS`): события, длительность, множители урона/награды; гейт по **суммарной мощи** отряда |
+| **Мощь** | `compute_hired_power(level, rarity)` на `hired_waifus.power`; пересчёт при найме и левелапе |
+| **Лечение** | Платное heal-over-time (`heal_started_at`, `heal_complete_at`, `heal_start_hp`); **без бесплатной регенерации** |
+| **Лог** | `gate_log` в `tick_state` — пункт на препятствие; итог в claim |
+| **Слоты дня** | Убраны из UI/API; лимит — только `EXPEDITION_MAX_CONCURRENT` и здоровье наёмниц |
+
+Код: `game/expedition_overhaul.py`, `services/expedition_v2_start.py`, `services/expedition_rewards.py`, `services/hired_waifu_state.py`.
+
+---
+
 Документ описывает, как в коде устроены сложности, перки, расы и классы наёмниц, и как они взаимодействуют при экспедициях v1.3 (тики каждые 15 мин) и в legacy-схеме (шанс успеха).
 
 **Источники:** `src/waifu_bot/game/expedition_redesign.py`, `expedition_data.py`, `expedition_perk_resolve.py`, `services/expedition.py`, `services/expedition_ticks.py`, миграция `0026_expedition_affixes_and_slot_naming.py`.

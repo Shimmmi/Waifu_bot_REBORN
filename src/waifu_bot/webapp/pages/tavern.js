@@ -64,17 +64,84 @@ function hiredWaifuHp(w) {
   return { cur, max };
 }
 
+function hiredWaifuIsHealing(w) {
+  return Boolean(w?.healing) || w?.status === "healing";
+}
+
+function hiredWaifuHealCompleteAt(w) {
+  return w?.heal_complete_at ?? w?.healCompleteAt ?? null;
+}
+
+function formatHealCountdown(secondsLeft) {
+  const sec = Math.max(0, Math.floor(Number(secondsLeft) || 0));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function healSecondsRemaining(completeAtIso) {
+  if (!completeAtIso) return 0;
+  const end = new Date(completeAtIso).getTime();
+  if (!Number.isFinite(end)) return 0;
+  return Math.max(0, Math.ceil((end - Date.now()) / 1000));
+}
+
+let tavernHealTimerInterval = null;
+
+function wireTavernHealTimers() {
+  const tick = () => {
+    const timers = document.querySelectorAll(".tavern-heal-timer[data-heal-complete-at]");
+    if (!timers.length) {
+      if (tavernHealTimerInterval) {
+        clearInterval(tavernHealTimerInterval);
+        tavernHealTimerInterval = null;
+      }
+      return;
+    }
+    let anyLeft = false;
+    timers.forEach((el) => {
+      const iso = el.getAttribute("data-heal-complete-at");
+      const left = healSecondsRemaining(iso);
+      if (left > 0) {
+        anyLeft = true;
+        el.textContent = `⏳ ${formatHealCountdown(left)}`;
+      } else {
+        el.textContent = "✓";
+      }
+    });
+    if (!anyLeft && tavernHealTimerInterval) {
+      clearInterval(tavernHealTimerInterval);
+      tavernHealTimerInterval = null;
+      loadTavernWithProfile(undefined, { innerRefresh: true })
+        .then(({ squad, reserve }) => {
+          tavernState.squad = squad || tavernState.squad;
+          tavernState.reserve = reserve || tavernState.reserve;
+          renderTavernHealList();
+          renderTavernSquad();
+        })
+        .catch(() => {});
+    }
+  };
+  tick();
+  if (!tavernHealTimerInterval) {
+    tavernHealTimerInterval = setInterval(tick, 1000);
+  }
+}
+
 function hiredWaifuNameLines(name) {
   const parts = String(name || "Наёмница").trim().split(/\s+/);
   if (parts.length <= 1) return { first: parts[0] || "Наёмница", last: "" };
   return { first: parts[0], last: parts.slice(1).join(" ") };
 }
 
-/** Статус в пуле наёмниц: экспедиция / обморок (0 HP) / готова. Без «отряд vs запас». */
+/** Статус в пуле наёмниц: экспедиция / лечение / обморок (0 HP) / готова. */
 function hiredWaifuPoolUiStatus(w) {
   const expId = w?.expedition_id ?? w?.expeditionId;
   if (w?.status === "expedition" || (expId != null && Number(expId) > 0)) {
     return { key: "traveling", label: "В пути" };
+  }
+  if (hiredWaifuIsHealing(w)) {
+    return { key: "healing", label: "Лечение" };
   }
   const { cur } = hiredWaifuHp(w);
   if (cur <= 0) {
@@ -1590,31 +1657,55 @@ function renderTavernHealList() {
   const all = [...squad, ...reserve];
   const wounded = all.filter((w) => {
     if (hiredWaifuPoolUiStatus(w).key === "traveling") return false;
+    if (hiredWaifuIsHealing(w)) return true;
     const { cur, max: maxHp } = hiredWaifuHp(w);
     return cur < maxHp;
   });
   if (wounded.length === 0) {
     container.innerHTML = '<p class="muted" style="font-style:italic;">Нет раненых наёмниц.</p>';
     container.className = "placeholder muted";
+    if (tavernHealTimerInterval) {
+      clearInterval(tavernHealTimerInterval);
+      tavernHealTimerInterval = null;
+    }
     return;
   }
   container.className = "tavern-heal-grid";
   container.innerHTML = wounded
     .map((w) => {
       const { cur, max: maxHp } = hiredWaifuHp(w);
-      const need = maxHp - cur;
-      const mult = cur === 0 ? 2 : 1;
-      const cost = need * TAVERN_HEAL_GOLD_PER_HP * mult;
       const pct = maxHp > 0 ? Math.round((cur / maxHp) * 100) : 0;
-      const portrait = hiredWaifuImageUrl(w);
+      const portrait = hiredWaifuImageUrl(w, "thumb");
       const portraitHtml = portrait
         ? `<img src="${escapeHtml(portrait)}" alt="" loading="lazy" decoding="async">`
         : `<span aria-hidden="true">🛡️</span>`;
-      return `
-        <div class="tavern-heal-card" data-waifu-id="${w.id}" data-cost="${cost}" role="button" tabindex="0" aria-label="Лечить ${escapeHtml(w.name || "наёмницу")} за ${cost} золота">
+      const name = escapeHtml(w.name || "Наёмница");
+      const subHp = `❤ ${cur}/${maxHp}`;
+      if (hiredWaifuIsHealing(w)) {
+        const completeAt = hiredWaifuHealCompleteAt(w) || "";
+        const left = healSecondsRemaining(completeAt);
+        const timerText = left > 0 ? formatHealCountdown(left) : "0:00";
+        return `
+        <div class="tavern-heal-card tavern-heal-card--healing" aria-label="${name} на лечении">
           <div class="tavern-heal-card-portrait">${portraitHtml}</div>
-          <div class="tavern-heal-card-hp">
-            <div class="tavern-hp-bar-wrap"><div class="tavern-hp-bar" style="width:${pct}%"></div></div>
+          <div class="tavern-heal-card-info">
+            <div class="tavern-heal-card-name">${name}</div>
+            <div class="tavern-heal-card-sub">${subHp}</div>
+            <div class="tavern-heal-card-hp"><div class="tavern-hp-bar-wrap"><div class="tavern-hp-bar" style="width:${pct}%"></div></div></div>
+          </div>
+          <div class="tavern-heal-timer" data-heal-complete-at="${escapeHtml(completeAt)}">⏳ ${timerText}</div>
+        </div>`;
+      }
+      const need = maxHp - cur;
+      const mult = cur === 0 ? 2 : 1;
+      const cost = need * TAVERN_HEAL_GOLD_PER_HP * mult;
+      return `
+        <div class="tavern-heal-card" data-waifu-id="${w.id}" data-cost="${cost}" role="button" tabindex="0" aria-label="Лечить ${name} за ${cost} золота">
+          <div class="tavern-heal-card-portrait">${portraitHtml}</div>
+          <div class="tavern-heal-card-info">
+            <div class="tavern-heal-card-name">${name}</div>
+            <div class="tavern-heal-card-sub">${subHp}</div>
+            <div class="tavern-heal-card-hp"><div class="tavern-hp-bar-wrap"><div class="tavern-hp-bar" style="width:${pct}%"></div></div></div>
           </div>
           <div class="tavern-heal-cost">🪙 ${cost}</div>
         </div>`;
@@ -1643,7 +1734,7 @@ function renderTavernHealList() {
     }
   }
 
-  container.querySelectorAll(".tavern-heal-card").forEach((card) => {
+  container.querySelectorAll(".tavern-heal-card[data-waifu-id]").forEach((card) => {
     card.addEventListener("click", () => healWaifu(card));
     card.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" || ev.key === " ") {
@@ -1652,6 +1743,8 @@ function renderTavernHealList() {
       }
     });
   });
+
+  wireTavernHealTimers();
 }
 
 function perkLevelStars(level, maxLevel = 5, compact = false) {
@@ -1733,7 +1826,7 @@ function renderTavernUpgradeList() {
       const points = Number(w.perkUpgradePoints ?? w.perk_upgrade_points ?? 0);
       const expId = w.expedition_id ?? w.expeditionId;
       const inExpedition = expId != null && Number(expId) > 0;
-      const portrait = hiredWaifuImageUrl(w);
+      const portrait = hiredWaifuImageUrl(w, "thumb");
       const portraitInner = portrait
         ? `<img src="${escapeHtml(portrait)}" alt="" loading="lazy" decoding="async">`
         : `<span aria-hidden="true">🛡️</span>`;
@@ -1936,9 +2029,9 @@ function renderWaifuCardHtml(w, opts = {}) {
   const cls = `${"tavern-waifu-card"}${extra ? ` ${extra}` : ""}`;
   const power = w?.power ?? "—";
   const perksCount = Array.isArray(w?.perks) ? w.perks.length : 0;
-  const portraitUrl = hiredWaifuImageUrl(w);
+  const portraitUrl = hiredWaifuImageUrl(w, "thumb");
   const portraitContent = portraitUrl
-    ? `<img src="${escapeHtml(portraitUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;" />`
+    ? `<img src="${escapeHtml(portraitUrl)}" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;" />`
     : waifuPortraitEmoji(w);
   return `
     <div class="${cls}">
@@ -2003,7 +2096,7 @@ function renderTavernSquad() {
           .join("")
       : `<span class="muted tiny" style="opacity:.75;">—</span>`;
 
-    const url = hiredWaifuImageUrl(w);
+    const url = hiredWaifuImageUrl(w, "full");
     const portraitLayer = url
       ? `<img class="squad-mtg-bg-img" src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />`
       : "";
@@ -2234,9 +2327,9 @@ function openTavernWaifuModal(w) {
         .join("")
     : `<div class="waifu-mtg-no-perks">Нет перков</div>`;
 
-  const imgUrl = hiredWaifuImageUrl(w);
+  const imgUrl = hiredWaifuImageUrl(w, "full");
   const portraitInner = imgUrl
-    ? `<img class="waifu-mtg-art-img" src="${escapeHtml(imgUrl)}" alt="" />`
+    ? `<img class="waifu-mtg-art-img" src="${escapeHtml(imgUrl)}" alt="" loading="lazy" decoding="async" />`
     : `<div class="waifu-mtg-art-placeholder" aria-hidden="true">${waifuPortraitEmoji(w)}</div>`;
 
   const level = Number(w?.level ?? 1);

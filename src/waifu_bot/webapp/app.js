@@ -679,9 +679,13 @@ function resolveImageUrl(url) {
   return qs ? `${u}${u.includes("?") ? "&" : "?"}${qs}` : u;
 }
 
-function hiredWaifuImageUrl(w) {
+function hiredWaifuImageUrl(w, variant) {
   const u = w?.imageUrl ?? w?.image_url;
-  return resolveImageUrl(u);
+  const resolved = resolveImageUrl(u);
+  // Portrait API supports ?variant=thumb|full (downscaled webp). Only append it
+  // for that endpoint; static URLs ignore unknown queries but we keep them clean.
+  if (!resolved || !variant || !resolved.includes("/portrait")) return resolved;
+  return `${resolved}${resolved.includes("?") ? "&" : "?"}variant=${encodeURIComponent(variant)}`;
 }
 
 function waifuPortraitEmoji(w) {
@@ -1168,13 +1172,24 @@ function formatAtticSoloDungeonCode(active) {
   return null;
 }
 
-/** Update the active-dungeon chip in the shared ОЧ header. Short format: "1-1 - N%" or "1-1 (+N) - N%". */
+/** Update the active-dungeon chip in the shared ОЧ header. Format: "код · curStage/total" + segmented bar. */
 function renderAtticDungeon(active) {
   const chip = document.getElementById("attic-dungeon-chip");
   const label = document.getElementById("attic-dungeon-label");
   const progressWrap = document.getElementById("attic-dungeon-progress");
-  const progressFill = document.getElementById("attic-dungeon-progress-fill");
   if (!chip || !label) return;
+
+  const renderSegments = (segs) => {
+    if (!progressWrap) return;
+    if (!segs.length) {
+      progressWrap.hidden = true;
+      progressWrap.innerHTML = "";
+      return;
+    }
+    progressWrap.innerHTML = `<div class="attic-dungeon-segments">${segs.join("")}</div>`;
+    progressWrap.hidden = false;
+  };
+
   if (active?.abyss_active) {
     const hpPct = active.monster_max_hp > 0
       ? Math.round((active.monster_current_hp / active.monster_max_hp) * 100)
@@ -1182,103 +1197,69 @@ function renderAtticDungeon(active) {
     label.textContent = `🕳️ Бездна · эт. ${Number(active.abyss_floor || 0)}`;
     chip.classList.remove("chip-ghost");
     chip.classList.add("chip-active");
-    if (progressWrap && progressFill) {
-      progressFill.style.width = `${Math.max(0, Math.min(100, 100 - hpPct))}%`;
+    if (progressWrap) {
+      const donePct = Math.max(0, Math.min(100, 100 - hpPct));
+      renderSegments([
+        `<div class="attic-dungeon-seg attic-dungeon-seg--done"><div class="attic-dungeon-seg-fill" style="width:${donePct}%"></div></div>`,
+      ]);
       progressWrap.setAttribute("aria-label", `Бездна, этаж ${Number(active.abyss_floor || 0)}`);
-      progressWrap.hidden = false;
     }
     return;
   }
   if (active?.active) {
-    const hpPct = active.monster_max_hp > 0
-      ? Math.round((active.monster_current_hp / active.monster_max_hp) * 100)
-      : 0;
     const code = formatAtticSoloDungeonCode(active) || active.dungeon_name || "Бой";
     const pl = Math.max(0, parseInt(active.plus_level, 10) || 0);
-    label.textContent = pl > 0 ? `${code} (+${pl}) - ${hpPct}%` : `${code} - ${hpPct}%`;
+    const curStage = Math.max(
+      1,
+      Math.floor(Number(
+        active?.monster_position ??
+        active?.dungeon_stage ??
+        active?.current_stage ??
+        active?.stage ??
+        1
+      ) || 1),
+    );
+    const totalStages = Math.max(
+      1,
+      Math.floor(Number(
+        active?.total_monsters ??
+        active?.total_stages ??
+        active?.total_rooms ??
+        active?.rooms_total ??
+        4
+      ) || 4),
+    );
+    const hpFrac = active.monster_max_hp > 0
+      ? 1 - clamp01(active.monster_current_hp / active.monster_max_hp)
+      : 0;
+    label.textContent = `${code}${pl > 0 ? ` (+${pl})` : ""} · ${curStage}/${totalStages}`;
     chip.title = active.dungeon_name ? String(active.dungeon_name) : "Подземелье";
     chip.classList.remove("chip-ghost");
     chip.classList.add("chip-active");
 
-    if (progressWrap && progressFill) {
-      const curStage = Math.max(
-        1,
-        Math.floor(Number(
-          active?.monster_position ??
-          active?.dungeon_stage ??
-          active?.current_stage ??
-          active?.stage ??
-          1
-        ) || 1),
-      );
-      const totalStages = Math.max(
-        1,
-        Math.floor(Number(
-          active?.total_monsters ??
-          active?.total_stages ??
-          active?.total_rooms ??
-          active?.rooms_total ??
-          4
-        ) || 4),
-      );
-      const hpFrac = active.monster_max_hp > 0
-        ? 1 - clamp01(active.monster_current_hp / active.monster_max_hp)
-        : 0;
-      const pct = Math.max(0, Math.min(100, ((curStage - 1 + hpFrac) / totalStages) * 100));
-      progressFill.style.width = `${pct}%`;
+    if (progressWrap) {
+      const segs = [];
+      for (let i = 1; i <= totalStages; i++) {
+        let fill = 0;
+        if (i < curStage) fill = 1;
+        else if (i === curStage) fill = hpFrac;
+        const inner = fill > 0
+          ? `<div class="attic-dungeon-seg-fill" style="width:${Math.round(fill * 100)}%"></div>`
+          : "";
+        segs.push(`<div class="attic-dungeon-seg${fill >= 1 ? " attic-dungeon-seg--done" : ""}">${inner}</div>`);
+      }
+      renderSegments(segs);
       progressWrap.setAttribute("aria-label", `Прогресс: ${curStage}/${totalStages}`);
-      progressWrap.hidden = false;
     }
   } else {
     label.textContent = "Нет боя";
     chip.classList.add("chip-ghost");
     chip.classList.remove("chip-active");
-    if (progressWrap) progressWrap.hidden = true;
-    if (progressFill) progressFill.style.width = "0%";
-  }
-}
-
-/** Update the expeditions chip in the shared ОЧ: 3 slot boxes — green (completed), yellow (in progress), transparent (free). */
-function renderAtticExpeditions(slots, activeList) {
-  const container = document.getElementById("attic-expedition-chip");
-  if (!container) return;
-  const list = Array.isArray(activeList) ? activeList : [];
-  const slotsArr = Array.isArray(slots) ? slots.slice(0, 3) : [];
-  const bySlotId = {};
-  list.forEach((e) => {
-    const sid = e?.expedition_slot_id ?? e?.slot_id;
-    if (sid != null) bySlotId[Number(sid)] = e;
-  });
-  const slotStates = slotsArr.length
-    ? slotsArr.map((s) => {
-        const a = bySlotId[Number(s.id)];
-        if (!a) return "free";
-        return a.can_claim ? "completed" : "in_progress";
-      })
-    : ["free", "free", "free"];
-  if (!container.querySelector(".attic-expedition-slots")) {
-    container.innerHTML = "";
-    const wrap = document.createElement("div");
-    wrap.className = "attic-expedition-slots";
-    wrap.setAttribute("aria-label", "Слоты экспедиций");
-    for (let i = 0; i < 3; i++) {
-      const box = document.createElement("div");
-      box.className = "attic-exp-slot";
-      box.dataset.slotIndex = String(i);
-      wrap.appendChild(box);
+    if (progressWrap) {
+      progressWrap.hidden = true;
+      progressWrap.innerHTML = "";
     }
-    container.appendChild(wrap);
   }
-  const boxes = container.querySelectorAll(".attic-exp-slot");
-  const hasAny = slotStates.some((s) => s !== "free");
-  container.classList.toggle("chip-ghost", !hasAny);
-  container.classList.toggle("chip-active", hasAny);
-  slotStates.forEach((state, i) => {
-    const box = boxes[i];
-    if (!box) return;
-    box.className = "attic-exp-slot attic-exp-slot--" + state;
-    box.title = state === "completed" ? "Завершено" : state === "in_progress" ? "В процессе" : "Свободно";
-  });
 }
 
 function hasAtticChrome() {
@@ -1360,25 +1341,9 @@ async function fetchActiveDungeon(options = {}) {
 function refreshAtticChips(opts = {}) {
   if (!hasAtticChrome()) return;
   const skipDungeon = opts.skipDungeon === true || isDungeonsPage();
-  const skipExpeditions =
-    opts.forceExpeditions !== true &&
-    (opts.skipExpeditions === true || isDungeonsPage() || isGuildHallPage());
   if (!skipDungeon) {
     fetchActiveDungeon({ includeLog: false }).then(renderAtticDungeon).catch(() => {});
   }
-  if (skipExpeditions) return;
-  if (opts.expeditionData) {
-    const slots = opts.expeditionData.slots ?? [];
-    const active = opts.expeditionData.active ?? [];
-    renderAtticExpeditions(slots, active);
-    return;
-  }
-  Promise.all([
-    apiFetch("/expeditions/slots").catch(() => ({ slots: [] })),
-    apiFetch("/expeditions/active").catch(() => ({ active: [] })),
-  ]).then(([slotsRes, activeRes]) => {
-    renderAtticExpeditions(slotsRes?.slots ?? [], activeRes?.active ?? []);
-  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2870,16 +2835,39 @@ async function initSettingsPage() {
   }
 }
 
+// In-flight dedup for /profile. Many call sites refresh the profile right after
+// a mutation, so we deliberately do NOT add a TTL cache (that would serve stale
+// gold/state). Instead we only collapse *concurrent* duplicate requests — e.g.
+// an SSE-triggered refetch firing while the page bootstrap is still loading —
+// into a single blocking network call. Sequential (post-await) calls still hit
+// the network and get fresh data.
+const profileInFlight = { lite: null, full: null };
+
 async function loadProfile(options = {}) {
   const lite = options.lite ?? !isProfilePage();
+  const key = lite ? "lite" : "full";
+  const populateOpts = { skipAtticRefresh: options.skipAtticRefresh === true };
+
+  if (profileInFlight[key]) {
+    const profile = await profileInFlight[key];
+    populateFromProfile(profile, populateOpts);
+    return profile;
+  }
+
   const initData = getInitData();
   const params = new URLSearchParams();
   if (initData) params.set("initData", initData);
   if (lite) params.set("lite", "1");
   const qs = params.toString();
-  const profile = await apiFetch(`/profile${qs ? `?${qs}` : ""}`);
-  populateFromProfile(profile, { skipAtticRefresh: options.skipAtticRefresh === true });
-  return profile;
+  const promise = apiFetch(`/profile${qs ? `?${qs}` : ""}`);
+  profileInFlight[key] = promise;
+  try {
+    const profile = await promise;
+    populateFromProfile(profile, populateOpts);
+    return profile;
+  } finally {
+    if (profileInFlight[key] === promise) profileInFlight[key] = null;
+  }
 }
 
 /** One-time bind: ОЧ chip clicks open dungeons.html with the right tab. */
@@ -2887,18 +2875,11 @@ function initAtticChipClicks() {
   if (window.__atticChipClicksBound) return;
   window.__atticChipClicksBound = true;
   const dungeonChip = document.getElementById("attic-dungeon-chip");
-  const expeditionChip = document.getElementById("attic-expedition-chip");
   if (dungeonChip) {
     dungeonChip.addEventListener("click", () => {
       window.location.href = "./dungeons.html?tab=solo";
     });
     dungeonChip.style.cursor = "pointer";
-  }
-  if (expeditionChip) {
-    expeditionChip.addEventListener("click", () => {
-      window.location.href = "./dungeons.html?tab=expedition";
-    });
-    expeditionChip.style.cursor = "pointer";
   }
 }
 
@@ -3578,19 +3559,15 @@ function updateShopGambleCost() {
 }
 
 const expeditionState = {
-  slots: [],
   active: [],
   roster: [],
-  refreshAt: null,
+  catalog: { reward_types: [], depth_tiers: [] },
 };
-const expeditionUiCache = { activeById: {}, dailyById: {}, _activeRaw: null };
+const expeditionUiCache = { activeById: {}, _activeRaw: null };
 const expeditionSend = {
   squadSlots: [null, null, null],
-  pickerSlot: -1,
-  diffVal: 1,
-  durVal: 30,
-  slotId: null,
-  pickerExcludedTags: null,
+  rewardType: "gold",
+  depthTier: 1,
 };
 
 function switchShopTab(name) {
@@ -11936,9 +11913,18 @@ let caravanPendingAct = null;
 let caravanTravelInProgress = false;
 let caravanDriverTipInProgress = false;
 
+/**
+ * Acts that actually ship pin art under /static/game/ui/caravan/.
+ * Empty by default: no pin art exists yet, so the map shows the act emoji from
+ * ACT_META. Keeping this empty avoids 5x2 guaranteed 404s on every caravan open.
+ * Add an act number here once act-{N}/map-pin.webp (or pin_act{N}.webp) ships.
+ */
+const CARAVAN_ACTS_WITH_PIN_ART = new Set();
+
 /** Иконка точки на карте каравана (см. static/game/ui/caravan/README.md). */
 function caravanPinImageUrls(act) {
   const a = Math.max(1, Math.min(5, safeInt(act, 1)));
+  if (!CARAVAN_ACTS_WITH_PIN_ART.has(a)) return [];
   return [`${CARAVAN_STATIC_BASE}/act-${a}/map-pin.webp`, `${CARAVAN_STATIC_BASE}/pin_act${a}.webp`];
 }
 
@@ -14420,7 +14406,6 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   closeHiddenSkillModal,
   loadProfile,
   renderAtticDungeon,
-  renderAtticExpeditions,
   refreshAtticChips,
   shopPageBootstrap,
   loadShop,

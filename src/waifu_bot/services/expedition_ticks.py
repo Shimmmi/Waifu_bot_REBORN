@@ -264,6 +264,36 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
     squad_prepared = not (uncovered_tags & active_tags)
     outcome = _roll_narrative_outcome(rng, squad_prepared=squad_prepared)
 
+    from waifu_bot.game.expedition_overhaul import gate_log_entry
+
+    gate_log = list(ts.get("gate_log") or [])
+    actual_dmg = 0 if skip_damage else int(total_dmg)
+    twist_text = str(twist.get("text") or "").strip() if twist else ""
+    if skip_damage:
+        twist_text = twist_text or "урон пропущен"
+    coverage_ratio = (
+        len(active_tags & covered_tags) / float(len(active_tags))
+        if active_tags
+        else 0.0
+    )
+    gate_log.append(
+        gate_log_entry(
+            event_index=events_done,
+            category=challenge_cat,
+            damage=actual_dmg,
+            covered=bool(squad_prepared),
+            base_pct=base_pct,
+            tag_mult=float(tag_mult),
+            challenge_adj=float(tick_adj),
+            variance=float(variance),
+            twist=twist_text,
+            active_tags=sorted(list(active_tags)),
+            covered_tags=sorted(list(active_tags & covered_tags)),
+            coverage=coverage_ratio,
+        )
+    )
+    ts["gate_log"] = gate_log
+
     if silent:
         narrative = "…"
     else:

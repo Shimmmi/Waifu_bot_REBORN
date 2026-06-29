@@ -2063,6 +2063,8 @@ async def _expedition_active_affixes(session: AsyncSession, active) -> list:
 
 
 async def _expedition_squad_snapshot(session: AsyncSession, player_id: int, squad_ids: list) -> list:
+    from waifu_bot.game.expedition_overhaul import compute_hired_power
+
     out: list[schemas.ExpeditionSquadUnitOut] = []
     for wid in squad_ids or []:
         w = await session.get(m.HiredWaifu, wid)
@@ -2070,9 +2072,12 @@ async def _expedition_squad_snapshot(session: AsyncSession, player_id: int, squa
             continue
         cid = int(w.class_ or 1)
         rid = int(w.race or 1)
+        lvl = int(getattr(w, "level", 1) or 1)
+        rar = int(getattr(w, "rarity", 1) or 1)
         max_hp = max(1, int(w.max_hp or 1))
         cur = int(getattr(w, "current_hp", max_hp) or 0)
         icon = _EXPEDITION_CLASS_ICONS.get(cid, "⚔️")
+        power = compute_hired_power(lvl, rar)
         out.append(
             schemas.ExpeditionSquadUnitOut(
                 id=w.id,
@@ -2082,22 +2087,71 @@ async def _expedition_squad_snapshot(session: AsyncSession, player_id: int, squa
                 race=_WAIFU_RACE_RU.get(rid),
                 hp_current=cur,
                 hp_max=max_hp,
+                power=power,
+                level=lvl,
+                rarity=rar,
             )
         )
     return out
 
 
+def _expedition_squad_hp_pct(squad_snap: list) -> Optional[float]:
+    if not squad_snap:
+        return None
+    total_max = sum(int(getattr(u, "hp_max", 0) or 0) for u in squad_snap)
+    total_cur = sum(int(getattr(u, "hp_current", 0) or 0) for u in squad_snap)
+    if total_max <= 0:
+        return None
+    return round(100.0 * total_cur / total_max, 1)
+
+
+def _expedition_reward_preview(reward_type: Optional[str], reward_gold: int, reward_experience: int) -> Optional[str]:
+    """Короткая строка превью награды для карточки активной экспедиции."""
+    rt = (reward_type or "").lower()
+    icons = {
+        "gold": "🪙",
+        "waifu_exp": "⭐",
+        "items": "🗡",
+        "enchant": "💎",
+        "merc_exp": "✨",
+        "mixed": "🎁",
+    }
+    if not rt:
+        # legacy: покажем золото/опыт если есть
+        parts = []
+        if reward_gold:
+            parts.append(f"🪙 {reward_gold}")
+        if reward_experience:
+            parts.append(f"⭐ {reward_experience}")
+        return " · ".join(parts) if parts else None
+    ico = icons.get(rt, "🎁")
+    if rt == "gold":
+        return f"{ico} {reward_gold}" if reward_gold else f"{ico} —"
+    if rt in ("waifu_exp", "merc_exp"):
+        return f"{ico} {reward_experience}" if reward_experience else f"{ico} —"
+    if rt == "enchant":
+        return f"{ico} камни"
+    if rt == "items":
+        return f"{ico} снаряжение"
+    if rt == "mixed":
+        return f"{ico} добыча"
+    return ico
+
+
 @router.get("/expeditions/catalog", tags=["expeditions"])
 async def expeditions_catalog(session: AsyncSession = Depends(get_db)):
-    """v1.3: архетипы локаций, режимы, аффиксы из БД + допустимые длительности."""
+    """v2: типы награды, тиры глубины, аффиксы; legacy durations для совместимости."""
     from waifu_bot.game.constants import EXPEDITION_MAX_CONCURRENT, EXPEDITION_V13_DURATIONS
     from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
     from waifu_bot.game.expedition_narrative_catalog import EXPEDITION_LOCATION_ARCHETYPES, EXPEDITION_MODES
+    from waifu_bot.game.expedition_overhaul import depth_tier_catalog, reward_type_catalog
     from waifu_bot.game.expedition_redesign import affix_display_icon
 
     stmt = select(m.ExpeditionAffix).order_by(m.ExpeditionAffix.id)
     rows = list((await session.execute(stmt)).scalars().all())
     return {
+        "reward_types": reward_type_catalog(),
+        "depth_tiers": depth_tier_catalog(),
         "location_archetypes": [
             {
                 "id": a.id,
@@ -2144,21 +2198,23 @@ async def expeditions_roster(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Все наёмницы пула для выбора в экспедиции; занятые помечены expedition_id (блокировка в UI)."""
-    from waifu_bot.game.constants import EXPEDITION_HP_MIN_PCT_TO_START
-    from waifu_bot.game.expedition_difficulty_tags import unit_coverage_detail
+    """Все наёмницы пула для выбора в экспедиции; HP/лечение через effective helpers."""
+    from datetime import datetime, timezone
 
+    from waifu_bot.game.expedition_difficulty_tags import unit_coverage_detail
+    from waifu_bot.services.hired_waifu_state import hired_roster_payload
+
+    now = datetime.now(tz=timezone.utc)
     stmt = select(m.HiredWaifu).where(m.HiredWaifu.player_id == player_id)
     rows = list((await session.execute(stmt)).scalars().all())
     out = []
     for w in rows:
-        max_hp = max(1, int(w.max_hp or 1))
-        cur = int(getattr(w, "current_hp", max_hp) or 0)
-        ratio = cur / max_hp
+        hp_data = hired_roster_payload(w, now)
         cid = int(w.class_ or 1)
         pl = getattr(w, "perk_levels", None) or {}
         image_url = hired_waifu_portrait_url(w)
         coverage = unit_coverage_detail(w)
+        status = "expedition" if w.expedition_id else ("healing" if hp_data["healing"] else "ready")
         out.append({
             "id": w.id,
             "name": w.name,
@@ -2167,15 +2223,18 @@ async def expeditions_roster(
             "level": w.level,
             "perks": w.perks,
             "perk_levels": dict(pl) if isinstance(pl, dict) else {},
-            "current_hp": cur,
-            "max_hp": max_hp,
-            "hp_current": cur,
-            "hp_max": max_hp,
-            "power": getattr(w, "power", None),
+            "current_hp": hp_data["current_hp"],
+            "max_hp": hp_data["max_hp"],
+            "hp_current": hp_data["hp_current"],
+            "hp_max": hp_data["hp_max"],
+            "power": hp_data["power"],
+            "healing": hp_data["healing"],
+            "heal_complete_at": hp_data["heal_complete_at"],
+            "eligible": hp_data["eligible"],
+            "status": status,
             "image_url": image_url,
             "icon": _EXPEDITION_CLASS_ICONS.get(cid, "⚔️"),
             "expedition_id": w.expedition_id,
-            "eligible": ratio >= EXPEDITION_HP_MIN_PCT_TO_START,
             "covered_tags": coverage["covered_tags"],
             "race_tags": coverage["race_tags"],
             "class_tags": coverage["class_tags"],
@@ -2189,99 +2248,8 @@ async def expeditions_slots(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    slots = await expedition_service.get_slots(session)
-    used_slot_ids = await expedition_service.get_used_slot_ids(session, player_id)
-    day_str = slots[0].day.isoformat() if slots else ""
-    player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
-    player_level = (
-        int(player.main_waifu.level or 1) if (player and player.main_waifu) else 1
-    )
-    from waifu_bot.game.expedition_perk_resolve import normalize_expedition_paired_perk_ids
-    from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
-    from waifu_bot.game.expedition_redesign import affix_display_icon, biome_emoji_for_tag, union_challenge_categories_from_db_affix_rows
-    from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
-    from waifu_bot.services.expedition import _slot_required_perks, slot_active_tags
-    # Сложность: из slot.difficulty (аффиксы) или по номеру слота (старые слоты)
-    def _diff_label(d: int | None, sn: int) -> tuple[int, str]:
-        if d is not None:
-            if d <= 1:
-                return (1, "Лёгкая")
-            if d <= 3:
-                return (3, "Средняя")
-            return (5, "Тяжёлая")
-        return {1: (1, "Лёгкая"), 2: (3, "Средняя"), 3: (5, "Тяжёлая")}.get(sn, (3, "Средняя"))
-    # Загружаем аффиксы для слотов с affix_ids
-    affix_ids_flat = []
-    for s in slots:
-        aids = getattr(s, "affix_ids", None) or []
-        affix_ids_flat.extend(aids)
-    affix_map = {}
-    if affix_ids_flat:
-        affix_stmt = select(m.ExpeditionAffix).where(m.ExpeditionAffix.id.in_(set(affix_ids_flat)))
-        affix_rows = (await session.execute(affix_stmt)).scalars().all()
-        affix_map = {a.id: a for a in affix_rows}
-    out_slots = []
-    for s in slots:
-        sn = int(s.slot or 1)
-        slot_difficulty = getattr(s, "difficulty", None)
-        effective_level = (
-            max(1, player_level - 5 + (slot_difficulty - 1) * 2)
-            if slot_difficulty is not None
-            else max(1, player_level - 3 + (sn - 1) * 3)
-        )
-        diff_val, label = _diff_label(slot_difficulty, sn)
-        required_perks = sorted(_slot_required_perks(s))
-        affix_rows_for_slot = [affix_map[aid] for aid in (getattr(s, "affix_ids", None) or []) if aid in affix_map]
-        ch_cats = sorted(union_challenge_categories_from_db_affix_rows(affix_rows_for_slot)) if affix_rows_for_slot else []
-        slot_tags = sorted_tag_list(slot_active_tags(s, affix_map))
-        affix_out = []
-        for aid in (getattr(s, "affix_ids", None) or []):
-            aff = affix_map.get(aid)
-            if aff:
-                aff_tags = sorted_tag_list(tags_for_db_affix_row(aff))
-                affix_out.append(schemas.ExpeditionAffixOut(
-                    id=aff.id,
-                    name=aff.name,
-                    type=aff.type,
-                    category=aff.category,
-                    description_hint=getattr(aff, "description_hint", None),
-                    icon=affix_display_icon(aff),
-                    paired_perks=normalize_expedition_paired_perk_ids(getattr(aff, "paired_perks", None) or []),
-                    difficulty_tags=aff_tags,
-                ))
-        bt = getattr(s, "biome_tag", None)
-        arch = archetype_for_id(getattr(s, "location_archetype_id", None))
-        mode = mode_for_id(getattr(s, "expedition_mode_id", None))
-        out_slots.append(
-            schemas.ExpeditionSlotOut(
-                id=s.id,
-                slot=sn,
-                name=s.name,
-                base_level=effective_level,
-                base_difficulty=int(s.base_difficulty),
-                difficulty=diff_val,
-                label=label,
-                required_perks=required_perks,
-                challenge_categories=ch_cats,
-                difficulty_tags=slot_tags,
-                affixes=affix_out,
-                base_location=getattr(s, "base_location", None),
-                biome_tag=bt,
-                biome_emoji=biome_emoji_for_tag(bt),
-                paired_perks=required_perks,
-                base_gold=int(s.base_gold),
-                base_experience=int(s.base_experience),
-                trial=getattr(s, "trial", False),
-                is_used=(s.id in used_slot_ids),
-                location_archetype_id=getattr(s, "location_archetype_id", None),
-                location_archetype_name=arch.name_ru if arch else getattr(s, "base_location", None),
-                expedition_mode_id=getattr(s, "expedition_mode_id", None),
-                expedition_mode_name=mode.name_ru if mode else None,
-            )
-        )
-    return schemas.ExpeditionSlotsResponse(
-        slots=out_slots, day=day_str, refresh_at=_msk_next_midnight_utc_iso()
-    )
+    """Deprecated: ежедневные слоты заменены моделью reward_type + depth_tier."""
+    return schemas.ExpeditionSlotsResponse(slots=[], day="", refresh_at=None)
 
 
 @router.get("/expeditions/daily-slots", response_model=schemas.ExpeditionSlotsResponse, tags=["expeditions"])
@@ -2289,7 +2257,7 @@ async def expeditions_daily_slots(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Те же ежедневные слоты, что и /expeditions/slots (+ refresh_at); для UI по плану."""
+    """Deprecated: см. /expeditions/catalog (reward_types + depth_tiers)."""
     return await expeditions_slots(player_id=player_id, session=session)
 
 
@@ -2302,6 +2270,7 @@ async def expeditions_active(
 
     from waifu_bot.game.expedition_redesign import biome_emoji_for_tag
     from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
+    from waifu_bot.game.expedition_overhaul import depth_tier_by_id
 
     active_list = await expedition_service.get_active(session, player_id)
     out = []
@@ -2322,6 +2291,10 @@ async def expeditions_active(
         narrative_title = None
         if isinstance(brief, dict) and brief.get("title"):
             narrative_title = str(brief["title"])
+        depth_tier_val = getattr(a, "depth_tier", None)
+        depth = depth_tier_by_id(int(depth_tier_val)) if depth_tier_val is not None else None
+        reward_type_val = getattr(a, "reward_type", None)
+        squad_power_val = sum(int(getattr(u, "power", 0) or 0) for u in squad_snap) if squad_snap else None
         out.append(
             schemas.ExpeditionActiveOut(
                 id=a.id,
@@ -2352,6 +2325,13 @@ async def expeditions_active(
                 expedition_mode_id=getattr(a, "expedition_mode_id", None),
                 expedition_mode_name=mode.name_ru if mode else None,
                 narrative_title=narrative_title,
+                depth_tier=depth.tier if depth else None,
+                depth_name=depth.name_ru if depth else None,
+                reward_type=reward_type_val,
+                reward_preview=_expedition_reward_preview(reward_type_val, a.reward_gold, a.reward_experience),
+                squad_power=squad_power_val,
+                recommended_power=depth.min_squad_power if depth else None,
+                squad_hp_pct=_expedition_squad_hp_pct(squad_snap),
                 result_ready=bool(
                     getattr(a, "outcome", None)
                     and (getattr(a, "event_text", None) or "").strip()
@@ -2367,7 +2347,44 @@ async def expeditions_preview(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Превью шанса успеха с учётом длительности (ТЗ v1.1). Единственный источник истины для шанса."""
+    """Превью v2 (reward_type + depth_tier) или legacy слот."""
+    unit_ids = payload.unit_ids if payload.unit_ids is not None else payload.squad_waifu_ids
+    if payload.reward_type is not None and payload.depth_tier is not None:
+        from waifu_bot.services.expedition_v2_preview import preview_expedition_v2
+
+        data = await preview_expedition_v2(
+            session,
+            player_id,
+            unit_ids or [],
+            payload.reward_type,
+            int(payload.depth_tier),
+        )
+        if data.get("error"):
+            raise HTTPException(status_code=400, detail=data["error"])
+        tag_pct = float(data.get("tag_effectiveness_pct", 100.0))
+        label = "Высокий" if tag_pct >= 70 else ("Средний" if tag_pct >= 45 else "Низкий")
+        return schemas.ExpeditionPreviewOut(
+            chance=tag_pct / 100.0,
+            chance_pct=tag_pct,
+            label=label,
+            squad_size=int(data.get("squad_size") or 0),
+            units=[],
+            events_count=data.get("events_count"),
+            duration_minutes=data.get("duration_minutes"),
+            active_tags=data.get("active_tags") or [],
+            covered_tags=data.get("covered_tags") or [],
+            tag_effectiveness_pct=tag_pct,
+            tag_effectiveness_mult=float(data.get("tag_effectiveness_mult") or 1.0),
+            reward_type=data.get("reward_type"),
+            depth_tier=data.get("depth_tier"),
+            depth_name=data.get("depth_name"),
+            squad_power=data.get("squad_power"),
+            min_squad_power=data.get("min_squad_power"),
+            power_ok=data.get("power_ok"),
+            damage_per_event_pct=data.get("damage_per_event_pct"),
+            hp_forecast_pct=data.get("hp_forecast_pct"),
+        )
+
     slot_id = payload.slot_id if payload.slot_id is not None else payload.expedition_slot_id
     unit_ids = payload.unit_ids if payload.unit_ids is not None else payload.squad_waifu_ids
     duration_minutes = payload.duration_minutes if getattr(payload, "duration_minutes", None) is not None else 60
@@ -2452,6 +2469,8 @@ async def expeditions_start(
         payload.expedition_slot_id,
         payload.squad_waifu_ids,
         payload.duration_minutes,
+        reward_type=payload.reward_type,
+        depth_tier=payload.depth_tier,
         affix_template_id=payload.affix_template_id,
         affix_level=payload.affix_level,
         display_base_location=payload.display_base_location,
@@ -2462,6 +2481,17 @@ async def expeditions_start(
     if err:
         if err == "player_not_found":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Игрок не найден")
+        if err == "invalid_reward_type":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Недопустимый тип награды")
+        if err == "invalid_depth_tier":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Недопустимый тир глубины")
+        if err == "insufficient_power":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Недостаточно мощи отряда: нужно {result.get('required', '?')}, есть {result.get('have', '?')}",
+            )
+        if err == "waifu_healing":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Наёмница на лечении")
         if err == "invalid_duration":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Недопустимая длительность")
         if err == "squad_size":
@@ -2544,7 +2574,25 @@ async def expeditions_start(
                     await bot.send_message(chat_id=player_id, text=intro)
             except Exception:
                 logger.exception("Expedition start DM to player_id=%s failed", player_id)
-    return schemas.ExpeditionStartResponse(**result)
+    return schemas.ExpeditionStartResponse(
+        success=bool(result.get("success")),
+        active_id=int(result.get("active_id") or 0),
+        expedition_name=str(result.get("expedition_name") or ""),
+        chance=float(result.get("chance") or 0),
+        success_result=bool(result.get("success_result", result.get("success"))),
+        reward_gold=int(result.get("reward_gold") or 0),
+        reward_experience=int(result.get("reward_experience") or 0),
+        reward_type=result.get("reward_type"),
+        depth_tier=result.get("depth_tier"),
+        squad_power=result.get("squad_power"),
+        ends_at=str(result.get("ends_at") or ""),
+        duration_minutes=int(result.get("duration_minutes") or 0),
+        affix_icon=result.get("affix_icon"),
+        affix_level_roman=result.get("affix_level_roman"),
+        events_total=result.get("events_total"),
+        start_intro_narrative=result.get("start_intro_narrative"),
+        error=result.get("error"),
+    )
 
 
 @router.post("/expeditions/claim", tags=["expeditions"])
@@ -2602,23 +2650,36 @@ async def expeditions_claim_by_id(
         w = await session.get(m.HiredWaifu, wid)
         if not w or w.player_id != player_id:
             continue
-        hp_max = 50 + max(0, int(w.level or 1)) * 15
+        hp_max = max(1, int(getattr(w, "max_hp", 1) or 1))
+        hp_current = max(0, int(getattr(w, "current_hp", hp_max) or 0))
+        lost_pct = (hp_max - hp_current) / hp_max if hp_max > 0 else 0.0
+        heal_mins = 0
+        if hp_current < hp_max:
+            # 0.8 мин за 1% потерянного HP; ×1.5 если HP=0
+            heal_mins = round(lost_pct * 100.0 * 0.8 * (1.5 if hp_current <= 0 else 1.0))
         squad_state.append({
+            "hired_waifu_id": int(w.id),
             "name": w.name or "Вайфу",
-            "hp_current": hp_max,
+            "hp_current": hp_current,
             "hp_max": hp_max,
             "leveled_up": wid in leveled_up_ids,
             "class_icon": _EXPEDITION_CLASS_ICONS.get(int(w.class_ or 1), "⚔️"),
+            "needs_heal": hp_current < hp_max,
+            "heal_forecast_minutes": heal_mins,
         })
 
     return {
         "expedition_name": expedition_name,
         "outcome": result.get("outcome") or "failure",
         "ai_narrative": result.get("event_text") or "Отряд вернулся из экспедиции.",
+        "gate_log": result.get("gate_log") or [],
+        "reward_type": result.get("reward_type"),
         "gold_earned": result.get("gold_gained", 0),
         "exp_earned": result.get("experience_gained", 0),
+        "waifu_exp_gained": result.get("waifu_exp_gained", 0),
+        "enchant_stones": result.get("enchant_stones", 0),
         "squad_state": squad_state,
-        "items_earned": [],
+        "items_earned": result.get("items_earned") or [],
     }
 
 
