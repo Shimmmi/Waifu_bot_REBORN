@@ -793,6 +793,14 @@ def _max_effect_display(node: PassiveSkillNode) -> str:
     return f"+{round(mx * 100)}%"
 
 
+def passive_level_cap_for_waifu(waifu_level: int, waifu_level_req: int, max_level: int) -> int:
+    """Максимальный уровень узла при текущем уровне ОВ (на открытии тира — только 1-й уровень)."""
+    if waifu_level < int(waifu_level_req):
+        return 0
+    cap = int(waifu_level) - int(waifu_level_req) + 1
+    return max(0, min(int(max_level), cap))
+
+
 def passive_learn_block_reason(
     *,
     waifu_level: int,
@@ -812,6 +820,9 @@ def passive_learn_block_reason(
         return "locked_branch_points"
     if current_level >= int(max_level):
         return "skill_maxed"
+    level_cap = passive_level_cap_for_waifu(waifu_level, waifu_level_req, max_level)
+    if current_level >= level_cap:
+        return "locked_waifu_level_step"
     if int(skill_points) < 1:
         return "no_skill_points"
     if int(gold) < int(cost_gold):
@@ -874,13 +885,16 @@ async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[
         cost_gold_eff = compute_passive_learn_cost_from_bonuses(
             int(n.cost_gold or 0), ps_bonuses, hs_bonuses, charm
         )
+        waifu_req = int(n.waifu_level_req)
+        max_lv = int(n.max_level)
+        level_cap = passive_level_cap_for_waifu(waifu_lv, waifu_req, max_lv)
         block = passive_learn_block_reason(
             waifu_level=waifu_lv,
             branch_spent=spent,
-            waifu_level_req=int(n.waifu_level_req),
+            waifu_level_req=waifu_req,
             branch_points_req=int(n.branch_points_req),
             current_level=cur,
-            max_level=int(n.max_level),
+            max_level=max_lv,
             skill_points=sp,
             gold=gold,
             cost_gold=cost_gold_eff,
@@ -902,7 +916,6 @@ async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[
         )
         next_lv = eff_lv + 1
         ev_next = extrapolate_passive_effect_value(n.effect_values, next_lv, et) if next_lv >= 1 else None
-        max_lv = int(n.max_level)
         if (
             ev_next is not None
             and cur >= max_lv
@@ -917,10 +930,11 @@ async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[
                 "tier": int(n.tier),
                 "position": int(n.position),
                 "name": n.name,
-                "max_level": int(n.max_level),
+                "max_level": max_lv,
                 "current_level": cur,
-                "waifu_level_req": int(n.waifu_level_req),
+                "waifu_level_req": waifu_req,
                 "branch_points_req": int(n.branch_points_req),
+                "level_cap": level_cap,
                 "effect_type": n.effect_type,
                 "effect_values": _coerce_passive_effect_values(n.effect_values),
                 "current_effect_value": ev_cur,
@@ -980,8 +994,12 @@ async def learn_passive_node(session: AsyncSession, player_id: int, node_id: str
 
     row = await session.get(PlayerPassiveSkill, (int(player_id), node_id))
     cur = int(row.level) if row else 0
-    if cur >= int(node.max_level):
+    max_lv = int(node.max_level)
+    if cur >= max_lv:
         return {"ok": False, "error": "skill_maxed"}
+    level_cap = passive_level_cap_for_waifu(waifu_lv, int(node.waifu_level_req), max_lv)
+    if cur >= level_cap:
+        return {"ok": False, "error": "waifu_level_step"}
 
     if int(getattr(player, "skill_points", 0) or 0) < 1:
         return {"ok": False, "error": "no_skill_points"}

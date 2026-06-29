@@ -13524,6 +13524,11 @@ function passiveLearnBlockMessage(node) {
   switch (reason) {
     case "locked_waifu_level":
       return `Нужен уровень ОВ ≥ ${node.waifu_level_req}`;
+    case "locked_waifu_level_step": {
+      const cur = Number(node.current_level) || 0;
+      const nextWaifu = Number(node.waifu_level_req) + cur;
+      return `Для следующего уровня навыка нужен уровень ОВ ≥ ${nextWaifu}`;
+    }
     case "locked_branch_points":
       return `Нужно ≥ ${node.branch_points_req} оч. в этой ветке`;
     case "skill_maxed":
@@ -13548,6 +13553,7 @@ function passiveLearnErrorToUser(out) {
     no_skill_points: "Недостаточно очков навыков (ОПГ)",
     insufficient_waifu_level: "Недостаточный уровень основной вайфу",
     insufficient_branch_points: "Недостаточно очков в ветке",
+    waifu_level_step: "Для следующего уровня навыка нужен более высокий уровень ОВ",
     skill_maxed: "Навык уже максимального уровня",
     node_not_found: "Узел не найден",
     player_not_found: "Игрок не найден",

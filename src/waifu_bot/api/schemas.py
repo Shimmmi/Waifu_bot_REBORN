@@ -195,6 +195,7 @@ class PassiveSkillNodeOut(BaseModel):
     current_level: int
     waifu_level_req: int
     branch_points_req: int
+    level_cap: int = 0
     effect_type: str
     effect_values: list[float | int] = []
     current_effect_value: float | int | None = None
