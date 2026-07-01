@@ -92,6 +92,7 @@ from waifu_bot.api.player_notification_routes import router as player_notificati
 from waifu_bot.api.player_profile_routes import router as player_profile_router
 from waifu_bot.api.library_routes import router as library_router
 from waifu_bot.api.abyss_routes import router as abyss_router
+from waifu_bot.api.auth_routes import router as auth_router
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ router.include_router(player_profile_router)
 router.include_router(armory_router)
 router.include_router(library_router)
 router.include_router(abyss_router)
+router.include_router(auth_router)
 
 # Вторичные бонусы с предметов (шаблон + зачарование) и аффиксы с effect_key *_pct.
 # Значение в аффиксе — целое число в сотых долях процента: 150 => 1.50% => +0.015 к сумме.

@@ -118,6 +118,13 @@ class Settings(BaseSettings):
     # Browser dev bypass: when DEV_BROWSER_TOKEN is set, ?devPlayerId=N&devToken=<token> works in any APP_ENV.
     dev_browser_token: str | None = Field(None, alias="DEV_BROWSER_TOKEN")
 
+    # Steam client (see docs Steam-migration plan). Real Steamworks Web API key is only
+    # needed once the Steamworks partner account exists (Этап 6); until then
+    # validate_steam_ticket() answers 501 and only the X-Steam-Ticket-Dev stub works
+    # (dev/stage/testing only, see auth_steam.py / api/deps.py).
+    steam_web_api_key: str | None = Field(None, alias="STEAM_WEB_API_KEY")
+    steam_app_id: int | None = Field(None, alias="STEAM_APP_ID")
+
     # dev/testing (only used when APP_ENV=testing)
     dev_user_ids: list[int] = Field(default_factory=list, alias="DEV_USER_IDS")
     # Один разработчик (альтернатива DEV_USER_IDS/DEV_ACCESS_LEVELS)
