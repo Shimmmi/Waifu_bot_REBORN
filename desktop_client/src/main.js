@@ -4,9 +4,11 @@ const { app, ipcMain, BrowserWindow } = require("electron");
 const config = require("./config");
 const { createOverlayWindow } = require("./windows/overlayWindow");
 const { createMainWindow, openTabWindow } = require("./windows/appWindow");
+const inputTracker = require("./input/inputTracker");
 
 let mainWindow = null;
 let overlayWindow = null;
+let inputTrackerHandle = null;
 
 function createWindows() {
   mainWindow = createMainWindow();
@@ -29,9 +31,13 @@ app.whenReady().then(() => {
   console.log(`[waifu-desktop] backend: ${config.backendUrl}`);
   createWindows();
 
-  // Этап 5 wiring point: once input/inputTracker.js exists, start it here,
-  // e.g. require("./input/inputTracker").start({ backendUrl: config.backendUrl,
-  // getAuthHeaders, overlayWindow }).
+  inputTrackerHandle = inputTracker.start({
+    onFlush: (payload) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send("hit-batch-sent", payload);
+      }
+    },
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindows();
@@ -40,4 +46,8 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  inputTrackerHandle?.stop();
 });
