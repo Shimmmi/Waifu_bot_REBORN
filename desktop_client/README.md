@@ -18,10 +18,23 @@ machine.
 
 ## Setup (on your dev machine)
 
+Full walkthrough (Windows + Docker staging, clone → exe):
+[`docs/STEAM_CLIENT_DEV_SETUP.md`](../docs/STEAM_CLIENT_DEV_SETUP.md).
+
+After installing prerequisites (Step 0), verify on Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check_windows_dev_env.ps1
+```
+
+Quick start:
+
 ```bash
-git clone <this repo> && cd waifu-bot-REBORN/desktop_client
+git clone git@github.com:Shimmmi/Waifu_bot_REBORN.git && cd Waifu_bot_REBORN
+git checkout feature/steam-client
+cd desktop_client
 npm install
-cp config.json config.local.json   # edit backendUrl if needed (gitignored)
+cp config.json config.local.json   # Windows: Copy-Item config.json config.local.json
 npm run dev
 ```
 
