@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Подземелья</title>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v43" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v43'" />
-    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v43" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v57" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
+    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v57" />
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v43" onerror="console.warn('combat island skipped')"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v43" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v43'"></script>
-    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v43" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v43'"></script>
+    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v57" onerror="console.warn('combat island skipped')"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v57" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
+    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v57" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v57'"></script>
     <style>
       .hp-fill-monster.monster-hp-fill--unknown {
         opacity: 0.35;
@@ -50,18 +50,72 @@
       body.page-dungeons {
         background: #0d0a08;
         color: #e8dcc8;
+        overflow: hidden;
+        height: 100dvh;
+        padding-bottom: 0;
       }
       .page-dungeons .screen {
         max-width: none;
         width: 100%;
         margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
+        max-height: 100dvh;
+        overflow: hidden;
       }
-      /* Вкладки подземелий — тёмная панель, янтарь у активной */
+      /* Вкладки подземелий — закреплены под чердаком через flex, без sticky */
       .page-dungeons .dungeon-tabs-bar {
         display: flex;
         align-items: center;
         gap: 6px;
-        margin-bottom: 10px;
+        flex-shrink: 0;
+        position: static;
+        z-index: 40;
+        background: rgba(13, 10, 8, 0.97);
+        border-bottom: 1px solid rgba(200, 146, 42, 0.15);
+        padding: 2px 12px 6px;
+        margin-bottom: 0;
+      }
+      .page-dungeons .tab-panel.active {
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* Battle log modal — dark theme */
+      #battle-log-modal {
+        background: rgba(0, 0, 0, 0.78);
+        z-index: 1050;
+      }
+      #battle-log-modal .modal-content {
+        background: #1a1410;
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        color: #e8dcc8;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+      }
+      #battle-log-modal .modal-title {
+        color: #e8b84b;
+        font-family: Cinzel, serif;
+      }
+      #battle-log-modal .modal-head .secondary {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        color: #8a7a6a;
+      }
+      #battle-log-modal .modal-body {
+        color: #e8dcc8;
+        max-height: 70vh;
+        scrollbar-color: rgba(200, 146, 42, 0.35) rgba(0, 0, 0, 0.2);
+      }
+      #battle-log-modal .solo-battle-log-inner { max-height: none; }
+
+      /* GD help button on empty state */
+      .page-dungeons .gd-empty-state { position: relative; }
+      .page-dungeons .gd-help-btn {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 2;
       }
       .page-dungeons #dungeon-tabs {
         display: flex !important;
@@ -1359,6 +1413,132 @@
       }
       .exp-send-confirm-stat strong { color: #e8b84b; font-weight: 700; }
 
+      .exp-sheet--send {
+        display: flex;
+        flex-direction: column;
+        max-height: min(88dvh, 520px);
+        overflow: hidden;
+        padding-bottom: 16px;
+      }
+      .exp-send-head { flex-shrink: 0; }
+      .exp-send-options {
+        flex-shrink: 0;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin: 4px 0 6px;
+      }
+      .exp-send-select-field { min-width: 0; }
+      .exp-send-select-field .exp-opt-label { margin-top: 0; margin-bottom: 4px; }
+      .exp-send-select {
+        width: 100%;
+        padding: 6px 8px;
+        font-size: 11px;
+        color: #e8dcc8;
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .exp-roster-open-btn {
+        width: 100%;
+        margin: 6px 0 4px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #1a1208;
+        background: linear-gradient(180deg, #f5d97a, #e8b84b);
+        border: 1px solid rgba(245, 217, 122, 0.85);
+        border-radius: 10px;
+        cursor: pointer;
+      }
+      .exp-roster-open-btn:hover { opacity: 0.92; }
+      .exp-send-footer {
+        margin-top: auto;
+        flex-shrink: 0;
+        padding-top: 8px;
+        border-top: 1px solid rgba(200, 146, 42, 0.15);
+      }
+      .exp-send-footer .exp-send-confirm { margin: 6px 0; }
+      .exp-send-footer .exp-send-btn { margin-top: 0; }
+      .exp-forecast--compact {
+        padding: 4px 0 2px;
+        margin: 0;
+        font-size: 11px;
+      }
+      .exp-forecast--compact .exp-forecast-title,
+      .exp-forecast--compact .exp-forecast-note { display: none; }
+      #exp-send-modal {
+        align-items: center;
+        justify-content: center;
+        padding: 12px;
+      }
+      #exp-send-modal .exp-sheet--send {
+        width: min(400px, 92vw);
+        border-radius: 16px;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.2);
+        max-height: min(88dvh, 520px);
+      }
+      #exp-send-modal .exp-sheet-handle { display: none; }
+      #exp-roster-modal { z-index: 1060; }
+      .exp-sheet--roster {
+        max-height: 85dvh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .exp-roster-list {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      .exp-roster-list.exp-unit-list {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+      .exp-roster-footer {
+        flex-shrink: 0;
+        padding-top: 8px;
+        border-top: 1px solid rgba(200, 146, 42, 0.15);
+      }
+      .exp-roster-confirm-btn {
+        width: 100%;
+        padding: 10px 12px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #1a1208;
+        background: linear-gradient(180deg, #f5d97a, #e8b84b);
+        border: 1px solid rgba(245, 217, 122, 0.85);
+        border-radius: 10px;
+        cursor: pointer;
+      }
+      .exp-roster-confirm-btn:hover { opacity: 0.92; }
+      .exp-pick-card--compact {
+        padding: 6px 8px;
+        gap: 3px;
+      }
+      .exp-pick-card--compact .exp-pick-compact-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 6px;
+        min-width: 0;
+      }
+      .exp-pick-card--compact .exp-pick-compact-row .exp-pick-name {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .exp-pick-card--compact .exp-pick-compact-row .exp-pick-sub {
+        flex-shrink: 0;
+        margin-top: 0;
+      }
+      .exp-pick-stats--compact {
+        gap: 6px;
+        font-size: 9px;
+        flex-wrap: wrap;
+      }
+
       /* Tier tile: extra meta lines */
       .exp-tier-btn .exp-tier-meta {
         font-size: 9px;
@@ -1720,22 +1900,6 @@
       .exp-unit-hpfill {
         height: 100%;
         border-radius: 2px;
-      }
-      .exp-abort-btn {
-        width: 100%;
-        margin-top: 14px;
-        padding: 11px;
-        background: rgba(239, 68, 68, 0.1);
-        border: 1px solid rgba(239, 68, 68, 0.3);
-        border-radius: 10px;
-        color: #fca5a5;
-        font-size: 12px;
-        font-weight: 700;
-        cursor: pointer;
-        transition: background 0.15s;
-      }
-      .exp-abort-btn:hover {
-        background: rgba(239, 68, 68, 0.18);
       }
       .exp-claim-btn {
         width: 100%;
@@ -2465,32 +2629,54 @@
             <span class="attic-player-avatar-fallback" id="attic-player-avatar-fallback"></span>
             <span class="attic-player-mail-badge" id="attic-player-mail-badge" hidden aria-hidden="true"></span>
           </button>
-          <div class="chip attic-level-chip" title="Уровень основной вайфу">
-            <div class="attic-level-top"><strong id="badge-level">—</strong></div>
-            <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
-          </div>
-          <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)">
-            <span id="attic-dungeon-label">Нет боя</span>
-            <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden></div>
-          </div>
-          <div class="chip attic-gold-chip" title="Золото"><span class="attic-gold-ico" aria-hidden="true">🪙</span><strong id="badge-gold">—</strong></div>
+          <div class="attic-level-circle" id="attic-level-circle" title="Уровень основной вайфу / опыт">
+          <svg class="attic-level-ring" viewBox="0 0 36 36" aria-hidden="true">
+            <circle class="attic-level-ring-bg" cx="18" cy="18" r="16" />
+            <circle class="attic-level-ring-fg" id="attic-level-ring-fg" cx="18" cy="18" r="16" />
+          </svg>
+          <strong id="badge-level">—</strong>
+        </div>
+        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)">
+          <span id="attic-dungeon-label">Нет боя</span>
+          <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden></div>
+        </div>
+        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Экспедиции">
+          <span class="attic-exp-ico" aria-hidden="true">🗺</span>
+          <div class="attic-exp-cells" id="attic-exp-cells" aria-label="Статус экспедиций"></div>
+        </div>
+        <div class="chip attic-gold-chip" id="attic-gold-chip" title="Золото">
+          <span class="attic-gold-ico" aria-hidden="true">🪙</span><strong id="badge-gold">—</strong>
+        </div>
+        <button type="button" class="attic-menu-btn" id="attic-menu-btn" aria-label="Меню разделов" aria-haspopup="true" aria-expanded="false">☰</button>
+        </div>
+        <div class="attic-menu" id="attic-menu" hidden role="menu" aria-label="Дополнительные разделы">
+          <a class="attic-menu-item" href="./profile.html?tab=inventory" role="menuitem">🎒 Инвентарь</a>
+          <a class="attic-menu-item" href="./profile.html?tab=info&info=statistics" role="menuitem">📊 Статистика</a>
+          <a class="attic-menu-item" href="./dungeons.html?tab=expedition" role="menuitem">🗺 Экспедиции</a>
+          <a class="attic-menu-item" href="./dungeons.html?tab=abyss" role="menuitem">🕳 Бездна</a>
+          <a class="attic-menu-item" href="./shop.html?tab=gamble" role="menuitem">🎲 Gamble</a>
+          <a class="attic-menu-item" href="./shop.html?tab=smith" role="menuitem">🔨 Кузнец</a>
+          <a class="attic-menu-item" href="./tavern.html?tab=heal" role="menuitem">💊 Лечение</a>
+          <a class="attic-menu-item" href="./tavern.html?tab=upgrade" role="menuitem">⬆ Прокачка наёмниц</a>
+          <a class="attic-menu-item" href="./player.html#settings" role="menuitem">⚙ Настройки</a>
         </div>
       </header>
+
+      <div class="dungeon-tabs-bar">
+        <div class="tabs" id="dungeon-tabs" data-tutorial="dungeon-tabs">
+          <button class="tab active" data-tab="solo" onclick="WaifuApp.showTab('solo')"><span class="tab-ico" aria-hidden="true">⚔</span><span class="tab-txt">Одиночные</span></button>
+          <button class="tab" data-tab="expedition" onclick="WaifuApp.showTab('expedition')"><span class="tab-ico" aria-hidden="true">🗺</span><span class="tab-txt">Экспедиции</span></button>
+          <button class="tab" data-tab="group" onclick="WaifuApp.showTab('group')"><span class="tab-ico" aria-hidden="true">👥</span><span class="tab-txt">Групповые</span></button>
+          <button class="tab" data-tab="abyss" onclick="WaifuApp.showTab('abyss')"><span class="tab-ico" aria-hidden="true">🕳</span><span class="tab-txt">Бездна</span></button>
+        </div>
+        <div class="dungeon-tabs-actions">
+          <button type="button" id="solo-exit-btn" class="dungeon-tab-sm solo-exit-btn" style="display:none;" title="Покинуть подземелье" aria-label="Покинуть подземелье" onclick="WaifuApp.openExitDungeonConfirm()">🏳️</button>
+        </div>
+      </div>
 
       <main>
         <div id="dungeon-list-section" data-tutorial="dungeon-list">
           <div id="dungeons-error" class="banner" style="display:none;"></div>
-          <div class="dungeon-tabs-bar">
-            <div class="tabs" id="dungeon-tabs" data-tutorial="dungeon-tabs">
-              <button class="tab active" data-tab="solo" onclick="WaifuApp.showTab('solo')"><span class="tab-ico" aria-hidden="true">⚔</span><span class="tab-txt">Одиночные</span></button>
-              <button class="tab" data-tab="expedition" onclick="WaifuApp.showTab('expedition')"><span class="tab-ico" aria-hidden="true">🗺</span><span class="tab-txt">Экспедиции</span></button>
-              <button class="tab" data-tab="group" onclick="WaifuApp.showTab('group')"><span class="tab-ico" aria-hidden="true">👥</span><span class="tab-txt">Групповые</span></button>
-              <button class="tab" data-tab="abyss" onclick="WaifuApp.showTab('abyss')"><span class="tab-ico" aria-hidden="true">🕳</span><span class="tab-txt">Бездна</span></button>
-            </div>
-            <div class="dungeon-tabs-actions">
-              <button type="button" id="solo-exit-btn" class="dungeon-tab-sm solo-exit-btn" style="display:none;" title="Покинуть подземелье" aria-label="Покинуть подземелье" onclick="WaifuApp.openExitDungeonConfirm()">🏳️</button>
-            </div>
-          </div>
 
           <div id="tab-solo" class="tab-panel active">
             <!-- Карточка активного боя: заполняется через renderSoloBattleCard(); изображение — WebP fallback по family/slug/tier -->
@@ -2498,9 +2684,8 @@
               <div id="solo-active-content">
               <div class="solo-dungeon-header">
                 <span id="solo-dungeon-name" class="solo-dungeon-title">—</span>
-                <span id="solo-dungeon-progress" class="solo-dungeon-progress" aria-label="Прогресс комнат"></span>
+                <span id="solo-dungeon-progress" class="solo-dungeon-progress mv-progress" aria-label="Прогресс комнат" style="display:none;"></span>
               </div>
-              <div id="solo-combat-island" aria-live="polite"></div>
 
               <div class="monster-visual"
                    id="monster-visual"
@@ -2510,7 +2695,8 @@
                    role="img"
                    aria-label="Изображение монстра">
                 <div class="monster-overlay-top">
-                  <span class="monster-name-badge monster-name-level" id="monster-name-level"></span>
+                  <span id="solo-dungeon-progress-ov" class="mv-progress" aria-label="Прогресс комнат"></span>
+                  <button type="button" id="battle-log-btn" class="battle-log-btn" title="Журнал боя" aria-label="Журнал боя" hidden onclick="event.stopPropagation(); WaifuApp.openBattleLogModal()">📜</button>
                 </div>
                 <div class="monster-placeholder" id="monster-placeholder">
                   <span id="monster-emoji" aria-hidden="true">👾</span>
@@ -2527,8 +2713,14 @@
                      onload="WaifuApp?.onMonsterImageLoad?.(this)"
                      onerror="WaifuApp?.onMonsterImageError?.(this)" />
                 <div class="monster-overlay-bottom">
-                  <span class="monster-name-badge monster-name-text" id="monster-name-text">—</span>
-                  <div class="monster-type-badge" id="monster-name-type" style="display:none;" aria-label="Тип монстра"></div>
+                  <div class="mv-nameline">
+                    <div class="mv-namecol">
+                      <span class="monster-name-badge monster-name-text" id="monster-name-text">—</span>
+                      <span class="monster-type-badge" id="monster-name-type" style="display:none;" aria-label="Тип монстра"></span>
+                    </div>
+                    <span class="monster-name-badge monster-name-level" id="monster-name-level"></span>
+                  </div>
+                  <div id="solo-combat-island" aria-live="polite"></div>
                 </div>
               </div>
 
@@ -2605,48 +2797,44 @@
               <div class="exp-opt-label" style="margin-top:12px;">Состояние отряда</div>
               <div class="exp-unit-rows" id="eam-squad"></div>
               <button type="button" class="exp-claim-btn" id="eam-claim-btn" style="display:none;">Забрать награду</button>
-              <button type="button" class="exp-abort-btn" id="eam-abort-btn" onclick="WaifuApp.abortExpedition(window._activeExpId)">🏳 Завершить досрочно (×0.5 награды)</button>
             </div>
           </div>
 
           <div id="exp-send-modal" class="exp-overlay" style="display:none;" onclick="if(event.target===this)WaifuApp.closeSendExpModal()">
-            <div class="exp-sheet">
+            <div class="exp-sheet exp-sheet--send" onclick="event.stopPropagation()">
               <div class="exp-sheet-handle"></div>
               <button type="button" class="exp-modal-close" onclick="WaifuApp.closeSendExpModal()" aria-label="Закрыть">✕</button>
-              <div id="esm-squad-power" class="muted tiny" style="margin:2px 0 10px" aria-live="polite">Мощь отряда: —</div>
-              <div class="exp-opt-label">Тип награды</div>
-              <div class="exp-opt-row exp-opt-row--wrap" id="esm-reward-row"></div>
-              <div class="exp-opt-label">Тир глубины</div>
-              <div class="exp-opt-row exp-opt-row--wrap" id="esm-tier-row"></div>
-              <div id="esm-forecast" class="exp-forecast" aria-live="polite"></div>
-              <div id="esm-send-warnings" class="exp-send-warnings" aria-live="polite"></div>
-              <div class="exp-opt-label">Состав отряда (1–3)</div>
-              <div class="exp-squad-row">
-                <div class="exp-squad-slot" id="exp-sl-0"><span class="exp-squad-empty">—</span></div>
-                <div class="exp-squad-slot" id="exp-sl-1"><span class="exp-squad-empty">—</span></div>
-                <div class="exp-squad-slot" id="exp-sl-2"><span class="exp-squad-empty">—</span></div>
+              <div class="exp-send-head">
+                <div class="exp-opt-label" style="margin-top:0">Состав отряда (1–3)</div>
+                <div class="exp-squad-row">
+                  <div class="exp-squad-slot" id="exp-sl-0"><span class="exp-squad-empty">—</span></div>
+                  <div class="exp-squad-slot" id="exp-sl-1"><span class="exp-squad-empty">—</span></div>
+                  <div class="exp-squad-slot" id="exp-sl-2"><span class="exp-squad-empty">—</span></div>
+                </div>
+                <button type="button" id="esm-open-roster-btn" class="exp-roster-open-btn" onclick="WaifuApp.openExpRosterModal()">Выбрать наёмниц</button>
+                <div id="esm-squad-power" class="muted tiny" style="margin:2px 0 4px" aria-live="polite">Мощь отряда: —</div>
               </div>
-              <div class="exp-opt-label" style="margin-top:8px">Выберите наёмниц</div>
-              <div class="exp-picker-toolbar" id="esm-picker-toolbar">
-                <div class="exp-picker-filters" id="esm-picker-filters"></div>
-                <div class="exp-picker-tools">
-                  <input type="search" id="esm-picker-search" class="exp-picker-search" placeholder="Поиск по имени…" autocomplete="off" />
-                  <select id="esm-picker-sort" class="exp-picker-sort" aria-label="Сортировка">
-                    <option value="level">По уровню</option>
-                    <option value="power">По силе</option>
-                    <option value="rarity">По редкости</option>
-                    <option value="role">По роли</option>
-                  </select>
+              <div class="exp-send-options">
+                <div class="exp-send-select-field">
+                  <label class="exp-opt-label" for="esm-reward-select">Тип награды</label>
+                  <select id="esm-reward-select" class="exp-send-select" aria-label="Тип награды"></select>
+                </div>
+                <div class="exp-send-select-field">
+                  <label class="exp-opt-label" for="esm-tier-select">Тир глубины</label>
+                  <select id="esm-tier-select" class="exp-send-select" aria-label="Тир глубины"></select>
                 </div>
               </div>
-              <div id="esm-unit-picker" class="exp-unit-list exp-unit-list--inline"></div>
-              <div class="exp-send-confirm" id="esm-confirm">
-                <span id="esm-confirm-power" class="exp-send-confirm-stat">⚔ —</span>
-                <span id="esm-confirm-hp" class="exp-send-confirm-stat">❤ —</span>
-                <span id="esm-confirm-dur" class="exp-send-confirm-stat">⏱ —</span>
-                <span id="esm-confirm-reward" class="exp-send-confirm-stat">💰 —</span>
+              <div id="esm-send-warnings" class="exp-send-warnings" aria-live="polite"></div>
+              <div class="exp-send-footer">
+                <div id="esm-forecast" class="exp-forecast exp-forecast--compact" aria-live="polite"></div>
+                <div class="exp-send-confirm" id="esm-confirm">
+                  <span id="esm-confirm-power" class="exp-send-confirm-stat">⚔ —</span>
+                  <span id="esm-confirm-hp" class="exp-send-confirm-stat">❤ —</span>
+                  <span id="esm-confirm-dur" class="exp-send-confirm-stat">⏱ —</span>
+                  <span id="esm-confirm-reward" class="exp-send-confirm-stat">💰 —</span>
+                </div>
+                <button type="button" class="exp-send-btn" id="exp-send-btn" disabled onclick="WaifuApp.submitExpeditionStart()">Отправить экспедицию</button>
               </div>
-              <button type="button" class="exp-send-btn" id="exp-send-btn" disabled onclick="WaifuApp.submitExpeditionStart()">Отправить экспедицию</button>
             </div>
           </div>
 
@@ -2668,12 +2856,27 @@
             </div>
           </div>
 
-          <div id="exp-picker-overlay" class="exp-overlay" style="display:none;" onclick="if(event.target===this)WaifuApp.expClosePicker()">
-            <div class="exp-sheet" style="max-height:80%">
+          <div id="exp-roster-modal" class="exp-overlay" style="display:none;" onclick="if(event.target===this)WaifuApp.closeExpRosterModal()">
+            <div class="exp-sheet exp-sheet--roster" onclick="event.stopPropagation()">
               <div class="exp-sheet-handle"></div>
-              <div class="exp-opt-label" style="margin-top:0;margin-bottom:6px">Выбрать наёмницу</div>
-              <div id="exp-picker-tags" class="exp-picker-tags"></div>
-              <div id="exp-unit-list" class="exp-unit-list"></div>
+              <button type="button" class="exp-modal-close" onclick="WaifuApp.closeExpRosterModal()" aria-label="Закрыть">✕</button>
+              <div class="exp-opt-label" style="margin-top:0;margin-bottom:6px">Выберите наёмниц</div>
+              <div class="exp-picker-toolbar" id="esm-picker-toolbar">
+                <div class="exp-picker-filters" id="esm-picker-filters"></div>
+                <div class="exp-picker-tools">
+                  <input type="search" id="esm-picker-search" class="exp-picker-search" placeholder="Поиск по имени…" autocomplete="off" />
+                  <select id="esm-picker-sort" class="exp-picker-sort" aria-label="Сортировка">
+                    <option value="level">По уровню</option>
+                    <option value="power">По силе</option>
+                    <option value="rarity">По редкости</option>
+                    <option value="role">По роли</option>
+                  </select>
+                </div>
+              </div>
+              <div id="esm-unit-picker" class="exp-unit-list exp-roster-list"></div>
+              <div class="exp-roster-footer">
+                <button type="button" class="exp-roster-confirm-btn" onclick="WaifuApp.closeExpRosterModal()">OK</button>
+              </div>
             </div>
           </div>
 
@@ -2688,8 +2891,8 @@
           </div>
 
           <div id="expedition-result-modal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-label="Результат экспедиции">
-            <div class="exp-result-sheet">
-              <div class="modal-handle"></div>
+            <div class="exp-result-sheet" onclick="event.stopPropagation()">
+              <button type="button" class="exp-sheet-close" onclick="WaifuApp.closeExpeditionResult()" aria-label="Закрыть">✕</button>
               <div id="exp-result-loading" class="exp-result-loading">
                 <div class="exp-result-orb">
                   <div class="exp-result-orb-inner"></div>
@@ -2710,7 +2913,6 @@
                 <div class="exp-result-squad-title">Состояние отряда после экспедиции</div>
                 <div class="exp-result-squad" id="exp-result-squad"></div>
                 <button type="button" class="exp-result-heal-btn" id="exp-result-heal-btn" style="display:none;">💊 Отправить на лечение</button>
-                <button class="exp-result-close-btn" onclick="WaifuApp.closeExpeditionResult()">ОК</button>
               </div>
             </div>
           </div>
@@ -2719,18 +2921,15 @@
             <div id="gd-dungeons-list" class="dungeons-gd-list"></div>
             <!-- Содержимое подставляет app.js (updateGdSessionUI) при ?chat_id= -->
             <div id="gd-session-status" class="gd-session-card card" style="display:none;" aria-live="polite"></div>
-            <div class="gd-info card">
-              <h3 class="gd-info-title">🏰 Групповые подземелья</h3>
-              <p>
-                <strong>GD v1</strong> — общий поход для чата: сначала волна обычных врагов, затем босс. Название и антураж подземелья задаются шаблоном из игры (список в БД может меняться).
-              </p>
-              <ul class="gd-info-list">
-                <li>Сообщения и медиа в группе в ходе раунда попадают в <strong>буфер</strong>; урон и навыки считаются при <strong>закрытии раунда</strong> (таймер ~30 мин или обработка в боте), а не «каждое сообщение = удар», как в соло.</li>
-                <li>При «вайпе» отряда раунд может завершиться с ослаблением стороны игроков и продолжением похода — жёсткого геймовера нет.</li>
-                <li>Награды (опыт, золото, дроп) в конце похода — в личку бота, пропорционально вкладу.</li>
-              </ul>
-              <p class="gd-info-how"><strong>Как играть:</strong> в группе — <code>/gd_join</code> на время регистрации. Вне активного GD v1 сообщения в группе могут давать соло-урон. Чтобы видеть статус этого чата здесь, откройте страницу с <code>?chat_id=ID_ЧАТА</code> (числовой id супергруппы Telegram).</p>
-              <p class="gd-info-note muted">Запись в поход и бой — в Telegram; веб-приложение показывает список ваших циклов и опционально снимок по <code>chat_id</code>.</p>
+          </div>
+
+          <!-- GD help overlay -->
+          <div id="gd-help-modal" class="exp-overlay" style="display:none;" onclick="if(event.target===this)WaifuApp.closeGdHelp()">
+            <div class="exp-sheet" style="max-height:85vh;overflow-y:auto;">
+              <div class="exp-sheet-handle"></div>
+              <button type="button" class="exp-sheet-close" onclick="WaifuApp.closeGdHelp()">✕</button>
+              <div class="exp-modal-title exp-help-title">Групповые подземелья</div>
+              <div id="gd-help-body" class="exp-help-body"></div>
             </div>
           </div>
 
@@ -2825,6 +3024,17 @@
           <div class="modal-footer">
             <button type="button" class="secondary" onclick="WaifuApp.closeAdminDealDamageModal()">Отмена</button>
           </div>
+        </div>
+      </div>
+
+      <!-- Battle log modal (solo) -->
+      <div id="battle-log-modal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-label="Журнал боя">
+        <div class="modal-content" style="max-width:520px;">
+          <div class="modal-head">
+            <div class="modal-title">📜 Журнал боя</div>
+            <button type="button" class="secondary" onclick="WaifuApp.closeBattleLogModal()" aria-label="Закрыть">✖</button>
+          </div>
+          <div class="modal-body" id="battle-log-modal-body"></div>
         </div>
       </div>
 

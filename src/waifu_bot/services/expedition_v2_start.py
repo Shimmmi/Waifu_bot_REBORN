@@ -19,7 +19,11 @@ from waifu_bot.game.expedition_overhaul import (
     squad_power_total,
     validate_reward_type,
 )
-from waifu_bot.game.expedition_redesign import affix_display_icon, roman_numeral
+from waifu_bot.game.expedition_redesign import (
+    affix_display_icon,
+    expedition_event_interval_minutes,
+    roman_numeral,
+)
 from waifu_bot.services.expedition import tags_snapshot_for_affix_rows
 from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
 from waifu_bot.services.hired_waifu_state import hired_expedition_eligible, sync_hired_hp_after_heal_complete
@@ -89,6 +93,7 @@ async def start_expedition_v2(
     events_total = depth.events_count
     duration_minutes = depth.duration_minutes
     difficulty_level = depth.difficulty_level
+    tick_interval = expedition_event_interval_minutes(duration_minutes, events_total)
 
     from waifu_bot.db.models import MainWaifu
 
@@ -125,7 +130,7 @@ async def start_expedition_v2(
         display_biome_tag=biome,
         events_total=events_total,
         events_done=0,
-        next_tick_at=now + timedelta(minutes=15) if events_total > 0 else None,
+        next_tick_at=now + timedelta(minutes=tick_interval) if events_total > 0 else None,
         tick_state={"gate_log": []},
         difficulty_tags_snapshot=tag_snap,
         location_archetype_id=archetype.id,

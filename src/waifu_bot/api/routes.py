@@ -2545,30 +2545,26 @@ async def expeditions_start(
 
         if await should_send_dm(session, player_id, "expedition_result"):
             try:
-                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
                 from waifu_bot.services.webhook import get_bot
                 bot = get_bot()
                 name = result.get("expedition_name", "Экспедиция")
                 gold = result.get("reward_gold", 0)
                 exp = result.get("reward_experience", 0)
-                g_half = max(0, gold // 2)
-                e_half = max(0, exp // 2)
+                duration_min = int(result.get("duration_minutes") or 0)
+                events_total = int(result.get("events_total") or 0)
+                from waifu_bot.game.expedition_redesign import expedition_event_interval_minutes
+
+                tick_interval = expedition_event_interval_minutes(duration_min, events_total)
                 chip = ""
                 if result.get("affix_icon") and result.get("affix_level_roman"):
                     chip = f"{result.get('affix_icon')} Уровень {result.get('affix_level_roman')}\n"
                 text = (
                     f"🗺 «{name}» начата.\n{chip}\n"
                     f"🪙 Награда: {gold} золота · ✨ {exp} опыта\n\n"
-                    "События каждые 15 мин — отчёт придёт в ЛС. "
-                    "Досрочное завершение — около 50% награды."
+                    f"События каждые ~{tick_interval} мин — отчёт придёт в ЛС. "
+                    "Забрать награду можно после завершения."
                 )
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(
-                        text=f"🏳 Завершить досрочно (~{g_half}🪙, ~{e_half}✨)",
-                        callback_data=f"expedition_abort_{result['active_id']}",
-                    )]
-                ])
-                await bot.send_message(chat_id=player_id, text=text, reply_markup=keyboard)
+                await bot.send_message(chat_id=player_id, text=text)
                 intro = result.get("start_intro_narrative")
                 if intro:
                     await bot.send_message(chat_id=player_id, text=intro)
@@ -2681,35 +2677,6 @@ async def expeditions_claim_by_id(
         "squad_state": squad_state,
         "items_earned": result.get("items_earned") or [],
     }
-
-
-@router.post("/expeditions/cancel", tags=["expeditions"])
-async def expeditions_cancel(
-    active_id: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    result = await expedition_service.cancel(session, player_id, active_id)
-    if result.get("error"):
-        err = result["error"]
-        if err == "not_found":
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Экспедиция не найдена")
-        if err == "already_claimed":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Уже обработано")
-        if err == "already_cancelled":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Уже отменена")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
-    return schemas.ExpeditionCancelResponse(**result)
-
-
-@router.post("/expeditions/{expedition_id}/abort", response_model=schemas.ExpeditionCancelResponse, tags=["expeditions"])
-async def expeditions_abort_by_id(
-    expedition_id: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    """Досрочное завершение из WebApp (те же 50% награды, что и /expeditions/cancel)."""
-    return await expeditions_cancel(active_id=expedition_id, player_id=player_id, session=session)
 
 
 @router.get("/expeditions/perks", tags=["expeditions"])

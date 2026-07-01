@@ -289,8 +289,12 @@ def union_legacy_affix_tags(affix_ids: Iterable[str]) -> frozenset[str]:
     return frozenset(out)
 
 
+# Минимальный множитель урона при полном perk-покрытии всех тегов (v1.5)
+TAG_MULT_FLOOR = 0.30
+
+
 def unit_covered_tags(unit) -> frozenset[str]:
-    """Union тегов сложности, которые закрывает одна наёмница (раса + класс + перки)."""
+    """Union тегов сложности, которые закрывает одна наёмница (только перки)."""
     detail = unit_coverage_detail(unit)
     return frozenset(detail["covered_tags"])
 
@@ -309,7 +313,7 @@ def unit_coverage_detail(unit) -> dict:
             tags = PERK_TAG_COVERAGE[pid]
             perk_tags[pid] = sorted_tag_list(tags)
             perk_union |= tags
-    covered = race_tags | class_tags | frozenset(perk_union)
+    covered = frozenset(perk_union)
     return {
         "race_tags": sorted_tag_list(race_tags),
         "class_tags": sorted_tag_list(class_tags),
@@ -346,45 +350,21 @@ def best_perk_level_for_tag(squad: Sequence, tag_id: str) -> int:
     return best
 
 
-def _squad_covers_tag_via_race_or_class(squad: Sequence, tag_id: str) -> bool:
-    for u in squad:
-        race = int(getattr(u, "race", 1) or 1)
-        cls = int(getattr(u, "class_", 1) or 1)
-        if tag_id in RACE_TAG_COVERAGE.get(race, frozenset()):
-            return True
-        if tag_id in CLASS_TAG_COVERAGE.get(cls, frozenset()):
-            return True
-    return False
-
-
 def tag_coverage_effectiveness(squad: Sequence, tag_id: str, affix_level: int) -> float:
-    """Эффективность покрытия одного тега: раса/класс = 100%, перк = min(1, lv/affix_lv)."""
-    if _squad_covers_tag_via_race_or_class(squad, tag_id):
-        return 1.0
+    """Эффективность perk-покрытия одного тега: min(1, perk_lv/affix_lv) или 0."""
     perk_lv = best_perk_level_for_tag(squad, tag_id)
     if perk_lv > 0:
         return calc_perk_affix_effectiveness(perk_lv, affix_level)
     return 0.0
 
 
-def calc_tag_effectiveness_mult(
+def _tag_coverage_eff_sum(
     active_tags: frozenset[str],
     covered_tags: frozenset[str],
     *,
     squad: Sequence | None = None,
     affix_level: int = 1,
 ) -> float:
-    """
-    Линейный бленд по доле покрытия: tag_mult = 1 - 0.95 × coverage_ratio.
-    coverage_ratio = (Σ eff_t для t ∈ active ∩ covered) / N, N = |active_tags|.
-    0% покрытия → 1.0 (полный урон), 100% → 0.05 (5% урона, «−95%»).
-    eff_t = tag_coverage_effectiveness (раса/класс = 1.0, перк = min(1, lv/affix_lv)).
-    """
-    if not active_tags:
-        return 1.0
-    n = len(active_tags)
-    if n <= 0:
-        return 1.0
     eff_sum = 0.0
     for t in active_tags:
         if t not in covered_tags:
@@ -395,8 +375,42 @@ def calc_tag_effectiveness_mult(
             eff = tag_coverage_effectiveness(squad, t, affix_level)
         if eff > 0:
             eff_sum += eff
-    coverage_ratio = eff_sum / n
-    return 1.0 - 0.95 * coverage_ratio
+    return eff_sum
+
+
+def calc_tag_coverage_ratio(
+    active_tags: frozenset[str],
+    covered_tags: frozenset[str],
+    *,
+    squad: Sequence | None = None,
+    affix_level: int = 1,
+) -> float:
+    """Доля эффективного perk-покрытия активных тегов (0..1)."""
+    if not active_tags:
+        return 0.0
+    return _tag_coverage_eff_sum(
+        active_tags, covered_tags, squad=squad, affix_level=affix_level
+    ) / len(active_tags)
+
+
+def calc_tag_effectiveness_mult(
+    active_tags: frozenset[str],
+    covered_tags: frozenset[str],
+    *,
+    squad: Sequence | None = None,
+    affix_level: int = 1,
+) -> float:
+    """
+    Линейный бленд по доле perk-покрытия: tag_mult = max(floor, 1 - 0.95 × coverage_ratio).
+    coverage_ratio = (Σ eff_t для t ∈ active ∩ covered) / N, N = |active_tags|.
+    eff_t = min(1, perk_lv/affix_lv). Раса/класс не учитываются (только tick_adj).
+    """
+    if not active_tags:
+        return 1.0
+    coverage_ratio = calc_tag_coverage_ratio(
+        active_tags, covered_tags, squad=squad, affix_level=affix_level
+    )
+    return max(TAG_MULT_FLOOR, 1.0 - 0.95 * coverage_ratio)
 
 
 def tag_effectiveness_pct(

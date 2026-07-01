@@ -37,6 +37,7 @@ from waifu_bot.game.expedition_redesign import (
     PERK_CHALLENGE_CATEGORIES,
     affix_display_icon,
     events_count_for_duration,
+    expedition_event_interval_minutes,
     roman_numeral,
     union_challenge_categories_from_db_affix_rows,
 )
@@ -44,7 +45,6 @@ from waifu_bot.game.constants import (
     EXPEDITION_AFFIX_PENALTY_PCT,
     EXPEDITION_BASE_EXP,
     EXPEDITION_BASE_GOLD,
-    EXPEDITION_CANCEL_REWARD_PCT,
     EXPEDITION_CHANCE_CAP_MAX,
     EXPEDITION_CHANCE_CAP_MIN,
     EXPEDITION_DIFFICULTY_BASE_BONUS,
@@ -950,7 +950,9 @@ class ExpeditionService:
             display_biome_tag=(display_biome_tag or "").strip() or None,
             events_total=events_total,
             events_done=0,
-            next_tick_at=now + timedelta(minutes=15),
+            next_tick_at=now + timedelta(
+                minutes=expedition_event_interval_minutes(duration_minutes, events_total)
+            ),
             tick_state={},
             difficulty_tags_snapshot=tag_snap,
         )
@@ -1089,7 +1091,13 @@ class ExpeditionService:
             display_biome_tag=biome,
             events_total=events_total,
             events_done=0,
-            next_tick_at=now + timedelta(minutes=15) if has_affix else None,
+            next_tick_at=(
+                now + timedelta(
+                    minutes=expedition_event_interval_minutes(duration_minutes, events_total)
+                )
+                if has_affix
+                else None
+            ),
             tick_state={},
             difficulty_tags_snapshot=tag_snap,
         )
@@ -1306,128 +1314,6 @@ class ExpeditionService:
             "gate_log": gate_log,
             "enchant_stones": int(reward_summary.get("enchant_stones") or 0),
             "waifu_exp_gained": int(reward_summary.get("waifu_exp_gained") or 0),
-        }
-
-    async def abort_early(
-        self, session: AsyncSession, player_id: int, active_id: int
-    ) -> dict:
-        """Досрочное завершение по кнопке в Telegram: доля награды как при отмене (EXPEDITION_CANCEL_REWARD_PCT)."""
-        active = await session.get(
-            ActiveExpedition, active_id, options=[selectinload(ActiveExpedition.expedition_slot)]
-        )
-        if not active or active.player_id != player_id:
-            return {"error": "not_found"}
-        if active.claimed:
-            return {"error": "already_claimed"}
-
-        player = await session.get(Player, player_id)
-        if not player:
-            return {"error": "player_not_found"}
-
-        now = datetime.now(tz=timezone.utc)
-        pct = EXPEDITION_CANCEL_REWARD_PCT / 100.0
-        gold = max(0, int(active.reward_gold * pct))
-        exp = max(0, int(active.reward_experience * pct))
-        player.gold += gold
-        active.claimed = True
-        active.finished_at = now
-        active.notification_sent = True
-
-        squad_ids = active.squad_waifu_ids or []
-        if exp and squad_ids:
-            per_waifu = max(0, exp // len(squad_ids))
-            for wid in squad_ids:
-                w = await session.get(HiredWaifu, wid)
-                if w and w.player_id == player_id:
-                    w.experience = (w.experience or 0) + per_waifu
-
-        await self._unlock_squad_expedition(session, list(squad_ids))
-
-        slot = active.expedition_slot
-        expedition_name = (
-            (active.display_base_location or "").strip()
-            or (slot.name if slot else None)
-            or "Экспедиция"
-        )
-        squad_names: list[str] = []
-        for wid in squad_ids:
-            w = await session.get(HiredWaifu, wid)
-            if w and w.player_id == player_id:
-                squad_names.append(w.name or "Вайфу")
-        from waifu_bot.services.expedition_events_ai import generate_expedition_event
-        from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
-
-        brief = getattr(active, "narrative_brief", None) or {}
-        arch = archetype_for_id(getattr(active, "location_archetype_id", None))
-        mode = mode_for_id(getattr(active, "expedition_mode_id", None))
-        ts = active.tick_state or {}
-        squad_prepared = ts.get("squad_prepared")
-        event_text = await generate_expedition_event(
-            expedition_name=expedition_name,
-            success=active.success,
-            duration_minutes=active.duration_minutes,
-            squad_names=squad_names,
-            reward_gold=gold,
-            reward_experience=exp,
-            narrative_brief=brief if isinstance(brief, dict) else None,
-            mode_name=mode.name_ru if mode else None,
-            archetype_name=arch.name_ru if arch else None,
-            tick_summaries=tick_narrative_history(ts),
-            squad_prepared=squad_prepared if isinstance(squad_prepared, bool) else None,
-        )
-        if event_text:
-            active.event_text = event_text
-
-        await increment_skill_counter(session, player_id, "expedition_complete", 1)
-        for wid in squad_ids:
-            hw = await session.get(HiredWaifu, wid)
-            if hw and hw.player_id == player_id:
-                hw.expedition_completions = int(hw.expedition_completions or 0) + 1
-        await sync_loyal_commander_counter(session, player_id)
-
-        await session.commit()
-        return {
-            "success": True,
-            "active_id": active_id,
-            "gold_gained": gold,
-            "experience_gained": exp,
-            "gold_total": player.gold,
-            "event_text": getattr(active, "event_text", None) or event_text,
-        }
-
-    async def cancel(
-        self, session: AsyncSession, player_id: int, active_id: int
-    ) -> dict:
-        """Отменить экспедицию (из WebApp) и получить 50% награды."""
-        active = await session.get(ActiveExpedition, active_id)
-        if not active or active.player_id != player_id:
-            return {"error": "not_found"}
-        if active.claimed:
-            return {"error": "already_claimed"}
-        if active.cancelled:
-            return {"error": "already_cancelled"}
-
-        player = await session.get(Player, player_id)
-        if not player:
-            return {"error": "player_not_found"}
-
-        pct = EXPEDITION_CANCEL_REWARD_PCT / 100.0
-        gold = max(0, int(active.reward_gold * pct))
-        exp = max(0, int(active.reward_experience * pct))
-        player.gold += gold
-        active.cancelled = True
-        active.finished_at = datetime.now(tz=timezone.utc)
-        active.claimed = True  # чтобы не забирать повторно
-
-        await self._unlock_squad_expedition(session, list(active.squad_waifu_ids or []))
-
-        await session.commit()
-        return {
-            "success": True,
-            "active_id": active_id,
-            "gold_gained": gold,
-            "experience_gained": exp,
-            "gold_total": player.gold,
         }
 
     async def get_finished_unnotified(

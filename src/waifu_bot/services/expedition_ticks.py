@@ -25,6 +25,7 @@ from waifu_bot.game.expedition_redesign import (
     _db_category_to_challenge_categories,
     calc_event_damage_v14,
     distribute_damage_to_squad,
+    expedition_event_interval_minutes,
     squad_perk_challenge_categories,
     twist_roll,
     union_challenge_categories_from_db_affix_rows,
@@ -216,7 +217,7 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
         rand_variance=variance,
     )
 
-    from waifu_bot.game.expedition_difficulty_tags import calc_tag_effectiveness_mult, calc_tick_challenge_adj
+    from waifu_bot.game.expedition_difficulty_tags import calc_tag_coverage_ratio, calc_tag_effectiveness_mult, calc_tick_challenge_adj
 
     tag_mult = calc_tag_effectiveness_mult(
         active_tags, covered_tags & active_tags, squad=squad, affix_level=affix_level
@@ -249,7 +250,11 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
     if started.tzinfo is None:
         started = started.replace(tzinfo=timezone.utc)
     if events_done < events_total:
-        active.next_tick_at = started + timedelta(minutes=15 * (events_done + 1))
+        interval = expedition_event_interval_minutes(
+            int(active.duration_minutes or 0),
+            events_total,
+        )
+        active.next_tick_at = started + timedelta(minutes=interval * (events_done + 1))
     else:
         active.next_tick_at = None
 
@@ -271,10 +276,11 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
     twist_text = str(twist.get("text") or "").strip() if twist else ""
     if skip_damage:
         twist_text = twist_text or "урон пропущен"
-    coverage_ratio = (
-        len(active_tags & covered_tags) / float(len(active_tags))
-        if active_tags
-        else 0.0
+    coverage_ratio = calc_tag_coverage_ratio(
+        active_tags,
+        covered_tags & active_tags,
+        squad=squad,
+        affix_level=affix_level,
     )
     gate_log.append(
         gate_log_entry(

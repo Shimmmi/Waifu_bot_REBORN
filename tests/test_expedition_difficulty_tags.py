@@ -1,4 +1,4 @@
-"""Тесты модели тегов сложности экспедиций v1.4."""
+"""Тесты модели тегов сложности экспедиций v1.4/v1.5 (perk-only tag coverage)."""
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -8,7 +8,9 @@ from waifu_bot.game.expedition_difficulty_tags import (
     TAG_DARK_MAGIC,
     TAG_MONSTERS,
     TAG_UNDEAD,
+    TAG_MULT_FLOOR,
     calc_perk_affix_effectiveness,
+    calc_tag_coverage_ratio,
     calc_tag_effectiveness_mult,
     calc_tick_challenge_adj,
     squad_covered_tags,
@@ -39,6 +41,13 @@ def test_calc_tag_effectiveness_mult_n4_one_covered():
     assert abs(calc_tag_effectiveness_mult(active, covered) - 0.7625) < 1e-9
 
 
+def test_calc_tag_effectiveness_mult_full_perk_coverage_hits_floor():
+    active = frozenset({TAG_MONSTERS, TAG_UNDEAD})
+    covered = frozenset({TAG_MONSTERS, TAG_UNDEAD})
+    mult = calc_tag_effectiveness_mult(active, covered)
+    assert abs(mult - TAG_MULT_FLOOR) < 1e-9
+
+
 def test_dark_and_undead_suffix_tags():
     row_dark = SimpleNamespace(name="Тёмная", category="cursed", difficulty_tags=None)
     row_undead = SimpleNamespace(name="с нежитью", category="enemy", difficulty_tags=None)
@@ -48,19 +57,53 @@ def test_dark_and_undead_suffix_tags():
     assert TAG_MONSTERS in tags
 
 
-def test_angel_healer_priest_covers_dark_and_undead():
+def test_angel_healer_without_priest_no_perk_tag_coverage():
     squad = [
-        SimpleNamespace(race=int(WaifuRace.ANGEL), class_=int(WaifuClass.HEALER), perks=["priest"]),
+        SimpleNamespace(race=int(WaifuRace.ANGEL), class_=int(WaifuClass.HEALER), perks=[], perk_levels={}),
     ]
     from waifu_bot.game.expedition_difficulty_tags import TAG_CURSES
 
     active = frozenset({TAG_DARK_MAGIC, TAG_CURSES, TAG_MONSTERS, TAG_UNDEAD})
     covered = squad_covered_tags(squad) & active
-    assert TAG_DARK_MAGIC in covered
+    assert covered == frozenset()
+    mult = calc_tag_effectiveness_mult(active, covered, squad=squad, affix_level=1)
+    assert mult == 1.0
+
+
+def test_angel_healer_priest_covers_only_undead_via_perk():
+    squad = [
+        SimpleNamespace(
+            race=int(WaifuRace.ANGEL),
+            class_=int(WaifuClass.HEALER),
+            perks=["priest"],
+            perk_levels={"priest": 5},
+        ),
+    ]
+    from waifu_bot.game.expedition_difficulty_tags import TAG_CURSES
+
+    active = frozenset({TAG_DARK_MAGIC, TAG_CURSES, TAG_MONSTERS, TAG_UNDEAD})
+    covered = squad_covered_tags(squad) & active
     assert TAG_UNDEAD in covered
-    mult = calc_tag_effectiveness_mult(active, covered)
-    # 2 of 4 covered, eff=1.0 → 1 - 0.95 × 0.5 = 0.525
-    assert abs(mult - 0.525) < 1e-9
+    assert TAG_DARK_MAGIC not in covered
+    mult = calc_tag_effectiveness_mult(active, covered, squad=squad, affix_level=1)
+    # 1 of 4 covered at eff=1.0 → 1 - 0.95 × 0.25 = 0.7625
+    assert abs(mult - 0.7625) < 1e-9
+
+
+def test_calc_tag_coverage_ratio_weighted():
+    active = frozenset({TAG_UNDEAD, TAG_MONSTERS})
+    covered = frozenset({TAG_UNDEAD})
+    squad = [
+        SimpleNamespace(
+            race=int(WaifuRace.HUMAN),
+            class_=int(WaifuClass.WARRIOR),
+            perks=["priest"],
+            perk_levels={"priest": 3},
+        ),
+    ]
+    ratio = calc_tag_coverage_ratio(active, covered, squad=squad, affix_level=5)
+    # priest lv3 vs affix V on undead only: eff=0.6, 1 tag of 2 → 0.3
+    assert abs(ratio - 0.3) < 1e-9
 
 
 def test_calc_tick_challenge_adj_counter_minus_10():
@@ -155,17 +198,22 @@ def test_unit_coverage_priest_covers_undead():
     assert unit_covered_tags(unit) == squad_covered_tags([unit])
 
 
-def test_unit_coverage_angel_race_dark_magic():
+def test_unit_coverage_angel_race_dark_magic_not_in_covered_tags():
     unit = SimpleNamespace(race=int(WaifuRace.ANGEL), class_=int(WaifuClass.MERCHANT), perks=[])
     detail = unit_coverage_detail(unit)
     assert TAG_DARK_MAGIC in detail["race_tags"]
-    assert TAG_DARK_MAGIC in detail["covered_tags"]
+    assert TAG_DARK_MAGIC not in detail["covered_tags"]
     assert detail["perk_tags"] == {}
 
 
-def test_unit_coverage_knight_priest_union():
+def test_unit_coverage_knight_priest_only_perk_tags_in_covered():
     unit = SimpleNamespace(race=int(WaifuRace.HUMAN), class_=int(WaifuClass.KNIGHT), perks=["priest"])
     detail = unit_coverage_detail(unit)
     assert TAG_MONSTERS in detail["class_tags"]
     assert TAG_UNDEAD in detail["covered_tags"]
-    assert TAG_MONSTERS in detail["covered_tags"]
+    assert TAG_MONSTERS not in detail["covered_tags"]
+
+
+def test_knight_without_combat_perk_no_monsters_coverage():
+    unit = SimpleNamespace(race=int(WaifuRace.HUMAN), class_=int(WaifuClass.KNIGHT), perks=[])
+    assert TAG_MONSTERS not in unit_covered_tags(unit)

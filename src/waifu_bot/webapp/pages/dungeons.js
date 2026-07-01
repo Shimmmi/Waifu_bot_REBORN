@@ -1,4 +1,5 @@
 /** Dungeons page bundle. */
+
 async function loadDungeons(act) {
   const data = await apiFetch(`/dungeons?act=${act}`);
   const soloList = document.getElementById("solo-dungeons");
@@ -363,16 +364,33 @@ function buildSoloBattleLogHtml(entries) {
 }
 
 function mountSoloBattleLog(entries) {
-  const host = document.getElementById("solo-battle-log-host");
-  if (!host) return;
   const list = Array.isArray(entries) ? entries : [];
-  if (!list.length) {
+  const host = document.getElementById("solo-battle-log-host");
+  if (host) {
     host.style.display = "none";
     host.innerHTML = "";
+  }
+  const btn = document.getElementById("battle-log-btn");
+  const body = document.getElementById("battle-log-modal-body");
+  if (!btn) return;
+  if (!list.length) {
+    btn.hidden = true;
+    if (body) body.innerHTML = "";
     return;
   }
-  host.style.display = "";
-  host.innerHTML = `<details class="solo-battle-log-root"><summary class="solo-battle-log-root-sum">Журнал боя (${list.length})</summary><div class="solo-battle-log-inner">${buildSoloBattleLogHtml(list)}</div></details>`;
+  btn.hidden = false;
+  btn.title = `Журнал боя (${list.length})`;
+  if (body) body.innerHTML = `<div class="solo-battle-log-inner">${buildSoloBattleLogHtml(list)}</div>`;
+}
+
+function openBattleLogModal() {
+  const modal = document.getElementById("battle-log-modal");
+  if (modal) modal.style.display = "grid";
+}
+
+function closeBattleLogModal() {
+  const modal = document.getElementById("battle-log-modal");
+  if (modal) modal.style.display = "none";
 }
 
 function onMonsterImageError(img) {
@@ -511,11 +529,9 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
   setText("solo-dungeon-name", dungeon.name ?? "—");
   const total = dungeon.total_rooms || 0;
   const current = dungeon.current_room || 1;
-  const progressDots = Array.from({ length: total }, (_, i) =>
-    i < current - 1 ? "⚫" : i === current - 1 ? "🔴" : "⚪"
-  ).join("");
-  const progressEl = document.getElementById("solo-dungeon-progress");
-  if (progressEl) progressEl.textContent = progressDots;
+  const progressText = total > 0 ? `🚪 ${current}/${total}` : "";
+  const progressEl = document.getElementById("solo-dungeon-progress-ov");
+  if (progressEl) progressEl.textContent = progressText;
 
   const nameKnown = monster.name_known !== false;
   const typeKnown = monster.type_known !== false;
@@ -1330,7 +1346,8 @@ function renderGdDungeonsList(container, dungeons) {
   container.innerHTML = "";
   if (dungeons.length === 0) {
     container.innerHTML = `
-      <div class="empty-state">
+      <div class="empty-state gd-empty-state">
+        <button type="button" class="gd-help-btn exp-help-btn" onclick="WaifuApp.openGdHelp()" aria-label="Справка" title="Справка">?</button>
         <div class="empty-icon">🏰</div>
         <h3>Нет активных подземелий</h3>
         <p>Присоединяйтесь к групповому чату и запишитесь в поход командой /gd_join</p>
@@ -1341,6 +1358,31 @@ function renderGdDungeonsList(container, dungeons) {
     const card = createGdDungeonCard(dungeon);
     container.appendChild(card);
   });
+}
+
+function gdHelpHtml() {
+  return `
+    <p>
+      <strong>GD v1</strong> — общий поход для чата: сначала волна обычных врагов, затем босс. Название и антураж подземелья задаются шаблоном из игры (список в БД может меняться).
+    </p>
+    <ul class="gd-info-list">
+      <li>Сообщения и медиа в группе в ходе раунда попадают в <strong>буфер</strong>; урон и навыки считаются при <strong>закрытии раунда</strong> (таймер ~30 мин или обработка в боте), а не «каждое сообщение = удар», как в соло.</li>
+      <li>При «вайпе» отряда раунд может завершиться с ослаблением стороны игроков и продолжением похода — жёсткого геймовера нет.</li>
+      <li>Награды (опыт, золото, дроп) в конце похода — в личку бота, пропорционально вкладу.</li>
+    </ul>
+    <p class="gd-info-how"><strong>Как играть:</strong> в группе — <code>/gd_join</code> на время регистрации. Вне активного GD v1 сообщения в группе могут давать соло-урон. Чтобы видеть статус этого чата здесь, откройте страницу с <code>?chat_id=ID_ЧАТА</code> (числовой id супергруппы Telegram).</p>
+    <p class="gd-info-note muted">Запись в поход и бой — в Telegram; веб-приложение показывает список ваших циклов и опционально снимок по <code>chat_id</code>.</p>
+  `;
+}
+
+function openGdHelp() {
+  const body = document.getElementById("gd-help-body");
+  if (body) body.innerHTML = gdHelpHtml();
+  expOpenOverlay("gd-help-modal");
+}
+
+function closeGdHelp() {
+  expCloseOverlay("gd-help-modal");
 }
 
 function gdV1WaveLabelRu(wave) {
@@ -1570,17 +1612,14 @@ function closeGdModal(modal) {
 async function updateGdSessionUI() {
   const chatId = getGdChatIdFromUrl();
   const card = document.getElementById("gd-session-status");
-  const infoBlock = document.querySelector("#tab-group .gd-info");
   if (!card) return;
   if (chatId === null) {
     card.style.display = "none";
-    if (infoBlock) infoBlock.style.display = "";
     return;
   }
   try {
     const v1 = await apiFetch(`/gd/cycle/${chatId}`).catch(() => ({ v1: false }));
     if (v1 && v1.v1) {
-      if (infoBlock) infoBlock.style.display = "none";
       card.style.display = "";
       const st = v1.status === "registration" ? "Регистрация" : "Поход идёт";
       const closes = v1.registration_closes
@@ -1633,10 +1672,8 @@ async function updateGdSessionUI() {
       return;
     }
     card.style.display = "none";
-    if (infoBlock) infoBlock.style.display = "";
   } catch {
     card.style.display = "none";
-    if (infoBlock) infoBlock.style.display = "";
   }
 }
 
@@ -2095,8 +2132,8 @@ function expeditionDifficultyTagsHtml(tagIds, coveredIds) {
       const isCov = covered.has(id);
       const cls = isCov ? "exp-diff-tag exp-diff-tag-covered" : "exp-diff-tag";
       const title = isCov
-        ? "Тип закрыт отрядом (снижение сложности на 1/N)"
-        : "Активный тип сложности";
+        ? "Тип закрыт перком отряда (снижение урона)"
+        : "Активный тип сложности — нужен подходящий перк";
       return `<span class="${cls}" title="${title}">${escapeHtml(label)}</span>`;
     })
     .join("");
@@ -2159,7 +2196,7 @@ function expeditionUnitMatchIndicators(unit, activeTags) {
       kind: "race",
       id: rid,
       icon: race?.icon || raceIcon(rid),
-      title: `${race?.name || "Раса"} · ${hit.join(", ")}`,
+      title: `${race?.name || "Раса"} · ${hit.join(", ")} · бонус −10% к событиям (не закрывает тег)`,
     });
   }
   const classTags = (unit?.class_tags || []).filter((t) => active.has(t));
@@ -2171,7 +2208,7 @@ function expeditionUnitMatchIndicators(unit, activeTags) {
       kind: "class",
       id: cid,
       icon: cls?.icon || classIcon(cid),
-      title: `${cls?.name || "Класс"} · ${hit.join(", ")}`,
+      title: `${cls?.name || "Класс"} · ${hit.join(", ")} · бонус −10% к событиям (не закрывает тег)`,
     });
   }
   return indicators;
@@ -2259,10 +2296,8 @@ async function refreshExpeditionTagPreview() {
       if (hpPct != null && dmgPct != null) {
         const hpCls = hpPct >= 52 ? "exp-forecast-hp-good" : hpPct >= 12 ? "exp-forecast-hp-mid" : "exp-forecast-hp-bad";
         const outcome = hpPct >= 52 ? "Успех" : hpPct >= 12 ? "Частичный" : "Провал";
-        forecastEl.innerHTML = `<div class="exp-forecast-title">Прогноз исхода по HP · ${escapeHtml(tierName)}</div>
-          <div class="exp-forecast-main">Урон ~${dmgPct}% за тик × ${ev} → остаток HP <strong class="${hpCls}">${Math.round(hpPct)}%</strong> → ${outcome}</div>
-          <div class="exp-forecast-note">Приблизительный прогноз; реальные сложности и твисты определятся случайно после старта.</div>`;
-        forecastEl.classList.add("exp-forecast--visible");
+        forecastEl.innerHTML = `<div class="exp-forecast-main">HP ~<strong class="${hpCls}">${Math.round(hpPct)}%</strong> · ${outcome} · ~${dmgPct}%/тик × ${ev}</div>`;
+        forecastEl.classList.add("exp-forecast--visible", "exp-forecast--compact");
       } else {
         forecastEl.classList.remove("exp-forecast--visible");
         forecastEl.innerHTML = "";
@@ -2414,6 +2449,7 @@ function renderExpeditionGrids() {
   wireExpeditionCardBiomes(activeGrid);
   renderExpSlotsIndicator(actives.length, maxConcurrent);
   renderExpBottomZone(actives.length, maxConcurrent);
+  window.WaifuApp?.renderAtticExpeditions?.(actives, maxConcurrent);
 
   document.querySelectorAll("#exp-active-grid [data-exp-kind]").forEach((el) => {
     el.addEventListener("click", () => {
@@ -2623,43 +2659,69 @@ const REWARD_SHORT_NAMES = {
   enchant: "Заточка", merc_exp: "Опыт наёмниц", mixed: "Смешанная",
 };
 
-function renderExpRewardRow() {
-  const row = expG("esm-reward-row");
-  if (!row) return;
+function renderExpRewardSelect() {
+  const sel = expG("esm-reward-select");
+  if (!sel) return;
   const types = expeditionState.catalog?.reward_types || [];
-  row.innerHTML = types
-    .map((rt) => {
-      const active = expeditionSend.rewardType === rt.id;
-      const icon = REWARD_ICONS[rt.id] || "🎁";
-      const name = REWARD_SHORT_NAMES[rt.id] || rt.name || rt.id;
-      return `<button type="button" class="exp-opt-btn exp-reward-btn${active ? " active" : ""}" data-reward-type="${escapeHtml(rt.id)}" onclick="WaifuApp.expSelReward('${escapeHtml(rt.id)}',this)"><span class="exp-opt-ico">${icon}</span><span class="exp-opt-txt">${escapeHtml(name)}</span></button>`;
-    })
-    .join("") || '<span class="muted tiny">Загрузка…</span>';
+  sel.innerHTML =
+    types
+      .map((rt) => {
+        const icon = REWARD_ICONS[rt.id] || "🎁";
+        const name = REWARD_SHORT_NAMES[rt.id] || rt.name || rt.id;
+        const selected = expeditionSend.rewardType === rt.id ? " selected" : "";
+        return `<option value="${escapeHtml(rt.id)}"${selected}>${icon} ${escapeHtml(name)}</option>`;
+      })
+      .join("") || '<option value="">Загрузка…</option>';
+  if (types.length && !types.some((t) => t.id === expeditionSend.rewardType)) {
+    expeditionSend.rewardType = types[0].id;
+  }
+  sel.value = expeditionSend.rewardType || "";
+  if (!sel.dataset.wired) {
+    sel.dataset.wired = "1";
+    sel.addEventListener("change", () => {
+      expeditionSend.rewardType = sel.value;
+      refreshExpeditionTagPreview();
+    });
+  }
 }
 
 const TIER_SHORT_NAMES = { 1: "Разведка", 2: "Патруль", 3: "Поход", 4: "Рейд", 5: "В глубину" };
 const TIER_ROMAN = ["I", "II", "III", "IV", "V"];
 
-function renderExpTierRow() {
-  const row = expG("esm-tier-row");
-  if (!row) return;
+function renderExpTierSelect() {
+  const sel = expG("esm-tier-select");
+  if (!sel) return;
   const tiers = expeditionState.catalog?.depth_tiers || [];
   const sqPower = expeditionSquadPowerTotal();
-  row.innerHTML = tiers
-    .map((dt) => {
-      const active = expeditionSend.depthTier === dt.tier;
-      const locked = sqPower < (dt.min_squad_power || 0);
-      const cls = `exp-opt-btn exp-tier-btn${active ? " active" : ""}${locked ? " exp-opt-btn--locked" : ""}`;
-      const roman = TIER_ROMAN[(dt.tier || 1) - 1] || String(dt.tier);
-      const name = TIER_SHORT_NAMES[dt.tier] || dt.name_ru || dt.name || `Тир ${dt.tier}`;
-      const power = dt.min_squad_power || 0;
-      const dur = formatExpeditionDurationShort(dt.duration_minutes);
-      const ev = dt.events_count || "—";
-      const dmgMap = { 1: "6%", 2: "10%", 3: "15%", 4: "20%", 5: "28%" };
-      const dmg = dmgMap[dt.difficulty_level || dt.tier] || "—";
-      return `<button type="button" class="${cls}" data-depth-tier="${dt.tier}" ${locked ? "disabled" : ""} onclick="WaifuApp.expSelDepth(${dt.tier},this)"><div class="exp-tier-roman">${roman}</div><div class="exp-tier-name">${escapeHtml(name)}</div><div class="exp-tier-power">⚔${power}</div><div class="exp-tier-meta">${escapeHtml(dur)} · ${ev} соб. · ${dmg}/тик</div></button>`;
-    })
-    .join("") || '<span class="muted tiny">Загрузка…</span>';
+  const current = tiers.find((t) => t.tier === expeditionSend.depthTier);
+  if (current && sqPower < (current.min_squad_power || 0)) {
+    const unlocked = tiers.filter((t) => sqPower >= (t.min_squad_power || 0));
+    if (unlocked.length) expeditionSend.depthTier = unlocked[unlocked.length - 1].tier;
+  }
+  sel.innerHTML =
+    tiers
+      .map((dt) => {
+        const locked = sqPower < (dt.min_squad_power || 0);
+        const roman = TIER_ROMAN[(dt.tier || 1) - 1] || String(dt.tier);
+        const name = TIER_SHORT_NAMES[dt.tier] || dt.name_ru || dt.name || `Тир ${dt.tier}`;
+        const power = dt.min_squad_power || 0;
+        const dur = formatExpeditionDurationShort(dt.duration_minutes);
+        const ev = dt.events_count || "—";
+        const label = `${roman} · ${name} · ⚔${power} · ${dur} · ${ev} соб.`;
+        const selected = expeditionSend.depthTier === dt.tier ? " selected" : "";
+        return `<option value="${dt.tier}"${locked ? " disabled" : ""}${selected}>${escapeHtml(label)}</option>`;
+      })
+      .join("") || '<option value="">Загрузка…</option>';
+  sel.value = String(expeditionSend.depthTier || "");
+  if (!sel.dataset.wired) {
+    sel.dataset.wired = "1";
+    sel.addEventListener("change", () => {
+      expeditionSend.depthTier = Number(sel.value);
+      renderExpTierSelect();
+      updateExpeditionSquadPowerLabel();
+      refreshExpeditionTagPreview();
+    });
+  }
 }
 
 function updateExpeditionSquadPowerLabel() {
@@ -2669,21 +2731,7 @@ function updateExpeditionSquadPowerLabel() {
   const tier = (expeditionState.catalog?.depth_tiers || []).find((t) => t.tier === expeditionSend.depthTier);
   const need = tier ? tier.min_squad_power || 0 : 0;
   el.textContent = `Мощь отряда: ${sq}${need ? ` / нужно ${need}` : ""}`;
-  renderExpTierRow();
-}
-
-function expSelReward(val, btn) {
-  expeditionSend.rewardType = val;
-  expG("esm-reward-row")?.querySelectorAll(".exp-opt-btn").forEach((b) => b.classList.remove("active"));
-  btn?.classList.add("active");
-  refreshExpeditionTagPreview();
-}
-
-function expSelDepth(val, btn) {
-  expeditionSend.depthTier = val;
-  expG("esm-tier-row")?.querySelectorAll(".exp-opt-btn").forEach((b) => b.classList.remove("active"));
-  btn?.classList.add("active");
-  refreshExpeditionTagPreview();
+  renderExpTierSelect();
 }
 
 function expToggleSquadUnit(id) {
@@ -2699,12 +2747,12 @@ function expToggleSquadUnit(id) {
     expeditionSend.squadSlots[empty] = unit;
   }
   renderExpeditionSquadSlots();
-  renderInlineUnitPicker();
+  renderExpRosterPicker();
   updateExpeditionSquadPowerLabel();
   refreshExpeditionTagPreview();
 }
 
-function renderInlineUnitPicker() {
+function renderExpRosterPicker() {
   const list = expG("esm-unit-picker");
   if (!list) return;
   expPickerFilterState();
@@ -2748,19 +2796,24 @@ function renderInlineUnitPicker() {
         if (healing && u.heal_complete_at) {
           note += ` · до ${new Date(u.heal_complete_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
         }
-        const cardCls = `exp-pick-card${disabled ? " exp-pick-card--disabled" : ""}${selected ? " exp-pick-card--match" : ""}`;
+        const cid = Number(u.class ?? u.class_);
+        const rid = Number(u.race);
+        const cls = WAIFU_CLASSES.find((c) => c.id === cid);
+        const race = WAIFU_RACES.find((r) => r.id === rid);
+        const className = cls?.name || "—";
+        const raceName = race?.name || "—";
+        const cardCls = `exp-pick-card exp-pick-card--compact${disabled ? " exp-pick-card--disabled" : ""}${selected ? " exp-pick-card--match" : ""}`;
         const clickAttr = disabled ? "" : ` onclick="WaifuApp.expToggleSquadUnit(${u.id})"`;
         return `<div class="${cardCls}"${clickAttr}>
-          <div class="exp-pick-head">
-            ${expPickPortraitHtml(u)}
-            <div class="exp-pick-info">
-              <div class="exp-pick-name">${escapeHtml(u.name || "")}${selected ? " ✓" : ""}</div>
-              <div class="exp-pick-sub">${escapeHtml(note)}</div>
-            </div>
+          <div class="exp-pick-compact-row">
+            <div class="exp-pick-name">${escapeHtml(u.name || "")}${selected ? " ✓" : ""}</div>
+            <div class="exp-pick-sub">${escapeHtml(note)}</div>
           </div>
-          <div class="exp-pick-stats">
+          <div class="exp-pick-stats exp-pick-stats--compact">
             <span class="exp-pick-stat">⚔ ${power}</span>
             <span class="exp-pick-stat">❤ ${hpC}/${hpM}</span>
+            <span class="exp-pick-stat">${escapeHtml(raceName)}</span>
+            <span class="exp-pick-stat">${escapeHtml(className)}</span>
           </div>
         </div>`;
       })
@@ -2792,7 +2845,7 @@ function renderExpPickerFilters() {
     b.addEventListener("click", () => {
       expeditionSend.pickerFilter = b.getAttribute("data-picker-filter");
       renderExpPickerFilters();
-      renderInlineUnitPicker();
+      renderExpRosterPicker();
     });
   });
 }
@@ -2804,7 +2857,7 @@ function wireExpPickerTools() {
     search.dataset.wired = "1";
     search.addEventListener("input", () => {
       expeditionSend.pickerSearch = search.value || "";
-      renderInlineUnitPicker();
+      renderExpRosterPicker();
     });
   }
   if (sort && !sort.dataset.wired) {
@@ -2812,7 +2865,7 @@ function wireExpPickerTools() {
     sort.value = expeditionSend.pickerSort || "level";
     sort.addEventListener("change", () => {
       expeditionSend.pickerSort = sort.value;
-      renderInlineUnitPicker();
+      renderExpRosterPicker();
     });
   }
 }
@@ -2861,9 +2914,7 @@ function openActiveExpModal(raw) {
 
   window._activeExpId = raw.id;
   const claimBtn = expG("eam-claim-btn");
-  const abortBtn = expG("eam-abort-btn");
   if (claimBtn) claimBtn.style.display = "none";
-  if (abortBtn) abortBtn.style.display = "";
   expOpenOverlay("exp-active-modal");
 }
 
@@ -2901,11 +2952,7 @@ function tickActiveModal() {
   const ev = expG("eam-events");
   if (ev) ev.textContent = `${raw.events_done ?? 0} / ${raw.events_total ?? 0}`;
   const claimBtn = expG("eam-claim-btn");
-  const abortBtn = expG("eam-abort-btn");
-  if (claimBtn && abortBtn) {
-    claimBtn.style.display = canClaim ? "block" : "none";
-    abortBtn.style.display = canClaim ? "none" : "";
-  }
+  if (claimBtn) claimBtn.style.display = canClaim ? "block" : "none";
 }
 
 function closeActiveExpModal() {
@@ -2921,8 +2968,8 @@ function openSendExpModal() {
   expeditionSend.rewardType = expeditionSend.rewardType || "gold";
   expeditionSend.depthTier = expeditionSend.depthTier || 1;
   expeditionSend.squadSlots = [null, null, null];
-  renderExpRewardRow();
-  renderExpTierRow();
+  renderExpRewardSelect();
+  renderExpTierSelect();
   updateExpeditionSquadPowerLabel();
   const forecastEl = expG("esm-forecast");
   if (forecastEl) {
@@ -2933,17 +2980,26 @@ function openSendExpModal() {
   if (warnEl) warnEl.textContent = "";
   renderExpeditionSquadSlots();
   updateExpConfirmPanel(null);
-  ensureExpeditionRoster()
-    .then(() => {
-      renderInlineUnitPicker();
-      updateExpeditionSquadPowerLabel();
-    })
-    .catch(() => renderInlineUnitPicker());
   expOpenOverlay("exp-send-modal");
+}
+
+function openExpRosterModal() {
+  expOpenOverlay("exp-roster-modal");
+  ensureExpeditionRoster()
+    .then(() => renderExpRosterPicker())
+    .catch(() => renderExpRosterPicker());
+}
+
+function closeExpRosterModal() {
+  expCloseOverlay("exp-roster-modal");
+  renderExpeditionSquadSlots();
+  updateExpeditionSquadPowerLabel();
+  refreshExpeditionTagPreview();
 }
 
 function closeSendExpModal() {
   if (expeditionSendInFlight) return;
+  closeExpRosterModal();
   expCloseOverlay("exp-send-modal");
 }
 
@@ -2966,8 +3022,8 @@ function renderExpeditionSquadSlots() {
       slot.onclick = () => expToggleSquadUnit(unit.id);
     } else {
       slot.className = "exp-squad-slot";
-      slot.innerHTML = '<span class="exp-squad-empty">—</span>';
-      slot.onclick = null;
+      slot.innerHTML = '<span class="exp-squad-empty">＋</span>';
+      slot.onclick = () => openExpRosterModal();
     }
   }
   const btn = expG("exp-send-btn");
@@ -2977,125 +3033,6 @@ function renderExpeditionSquadSlots() {
   const hasSquad = expeditionSend.squadSlots.some((s) => s);
   if (btn) btn.disabled = !hasSquad || !powerOk;
   refreshExpeditionTagPreview();
-}
-
-let expPickerTagsWired = false;
-
-function wireExpPickerTagsFilter() {
-  const tagsEl = expG("exp-picker-tags");
-  if (!tagsEl || expPickerTagsWired) return;
-  expPickerTagsWired = true;
-  tagsEl.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-pick-filter-tag]");
-    if (!btn) return;
-    e.preventDefault();
-    expTogglePickerFilterTag(btn.getAttribute("data-pick-filter-tag"));
-  });
-}
-
-function expTogglePickerFilterTag(tagId) {
-  if (!tagId) return;
-  if (!expeditionSend.pickerExcludedTags) expeditionSend.pickerExcludedTags = new Set();
-  if (expeditionSend.pickerExcludedTags.has(tagId)) {
-    expeditionSend.pickerExcludedTags.delete(tagId);
-  } else {
-    expeditionSend.pickerExcludedTags.add(tagId);
-  }
-  renderExpPickerContent();
-}
-
-function renderExpPickerContent() {
-  const slotIdx = expeditionSend.pickerSlot;
-  const takenIds = new Set(
-    expeditionSend.squadSlots
-      .map((u, i) => (i !== slotIdx && u ? u.id : null))
-      .filter(Boolean)
-  );
-  const units = getAvailableUnits();
-  const list = expG("exp-unit-list");
-  const tagsEl = expG("exp-picker-tags");
-  const allTags = expeditionSend.currentSlot?.difficulty_tags || [];
-  const highlightTags = getExpPickerHighlightTags();
-  const excluded = expeditionSend.pickerExcludedTags || new Set();
-
-  if (tagsEl) {
-    tagsEl.innerHTML = allTags.length
-      ? `<div class="muted tiny" style="margin-bottom:4px">Типы сложности:</div><div class="exp-pick-filter-tags">${expeditionPickerFilterTagsHtml(allTags, excluded)}</div>`
-      : "";
-  }
-
-  if (!list) return;
-  list.innerHTML =
-    units
-      .map((u) => {
-        const inExp = u.expedition_id != null;
-        const inSquad = takenIds.has(u.id);
-        const disabled = inExp || inSquad;
-        const hpM = u.hp_max ?? u.max_hp ?? 1;
-        const hpC = u.current_hp ?? u.hp_current ?? hpM;
-        const pct = hpM > 0 ? Math.round((hpC / hpM) * 100) : 0;
-        const hpColor = pct > 50 ? "#4ade80" : pct > 25 ? "#fbbf24" : "#f87171";
-        const cid = Number(u.class ?? u.class_);
-        const rid = Number(u.race);
-        const cls = WAIFU_CLASSES.find((c) => c.id === cid);
-        const race = WAIFU_RACES.find((r) => r.id === rid);
-        const note = inExp ? "🔒 В экспедиции" : `${cls?.name || "—"} · ${race?.name || "—"}`;
-        const matchedPerks = expeditionUnitMatchedPerkIds(u, highlightTags);
-        const indicators = expeditionUnitMatchIndicators(u, highlightTags);
-        const hasMatch = indicators.length > 0;
-        const clickAttr = disabled ? "" : ` onclick="WaifuApp.expPickUnit(${u.id})"`;
-        const cardCls = `exp-pick-card${disabled ? " exp-pick-card--disabled" : ""}${hasMatch ? " exp-pick-card--match" : ""}`;
-        const power = u.power != null ? u.power : "—";
-        return `<div class="${cardCls}"${clickAttr}>
-          <div class="exp-pick-head">
-            ${expPickPortraitHtml(u)}
-            <div class="exp-pick-info">
-              <div class="exp-pick-name-row">
-                <div class="exp-pick-name">${escapeHtml(u.name || "")}</div>
-                ${expPickMatchRowHtml(indicators)}
-              </div>
-              <div class="exp-pick-sub">${note}</div>
-            </div>
-          </div>
-          <div class="exp-pick-stats">
-            <span class="exp-pick-stat" title="Мощь">⚔ ${power}</span>
-            <span class="exp-pick-stat" title="Здоровье">❤ ${hpC}/${hpM}</span>
-          </div>
-          <div class="exp-pick-hpbar">
-            <div class="exp-pick-hpfill" style="width:${pct}%;background:${hpColor}"></div>
-          </div>
-          ${expPickPerksHtml(u, matchedPerks)}
-        </div>`;
-      })
-      .join("") || '<div class="placeholder muted tiny">Нет доступных наёмниц</div>';
-}
-
-function expOpenPicker(slotIdx) {
-  expeditionSend.pickerSlot = slotIdx;
-  expeditionSend.pickerExcludedTags = new Set();
-  wireExpPickerTagsFilter();
-  const list = expG("exp-unit-list");
-  if (list) list.innerHTML = '<div class="placeholder muted tiny">Загрузка наёмниц…</div>';
-  closeSendExpModal();
-  expOpenOverlay("exp-picker-overlay");
-  ensureExpeditionRoster()
-    .then(() => renderExpPickerContent())
-    .catch(() => renderExpPickerContent());
-}
-
-function expPickUnit(id) {
-  const units = getAvailableUnits();
-  const unit = units.find((u) => u.id === id);
-  if (!unit || unit.expedition_id) return;
-  expeditionSend.squadSlots[expeditionSend.pickerSlot] = unit;
-  expClosePicker();
-  expOpenOverlay("exp-send-modal");
-  renderExpeditionSquadSlots();
-}
-
-function expClosePicker() {
-  if (expeditionSendInFlight) return;
-  expCloseOverlay("exp-picker-overlay");
 }
 
 async function submitExpeditionStart() {
@@ -3147,10 +3084,9 @@ async function submitExpeditionStart() {
     expeditionSend.rewardType = savedReward;
     expeditionSend.depthTier = savedTier;
     expeditionSend.squadSlots = savedSquad;
-    renderExpRewardRow();
-    renderExpTierRow();
+    renderExpRewardSelect();
+    renderExpTierSelect();
     renderExpeditionSquadSlots();
-    renderInlineUnitPicker();
   } finally {
     expeditionSendInFlight = false;
     if (sendBtn) sendBtn.removeAttribute("aria-busy");
@@ -3175,25 +3111,24 @@ function expeditionHelpHtml() {
   const tierTableHtml = tiers.length
     ? expTierCheatsheetHtml(tiers)
     : `<table class="exp-tier-cheatsheet-table"><thead><tr><th>Тир</th><th>Название</th><th>Длит.</th><th>Событий</th><th>Мощь</th><th>Урон</th></tr></thead><tbody>
-      <tr><td><strong>I</strong></td><td>Разведка</td><td>30 мин</td><td>2</td><td>⚔0</td><td>6%/тик</td></tr>
-      <tr><td><strong>II</strong></td><td>Патруль</td><td>45 мин</td><td>3</td><td>⚔80</td><td>10%/тик</td></tr>
-      <tr><td><strong>III</strong></td><td>Поход</td><td>60 мин</td><td>4</td><td>⚔150</td><td>15%/тик</td></tr>
-      <tr><td><strong>IV</strong></td><td>Рейд</td><td>90 мин</td><td>6</td><td>⚔220</td><td>20%/тик</td></tr>
-      <tr><td><strong>V</strong></td><td>В глубину</td><td>120 мин</td><td>8</td><td>⚔300</td><td>28%/тик</td></tr>
+      <tr><td><strong>I</strong></td><td>Разведка</td><td>60 мин</td><td>2</td><td>⚔0</td><td>6%/тик</td></tr>
+      <tr><td><strong>II</strong></td><td>Патруль</td><td>90 мин</td><td>3</td><td>⚔80</td><td>10%/тик</td></tr>
+      <tr><td><strong>III</strong></td><td>Поход</td><td>120 мин</td><td>4</td><td>⚔150</td><td>15%/тик</td></tr>
+      <tr><td><strong>IV</strong></td><td>Рейд</td><td>180 мин</td><td>6</td><td>⚔220</td><td>20%/тик</td></tr>
+      <tr><td><strong>V</strong></td><td>В глубину</td><td>240 мин</td><td>8</td><td>⚔300</td><td>28%/тик</td></tr>
       </tbody></table>`;
 
   return `
     <p><strong>Слоты.</strong> До 3 параллельных экспедиций одновременно. Состав — 1–3 наёмницы, HP ≥ 25% для участия.</p>
     <p><strong>Тиры глубины I–V.</strong> Определяют длительность, число событий, рекоменд. мощность и урон за тик. Недостаточная мощность блокирует выбор тира.</p>
     ${tierTableHtml}
-    <p><strong>Тики.</strong> 1 событие = 15 мин. Больше событий — выше риск по HP, но больше награда.</p>
+    <p><strong>Тики.</strong> События равномерно распределены по длительности (≈30 мин на событие). Больше событий — выше риск по HP, но больше награда.</p>
     <p><strong>Исход.</strong> Считается по остатку HP отряда после всех тиков (не предролл-шанс): &lt;12% — <span style="color:#f87171">провал</span>, ≥52% — <span style="color:#4ade80">успех</span>, иначе — <span style="color:#fbbf24">частичный</span> (награда ×0.7).</p>
     <p><strong>Теги/аффиксы сложности (8).</strong> Генерируются <em>случайно после старта</em> экспедиции — на этапе формирования игроку неизвестны. Покрытие тегов отрядом (раса/класс/перк) снижает урон. Влияние каждого тега раскрывается в логе результата.</p>
     <p><strong>Твисты (~10%).</strong> Случайные события: treasure (награда), rest (восстановление HP), skip damage (пропуск урона) и др.</p>
     <p><strong>Типы наград (6).</strong> 💰 Золото · ✨ Опыт вайфу · ⚔ Снаряжение · 🔮 Камни заточки · 📖 Опыт наёмниц · 🎁 Смешанная.</p>
     <p><strong>Мощность наёмницы.</strong> <code>RARITY_BASE + (level−1)×3</code> (Common 40 → Legendary 120). Рекоменд. пороги: 0 / 80 / 150 / 220 / 300.</p>
     <p><strong>Лечение.</strong> После экспедиции раненые наёмницы лечатся автоматически: 0.8 мин за 1% потерянного HP (×1.5 при HP=0).</p>
-    <p><strong>Досрочное завершение.</strong> Можно отменить активную экспедицию — награда ×0.5.</p>
     <p><strong>Перки.</strong> Прокачка во вкладке ⬆ LVL таверны (очки за лвлап после экспедиции). Эффективность перка против уровня препятствия:</p>
     <table class="exp-help-table" aria-label="Эффективность перка">
       <thead><tr><th>Перк↓ / Ур.→</th><th>I</th><th>II</th><th>III</th><th>IV</th><th>V</th></tr></thead>
@@ -3212,19 +3147,6 @@ function closeExpeditionHelp() {
   expCloseOverlay("expedition-help-modal");
 }
 
-async function abortExpedition(activeId) {
-  if (!activeId) return;
-  try {
-    await apiFetch(`/expeditions/${activeId}/abort`, { method: "POST" });
-    showToast?.("Экспедиция завершена (≈50% награды)", "success");
-    closeActiveExpModal();
-    await loadProfile().catch(() => {});
-    await loadExpeditionTab({ force: true });
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showToast?.(detail || e?.message || "Ошибка", "error");
-  }
-}
 async function claimExpedition(activeId) {
   try {
     const res = await apiFetch(`/expeditions/claim?active_id=${activeId}`, { method: "POST" });
@@ -3249,8 +3171,6 @@ function showExpeditionResultModal(opts = {}) {
   const content = document.getElementById("exp-result-content");
   if (!modal || !loading || !content) return false;
   modal.style.display = "flex";
-  modal.style.alignItems = "flex-end";
-  modal.style.justifyContent = "center";
   loading.style.display = showLoading ? "flex" : "none";
   content.style.display = showContent ? "block" : "none";
   return true;
@@ -3344,6 +3264,117 @@ function expGateLogSummaryHtml(result, gateLog) {
   return `<li class="exp-gate-log-summary">Суммарный урон: <strong>−${totalDmg} HP</strong>. ${hpLine}.</li>`;
 }
 
+let expResultSquadState = [];
+
+function expResultRewardRow(label, valueHtml, mult) {
+  const multHtml = mult ? `<span class="exp-result-reward-mult">${mult}</span>` : "";
+  return `<div class="exp-result-reward-row">
+    <span class="exp-result-reward-label">${escapeHtml(label)}</span>
+    <span class="exp-result-reward-inline">${valueHtml}${multHtml}</span>
+  </div>`;
+}
+
+function expResultItemThumbHtml(item) {
+  if (typeof itemArtHtml === "function") {
+    return itemArtHtml(item, { lazy: true });
+  }
+  if (typeof itemIconForSlotType === "function") {
+    return itemIconForSlotType(item.slot_type) || "🎁";
+  }
+  return "🎁";
+}
+
+function expResultItemRewardRow(item) {
+  const invId = item.inventory_item_id ?? item.id ?? null;
+  const name = item.display_name || item.name || "—";
+  const thumb = expResultItemThumbHtml(item);
+  const rc = typeof rarityClass === "function" ? rarityClass(item.rarity) : "";
+  const clickAttr = invId
+    ? `role="button" tabindex="0" data-exp-result-item-id="${invId}" onclick="event.stopPropagation();WaifuApp.viewRewardItem(${invId})"`
+    : "";
+  return `<div class="exp-result-reward-row exp-result-reward-row--item ${rc}" ${clickAttr}>
+    <span class="exp-result-reward-label">Предмет</span>
+    <span class="exp-result-reward-inline exp-result-reward-item-inline">
+      <span class="exp-result-item-thumb">${thumb}</span>
+      <span class="exp-result-item-name">${escapeHtml(name)}</span>
+    </span>
+  </div>`;
+}
+
+async function hydrateExpResultItemThumbs(items) {
+  const needsFetch = (items || []).filter(
+    (it) => (it.inventory_item_id ?? it.id) && !it.art_key && !it.image_key
+  );
+  if (!needsFetch.length) return;
+  await Promise.all(
+    needsFetch.map(async (it) => {
+      const invId = it.inventory_item_id ?? it.id;
+      try {
+        const full = await apiFetch(`/inventory/${invId}`);
+        Object.assign(it, {
+          slot_type: full.slot_type,
+          art_key: full.art_key,
+          image_key: full.image_key,
+          tier: full.tier,
+          display_name: full.display_name || full.name,
+          rarity: full.rarity,
+        });
+        const row = document.querySelector(`[data-exp-result-item-id="${invId}"] .exp-result-item-thumb`);
+        if (row) row.innerHTML = expResultItemThumbHtml(it);
+      } catch {
+        /* ignore */
+      }
+    })
+  );
+}
+
+function renderExpResultSquad(squadState) {
+  const squadEl = document.getElementById("exp-result-squad");
+  if (!squadEl) return;
+  squadEl.innerHTML = (squadState || [])
+    .map((u) => {
+      const hpPct = u.hp_max ? Math.round((u.hp_current / u.hp_max) * 100) : 100;
+      const needsHeal = u.hp_current < u.hp_max && !u.healing;
+      let healTxt = " · ✓ Здорова";
+      if (u.healing) {
+        const mins = u.heal_minutes ?? u.heal_forecast_minutes;
+        healTxt = mins != null
+          ? ` · <span style="color:#60a5fa">💊 На лечении ~${mins} мин</span>`
+          : ' · <span style="color:#60a5fa">💊 На лечении</span>';
+      } else if (needsHeal && u.heal_forecast_minutes != null) {
+        healTxt = ` · <span style="color:#60a5fa">💊 Лечение ~${u.heal_forecast_minutes} мин</span>`;
+      } else if (needsHeal) {
+        healTxt = ' · <span style="color:#f87171">Нужно лечение</span>';
+      }
+      return `
+          <div class="exp-result-unit">
+            <div class="exp-result-unit-info">
+              <div class="exp-result-unit-name">${escapeHtml(u.name || "—")}</div>
+              <div class="exp-result-unit-stats">
+                ❤ ${u.hp_current}/${u.hp_max}${healTxt}
+                ${u.leveled_up ? ' · <span style="color:#4ade80">⭐ Новый уровень!</span>' : ""}
+              </div>
+            </div>
+            <div class="exp-result-unit-bar">
+              <div class="exp-result-unit-bar-fill" style="width:${hpPct}%"></div>
+            </div>
+          </div>`;
+    })
+    .join("");
+
+  const healBtn = document.getElementById("exp-result-heal-btn");
+  if (healBtn) {
+    const hasWounded = (squadState || []).some((u) => u.hp_current < u.hp_max && u.hired_waifu_id && !u.healing);
+    healBtn.style.display = hasWounded ? "" : "none";
+    healBtn.disabled = false;
+    healBtn.textContent = "💊 Отправить на лечение";
+    healBtn.onclick = (ev) => {
+      ev?.stopPropagation?.();
+      healExpeditionSquad(expResultSquadState);
+    };
+  }
+}
+
 function fillExpeditionResult(result) {
   const OUTCOME_CONFIG = {
     success: { icon: "✅", title: "Успешно завершена!", color: "#4ade80", mult: "×1.0", cls: "exp-result-sheet--success" },
@@ -3378,120 +3409,84 @@ function fillExpeditionResult(result) {
   const rewardsEl = document.getElementById("exp-result-rewards");
   if (rewardsEl) {
     const rt = result.reward_type || "gold";
-    const boxes = [];
+    const rows = [];
     if (result.gold_earned > 0 || rt === "gold" || rt === "mixed") {
-      boxes.push(`<div class="exp-result-reward-box"><div class="exp-result-reward-label">Золото</div><div class="exp-result-reward-value">🪙 ${result.gold_earned ?? 0}</div><div class="exp-result-reward-mult">${cfg.mult}</div></div>`);
+      rows.push(expResultRewardRow("Золото", `🪙 ${result.gold_earned ?? 0}`, cfg.mult));
     }
     if (result.exp_earned > 0 || rt === "merc_exp" || rt === "mixed") {
-      boxes.push(`<div class="exp-result-reward-box"><div class="exp-result-reward-label">Опыт наёмниц</div><div class="exp-result-reward-value">✨ ${result.exp_earned ?? 0}</div><div class="exp-result-reward-mult">${cfg.mult}</div></div>`);
+      rows.push(expResultRewardRow("Опыт наёмниц", `✨ ${result.exp_earned ?? 0}`, cfg.mult));
     }
     if (result.waifu_exp_gained > 0 || rt === "waifu_exp") {
-      boxes.push(`<div class="exp-result-reward-box"><div class="exp-result-reward-label">Опыт основной вайфу</div><div class="exp-result-reward-value">⭐ ${result.waifu_exp_gained ?? 0}</div></div>`);
+      rows.push(expResultRewardRow("Опыт основной вайфу", `⭐ ${result.waifu_exp_gained ?? 0}`));
     }
     if (result.enchant_stones > 0 || rt === "enchant") {
-      boxes.push(`<div class="exp-result-reward-box"><div class="exp-result-reward-label">Камни заточки</div><div class="exp-result-reward-value">💎 ${result.enchant_stones ?? 0}</div></div>`);
+      rows.push(expResultRewardRow("Камни заточки", `💎 ${result.enchant_stones ?? 0}`));
     }
     const items = Array.isArray(result.items_earned) ? result.items_earned : [];
     for (const item of items) {
-      boxes.push(`<div class="exp-result-reward-box"><div class="exp-result-reward-label">Предмет</div><div class="exp-result-reward-value">${item.emoji || "🎁"} ${escapeHtml(item.name || "—")}</div></div>`);
+      rows.push(expResultItemRewardRow(item));
     }
-    if (!boxes.length) {
+    if (!rows.length) {
       if (rt === "items") {
-        boxes.push(`<div class="exp-result-reward-box"><div class="exp-result-reward-label">Награда</div><div class="exp-result-reward-value muted">Предметы не выпали</div></div>`);
+        rows.push(expResultRewardRow("Награда", `<span class="muted">Предметы не выпали</span>`));
       } else {
-        boxes.push(`<div class="exp-result-reward-box"><div class="exp-result-reward-label">Награда</div><div class="exp-result-reward-value muted">—</div></div>`);
+        rows.push(expResultRewardRow("Награда", `<span class="muted">—</span>`));
       }
     }
-    rewardsEl.innerHTML = boxes.join("");
+    rewardsEl.innerHTML = rows.join("");
+    hydrateExpResultItemThumbs(items).catch(() => {});
   }
 
-  // Состояние отряда после экспедиции (без эмодзи-иконки) + кнопка лечения
-  const squadEl = document.getElementById("exp-result-squad");
-  const squadState = Array.isArray(result.squad_state) ? result.squad_state : [];
-  if (squadEl) {
-    squadEl.innerHTML = squadState
-      .map((u) => {
-        const hpPct = u.hp_max ? Math.round((u.hp_current / u.hp_max) * 100) : 100;
-        const needsHeal = u.hp_current < u.hp_max;
-        const healTxt = needsHeal && u.heal_forecast_minutes != null
-          ? ` · <span style="color:#60a5fa">💊 Лечение ~${u.heal_forecast_minutes} мин</span>`
-          : needsHeal
-            ? ' · <span style="color:#f87171">Нужно лечение</span>'
-            : " · ✓ Здорова";
-        return `
-          <div class="exp-result-unit">
-            <div class="exp-result-unit-info">
-              <div class="exp-result-unit-name">${escapeHtml(u.name || "—")}</div>
-              <div class="exp-result-unit-stats">
-                ❤ ${u.hp_current}/${u.hp_max}${healTxt}
-                ${u.leveled_up ? ' · <span style="color:#4ade80">⭐ Новый уровень!</span>' : ""}
-              </div>
-            </div>
-            <div class="exp-result-unit-bar">
-              <div class="exp-result-unit-bar-fill" style="width:${hpPct}%"></div>
-            </div>
-          </div>`;
-      })
-      .join("");
-  }
-  // Кнопка «Отправить на лечение» — только если есть раненые
-  const healBtn = document.getElementById("exp-result-heal-btn");
-  if (healBtn) {
-    const hasWounded = squadState.some((u) => u.hp_current < u.hp_max);
-    healBtn.style.display = hasWounded ? "" : "none";
-    healBtn.onclick = () => healExpeditionSquad(squadState);
-  }
+  expResultSquadState = Array.isArray(result.squad_state) ? result.squad_state.map((u) => ({ ...u })) : [];
+  renderExpResultSquad(expResultSquadState);
 }
 
 async function healExpeditionSquad(squadState) {
-  const wounded = (squadState || []).filter((u) => u.hp_current < u.hp_max && u.hired_waifu_id);
+  const wounded = (squadState || []).filter(
+    (u) => u.hp_current < u.hp_max && u.hired_waifu_id && !u.healing
+  );
   if (!wounded.length) {
     showToast?.("Лечение не требуется", "info");
     return;
   }
+
+  const modal = document.getElementById("expedition-result-modal");
   const btn = document.getElementById("exp-result-heal-btn");
-  if (btn) { btn.disabled = true; btn.textContent = "Лечение..."; }
-  let goldSpent = 0;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Лечение...";
+  }
   const errors = [];
   for (const u of wounded) {
     try {
       const res = await apiFetch(`/tavern/heal?hired_waifu_id=${u.hired_waifu_id}`, { method: "POST" });
       if (res?.error) {
         errors.push(`${u.name}: ${res.error}`);
-      } else if (res?.gold_spent) {
-        goldSpent += Number(res.gold_spent) || 0;
+      } else {
+        u.healing = true;
+        u.heal_minutes = res?.heal_minutes ?? u.heal_forecast_minutes;
       }
     } catch (e) {
       const { detail } = parseHttpErrorDetail(e);
       errors.push(`${u.name}: ${detail || "ошибка"}`);
     }
   }
-  if (btn) { btn.disabled = false; btn.textContent = "Отправить на лечение"; }
+  expResultSquadState = squadState;
+  renderExpResultSquad(expResultSquadState);
+  if (modal) modal.style.display = "flex";
+
   if (errors.length) {
     showToast?.(`Часть не вылечена: ${errors.join("; ")}`, "danger");
-  } else {
-    showToast?.(`Отряд отправлен на лечение${goldSpent ? ` (−${goldSpent} золота)` : ""}`, "success");
   }
   await loadExpeditionTab({ force: true }).catch(() => {});
   if (typeof loadProfile === "function") await loadProfile().catch(() => {});
+  if (modal) modal.style.display = "flex";
 }
 
 function closeExpeditionResult() {
   const modal = document.getElementById("expedition-result-modal");
   if (modal) modal.style.display = "none";
   loadExpeditionTab({ force: true }).catch(() => {});
-}
-
-async function cancelExpedition(activeId) {
-  try {
-    const res = await apiFetch(`/expeditions/cancel?active_id=${activeId}`, { method: "POST" });
-    showDungeonsError(`Отменено. Получено: 🪙 +${res.gold_gained} · ✨ +${res.experience_gained}`);
-    await loadProfile().catch(() => {});
-    await loadExpeditionTab();
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showDungeonsError(detail || "Ошибка отмены", "danger");
-  }
 }
 
 async function adminRefreshExpeditions() {
@@ -3992,6 +3987,8 @@ Object.assign(window.WaifuApp, {
   onMonsterImageError,
   closeExitDungeonConfirm,
   confirmExitDungeon,
+  openBattleLogModal,
+  closeBattleLogModal,
   adminExitDungeon,
   loadBattle,
   continueBattle,
@@ -4003,23 +4000,24 @@ Object.assign(window.WaifuApp, {
   applySoloBattleSsePayload,
   loadExpeditionTab,
   submitExpeditionStart,
-  expSelReward,
-  expSelDepth,
   expToggleSquadUnit,
   openSendExpModal,
   closeSendExpModal,
+  openExpRosterModal,
+  closeExpRosterModal,
   closeActiveExpModal,
   healExpeditionSquad,
-  abortExpedition,
   getAvailableUnits,
   claimExpedition,
   openExpeditionResult,
   closeExpeditionResult,
-  cancelExpedition,
+  viewRewardItem,
   adminRefreshExpeditions,
   adminGenerateExpeditionArt,
   openExpeditionHelp,
   closeExpeditionHelp,
+  openGdHelp,
+  closeGdHelp,
   loadAbyssTab,
   abyssEnter,
   openAbyssExitModal,

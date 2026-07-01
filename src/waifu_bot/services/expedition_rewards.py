@@ -20,6 +20,7 @@ from waifu_bot.game.expedition_overhaul import (
     depth_tier_by_id,
     validate_reward_type,
 )
+from waifu_bot.game.item_display_name import compose_item_display_name_ru
 from waifu_bot.services.expedition import OUTCOME_REWARD_MULTIPLIERS, _apply_exp_to_hired_unit
 
 logger = logging.getLogger(__name__)
@@ -160,14 +161,21 @@ async def _roll_expedition_item(
             plus_level=0,
         )
         await session.flush()
-        name = getattr(inv, "_display_name", None) or (
-            inv.item.name if getattr(inv, "item", None) else "Предмет"
-        )
+        base_name, display_name = compose_item_display_name_ru(inv)
+        from waifu_bot.services.item_art import derive_image_key, resolve_inventory_item_art_key
+
+        image_key = derive_image_key(inv.slot_type, inv.weapon_type, display_name)
+        art_key = resolve_inventory_item_art_key(inv, display_base_name=base_name)
         return {
             "inventory_item_id": inv.id,
-            "name": name,
+            "name": display_name,
+            "display_name": display_name,
             "rarity": int(inv.rarity or rarity),
             "level": int(inv.level or item_level),
+            "slot_type": inv.slot_type,
+            "art_key": art_key,
+            "image_key": image_key,
+            "tier": int(inv.tier or 1),
         }
     except Exception:
         logger.exception("expedition item roll failed player_id=%s", player_id)
