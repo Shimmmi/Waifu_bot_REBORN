@@ -25,7 +25,7 @@ function Write-Check {
     $mark = if ($Ok) { "[OK]" } else { "[FAIL]" }
     $color = if ($Ok) { "Green" } else { "Red" }
     $line = "$mark $Name"
-    if ($Detail) { $line += " — $Detail" }
+    if ($Detail) { $line += " - $Detail" }
     Write-Host $line -ForegroundColor $color
 }
 
@@ -46,7 +46,7 @@ function Get-SemverMajor {
 $failed = 0
 
 Write-Host ""
-Write-Host "Waifu Bot — Windows dev environment check" -ForegroundColor Cyan
+Write-Host "Waifu Bot - Windows dev environment check" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -55,7 +55,7 @@ if (Test-Command git) {
     $v = (git --version 2>&1) -join " "
     Write-Check "Git" $true $v
 } else {
-    Write-Check "Git" $false "not found — install from https://git-scm.com/download/win"
+    Write-Check "Git" $false "not found - install from https://git-scm.com/download/win"
     $failed++
 }
 
@@ -67,7 +67,7 @@ if (Test-Command node) {
     Write-Check "Node.js (>= 20)" $ok "v$nodeVer"
     if (-not $ok) { $failed++ }
 } else {
-    Write-Check "Node.js (>= 20)" $false "not found — install LTS from https://nodejs.org/"
+    Write-Check "Node.js (>= 20)" $false "not found - install LTS from https://nodejs.org/"
     $failed++
 }
 
@@ -101,7 +101,7 @@ if ($pythonCmd) {
     Write-Check "Python (>= 3.11, for node-gyp)" $ok $pyOut.Trim()
     if (-not $ok) { $failed++ }
 } else {
-    Write-Check "Python (>= 3.11, for node-gyp)" $false "not found — enable Add to PATH at install"
+    Write-Check "Python (>= 3.11, for node-gyp)" $false "not found - enable Add to PATH at install"
     $failed++
 }
 
@@ -110,7 +110,7 @@ if (Test-Command docker) {
     $v = (docker --version 2>&1) -join " "
     Write-Check "Docker" $true $v
 } else {
-    Write-Check "Docker" $false "not found — install Docker Desktop"
+    Write-Check "Docker" $false "not found - install Docker Desktop"
     $failed++
 }
 
@@ -143,18 +143,18 @@ if (Test-Command wsl) {
             $wslOk = $true
             $wslDetail = "Default Version: 2"
         } else {
-            $wslDetail = "WSL installed but default version may not be 2 — run: wsl --set-default-version 2"
+            $wslDetail = "WSL installed but default version may not be 2 - run: wsl --set-default-version 2"
         }
     } catch {
         $wslDetail = $_.Exception.Message
     }
 } else {
-    $wslDetail = "wsl.exe not found — run 'wsl --install' as Administrator"
+    $wslDetail = "wsl.exe not found - run 'wsl --install' as Administrator"
 }
 Write-Check "WSL2" $wslOk $wslDetail
 if (-not $wslOk) { $failed++ }
 
-# MSVC Build Tools (best-effort — node-gyp needs these for uiohook-napi)
+# MSVC Build Tools (best-effort - node-gyp needs these for uiohook-napi)
 $msvcOk = $false
 $msvcDetail = ""
 $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -167,7 +167,7 @@ if (Test-Path $vsWhere) {
         $msvcDetail = "VS Build Tools present but 'Desktop development with C++' workload may be missing"
     }
 } else {
-    $msvcDetail = "vswhere not found — install VS Build Tools 2022 with C++ workload"
+    $msvcDetail = "vswhere not found - install VS Build Tools 2022 with C++ workload"
 }
 Write-Check "MSVC Build Tools (node-gyp)" $msvcOk $msvcDetail
 if (-not $msvcOk) { $failed++ }
@@ -191,9 +191,9 @@ if (Test-Command docker) {
 
 Write-Host ""
 if ($failed -eq 0) {
-    Write-Host "All checks passed. Next: docs/STEAM_CLIENT_DEV_SETUP.md — Steps 1-6." -ForegroundColor Green
+    Write-Host "All checks passed. Next: docs/STEAM_CLIENT_DEV_SETUP.md - Steps 1-6." -ForegroundColor Green
     exit 0
 } else {
-    Write-Host "$failed check(s) failed. See docs/STEAM_CLIENT_DEV_SETUP.md — Step 0 (Windows)." -ForegroundColor Yellow
+    Write-Host "$failed check(s) failed. See docs/STEAM_CLIENT_DEV_SETUP.md - Step 0 (Windows)." -ForegroundColor Yellow
     exit 1
 }
