@@ -1,0 +1,69 @@
+# Изолированный staging-стек для обкатки Steam-клиента (см. desktop_client/README.md
+# и .cursor план "Steam-клиент: план реализации", §1.5/§3 Этап 0).
+#
+# Отличия от docker-compose.yml (прод/локальный dev-стек):
+#   - другие имена контейнеров/сетей/volume (waifu_staging_*), не пересекается с прод-стеком
+#   - другие внешние порты (18000/15432/16379), чтобы оба стека могли работать одновременно
+#   - БД наполняется НЕ пустой схемой, а анонимизированным дампом прод-БД (см. docs ниже)
+#
+# Использование:
+#   cp .env.example .env.staging  # заполнить, APP_ENV=stage
+#   docker compose -f docker-compose.staging.yml --env-file .env.staging up -d
+#
+# Наполнение БД анонимизированным дампом прод-данных — см. scripts/staging_seed_from_prod_dump.sh
+# (создаёт дамп на проде, вычищает PII/токены, восстанавливает в staging-контейнер).
+name: waifu-staging
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: waifu_staging_postgres
+    environment:
+      POSTGRES_USER: waifu_staging
+      POSTGRES_PASSWORD: waifu_staging
+      POSTGRES_DB: waifu_staging
+    volumes:
+      - staging_pgdata:/var/lib/postgresql/data
+    ports:
+      - "15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U waifu_staging"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: waifu_staging_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - staging_redisdata:/data
+    ports:
+      - "16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: .
+    container_name: waifu_staging_api
+    env_file: .env.staging
+    environment:
+      APP_ENV: stage
+      POSTGRES_DSN: postgresql+asyncpg://waifu_staging:waifu_staging@postgres:5432/waifu_staging
+      REDIS_URL: redis://redis:6379/0
+      BACKGROUND_MODE: inline
+      HOST: 0.0.0.0
+      PORT: 8000
+    ports:
+      - "18000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  staging_pgdata:
+  staging_redisdata:
