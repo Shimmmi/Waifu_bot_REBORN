@@ -72,6 +72,12 @@ if (typeof window !== "undefined") {
   if (typeof document === "undefined" || !isDesktopClient()) return;
   document.documentElement.classList.add("desktop-client");
   try {
+    const mode = new URLSearchParams(window.location.search).get("desktopMode");
+    document.documentElement.classList.add(mode === "overlay" ? "desktop-overlay" : "desktop-window");
+  } catch {
+    document.documentElement.classList.add("desktop-window");
+  }
+  try {
     if (!document.querySelector("link[data-desktop-theme]")) {
       const link = document.createElement("link");
       link.rel = "stylesheet";

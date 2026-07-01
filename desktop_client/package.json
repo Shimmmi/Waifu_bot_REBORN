@@ -1,0 +1,43 @@
+{
+  "name": "waifu-bot-desktop-client",
+  "version": "0.1.0",
+  "description": "Steam desktop client (Electron) for Waifu Bot REBORN — transparent corner overlay + draggable tab windows reusing the existing Telegram WebApp UI over HTTP.",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env WAIFU_APP_ENV=dev electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "uiohook-napi": "^1.5.4"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "ru.shimmirpgbot.waifubot.desktop",
+    "productName": "Waifu Bot REBORN",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "mac": {
+      "target": "dmg"
+    }
+  }
+}

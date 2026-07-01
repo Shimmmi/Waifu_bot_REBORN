@@ -18,39 +18,70 @@
  */
 
 html.desktop-client.desktop-overlay,
-html.desktop-client.desktop-overlay body {
+html.desktop-client.desktop-overlay body,
+html.desktop-client.desktop-overlay .screen {
   background: transparent !important;
   overflow: hidden;
 }
 
-html.desktop-client.desktop-overlay body > header:not(.attic),
-html.desktop-client.desktop-overlay .nav,
-html.desktop-client.desktop-overlay .nav.basement {
+/* Overlay shows only the player's waifu card from battle.html (id="waifu-image"
+   inside .battle-waifu) — everything else on that page (attic header, enemy
+   card, battle log, controls, bottom nav) is hidden. Selectors match the
+   real battle.html structure (see webapp/battle.html), no markup was added. */
+html.desktop-client.desktop-overlay header.attic,
+html.desktop-client.desktop-overlay .battle-header,
+html.desktop-client.desktop-overlay .battle-enemy,
+html.desktop-client.desktop-overlay .battle-log,
+html.desktop-client.desktop-overlay .battle-controls,
+html.desktop-client.desktop-overlay .battle-story-narrative,
+html.desktop-client.desktop-overlay nav.basement {
   display: none !important;
 }
 
-/* Everything not explicitly part of the waifu stage/HUD stays hidden in overlay mode. */
-html.desktop-client.desktop-overlay body > *:not(.desktop-overlay-stage) {
-  display: none !important;
+html.desktop-client.desktop-overlay .battle-screen {
+  padding: 0;
+  gap: 0;
 }
 
-html.desktop-client.desktop-overlay .desktop-overlay-stage {
-  display: block;
-  position: fixed;
-  inset: 0;
-  background: transparent;
+html.desktop-client.desktop-overlay .battle-waifu,
+html.desktop-client.desktop-overlay .waifu-card {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
 }
 
-/* Regular (non-overlay) desktop windows: same UI as the WebApp, just without
-   Telegram-specific chrome and with window-drag affordances for the
-   frameless Electron BrowserWindow. */
-html.desktop-client.desktop-window {
+/* Whole overlay window is draggable (it is frameless, see
+   desktop_client/src/windows/overlayWindow.js) so the user can move the
+   corner waifu anywhere on screen, Bongo-Cat-style. Buttons/links inside
+   still work — Electron only treats plain background drags as window moves. */
+html.desktop-client.desktop-overlay body {
+  -webkit-app-region: drag;
+}
+
+html.desktop-client.desktop-overlay button,
+html.desktop-client.desktop-overlay a,
+html.desktop-client.desktop-overlay input,
+html.desktop-client.desktop-overlay [role="button"] {
   -webkit-app-region: no-drag;
 }
 
-html.desktop-client.desktop-window .desktop-drag-region {
+/* Regular (non-overlay) desktop windows: same UI as the WebApp, just without
+   Telegram-specific chrome. These windows are frameless (see
+   desktop_client/src/windows/appWindow.js), so the whole background is a
+   drag region — same pattern as the overlay — with normal interactive
+   elements excluded so clicks/scrolling still work everywhere. */
+html.desktop-client.desktop-window body {
   -webkit-app-region: drag;
-  height: 28px;
+}
+
+html.desktop-client.desktop-window button,
+html.desktop-client.desktop-window a,
+html.desktop-client.desktop-window input,
+html.desktop-client.desktop-window textarea,
+html.desktop-client.desktop-window select,
+html.desktop-client.desktop-window [role="button"],
+html.desktop-client.desktop-window [contenteditable] {
+  -webkit-app-region: no-drag;
 }
 
 /* Auth notice: identical layout to the Telegram one, just themed to match
