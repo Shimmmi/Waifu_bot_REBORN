@@ -9,6 +9,7 @@ import pytest
 
 from waifu_bot.db.models.waifu import WaifuRarity
 from waifu_bot.game.expedition_overhaul import (
+    DEPTH_TIERS,
     compute_hired_power,
     depth_tier_by_id,
     gate_log_entry,
@@ -17,6 +18,7 @@ from waifu_bot.game.expedition_overhaul import (
     squad_power_total,
     validate_reward_type,
 )
+from waifu_bot.game.expedition_redesign import expedition_event_interval_minutes
 from waifu_bot.services.expedition import ExpeditionService
 from waifu_bot.services.hired_waifu_state import (
     effective_hired_hp,
@@ -44,6 +46,27 @@ def test_depth_tier_gate_thresholds():
     t5 = depth_tier_by_id(5)
     assert t1 is not None and t1.min_squad_power == 0
     assert t5 is not None and t5.min_squad_power == 300
+
+
+def test_depth_tier_durations_doubled_events_unchanged():
+    expected = {
+        1: (60, 2),
+        2: (90, 3),
+        3: (120, 4),
+        4: (180, 6),
+        5: (240, 8),
+    }
+    for tier in DEPTH_TIERS:
+        dur, events = expected[tier.tier]
+        assert tier.duration_minutes == dur
+        assert tier.events_count == events
+
+
+def test_expedition_event_interval_minutes():
+    assert expedition_event_interval_minutes(60, 2) == 30
+    assert expedition_event_interval_minutes(30, 2) == 15
+    assert expedition_event_interval_minutes(240, 8) == 30
+    assert expedition_event_interval_minutes(30, 0) == 15
 
 
 def test_validate_reward_type():

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Тренировочный зал</title>
-    <link rel="stylesheet" href="./styles.css?v=waifu-webapp-v43" />
+    <link rel="stylesheet" href="./styles.css?v=waifu-webapp-v50" />
     <style>
       :root {
         --ink: #0d0a08;
@@ -159,7 +159,7 @@
     <link rel="stylesheet" href="./assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="./assets/tutorial.js"></script>
-    <script defer src="./app.js?v=waifu-webapp-v43"></script>
+    <script defer src="./app.js?v=waifu-webapp-v50"></script>
   </head>
   <body class="page-training" onload="WaifuApp.bootstrapTrainingHall();">
     <header class="attic">
@@ -169,15 +169,36 @@
           <span class="attic-player-avatar-fallback" id="attic-player-avatar-fallback"></span>
           <span class="attic-player-mail-badge" id="attic-player-mail-badge" hidden aria-hidden="true"></span>
         </button>
-        <div class="chip attic-level-chip" title="Уровень основной вайфу">
-          <div class="attic-level-top"><strong id="badge-level">—</strong></div>
-          <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
+        <div class="attic-level-circle" id="attic-level-circle" title="Уровень основной вайфу / опыт">
+          <svg class="attic-level-ring" viewBox="0 0 36 36" aria-hidden="true">
+            <circle class="attic-level-ring-bg" cx="18" cy="18" r="16" />
+            <circle class="attic-level-ring-fg" id="attic-level-ring-fg" cx="18" cy="18" r="16" />
+          </svg>
+          <strong id="badge-level">—</strong>
         </div>
         <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)">
           <span id="attic-dungeon-label">Нет боя</span>
           <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden></div>
         </div>
-        <div class="chip attic-gold-chip" title="Золото"><span class="attic-gold-ico" aria-hidden="true">🪙</span><strong id="badge-gold">—</strong></div>
+        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Экспедиции">
+          <span class="attic-exp-ico" aria-hidden="true">🗺</span>
+          <div class="attic-exp-cells" id="attic-exp-cells" aria-label="Статус экспедиций"></div>
+        </div>
+        <div class="chip attic-gold-chip" id="attic-gold-chip" title="Золото">
+          <span class="attic-gold-ico" aria-hidden="true">🪙</span><strong id="badge-gold">—</strong>
+        </div>
+        <button type="button" class="attic-menu-btn" id="attic-menu-btn" aria-label="Меню разделов" aria-haspopup="true" aria-expanded="false">☰</button>
+      </div>
+      <div class="attic-menu" id="attic-menu" hidden role="menu" aria-label="Дополнительные разделы">
+        <a class="attic-menu-item" href="./profile.html?tab=inventory" role="menuitem">🎒 Инвентарь</a>
+        <a class="attic-menu-item" href="./profile.html?tab=info&info=statistics" role="menuitem">📊 Статистика</a>
+        <a class="attic-menu-item" href="./dungeons.html?tab=expedition" role="menuitem">🗺 Экспедиции</a>
+        <a class="attic-menu-item" href="./dungeons.html?tab=abyss" role="menuitem">🕳 Бездна</a>
+        <a class="attic-menu-item" href="./shop.html?tab=gamble" role="menuitem">🎲 Gamble</a>
+        <a class="attic-menu-item" href="./shop.html?tab=smith" role="menuitem">🔨 Кузнец</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=heal" role="menuitem">💊 Лечение</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=upgrade" role="menuitem">⬆ Прокачка наёмниц</a>
+        <a class="attic-menu-item" href="./player.html#settings" role="menuitem">⚙ Настройки</a>
       </div>
     </header>
 

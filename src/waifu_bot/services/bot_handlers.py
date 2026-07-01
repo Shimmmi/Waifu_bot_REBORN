@@ -23,7 +23,6 @@ from waifu_bot.game.constants import (
 )
 from waifu_bot.services.combat import CombatService
 from waifu_bot.services.dungeon import DungeonService
-from waifu_bot.services.expedition import ExpeditionService
 from waifu_bot.services.gd_cycle_service import GDCycleService
 from waifu_bot.services.gd_v1_worker import (
     _process_gd_v1_round_for_cycle_locked,
@@ -1061,54 +1060,6 @@ async def cmd_group_unknown_slash(message: Message, bot: Bot) -> None:
             "cmd_group_unknown_slash: reply failed chat_id=%s",
             message.chat.id,
         )
-
-
-# --- Expedition: досрочное завершение по Inline-кнопке в ЛС ---
-
-_expedition_service = ExpeditionService()
-
-
-@router.callback_query(F.data.startswith("expedition_abort_"))
-async def handle_expedition_abort(callback: CallbackQuery) -> None:
-    """Завершить экспедицию досрочно с частью награды (кнопка в ЛС, см. EXPEDITION_CANCEL_REWARD_PCT)."""
-    if not callback.data or not callback.from_user:
-        await callback.answer("Ошибка")
-        return
-    try:
-        active_id = int(callback.data.split("_")[-1])
-    except (ValueError, IndexError):
-        await callback.answer("Неверные данные")
-        return
-    player_id = callback.from_user.id
-    try:
-        async for session in get_session():
-            result = await _expedition_service.abort_early(session, player_id, active_id)
-            if result.get("error"):
-                if result["error"] == "not_found":
-                    await callback.answer("Экспедиция не найдена или уже завершена.", show_alert=True)
-                elif result["error"] == "already_claimed":
-                    await callback.answer("Награда уже получена.", show_alert=True)
-                else:
-                    await callback.answer("Не удалось завершить.", show_alert=True)
-                return
-            gold = result.get("gold_gained", 0)
-            exp = result.get("experience_gained", 0)
-            try:
-                from aiogram.types import InlineKeyboardMarkup
-                await callback.message.edit_text(
-                    f"🏳 Экспедиция завершена досрочно.\n\n"
-                    f"🪙 Получено: {gold}\n"
-                    f"✨ Опыт: {exp}\n\n"
-                    "Наёмницы вернулись в таверну.",
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[]),
-                )
-            except Exception:
-                pass
-            await callback.answer("Экспедиция завершена")
-            return
-    except Exception:
-        logger.exception("expedition_abort failed for player_id=%s active_id=%s", player_id, active_id)
-        await callback.answer("Ошибка сервера", show_alert=True)
 
 
 # --- Solo dungeon: повторный вход по Inline-кнопке в ЛС ---

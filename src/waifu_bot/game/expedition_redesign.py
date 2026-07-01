@@ -33,6 +33,15 @@ def events_count_for_duration(duration_minutes: int) -> int:
     return max(1, duration_minutes // 15)
 
 
+def expedition_event_interval_minutes(duration_minutes: int, events_total: int) -> int:
+    """Минут между тиками: равномерно распределить events_total по duration_minutes."""
+    from waifu_bot.game.constants import EXPEDITION_EVENT_INTERVAL_MINUTES
+
+    if events_total <= 0:
+        return EXPEDITION_EVENT_INTERVAL_MINUTES
+    return max(1, duration_minutes // events_total)
+
+
 def roman_numeral(level: int) -> str:
     return ("I", "II", "III", "IV", "V")[max(0, min(4, level - 1))]
 

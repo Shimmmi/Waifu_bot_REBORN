@@ -39,7 +39,7 @@ function resolveWebappShellVersion() {
       /* ignore */
     }
   }
-  return "waifu-webapp-v38";
+  return "waifu-webapp-v45";
 }
 
 const WAIFU_WEBAPP_VERSION = resolveWebappShellVersion();
@@ -1262,6 +1262,47 @@ function renderAtticDungeon(active) {
   }
 }
 
+const ATTIC_LEVEL_RING_C = 2 * Math.PI * 16;
+
+function renderAtticLevelCircle(level, xpPct) {
+  const num = document.getElementById("badge-level");
+  if (num && level != null) num.textContent = String(level);
+  const ring = document.getElementById("attic-level-ring-fg");
+  if (!ring) return;
+  const pct = Math.max(0, Math.min(100, Number(xpPct) || 0));
+  ring.style.strokeDasharray = String(ATTIC_LEVEL_RING_C);
+  ring.style.strokeDashoffset = String(ATTIC_LEVEL_RING_C * (1 - pct / 100));
+}
+
+function renderAtticExpeditions(actives, maxConcurrent) {
+  const chip = document.getElementById("attic-exp-chip");
+  const cellsWrap = document.getElementById("attic-exp-cells");
+  if (!chip || !cellsWrap) return;
+  const max = Math.max(1, Number(maxConcurrent) || 3);
+  const list = Array.isArray(actives) ? actives : [];
+  chip.hidden = false;
+  const cells = [];
+  for (let i = 0; i < max; i++) {
+    const a = list[i] || null;
+    if (!a) {
+      cells.push('<div class="attic-exp-cell attic-exp-cell--empty" aria-label="Свободный слот"></div>');
+      continue;
+    }
+    const title = escapeHtml(a.narrative_title || "Экспедиция");
+    let cls = "attic-exp-cell--active";
+    let label = "В процессе";
+    if (a.outcome === "cancelled") {
+      cls = "attic-exp-cell--cancelled";
+      label = "Отменена";
+    } else if (a.can_claim) {
+      cls = "attic-exp-cell--done";
+      label = "Готово";
+    }
+    cells.push(`<div class="attic-exp-cell ${cls}" title="${title}" aria-label="${label}"></div>`);
+  }
+  cellsWrap.innerHTML = cells.join("");
+}
+
 function hasAtticChrome() {
   return Boolean(document.getElementById("attic-dungeon-chip"));
 }
@@ -1281,10 +1322,17 @@ const activeDungeonCache = {
   lite: { data: null, ts: 0, inFlight: null },
   full: { data: null, ts: 0, inFlight: null },
 };
+const activeExpeditionCache = { data: null, ts: 0, inFlight: null };
 
 function invalidateActiveDungeonCache() {
   activeDungeonCache.lite = { data: null, ts: 0, inFlight: null };
   activeDungeonCache.full = { data: null, ts: 0, inFlight: null };
+}
+
+function invalidateActiveExpeditionCache() {
+  activeExpeditionCache.data = null;
+  activeExpeditionCache.ts = 0;
+  activeExpeditionCache.inFlight = null;
 }
 
 function isDungeonsPage() {
@@ -1338,12 +1386,40 @@ async function fetchActiveDungeon(options = {}) {
   return slot.inFlight;
 }
 
+async function fetchActiveExpeditions(options = {}) {
+  const force = options.force === true;
+  const now = Date.now();
+  if (!force && activeExpeditionCache.data && now - activeExpeditionCache.ts < ACTIVE_DUNGEON_CACHE_MS) {
+    return activeExpeditionCache.data;
+  }
+  if (activeExpeditionCache.inFlight) return activeExpeditionCache.inFlight;
+  activeExpeditionCache.inFlight = apiFetch("/expeditions/active")
+    .then((data) => {
+      activeExpeditionCache.data = data;
+      activeExpeditionCache.ts = Date.now();
+      activeExpeditionCache.inFlight = null;
+      return data;
+    })
+    .catch((err) => {
+      activeExpeditionCache.inFlight = null;
+      throw err;
+    });
+  return activeExpeditionCache.inFlight;
+}
+
 function refreshAtticChips(opts = {}) {
   if (!hasAtticChrome()) return;
   const skipDungeon = opts.skipDungeon === true || isDungeonsPage();
   if (!skipDungeon) {
     fetchActiveDungeon({ includeLog: false }).then(renderAtticDungeon).catch(() => {});
   }
+  fetchActiveExpeditions()
+    .then((res) => {
+      const actives = Array.isArray(res?.active) ? res.active : [];
+      const maxConcurrent = Number(res?.max_concurrent) || 3;
+      renderAtticExpeditions(actives, maxConcurrent);
+    })
+    .catch(() => renderAtticExpeditions([], 3));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1378,16 +1454,15 @@ function populateFromProfile(profile, opts = {}) {
       raceEl.title = raceName(raceId);
     }
 
-    // XP progress — profile tab bar + ОЧ mini-bar (attic-xp-fill)
+    // XP progress — profile card + ОЧ level ring
     if (w.level != null && w.experience != null) {
       const lvl = Number(w.level);
       const xp = Number(w.experience);
       const fill = document.getElementById("profile-xp-fill");
-      const atticFill = document.getElementById("attic-xp-fill");
       if (lvl >= PLAYER_MAX_LEVEL) {
         setText("profile-xp-text", `Ур. ${lvl} · макс.`);
         if (fill) fill.style.width = "100%";
-        if (atticFill) atticFill.style.width = "100%";
+        renderAtticLevelCircle(lvl, 100);
       } else {
         const nextTotal = totalExpForLevel(lvl + 1);
         const curTotal = totalExpForLevel(lvl);
@@ -1396,8 +1471,10 @@ function populateFromProfile(profile, opts = {}) {
         const pct = Math.round(clamp01(into / span) * 100);
         setText("profile-xp-text", `Ур. ${lvl} · ${xp} / ${nextTotal} EXP`);
         if (fill) fill.style.width = `${pct}%`;
-        if (atticFill) atticFill.style.width = `${pct}%`;
+        renderAtticLevelCircle(lvl, pct);
       }
+    } else if (w.level != null) {
+      renderAtticLevelCircle(w.level, 0);
     }
   }
 
@@ -2881,6 +2958,44 @@ function initAtticChipClicks() {
     });
     dungeonChip.style.cursor = "pointer";
   }
+  const expChip = document.getElementById("attic-exp-chip");
+  if (expChip) {
+    expChip.addEventListener("click", () => {
+      window.location.href = "./dungeons.html?tab=expedition";
+    });
+    expChip.style.cursor = "pointer";
+  }
+  if (document.getElementById("attic-exp-cells")) {
+    renderAtticExpeditions([], 3);
+  }
+}
+
+function initAtticMenu() {
+  if (window.__atticMenuBound) return;
+  window.__atticMenuBound = true;
+  const btn = document.getElementById("attic-menu-btn");
+  const menu = document.getElementById("attic-menu");
+  if (!btn || !menu) return;
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = menu.hidden;
+    menu.hidden = !open;
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  menu.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => {
+    if (!menu.hidden) {
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !menu.hidden) {
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      btn.focus();
+    }
+  });
 }
 
 function registerWaifuServiceWorker() {
@@ -3053,6 +3168,15 @@ async function bootstrapShopPage() {
   }
   if (shopSmithNavIntent.openSmith) {
     await applyShopSmithNavigationIntent(shopSmithNavIntent);
+  } else {
+    try {
+      const shopTab = new URLSearchParams(window.location.search).get("tab");
+      if (shopTab && ["buy", "sell", "gamble", "smith"].includes(shopTab)) {
+        switchShopTab(shopTab);
+      }
+    } catch {
+      // ignore
+    }
   }
   ensureShopSellToolbar();
   updateShopGambleCost();
@@ -3102,6 +3226,15 @@ async function bootstrapTavernPage() {
     console.error("Failed to bootstrap tavern:", err);
   }
   scheduleDeferredAtticRefresh(profile);
+
+  try {
+    const tavernTab = new URLSearchParams(window.location.search).get("tab");
+    if (tavernTab && ["hire", "squad", "heal", "upgrade"].includes(tavernTab)) {
+      window.WaifuApp?.switchTavernTab?.(tavernTab);
+    }
+  } catch {
+    // ignore
+  }
 
   try {
     const forced = new URLSearchParams(window.location.search).get("tutorial");
@@ -6495,8 +6628,14 @@ async function populateProfile(profile) {
   }
 
   try {
-    const tab = new URLSearchParams(window.location.search).get("tab");
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    const info = params.get("info");
     if (tab) switchProfileTab(tab);
+    if (info) {
+      if (tab !== "info") switchProfileTab("info");
+      switchProfileInfoTab(info);
+    }
   } catch {
     // ignore
   }
@@ -11742,6 +11881,7 @@ async function initPage(page) {
     connectSSE();
   }
   initAtticChipClicks();
+  initAtticMenu();
   initItemArtGenerateDelegated();
 
   registerWaifuServiceWorker();
@@ -14365,6 +14505,8 @@ function exportWebAppShellGlobals() {
     formatMonsterTypeLabelRu,
     setSoloExitBtnVisible,
     renderAtticDungeon,
+    renderAtticLevelCircle,
+    renderAtticExpeditions,
     refreshAtticChips,
     appendEvent,
     expeditionState,
@@ -14406,6 +14548,8 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   closeHiddenSkillModal,
   loadProfile,
   renderAtticDungeon,
+  renderAtticLevelCircle,
+  renderAtticExpeditions,
   refreshAtticChips,
   shopPageBootstrap,
   loadShop,

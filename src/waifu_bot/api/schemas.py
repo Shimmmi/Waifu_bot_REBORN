@@ -1005,15 +1005,6 @@ class ExpeditionClaimResponse(BaseModel):
     error: Optional[str] = None
 
 
-class ExpeditionCancelResponse(BaseModel):
-    success: bool = True
-    active_id: int
-    gold_gained: int
-    experience_gained: int
-    gold_total: int
-    error: Optional[str] = None
-
-
 class AdminSpawnAffixIn(BaseModel):
     catalog_kind: Literal["legacy_affix", "diablo_family"]
     catalog_id: int = Field(..., ge=1)
