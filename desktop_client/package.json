@@ -27,6 +27,9 @@
       "src/**/*",
       "package.json"
     ],
+    "extraFiles": [
+      "steam_appid.txt"
+    ],
     "directories": {
       "output": "dist"
     },

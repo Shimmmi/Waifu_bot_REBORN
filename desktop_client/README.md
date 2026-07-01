@@ -55,8 +55,14 @@ desktop_client/
   config.local.json          Your personal overrides (gitignored)
 ```
 
-## Packaging (Этап 6, once there's a Steamworks account)
+## Steam auth / packaging (Этап 6, needs a real Steamworks account)
+
+`src/steam/steamworksClient.js` is a deliberate no-op scaffold — see its
+docstring and [`docs/STEAM_STEAMWORKS_SETUP.md`](../docs/STEAM_STEAMWORKS_SETUP.md)
+for the full manual checklist (Steamworks Partner account + $100 fee, App ID,
+Web API key, installing `steamworks.js`, SteamPipe). `steam_appid.txt`
+currently holds `480` (Valve's public "Spacewar" test app) as a placeholder —
+replace it with your real App ID once you have one.
 
 `npm run dist` (electron-builder, see `package.json` "build" section) once
-this is ready for a real build. Steam-specific packaging (SteamPipe,
-`steam_appid.txt`, the Steamworks SDK native module) is added in that stage.
+ready for a real build.

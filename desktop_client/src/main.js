@@ -5,6 +5,7 @@ const config = require("./config");
 const { createOverlayWindow } = require("./windows/overlayWindow");
 const { createMainWindow, openTabWindow } = require("./windows/appWindow");
 const inputTracker = require("./input/inputTracker");
+const steamworksClient = require("./steam/steamworksClient");
 
 let mainWindow = null;
 let overlayWindow = null;
@@ -27,8 +28,14 @@ ipcMain.handle("open-tab", (event, page) => {
   openTabWindow(parent, String(page || "index.html"));
 });
 
+// Real Steam ticket for preload.js's window.waifuDesktop.getSteamTicket().
+// Returns null (falls back to the X-Steam-Ticket-Dev stub) until Этап 6's
+// manual Steamworks account setup is done — see steamworksClient.js.
+ipcMain.handle("get-steam-ticket", () => steamworksClient.getAuthTicket());
+
 app.whenReady().then(() => {
   console.log(`[waifu-desktop] backend: ${config.backendUrl}`);
+  steamworksClient.init();
   createWindows();
 
   inputTrackerHandle = inputTracker.start({
@@ -50,4 +57,5 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   inputTrackerHandle?.stop();
+  steamworksClient.shutdown();
 });

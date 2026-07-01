@@ -10,10 +10,17 @@ const config = require("./config");
  * in webapp/app.js.
  */
 contextBridge.exposeInMainWorld("waifuDesktop", {
-  // Real Steamworks session ticket. Returns null until Этап 6 wires up the
-  // Steamworks SDK (steamworks.js / greenworks) in the main process and an
-  // IPC round-trip here; falls back to steamTicketDev below in the meantime.
+  // Real Steamworks session ticket. Kept synchronous (always null) on
+  // purpose: webapp/app.js's authHeaders()/getDesktopSteamAuthHeader() call
+  // this synchronously from several non-async call sites, and
+  // steamworksClient.getAuthTicket() is itself still unimplemented (Этап 6
+  // needs a real Steamworks Partner account + App ID first, see
+  // docs/STEAM_STEAMWORKS_SETUP.md). The real ticket IS already reachable
+  // from the main process via ipcRenderer.invoke("get-steam-ticket") —
+  // switching to it requires making authHeaders() (webapp/app.js) and its
+  // call sites async first; tracked as a follow-up, not done silently here.
   getSteamTicket: () => null,
+  getSteamTicketAsync: () => ipcRenderer.invoke("get-steam-ticket"),
 
   // Dev-only stub SteamID64 (see config.js / config.local.json). Only
   // accepted server-side when APP_ENV is dev/stage/testing.
