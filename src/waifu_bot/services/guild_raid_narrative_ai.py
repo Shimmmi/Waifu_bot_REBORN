@@ -1,0 +1,696 @@
+"""Guild raid v2: AI narratives for weekly chronicle."""
+from __future__ import annotations
+
+import json
+import logging
+import random
+import re
+from datetime import datetime
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from waifu_bot.core.config import settings
+from waifu_bot.game.constants import RAID_V2_NARRATIVE_STYLE_RU, RAID_V2_SLOT_COUNT, RAID_V2_SLOT_HOURS
+from waifu_bot.game.expedition_narrative_catalog import archetype_for_id
+from waifu_bot.services.ai_narrative_rewrite import (
+    escape_telegram_html,
+    rhythm_rewrite_narrative,
+)
+from waifu_bot.services.gd_narrative_ai import format_gd_party_member_line
+from waifu_bot.services.ai_service import generate as ai_generate
+from waifu_bot.services.llm_client import has_text_llm_configured
+
+logger = logging.getLogger(__name__)
+_MSK = ZoneInfo("Europe/Moscow")
+
+RAID_SYSTEM_PROMPT = (
+    "Ты — рассказчик фэнтезийной RPG про гильдейские рейды-экспедиции. "
+    "Пиши на русском, Telegram HTML (<b>, <i>), без markdown. "
+    "Не упоминай числа механик и формулы. "
+    f"{RAID_V2_NARRATIVE_STYLE_RU}"
+)
+
+_COMPOSE_INSTRUCTIONS = (
+    "Собери утренний SUMMARY вчерашнего дня как ЕДИНЫЙ связный рассказ (2–4 абзаца):\n"
+    "- НЕ перечисляй 4-часовые слоты по одному абзацу — синтезируй события в сюжет.\n"
+    "- Тихие/пустые слоты — одно короткое упоминание (лагерь молчал), без выдуманных действий.\n"
+    "- Двигай сюжет к цели приключения; учитывай день недели и прогресс.\n"
+    "- Если есть блок про вчерашнюю тактику — отдельный абзац с <b>названием тактики</b> и последствиями словами.\n"
+    "- Запрещено: одинаковые зачины абзацев, повтор одних метафор, шаблон «X косплеил Y» в каждом абзаце.\n"
+    "- В конце — ОДИН абзац-переход к выбору тактики на сегодня (без перечисления вариантов).\n"
+    "Не добавляй JSON, не перечисляй числа механик."
+)
+
+_SLOT_FACT_SYSTEM = (
+    "Ты — хроникёр гильдейского рейда. Пиши на русском, Telegram HTML (<b> для имён). "
+    "Только факты из данных слота. Без выдумок, без JSON, без markdown."
+)
+
+_TACTICS_JSON_INSTRUCTIONS = (
+    "Верни ТОЛЬКО валидный JSON одной строкой, без пояснений и без HTML:\n"
+    '{"tactics":[{"label":"...","risk":"low|medium|high","terrain_fit":["biome"]}, ...]}\n'
+    "Нужно ровно 3–4 тактики в стиле приключения (короткие, до 90 символов каждая label)."
+)
+
+
+def _location_name(archetype_id: str | None) -> str:
+    arch = archetype_for_id(archetype_id or "")
+    return arch.name_ru if arch else (archetype_id or "неизвестные земли")
+
+
+def pick_raid_adventure_goal(location_archetype_id: str, *, template_name: str | None = None) -> str:
+    arch = archetype_for_id(location_archetype_id or "")
+    hints = list(arch.narrative_hints) if arch and arch.narrative_hints else []
+    hint = random.choice(hints) if hints else "добраться до цели и вернуться живыми"
+    tier = (template_name or "").strip()
+    if tier:
+        return f"{hint} (рейд: {tier})"
+    return hint
+
+
+def _party_block(party: list[dict[str, Any]]) -> str:
+    lines = [format_gd_party_member_line(p, for_start=True) for p in party]
+    return "\n".join(lines) if lines else "- (пустой отряд)"
+
+
+def _strip_html(text: str) -> str:
+    return re.sub(r"<[^>]+>", "", text or "").strip()
+
+
+def _strip_leaked_json(text: str) -> str:
+    """Remove trailing tactics JSON if it leaked into narrative."""
+    raw = text or ""
+    if '"tactics"' not in raw and not raw.rstrip().endswith("}"):
+        return raw.strip()
+    idx = raw.rfind('{"tactics"')
+    if idx < 0:
+        idx = raw.rfind("{")
+    if idx >= 0:
+        tail = raw[idx:].strip()
+        try:
+            json.loads(tail)
+            return raw[:idx].strip()
+        except json.JSONDecodeError:
+            pass
+    return raw.strip()
+
+
+def _bold_proper_nouns(
+    text: str,
+    *,
+    party: list[dict[str, Any]] | None = None,
+    location: str | None = None,
+    guild_name: str | None = None,
+    guild_tag: str | None = None,
+) -> str:
+    if not text:
+        return text
+    names: list[str] = []
+    for p in party or []:
+        nm = str(p.get("name") or "").strip()
+        if nm and len(nm) >= 2:
+            names.append(nm)
+    if location:
+        names.append(location.strip())
+    if guild_name:
+        names.append(guild_name.strip())
+    if guild_tag:
+        names.append(f"[{guild_tag.strip()}]")
+    names = sorted({n for n in names if n}, key=len, reverse=True)
+    out = text
+    for nm in names:
+        pattern = re.compile(rf"(?<!<b>)(?<![\w>]){re.escape(nm)}(?![\w<])")
+        out = pattern.sub(f"<b>{nm}</b>", out)
+    return out
+
+
+async def _call_llm_raw(
+    user_prompt: str,
+    *,
+    caller: str,
+    max_tokens: int = 900,
+    system_prompt: str | None = None,
+) -> str | None:
+    if not has_text_llm_configured():
+        return None
+    try:
+        return await ai_generate(
+            user_prompt,
+            system=system_prompt or RAID_SYSTEM_PROMPT,
+            preset=settings.ai_preset_narrative,
+            caller=caller,
+            max_tokens=max_tokens,
+            timeout_sec=30.0,
+            post_process_rhythm=False,
+        )
+    except Exception:
+        logger.exception("guild raid narrative LLM failed caller=%s", caller)
+        return None
+
+
+async def _finalize_narrative_html(
+    raw: str | None,
+    *,
+    caller: str,
+    party: list[dict[str, Any]] | None = None,
+    location: str | None = None,
+    guild_name: str | None = None,
+    guild_tag: str | None = None,
+    length_hint: str = "3–5 абзацев, Telegram HTML",
+    rewrite_max_tokens: int = 320,
+) -> str | None:
+    if not raw:
+        return None
+    cleaned = _strip_leaked_json(_strip_html(raw))
+    if not cleaned:
+        return None
+    text = escape_telegram_html(cleaned)
+    rewritten = await rhythm_rewrite_narrative(
+        text,
+        caller=caller,
+        length_hint=length_hint,
+        preserve_html=True,
+        max_tokens=rewrite_max_tokens,
+    )
+    if not rewritten:
+        return None
+    return _bold_proper_nouns(
+        rewritten,
+        party=party,
+        location=location,
+        guild_name=guild_name,
+        guild_tag=guild_tag,
+    )
+
+
+async def _call_llm(
+    user_prompt: str,
+    *,
+    caller: str,
+    max_tokens: int = 900,
+    party: list[dict[str, Any]] | None = None,
+    location: str | None = None,
+    guild_name: str | None = None,
+    guild_tag: str | None = None,
+) -> str | None:
+    raw = await _call_llm_raw(user_prompt, caller=caller, max_tokens=max_tokens)
+    return await _finalize_narrative_html(
+        raw,
+        caller=caller,
+        party=party,
+        location=location,
+        guild_name=guild_name,
+        guild_tag=guild_tag,
+    )
+
+
+def _active_slots(slot_beats: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    return [sb for sb in (slot_beats or []) if not sb.get("rest")]
+
+
+def _slot_summary(slot_beats: list[dict[str, Any]] | None) -> str:
+    if not slot_beats:
+        return "Активных слотов нет — весь день на привале."
+    active_lines: list[str] = []
+    rest_labels: list[str] = []
+    for sb in slot_beats:
+        label = sb.get("slot_label") or f"Слот {sb.get('slot_index', '?')}"
+        if sb.get("rest"):
+            rest_labels.append(str(label))
+            continue
+        actors = sb.get("active_players") or []
+        previews = sb.get("previews") or []
+        preview_bit = ""
+        if previews:
+            preview_bit = f" Фрагменты чата: {' | '.join(str(p)[:80] for p in previews[:5])}."
+        actor_bit = ", ".join(str(a) for a in actors[:6]) if actors else "участники молчали"
+        active_lines.append(f"- {label} [АКТИВЕН]: {actor_bit}.{preview_bit}")
+    parts: list[str] = []
+    if active_lines:
+        parts.append("Активные 4-часовые слоты:")
+        parts.extend(active_lines)
+    if rest_labels:
+        parts.append(f"Неактивные слоты (один абзац привала): {', '.join(rest_labels)}")
+    elif not active_lines:
+        parts.append("Активных слотов нет — весь день на привале (один абзац).")
+    return "\n".join(parts)
+
+
+def _slot_summaries_block(slot_summaries: list[dict[str, Any]]) -> str:
+    if not slot_summaries:
+        return "За сутки нет сохранённых 4-часовых summary."
+    lines: list[str] = []
+    for row in sorted(slot_summaries, key=lambda x: int(x.get("slot_index", 0))):
+        label = row.get("slot_label") or f"Слот {row.get('slot_index', '?')}"
+        html = _strip_html(str(row.get("summary_html") or ""))
+        if html:
+            lines.append(f"- {label}: {html[:500]}")
+    return "\n".join(lines) if lines else "Summary пусты — тихие сутки."
+
+
+def _rest_slot_summary_html(*, slot_label: str, location: str) -> str:
+    return (
+        f"[{escape_telegram_html(slot_label)}] привал в <b>{escape_telegram_html(location)}</b> — "
+        "чат молчал."
+    )
+
+
+def _story_arc_hint(day_index: int, story_progress: int) -> str:
+    if day_index <= 2:
+        phase = "завязка: знакомство с локацией, первые препятствия на пути к цели"
+    elif day_index <= 4:
+        phase = "осложнения: отряд углубляется, риски растут"
+    elif day_index <= 6:
+        phase = "кульминация: решающие выборы перед финалом"
+    else:
+        phase = "финал недели: исход приключения на кону"
+    return f"Сюжетная фаза: {phase}. Прогресс к цели ~{story_progress}%."
+
+
+def _vitality_narrative(delta: int) -> str:
+    if delta <= -10:
+        return "Отряд сильно вымотан"
+    if delta < 0:
+        return "Силы на исходе"
+    if delta == 0:
+        return "Выносливость держится"
+    if delta <= 8:
+        return "Отряд окреп"
+    return "Отряд бодр и готов к новому"
+
+
+def _progress_narrative(delta: int) -> str:
+    if delta <= 0:
+        return "путь к цели почти не сдвинулся"
+    if delta <= 8:
+        return "медленно продвигаются к цели"
+    if delta <= 14:
+        return "заметно приблизились к цели"
+    return "рванули вперёд к цели"
+
+
+def _format_last_tactic_story(
+    last_tactic: dict[str, Any] | None,
+    last_resolve: dict[str, Any] | None,
+) -> str:
+    if not last_tactic:
+        return ""
+    label = str(last_tactic.get("label") or "?")
+    if not last_resolve:
+        return (
+            f"Обязательный абзац: вчера отряд выбрал тактику <b>{escape_telegram_html(label)}</b> — "
+            "опиши, как это повлияло на ночь и утро."
+        )
+    vd = int(last_resolve.get("vitality_delta") or 0)
+    pd = int(last_resolve.get("progress_delta") or 0)
+    return (
+        f"Обязательный абзац: вчера отряд выбрал тактику <b>{escape_telegram_html(label)}</b>. "
+        f"{_vitality_narrative(vd)}; {_progress_narrative(pd)}. "
+        "Опиши последствия выбора сюжетно, без чисел и формул."
+    )
+
+
+def _build_slot_fallback_summary(
+    *,
+    slot_label: str,
+    slot_beat: dict[str, Any],
+    location: str,
+) -> str:
+    if slot_beat.get("rest"):
+        return (
+            f"В {slot_label} отряд в <b>{location}</b> дремал на привале — "
+            "чат молчал, кроме редкого храпа."
+        )
+    actors = slot_beat.get("active_players") or []
+    actor_bit = escape_telegram_html(", ".join(str(a) for a in actors[:6])) if actors else "отряд"
+    previews = slot_beat.get("previews") or []
+    if previews:
+        flavor = escape_telegram_html(str(previews[0])[:120])
+        return (
+            f"В {escape_telegram_html(slot_label)} {actor_bit} оживили лагерь: "
+            f"«{flavor}» — и снова в путь."
+        )
+    return (
+        f"В {escape_telegram_html(slot_label)} {actor_bit} "
+        f"поддерживали боевой дух у костра в <b>{location}</b>."
+    )
+
+
+def _build_compose_fallback_narrative(
+    *,
+    day_index: int,
+    loc: str,
+    slot_summaries: list[dict[str, Any]],
+    company_vitality: int,
+    story_progress: int,
+    last_tactic: dict[str, Any] | None = None,
+    last_resolve: dict[str, Any] | None = None,
+) -> str:
+    if not slot_summaries:
+        body = f"Отряд в <b>{loc}</b> провёл спокойные сутки на привале."
+    else:
+        body = f"Вчера в <b>{loc}</b> отряд двигался к цели — активность была, но без отдельной хроники по часам."
+    tactic_block = _format_last_tactic_story(last_tactic, last_resolve)
+    parts = [f"<b>День {day_index}.</b> {body}"]
+    if tactic_block:
+        parts.append(_strip_html(tactic_block))
+    parts.append(
+        "Утро. Отряд собирается выбрать тактику на новый день. "
+        f"Выносливость {company_vitality}, прогресс {story_progress}."
+    )
+    return "\n\n".join(parts)
+
+
+def _default_tactics(location_archetype_id: str) -> list[dict[str, Any]]:
+    arch = archetype_for_id(location_archetype_id or "")
+    biome = arch.biome_tag if arch else "forest"
+    loc = arch.name_ru if arch else "локации"
+    return [
+        {"label": f"Осторожно ползти через {loc[:20]}", "risk": "low", "terrain_fit": [biome]},
+        {"label": "Форсировать переход с песнями", "risk": "medium", "terrain_fit": [biome]},
+        {"label": "Рискованный рейд вслепую", "risk": "high", "terrain_fit": [biome]},
+    ]
+
+
+def _parse_tactics_json(raw: str | None) -> list[dict[str, Any]]:
+    if not raw:
+        return []
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        idx = text.find("{")
+        if idx < 0:
+            return []
+        try:
+            parsed = json.loads(text[idx:])
+        except json.JSONDecodeError:
+            logger.warning("guild raid tactics JSON parse failed")
+            return []
+    tactics: list[dict[str, Any]] = []
+    for t in parsed.get("tactics") or []:
+        if isinstance(t, dict) and t.get("label"):
+            tactics.append(t)
+    return tactics
+
+
+async def generate_raid_slot_summary(
+    *,
+    guild_name: str,
+    guild_tag: str,
+    location_archetype_id: str,
+    party: list[dict[str, Any]],
+    slot_label: str,
+    slot_beat: dict[str, Any],
+) -> str:
+    loc = _location_name(location_archetype_id)
+    if slot_beat.get("rest"):
+        return _rest_slot_summary_html(slot_label=slot_label, location=loc)
+
+    user = (
+        f"4-часовой слот {slot_label}. Локация: {loc}.\n"
+        f"Данные слота:\n{_slot_summary([slot_beat])}\n\n"
+        "Напиши 1–2 предложения: только факты из фрагментов чата и списка активных. "
+        "Не выдумывай событий, которых нет в данных. "
+        "Не повторяй шутки и образы из других слотов. Без JSON."
+    )
+    raw = await _call_llm_raw(
+        user,
+        caller="guild raid slot summary",
+        max_tokens=200,
+        system_prompt=_SLOT_FACT_SYSTEM,
+    )
+    if raw:
+        cleaned = escape_telegram_html(_strip_html(raw))
+        if cleaned:
+            return _bold_proper_nouns(
+                cleaned,
+                party=party,
+                location=loc,
+                guild_name=guild_name,
+                guild_tag=guild_tag,
+            )
+    return _build_slot_fallback_summary(slot_label=slot_label, slot_beat=slot_beat, location=loc)
+
+
+async def compose_raid_daily_narrative(
+    *,
+    guild_name: str,
+    guild_tag: str,
+    day_index: int,
+    location_archetype_id: str,
+    party: list[dict[str, Any]],
+    slot_summaries: list[dict[str, Any]],
+    company_vitality: int,
+    story_progress: int,
+    last_tactic: dict[str, Any] | None,
+    last_resolve: dict[str, Any] | None,
+    chronicle_summaries: list[str],
+    adventure_goal: str | None = None,
+) -> str:
+    loc = _location_name(location_archetype_id)
+    prev = _format_last_tactic_story(last_tactic, last_resolve)
+    goal_line = f"Цель приключения: {adventure_goal}.\n" if adventure_goal else ""
+    arc = _story_arc_hint(day_index, story_progress)
+    hist = "\n".join(f"- {_strip_html(s)[:200]}" for s in chronicle_summaries[-3:])
+    user = (
+        f"День {day_index} из 7. Гильдия [{guild_tag}] «{guild_name}». Локация: {loc}.\n"
+        f"{goal_line}"
+        f"{arc}\n"
+        f"Выносливость: {company_vitality}/100. Прогресс: {story_progress}/100.\n"
+        f"{prev}\n\n"
+        f"Заметки по 4-часовым слотам за вчера (сырьё, не копируй дословно):\n"
+        f"{_slot_summaries_block(slot_summaries)}\n\n"
+        f"Недавняя хроника:\n{hist or '(нет)'}\n\n"
+        f"Состав:\n{_party_block(party)}\n\n"
+        f"{_COMPOSE_INSTRUCTIONS}"
+    )
+    raw = await _call_llm_raw(user, caller="guild raid daily compose", max_tokens=1200)
+    out = await _finalize_narrative_html(
+        raw,
+        caller="guild raid daily compose",
+        party=party,
+        location=loc,
+        guild_name=guild_name,
+        guild_tag=guild_tag,
+        length_hint="4–6 абзацев, Telegram HTML",
+        rewrite_max_tokens=1200,
+    )
+    if out:
+        return _strip_leaked_json(out)
+    return _build_compose_fallback_narrative(
+        day_index=day_index,
+        loc=loc,
+        slot_summaries=slot_summaries,
+        company_vitality=company_vitality,
+        story_progress=story_progress,
+        last_tactic=last_tactic,
+        last_resolve=last_resolve,
+    )
+
+
+async def generate_raid_daily_tactics(
+    *,
+    guild_name: str,
+    guild_tag: str,
+    day_index: int,
+    location_archetype_id: str,
+    party: list[dict[str, Any]],
+    narrative_preview: str,
+    last_tactic: dict[str, Any] | None,
+    last_resolve: dict[str, Any] | None = None,
+    story_progress: int = 0,
+) -> list[dict[str, Any]]:
+    loc = _location_name(location_archetype_id)
+    arch = archetype_for_id(location_archetype_id or "")
+    biome = arch.biome_tag if arch else "forest"
+    prev = _format_last_tactic_story(last_tactic, last_resolve) if last_tactic else ""
+    user = (
+        f"День {day_index}. Гильдия [{guild_tag}] «{guild_name}». Локация: {loc} (biome: {biome}).\n"
+        f"Прогресс сюжета: {story_progress}/100.\n"
+        f"{prev}\n"
+        f"Контекст утреннего summary:\n{_strip_html(narrative_preview)[:800]}\n\n"
+        f"Состав:\n{_party_block(party)}\n\n"
+        "Варианты тактик должны логично продолжать вчерашний исход и текущий прогресс сюжета.\n"
+        f"{_TACTICS_JSON_INSTRUCTIONS}"
+    )
+    raw = await _call_llm_raw(user, caller="guild raid daily tactics", max_tokens=600)
+    tactics = _parse_tactics_json(raw)
+    if len(tactics) < 3:
+        return _default_tactics(location_archetype_id)[:4]
+    return tactics[:4]
+
+
+async def generate_raid_prologue(
+    *,
+    guild_name: str,
+    guild_tag: str,
+    location_archetype_id: str,
+    party: list[dict[str, Any]],
+    adventure_goal: str,
+    template_name: str | None = None,
+) -> str:
+    loc = _location_name(location_archetype_id)
+    goal = adventure_goal or pick_raid_adventure_goal(location_archetype_id, template_name=template_name)
+    user = (
+        f"Гильдия [{guild_tag}] «{guild_name}» отправляет отряд в недельную экспедицию.\n"
+        f"Локация: {loc} (архетип {location_archetype_id}).\n"
+        f"Цель приключения: {goal}.\n\n"
+        f"Состав (имя, класс, раса, уровень):\n{_party_block(party)}\n\n"
+        "Напиши PROLOGUE-брифинг: старт пути, атмосфера локации, цель, состав отряда. "
+        "Без финального боя — только старт недельного приключения."
+    )
+    out = await _call_llm(
+        user,
+        caller="guild raid prologue",
+        party=party,
+        location=loc,
+        guild_name=guild_name,
+        guild_tag=guild_tag,
+    )
+    if out:
+        return out
+    names = ", ".join(p.get("name", "?") for p in party[:5])
+    return (
+        f"<b>Рейд начался.</b> Отряд гильдии <b>[{guild_tag}]</b> выдвигается в <b>{loc}</b>. "
+        f"Цель: {escape_telegram_html(goal)}. "
+        f"В походе: {escape_telegram_html(names)}."
+    )
+
+
+async def generate_raid_daily_narrative(
+    *,
+    guild_name: str,
+    guild_tag: str,
+    day_index: int,
+    location_archetype_id: str,
+    narrative_style_id: int,
+    party: list[dict[str, Any]],
+    slot_beats: list[dict[str, Any]],
+    company_vitality: int,
+    story_progress: int,
+    last_tactic: dict[str, Any] | None,
+    last_resolve: dict[str, Any] | None,
+    chronicle_summaries: list[str],
+) -> tuple[str, list[dict[str, Any]]]:
+    """Legacy wrapper: compose from slot beats (used in tests). Returns (narrative, tactics)."""
+    del narrative_style_id
+    summaries = [
+        {
+            "slot_index": sb.get("slot_index", i),
+            "slot_label": sb.get("slot_label"),
+            "summary_html": _build_slot_fallback_summary(
+                slot_label=str(sb.get("slot_label") or f"Слот {i}"),
+                slot_beat=sb,
+                location=_location_name(location_archetype_id),
+            ),
+        }
+        for i, sb in enumerate(slot_beats or [])
+        if not sb.get("rest")
+    ]
+    narrative = await compose_raid_daily_narrative(
+        guild_name=guild_name,
+        guild_tag=guild_tag,
+        day_index=day_index,
+        location_archetype_id=location_archetype_id,
+        party=party,
+        slot_summaries=summaries,
+        company_vitality=company_vitality,
+        story_progress=story_progress,
+        last_tactic=last_tactic,
+        last_resolve=last_resolve,
+        chronicle_summaries=chronicle_summaries,
+    )
+    tactics = await generate_raid_daily_tactics(
+        guild_name=guild_name,
+        guild_tag=guild_tag,
+        day_index=day_index,
+        location_archetype_id=location_archetype_id,
+        party=party,
+        narrative_preview=narrative,
+        last_tactic=last_tactic,
+    )
+    return narrative, tactics
+
+
+async def generate_raid_defeat_epilogue(
+    *,
+    guild_name: str,
+    guild_tag: str,
+    location_archetype_id: str,
+    party: list[dict[str, Any]],
+    day_index: int,
+) -> str:
+    loc = _location_name(location_archetype_id)
+    user = (
+        f"Гильдия [{guild_tag}] «{guild_name}». Локация: {loc}. День {day_index}.\n"
+        f"Отряд не выдержал экспедиции (выносливость 0).\n"
+        f"Состав:\n{_party_block(party)}\n\n"
+        "Напиши трагикомичный эпилог поражения."
+    )
+    out = await _call_llm(
+        user,
+        caller="guild raid defeat",
+        party=party,
+        location=loc,
+        guild_name=guild_name,
+        guild_tag=guild_tag,
+    )
+    return out or f"<b>Поражение.</b> Отряд [{guild_tag}] не выдержал похода в {loc}."
+
+
+async def generate_raid_finale(
+    *,
+    guild_name: str,
+    guild_tag: str,
+    location_archetype_id: str,
+    party: list[dict[str, Any]],
+    outcome: str,
+    story_progress: int,
+    company_vitality: int,
+) -> str:
+    loc = _location_name(location_archetype_id)
+    tone = {
+        "victory": "триумф",
+        "partial": "горько-sweet частичный успех",
+        "failed": "срыв экспедиции",
+    }.get(outcome, "финал")
+    user = (
+        f"Финал недельного рейда. Гильдия [{guild_tag}] «{guild_name}». Локация: {loc}.\n"
+        f"Исход: {tone}. Прогресс {story_progress}/100, выносливость {company_vitality}.\n"
+        f"Состав:\n{_party_block(party)}\n\n"
+        "Напиши финальный эпилог недели."
+    )
+    out = await _call_llm(
+        user,
+        caller="guild raid finale",
+        party=party,
+        location=loc,
+        guild_name=guild_name,
+        guild_tag=guild_tag,
+    )
+    return out or f"<b>Финал рейда.</b> [{guild_tag}] завершила поход в {loc} ({tone})."
+
+
+def pick_random_raid_location() -> str:
+    from waifu_bot.game.expedition_narrative_catalog import pick_location_archetype
+
+    return pick_location_archetype().id
+
+
+def pick_random_raid_setting() -> tuple[str, int]:
+    return pick_random_raid_location(), 0
+
+
+def msk_slot_index_for_dt(dt: datetime) -> int:
+    local = dt.astimezone(_MSK)
+    return min(RAID_V2_SLOT_COUNT - 1, local.hour // RAID_V2_SLOT_HOURS)
+
+
+def msk_slot_label(idx: int) -> str:
+    start = idx * RAID_V2_SLOT_HOURS
+    end = start + RAID_V2_SLOT_HOURS - 1
+    return f"{start:02d}:00–{end:02d}:59 МСК"

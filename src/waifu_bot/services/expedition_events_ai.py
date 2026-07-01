@@ -7,36 +7,101 @@ import json
 import logging
 import random
 import re
-from typing import Any, Optional
+from io import BytesIO
+from typing import Any, Optional, Sequence
 
 import httpx
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.core.config import settings
 from waifu_bot.db.models.dungeon import MonsterTemplate
 from waifu_bot.db.models.skill import Skill, SkillType
-from waifu_bot.game.constants import AI_NARRATIVE_GROTESQUE_HUMOR_RU
+from waifu_bot.game.constants import (
+    AI_HIRE_MOMENT_MODERN_HUMOR_RU,
+    AI_NARRATIVE_GROTESQUE_HUMOR_RU,
+)
+from waifu_bot.game.expedition_data import PERK_BY_ID
+from waifu_bot.game.expedition_narrative_catalog import (
+    ExpeditionNarrativeStyle,
+    narrative_style_for_id,
+    narrative_style_prompt_block,
+)
+from waifu_bot.services.ai_narrative_rewrite import rhythm_rewrite_narrative
+from waifu_bot.services.ai_service import generate as ai_generate
+from waifu_bot.services.llm_client import (
+    has_llm_configured,
+    has_text_llm_configured,
+    openrouter_headers_for_compat as _openrouter_headers,
+    openrouter_url_for_compat as _openrouter_url,
+    post_chat_completions,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _openrouter_url() -> str:
-    base = (getattr(settings, "openrouter_base_url", None) or "https://openrouter.ai/api/v1").rstrip("/")
-    return f"{base}/chat/completions"
+async def _ai_text(
+    prompt: str,
+    *,
+    caller: str,
+    max_tokens: int = 512,
+    temperature: float = 0.85,
+    timeout_sec: float = 30.0,
+    system: str | None = None,
+) -> str | None:
+    if not has_text_llm_configured():
+        return None
+    return await ai_generate(
+        prompt,
+        system=system,
+        preset=settings.ai_preset_narrative,
+        caller=caller,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout_sec=timeout_sec,
+        post_process_rhythm=False,
+    )
 
 
-def _openrouter_headers() -> dict[str, str]:
-    api_key = getattr(settings, "openrouter_api_key", None) or ""
-    referer = str(getattr(settings, "public_base_url", "https://waifu-bot.reborn")).rstrip("/")
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        # OpenRouter ожидает site URL для рейтинга; в HTTP это стандартный заголовок Referer
-        "Referer": referer,
-        "HTTP-Referer": referer,
-        "X-Title": "Waifu Bot",
-    }
+def _expedition_style_prompt_from_brief(brief: dict | None) -> str:
+    if not isinstance(brief, dict):
+        return ""
+    style_id = brief.get("narrative_style_id")
+    style = narrative_style_for_id(style_id)
+    if style:
+        return f" {narrative_style_prompt_block(style)}"
+    name = str(brief.get("narrative_style_name") or "").strip()
+    if name:
+        return f" Стиль повествования «{name}» — сохраняй его на все эпизоды."
+    return ""
+
+
+def format_expedition_start_intro_telegram(
+    *,
+    title: str,
+    intro_narrative: str,
+    mode_name: str | None = None,
+    archetype_name: str | None = None,
+    squad_names: list[str] | None = None,
+    style_name: str | None = None,
+) -> str:
+    t = str(title or "Экспедиция").strip()
+    intro = str(intro_narrative or "").strip()
+    if not intro:
+        return ""
+    style_bit = f" · {style_name}" if style_name else ""
+    lines = [f"🗺 «{t}» · Брифинг{style_bit}", "", intro]
+    meta: list[str] = []
+    if mode_name and archetype_name:
+        meta.append(f"{mode_name} · {archetype_name}")
+    elif mode_name or archetype_name:
+        meta.append(mode_name or archetype_name or "")
+    if squad_names:
+        meta.append(f"Отряд: {', '.join(squad_names[:5])}")
+    if meta:
+        lines.extend(["", "\n".join(x for x in meta if x)])
+    return "\n".join(lines)
 
 
 def _string_from_openrouter_content_part(block: object) -> str:
@@ -112,6 +177,164 @@ def _warn_if_empty_assistant(caller: str, choice: object, extracted: str) -> Non
     )
 
 
+async def refine_expedition_narrative_draft(
+    draft: str,
+    *,
+    caller: str,
+    length_hint: str,
+) -> str:
+    """Второй проход OpenRouter: rhythm-rewrite. При сбое — исходный draft."""
+    return await rhythm_rewrite_narrative(
+        draft,
+        caller=caller,
+        length_hint=length_hint,
+        preserve_html=False,
+    )
+
+
+async def generate_expedition_narrative_brief(
+    *,
+    archetype_id: str,
+    archetype_name: str,
+    archetype_hints: list[str],
+    mode_id: str,
+    mode_name: str,
+    mode_focus: str,
+    mode_prompt_rules: str,
+    affix_names: list[str],
+    affix_hints: list[str],
+    events_total: int,
+    duration_minutes: int,
+    squad_names: list[str],
+    narrative_style: ExpeditionNarrativeStyle | None = None,
+) -> Optional[dict]:
+    """
+    Генерирует JSON-бриф экспедиции при старте: название, сеттинг, план эпизодов.
+    """
+    if not has_text_llm_configured():
+        return None
+
+    payload = {
+        "archetype": {
+            "id": archetype_id,
+            "name": archetype_name,
+            "hints": archetype_hints[:6],
+        },
+        "mode": {
+            "id": mode_id,
+            "name": mode_name,
+            "focus": mode_focus,
+            "rules": mode_prompt_rules,
+        },
+        "affixes": [
+            {"name": n, "hint": (affix_hints[i] if i < len(affix_hints) else "")}
+            for i, n in enumerate(affix_names)
+        ],
+        "events_total": int(events_total),
+        "duration_minutes": int(duration_minutes),
+        "squad_names": squad_names[:5],
+    }
+    style_block = narrative_style_prompt_block(narrative_style) if narrative_style else ""
+    prompt = (
+        "Ты — сценарист коротких фэнтезийных экспедиций для RPG. "
+        "Придумай уникальный сеттинг экспедиции по JSON-контексту. "
+        f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
+        f"{style_block} "
+        "Не используй шаблон «подземелье с гоблинами», если архетип — город, клуб, арктика и т.п. "
+        "Сеттинг должен соответствовать архетипу локации и режиму экспедиции. "
+        f"event_beats — ровно {int(events_total)} коротких строк (одна на эпизод), "
+        "логичная арка от начала до финала. "
+        "Каждый event_beat должен логично включать угрозы из affixes "
+        "(если есть «с пауками» — паутина/пауки в нужном эпизоде, «с нежитью» — нежить и т.д.). "
+        "intro_narrative — 3–5 предложений: брифинг перед выходом, сбор отряда, что впереди; "
+        "БЕЗ боевого действия, без урона, без «они уже сражаются» — это вступление, не первый эпизод. "
+        "title — короткое кодовое имя миссии (2–5 слов), абсурдный гротескный юмор; "
+        "примеры: «Операция гнилая картошка», «Проект мокрый носков», «Рейд на чайник судьбы». "
+        "НЕ склеивай дословно mode.name, archetype.name и строки из affixes — "
+        "используй контекст для смысла, но title должен звучать как уникальное прозвище операции.\n\n"
+        "Ответь СТРОГО JSON без markdown:\n"
+        '{"title":"...","setting_summary":"2-3 предложения","intro_narrative":"3-5 предложений брифинга",'
+        '"key_elements":["..."],'
+        f'"event_beats":["..."],"tone":"...","avoid_tropes":["..."]}}\n\n'
+        f"Контекст: {json.dumps(payload, ensure_ascii=False)}"
+    )
+
+    try:
+        text = await _ai_text(
+            prompt,
+            caller="expedition brief",
+            max_tokens=650,
+            temperature=0.88,
+            timeout_sec=45.0,
+        )
+        if not text:
+            return None
+        parsed = _parse_narrative_brief_json(text)
+        if parsed and narrative_style:
+            parsed.setdefault("narrative_style_id", narrative_style.id)
+            parsed.setdefault("narrative_style_name", narrative_style.name_ru)
+        if parsed and not parsed.get("intro_narrative"):
+            parsed["intro_narrative"] = parsed.get("setting_summary") or ""
+        if parsed and len(parsed.get("event_beats") or []) != int(events_total):
+            beats = list(parsed.get("event_beats") or [])
+            while len(beats) < int(events_total):
+                beats.append(f"Эпизод {len(beats) + 1}: развитие сюжета")
+            parsed["event_beats"] = beats[: int(events_total)]
+        if parsed:
+            setting = str(parsed.get("setting_summary") or "").strip()
+            if setting:
+                parsed["setting_summary"] = await refine_expedition_narrative_draft(
+                    setting,
+                    caller="brief setting",
+                    length_hint="2–3 предложения",
+                )
+            intro = str(parsed.get("intro_narrative") or "").strip()
+            if intro:
+                parsed["intro_narrative"] = await refine_expedition_narrative_draft(
+                    intro,
+                    caller="brief intro",
+                    length_hint="3–5 предложений",
+                )
+        return parsed
+    except Exception as e:
+        logger.warning("OpenRouter expedition brief error: %s", e)
+        return None
+
+
+def _parse_narrative_brief_json(raw: str) -> Optional[dict]:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    fence = re.match(r"^```(?:json)?\s*([\s\S]*?)\s*```\s*$", raw, re.IGNORECASE)
+    if fence:
+        raw = fence.group(1).strip()
+    for candidate in (raw,):
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, dict) and data.get("title") and data.get("setting_summary"):
+                intro = str(data.get("intro_narrative") or data.get("setting_summary") or "").strip()[:800]
+                return {
+                    "title": str(data["title"]).strip()[:120],
+                    "setting_summary": str(data["setting_summary"]).strip()[:600],
+                    "intro_narrative": intro,
+                    "key_elements": [str(x).strip() for x in (data.get("key_elements") or []) if str(x).strip()][:8],
+                    "event_beats": [str(x).strip() for x in (data.get("event_beats") or []) if str(x).strip()],
+                    "tone": str(data.get("tone") or "fantasy-adventure").strip()[:64],
+                    "avoid_tropes": [str(x).strip() for x in (data.get("avoid_tropes") or []) if str(x).strip()][:6],
+                }
+        except json.JSONDecodeError:
+            pass
+    match = re.search(r"\{[\s\S]*\}", raw)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            if isinstance(data, dict) and data.get("title"):
+                return _parse_narrative_brief_json(json.dumps(data, ensure_ascii=False))
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
 async def generate_expedition_tick_narrative(
     *,
     location: str,
@@ -127,19 +350,19 @@ async def generate_expedition_tick_narrative(
     twist: dict | None,
     prev_summary: str,
     squad_hp_ratio: float = 0.0,
+    expedition_context: dict | None = None,
 ) -> Optional[str]:
     """
     Короткий нарратив одного тика экспедиции v1.3 (2–4 предложения, RU).
     Контекст структурирован по ТЗ (биом, испытание, отряд, исход, твист).
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
+    if not has_text_llm_configured():
         return None
 
-    model = settings.openrouter_model
     ctx = {
         "location": location,
         "biome_tags": [t for t in biome_tags if t],
+        "expedition": expedition_context or {},
         "challenge": {
             "name": challenge_name,
             "category": challenge_category,
@@ -154,47 +377,65 @@ async def generate_expedition_tick_narrative(
         "prev_summary": (prev_summary or "")[:500],
         "squad_hp_ratio": round(float(squad_hp_ratio), 3),
     }
+    mode_rules = ""
+    if expedition_context and expedition_context.get("mode_rules"):
+        mode_rules = f" Режим экспедиции: {expedition_context['mode_rules']}"
+    avoid = expedition_context.get("avoid_tropes") if expedition_context else None
+    avoid_block = ""
+    if avoid:
+        avoid_block = f" Избегай клише: {', '.join(avoid[:4])}."
+    beat_hint = ""
+    if expedition_context and expedition_context.get("event_beat"):
+        beat_hint = (
+            " Поле expedition.event_beat — обязательный сюжетный поворот этого эпизода; "
+            "не перескакивай к другим эпизодам."
+        )
+    threat_rules = (
+        " Обязательно отрази в сцене конкретные угрозы из expedition.threats.slot_affixes_ru "
+        "и expedition.threats.uncovered_tags_ru (например «с пауками» → паутина, клыки). "
+        "Не называй механики и проценты — покажи через действие и атмосферу. "
+        "Подготовка отряда (expedition.threats.squad_prepared): "
+        "если true и outcome triumph — уверенное противодействие, наёмница с relevant_perk_names блеснёт; "
+        "если false — отряд импровизирует, царапины и паника; при outcome triumph без контров — хрупкая удача, не мастерство; "
+        "при struggle/survived_barely без контров — усиленное ощущение перегруза. "
+        "Поле expedition.tick_pressure: high — больше хаоса, low — больше контроля."
+    )
+    style_block = _expedition_style_prompt_from_brief(expedition_context)
+    intro_hint = ""
+    if expedition_context and expedition_context.get("intro_narrative"):
+        intro_hint = (
+            " Это продолжение intro_narrative из брифинга — сохраняй тот же голос и стиль, "
+            "не перескакивай к другому типу повествования."
+        )
     prompt = (
         "Напиши короткое повествование (2–4 предложения, на русском) об одном эпизоде экспедиции в фэнтези-стиле. "
         f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
+        f"{style_block}{intro_hint} "
         "Это эпизод номер event_num из total_events — обязательно другая сцена, другой момент конфликта, чем раньше. "
         "Не повторяй дословно и не копируй структуру предыдущего текста из prev_summary: придумай новое развитие. "
         "Поле squad_hp_ratio — доля суммарного здоровья отряда (0..1), без названия чисел: при низком значении больше угрозы, ран, усталости; при высоком — можно увереннее. "
         "Если is_final true — это последний эпизод перед возвращением; передай напряжение и состояние отряда, без спойлера итога всей экспедиции. "
         "Следуй контексту JSON; не перечисляй числа и механики вслух, покажи действие и атмосферу. "
+        f"{mode_rules}{avoid_block}{beat_hint}{threat_rules} "
         "Исход outcome эпизода (не финал экспедиции): triumph — уверенный успех; struggle — с трудом; survived_barely — едва выстояли. "
         f"Контекст: {json.dumps(ctx, ensure_ascii=False)}"
     )
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 320,
-                    "temperature": 0.82,
-                    **_openrouter_text_extra(),
-                },
+        text = await _ai_text(
+            prompt,
+            caller="expedition tick",
+            max_tokens=320,
+            temperature=0.82,
+            timeout_sec=30.0,
+        )
+        if not text:
+            return None
+        return await refine_expedition_narrative_draft(
+                text,
+                caller="tick",
+                length_hint="2–4 предложения",
             )
-            if r.status_code != 200:
-                logger.warning(
-                    "OpenRouter expedition tick: HTTP %s body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("expedition tick", first, text)
-            return text or None
     except Exception as e:
         logger.warning("OpenRouter expedition tick error: %s", e)
         return None
@@ -207,60 +448,140 @@ async def generate_expedition_event(
     squad_names: list[str],
     reward_gold: int,
     reward_experience: int,
+    *,
+    narrative_brief: dict | None = None,
+    mode_name: str | None = None,
+    archetype_name: str | None = None,
+    tick_summaries: list[str] | None = None,
+    squad_prepared: bool | None = None,
 ) -> Optional[str]:
     """
-    Генерирует короткое описание исхода экспедиции (2–3 предложения) через OpenRouter.
+    Генерирует итоговое описание экспедиции (3–5 предложений) через OpenRouter.
+    Компонует эпизоды в связное повествование без цифр и наград.
     Возвращает None, если ключ не задан или запрос не удался.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
+    if not has_text_llm_configured():
         return None
 
-    model = settings.openrouter_model
-
-    outcome = "успешно завершили" if success else "не справились и вернулись ни с чем"
+    outcome = "успешно завершили" if success else "не справились и вернулись с пустыми руками"
     names = ", ".join(squad_names[:5]) if squad_names else "отряд"
+    context_parts: list[str] = []
+    if narrative_brief:
+        setting = (narrative_brief.get("setting_summary") or "")[:300]
+        if setting:
+            context_parts.append(f"Сеттинг: {setting}")
+        intro = (narrative_brief.get("intro_narrative") or "")[:400]
+        if intro:
+            context_parts.append(f"Брифинг перед выходом: {intro}")
+    if mode_name or archetype_name:
+        context_parts.append(f"Режим: {mode_name or '—'}. Локация: {archetype_name or '—'}.")
+    if squad_prepared is not None:
+        prep = "отряд был подготовлен к угрозам" if squad_prepared else "отряд не имел нужных навыков"
+        context_parts.append(f"Подготовка: {prep}.")
+    episodes_block = ""
+    if tick_summaries:
+        lines = [s.strip() for s in tick_summaries if s and str(s).strip()]
+        if lines:
+            episodes_block = "\n".join(f"{i + 1}. {s[:300]}" for i, s in enumerate(lines))
+    style_block = _expedition_style_prompt_from_brief(narrative_brief)
+    context = "\n".join(context_parts)
     prompt = (
-        f"Напиши коротко (2–3 предложения, на русском) описание исхода экспедиции в фэнтези-стиле. "
+        f"Напиши связное итоговое повествование (3–5 предложений, на русском) о том, как прошла экспедиция. "
         f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU} "
-        f"Экспедиция: «{expedition_name}». {names} {outcome}. "
-        f"Длительность: {duration_minutes} мин. "
-        + (f"Награда: {reward_gold} золота, {reward_experience} опыта." if success else "")
-        + " Без вступления, только сам текст события."
+        f"{style_block} "
+        f"Собери из эпизодов ниже единую историю приключений наёмниц ({names}). "
+        f"Экспедиция «{expedition_name}»: отряд {outcome}. "
+        f"Отрази настроение исхода, но НЕ упоминай время, минуты, золото, опыт, HP, проценты и любые числа — "
+        f"награды показываются отдельно.\n"
     )
+    if context:
+        prompt += f"\nКонтекст:\n{context}\n"
+    if episodes_block:
+        prompt += f"\nЭпизоды экспедиции:\n{episodes_block}\n"
+    prompt += "\nБез вступления, только текст итога."
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 200,
-                    "temperature": 0.7,
-                    **_openrouter_text_extra(),
-                },
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "OpenRouter expedition event: HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("expedition event", first, text)
-            return text or None
+        text = await _ai_text(
+            prompt,
+            caller="expedition event",
+            max_tokens=280,
+            temperature=0.7,
+            timeout_sec=30.0,
+        )
+        if not text:
+            return None
+        return await refine_expedition_narrative_draft(
+            text,
+            caller="event",
+            length_hint="3–5 предложений",
+        )
     except Exception as e:
-        logger.warning("OpenRouter expedition event error: %s", e)
+        logger.warning("expedition event error: %s", e)
         return None
+
+
+def summarize_gate_log_fallback(
+    gate_log: list[dict],
+    *,
+    outcome: str,
+    expedition_name: str,
+) -> str:
+    """Лаконичный итог из gate_log без LLM."""
+    outcome_ru = {
+        "success": "успех",
+        "partial_success": "частичный успех",
+        "failure": "неудача",
+    }.get(str(outcome or ""), "завершение")
+    if not gate_log:
+        return f"«{expedition_name}»: отряд вернулся ({outcome_ru})."
+    lines = [str(e.get("text") or "").strip() for e in gate_log if e.get("text")]
+    if not lines:
+        return f"«{expedition_name}»: отряд вернулся ({outcome_ru})."
+    return f"«{expedition_name}» ({outcome_ru}): " + "; ".join(lines[:8])
+
+
+async def generate_gate_log_final_narrative(
+    *,
+    expedition_name: str,
+    outcome: str,
+    gate_log: list[dict],
+) -> str | None:
+    """Короткий итог (1–2 предложения) по gate_log; fallback — шаблон."""
+    fallback = summarize_gate_log_fallback(
+        gate_log, outcome=outcome, expedition_name=expedition_name
+    )
+    if not gate_log:
+        return fallback
+    if not has_text_llm_configured():
+        return fallback
+    entries_text = "\n".join(
+        f"- {str(e.get('text') or '').strip()}" for e in gate_log[:12] if e.get("text")
+    )
+    if not entries_text.strip():
+        return fallback
+    outcome_ru = {
+        "success": "успех",
+        "partial_success": "частичный успех",
+        "failure": "провал",
+    }.get(str(outcome or ""), "завершение")
+    prompt = (
+        f"По пунктам лога экспедиции «{expedition_name}» напиши итог в 1–2 коротких предложениях на русском. "
+        f"Исход похода: {outcome_ru}. Не упоминай золото, опыт, HP и проценты — только атмосферу и ключевые моменты.\n\n"
+        f"Пункты лога:\n{entries_text}\n\nТолько текст итога, без списка."
+    )
+    try:
+        text = await _ai_text(
+            prompt,
+            caller="expedition gate final",
+            max_tokens=120,
+            temperature=0.65,
+            timeout_sec=25.0,
+        )
+        if text and text.strip():
+            return text.strip()
+    except Exception as e:
+        logger.warning("gate log final narrative error: %s", e)
+    return fallback
 
 
 def _parse_name_bio_json(raw: str) -> Optional[tuple[str, str]]:
@@ -303,14 +624,12 @@ async def generate_hire_waifu_name_and_bio(
 ) -> Optional[tuple[str, str]]:
     """
     Генерирует имя и биографию наёмницы через OpenRouter.
-    ИИ придумывает короткое фэнтезийное женское имя (1–2 слога) по расе/классу и 2–3 предложения био.
-    Возвращает (name, bio) или None при ошибке/недоступности.
+    ИИ придумывает уникальное фэнтезийное женское имя (любой длины, с разнообразной фонетикой)
+    по расе/классу и 2–3 предложения био. Возвращает (name, bio) или None при ошибке/недоступности.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
+    if not has_text_llm_configured():
         return None
 
-    model = settings.openrouter_model_hire or settings.openrouter_model
     skills_str = ", ".join(perk_names) if perk_names else "разнообразный опыт"
 
     prompt = f"""Ты — рассказчик в фэнтезийной RPG-игре про вайфу-наёмниц.
@@ -320,7 +639,7 @@ async def generate_hire_waifu_name_and_bio(
 Уровень: {level}
 Умения: {skills_str}
 
-Требования к имени: фэнтезийное женское имя, подходящее под расу и класс (длина любая). Не используй имена из популярных аниме.
+Требования к имени: уникальное фэнтезийное женское имя, подходящее под расу и класс (длина любая — от короткого до составного с прозвищем). Сильно варьируй фонетику, происхождение и культурный колорит между расами и наёмницами, чтобы имена не были похожи друг на друга. Не используй имена из популярных аниме и избегай заезженных шаблонов вроде «Аэль/Лира/Нэли/Кира/Сия/Мира».
 Требования к биографии: 2–3 предложения, русский язык, живо и с характером, без механик и чисел. Упомяни умения через образы и действия.
 {AI_NARRATIVE_GROTESQUE_HUMOR_RU} Имя и био — в том же духе.
 
@@ -328,42 +647,22 @@ async def generate_hire_waifu_name_and_bio(
 {{"name": "Имя", "bio": "Биография..."}}"""
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 300,
-                    "temperature": 0.85,
-                    **_openrouter_text_extra(),
-                },
+        text = await _ai_text(
+            prompt,
+            caller="hire name+bio",
+            max_tokens=300,
+            temperature=1.0,
+            timeout_sec=60.0,
+        )
+        parsed = _parse_name_bio_json(text or "")
+        if not parsed and text:
+            logger.warning(
+                "hire name+bio: не удалось распарсить JSON, фрагмент ответа: %s",
+                text[:240].replace("\n", " "),
             )
-            if r.status_code != 200:
-                logger.warning(
-                    "OpenRouter hire name+bio: HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("hire name+bio", first, text)
-            parsed = _parse_name_bio_json(text)
-            if not parsed and text:
-                logger.warning(
-                    "OpenRouter hire name+bio: не удалось распарсить JSON, фрагмент ответа: %s",
-                    text[:240].replace("\n", " "),
-                )
-            return parsed
+        return parsed
     except Exception as e:
-        logger.warning("OpenRouter hire name+bio error: %s", e)
+        logger.warning("hire name+bio error: %s", e)
         return None
 
 
@@ -379,19 +678,17 @@ async def generate_shop_merchant_line(
     context: buy — продаёшь со витрины; sell — покупаешь у странника; gamble — зовёшь на гембу.
     Использует ту же модель, что и генерация BIO наёмных вайфу (OPENROUTER_MODEL_HIRE или OPENROUTER_MODEL).
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.warning("[shop merchant-line] Пропуск: не задан OPENROUTER_API_KEY")
+    if not has_text_llm_configured():
+        logger.warning("[shop merchant-line] Пропуск: не задан ROUTERAI_API_KEY")
         return None
 
-    model = settings.openrouter_model_hire or settings.openrouter_model
     ctx = (context or "buy").strip().lower()
-    if ctx not in ("buy", "sell", "gamble"):
+    if ctx not in ("buy", "sell", "gamble", "smith"):
         ctx = "buy"
 
     logger.info(
-        "[shop merchant-line] Запрос OpenRouter: model=%s context=%s item=%s level=%s rarity=%s",
-        model,
+        "[shop merchant-line] Запрос AI preset=%s context=%s item=%s level=%s rarity=%s",
+        settings.ai_preset_narrative,
         ctx,
         item_name,
         item_level,
@@ -403,9 +700,15 @@ async def generate_shop_merchant_line(
 
     if ctx == "gamble":
         prompt = (
-            "Ты хитрый, но обаятельный торговец с мистической гембой в лавке. "
-            "1–2 предложения на русском: зазывай странника испытать удачу, лёгкий намёк на риск и награду, без крика и без списков. "
+            "Ты хитрый, но обаятельный барыга с мистической лавкой. "
+            "1–2 предложения на русском: шепчешь страннику о скрытых сокровищах в мешках, лёгкий намёк на риск и награду. "
             "Обращение — «странник». Разрешены только теги <b>...</b>. Без markdown и без пояснений."
+        )
+    elif ctx == "smith":
+        prompt = (
+            "Ты старый кузнец в фэнтезийной кузнице. "
+            "1–2 предложения на русском: расскажи о заточке предметов, шансе успеха и риске поломки после +7. "
+            "Обращайся к клиенту как к «страннику». Разрешены только теги <b>...</b>. Без markdown и без пояснений."
         )
     elif ctx == "sell":
         prompt = (
@@ -423,37 +726,17 @@ async def generate_shop_merchant_line(
         )
 
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 120,
-                    "temperature": 0.8,
-                    **_openrouter_text_extra(),
-                },
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "[shop merchant-line] OpenRouter HTTP %s (400=bad request, 401=key, 402=quota, 429=rate limit). body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                logger.warning("[shop merchant-line] OpenRouter вернул пустой или некорректный choices: %s", data.get("error") or data)
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("shop merchant-line", first, text)
-                return None
-            logger.info("[shop merchant-line] Успех, длина текста=%d", len(text))
-            return text
+        text = await _ai_text(
+            prompt,
+            caller="shop merchant-line",
+            max_tokens=120,
+            temperature=0.8,
+            timeout_sec=45.0,
+        )
+        if not text:
+            return None
+        logger.info("[shop merchant-line] Успех, длина текста=%d", len(text))
+        return text
     except Exception as e:
         logger.warning("[shop merchant-line] Ошибка запроса: %s", e, exc_info=True)
         return None
@@ -548,9 +831,8 @@ async def generate_caravan_driver_tip(
     """
     Короткий совет погонщицы каравана (2–4 предложения, RU), опирается на переданные игровые факты из БД.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.warning("[caravan driver-tip] Пропуск: не задан OPENROUTER_API_KEY")
+    if not has_text_llm_configured():
+        logger.warning("[caravan driver-tip] Пропуск: не задан ROUTERAI_API_KEY")
         return None
 
     gk = game_knowledge if game_knowledge is not None else {"skills": [], "monsters": []}
@@ -571,7 +853,6 @@ async def generate_caravan_driver_tip(
             f"{narrative_context_for_prompt_json(narrative_context)}\n\n"
         )
 
-    model = settings.openrouter_model_hire or settings.openrouter_model
     prompt = (
         "Ты опытная погонщица каравана в фэнтезийном мире. Обращайся к собеседнику на «вы» как к страннику или командиру каравана. "
         f"Сейчас путь проходит через акт {int(current_act)} (доступно до акта {int(max_act)}); у странника примерно {int(gold)} монет золота — не перечисляй цифры сухим списком, можно намёк.\n\n"
@@ -590,34 +871,13 @@ async def generate_caravan_driver_tip(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 280,
-                    "temperature": 0.75,
-                    **_openrouter_text_extra(),
-                },
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "[caravan driver-tip] OpenRouter HTTP %s body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("caravan driver-tip", first, text)
-            return text or None
+        return await _ai_text(
+            prompt,
+            caller="caravan driver-tip",
+            max_tokens=280,
+            temperature=0.75,
+            timeout_sec=45.0,
+        )
     except Exception as e:
         logger.warning("[caravan driver-tip] Ошибка: %s", e)
         return None
@@ -632,9 +892,8 @@ async def generate_tavern_keeper_banter(
     tavern_facts: Optional[dict[str, Any]] = None,
 ) -> Optional[str]:
     """Короткая реплика тавернщика (слухи, быт), RU — OpenRouter."""
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.warning("[tavern keeper] Пропуск: не задан OPENROUTER_API_KEY")
+    if not has_text_llm_configured():
+        logger.warning("[tavern keeper] Пропуск: не задан ROUTERAI_API_KEY")
         return None
 
     tf = tavern_facts if isinstance(tavern_facts, dict) else {}
@@ -648,7 +907,6 @@ async def generate_tavern_keeper_banter(
             f"{narrative_context_for_prompt_json(narrative_context)}\n\n"
         )
 
-    model = settings.openrouter_model_hire or settings.openrouter_model
     prompt = (
         "Ты хозяин постоялого двора в фэнтезийном мире: грубоватый, но не злой. Обращайся на «вы». "
         f"Регион по акту {int(current_act)} (гость видел дороги до акта {int(max_act)}); в кошельке у гостя примерно {int(gold)} монет — без сухого перечисления цифр.\n\n"
@@ -662,34 +920,13 @@ async def generate_tavern_keeper_banter(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 300,
-                    "temperature": 0.78,
-                    **_openrouter_text_extra(),
-                },
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "[tavern keeper] OpenRouter HTTP %s body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("tavern keeper", first, text)
-            return text or None
+        return await _ai_text(
+            prompt,
+            caller="tavern keeper",
+            max_tokens=300,
+            temperature=0.78,
+            timeout_sec=45.0,
+        )
     except Exception as e:
         logger.warning("[tavern keeper] Ошибка: %s", e)
         return None
@@ -710,9 +947,8 @@ async def generate_main_waifu_bio(
     class_ru: str,
 ) -> Optional[str]:
     """2–4 предложения на русском для основной вайфу при создании (OpenRouter)."""
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.warning("[main waifu bio] Пропуск: не задан OPENROUTER_API_KEY")
+    if not has_text_llm_configured():
+        logger.warning("[main waifu bio] Пропуск: не задан ROUTERAI_API_KEY")
         return None
 
     from waifu_bot.services.narrative import load_narrative_bible
@@ -727,7 +963,6 @@ async def generate_main_waifu_bio(
     if isinstance(act1, list) and act1:
         hook = str(act1[0]).strip()
 
-    model = settings.openrouter_model_hire or settings.openrouter_model
     prompt = (
         "Напиши краткую биографию героини для игры в жанре фэнтези (аниме-стилистика допустима). "
         "Только русский язык, 2–4 предложения, без списков и без markdown.\n\n"
@@ -746,34 +981,14 @@ async def generate_main_waifu_bio(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await client.post(
-                _openrouter_url(),
-                headers=_openrouter_headers(),
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 400,
-                    "temperature": 0.72,
-                    **_openrouter_text_extra(),
-                },
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    "[main waifu bio] OpenRouter HTTP %s body=%s",
-                    r.status_code,
-                    (r.text or "")[:400],
-                )
-                return None
-            data = r.json()
-            choices = data.get("choices") or []
-            if not isinstance(choices, list) or not choices:
-                return None
-            first = choices[0]
-            text = _extract_openrouter_assistant_text(first)
-            if not text:
-                _warn_if_empty_assistant("main waifu bio", first, text)
-            return text.strip() or None
+        text = await _ai_text(
+            prompt,
+            caller="main waifu bio",
+            max_tokens=400,
+            temperature=0.72,
+            timeout_sec=45.0,
+        )
+        return text.strip() if text else None
     except Exception as e:
         logger.warning("[main waifu bio] Ошибка: %s", e)
         return None
@@ -798,6 +1013,75 @@ _RACE_VISUAL = {
     "демоница": "demon girl, small curved horns, dark aura",
     "фея": "fairy girl, small iridescent wings, magical glow",
 }
+
+# English scene hints for hired waifu portrait (one random perk from waifu.perks)
+_PERK_PORTRAIT_VISUAL_EN: dict[str, str] = {
+    "gas_mask": "wearing a tactical gas mask half-raised, hazmat straps, cautious eyes",
+    "diver": "wetsuit collar, snorkel mask on forehead, water droplets on skin",
+    "fireproof": "heat shimmer aura, light soot smudges, calm near embers",
+    "frostproof": "frosty breath mist, ice crystal sparkles in hair",
+    "navigator": "holding a brass compass, rolled sea chart at belt",
+    "desert_walker": "sun scarf, desert wind, sand dust on cloak",
+    "gas_filter": "heavy-duty respirator filters visible, steampunk tubes",
+    "snow_warrior": "fur-lined hood, snowflakes on lashes, ruddy cheeks",
+    "acid_proof": "rubberized gear edges, protective goggles hanging on neck",
+    "wind_walker": "scarf whipping in strong wind, dynamic hair motion",
+    "elf_slayer": "battle-worn blade hilt, subtle elven rune trophy charm",
+    "orc_hunter": "heavy crossbow strap, tribal war paint streak",
+    "priest": "holy symbol pendant, soft golden light between hands",
+    "demon_slayer": "blessed steel glint, faint holy seal pattern on gauntlet",
+    "dragonslayer": "scorched scale fragment on pauldron, heroic upward gaze",
+    "goblin_shaker": "mischievous grin, small bomb pouch at hip",
+    "troll_slayer": "wooden club on shoulder, moss and mud stains",
+    "vampire_hunter": "wooden stakes on bandolier, silver cross glint",
+    "entomologist": "magnifying glass, pinned colorful beetle on lapel",
+    "bat_hunter": "night sky cape, small bat charm earring",
+    "mushroom_expert": "woven basket of glowing mushrooms, forest floor moss",
+    "scout": "crouching among dense bushes, binoculars raised, stealthy focus",
+    "archaeologist": "dusty gloves, ancient stone tablet fragment, fine brush",
+    "swamp_walker": "knee-high waders, misty fen reeds behind",
+    "spider_hunter": "torch glow, sticky web strands on sleeve",
+    "chemist": "glass vials on belt, faint green vapor wisps",
+    "magic_researcher": "floating arcane notes and tiny rune diagrams",
+    "exorcist": "rosary wrapped around fist, faint ectoplasm mist",
+    "mountain_engineer": "pickaxe handle visible, rock dust on cheeks",
+    "anti_magnet": "copper coil jewelry, broken compass needle spinning",
+    "curse_removal": "shattered chain motif, soft cleansing white aura",
+    "anti_mage": "null-magic cuff on wrist, dispelling hand gesture",
+    "spatial_mage": "slightly warped perspective echo around fingertips",
+    "light_protection": "dark visor up on forehead, suppressed lens flare",
+    "magic_resistance": "shimmering barrier-like skin sheen, defiant stance",
+    "chronomancer": "floating clock gear fragments, frozen dust motes",
+    "accelerator": "motion blur streaks, hair whipped to one side",
+    "spatial_navigator": "bending corridor illusion grid reflected in eyes",
+    "mana_shield": "crystalline mana shards orbiting one shoulder",
+    "lucky": "four-leaf clover hair clip, golden lucky spark motes",
+    "mental_shield": "psychic ripple halo blocking inward, focused brow",
+    "strong_spirit": "iron-willed stance, inner fire reflected in pupils",
+    "mental_clarity": "serene sharp gaze, single clean rim light",
+    "sleepless": "stylized tired eyes, steam from mug at belt",
+    "trusting": "warm open smile, hand extended in greeting",
+    "photographic_memory": "faint glowing film-strip frames around temples",
+    "calm": "meditative mudra, perfectly still hair despite wind",
+    "optimist": "sunflower brooch, bright hopeful expression",
+    "anger_control": "slow exhale pose, opening clenched fist gently",
+    "passionate": "leaning forward energetically, lively spark in eyes",
+}
+
+_HIRE_PORTRAIT_POSE_EN: tuple[str, ...] = (
+    "dynamic action-ready pose, slight torso twist",
+    "three-quarter view turning toward camera",
+    "slight crouch as if about to move, weight on front foot",
+    "confident contrapposto stance, hand on hip",
+    "looking over shoulder with alert expression",
+    "low heroic angle, chin slightly lifted",
+    "leaning on weapon or staff, relaxed but ready",
+    "one knee raised on rock, wind in hair",
+    "arms crossed with subtle smirk, strong silhouette",
+    "mid-step freeze, cloak mid-swing for motion",
+    "reaching toward viewer, engaging eye contact",
+    "head tilted, playful asymmetrical composition",
+)
 
 
 _MAIN_WAIFU_RACE_VISUAL_EN: dict[int, str] = {
@@ -1050,9 +1334,8 @@ async def generate_main_waifu_portrait(
     Портрет основной вайфу (превью при создании): OpenRouter image API, anime 2:3.
     Возвращает только base64 без префикса data: или None.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.info("[MAIN OV IMAGE] Skip: no OPENROUTER_API_KEY")
+    if not has_llm_configured():
+        logger.info("[MAIN OV IMAGE] Skip: no LLM API key")
         return None
 
     model = settings.openrouter_model_image
@@ -1114,16 +1397,14 @@ async def generate_main_waifu_portrait(
                         "image_size": "1K",
                     },
                 }
-                r = await client.post(
-                    _openrouter_url(),
-                    headers=_openrouter_headers(),
-                    json=body,
+                r = await post_chat_completions(
+                    client,
+                    body,
+                    caller="main ov image",
+                    use_image_model=True,
                 )
-                if r.status_code == 402:
-                    logger.error("[MAIN OV IMAGE] OpenRouter 402")
-                    return None
                 if r.status_code == 401:
-                    logger.error("[MAIN OV IMAGE] OpenRouter 401")
+                    logger.error("[MAIN OV IMAGE] LLM 401")
                     return None
                 if not r.is_success:
                     logger.error("[MAIN OV IMAGE] HTTP %s %s", r.status_code, (r.text or "")[:400])
@@ -1160,6 +1441,195 @@ async def generate_main_waifu_portrait(
         return None
 
 
+_PAPERDOLL_POSES_NEUTRAL_EN: tuple[str, ...] = (
+    "waist-up, relaxed heroic standing, arms at sides or one hand on hip, no weapons in hands",
+    "waist-up, slight three-quarter view, friendly adventurer stance, empty hands visible",
+    "waist-up, charismatic standing pose, slight lean, expressive but calm empty hands",
+)
+
+_PAPERDOLL_POSES_DUAL_WIELD_EN: tuple[str, ...] = (
+    "waist-up, three-quarter view: right hand primary grip on main-hand weapon; left hand holds off-hand item "
+    "(shield, orb, or dagger) — exactly two arms and two hands only",
+    "waist-up, battle-ready stance: main weapon raised in primary hand; off-hand item held low at side — "
+    "two arms, two hands, no extra limbs",
+    "waist-up, dynamic guard pose: weapon forward in main hand, off-hand orb or shield presented — "
+    "anatomically correct two arms only",
+)
+
+_PAPERDOLL_POSES_TWO_HAND_EN: tuple[str, ...] = (
+    "waist-up, two-handed weapon grip with both hands on the same polearm or staff — exactly two arms on one weapon",
+    "waist-up, heroic two-hand hold on great weapon, slight three-quarter angle, both hands visible on shaft",
+)
+
+_PAPERDOLL_POSES_ONE_HAND_EN: tuple[str, ...] = (
+    "waist-up, main-hand weapon at side in single-hand grip; other hand empty on hip or relaxed — two arms only",
+    "waist-up, confident one-hand weapon hold, off-hand free, slight three-quarter view",
+)
+
+_PAPERDOLL_POSES_ORB_CAST_EN: tuple[str, ...] = (
+    "waist-up, casting pose: off-hand palm up presenting a magical orb; main hand free or resting on weapon — two arms",
+    "waist-up, channeling stance: orb floating near off-hand, focused gaze, single orb in one hand only",
+)
+
+_PAPERDOLL_POSES_ARMOR_ONLY_EN: tuple[str, ...] = (
+    "waist-up, relaxed standing in armor, hands empty and visible, no weapon draw pose",
+    "waist-up, heroic showcase stance, arms relaxed at sides showing costume and jewelry",
+)
+
+
+def _paperdoll_slot_is_weapon(info: dict[str, str] | None) -> bool:
+    if not info:
+        return False
+    st = str(info.get("slot_type") or "").lower()
+    wt = str(info.get("weapon_type") or "").lower()
+    if st in ("weapon_1h", "weapon_2h") or st.startswith("weapon"):
+        return True
+    if wt and wt not in ("orb",):
+        return True
+    return st == "offhand" and bool(wt)
+
+
+def _paperdoll_slot_is_two_hand(info: dict[str, str] | None) -> bool:
+    if not info:
+        return False
+    st = str(info.get("slot_type") or "").lower()
+    wt = str(info.get("weapon_type") or "").lower()
+    return st == "weapon_2h" or wt in ("two_hand", "2h", "bow", "staff", "staff_wand")
+
+
+def _paperdoll_slot_is_orb(info: dict[str, str] | None) -> bool:
+    if not info:
+        return False
+    wt = str(info.get("weapon_type") or "").lower()
+    st = str(info.get("slot_type") or "").lower()
+    return wt == "orb" or (st == "offhand" and wt == "orb")
+
+
+def pick_paperdoll_pose_for_equipment(equipped_slots: dict[int, dict[str, str]]) -> str:
+    """Pick an English pose hint from equipped slot types (1=main, 2=off, 3=costume, …)."""
+    main = equipped_slots.get(1)
+    off = equipped_slots.get(2)
+    has_main = _paperdoll_slot_is_weapon(main)
+    has_off = bool(off) and (
+        _paperdoll_slot_is_weapon(off)
+        or str(off.get("slot_type") or "").lower() == "offhand"
+    )
+
+    if has_main and has_off:
+        if _paperdoll_slot_is_orb(off) or _paperdoll_slot_is_orb(main):
+            return random.choice(_PAPERDOLL_POSES_ORB_CAST_EN)
+        return random.choice(_PAPERDOLL_POSES_DUAL_WIELD_EN)
+
+    if has_main and _paperdoll_slot_is_two_hand(main):
+        return random.choice(_PAPERDOLL_POSES_TWO_HAND_EN)
+
+    if has_main:
+        return random.choice(_PAPERDOLL_POSES_ONE_HAND_EN)
+
+    if has_off and _paperdoll_slot_is_orb(off):
+        return random.choice(_PAPERDOLL_POSES_ORB_CAST_EN)
+
+    if equipped_slots:
+        return random.choice(_PAPERDOLL_POSES_ARMOR_ONLY_EN)
+
+    return random.choice(_PAPERDOLL_POSES_NEUTRAL_EN)
+
+
+# Waist-up portraits usually show hands below ~40% height; crop higher to keep arms out of the reference.
+_PAPERDOLL_IDENTITY_CROP_HEIGHT_RATIO = 0.38
+_PAPERDOLL_IDENTITY_CROP_HORIZONTAL_INSET = 0.04
+
+
+def _crop_portrait_identity_reference_for_paperdoll(raw_b64: str) -> tuple[str, str] | None:
+    """
+    Tight head/upper-neck crop so multimodal models cannot copy arm poses from the full portrait.
+    Returns (base64, mime) as PNG, or None on failure (caller keeps full portrait).
+    """
+    try:
+        raw = base64.b64decode(str(raw_b64 or "").strip(), validate=False)
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        img = Image.open(BytesIO(raw))
+        img.load()
+    except Exception:
+        logger.warning("[MAIN OV PAPERDOLL] identity crop: cannot decode portrait")
+        return None
+
+    w, h = img.size
+    if w < 16 or h < 16:
+        return None
+
+    crop_h = max(48, min(h, int(h * _PAPERDOLL_IDENTITY_CROP_HEIGHT_RATIO)))
+    inset_x = max(0, int(w * _PAPERDOLL_IDENTITY_CROP_HORIZONTAL_INSET))
+    left = inset_x
+    right = max(left + 16, w - inset_x)
+    box = (left, 0, right, crop_h)
+    try:
+        cropped = img.crop(box)
+    except Exception:
+        logger.warning("[MAIN OV PAPERDOLL] identity crop: crop failed")
+        return None
+
+    if cropped.mode in ("RGBA", "LA", "P"):
+        background = Image.new("RGB", cropped.size, (245, 240, 230))
+        if cropped.mode == "P":
+            cropped = cropped.convert("RGBA")
+        if cropped.mode in ("RGBA", "LA"):
+            background.paste(cropped, mask=cropped.split()[-1])
+            cropped = background
+        else:
+            cropped = cropped.convert("RGB")
+    elif cropped.mode != "RGB":
+        cropped = cropped.convert("RGB")
+
+    buf = BytesIO()
+    cropped.save(buf, format="PNG", optimize=True)
+    out = buf.getvalue()
+    if not out:
+        return None
+    logger.info(
+        "[MAIN OV PAPERDOLL] identity crop %dx%d -> %dx%d (ratio=%.2f)",
+        w,
+        h,
+        cropped.size[0],
+        cropped.size[1],
+        _PAPERDOLL_IDENTITY_CROP_HEIGHT_RATIO,
+    )
+    return base64.b64encode(out).decode("ascii"), "image/png"
+
+
+def _paperdoll_background_for_avg_tier(avg_tier: float) -> str:
+    t = float(avg_tier or 1.0)
+    if t >= 9.0:
+        return (
+            "Background: legendary divine atmosphere — rich deep gradient (royal violet to gold), "
+            "intense golden god-rays, radiant halo glow behind the character, sparkling particles and arcane energy wisps, "
+            "premium loot aura; no scenery, no text."
+        )
+    if t >= 7.0:
+        return (
+            "Background: epic high-tier fantasy — dramatic purple-blue gradient with bright rim light, "
+            "floating sparkles, soft energy wisps and subtle lens flare; heroic showcase feel; no scenery, no text."
+        )
+    if t >= 5.0:
+        return (
+            "Background: rare gear atmosphere — warm amber and teal gradient, magical particle motes, "
+            "soft rim glow around the silhouette, light VFX sparkles; no scenery, no text."
+        )
+    if t >= 3.0:
+        return (
+            "Background: uncommon quality — soft vertical gradient (warm cream to pale gold), "
+            "gentle warm aura and faint glow behind shoulders; no scenery, no text."
+        )
+    return (
+        "Background: solid or very soft vertical gradient light beige (#f5f0e6 to #ebe4d6), warm parchment tone, "
+        "minimal effects; no scenery, no patterns, no text — must harmonize with a soft UI paperdoll panel."
+    )
+
+
 async def generate_main_waifu_paperdoll_from_portrait(
     *,
     portrait_b64: str,
@@ -1167,14 +1637,16 @@ async def generate_main_waifu_paperdoll_from_portrait(
     race_id: int,
     class_id: int,
     equipment_prompt_en: str | None = None,
+    equipment_references: list[tuple[str, str]] | None = None,
+    avg_equipment_tier: float = 1.0,
+    pose_hint_en: str | None = None,
 ) -> Optional[str]:
     """
     2D JRPG-style paperdoll (waist-up) from existing portrait: multimodal request to OPENROUTER_MODEL_IMAGE.
     Returns raw base64 or None.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.info("[MAIN OV PAPERDOLL] Skip: no OPENROUTER_API_KEY")
+    if not has_llm_configured():
+        logger.info("[MAIN OV PAPERDOLL] Skip: no LLM API key")
         return None
 
     raw_b64 = str(portrait_b64 or "").strip()
@@ -1185,38 +1657,84 @@ async def generate_main_waifu_paperdoll_from_portrait(
     mime = (portrait_mime or "image/png").strip() or "image/png"
     if ";" in mime or "/" not in mime:
         mime = "image/png"
-    data_url = f"data:{mime};base64,{raw_b64}"
+    identity_b64 = raw_b64
+    cropped = _crop_portrait_identity_reference_for_paperdoll(raw_b64)
+    identity_cropped = cropped is not None
+    if cropped:
+        identity_b64, mime = cropped
+    data_url = f"data:{mime};base64,{identity_b64}"
 
     model = settings.openrouter_model_image
     race_en = _MAIN_WAIFU_RACE_VISUAL_EN.get(int(race_id), "human girl")
     class_en = _MAIN_WAIFU_CLASS_VISUAL_EN.get(int(class_id), "female adventurer")
     raw_eq = str(equipment_prompt_en or "").strip()
     equip_extra = "\n\n" + raw_eq if raw_eq else ""
+    pose_en = str(pose_hint_en or "").strip() or random.choice(_PAPERDOLL_POSES_NEUTRAL_EN)
+    bg_en = _paperdoll_background_for_avg_tier(avg_equipment_tier)
+    gear_ref_note = ""
+    refs = equipment_references or []
+    if refs:
+        gear_ref_note = (
+            f"\nAttached after the identity portrait: {len(refs)} reference image(s) of equipped gear — "
+            "integrate each item's design onto the character in the matching slot."
+        )
+    identity_ref_note = (
+        "The attached identity image is a tight head-and-upper-neck crop only — it intentionally contains NO arms, "
+        "hands, torso below the collarbone, or full-body pose. Do not hallucinate extra arms from any other source."
+        if identity_cropped
+        else (
+            "The attached identity image must be used for face and hair only — ignore any visible arms or hands in it "
+            "and draw a completely new body pose."
+        )
+    )
     prompt = (
-        "Using the attached reference portrait, generate a single JRPG-style 2D full-color illustration of the "
-        "SAME character. CRITICAL: preserve the face exactly — same facial features, eyes, nose, mouth, expression, "
-        "hairstyle, hair color, skin tone, and overall identity as the reference; do not redesign the face."
-        f"\nBody framing: waist-up or mid-thigh-up, slight three-quarter view, neutral relaxed stance; hands positioned "
-        f"so equipped weapons or shields can be held naturally where applicable."
+        "Generate a single JRPG-style 2D full-color illustration of a fantasy heroine with the SAME identity as the "
+        "attached identity reference, but in a completely NEW full waist-up pose drawn from scratch."
+        f"\n{identity_ref_note}"
+        "\nIdentity (copy from identity reference ONLY): same face, facial features, eye colors (including heterochromia), "
+        "nose, mouth shape, hairstyle, hair color, skin tone, horns, ears, and general body type. Do not redesign the face."
+        "\nDraw ALL arms, hands, and fingers ONLY from the Pose requirement below — never copy limb positions from any reference."
+        "\nAnatomy (mandatory): exactly two arms and two hands total in the final image; anatomically correct; "
+        "each hand holds at most one item; no duplicate arms, no merged limbs, no third arm, no extra floating hands."
+        f"\nPose (mandatory — sole source for limb layout): {pose_en}"
         f"\nCharacter flavor: {race_en}, {class_en}."
         f"{equip_extra}"
+        f"{gear_ref_note}"
         "\nArt style: soft cel-shading, clean line art, not photorealistic, not 3D render, fantasy JRPG character art. "
         "Safe for work, 1girl."
-        "\nBackground: solid or very soft vertical gradient light beige (#f5f0e6 to #ebe4d6), warm parchment tone, "
-        "no scenery, no patterns, no text — must harmonize with a soft UI paperdoll panel."
+        f"\n{bg_en}"
     )
     logger.info(
-        "[MAIN OV PAPERDOLL] model=%s race=%s class=%s equip_chars=%s",
+        "[MAIN OV PAPERDOLL] model=%s race=%s class=%s equip_chars=%s refs=%s avg_tier=%.2f pose=%s",
         model,
         race_id,
         class_id,
         len(raw_eq),
+        len(refs),
+        float(avg_equipment_tier or 1.0),
+        pose_en[:64],
     )
 
     user_content: list[dict[str, Any]] = [
         {"type": "text", "text": prompt},
+        {
+            "type": "text",
+            "text": (
+                "Identity reference — tight head/upper-neck crop ONLY (no arms or hands visible). "
+                "Copy face, hair, horns, ears, eye colors; IGNORE any limb pose hints:"
+            ),
+        },
         {"type": "image_url", "image_url": {"url": data_url}},
     ]
+    for slot_label, ref_url in refs:
+        label = str(slot_label or "Gear").strip() or "Gear"
+        url = str(ref_url or "").strip()
+        if not url:
+            continue
+        user_content.append(
+            {"type": "text", "text": f"Reference gear image for {label} — match this item on the character:"}
+        )
+        user_content.append({"type": "image_url", "image_url": {"url": url}})
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -1232,16 +1750,14 @@ async def generate_main_waifu_paperdoll_from_portrait(
                         "image_size": "1K",
                     },
                 }
-                r = await client.post(
-                    _openrouter_url(),
-                    headers=_openrouter_headers(),
-                    json=body,
+                r = await post_chat_completions(
+                    client,
+                    body,
+                    caller="main ov paperdoll",
+                    use_image_model=True,
                 )
-                if r.status_code == 402:
-                    logger.error("[MAIN OV PAPERDOLL] OpenRouter 402")
-                    return None
                 if r.status_code == 401:
-                    logger.error("[MAIN OV PAPERDOLL] OpenRouter 401")
+                    logger.error("[MAIN OV PAPERDOLL] LLM 401")
                     return None
                 if not r.is_success:
                     logger.error("[MAIN OV PAPERDOLL] HTTP %s %s", r.status_code, (r.text or "")[:400])
@@ -1278,33 +1794,142 @@ async def generate_main_waifu_paperdoll_from_portrait(
         return None
 
 
+_HIRE_PERK_MOMENT_MAX_CHARS = 200
+
+
+def _sanitize_hire_perk_moment_ru(raw: str) -> str:
+    """Одно предложение, без лишних пробелов, не длиннее лимита."""
+    t = (raw or "").strip()
+    t = re.sub(r"[\r\n]+", " ", t)
+    t = re.sub(r"\s+", " ", t)
+    for sep in (".", "!", "?", "…"):
+        pos = t.find(sep)
+        if pos != -1:
+            t = t[: pos + 1].strip()
+            break
+    if len(t) > _HIRE_PERK_MOMENT_MAX_CHARS:
+        t = t[:_HIRE_PERK_MOMENT_MAX_CHARS].rstrip()
+    return t
+
+
+async def generate_hire_waifu_perk_moment_ru(
+    *,
+    perk_id: str,
+    perk_name_ru: str,
+    name: str,
+    race_ru: str,
+    class_ru: str,
+    bio: str,
+) -> Optional[str]:
+    """
+    Одно короткое предложение на русском: визуальный момент для аниме-портрета, связанный с перком.
+    """
+    if not has_text_llm_configured():
+        return None
+
+    bio_short = (bio or "").strip()
+    if len(bio_short) > 400:
+        bio_short = bio_short[:400].rstrip() + "…"
+
+    user_prompt = f"""Персонаж: наёмница «{name}», раса: {race_ru}, класс: {class_ru}.
+Умение (перк) для сцены: «{perk_name_ru}» (внутренний id: {perk_id}).
+Краткая био (контекст, не цитируй дословно): {bio_short or "нет"}
+
+Напиши РОВНО ОДНО короткое предложение на русском языке — конкретный визуальный момент для аниме-портрета верхней части тела: что она делает, что видно вокруг, настроение. Сцена должна буквально и с юмором обыгрывать суть умения «{perk_name_ru}».
+{AI_HIRE_MOMENT_MODERN_HUMOR_RU}
+Без markdown, без кавычек, без списков, без чисел и игровых механик, без обращения к зрителю. Только текст предложения."""
+
+    try:
+        text = await _ai_text(
+            user_prompt,
+            caller="hire portrait moment",
+            max_tokens=120,
+            temperature=1.05,
+            timeout_sec=40.0,
+        )
+        if not text:
+            return None
+        out = _sanitize_hire_perk_moment_ru(text)
+        return out or None
+    except Exception as e:
+        logger.warning("[HIRE PORTRAIT MOMENT] error: %s", e)
+        return None
+
+
 async def generate_hire_waifu_image(
     race_ru: str,
     class_ru: str,
     bio: str,
     name: str = "",
+    perk_ids: Sequence[str] | None = None,
 ) -> Optional[str]:
     """
     Генерирует портрет наёмницы через OpenRouter image API (cursor_plan_7).
+    Случайный перк из perk_ids: статический EN-фрагмент + при успехе ИИ — одно RU-предложение
+    момента вместо случайной позы; иначе поза из пула.
     Возвращает base64-строку изображения или None при ошибке.
     Парсинг: message.images[0].image_url.url, не content.
     """
-    api_key = getattr(settings, "openrouter_api_key", None)
-    if not api_key:
-        logger.info("[IMAGE GEN] Skip: no OPENROUTER_API_KEY")
+    if not has_llm_configured():
+        logger.info("[IMAGE GEN] Skip: no LLM API key")
         return None
 
     model = settings.openrouter_model_image
     race_key = (race_ru or "человек").strip().lower()
     class_key = (class_ru or "маг").strip().lower()
-    prompt = (
-        f"anime style portrait, {_RACE_VISUAL.get(race_key, 'human girl')}, "
-        f"{_CLASS_VISUAL.get(class_key, 'adventurer')}, "
+    race_visual = _RACE_VISUAL.get(race_key, "human girl")
+    class_visual = _CLASS_VISUAL.get(class_key, "adventurer")
+
+    candidates = [str(p).strip() for p in (perk_ids or ()) if str(p).strip()]
+    chosen_perk_id: str | None = None
+    perk_snippet = ""
+    if candidates:
+        chosen_perk_id = random.choice(candidates)
+        perk_snippet = (_PERK_PORTRAIT_VISUAL_EN.get(chosen_perk_id) or "").strip()
+
+    pose_snippet = random.choice(_HIRE_PORTRAIT_POSE_EN)
+    if chosen_perk_id:
+        perk_row = PERK_BY_ID.get(chosen_perk_id)
+        perk_name_ru = (perk_row.name if perk_row else chosen_perk_id).strip()
+        moment_ru = await generate_hire_waifu_perk_moment_ru(
+            perk_id=chosen_perk_id,
+            perk_name_ru=perk_name_ru,
+            name=(name or "Наёмница").strip(),
+            race_ru=race_ru,
+            class_ru=class_ru,
+            bio=bio,
+        )
+        if moment_ru:
+            pose_snippet = moment_ru
+            logger.info(
+                "[HIRE PORTRAIT MOMENT] perk_id=%s source=ai preview=%s",
+                chosen_perk_id,
+                moment_ru[:120].replace("\n", " "),
+            )
+        else:
+            logger.warning(
+                "[HIRE PORTRAIT MOMENT] perk_id=%s source=fallback_pool (AI empty or failed)",
+                chosen_perk_id,
+            )
+    base_tail = (
         "fantasy RPG character, upper body, detailed face, "
         "dark atmospheric background, dramatic lighting, "
         "high quality illustration, 1girl"
     )
+    parts: list[str] = [
+        "anime style portrait",
+        race_visual,
+        class_visual,
+    ]
+    if perk_snippet:
+        parts.append(perk_snippet)
+    parts.append(pose_snippet)
+    parts.append(base_tail)
+    prompt = ", ".join(parts)
+
     logger.info("[IMAGE GEN] Starting for %s (%s), model: %s", name or "waifu", race_ru, model)
+    if chosen_perk_id:
+        logger.info("[IMAGE GEN] Chosen perk for portrait: %s", chosen_perk_id)
     logger.info("[IMAGE GEN] Prompt: %s...", prompt[:100])
 
     try:
@@ -1321,18 +1946,16 @@ async def generate_hire_waifu_image(
                         "image_size": "1K",
                     },
                 }
-                r = await client.post(
-                    _openrouter_url(),
-                    headers=_openrouter_headers(),
-                    json=body,
+                r = await post_chat_completions(
+                    client,
+                    body,
+                    caller="hire portrait image",
+                    use_image_model=True,
                 )
                 logger.info("[IMAGE GEN] Status: %s modalities=%s", r.status_code, modalities)
 
-                if r.status_code == 402:
-                    logger.error("[IMAGE GEN] OpenRouter: недостаточно средств (402)")
-                    return None
                 if r.status_code == 401:
-                    logger.error("[IMAGE GEN] OpenRouter: неверный API ключ (401)")
+                    logger.error("[IMAGE GEN] LLM: неверный API ключ (401)")
                     return None
                 if not r.is_success:
                     logger.error("[IMAGE GEN] Error body: %s", r.text[:500])

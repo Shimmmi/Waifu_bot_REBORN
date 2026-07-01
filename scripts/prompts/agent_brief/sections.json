@@ -1,0 +1,192 @@
+{
+  "sections": [
+    {
+      "id": "00",
+      "slug": "intro",
+      "title": "Введение",
+      "merge_with": "01",
+      "sources": [
+        "README.md",
+        "info/waifu_bot_full_tz.md",
+        "docs/technical_spec.md"
+      ],
+      "prompt_file": "00_intro.md"
+    },
+    {
+      "id": "01",
+      "slug": "core-loop",
+      "title": "Сквозной игровой цикл",
+      "sources": [
+        "info/waifu_bot_full_tz.md",
+        "docs/technical_spec.md",
+        "src/waifu_bot/webapp/index.html"
+      ],
+      "prompt_file": "01_core_loop.md"
+    },
+    {
+      "id": "02",
+      "slug": "clients",
+      "title": "Клиенты и каналы взаимодействия",
+      "sources": [
+        ".cursor/plans/steam_version.md",
+        "docs/ARCHITECTURE_AND_INTERACTIONS.md",
+        "README.md"
+      ],
+      "prompt_file": "02_clients.md"
+    },
+    {
+      "id": "03",
+      "slug": "profile",
+      "title": "Основная вайфу и профиль",
+      "sources": [
+        "info/waifu_bot_full_tz.md",
+        "src/waifu_bot/webapp/profile.html",
+        "src/waifu_bot/services/player_profile_service.py",
+        "src/waifu_bot/game/effective_stats.py"
+      ],
+      "prompt_file": "03_profile.md"
+    },
+    {
+      "id": "04",
+      "slug": "items",
+      "title": "Предметы и аффиксы",
+      "sources": [
+        "info/ENCHANTMENT_SYSTEM_V2.md",
+        "info/legendary_items_catalog.md",
+        "info/SECONDARY_BONUSES.md",
+        "src/waifu_bot/services/craft_enchant.py",
+        "src/waifu_bot/services/dismantle.py"
+      ],
+      "prompt_file": "04_items.md"
+    },
+    {
+      "id": "05",
+      "slug": "skills",
+      "title": "Пассивные и скрытые навыки",
+      "sources": [
+        "info/PASSIVE_SKILLS.md",
+        "info/hidden_skills_analysis.md",
+        "src/waifu_bot/webapp/training_hall.html",
+        "src/waifu_bot/services/passive_skills.py",
+        "src/waifu_bot/services/hidden_skills.py"
+      ],
+      "prompt_file": "05_skills.md"
+    },
+    {
+      "id": "06",
+      "slug": "solo-dungeons",
+      "title": "Соло-подземелья",
+      "sources": [
+        "docs/CHAT_ACTIVITY_REWARDS.md",
+        "docs/ARCHITECTURE_AND_INTERACTIONS.md",
+        "src/waifu_bot/services/combat.py",
+        "src/waifu_bot/services/dungeon.py",
+        "src/waifu_bot/webapp/dungeons.html"
+      ],
+      "prompt_file": "06_solo_dungeons.md"
+    },
+    {
+      "id": "07",
+      "slug": "expeditions",
+      "title": "Экспедиции",
+      "sources": [
+        "info/expedition_mercenary_system_analysis.md",
+        "src/waifu_bot/services/expedition.py",
+        "src/waifu_bot/game/expedition_redesign.py",
+        "src/waifu_bot/services/expedition_events_ai.py"
+      ],
+      "prompt_file": "07_expeditions.md"
+    },
+    {
+      "id": "08",
+      "slug": "gd-v1",
+      "title": "Групповые подземелья GD v1",
+      "sources": [
+        "docs/BOT_COMMANDS_FOR_BOTFATHER.md",
+        "docs/GROUP_CHAT_SOLO_AND_GD_DIAGNOSTICS.md",
+        "src/waifu_bot/services/gd_v1_worker.py",
+        "src/waifu_bot/services/gd_narrative_ai.py"
+      ],
+      "prompt_file": "08_gd_v1.md"
+    },
+    {
+      "id": "09",
+      "slug": "abyss",
+      "title": "Бездна (Abyss)",
+      "sources": [
+        "docs/ENDLESS_DUNGEON_PLUS_SCHEMA.md",
+        "src/waifu_bot/services/abyss_service.py",
+        "src/waifu_bot/services/abyss_combat.py"
+      ],
+      "prompt_file": "09_abyss.md"
+    },
+    {
+      "id": "10",
+      "slug": "guild",
+      "title": "Гильдия",
+      "sources": [
+        ".cursor/plans/guild_quests.md",
+        "src/waifu_bot/webapp/guild_hall.html",
+        "src/waifu_bot/services/guild_raid_v2_service.py",
+        "src/waifu_bot/services/guild_war_service.py",
+        "src/waifu_bot/services/guild_quest_service.py"
+      ],
+      "prompt_file": "10_guild.md"
+    },
+    {
+      "id": "11",
+      "slug": "economy",
+      "title": "Экономика и социальные системы",
+      "sources": [
+        "docs/CHAT_ACTIVITY_REWARDS.md",
+        "src/waifu_bot/api/shop_routes.py",
+        "src/waifu_bot/api/tavern_routes.py",
+        "src/waifu_bot/webapp/shop.html",
+        "src/waifu_bot/webapp/tavern.html",
+        "src/waifu_bot/webapp/caravan.html"
+      ],
+      "prompt_file": "11_economy.md"
+    },
+    {
+      "id": "12",
+      "slug": "ai-layer",
+      "title": "AI-слой и нarrativ",
+      "sources": [
+        "config/ai_presets.yaml",
+        "info/ai_config_models.md",
+        "src/waifu_bot/services/ai_service.py",
+        "src/waifu_bot/services/expedition_events_ai.py"
+      ],
+      "prompt_file": "12_ai_layer.md"
+    },
+    {
+      "id": "13",
+      "slug": "steam",
+      "title": "Steam-миграция",
+      "sources": [
+        ".cursor/plans/steam_version.md",
+        "docs/ARCHITECTURE_AND_INTERACTIONS.md"
+      ],
+      "prompt_file": "13_steam.md"
+    },
+    {
+      "id": "14",
+      "slug": "interactions",
+      "title": "Карта взаимодействий",
+      "sources": [
+        "docs/ARCHITECTURE_AND_INTERACTIONS.md"
+      ],
+      "prompt_file": "14_interactions.md"
+    },
+    {
+      "id": "A",
+      "slug": "appendix",
+      "title": "Справочник",
+      "sources": [
+        "docs/BOT_COMMANDS_FOR_BOTFATHER.md",
+        "docs/ARCHITECTURE_AND_INTERACTIONS.md"
+      ],
+      "prompt_file": "A_appendix.md"
+    }
+  ]
+}

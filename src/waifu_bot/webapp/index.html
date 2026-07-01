@@ -6,7 +6,7 @@
     <title>Waifu REBORN</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=waifu-webapp-v50" />
     <style>
       .title-screen-load-fail-title {
         font-weight: 700;
@@ -17,27 +17,16 @@
         word-break: break-word;
       }
     </style>
-    <script src="./vendor/telegram-web-app.js"></script>
-    <script defer src="./app.js"></script>
+    <link rel="stylesheet" href="./assets/tutorial.css" />
+    <script defer src="./vendor/telegram-web-app.js"></script>
+    <script defer src="./assets/tutorial.js"></script>
+    <script defer src="./app.js?v=waifu-webapp-v50"></script>
   </head>
   <body class="page-title-screen" onload="WaifuApp.bootstrapPage('index', WaifuApp.initTitleScreen);">
     <div class="title-screen-bg" aria-hidden="true"></div>
     <div class="title-screen-scrim" aria-hidden="true"></div>
 
     <main class="title-screen-main">
-      <div class="title-screen-logo-wrap">
-        <img
-          class="title-screen-logo"
-          src="/static/game/ui/title/title.webp"
-          alt="Waifu REBORN"
-          width="240"
-          height="53"
-          decoding="async"
-          onerror="this.style.display='none';var n=this.nextElementSibling;if(n)n.classList.add('title-screen-fallback--show');"
-        />
-        <h1 class="title-screen-fallback">Waifu REBORN</h1>
-      </div>
-
       <noscript>
         <p class="title-screen-noscript muted">Включите JavaScript или откройте <a href="./profile.html">profile.html</a>.</p>
       </noscript>
@@ -48,7 +37,7 @@
         <button type="button" id="title-primary-btn" class="title-screen-btn" disabled>
           …
         </button>
-        <a class="title-screen-btn" href="./settings.html">Настройки</a>
+        <a class="title-screen-btn" href="./player.html">Профиль</a>
         <button type="button" id="title-info-btn" class="title-screen-btn">Информация</button>
       </nav>
     </main>

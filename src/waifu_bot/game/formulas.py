@@ -5,6 +5,9 @@ import random
 from typing import Any
 
 from waifu_bot.game.constants import (
+    ARMOR_DR_CAP,
+    ARMOR_K_BASE,
+    ARMOR_K_PER_LEVEL,
     BASE_HP_PER_LEVEL,
     BASE_SKILL_DAMAGE,
     CRIT_CHANCE_AGILITY,
@@ -59,6 +62,16 @@ def calculate_max_energy(endurance: int) -> int:
 def calculate_damage_reduction(endurance: int) -> float:
     """Calculate incoming damage reduction from ВЫН. Capped at END_DAMAGE_REDUCTION_CAP."""
     return min(endurance * END_DAMAGE_REDUCTION_COEFF, END_DAMAGE_REDUCTION_CAP)
+
+
+def calculate_armor_damage_reduction(armor_total: float, waifu_level: int) -> float:
+    """Доля снижения от брони: A/(A+K(L)), кап ARMOR_DR_CAP."""
+    a = max(0.0, float(armor_total))
+    level = max(1, min(int(waifu_level or 1), int(MAX_LEVEL)))
+    k = float(ARMOR_K_BASE) + float(ARMOR_K_PER_LEVEL) * float(level)
+    if a + k <= 0:
+        return 0.0
+    return min(float(ARMOR_DR_CAP), a / (a + k))
 
 
 def calculate_crit_multiplier(strength: int) -> float:
@@ -172,6 +185,8 @@ def build_message_damage_base_trace_ru(
     attack_type: str,
     message_length: int,
     weapon_damage: int | None,
+    weapon_main: int | None = None,
+    weapon_offhand: int | None = None,
 ) -> tuple[int, list[dict[str, Any]]]:
     """Шаги базы урона сообщения в формате damage_breakdown; итог = calculate_message_damage(...)."""
     media_coef = float(MEDIA_COEFFICIENTS.get(media_type, 1.0))
@@ -188,7 +203,17 @@ def build_message_damage_base_trace_ru(
     )
     mt = _media_type_label_ru(media_type)
     steps: list[dict[str, Any]] = []
-    wpn_lbl = "База: урон оружия" if weapon_damage is not None else "База: урон без оружия (навык)"
+    if weapon_damage is not None:
+        # Breakdown of the weapon base by hand, e.g. "= 20 (15MH+5OH)".
+        parts: list[str] = []
+        if weapon_main:
+            parts.append(f"{int(weapon_main)}MH")
+        if weapon_offhand:
+            parts.append(f"{int(weapon_offhand)}OH")
+        suffix = f" = {base} ({'+'.join(parts)})" if parts else f" = {base}"
+        wpn_lbl = "База: урон оружия" + suffix
+    else:
+        wpn_lbl = "База: урон без оружия (навык)"
     steps.append(
         {
             "kind": "base",
@@ -264,6 +289,79 @@ def build_message_damage_base_trace_ru(
         }
     )
     return total, steps
+
+
+_ATTACK_TYPE_DAMAGE_FLAT_KEYS: dict[str, str] = {
+    "melee": "melee_damage_flat",
+    "ranged": "ranged_damage_flat",
+    "magic": "magic_damage_flat",
+    "spell": "magic_damage_flat",
+}
+
+
+def apply_equipment_damage_flats(
+    damage: int,
+    *,
+    attack_type: str,
+    media_type: MediaType,
+    bonuses: dict[str, int],
+) -> tuple[int, list[dict[str, Any]]]:
+    """Плоские бонусы урона с экипировки (как в профиле «Подробно»).
+
+    Текст/ссылка: damage_flat + бонус по типу оружия (melee/ranged/magic).
+    Остальные медиа: damage_flat + magic_damage_flat (ветка урона от ИНТ).
+    """
+    from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
+
+    steps: list[dict[str, Any]] = []
+    current = int(damage)
+    keys_to_apply: list[str] = []
+
+    if int(bonuses.get("damage_flat", 0) or 0):
+        keys_to_apply.append("damage_flat")
+
+    if media_type in (MediaType.TEXT, MediaType.LINK):
+        type_key = _ATTACK_TYPE_DAMAGE_FLAT_KEYS.get((attack_type or "melee").lower())
+        if type_key and int(bonuses.get(type_key, 0) or 0):
+            keys_to_apply.append(type_key)
+    elif int(bonuses.get("magic_damage_flat", 0) or 0):
+        keys_to_apply.append("magic_damage_flat")
+
+    for key in keys_to_apply:
+        add = int(bonuses.get(key, 0) or 0)
+        if not add:
+            continue
+        nb = current
+        current = nb + add
+        label = effect_stat_description_ru(key)
+        steps.append(
+            {
+                "kind": "add",
+                "source": "affix_attack_damage_flat",
+                "label_ru": f"Экипировка: {label} +{add}",
+                "value_before": nb,
+                "value_after": current,
+                "delta": add,
+            }
+        )
+
+    pct = int(bonuses.get("damage_percent", 0) or 0)
+    if pct:
+        nb = current
+        fac = 1.0 + pct / 100.0
+        current = int(nb * fac)
+        steps.append(
+            {
+                "kind": "mult",
+                "source": "affix_attack_damage_percent",
+                "label_ru": f"Экипировка: {effect_stat_description_ru('damage_percent')} +{pct}%",
+                "value_before": nb,
+                "value_after": current,
+                "factor": round(fac, 6),
+            }
+        )
+
+    return current, steps
 
 
 def blend_rarity_weights_with_magic_find(opts: list[tuple[int, int]], total_mf_pct: float) -> list[tuple[int, int]]:

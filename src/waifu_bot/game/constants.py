@@ -9,6 +9,76 @@ AI_NARRATIVE_GROTESQUE_HUMOR_RU = (
     "Используй максимально гротескный и нишевый юмор, чтобы прям хрюкнуть с кеков."
 )
 
+# Фиксированный стиль гильдейского рейда v2 (не экспедиционные narrative styles).
+RAID_V2_NARRATIVE_STYLE_RU = (
+    "Стиль ТОЛЬКО такой: нарочитая карикатура, пошлый и гротескный юмор ниже пояса, "
+    "абсурдные образы и хохмы на грани — как внутренняя шутка гильдии. "
+    "Без канцелярита, без «документалки», без корпоративного Slack и прочих экспедиционных режимов. "
+    "Имена персонажей, локаций и гильдии выделяй тегом <b>. "
+    f"{AI_NARRATIVE_GROTESQUE_HUMOR_RU}"
+)
+
+RAID_V2_SLOT_HOURS = 4
+RAID_V2_SLOT_COUNT = 6
+
+# Современный/поп-культурный юмор для сцен портрета наёмницы (перк → визуальный момент).
+AI_HIRE_MOMENT_MODERN_HUMOR_RU = (
+    "Добавь современный, абсурдный, поп-культурный юмор и неожиданные мемные образы "
+    "(можно отсылки к супергероям, поп-культуре, интернет-мемам), но без брендов и реальных имён. "
+    "Сцена должна буквально и с юмором обыгрывать суть перка — например, перк «Охотница на летучих мышей» "
+    "может дать сцену, где она заносит топор над головой человека-летучей-мыши. SFW."
+)
+
+# Экспедиции: второй проход — rhythm-rewrite без анализа ({draft}, {length_hint}).
+AI_NARRATIVE_RHYTHM_REWRITE_RU = (
+    "Most AI writing has a predictable rhythm.\n"
+    "The sentences are similar lengths.\n"
+    "The structure becomes repetitive.\n"
+    "The pacing feels mechanical.\n\n"
+    "Rewrite the text using natural human rhythm.\n\n"
+    "Requirements:\n"
+    "- Mix short and long sentences\n"
+    "- Occasionally use fragments\n"
+    "- Vary paragraph length\n"
+    "- Avoid repetitive openings\n"
+    "- Create contrast and momentum\n"
+    "- Remove anything that feels mechanically optimized\n\n"
+    "The writing should feel alive rather than generated.\n\n"
+    "TEXT:\n{draft}\n\n"
+    "Ответ: только переписанный текст на русском. Без анализа, без markdown, без заголовков, "
+    "без списков, без слова «generic». Сохрани смысл, тон и длину ({length_hint})."
+)
+
+# GD: HTML-вёрстка нарратива в Telegram (parse_mode=HTML).
+GD_NARRATIVE_FORMATTING_RU = (
+    "Вёрстка ответа (обязательно): "
+    "имена вайфу из состава — каждый раз в <b>Имя</b>; "
+    "придуманное название навыка — <b>Название навыка</b> (краткий эффект в скобках: урон / дебафф / лечение / бафф); "
+    "имена монстров при ударе можно в <b>...</b>. "
+    "Разрешены только теги <b> и </b>. "
+    "Текст разбей на 2–3 абзаца с пустой строкой между ними — не одной стеной. "
+    "Не выводи числа HP/урона; эффекты — словами. "
+    "Пример: <b>Путютя</b> с диким рыком обрушивает <b>Раскол Панциря</b> (урон), "
+    "сдирая с <b>Паучка</b> липкую защиту."
+)
+
+GD_EFFECT_TYPE_LABEL_RU: dict[str, str] = {
+    "DAMAGE_SINGLE": "урон",
+    "DAMAGE_AOE": "урон по площади",
+    "DEBUFF_MONSTER_ARMOR": "дебафф брони",
+    "BUFF_PARTY_DAMAGE": "бафф урона",
+    "HEAL": "лечение",
+    "HEAL_PARTY": "лечение отряда",
+    "SHIELD_PARTY": "щит",
+    "EVASION_PARTY": "уклонение",
+    "REFLECT": "отражение",
+    "BUFF_CRIT_NEXT": "крит",
+    "DOT": "урон со временем",
+    "REGEN": "регенерация",
+    "REGEN_TICK": "регенерация",
+    "REVIVE": "воскрешение",
+}
+
 
 class MediaType(IntEnum):
     """Media type for message damage calculation."""
@@ -50,6 +120,11 @@ INT_EXP_BONUS_COEFF = 0.001       # bonus EXP gained per ИНТ (0.1%/point)
 END_ENERGY_COEFF = 0.5            # max energy bonus per ВЫН (ВЫН × 0.5)
 END_DAMAGE_REDUCTION_COEFF = 0.0008  # incoming damage reduction per ВЫН (0.08%/point)
 END_DAMAGE_REDUCTION_CAP = 0.35   # damage reduction cap: 35%
+
+# Armor DR: A/(A+K(L)), K(L)=ARMOR_K_BASE+ARMOR_K_PER_LEVEL×waifu_level; added to total_reduce pool
+ARMOR_K_BASE = 50
+ARMOR_K_PER_LEVEL = 9
+ARMOR_DR_CAP = 0.75
 
 # HP regeneration: HP_max × (1 − e^(−END/HP_REGEN_DIVISOR)) per hour
 HP_REGEN_END_DIVISOR = 100        # divisor in regen exponent formula
@@ -111,6 +186,10 @@ MAX_ENERGY = 100
 ENERGY_REGEN_PER_MIN = 1  # вне боя/данжа
 HP_REGEN_PER_MIN = 5
 ENERGY_REGEN_IN_COMBAT = 1  # per tick (если включено)
+# Игрок считается "онлайн" для регена в Бездне, если совершал реальные действия
+# (урон в чате, старт данжа/Бездны) за последние N секунд. Соло-данж регена
+# оффлайн не режет — см. services/combat_regen.py.
+ONLINE_WINDOW_SECONDS = 300
 
 # Anti-spam
 MAX_MESSAGES_PER_WINDOW = 3
@@ -156,8 +235,16 @@ CURSED_TAG_WEIGHT_MULTIPLIER = 1.5
 # --- Group Dungeon GD v1 (цикл, раунды; legacy-сессии отключены) ---
 GD_V1_MANUAL_TEST_USER_IDS = frozenset({305174198})
 GD_V1_START_CHAT_MESSAGE = (
-    "⚔️ Групповой поход начался! У вас 30 минут на раунд — пишите в чат и используйте медиа для навыков."
+    "⚔️ Групповой поход начался! У вас 15 минут на раунд — пишите в чат и используйте медиа для навыков. "
+    "Учитывается каждое сообщение; спам-серии объединяются в одну атаку."
 )
+
+# Дефолты (fallback к game_config) для GD v1: тайминги и мульти-цикловый раунд.
+GD_REGISTRATION_WINDOW_MINUTES_DEFAULT = 15  # окно регистрации от первого /gd_join
+GD_ROUND_DURATION_MINUTES_DEFAULT = 15       # длительность сбора одного раунда
+GD_ROUND_CYCLE_CAP_DEFAULT = 8               # макс. число циклов в одном раунде (реплей)
+GD_MAX_ACTIONS_PER_ROUND_DEFAULT = 8         # макс. отдельных действий игрока за раунд (анти-спам)
+GD_SERIES_WINDOW_SECONDS_DEFAULT = 8         # окно склейки сообщений одного типа в «серию»
 
 # Подписи для GD/ИИ-промптов (совпадают с WaifuRace / WaifuClass в db.models.waifu)
 WAIFU_RACE_LABEL_RU: dict[int, str] = {
@@ -204,7 +291,6 @@ EXPEDITION_TIME_COEFFS = {
 EXPEDITION_AFFIX_PENALTY_PCT = 15  # each affix -15% chance
 EXPEDITION_CHANCE_CAP_MIN = 5
 EXPEDITION_CHANCE_CAP_MAX = 95
-EXPEDITION_CANCEL_REWARD_PCT = 50  # cancel gives 50% of calculated reward
 EXPEDITION_BASE_GOLD = 100
 EXPEDITION_BASE_EXP = 50
 

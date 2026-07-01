@@ -2,33 +2,13 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="refresh" content="0; url=./player.html#settings" />
     <title>Настройки</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css" />
-    <script src="./vendor/telegram-web-app.js"></script>
-    <script defer src="./app.js"></script>
+    <script>
+      window.location.replace("./player.html#settings");
+    </script>
   </head>
-  <body class="page-settings" onload="WaifuApp.bootstrapPage('settings');">
-    <main class="layout">
-      <h1 class="settings-page-title">Настройки</h1>
-      <div class="settings-home-bar">
-        <a href="./index.html" class="settings-home-btn">← Главное меню</a>
-      </div>
-      <section class="section">
-        <h3>Общие</h3>
-        <div class="list">
-          <div class="list-item">Язык: RU (заглушка)</div>
-          <div class="list-item">Звук/музыка: выкл (заглушка)</div>
-          <div class="list-item">Сброс кэша WebApp (заглушка)</div>
-        </div>
-      </section>
-
-      <section class="section">
-        <h3>Помощь</h3>
-        <div class="placeholder">FAQ, ссылка на поддержку, версия клиента.</div>
-      </section>
-    </main>
+  <body>
+    <p><a href="./player.html#settings">Перейти в настройки игрока</a></p>
   </body>
 </html>

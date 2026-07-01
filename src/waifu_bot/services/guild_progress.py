@@ -81,6 +81,12 @@ async def _apply_levelups(session: AsyncSession, guild: Guild) -> None:
         if add:
             guild.skill_points_total += add
         logger.info("Guild %s leveled up to %s (+OPG %s)", guild.id, guild.level, add)
+        try:
+            from waifu_bot.services.guild_activity import log_guild_level_up
+
+            await log_guild_level_up(session, guild.id, guild.level)
+        except Exception:
+            pass
 
 
 async def add_gxp(session: AsyncSession, guild_id: int, amount: int, *, reason: str = "") -> None:
@@ -100,9 +106,18 @@ async def apply_solo_dungeon_complete_gxp(session: AsyncSession, player_id: int)
     gid = await get_player_guild_id(session, player_id)
     if gid and amt:
         await add_gxp(session, gid, amt, reason="solo_dungeon")
+        from waifu_bot.services.guild_contribution import add_member_contribution
+
+        await add_member_contribution(session, gid, player_id, amt, reason="solo_dungeon")
 
 
-async def add_gxp_from_bank_deposit(session: AsyncSession, guild_id: int, gold_amount: int) -> None:
+async def add_gxp_from_bank_deposit(
+    session: AsyncSession,
+    guild_id: int,
+    gold_amount: int,
+    *,
+    player_id: int | None = None,
+) -> None:
     cfg = await get_game_config_map(session)
     step = max(1, cfg_int(cfg, "guild_gxp.bank_gold_step", 100))
     per = cfg_int(cfg, "guild_gxp.bank_gxp_per_step", 1)
@@ -129,6 +144,10 @@ async def add_gxp_from_bank_deposit(session: AsyncSession, guild_id: int, gold_a
         return
     row.gxp_from_deposits += grant
     await add_gxp(session, guild_id, grant, reason="bank_deposit")
+    if player_id:
+        from waifu_bot.services.guild_contribution import add_member_contribution
+
+        await add_member_contribution(session, guild_id, player_id, grant, reason="bank_deposit")
 
 
 async def apply_gd_chat_gxp(
@@ -149,6 +168,9 @@ async def apply_gd_chat_gxp(
         total += cfg_int(cfg, "guild_gxp.chat_media", 2) * len(media_kinds)
     if total:
         await add_gxp(session, gid, total, reason="gd_chat")
+        from waifu_bot.services.guild_contribution import add_member_contribution
+
+        await add_member_contribution(session, gid, player_id, total, reason="gd_chat")
 
 
 def _monster_xp_for_transition(
@@ -172,6 +194,28 @@ def _monster_xp_for_transition(
     return total
 
 
+def _monster_kill_counts_for_transition(
+    pre_m: list[dict[str, Any]],
+    post_m: list[dict[str, Any]],
+) -> tuple[int, int]:
+    def alive_hp(m: dict[str, Any]) -> int:
+        return int(m.get("hp") or 0)
+
+    pre_map = {int(m.get("id", 0)): m for m in pre_m if int(m.get("id", 0))}
+    post_map = {int(m.get("id", 0)): m for m in post_m if int(m.get("id", 0))}
+    kills = bosses = 0
+    for mid, a in pre_map.items():
+        if alive_hp(a) <= 0:
+            continue
+        b = post_map.get(mid)
+        if b is None or alive_hp(b) <= 0:
+            if bool(a.get("is_boss")):
+                bosses += 1
+            else:
+                kills += 1
+    return kills, bosses
+
+
 async def apply_gd_monster_kill_gxp(
     session: AsyncSession,
     registrations_user_ids: list[int],
@@ -191,6 +235,17 @@ async def apply_gd_monster_kill_gxp(
     total = _monster_xp_for_transition(pre_m, post_m, kill_gxp, boss_gxp)
     if total:
         await add_gxp(session, guild_id, total, reason="gd_kills")
+    try:
+        from waifu_bot.services.guild_quest_service import record_metric
+
+        kills, bosses = _monster_kill_counts_for_transition(pre_m, post_m)
+        actor = int(registrations_user_ids[0]) if registrations_user_ids else None
+        if actor and kills:
+            await record_metric(session, actor, "monsters_killed", kills)
+        if actor and bosses:
+            await record_metric(session, actor, "bosses_killed", bosses)
+    except Exception:
+        logger.debug("guild quest gd kill hook failed", exc_info=True)
 
 
 def _collect_registration_user_ids(cycle: Any) -> list[int]:
@@ -290,6 +345,9 @@ async def apply_expedition_success_guild(session: AsyncSession, player_id: int) 
     gid = await get_player_guild_id(session, player_id)
     if gid and amt:
         await add_gxp(session, gid, amt, reason="expedition")
+        from waifu_bot.services.guild_contribution import add_member_contribution
+
+        await add_member_contribution(session, gid, player_id, amt, reason="expedition")
     await apply_war_activity(session, player_id, "expedition_success")
 
 

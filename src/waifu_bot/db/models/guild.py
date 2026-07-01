@@ -23,7 +23,7 @@ from waifu_bot.db.models.guild_extended import GuildRaid
 
 # Forward reference for Item
 if False:  # TYPE_CHECKING
-    from waifu_bot.db.models.item import Item
+    from waifu_bot.db.models.item import InventoryItem, Item
 
 
 class Guild(Base):
@@ -71,12 +71,17 @@ class Guild(Base):
     required_race: Mapped[int | None] = mapped_column(Integer, nullable=True)  # WaifuRace
     required_class: Mapped[int | None] = mapped_column(Integer, nullable=True)  # WaifuClass
 
-    # Guild icon (path or URL)
+    # Guild icon and hero banner (paths under static/)
     icon_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    banner_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Bank settings
     max_bank_items: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     withdrawal_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Per day or total
+
+    founder_player_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("players.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Relationships
     members: Mapped[list[GuildMember]] = relationship(
@@ -141,10 +146,14 @@ class GuildBank(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     guild_id: Mapped[int] = mapped_column(Integer, ForeignKey("guilds.id"))
     item_id: Mapped[int] = mapped_column(Integer, ForeignKey("items.id"))
+    inventory_item_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("inventory_items.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Relationships
     guild: Mapped["Guild"] = relationship("Guild", back_populates="bank_items")
     item: Mapped["Item"] = relationship("Item")
+    inventory_item: Mapped["InventoryItem | None"] = relationship("InventoryItem")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False

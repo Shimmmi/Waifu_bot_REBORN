@@ -110,6 +110,15 @@ async def compute_effective_max_hp(
     hpp = float(ps.get("hp_max_pct", 0) or 0)
     if hpp > 0:
         max_hp = int(round(max_hp * (1.0 + hpp)))
+    try:
+        from waifu_bot.services.guild_skill_effects import effect_values_for_player
+
+        gfx = await effect_values_for_player(session, player_id)
+        guild_hp = float(gfx.get("max_hp_pct", 0) or 0)
+        if guild_hp > 0:
+            max_hp = int(round(max_hp * (1.0 + guild_hp)))
+    except Exception:
+        pass
     return max_hp
 
 

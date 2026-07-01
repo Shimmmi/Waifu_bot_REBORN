@@ -5,7 +5,7 @@ import logging
 import random
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -18,6 +18,7 @@ from waifu_bot.db.models import (
     GuildRaidTemplate,
     InventoryItem,
     MainWaifu,
+    Player,
 )
 from waifu_bot.game.constants import MediaType
 from waifu_bot.game.formulas import calculate_message_damage
@@ -115,6 +116,8 @@ async def start_raid(
 
 
 async def leave_raid(session: AsyncSession, player_id: int) -> dict:
+    from waifu_bot.services.guild_raid_v2_service import _build_party_snapshot, cancel_guild_raid
+
     mem = (
         await session.execute(select(GuildMember).where(GuildMember.player_id == player_id))
     ).scalar_one_or_none()
@@ -123,11 +126,75 @@ async def leave_raid(session: AsyncSession, player_id: int) -> dict:
     guild = await session.get(Guild, mem.guild_id)
     if not guild or not guild.raid_active_id:
         return {"error": "no_active_raid"}
-    part = await _participant(session, guild.raid_active_id, player_id)
-    if part:
-        await session.delete(part)
+    raid = await session.get(GuildRaid, guild.raid_active_id)
+    if not raid:
+        guild.raid_active_id = None
+        await session.commit()
+        return {"error": "no_active_raid"}
+    part = await _participant(session, raid.id, player_id)
+    if not part:
+        return {"error": "not_in_raid"}
+    await session.delete(part)
+    await session.flush()
+
+    remaining = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(GuildRaidParticipant)
+            .where(GuildRaidParticipant.raid_id == raid.id)
+        )
+        or 0
+    )
+
+    if mem.is_leader:
+        await cancel_guild_raid(session, raid, guild, reason="leader_left")
+        await session.commit()
+        return {"success": True, "raid_cancelled": True, "reason": "leader_left"}
+
+    if remaining == 0:
+        await cancel_guild_raid(session, raid, guild, reason="no_participants")
+        await session.commit()
+        return {"success": True, "raid_cancelled": True, "reason": "no_participants"}
+
+    if int(getattr(raid, "raid_version", 1) or 1) >= 2:
+        pids = (
+            await session.execute(
+                select(GuildRaidParticipant.player_id).where(GuildRaidParticipant.raid_id == raid.id)
+            )
+        ).scalars().all()
+        raid.party_snapshot_json = await _build_party_snapshot(session, [int(x) for x in pids])
+
     await session.commit()
-    return {"success": True}
+    return {"success": True, "raid_cancelled": False}
+
+
+async def _raid_online_member_count(session: AsyncSession, guild_id: int) -> int:
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=5)
+    mids = (
+        await session.execute(select(GuildMember.player_id).where(GuildMember.guild_id == guild_id))
+    ).scalars().all()
+    cnt = 0
+    for pid in mids:
+        pl = await session.get(Player, pid)
+        if not pl or not pl.last_active:
+            continue
+        la = pl.last_active
+        la_utc = la.replace(tzinfo=timezone.utc) if la.tzinfo is None else la.astimezone(timezone.utc)
+        if (now - la_utc) <= timedelta(minutes=5):
+            cnt += 1
+    return cnt
+
+
+async def _current_stage_kind(session: AsyncSession, raid: GuildRaid) -> str:
+    tpl = await session.get(GuildRaidTemplate, raid.template_id)
+    if not tpl:
+        return "trash"
+    stages = list(tpl.stages_json or [])
+    idx = int(raid.current_stage or 1) - 1
+    if idx < 0 or idx >= len(stages):
+        return "trash"
+    return str(stages[idx].get("kind") or "trash")
 
 
 async def apply_raid_message_damage(
@@ -137,47 +204,30 @@ async def apply_raid_message_damage(
     *,
     message_length: int,
     media_types: list[str] | None,
+    text_preview: str | None = None,
 ) -> dict:
+    """v2: log chat for narrative; v1 legacy: HP damage (deprecated)."""
+    from waifu_bot.services.guild_raid_v2_service import log_raid_chat_event
+
+    logged = await log_raid_chat_event(
+        session,
+        chat_id,
+        player_id,
+        message_length=message_length,
+        media_types=media_types,
+        text_preview=text_preview,
+    )
+    if logged.get("ok"):
+        return {"logged": True}
     g = (
         await session.execute(select(Guild).where(Guild.telegram_chat_id == int(chat_id)))
     ).scalar_one_or_none()
     if not g or not g.raid_active_id:
         return {"ok": False, "reason": "no_raid"}
     raid = await session.get(GuildRaid, g.raid_active_id)
-    if not raid or raid.status != "active" or raid.phase != "fight":
-        return {"ok": False, "reason": "raid_not_fight"}
-    part = await _participant(session, raid.id, player_id)
-    if not part:
-        return {"ok": False, "reason": "not_participant"}
-    w = (
-        await session.execute(select(MainWaifu).where(MainWaifu.player_id == player_id))
-    ).scalar_one_or_none()
-    if not w:
-        return {"ok": False, "reason": "no_waifu"}
-    atk = _attack_type_for_class(int(w.class_ or 1))
-    wd = _weapon_dmg_from_level(int(w.level or 1))
-    dmg = 0
-    if message_length > 0:
-        dmg += calculate_message_damage(
-            MediaType.TEXT,
-            int(w.strength or 10),
-            int(w.agility or 10),
-            int(w.intelligence or 10),
-            atk,
-            message_length=message_length,
-            weapon_damage=wd,
-        )
-    if media_types:
-        dmg += 5 * len(media_types)
-    dmg = max(1, int(dmg * random.uniform(0.9, 1.1)))
-    raid.stage_monster_hp_current = max(0, int(raid.stage_monster_hp_current) - dmg)
-    part.message_count = int(part.message_count or 0) + 1
-    part.damage_dealt = int(part.damage_dealt or 0) + dmg
-    out = {"ok": True, "damage": dmg, "hp_left": raid.stage_monster_hp_current}
-    if raid.stage_monster_hp_current <= 0:
-        await _advance_or_complete_raid(session, raid, g)
-    await session.commit()
-    return out
+    if not raid or int(getattr(raid, "raid_version", 1) or 1) >= 2:
+        return {"ok": False, "reason": "no_raid"}
+    return {"ok": False, "reason": "legacy_disabled"}
 
 
 async def _advance_or_complete_raid(session: AsyncSession, raid: GuildRaid, guild: Guild) -> None:
@@ -208,7 +258,20 @@ async def _advance_or_complete_raid(session: AsyncSession, raid: GuildRaid, guil
         return
     raid.status = "victory"
     guild.raid_active_id = None
-    await add_gxp(session, guild.id, int(raid.gxp_reward), reason="raid_win")
+    gxp = int(raid.gxp_reward)
+    try:
+        from waifu_bot.services.guild_skill_effects import effect_values_for_guild
+
+        gfx = await effect_values_for_guild(session, guild.id)
+        gxp_mult = float(gfx.get("raid_gxp_multiplier", 0) or 0)
+        if gxp_mult > 0:
+            gxp = max(1, int(round(gxp * (1.0 + gxp_mult))))
+        completion_pct = float(gfx.get("raid_completion_reward_pct", 0) or 0)
+        if completion_pct > 0:
+            gxp = max(1, int(round(gxp * (1.0 + completion_pct))))
+    except Exception:
+        logger.exception("raid completion guild bonus failed guild_id=%s", guild.id)
+    await add_gxp(session, guild.id, gxp, reason="raid_win")
     await _grant_raid_victory_loot(session, raid, guild)
 
 
@@ -389,6 +452,7 @@ async def distribute_raid_loot(
 
 
 async def tick_raid_stage_timeouts(session: AsyncSession) -> None:
+    """Legacy v1 raid stage timeouts only."""
     cfg = await get_game_config_map(session)
     enrage = cfg_float(cfg, "guild_raid.stage_enrage_hp_mult", 1.2)
     now = datetime.now(timezone.utc)
@@ -396,6 +460,7 @@ async def tick_raid_stage_timeouts(session: AsyncSession) -> None:
         select(GuildRaid).where(
             GuildRaid.status == "active",
             GuildRaid.phase == "fight",
+            GuildRaid.raid_version < 2,
             GuildRaid.stage_ends_at.isnot(None),
             GuildRaid.stage_ends_at < now,
         )
@@ -442,10 +507,16 @@ async def raid_state_for_player(session: AsyncSession, player_id: int) -> dict:
             options=[selectinload(GuildRaid.participants)],
         )
         if r:
+            is_v2 = int(getattr(r, "raid_version", 1) or 1) >= 2
             active = {
                 "id": r.id,
+                "raid_version": int(getattr(r, "raid_version", 1) or 1),
                 "stage": r.current_stage,
                 "phase": r.phase,
+                "day_index": int(getattr(r, "day_index", 0) or 0),
+                "company_vitality": int(getattr(r, "company_vitality", 0) or 0),
+                "story_progress": int(getattr(r, "story_progress", 0) or 0),
+                "location_archetype_id": getattr(r, "location_archetype_id", None),
                 "hp": r.stage_monster_hp_current,
                 "hp_max": r.stage_monster_hp_max,
                 "ends_at": r.ends_at.isoformat() if r.ends_at else None,
@@ -455,6 +526,9 @@ async def raid_state_for_player(session: AsyncSession, player_id: int) -> dict:
                     for p in r.participants
                 ],
             }
+            if is_v2:
+                active["prologue_html"] = (r.adventure_meta_json or {}).get("prologue_html")
+                active["party_snapshot"] = r.party_snapshot_json
     pending_manual_raid_loot = None
     if mem.is_leader:
         loot_st = await get_raid_loot_state(session, player_id)

@@ -8,7 +8,7 @@ from typing import List, Optional
 logger = logging.getLogger(__name__)
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func, delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import SQLAlchemyError
@@ -42,11 +42,12 @@ from waifu_bot.services.waifu_hp import sync_waifu_max_hp
 from waifu_bot.services.combat import roll_monster_elite
 from waifu_bot.services.elite_affix_combat import buff_next_multipliers_for_new_monster
 from waifu_bot.services.narrative import build_story_modal_on_dungeon_start
+from waifu_bot.game.legendary_bonuses.state import initial_battle_state
 import math
 
 
 SOLO_BATTLE_LOG_LIMIT = 40
-SOLO_BATTLE_LOG_DM_LIMIT = 500
+SOLO_BATTLE_LOG_MAX = 500
 
 
 def _solo_battle_log_summary_fallback(event_type: str, event_data: dict | None) -> str:
@@ -65,7 +66,37 @@ def _solo_battle_log_summary_fallback(event_type: str, event_data: dict | None) 
         if dt is not None:
             return f"Ответный удар: {dt} урона по вайфу."
         return "Ответный удар монстра."
+    if event_type == "monster_reward":
+        return (ed.get("summary_ru") or "").strip() or "Награда за монстра."
     return event_type or "Событие боя."
+
+
+async def prune_solo_battle_log(
+    session: AsyncSession,
+    player_id: int,
+    dungeon_id: int,
+    *,
+    keep: int = SOLO_BATTLE_LOG_LIMIT,
+) -> int:
+    """Удалить старые записи журнала соло-данжа, оставив последние ``keep`` по id."""
+    keep = max(1, int(keep))
+    pid = int(player_id)
+    did = int(dungeon_id)
+    cnt = await session.scalar(
+        select(func.count())
+        .select_from(BattleLog)
+        .where(BattleLog.player_id == pid, BattleLog.dungeon_id == did)
+    )
+    if not cnt or int(cnt) <= keep:
+        return 0
+    old_ids = (
+        select(BattleLog.id)
+        .where(BattleLog.player_id == pid, BattleLog.dungeon_id == did)
+        .order_by(BattleLog.id.desc())
+        .offset(keep)
+    )
+    result = await session.execute(delete(BattleLog).where(BattleLog.id.in_(old_ids)))
+    return int(result.rowcount or 0)
 
 
 async def fetch_solo_battle_log_entries(
@@ -77,14 +108,14 @@ async def fetch_solo_battle_log_entries(
 ) -> list[dict]:
     """Журнал соло-данжа для WebApp: сводки + разбивка урона.
 
-    limit=None — до SOLO_BATTLE_LOG_DM_LIMIT записей (полный экспорт для DM).
+    limit=None — до SOLO_BATTLE_LOG_MAX записей.
     """
     stmt = (
         select(BattleLog)
         .where(BattleLog.player_id == player_id, BattleLog.dungeon_id == dungeon_id)
         .order_by(BattleLog.id.desc())
     )
-    eff_limit = SOLO_BATTLE_LOG_DM_LIMIT if limit is None else int(limit)
+    eff_limit = SOLO_BATTLE_LOG_MAX if limit is None else int(limit)
     stmt = stmt.limit(eff_limit)
     rows = (await session.execute(stmt)).scalars().all()
     chronological = list(reversed(rows))
@@ -123,6 +154,10 @@ async def fetch_solo_battle_log_entries(
             entry["damage_taken"] = ed.get("damage_taken")
         elif r.event_type == "no_damage":
             entry["reason"] = ed.get("reason")
+        elif r.event_type == "monster_reward":
+            entry["exp"] = ed.get("exp")
+            entry["gold"] = ed.get("gold")
+            entry["guild_bonus_lines"] = ed.get("guild_bonus_lines") or []
         entry["monster_hp_before"] = r.monster_hp_before
         entry["monster_hp_after"] = r.monster_hp_after
         entry["player_hp_before"] = r.player_hp_before
@@ -157,6 +192,21 @@ def _monster_slug_for_webp(
 
 class DungeonService:
     """Service for dungeon operations."""
+
+    async def _player_first_dungeon_today(self, session: AsyncSession, player_id: int) -> bool:
+        """True if the player has not started any dungeon run today (UTC)."""
+        from datetime import timezone
+
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        cnt = await session.scalar(
+            select(func.count())
+            .select_from(DungeonRun)
+            .where(
+                DungeonRun.player_id == player_id,
+                DungeonRun.started_at >= today_start,
+            )
+        )
+        return int(cnt or 0) == 0
 
     async def _is_global_plus_unlocked(self, session: AsyncSession, player_id: int) -> bool:
         """Dungeon+ unlocks globally after completing Act 5 dungeon #5 (SOLO)."""
@@ -220,7 +270,12 @@ class DungeonService:
 
     async def _get_active_run(self, session: AsyncSession, player_id: int) -> DungeonRun | None:
         try:
-            stmt = select(DungeonRun).where(DungeonRun.player_id == player_id, DungeonRun.status == "active")
+            stmt = (
+                select(DungeonRun)
+                .where(DungeonRun.player_id == player_id, DungeonRun.status == "active")
+                .order_by(DungeonRun.started_at.desc(), DungeonRun.id.desc())
+                .limit(1)
+            )
             res = await session.execute(stmt)
             return res.scalar_one_or_none()
         except SQLAlchemyError:
@@ -407,6 +462,49 @@ class DungeonService:
 
         return candidates
 
+    async def _get_plus_cross_act_candidates(
+        self,
+        session: AsyncSession,
+        *,
+        is_boss: bool,
+        target_diff: int,
+        used_template_ids: set[int],
+        allow_reuse: bool = False,
+    ) -> list[tuple[MonsterTemplate, int]]:
+        """Plus runs: pick from acts 1–5 union; dedupe templates within a run."""
+        stmt = select(MonsterTemplate).where(
+            MonsterTemplate.act_min <= 5,
+            MonsterTemplate.act_max >= 1,
+        )
+        if is_boss:
+            stmt = stmt.where(MonsterTemplate.boss_allowed.is_(True))
+        res = await session.execute(stmt)
+        templates: list[MonsterTemplate] = list(res.scalars().all())
+        candidates: list[tuple[MonsterTemplate, int]] = []
+        for tmpl in templates:
+            tid = int(tmpl.id)
+            if tid in used_template_ids and not allow_reuse:
+                continue
+            base_diff = max(1, int(getattr(tmpl, "base_difficulty", 1) or 1))
+            closeness = max(1, 10 - min(9, abs(base_diff - int(target_diff or 1))))
+            weight = int(getattr(tmpl, "weight", 1) or 1) * closeness
+            if weight <= 0:
+                continue
+            candidates.append((tmpl, weight))
+        if not candidates and used_template_ids and not allow_reuse:
+            logger.warning(
+                "[dungeon plus] Cross-act pool exhausted (used=%s); allowing template reuse",
+                len(used_template_ids),
+            )
+            return await self._get_plus_cross_act_candidates(
+                session,
+                is_boss=is_boss,
+                target_diff=target_diff,
+                used_template_ids=used_template_ids,
+                allow_reuse=True,
+            )
+        return candidates
+
     async def _get_tier_only_candidates(
         self,
         session: AsyncSession,
@@ -561,6 +659,11 @@ class DungeonService:
             await sync_waifu_max_hp(session, player_id, waifu)
             post_m = int(waifu.max_hp or 0)
             regen_changed = apply_regen(waifu)
+            # Entering a dungeon is a real gameplay action: mark online so the
+            # first in-run hit counts and in-dungeon regen is allowed.
+            from datetime import timezone as _tz
+
+            player.last_combat_action_at = datetime.now(_tz.utc)
             if post_m != pre_m or regen_changed:
                 await session.commit()
 
@@ -605,6 +708,11 @@ class DungeonService:
         if active:
             return {"error": "dungeon_already_active"}
 
+        from waifu_bot.services.abyss_service import has_active_abyss_session
+
+        if await has_active_abyss_session(session, player_id):
+            return {"error": "abyss_session_active"}
+
         # Check if dungeon already completed
         existing = await self._get_progress(session, player_id, dungeon_id)
         # Farming is allowed: completed dungeons can be started again.
@@ -629,6 +737,7 @@ class DungeonService:
                 n_min = max(1, int(getattr(dungeon, "obstacle_min", 1) or 1))
                 n_max = max(n_min, int(getattr(dungeon, "obstacle_max", n_min) or n_min))
                 total = int(rng.randint(n_min, n_max))
+                first_daily = await self._player_first_dungeon_today(session, player_id)
                 run = DungeonRun(
                     player_id=player_id,
                     dungeon_id=dungeon_id,
@@ -638,6 +747,7 @@ class DungeonService:
                     current_position=1,
                     total_monsters=total,
                     started_at=datetime.utcnow(),
+                    battle_state=initial_battle_state(first_daily_dungeon=first_daily),
                 )
                 session.add(run)
                 await session.flush()
@@ -664,6 +774,7 @@ class DungeonService:
                     per = [max(1, int(x * scale)) for x in per]
 
                 monsters: list[DungeonRunMonster] = []
+                used_template_ids: set[int] = set()
                 for pos in range(1, total + 1):
                     is_boss = pos == total
                     target_diff = per[pos - 1]
@@ -707,12 +818,20 @@ class DungeonService:
                         )
                         monsters.append(m)
                         session.add(m)
+                        used_template_ids.add(int(tmpl.id))
                         await session.flush()
                         continue
 
                     # Pick template with difficulty bounds + weighted randomness.
                     cand: list[tuple[MonsterTemplate, int]] = []
-                    if use_tags:
+                    if pl > 0:
+                        cand = await self._get_plus_cross_act_candidates(
+                            session,
+                            is_boss=is_boss,
+                            target_diff=target_diff,
+                            used_template_ids=used_template_ids,
+                        )
+                    elif use_tags:
                         cand = await self._get_tag_tier_candidates(
                             session,
                             dungeon,
@@ -745,7 +864,7 @@ class DungeonService:
                             cand.append((tmpl, w * closeness))
 
                     # Fallback 2: пул пуст или не дал кандидатов — тег/тир подбор из monster_templates (cursor_plan_8)
-                    if not cand and not use_tags:
+                    if not cand and pl <= 0 and not use_tags:
                         cand = await self._get_tag_tier_candidates(
                             session,
                             dungeon,
@@ -754,7 +873,7 @@ class DungeonService:
                             total_monsters=total,
                         )
                     # Fallback 3: тир-only — любые монстры нужного тира, без фильтра по тегам (WARNING в лог)
-                    if not cand:
+                    if not cand and pl <= 0:
                         cand = await self._get_tier_only_candidates(
                             session,
                             dungeon,
@@ -766,6 +885,8 @@ class DungeonService:
                     tmpl = self._pick_weighted(cand) if cand else None
                     if not tmpl:
                         return {"error": "dungeon_pool_invalid"}
+
+                    used_template_ids.add(int(tmpl.id))
 
                     # Level roll: around dungeon.level, clamped to template bounds
                     base_lvl = int(dungeon.level) if pl <= 0 else int(50 + (pl - 1) * 5)
@@ -857,6 +978,13 @@ class DungeonService:
                     except Exception:
                         story_modal = None
                 await session.commit()
+                try:
+                    from waifu_bot.core import redis as redis_core
+                    from waifu_bot.services import solo_active_cache as solo_active_cache_mod
+
+                    await solo_active_cache_mod.mark_solo_active(redis_core.get_redis(), player_id)
+                except Exception:
+                    pass
                 out = {
                     "success": True,
                     "dungeon_id": dungeon_id,
@@ -909,6 +1037,13 @@ class DungeonService:
             except Exception:
                 story_modal = None
         await session.commit()
+        try:
+            from waifu_bot.core import redis as redis_core
+            from waifu_bot.services import solo_active_cache as solo_active_cache_mod
+
+            await solo_active_cache_mod.mark_solo_active(redis_core.get_redis(), player_id)
+        except Exception:
+            pass
         out = {
             "success": True,
             "dungeon_id": dungeon_id,
@@ -920,9 +1055,24 @@ class DungeonService:
         return out
 
     async def get_active_dungeon(
-        self, session: AsyncSession, player_id: int
+        self,
+        session: AsyncSession,
+        player_id: int,
+        *,
+        include_battle_log: bool = True,
     ) -> Optional[dict]:
         """Get active dungeon info."""
+
+        async def _battle_log_fields(dungeon_id: int) -> tuple[list[str], list[dict]]:
+            if not include_battle_log:
+                return [], []
+            battle_log_entries = await fetch_solo_battle_log_entries(session, player_id, dungeon_id)
+            battle_log = (
+                [e["summary_ru"] for e in battle_log_entries]
+                if battle_log_entries
+                else ["Битва начата!"]
+            )
+            return battle_log, battle_log_entries
         try:
             # Prefer new run-based active dungeon
             run = await self._get_active_run(session, player_id)
@@ -967,30 +1117,37 @@ class DungeonService:
                     monster_emoji = tmpl.emoji or monster_emoji
                 monster_slug = _monster_slug_for_webp(tmpl, cur.template_id, cur.name)
                 monster_has_image = bool(getattr(tmpl, "has_image", False)) if tmpl else False
+                _img_upd = getattr(tmpl, "image_updated_at", None) if tmpl else None
+                monster_image_updated_at = _img_upd.isoformat() if _img_upd else None
 
                 affix_count = len(applied_affix_names)
                 sb_id = getattr(cur, "story_boss_definition_id", None)
                 story_boss_payload: dict | None = None
                 is_story_boss = bool(sb_id)
+                monster_image_override: str | None = None
                 if sb_id:
                     sbd = await session.get(StoryBossDefinition, int(sb_id))
                     if sbd:
                         story_boss_payload = {
+                            "id": int(sbd.id),
                             "slug": sbd.slug,
                             "name": sbd.name,
                             "intro_text": (sbd.intro_text or "").strip(),
                             "short_lore": (sbd.short_lore or "").strip(),
                             "image_webp_path": sbd.image_webp_path,
                         }
-                battle_log_entries = await fetch_solo_battle_log_entries(session, player_id, dungeon.id)
-                battle_log = (
-                    [e["summary_ru"] for e in battle_log_entries]
-                    if battle_log_entries
-                    else ["Битва начата!"]
-                )
+                        img_path = str(sbd.image_webp_path or "").strip()
+                        if img_path:
+                            monster_image_override = img_path
+                            monster_has_image = True
+                battle_log, battle_log_entries = await _battle_log_fields(dungeon.id)
+                if not battle_log and not include_battle_log:
+                    battle_log = ["Битва начата!"]
                 return {
                     "dungeon_id": dungeon.id,
                     "dungeon_name": dungeon.name,
+                    "act": int(dungeon.act),
+                    "dungeon_number": int(dungeon.dungeon_number),
                     "plus_level": int(getattr(run, "plus_level", 0) or 0),
                     "monster_name": cur.name,
                     "monster_level": cur.level,
@@ -1015,7 +1172,8 @@ class DungeonService:
                     "affix_count": affix_count,
                     "affixes": affixes_for_ui,
                     "monster_has_image": monster_has_image,
-                    "monster_image_override": None,
+                    "monster_image_updated_at": monster_image_updated_at,
+                    "monster_image_override": monster_image_override,
                     "waifu_name": waifu.name,
                     "waifu_level": waifu.level,
                     "waifu_current_hp": waifu.current_hp,
@@ -1051,15 +1209,14 @@ class DungeonService:
         # so frontend can show "active dungeon" + allow exit.
         if not monster:
             cur_hp = progress.current_monster_hp or 100
-            battle_log_entries = await fetch_solo_battle_log_entries(session, player_id, dungeon.id)
-            battle_log = (
-                [e["summary_ru"] for e in battle_log_entries]
-                if battle_log_entries
-                else ["Активный данж найден, но текущий монстр не определён."]
-            )
+            battle_log, battle_log_entries = await _battle_log_fields(dungeon.id)
+            if not battle_log and not include_battle_log:
+                battle_log = ["Активный данж найден, но текущий монстр не определён."]
             return {
                 "dungeon_id": dungeon.id,
                 "dungeon_name": dungeon.name,
+                "act": int(dungeon.act),
+                "dungeon_number": int(dungeon.dungeon_number),
                 "monster_name": "Монстр",
                 "monster_level": dungeon.level,
                 "monster_current_hp": cur_hp,
@@ -1094,15 +1251,14 @@ class DungeonService:
         legacy_slug = _monster_slug_for_webp(
             None, None, monster.name or "", legacy_monster_id=monster.id
         )
-        battle_log_entries = await fetch_solo_battle_log_entries(session, player_id, dungeon.id)
-        battle_log = (
-            [e["summary_ru"] for e in battle_log_entries]
-            if battle_log_entries
-            else ["Битва начата!"]
-        )
+        battle_log, battle_log_entries = await _battle_log_fields(dungeon.id)
+        if not battle_log and not include_battle_log:
+            battle_log = ["Битва начата!"]
         return {
             "dungeon_id": dungeon.id,
             "dungeon_name": dungeon.name,
+            "act": int(dungeon.act),
+            "dungeon_number": int(dungeon.dungeon_number),
             "monster_name": monster.name,
             "monster_level": monster.level,
             "monster_current_hp": progress.current_monster_hp or monster.max_hp,
@@ -1198,6 +1354,13 @@ class DungeonService:
                 if progress:
                     progress.is_active = False
                 await session.commit()
+                try:
+                    from waifu_bot.core import redis as redis_core
+                    from waifu_bot.services import solo_active_cache as solo_active_cache_mod
+
+                    await solo_active_cache_mod.clear_solo_active(redis_core.get_redis(), player_id)
+                except Exception:
+                    pass
                 return {"success": True, "exp_gained": exp_gained, "gold_gained": gold_gained}
             except SQLAlchemyError:
                 await session.rollback()
@@ -1206,5 +1369,12 @@ class DungeonService:
         if progress:
             progress.is_active = False
             await session.commit()
+        try:
+            from waifu_bot.core import redis as redis_core
+            from waifu_bot.services import solo_active_cache as solo_active_cache_mod
+
+            await solo_active_cache_mod.clear_solo_active(redis_core.get_redis(), player_id)
+        except Exception:
+            pass
         return {"success": True, "exp_gained": exp_gained, "gold_gained": gold_gained}
 

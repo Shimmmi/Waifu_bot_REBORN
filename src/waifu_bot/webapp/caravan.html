@@ -4,9 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Караван</title>
-    <link rel="stylesheet" href="./styles.css" />
-    <script src="./vendor/telegram-web-app.js"></script>
-    <script defer src="./app.js"></script>
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v50" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
+    <link rel="stylesheet" href="./assets/tutorial.css" />
+    <script defer src="./vendor/telegram-web-app.js"></script>
+    <script defer src="./assets/tutorial.js"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v50" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
     <style>
       :root {
         --cv-ink: #0d0a08;
@@ -23,111 +25,6 @@
         min-height: 100vh;
         margin: 0;
         padding-bottom: 0;
-      }
-      /* ОЧ — как магазин */
-      .page-caravan .attic {
-        background: rgba(13, 10, 8, 0.95) !important;
-        border-bottom: 1px solid rgba(200, 146, 42, 0.2) !important;
-        padding: 7px 10px !important;
-        z-index: 50;
-        flex-shrink: 0;
-        backdrop-filter: blur(8px);
-      }
-      .page-caravan .attic-row {
-        display: flex;
-        gap: 5px;
-        align-items: center;
-        flex-wrap: nowrap;
-        overflow: hidden;
-        padding: 2px 0;
-      }
-      .page-caravan .attic-row .chip {
-        flex: 0 0 auto;
-        min-width: 0;
-        padding: 3px 9px;
-        font-size: 11px;
-        border-radius: 20px;
-        background: rgba(255, 255, 255, 0.06) !important;
-        border: 1px solid rgba(200, 146, 42, 0.2) !important;
-        color: var(--cv-cream) !important;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
-      .page-caravan .attic-row .chip b,
-      .page-caravan .attic-row .chip strong {
-        color: var(--cv-amber-glow) !important;
-        font-weight: 700;
-      }
-      .page-caravan .chip-ghost {
-        background: rgba(255, 255, 255, 0.06) !important;
-        border-style: solid !important;
-      }
-      .page-caravan .attic-level-chip {
-        flex: 1.2 1 0;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 3px;
-        white-space: normal;
-      }
-      .page-caravan .attic-level-top {
-        color: var(--cv-cream) !important;
-        font-size: 11px;
-      }
-      .page-caravan .attic-xp-fill {
-        background: linear-gradient(90deg, rgba(200, 146, 42, 0.9), rgba(232, 184, 75, 0.9)) !important;
-      }
-      .page-caravan #attic-dungeon-chip {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 2px;
-        padding-top: 4px;
-        padding-bottom: 4px;
-        max-width: 38%;
-      }
-      .page-caravan #attic-dungeon-label {
-        display: block;
-        color: var(--cv-cream) !important;
-        line-height: 1.2;
-        font-size: 10px;
-      }
-      .page-caravan .attic-dungeon-stages {
-        display: flex;
-        gap: 2px;
-        margin-top: 2px;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-      .page-caravan .attic-dungeon-stages:empty {
-        display: none;
-      }
-      .page-caravan .attic-stage-pixel {
-        width: 6px;
-        height: 6px;
-        border-radius: 1px;
-        background: rgba(200, 146, 42, 0.18);
-        border: 1px solid rgba(200, 146, 42, 0.2);
-        box-sizing: border-box;
-      }
-      .page-caravan .attic-stage-pixel--done {
-        background: rgba(232, 184, 75, 0.65);
-        border-color: rgba(232, 184, 75, 0.75);
-      }
-      .page-caravan .attic-stage-pixel--active {
-        background: rgba(200, 146, 42, 0.95);
-        border-color: rgba(200, 146, 42, 0.95);
-        box-shadow: 0 0 6px rgba(200, 146, 42, 0.3);
-      }
-      .page-caravan #attic-expedition-chip {
-        flex: 0 1 auto;
-        min-width: 48px;
-        max-width: 22%;
-        justify-content: center;
-        background: rgba(255, 255, 255, 0.06) !important;
-        border-color: rgba(200, 146, 42, 0.2) !important;
       }
       /* Сцена: фон карты на весь блок, точки */
       .page-caravan .caravan-stage {
@@ -177,9 +74,35 @@
       }
       .page-caravan .caravan-pin--1 { left: 33%; top: 82%; }
       .page-caravan .caravan-pin--2 { left: 40%; top: 62%; }
-      .page-caravan .caravan-pin--3 { left: 38%; top: 45%; }
-      .page-caravan .caravan-pin--4 { left: 30%; top: 28%; }
-      .page-caravan .caravan-pin--5 { left: 42%; top: 10%; }
+      .page-caravan .caravan-pin--3 { left: 39%; top: 40%; }
+      .page-caravan .caravan-pin--4 { left: 48%; top: 25%; }
+      .page-caravan .caravan-pin--5 { left: 75%; top: 15%; }
+      .page-caravan .caravan-pin--library {
+        position: absolute;
+        left: 75%;
+        top: 55%;
+        transform: translate(-50%, -50%);
+      }
+      .page-caravan .caravan-pin--library .caravan-pin-ico-btn {
+        border-color: rgba(120, 180, 255, 0.55);
+        box-shadow: 0 0 12px rgba(90, 150, 240, 0.35);
+      }
+      .page-caravan .caravan-map-bg-label {
+        position: absolute;
+        z-index: 1;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        user-select: none;
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--cv-cream);
+        opacity: 0.26;
+      }
+      .page-caravan .caravan-map-bg-label--library {
+        left: 75%;
+        top: 55%;
+      }
       .page-caravan .caravan-pin {
         display: flex;
         flex-direction: column;
@@ -298,35 +221,61 @@
   <body class="page-caravan" onload="WaifuApp.bootstrapPage('caravan', WaifuApp.populateCaravanPage);">
     <header class="attic">
       <div class="attic-row" aria-label="Основной чердак">
-        <div class="chip attic-level-chip" title="Уровень и опыт">
-          <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
-          <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
+        <button type="button" class="attic-player-avatar" id="attic-player-avatar" aria-label="Профиль игрока" title="Профиль игрока">
+          <img id="attic-player-avatar-img" alt="" hidden />
+          <span class="attic-player-avatar-fallback" id="attic-player-avatar-fallback"></span>
+          <span class="attic-player-mail-badge" id="attic-player-mail-badge" hidden aria-hidden="true"></span>
+        </button>
+        <div class="attic-level-circle" id="attic-level-circle" title="Уровень основной вайфу / опыт">
+          <svg class="attic-level-ring" viewBox="0 0 36 36" aria-hidden="true">
+            <circle class="attic-level-ring-bg" cx="18" cy="18" r="16" />
+            <circle class="attic-level-ring-fg" id="attic-level-ring-fg" cx="18" cy="18" r="16" />
+          </svg>
+          <strong id="badge-level">—</strong>
         </div>
         <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)">
           <span id="attic-dungeon-label">Нет боя</span>
-          <span id="attic-dungeon-stages" class="attic-dungeon-stages" aria-hidden="true"></span>
+          <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden></div>
         </div>
-        <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
-        <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
+        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Экспедиции">
+          <span class="attic-exp-ico" aria-hidden="true">🗺</span>
+          <div class="attic-exp-cells" id="attic-exp-cells" aria-label="Статус экспедиций"></div>
+        </div>
+        <div class="chip attic-gold-chip" id="attic-gold-chip" title="Золото">
+          <span class="attic-gold-ico" aria-hidden="true">🪙</span><strong id="badge-gold">—</strong>
+        </div>
+        <button type="button" class="attic-menu-btn" id="attic-menu-btn" aria-label="Меню разделов" aria-haspopup="true" aria-expanded="false">☰</button>
+      </div>
+      <div class="attic-menu" id="attic-menu" hidden role="menu" aria-label="Дополнительные разделы">
+        <a class="attic-menu-item" href="./profile.html?tab=inventory" role="menuitem">🎒 Инвентарь</a>
+        <a class="attic-menu-item" href="./profile.html?tab=info&info=statistics" role="menuitem">📊 Статистика</a>
+        <a class="attic-menu-item" href="./dungeons.html?tab=expedition" role="menuitem">🗺 Экспедиции</a>
+        <a class="attic-menu-item" href="./dungeons.html?tab=abyss" role="menuitem">🕳 Бездна</a>
+        <a class="attic-menu-item" href="./shop.html?tab=gamble" role="menuitem">🎲 Gamble</a>
+        <a class="attic-menu-item" href="./shop.html?tab=smith" role="menuitem">🔨 Кузнец</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=heal" role="menuitem">💊 Лечение</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=upgrade" role="menuitem">⬆ Прокачка наёмниц</a>
+        <a class="attic-menu-item" href="./player.html#settings" role="menuitem">⚙ Настройки</a>
       </div>
     </header>
 
-    <div class="caravan-stage" id="caravan-stage">
+    <div class="caravan-stage" id="caravan-stage" data-tutorial="caravan-map">
       <div class="caravan-stage-bg" aria-hidden="true"></div>
       <img id="caravan-bg-img" class="caravan-bg-full" src="" alt="" />
+      <div class="caravan-map-bg-label caravan-map-bg-label--library" aria-hidden="true">Библиотека</div>
       <div id="caravan-pins-layer" class="caravan-pins-layer"></div>
       <div id="caravan-error" class="banner caravan-error-banner" style="display: none;"></div>
     </div>
 
     <nav class="nav basement">
-      <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
-      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span aria-hidden="true">🏰</span></a>
-      <a href="./shop.html" data-page="shop" title="Магазин"><span aria-hidden="true">🏪</span></a>
-      <a href="./tavern.html" data-page="tavern" title="Таверна"><span aria-hidden="true">🍻</span></a>
-      <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
-      <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
-      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
-      <a href="./index.html" data-page="menu" title="Главное меню"><span aria-hidden="true">🏠</span></a>
+      <a href="./profile.html" data-page="profile" title="Профиль"></a>
+      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"></a>
+      <a href="./shop.html" data-page="shop" title="Магазин"></a>
+      <a href="./tavern.html" data-page="tavern" title="Таверна"></a>
+      <a href="./caravan.html" data-page="caravan" title="Караван"></a>
+      <a href="./guild_hall.html" data-page="guild" title="Гильдия"></a>
+      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"></a>
+      <a href="./index.html" data-page="menu" title="Главное меню"></a>
     </nav>
   </body>
 </html>

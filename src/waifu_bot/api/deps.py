@@ -2,13 +2,20 @@
 import logging
 
 from fastapi import Depends, Header, HTTPException, Query, status
-from sqlalchemy.exc import InvalidRequestError, OperationalError, ProgrammingError, SQLAlchemyError
+from sqlalchemy.exc import (
+    InvalidRequestError,
+    OperationalError,
+    PendingRollbackError,
+    ProgrammingError,
+    SQLAlchemyError,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.core import redis as redis_core
 from waifu_bot.core.config import settings
 from waifu_bot.db.session import get_session
 from waifu_bot.services.auth import validate_init_data
+from waifu_bot.services.player_ban import is_player_banned
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +37,20 @@ async def get_db() -> AsyncSession:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="database_unavailable",
+        ) from e
+    except PendingRollbackError as e:
+        original = e.__cause__ or e.__context__
+        if original is not None:
+            logger.exception(
+                "PendingRollbackError in get_db (earlier error: %s: %s)",
+                type(original).__name__,
+                original,
+            )
+        else:
+            logger.exception("PendingRollbackError in get_db (session rolled back)")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="session_rollback_error",
         ) from e
     except InvalidRequestError as e:
         # Mapper/relationship misconfiguration — not a DB outage (do not return 503).
@@ -56,6 +77,7 @@ async def get_player_id(
     init_data_query: str | None = Query(None, alias="initData"),
     x_player_id: int | None = Header(None, alias="X-Player-Id"),
     x_dev_token: str | None = Header(None, alias="X-Dev-Token"),
+    session: AsyncSession = Depends(get_db),
 ) -> int:
     """
     Extract player id using Telegram WebApp initData.
@@ -72,7 +94,10 @@ async def get_player_id(
         user_id = user.get("id")
         if not user_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user id missing in init data")
-        return int(user_id)
+        uid = int(user_id)
+        if await is_player_banned(session, uid):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account banned")
+        return uid
 
     if x_player_id and x_player_id > 0:
         token_ok = (
@@ -82,6 +107,8 @@ async def get_player_id(
         )
         env_ok = settings.environment == "dev"
         if token_ok or env_ok:
+            if await is_player_banned(session, x_player_id):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account banned")
             return x_player_id
 
     raise HTTPException(
@@ -90,12 +117,9 @@ async def get_player_id(
     )
 
 
-ADMIN_USER_ID = 305174198
-
-
 async def require_admin(player_id: int = Depends(get_player_id)) -> int:
     """Require that the player is an administrator."""
-    if player_id != ADMIN_USER_ID:
+    if not settings.is_admin(player_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",

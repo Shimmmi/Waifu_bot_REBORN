@@ -26,13 +26,22 @@ def _normalize_ts(ts: datetime, fallback: datetime) -> datetime:
     return ts
 
 
-def apply_regen(waifu: MainWaifu, now: datetime | None = None) -> bool:
+def apply_regen(
+    waifu: MainWaifu,
+    now: datetime | None = None,
+    *,
+    extra_hp_per_min: int = 0,
+    suppress: bool = False,
+) -> bool:
     """
     Regen HP (5/min + END bonus) in discrete minute ticks.
     Returns True if waifu was modified (HP changed).
 
     - HP: cap at max_hp; if current_hp <= 0, skip (no revive from regen);
       if already at cap, only refresh hp_updated_at.
+    - suppress: when True, grant NO HP but advance hp_updated_at to ``now`` so the
+      idle/offline interval is forfeited (Abyss offline regen via combat_regen).
+      Solo dungeons never pass suppress=True. Out-of-dungeon callers leave False.
     """
     if not waifu:
         return False
@@ -49,6 +58,12 @@ def apply_regen(waifu: MainWaifu, now: datetime | None = None) -> bool:
         raw_hp = now
         modified = True
     last_hp = _normalize_ts(raw_hp, now)
+    if suppress:
+        # Offline inside a dungeon: forfeit accrued time, grant nothing.
+        if waifu.current_hp < waifu.max_hp:
+            waifu.hp_updated_at = now
+            modified = True
+        return modified
     if waifu.current_hp <= 0:
         # Не оживляем только за счёт регена; просто обновляем метку.
         waifu.hp_updated_at = now
@@ -62,7 +77,7 @@ def apply_regen(waifu: MainWaifu, now: datetime | None = None) -> bool:
         if minutes >= 1:
             # Minimal END influence: +1 HP/min for each END above 10
             end_bonus = max(0, int(getattr(waifu, "endurance", 0) or 0) - 10)
-            per_min = int(HP_REGEN_PER_MIN) + int(end_bonus)
+            per_min = int(HP_REGEN_PER_MIN) + int(end_bonus) + max(0, int(extra_hp_per_min))
             gain = min(minutes * per_min, waifu.max_hp - waifu.current_hp)
             waifu.current_hp = int(waifu.current_hp) + gain
             waifu.hp_updated_at = last_hp + timedelta(minutes=minutes)

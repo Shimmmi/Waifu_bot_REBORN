@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, TYPE_CHECKING
 
@@ -19,8 +20,15 @@ from waifu_bot.db.models import (
     MainWaifu,
     Player,
 )
+from waifu_bot.game.constants import (
+    GD_MAX_ACTIONS_PER_ROUND_DEFAULT,
+    GD_REGISTRATION_WINDOW_MINUTES_DEFAULT,
+    GD_ROUND_DURATION_MINUTES_DEFAULT,
+    GD_SERIES_WINDOW_SECONDS_DEFAULT,
+)
 from waifu_bot.services.game_config_service import get_game_config_map, cfg_int, cfg_float
 from waifu_bot.services.gd_scaling import compute_challenge_level
+from waifu_bot.services import gd_active_cache as gd_active_cache_mod
 
 if TYPE_CHECKING:
     from aiogram import Bot
@@ -45,6 +53,57 @@ def next_monday_0600_msk_utc(after: datetime) -> datetime:
 
 def _buf_key(cycle_id: int) -> str:
     return f"{REDIS_GD_V1_BUF}{cycle_id}"
+
+
+def coalesce_round_action(
+    actions: list[dict[str, Any]],
+    *,
+    kind: str,
+    now_ts: float,
+    text_len: int = 0,
+    media_kind: str | None = None,
+    window_seconds: float = float(GD_SERIES_WINDOW_SECONDS_DEFAULT),
+    max_actions: int = GD_MAX_ACTIONS_PER_ROUND_DEFAULT,
+) -> None:
+    """Анти-спам склейка: сообщения одного типа в пределах окна объединяются в «серию».
+
+    Мутирует `actions` (упорядоченный список действий игрока за раунд):
+      - text:  {"kind": "text", "len": <сумма длин>, "count": <число сообщений>, "ts": <last>}
+      - media: {"kind": "media", "media_kind": <тип>, "count": <число>, "ts": <last>}
+    Если достигнут лимит max_actions — новое сообщение вливается в последнее действие.
+    """
+    last = actions[-1] if actions else None
+
+    def _same_kind(a: dict[str, Any]) -> bool:
+        if a.get("kind") != kind:
+            return False
+        if kind == "media":
+            return a.get("media_kind") == media_kind
+        return True
+
+    can_merge = (
+        last is not None
+        and _same_kind(last)
+        and (now_ts - float(last.get("ts") or 0.0)) <= window_seconds
+    )
+    at_cap = len(actions) >= max(1, int(max_actions))
+    if can_merge or (at_cap and last is not None and _same_kind(last)):
+        last["count"] = int(last.get("count") or 1) + 1
+        if kind == "text":
+            last["len"] = int(last.get("len") or 0) + max(0, int(text_len))
+        last["ts"] = now_ts
+        return
+    if at_cap and last is not None:
+        # Лимит достигнут, тип отличается — вливаем в последнее действие, не плодя циклы.
+        last["count"] = int(last.get("count") or 1) + 1
+        last["ts"] = now_ts
+        return
+    if kind == "text":
+        actions.append({"kind": "text", "len": max(0, int(text_len)), "count": 1, "ts": now_ts})
+    else:
+        actions.append(
+            {"kind": "media", "media_kind": media_kind, "count": 1, "ts": now_ts}
+        )
 
 
 async def build_waifu_snapshot(session: AsyncSession, player_id: int) -> dict[str, Any] | None:
@@ -76,6 +135,9 @@ async def build_waifu_snapshot(session: AsyncSession, player_id: int) -> dict[st
 class GDCycleService:
     def __init__(self, redis_client: Any | None):
         self.redis = redis_client
+        # Анти-спам параметры буфера раунда (без сессии БД — дефолты из constants).
+        self._series_window_seconds: float = float(GD_SERIES_WINDOW_SECONDS_DEFAULT)
+        self._max_actions_per_round: int = int(GD_MAX_ACTIONS_PER_ROUND_DEFAULT)
 
     async def get_registration_cycle(
         self, session: AsyncSession, chat_id: int
@@ -107,12 +169,81 @@ class GDCycleService:
         return r.scalar_one_or_none()
 
     async def get_active_v1_cycle(self, session: AsyncSession, chat_id: int) -> GDCycle | None:
+        cached = await gd_active_cache_mod.get_cached_active_cycle_id(self.redis, chat_id)
+        if cached is False:
+            pass  # cache miss — query DB below
+        elif cached is None:
+            return None
+        else:
+            cycle = await session.get(GDCycle, int(cached))
+            if cycle and cycle.status == "active" and int(cycle.chat_id) == int(chat_id):
+                return cycle
+            await gd_active_cache_mod.invalidate_active_cycle_cache(self.redis, chat_id)
+
         r = await session.execute(
             select(GDCycle)
             .where(GDCycle.chat_id == chat_id, GDCycle.status == "active")
             .limit(1)
         )
-        return r.scalar_one_or_none()
+        cycle = r.scalar_one_or_none()
+        if cycle:
+            await gd_active_cache_mod.set_active_cycle_cache(
+                self.redis, chat_id, cycle.id
+            )
+        else:
+            await gd_active_cache_mod.set_active_cycle_cache(self.redis, chat_id, None)
+        return cycle
+
+    async def get_party_roster(
+        self, session: AsyncSession, chat_id: int
+    ) -> dict[str, Any] | None:
+        """Состав текущего отряда (для всех игроков): активный бой или открытая регистрация.
+
+        Возвращает {phase, cycle_id, members:[{user_id,name,level,race_id,class_id,fallen}], closes?}.
+        """
+        active = await self.get_active_v1_cycle(session, chat_id)
+        if active:
+            members: list[dict[str, Any]] = []
+            for p in (active.battle_state_json or {}).get("party") or []:
+                members.append(
+                    {
+                        "user_id": p.get("user_id"),
+                        "name": p.get("name"),
+                        "level": p.get("level"),
+                        "race_id": p.get("race_id"),
+                        "class_id": p.get("class_id"),
+                        "fallen": bool(p.get("fallen")) or int(p.get("current_hp") or 0) <= 0,
+                    }
+                )
+            return {"phase": "active", "cycle_id": active.id, "members": members}
+
+        reg = await self.get_registration_cycle(session, chat_id)
+        if reg:
+            rows = (
+                await session.execute(
+                    select(GDRegistration).where(GDRegistration.cycle_id == reg.id)
+                )
+            ).scalars().all()
+            members = []
+            for r in rows:
+                s = dict(r.waifu_snapshot or {})
+                members.append(
+                    {
+                        "user_id": r.user_id,
+                        "name": s.get("name"),
+                        "level": s.get("level"),
+                        "race_id": s.get("race_id"),
+                        "class_id": s.get("class_id"),
+                        "fallen": False,
+                    }
+                )
+            return {
+                "phase": "registration",
+                "cycle_id": reg.id,
+                "closes": reg.registration_closes,
+                "members": members,
+            }
+        return None
 
     async def ensure_registration_cycle(
         self, session: AsyncSession, chat_id: int
@@ -132,7 +263,11 @@ class GDCycleService:
             )
             return None
         tpl = random.choice(templates)
-        closes = next_monday_0600_msk_utc(datetime.now(timezone.utc))
+        cfg = await get_game_config_map(session)
+        window_m = cfg_int(
+            cfg, "gd_registration_window_minutes", GD_REGISTRATION_WINDOW_MINUTES_DEFAULT
+        )
+        closes = datetime.now(timezone.utc) + timedelta(minutes=max(1, window_m))
         cycle = GDCycle(
             chat_id=chat_id,
             dungeon_template_id=tpl.id,
@@ -204,7 +339,7 @@ class GDCycleService:
         if cycle.status == "active":
             now = datetime.now(timezone.utc)
             cycle.started_at = now
-            dur_m = int(float(cfg.get("gd_round_duration_minutes", "30")))
+            dur_m = int(float(cfg.get("gd_round_duration_minutes", str(GD_ROUND_DURATION_MINUTES_DEFAULT))))
             cycle.round_deadline_at = now + timedelta(minutes=dur_m)
             party = []
             for r in regs:
@@ -228,6 +363,14 @@ class GDCycleService:
             cycle.finished_at = datetime.now(timezone.utc)
             cycle.round_deadline_at = None
         await session.flush()
+        if cycle.status == "active":
+            await gd_active_cache_mod.set_active_cycle_cache(
+                self.redis, cycle.chat_id, cycle.id
+            )
+        else:
+            await gd_active_cache_mod.set_active_cycle_cache(
+                self.redis, cycle.chat_id, None
+            )
         return {"status": cycle.status, "registrations": len(regs)}
 
     async def reset_v1_cycles_for_chat(self, session: AsyncSession, chat_id: int) -> int:
@@ -250,6 +393,7 @@ class GDCycleService:
             n += 1
         if n:
             await session.flush()
+        await gd_active_cache_mod.invalidate_active_cycle_cache(self.redis, chat_id)
         return n
 
     async def record_round_action(
@@ -275,13 +419,33 @@ class GDCycleService:
                     buf = {"users": {}}
             users: dict[str, Any] = buf.setdefault("users", {})
             uid = str(user_id)
-            u = users.setdefault(uid, {"text_len": 0, "media": [], "silent": True})
+            u = users.setdefault(uid, {"text_len": 0, "media": [], "silent": True, "actions": []})
+            actions: list[dict[str, Any]] = u.setdefault("actions", [])
+            now_ts = time.time()
+            window = float(self._series_window_seconds)
+            max_acts = int(self._max_actions_per_round)
             if text_delta:
                 u["text_len"] = int(u.get("text_len") or 0) + text_delta
                 u["silent"] = False
+                coalesce_round_action(
+                    actions,
+                    kind="text",
+                    now_ts=now_ts,
+                    text_len=int(text_delta),
+                    window_seconds=window,
+                    max_actions=max_acts,
+                )
             if media_kind:
                 u.setdefault("media", []).append(media_kind)
                 u["silent"] = False
+                coalesce_round_action(
+                    actions,
+                    kind="media",
+                    now_ts=now_ts,
+                    media_kind=media_kind,
+                    window_seconds=window,
+                    max_actions=max_acts,
+                )
             if is_silent:
                 u["silent"] = u.get("text_len", 0) == 0 and not u.get("media")
             await self.redis.set(key, json.dumps(buf), ex=86400 * 2)

@@ -35,6 +35,11 @@ def test_derive_item_art_key_sword_2h() -> None:
     assert k == "weapon_sword_2h/kleymor"
 
 
+def test_derive_item_art_key_katana_one_hand_without_display_kwarg() -> None:
+    k = derive_item_art_key("weapon_1h", "one_hand", "Катана")
+    assert k == "weapon_sword_1h/katana"
+
+
 def test_derive_item_art_key_pike_two_hand_from_display_name() -> None:
     """Shop often sends weapon_type=two_hand only; category must come from the name."""
     k = derive_item_art_key(
@@ -46,6 +51,39 @@ def test_derive_item_art_key_pike_two_hand_from_display_name() -> None:
     assert k == "weapon_sword_2h/pika_legiona"
 
 
+def test_resolve_item_art_slug_fallback() -> None:
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from waifu_bot.services.item_art import resolve_item_art_relative_path
+
+    legacy_row = MagicMock()
+    legacy_row.relative_path = "items_webp/generic/katana/t5.webp"
+
+    session = AsyncMock()
+
+    async def _fake_execute(stmt):
+        result = MagicMock()
+        compiled = str(stmt)
+        if "ItemArt.art_key ==" in compiled or "art_key = :" in compiled:
+            result.scalar_one_or_none.return_value = None
+            result.scalars.return_value.all.return_value = [legacy_row]
+        else:
+            result.scalar_one_or_none.return_value = None
+            result.scalars.return_value.all.return_value = [legacy_row]
+        return result
+
+    session.execute = AsyncMock(side_effect=_fake_execute)
+
+    async def _run() -> str:
+        return await resolve_item_art_relative_path(
+            session, "weapon_sword_1h/katana", 5
+        )
+
+    rel = asyncio.run(_run())
+    assert rel == "items_webp/generic/katana/t5.webp"
+
+
 def test_normalize_art_key_composite() -> None:
     from waifu_bot.services.item_art_generation import normalize_art_key
 
@@ -54,3 +92,19 @@ def test_normalize_art_key_composite() -> None:
     assert normalize_art_key("armor") == "armor"
     assert normalize_art_key("armor/foo/extra") is None
     assert normalize_art_key("Armor/Foo") == "armor/foo"
+
+
+def test_normalize_art_key_legendary_composite() -> None:
+    from waifu_bot.services.item_art_generation import normalize_art_key, primary_item_art_category
+
+    assert normalize_art_key("legendary/armor/foo_bar") == "legendary/armor/foo_bar"
+    assert normalize_art_key("legendary/armor/foo/extra") is None
+    assert primary_item_art_category("legendary/weapon_axe_1h/ruchnoy_topor") == "weapon_axe_1h"
+
+
+def test_with_legendary_art_prefix_idempotent() -> None:
+    from waifu_bot.services.item_art import with_legendary_art_prefix
+
+    base = "weapon_axe_1h/ruchnoy_topor"
+    assert with_legendary_art_prefix(base) == "legendary/weapon_axe_1h/ruchnoy_topor"
+    assert with_legendary_art_prefix(f"legendary/{base}") == f"legendary/{base}"

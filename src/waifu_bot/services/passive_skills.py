@@ -227,7 +227,7 @@ def extrapolate_passive_effect_value(
     over = level - n
     out = v_last + step * float(over)
 
-    if et in ("trade_flat", "nth_hit_crit"):
+    if et in ("trade_flat", "nth_hit_crit", "main_stats_flat", "armor_flat"):
         if et == "nth_hit_crit":
             return max(1, int(round(out)))
         return int(round(out))
@@ -289,25 +289,23 @@ async def collect_passive_node_level_bonus_from_session(
             if nid:
                 nodes[nid] = nodes.get(nid, 0) + add
 
-    # Вторичка из шаблона + заточка (как get_effective_params в enchanting.py).
+    # Passive secondaries from instance snapshot + affixes (fraction handled in combat query).
     try:
         tpl_rows = (
             await session.execute(
                 text(
                     """
-                    SELECT ibt.secondary_bonus_type,
-                           ibt.secondary_bonus_value,
-                           ii.enchant_level,
-                           ii.enchant_sec_step,
-                           ii.is_broken
+                    SELECT ii.secondary_bonus_type,
+                           ii.secondary_bonus_value,
+                           ibt.secondary_bonus_type AS template_secondary_type,
+                           ibt.secondary_bonus_value AS template_secondary_value
                     FROM inventory_items ii
                     JOIN items i ON i.id = ii.item_id
-                    JOIN item_base_templates ibt
+                    LEFT JOIN item_base_templates ibt
                       ON btrim(ibt.name) = btrim(i.name)
                      AND ibt.tier = COALESCE(NULLIF(ii.tier, 0), i.tier)
                     WHERE ii.player_id = :pid
                       AND ii.equipment_slot IS NOT NULL
-                      AND ibt.secondary_bonus_type IS NOT NULL
                     """
                 ),
                 {"pid": int(player_id)},
@@ -316,16 +314,18 @@ async def collect_passive_node_level_bonus_from_session(
     except Exception:
         tpl_rows = []
 
+    from waifu_bot.game.item_secondary import is_passive_secondary_type
+
     for row in tpl_rows:
-        sec_type = row[0]
-        sec_val = row[1]
-        ench_lv = int(row[2] or 0) if not bool(row[4]) else 0
-        ench_sec_step = float(row[3] or 0.0)
+        sec_type = row[0] or row[2]
+        sec_val = row[1] if row[0] is not None else row[3]
+        if not sec_type or not is_passive_secondary_type(sec_type):
+            continue
         try:
             base_sec = float(sec_val or 0.0)
         except (TypeError, ValueError):
-            base_sec = 0.0
-        eff_sec = base_sec + ench_sec_step * float(ench_lv)
+            continue
+        eff_sec = base_sec
         try:
             raw_add = int(round(eff_sec))
         except (TypeError, ValueError):
@@ -509,18 +509,36 @@ async def get_passive_contributions_for_log(
     return out
 
 
+def compute_passive_buy_price_from_bonuses(
+    price: int,
+    ps: dict[str, float],
+    hs: dict[str, float] | None = None,
+) -> int:
+    """Цена после скидки и торгового бонуса (без запросов к БД)."""
+    sd = float(ps.get("shop_discount_pct", 0) or 0)
+    if hs:
+        sd += float(hs.get("shop_discount_pct", 0) or 0) / 100.0
+    p = max(1, int(round(int(price) * (1.0 - min(0.85, max(0.0, sd))))))
+    tf = int(ps.get("trade_flat", 0) or 0)
+    if tf > 0:
+        p = max(1, p - tf)
+    return p
+
+
 async def apply_passive_buy_price(session: AsyncSession, player_id: int, price: int) -> int:
     """Цена покупки в магазине / казино после скидки и торгового бонуса."""
     try:
         ps = await get_passive_skill_bonuses(session, player_id)
     except Exception:
         return max(1, int(price))
-    sd = float(ps.get("shop_discount_pct", 0) or 0)
-    p = max(1, int(round(int(price) * (1.0 - min(0.85, max(0.0, sd))))))
-    tf = int(ps.get("trade_flat", 0) or 0)
-    if tf > 0:
-        p = max(1, p - tf)
-    return p
+    hs: dict[str, float] | None = None
+    try:
+        from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
+
+        hs = await get_hidden_skill_bonuses(session, player_id)
+    except Exception:
+        pass
+    return compute_passive_buy_price_from_bonuses(int(price), ps, hs)
 
 
 async def apply_passive_hire_cost(session: AsyncSession, player_id: int, base_cost: int) -> int:
@@ -605,6 +623,17 @@ def apply_charm_training_discount(cost: int, charm: int) -> int:
     return max(1, int(round(int(cost) * (1.0 - f))))
 
 
+def compute_passive_learn_cost_from_bonuses(
+    base_cost: int,
+    ps: dict[str, float],
+    hs: dict[str, float] | None,
+    charm: int,
+) -> int:
+    """Золото за уровень пассивки: торговля + скидка тренировок от ОБА (без БД)."""
+    after_passive = compute_passive_buy_price_from_bonuses(int(base_cost), ps, hs)
+    return apply_charm_training_discount(after_passive, charm)
+
+
 async def compute_tavern_hire_price(session: AsyncSession, player_id: int, base_cost: int) -> int:
     """Пассивки (торговля) + скидка найма от ОБА — как в профиле."""
     after_passive = await apply_passive_hire_cost(session, player_id, int(base_cost))
@@ -619,15 +648,23 @@ async def effective_passive_learn_cost(session: AsyncSession, player_id: int, ba
     return apply_charm_training_discount(after_passive, ch)
 
 
-def expedition_reward_multiplier(ps: dict[str, float]) -> float:
+def expedition_reward_multiplier(ps: dict[str, float], hs: dict[str, float] | None = None) -> float:
     """Множитель золота/опыта экспедиции."""
-    return 1.0 + float(ps.get("expedition_bonus_pct", 0) or 0)
+    mult = 1.0 + float(ps.get("expedition_bonus_pct", 0) or 0)
+    if hs:
+        mult += float(hs.get("expedition_reward_pct", 0) or 0) / 100.0
+    return mult
 
 
-def expedition_success_probability_boost(ps: dict[str, float]) -> float:
+def expedition_success_probability_boost(
+    ps: dict[str, float], hs: dict[str, float] | None = None
+) -> float:
     """Добавка к вероятности успеха (0..1) при первом claim."""
     eb = float(ps.get("expedition_bonus_pct", 0) or 0)
-    return min(0.4, eb * 0.65)
+    boost = min(0.4, eb * 0.65)
+    if hs:
+        boost += float(hs.get("loyal_unit_success_pct", 0) or 0) / 100.0
+    return min(0.5, boost)
 
 
 def merge_passive_into_profile_details(
@@ -642,6 +679,9 @@ def merge_passive_into_profile_details(
     передайте skip_all_stats_pct_on_damage=True, чтобы не умножать урон второй раз.
     """
     out = dict(details)
+    af = int(ps.get("armor_flat", 0) or 0)
+    if af > 0:
+        out["armor"] = int(out.get("armor", 0) or 0) + af
     ap = float(ps.get("armor_pct", 0) or 0)
     if ap > 0:
         out["armor"] = int(round(int(out.get("armor", 0) or 0) * (1.0 + ap)))
@@ -652,25 +692,68 @@ def merge_passive_into_profile_details(
     md = int(out.get("melee_damage", 0) or 0)
     rd = int(out.get("ranged_damage", 0) or 0)
     mgd = int(out.get("magic_damage", 0) or 0)
+    md_min = out.get("melee_damage_min")
+    md_max = out.get("melee_damage_max")
+    rd_min = out.get("ranged_damage_min")
+    rd_max = out.get("ranged_damage_max")
+    mgd_min = out.get("magic_damage_min")
+    mgd_max = out.get("magic_damage_max")
+    has_melee_bounds = md_min is not None and md_max is not None
+    has_ranged_bounds = rd_min is not None and rd_max is not None
+    has_magic_bounds = mgd_min is not None and mgd_max is not None
+
+    def _apply_dmg_mult(val: int, mult: float) -> int:
+        return int(round(val * mult))
+
     mm = float(ps.get("melee_dmg_pct", 0) or 0)
     if mm > 0:
-        md = int(round(md * (1.0 + mm)))
+        m = 1.0 + mm
+        md = _apply_dmg_mult(md, m)
+        if has_melee_bounds:
+            md_min = _apply_dmg_mult(int(md_min), m)
+            md_max = _apply_dmg_mult(int(md_max), m)
     pr = float(ps.get("ranged_dmg_pct", 0) or 0)
     if pr > 0:
-        rd = int(round(rd * (1.0 + pr)))
+        m = 1.0 + pr
+        rd = _apply_dmg_mult(rd, m)
+        if has_ranged_bounds:
+            rd_min = _apply_dmg_mult(int(rd_min), m)
+            rd_max = _apply_dmg_mult(int(rd_max), m)
     mg = float(ps.get("magic_dmg_pct", 0) or 0)
     if mg > 0:
-        mgd = int(round(mgd * (1.0 + mg)))
+        m = 1.0 + mg
+        mgd = _apply_dmg_mult(mgd, m)
+        if has_magic_bounds:
+            mgd_min = _apply_dmg_mult(int(mgd_min), m)
+            mgd_max = _apply_dmg_mult(int(mgd_max), m)
     if not skip_all_stats_pct_on_damage:
         asp = float(ps.get("all_stats_pct", 0) or 0)
         if asp > 0:
             m = 1.0 + asp
-            md, rd, mgd = int(round(md * m)), int(round(rd * m)), int(round(mgd * m))
+            md, rd, mgd = _apply_dmg_mult(md, m), _apply_dmg_mult(rd, m), _apply_dmg_mult(mgd, m)
+            if has_melee_bounds:
+                md_min, md_max = _apply_dmg_mult(int(md_min), m), _apply_dmg_mult(int(md_max), m)
+            if has_ranged_bounds:
+                rd_min, rd_max = _apply_dmg_mult(int(rd_min), m), _apply_dmg_mult(int(rd_max), m)
+            if has_magic_bounds:
+                mgd_min, mgd_max = _apply_dmg_mult(int(mgd_min), m), _apply_dmg_mult(int(mgd_max), m)
     act = float(ps.get("active_skill_dmg_pct", 0) or 0)
     if act > 0:
         m = 1.0 + act
-        md, rd, mgd = int(round(md * m)), int(round(rd * m)), int(round(mgd * m))
+        md, rd, mgd = _apply_dmg_mult(md, m), _apply_dmg_mult(rd, m), _apply_dmg_mult(mgd, m)
+        if has_melee_bounds:
+            md_min, md_max = _apply_dmg_mult(int(md_min), m), _apply_dmg_mult(int(md_max), m)
+        if has_ranged_bounds:
+            rd_min, rd_max = _apply_dmg_mult(int(rd_min), m), _apply_dmg_mult(int(rd_max), m)
+        if has_magic_bounds:
+            mgd_min, mgd_max = _apply_dmg_mult(int(mgd_min), m), _apply_dmg_mult(int(mgd_max), m)
     out["melee_damage"], out["ranged_damage"], out["magic_damage"] = md, rd, mgd
+    if has_melee_bounds:
+        out["melee_damage_min"], out["melee_damage_max"] = md_min, md_max
+    if has_ranged_bounds:
+        out["ranged_damage_min"], out["ranged_damage_max"] = rd_min, rd_max
+    if has_magic_bounds:
+        out["magic_damage_min"], out["magic_damage_max"] = mgd_min, mgd_max
 
     cc = float(ps.get("crit_chance_pct", 0) or 0)
     if cc > 0:
@@ -678,6 +761,9 @@ def merge_passive_into_profile_details(
     ev = float(ps.get("evade_pct", 0) or 0)
     if ev > 0:
         out["dodge_chance"] = round(float(out.get("dodge_chance", 0) or 0) + ev * 100.0, 2)
+    fe = float(ps.get("full_evade_chance", 0) or 0)
+    if fe > 0:
+        out["full_evade_chance"] = round(fe * 100.0, 2)
     dr = float(ps.get("dmg_reduce_pct", 0) or 0)
     if dr > 0:
         out["damage_reduction"] = round(float(out.get("damage_reduction", 0) or 0) + dr * 100.0, 2)
@@ -702,9 +788,46 @@ def _max_effect_display(node: PassiveSkillNode) -> str:
         return "—"
     mx = max(float(x) for x in vals if x is not None)
     # доли 0..2 → проценты; большие числа (trade_flat, nth_hit) — как есть
-    if node.effect_type in ("trade_flat", "nth_hit_crit", "main_stats_flat"):
+    if node.effect_type in ("trade_flat", "nth_hit_crit", "main_stats_flat", "armor_flat"):
         return str(int(mx)) if mx == int(mx) else f"{mx:g}"
     return f"+{round(mx * 100)}%"
+
+
+def passive_level_cap_for_waifu(waifu_level: int, waifu_level_req: int, max_level: int) -> int:
+    """Максимальный уровень узла при текущем уровне ОВ (на открытии тира — только 1-й уровень)."""
+    if waifu_level < int(waifu_level_req):
+        return 0
+    cap = int(waifu_level) - int(waifu_level_req) + 1
+    return max(0, min(int(max_level), cap))
+
+
+def passive_learn_block_reason(
+    *,
+    waifu_level: int,
+    branch_spent: int,
+    waifu_level_req: int,
+    branch_points_req: int,
+    current_level: int,
+    max_level: int,
+    skill_points: int,
+    gold: int,
+    cost_gold: int,
+) -> str | None:
+    """Причина, почему узел нельзя прокачать; None — можно (при прочих условиях API)."""
+    if waifu_level < int(waifu_level_req):
+        return "locked_waifu_level"
+    if branch_spent < int(branch_points_req):
+        return "locked_branch_points"
+    if current_level >= int(max_level):
+        return "skill_maxed"
+    level_cap = passive_level_cap_for_waifu(waifu_level, waifu_level_req, max_level)
+    if current_level >= level_cap:
+        return "locked_waifu_level_step"
+    if int(skill_points) < 1:
+        return "no_skill_points"
+    if int(gold) < int(cost_gold):
+        return "insufficient_gold"
+    return None
 
 
 async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[str, Any]:
@@ -738,6 +861,19 @@ async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[
 
     bundle = await collect_passive_node_level_bonus_from_session(session, player_id)
 
+    try:
+        ps_bonuses = await get_passive_skill_bonuses(session, player_id)
+    except Exception:
+        ps_bonuses = {}
+    hs_bonuses: dict[str, float] | None = None
+    try:
+        from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
+
+        hs_bonuses = await get_hidden_skill_bonuses(session, player_id)
+    except Exception:
+        pass
+    charm = await effective_main_waifu_charm(session, player_id)
+
     branches: dict[str, list[dict[str, Any]]] = {b: [] for b in BRANCHES}
 
     for n in nodes:
@@ -746,14 +882,25 @@ async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[
         if b not in branches:
             continue
         spent = bp.get(b, 0)
-        locked = waifu_lv < int(n.waifu_level_req) or spent < int(n.branch_points_req)
-        cost_gold_eff = await effective_passive_learn_cost(session, player_id, int(n.cost_gold or 0))
-        can_learn = (
-            not locked
-            and cur < int(n.max_level)
-            and sp >= 1
-            and gold >= cost_gold_eff
+        cost_gold_eff = compute_passive_learn_cost_from_bonuses(
+            int(n.cost_gold or 0), ps_bonuses, hs_bonuses, charm
         )
+        waifu_req = int(n.waifu_level_req)
+        max_lv = int(n.max_level)
+        level_cap = passive_level_cap_for_waifu(waifu_lv, waifu_req, max_lv)
+        block = passive_learn_block_reason(
+            waifu_level=waifu_lv,
+            branch_spent=spent,
+            waifu_level_req=waifu_req,
+            branch_points_req=int(n.branch_points_req),
+            current_level=cur,
+            max_level=max_lv,
+            skill_points=sp,
+            gold=gold,
+            cost_gold=cost_gold_eff,
+        )
+        locked = block in ("locked_waifu_level", "locked_branch_points")
+        can_learn = block is None
         add_lv = (
             int(bundle.nodes.get(str(n.id).strip().lower(), 0) or 0)
             + int(bundle.branches.get(str(n.branch), 0) or 0)
@@ -769,7 +916,6 @@ async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[
         )
         next_lv = eff_lv + 1
         ev_next = extrapolate_passive_effect_value(n.effect_values, next_lv, et) if next_lv >= 1 else None
-        max_lv = int(n.max_level)
         if (
             ev_next is not None
             and cur >= max_lv
@@ -784,10 +930,11 @@ async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[
                 "tier": int(n.tier),
                 "position": int(n.position),
                 "name": n.name,
-                "max_level": int(n.max_level),
+                "max_level": max_lv,
                 "current_level": cur,
-                "waifu_level_req": int(n.waifu_level_req),
+                "waifu_level_req": waifu_req,
                 "branch_points_req": int(n.branch_points_req),
+                "level_cap": level_cap,
                 "effect_type": n.effect_type,
                 "effect_values": _coerce_passive_effect_values(n.effect_values),
                 "current_effect_value": ev_cur,
@@ -800,7 +947,21 @@ async def get_passive_skill_tree(session: AsyncSession, player_id: int) -> dict[
                 "description": n.description,
                 "can_learn": can_learn,
                 "is_locked": locked,
+                "learn_block_reason": block,
             }
+        )
+
+    total_learned = sum(int(v) for v in learned_map.values())
+    per_level = int(cfg_float(cfg, "skill.points_per_level", 1.0))
+    expected_free = max(0, (waifu_lv - 1) * per_level - total_learned)
+    if abs(sp - expected_free) > 0:
+        logger.warning(
+            "passive skill_points mismatch player_id=%s sp=%s expected_free=%s learned_sum=%s waifu_lv=%s",
+            player_id,
+            sp,
+            expected_free,
+            total_learned,
+            waifu_lv,
         )
 
     return {
@@ -833,8 +994,12 @@ async def learn_passive_node(session: AsyncSession, player_id: int, node_id: str
 
     row = await session.get(PlayerPassiveSkill, (int(player_id), node_id))
     cur = int(row.level) if row else 0
-    if cur >= int(node.max_level):
+    max_lv = int(node.max_level)
+    if cur >= max_lv:
         return {"ok": False, "error": "skill_maxed"}
+    level_cap = passive_level_cap_for_waifu(waifu_lv, int(node.waifu_level_req), max_lv)
+    if cur >= level_cap:
+        return {"ok": False, "error": "waifu_level_step"}
 
     if int(getattr(player, "skill_points", 0) or 0) < 1:
         return {"ok": False, "error": "no_skill_points"}

@@ -1,8 +1,16 @@
 /**
  * Прокси Bot API: клиент бьётся в Worker по /<SECRET_PREFIX>/bot<token>/<method>,
  * Worker пересылает на https://api.telegram.org/bot<token>/<method>.
+ * OIDC JWKS: /<SECRET_PREFIX>/oauth/.well-known/jwks.json → oauth.telegram.org
  * SECRET_PREFIX — wrangler secret (см. README).
  */
+
+const OAUTH_UPSTREAM = {
+  "/oauth/.well-known/jwks.json": "https://oauth.telegram.org/.well-known/jwks.json",
+  "/oauth/.well-known/openid-configuration":
+    "https://oauth.telegram.org/.well-known/openid-configuration",
+};
+
 export default {
   async fetch(request, env) {
     const prefix = env.SECRET_PREFIX;
@@ -17,6 +25,14 @@ export default {
     }
 
     const upstreamPath = url.pathname.slice(expected.length);
+    const oauthTarget = OAUTH_UPSTREAM[upstreamPath];
+    if (oauthTarget) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("Method not allowed", { status: 405 });
+      }
+      return fetch(oauthTarget, { method: request.method, redirect: "manual" });
+    }
+
     if (
       !upstreamPath.startsWith("/bot") &&
       !upstreamPath.startsWith("/file/bot")

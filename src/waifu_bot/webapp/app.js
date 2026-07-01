@@ -22,10 +22,40 @@ const API_BASE = "/api";
 const PLAYER_EXP_BASE = 16;
 const PLAYER_MAX_LEVEL = 60;
 const GAME_STATIC_BASE = "/static/game";
+
+/** Synced with CACHE_VERSION in sw.js (bump via scripts/bump_webapp_version.sh). */
+function resolveWebappShellVersion() {
+  if (typeof window !== "undefined" && window.WAIFU_WEBAPP_VERSION) {
+    return String(window.WAIFU_WEBAPP_VERSION);
+  }
+  if (typeof document !== "undefined") {
+    try {
+      for (const el of document.querySelectorAll('script[src], link[href]')) {
+        const u = el.src || el.href || "";
+        const m = u.match(/[?&]v=(waifu-webapp-v\d+)/);
+        if (m) return m[1];
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  return "waifu-webapp-v45";
+}
+
+const WAIFU_WEBAPP_VERSION = resolveWebappShellVersion();
+if (typeof window !== "undefined") {
+  window.WAIFU_WEBAPP_VERSION = WAIFU_WEBAPP_VERSION;
+  window.monsterArtVersion = window.monsterArtVersion || {};
+}
 const CARAVAN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/caravan`;
 const DUNGEONS_STATIC_BASE = `${GAME_STATIC_BASE}/dungeons`;
 const SHOP_STATIC_BASE = `${GAME_STATIC_BASE}/ui/shop`;
 const TAVERN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/tavern`;
+const NAV_STATIC_BASE = `${GAME_STATIC_BASE}/ui/nav`;
+const EXPEDITION_BIOMES_BASE = `${GAME_STATIC_BASE}/expeditions/biomes`;
+const EXPEDITION_ARCHETYPES_BASE = `${GAME_STATIC_BASE}/expeditions/archetypes`;
+/** Cache-bust для свежесгенерированных артов архетипов (archetype_id -> v). */
+const expeditionArchetypeArtVersion = {};
 /** Имена файлов в `static/game/ui/tavern/audio/` (добавьте MP3 на сервер). */
 const TAVERN_BGM_TRACKS = ["tavern-01.mp3", "tavern-02.mp3", "tavern-03.mp3"];
 
@@ -44,6 +74,27 @@ function setActiveNav(page) {
     } else {
       link.classList.remove("active");
     }
+  });
+}
+
+function initNavIcons() {
+  document.querySelectorAll(".nav.basement a[data-page]").forEach((link) => {
+    const page = String(link.dataset.page || "").trim();
+    if (!page) return;
+    const title = String(link.getAttribute("title") || link.getAttribute("aria-label") || page).trim();
+    if (title && !link.getAttribute("aria-label")) {
+      link.setAttribute("aria-label", title);
+    }
+    let img = link.querySelector("img.nav-icon");
+    if (!img) {
+      img = document.createElement("img");
+      img.className = "nav-icon";
+      img.alt = "";
+      img.decoding = "async";
+      link.textContent = "";
+      link.appendChild(img);
+    }
+    img.src = `${NAV_STATIC_BASE}/${page}.webp?v=${WAIFU_WEBAPP_VERSION}`;
   });
 }
 
@@ -81,6 +132,14 @@ function authHeaders() {
 async function apiFetch(path, options = {}) {
   const opts = { ...options };
   opts.headers = { ...(options.headers || {}), ...authHeaders() };
+  if (
+    opts.body &&
+    typeof opts.body === "string" &&
+    !opts.headers["Content-Type"] &&
+    !opts.headers["content-type"]
+  ) {
+    opts.headers["Content-Type"] = "application/json";
+  }
   const res = await fetch(`${API_BASE}${path}`, opts);
   if (!res.ok) {
     const text = await res.text();
@@ -115,6 +174,21 @@ function showToast(message, type = "success") {
   }
 }
 
+/** Подтверждение действия: Telegram showConfirm в WebApp, иначе window.confirm. */
+function confirmAction(message) {
+  const tgConfirm = window.Telegram?.WebApp?.showConfirm;
+  if (typeof tgConfirm === "function") {
+    return new Promise((resolve) => {
+      try {
+        tgConfirm(String(message), (ok) => resolve(Boolean(ok)));
+      } catch (_) {
+        resolve(window.confirm(String(message)));
+      }
+    });
+  }
+  return Promise.resolve(window.confirm(String(message)));
+}
+
 function setText(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
@@ -132,6 +206,7 @@ const SECONDARY_STAT_META = {
   hp_max_pct: { icon: "❤️", short: "HP %" },
   exp_bonus_pct: { icon: "📚", short: "Опыт" },
   gold_bonus_pct: { icon: "🪙", short: "Золото" },
+  magic_find_pct: { icon: "✨", short: "MF" },
   media_damage_text_percent: { icon: "✨", short: "Урон от текста" },
   media_damage_sticker_percent: { icon: "✨", short: "Урон от стикеров" },
   media_damage_photo_percent: { icon: "✨", short: "Урон от фото" },
@@ -205,6 +280,32 @@ const MONSTER_FAMILY_LABELS_RU = {
   slime: "слизней",
   undead: "нежити",
 };
+
+const MONSTER_FAMILY_TYPE_LABELS_RU = {
+  beast: "Зверь",
+  construct: "Конструкт",
+  demon: "Демон",
+  dragon: "Дракон",
+  elemental: "Элементаль",
+  fae: "Фея",
+  humanoid: "Гуманоид",
+  slime: "Слизь",
+  undead: "Нежить",
+};
+
+function formatMonsterTypeLabelRu(raw) {
+  const s = String(raw || "").trim();
+  if (!s || s === "—") return "";
+  const low = s.toLowerCase();
+  if (MONSTER_FAMILY_TYPE_LABELS_RU[low]) return MONSTER_FAMILY_TYPE_LABELS_RU[low];
+  if (/[а-яё]/i.test(s)) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function setSoloExitBtnVisible(visible) {
+  const btn = document.getElementById("solo-exit-btn");
+  if (btn) btn.style.display = visible ? "" : "none";
+}
 
 function passiveNodeDisplayNameRu(nodeId) {
   const id = String(nodeId || "").trim();
@@ -290,6 +391,60 @@ const PERK_DESCS = {
   passionate: "Снижает штраф от апатии",
 };
 
+// Русские названия перков (синхрон с expedition_data.PERKS) — для таверны без payload perks в API.
+const PERK_NAMES = {
+  gas_mask: "Газовая маска",
+  diver: "Водолаз",
+  fireproof: "Огнестойкий",
+  frostproof: "Морозостойкий",
+  navigator: "Штурман",
+  desert_walker: "Пустынник",
+  gas_filter: "Газовый фильтр",
+  snow_warrior: "Снежный воин",
+  acid_proof: "Кислотостойкий",
+  wind_walker: "Ветроход",
+  elf_slayer: "Убийца эльфов",
+  orc_hunter: "Охотник на орков",
+  priest: "Священник",
+  demon_slayer: "Демоноборец",
+  dragonslayer: "Драконоборец",
+  goblin_shaker: "Гоблинотряс",
+  troll_slayer: "Троллеубийца",
+  vampire_hunter: "Охотник на вампиров",
+  entomologist: "Энтомолог",
+  bat_hunter: "Охотник на летучих мышей",
+  mushroom_expert: "Грибник-знаток",
+  scout: "Разведчик",
+  archaeologist: "Археолог",
+  swamp_walker: "Болотный ходок",
+  spider_hunter: "Охотник на пауков",
+  chemist: "Химик",
+  magic_researcher: "Маг-исследователь",
+  exorcist: "Экзорцист",
+  mountain_engineer: "Горный инженер",
+  anti_magnet: "Анти-магнит",
+  curse_removal: "Снятие проклятий",
+  anti_mage: "Антимаг",
+  spatial_mage: "Пространственный маг",
+  light_protection: "Защита от света",
+  magic_resistance: "Сопротивление магии",
+  chronomancer: "Хрономант",
+  accelerator: "Ускоритель",
+  spatial_navigator: "Пространственный навигатор",
+  mana_shield: "Мана-щит",
+  lucky: "Удачливый",
+  mental_shield: "Ментальный щит",
+  strong_spirit: "Стойкий дух",
+  mental_clarity: "Ясность разума",
+  sleepless: "Бессонный",
+  trusting: "Доверчивый",
+  photographic_memory: "Фотографическая память",
+  calm: "Спокойствие",
+  optimist: "Оптимист",
+  anger_control: "Контроль гнева",
+  passionate: "Страстный",
+};
+
 // Иконки перков для экспедиций (id из expedition_data.PERKS)
 const PERK_ICONS = {
   gas_mask: "🫓",
@@ -346,7 +501,198 @@ const PERK_ICONS = {
 
 /** Пояснение, как перк связан со сложностью экспедиций (слоты 1–5, сумма аффиксов). */
 const PERK_EXPEDITION_COUNTER_HINT =
-  "В экспедициях перк усиливает шанс отряда, если в выбранном слоте он указан среди требуемых перков (иконки на карточке экспедиции в караване). Чем выше суммарная сложность слота (уровни примерно 1–5), тем заметнее вклад совпадения перков.";
+  "Перк помогает в экспедициях, если закрывает тип сложности слота (Монстры, Нежить…). Эффективность = min(100%, уровень_перка ÷ уровень_препятствия I–V). Прокачка перков — вкладка ⬆ LVL в таверне (очки за лвлап после экспедиции).";
+
+function safeInt(x, fallback = 0) {
+  const v = Number.parseInt(String(x), 10);
+  return Number.isFinite(v) ? v : fallback;
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function formatApiErrorDetail(detail) {
+  if (detail == null) return "";
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((e) => {
+        if (e && typeof e === "object") {
+          const loc = Array.isArray(e.loc) ? e.loc.filter((x) => x !== "body").join(" → ") : "";
+          const msg = e.msg != null ? String(e.msg) : JSON.stringify(e);
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return String(e);
+      })
+      .join("; ");
+  }
+  if (typeof detail === "object") {
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return String(detail);
+    }
+  }
+  return String(detail);
+}
+
+function parseHttpErrorDetail(err) {
+  const msg = String(err?.message || err || "");
+  const idx = msg.indexOf(":");
+  if (idx === -1) return { raw: msg, detail: msg };
+  const tail = msg.slice(idx + 1).trim();
+  try {
+    const obj = JSON.parse(tail);
+    const detail = obj?.detail != null ? formatApiErrorDetail(obj.detail) : tail;
+    return { raw: msg, detail };
+  } catch {
+    return { raw: msg, detail: tail || msg };
+  }
+}
+
+function isWebAppUnauthorizedError(err) {
+  const msg = String(err?.message || "");
+  if (!msg.includes("HTTP 401")) return false;
+  const { detail } = parseHttpErrorDetail(err);
+  const d = (detail || "").toLowerCase();
+  return (
+    d.includes("telegram") ||
+    d.includes("init data") ||
+    d.includes("hash missing") ||
+    d.includes("invalid init") ||
+    d.includes("expired")
+  );
+}
+
+/** Сообщение при открытии WebApp вне Telegram или без валидного initData. */
+function webAppAuthNoticeHtml() {
+  const devBlock = `<details class="webapp-auth-details"><summary>Для разработчиков</summary>
+    <p>При <code>APP_ENV=dev</code> на сервере можно открыть страницу с параметром <code>?devPlayerId=</code><em>id</em> (id игрока в БД) — тогда запросы пойдут с заголовком <code>X-Player-Id</code>. В production это отключено.</p>
+  </details>`;
+  return `<div class="webapp-auth-notice" role="alert">
+    <h3 class="webapp-auth-notice-title">Нужен вход через Telegram</h3>
+    <p>Откройте эту страницу из <strong>мини-приложения бота</strong> в Telegram. В обычном браузере не передаётся подпись <code>initData</code>, поэтому сервер отвечает 401.</p>
+    <p class="muted">Если вы уже внутри Telegram, закройте мини-приложение полностью и откройте снова — иногда устаревает сессия.</p>
+    ${devBlock}
+  </div>`;
+}
+
+/** Сообщение при 502/503 или недоступном API (nginx upstream down). */
+function serverUnavailableNoticeHtml() {
+  return `<div class="webapp-auth-notice" role="alert">
+    <h3 class="webapp-auth-notice-title">Сервер временно недоступен</h3>
+    <p>Не удалось загрузить данные с сервера (ошибка 502 или сеть). Подождите немного и обновите страницу.</p>
+    <p class="muted">Если ошибка не проходит, напишите администратору — возможно, упал backend за nginx.</p>
+  </div>`;
+}
+
+function rarityLabel(r) {
+  const v = Number(r);
+  return (
+    {
+      1: "Обычный",
+      2: "Необычный",
+      3: "Редкий",
+      4: "Эпический",
+      5: "Легендарный",
+    }[v] || `Rarity ${v || "—"}`
+  );
+}
+
+function rarityClass(r) {
+  const v = Number(r);
+  return (
+    {
+      1: "rarity-common",
+      2: "rarity-uncommon",
+      3: "rarity-rare",
+      4: "rarity-epic",
+      5: "rarity-legendary",
+    }[v] || "rarity-common"
+  );
+}
+
+function slotTypeLabel(slotType) {
+  const st = String(slotType || "").toLowerCase();
+  if (!st) return "—";
+  return (
+    {
+      weapon_1h: "Оружие (1H)",
+      weapon_2h: "Оружие (2H)",
+      offhand: "Оффхенд / Щит",
+      costume: "Доспех",
+      armor: "Доспех",
+      ring: "Кольцо",
+      amulet: "Амулет",
+    }[st] || st
+  );
+}
+
+function weaponTypeLabel(wt) {
+  const w = String(wt || "").toLowerCase();
+  if (!w) return "—";
+  return (
+    {
+      axe: "Топор",
+      sword: "Меч",
+      bow: "Лук",
+      staff: "Посох",
+      wand: "Жезл",
+      dagger: "Кинжал",
+      mace: "Булава",
+      hammer: "Молот",
+    }[w] || w
+  );
+}
+
+function itemIconForSlotType(slotType) {
+  const st = String(slotType || "");
+  if (st.includes("weapon")) return "⚔️";
+  if (st.includes("offhand")) return "🛡️";
+  if (st.includes("costume")) return "🥋";
+  if (st.includes("ring")) return "💍";
+  if (st.includes("amulet")) return "🧿";
+  return "🎁";
+}
+
+function resolveImageUrl(url) {
+  if (!url) return "";
+  const u = String(url).trim();
+  if (!u) return "";
+  if (!u.startsWith("/api/")) return u;
+  const params = new URLSearchParams();
+  const initData = getInitData();
+  if (initData) {
+    params.set("initData", initData);
+  } else {
+    const devId = getDevPlayerIdFromQuery();
+    if (devId) {
+      params.set("devPlayerId", String(devId));
+      const devToken = new URLSearchParams(window.location.search).get("devToken");
+      if (devToken) params.set("devToken", devToken);
+    }
+  }
+  const qs = params.toString();
+  return qs ? `${u}${u.includes("?") ? "&" : "?"}${qs}` : u;
+}
+
+function hiredWaifuImageUrl(w, variant) {
+  const u = w?.imageUrl ?? w?.image_url;
+  const resolved = resolveImageUrl(u);
+  // Portrait API supports ?variant=thumb|full (downscaled webp). Only append it
+  // for that endpoint; static URLs ignore unknown queries but we keep them clean.
+  if (!resolved || !variant || !resolved.includes("/portrait")) return resolved;
+  return `${resolved}${resolved.includes("?") ? "&" : "?"}variant=${encodeURIComponent(variant)}`;
+}
+
+function waifuPortraitEmoji(w) {
+  const race = raceIcon(w?.race);
+  const cls = classIcon(w?.class ?? w?.class_ ?? w?.["class"]);
+  return `${race}${cls}`;
+}
 
 function statMeta(stat) {
   const key = String(stat || "").trim();
@@ -522,6 +868,17 @@ function profileDamageRange(score) {
   return `${min}–${max}`;
 }
 
+function profileDamageRangeFromDetails(d, prefix, fallbackScore) {
+  const minKey = `${prefix}_damage_min`;
+  const maxKey = `${prefix}_damage_max`;
+  const min = d?.[minKey];
+  const max = d?.[maxKey];
+  if (min != null && max != null) {
+    return `${Math.max(0, safeInt(min, 0))}–${Math.max(0, safeInt(max, 0))}`;
+  }
+  return profileDamageRange(fallbackScore);
+}
+
 function profileFormatPercent(value, digits = 1) {
   const num = safeNumber(value, 0);
   const fixed = Number(num.toFixed(digits));
@@ -543,6 +900,7 @@ function getProfileIndicators(waifu, details = null) {
   const magic = safeNumber(d?.magic_damage, 0);
   const crit = safeNumber(d?.crit_chance, 0);
   const dodge = safeNumber(d?.dodge_chance, 0);
+  const fullEvade = safeNumber(d?.full_evade_chance, 0);
   // Use server-computed values when available, fallback to client formulas
   const expBonus = d ? safeNumber(d.exp_bonus, intelligence * 0.1) : intelligence * 0.1;
   const goldBonus = d ? safeNumber(d.gold_bonus, luck * 0.2) : luck * 0.2;
@@ -563,11 +921,12 @@ function getProfileIndicators(waifu, details = null) {
 
   return {
     hpMax,
-    meleeRange: profileDamageRange(melee),
-    rangedRange: profileDamageRange(ranged),
-    magicRange: profileDamageRange(magic),
+    meleeRange: profileDamageRangeFromDetails(d, "melee", melee),
+    rangedRange: profileDamageRangeFromDetails(d, "ranged", ranged),
+    magicRange: profileDamageRangeFromDetails(d, "magic", magic),
     critChance: profileFormatPercent(crit, 2),
     dodgeChance: profileFormatPercent(dodge, 2),
+    fullEvadeChance: profileFormatPercent(fullEvade, 2),
     expBonus: profileFormatPercent(expBonus, 1),
     goldBonus: profileFormatPercent(goldBonus, 1),
     damageReduction: profileFormatPercent(damageReduction, 1),
@@ -805,118 +1164,267 @@ function totalExpForLevel(level) {
 
 // ── Attic (ОЧ) renderers ─────────────────────────────────────────────────────
 
-/** Update the active-dungeon chip in the shared ОЧ header. Short format: "Название - N%" or "Название (+N) - N%". */
+/** Compact solo dungeon code for attic chip, e.g. 1-1, 2-5. */
+function formatAtticSoloDungeonCode(active) {
+  const act = Math.max(0, parseInt(active?.act, 10) || 0);
+  const num = Math.max(0, parseInt(active?.dungeon_number, 10) || 0);
+  if (act > 0 && num > 0) return `${act}-${num}`;
+  return null;
+}
+
+/** Update the active-dungeon chip in the shared ОЧ header. Format: "код · curStage/total" + segmented bar. */
 function renderAtticDungeon(active) {
   const chip = document.getElementById("attic-dungeon-chip");
   const label = document.getElementById("attic-dungeon-label");
-  const stagesEl = document.getElementById("attic-dungeon-stages");
+  const progressWrap = document.getElementById("attic-dungeon-progress");
   if (!chip || !label) return;
-  if (active?.active) {
+
+  const renderSegments = (segs) => {
+    if (!progressWrap) return;
+    if (!segs.length) {
+      progressWrap.hidden = true;
+      progressWrap.innerHTML = "";
+      return;
+    }
+    progressWrap.innerHTML = `<div class="attic-dungeon-segments">${segs.join("")}</div>`;
+    progressWrap.hidden = false;
+  };
+
+  if (active?.abyss_active) {
     const hpPct = active.monster_max_hp > 0
       ? Math.round((active.monster_current_hp / active.monster_max_hp) * 100)
       : 0;
-    const name = active.dungeon_name || "Бой";
+    label.textContent = `🕳️ Бездна · эт. ${Number(active.abyss_floor || 0)}`;
+    chip.classList.remove("chip-ghost");
+    chip.classList.add("chip-active");
+    if (progressWrap) {
+      const donePct = Math.max(0, Math.min(100, 100 - hpPct));
+      renderSegments([
+        `<div class="attic-dungeon-seg attic-dungeon-seg--done"><div class="attic-dungeon-seg-fill" style="width:${donePct}%"></div></div>`,
+      ]);
+      progressWrap.setAttribute("aria-label", `Бездна, этаж ${Number(active.abyss_floor || 0)}`);
+    }
+    return;
+  }
+  if (active?.active) {
+    const code = formatAtticSoloDungeonCode(active) || active.dungeon_name || "Бой";
     const pl = Math.max(0, parseInt(active.plus_level, 10) || 0);
-    label.textContent = pl > 0 ? `${name} (+${pl}) - ${hpPct}%` : `${name} - ${hpPct}%`;
+    const curStage = Math.max(
+      1,
+      Math.floor(Number(
+        active?.monster_position ??
+        active?.dungeon_stage ??
+        active?.current_stage ??
+        active?.stage ??
+        1
+      ) || 1),
+    );
+    const totalStages = Math.max(
+      1,
+      Math.floor(Number(
+        active?.total_monsters ??
+        active?.total_stages ??
+        active?.total_rooms ??
+        active?.rooms_total ??
+        4
+      ) || 4),
+    );
+    const hpFrac = active.monster_max_hp > 0
+      ? 1 - clamp01(active.monster_current_hp / active.monster_max_hp)
+      : 0;
+    label.textContent = `${code}${pl > 0 ? ` (+${pl})` : ""} · ${curStage}/${totalStages}`;
+    chip.title = active.dungeon_name ? String(active.dungeon_name) : "Подземелье";
     chip.classList.remove("chip-ghost");
     chip.classList.add("chip-active");
 
-    if (stagesEl) {
-      const curStage = Math.max(
-        1,
-        Math.floor(Number(
-          active?.monster_position ??
-          active?.dungeon_stage ??
-          active?.current_stage ??
-          active?.stage ??
-          1
-        ) || 1),
-      );
-      const totalStages = Math.max(
-        1,
-        Math.floor(Number(
-          active?.total_monsters ??
-          active?.total_stages ??
-          active?.total_rooms ??
-          active?.rooms_total ??
-          4
-        ) || 4),
-      );
-      const safeTotal = Math.min(8, totalStages); // avoid ultra-long headers
-      const safeCur = Math.max(1, Math.min(safeTotal, curStage));
-
-      let html = "";
-      for (let i = 1; i <= safeTotal; i += 1) {
-        const state = i < safeCur ? "done" : i === safeCur ? "active" : "pending";
-        html += `<span class="attic-stage-pixel attic-stage-pixel--${state}" aria-hidden="true"></span>`;
+    if (progressWrap) {
+      const segs = [];
+      for (let i = 1; i <= totalStages; i++) {
+        let fill = 0;
+        if (i < curStage) fill = 1;
+        else if (i === curStage) fill = hpFrac;
+        const inner = fill > 0
+          ? `<div class="attic-dungeon-seg-fill" style="width:${Math.round(fill * 100)}%"></div>`
+          : "";
+        segs.push(`<div class="attic-dungeon-seg${fill >= 1 ? " attic-dungeon-seg--done" : ""}">${inner}</div>`);
       }
-      stagesEl.innerHTML = html;
+      renderSegments(segs);
+      progressWrap.setAttribute("aria-label", `Прогресс: ${curStage}/${totalStages}`);
     }
   } else {
     label.textContent = "Нет боя";
     chip.classList.add("chip-ghost");
     chip.classList.remove("chip-active");
-    if (stagesEl) stagesEl.innerHTML = "";
+    if (progressWrap) {
+      progressWrap.hidden = true;
+      progressWrap.innerHTML = "";
+    }
   }
 }
 
-/** Update the expeditions chip in the shared ОЧ: 3 slot boxes — green (completed), yellow (in progress), transparent (free). */
-function renderAtticExpeditions(slots, activeList) {
-  const container = document.getElementById("attic-expedition-chip");
-  if (!container) return;
-  const list = Array.isArray(activeList) ? activeList : [];
-  const slotsArr = Array.isArray(slots) ? slots.slice(0, 3) : [];
-  const bySlotId = {};
-  list.forEach((e) => {
-    const sid = e?.expedition_slot_id ?? e?.slot_id;
-    if (sid != null) bySlotId[Number(sid)] = e;
-  });
-  const slotStates = slotsArr.length
-    ? slotsArr.map((s) => {
-        const a = bySlotId[Number(s.id)];
-        if (!a) return "free";
-        return a.can_claim ? "completed" : "in_progress";
-      })
-    : ["free", "free", "free"];
-  if (!container.querySelector(".attic-expedition-slots")) {
-    container.innerHTML = "";
-    const wrap = document.createElement("div");
-    wrap.className = "attic-expedition-slots";
-    wrap.setAttribute("aria-label", "Слоты экспедиций");
-    for (let i = 0; i < 3; i++) {
-      const box = document.createElement("div");
-      box.className = "attic-exp-slot";
-      box.dataset.slotIndex = String(i);
-      wrap.appendChild(box);
+const ATTIC_LEVEL_RING_C = 2 * Math.PI * 16;
+
+function renderAtticLevelCircle(level, xpPct) {
+  const num = document.getElementById("badge-level");
+  if (num && level != null) num.textContent = String(level);
+  const ring = document.getElementById("attic-level-ring-fg");
+  if (!ring) return;
+  const pct = Math.max(0, Math.min(100, Number(xpPct) || 0));
+  ring.style.strokeDasharray = String(ATTIC_LEVEL_RING_C);
+  ring.style.strokeDashoffset = String(ATTIC_LEVEL_RING_C * (1 - pct / 100));
+}
+
+function renderAtticExpeditions(actives, maxConcurrent) {
+  const chip = document.getElementById("attic-exp-chip");
+  const cellsWrap = document.getElementById("attic-exp-cells");
+  if (!chip || !cellsWrap) return;
+  const max = Math.max(1, Number(maxConcurrent) || 3);
+  const list = Array.isArray(actives) ? actives : [];
+  chip.hidden = false;
+  const cells = [];
+  for (let i = 0; i < max; i++) {
+    const a = list[i] || null;
+    if (!a) {
+      cells.push('<div class="attic-exp-cell attic-exp-cell--empty" aria-label="Свободный слот"></div>');
+      continue;
     }
-    container.appendChild(wrap);
+    const title = escapeHtml(a.narrative_title || "Экспедиция");
+    let cls = "attic-exp-cell--active";
+    let label = "В процессе";
+    if (a.outcome === "cancelled") {
+      cls = "attic-exp-cell--cancelled";
+      label = "Отменена";
+    } else if (a.can_claim) {
+      cls = "attic-exp-cell--done";
+      label = "Готово";
+    }
+    cells.push(`<div class="attic-exp-cell ${cls}" title="${title}" aria-label="${label}"></div>`);
   }
-  const boxes = container.querySelectorAll(".attic-exp-slot");
-  const hasAny = slotStates.some((s) => s !== "free");
-  container.classList.toggle("chip-ghost", !hasAny);
-  container.classList.toggle("chip-active", hasAny);
-  slotStates.forEach((state, i) => {
-    const box = boxes[i];
-    if (!box) return;
-    box.className = "attic-exp-slot attic-exp-slot--" + state;
-    box.title = state === "completed" ? "Завершено" : state === "in_progress" ? "В процессе" : "Свободно";
-  });
+  cellsWrap.innerHTML = cells.join("");
+}
+
+function hasAtticChrome() {
+  return Boolean(document.getElementById("attic-dungeon-chip"));
+}
+
+function schedulePlayerMailBadgeRefresh() {
+  const run = () => refreshAtticMailBadge().catch(() => {});
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(run, { timeout: 2000 });
+  } else {
+    setTimeout(run, 0);
+  }
 }
 
 /** Fire-and-forget refresh of both dynamic ОЧ chips (dungeon + expeditions). */
-function refreshAtticChips() {
-  apiFetch("/dungeons/active").then(renderAtticDungeon).catch(() => {});
-  Promise.all([
-    apiFetch("/expeditions/slots").catch(() => ({ slots: [] })),
-    apiFetch("/expeditions/active").catch(() => ({ active: [] })),
-  ]).then(([slotsRes, activeRes]) => {
-    renderAtticExpeditions(slotsRes?.slots ?? [], activeRes?.active ?? []);
-  });
+const ACTIVE_DUNGEON_CACHE_MS = 5000;
+const activeDungeonCache = {
+  lite: { data: null, ts: 0, inFlight: null },
+  full: { data: null, ts: 0, inFlight: null },
+};
+const activeExpeditionCache = { data: null, ts: 0, inFlight: null };
+
+function invalidateActiveDungeonCache() {
+  activeDungeonCache.lite = { data: null, ts: 0, inFlight: null };
+  activeDungeonCache.full = { data: null, ts: 0, inFlight: null };
+}
+
+function invalidateActiveExpeditionCache() {
+  activeExpeditionCache.data = null;
+  activeExpeditionCache.ts = 0;
+  activeExpeditionCache.inFlight = null;
+}
+
+function isDungeonsPage() {
+  return typeof window !== "undefined" && window.location.pathname.endsWith("/dungeons.html");
+}
+
+function isGuildHallPage() {
+  return typeof window !== "undefined" && window.location.pathname.endsWith("/guild_hall.html");
+}
+
+function isProfilePage() {
+  return typeof window !== "undefined" && window.location.pathname.endsWith("/profile.html");
+}
+
+function scheduleDeferredAtticRefresh(profile) {
+  const run = () => {
+    refreshAtticChips();
+    if (profile) renderAtticPlayerAvatar(profile);
+    startAtticMailBadgePolling();
+  };
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(() => run(), { timeout: 2000 });
+  } else {
+    setTimeout(run, 0);
+  }
+}
+
+async function fetchActiveDungeon(options = {}) {
+  const includeLog = options.includeLog === true;
+  const force = options.force === true;
+  const slot = includeLog ? activeDungeonCache.full : activeDungeonCache.lite;
+  const now = Date.now();
+  if (!force && slot.data && now - slot.ts < ACTIVE_DUNGEON_CACHE_MS) return slot.data;
+  if (slot.inFlight) return slot.inFlight;
+  const qs = includeLog ? "?include_log=1" : "?include_log=0";
+  slot.inFlight = apiFetch(`/dungeons/active${qs}`)
+    .then((data) => {
+      slot.data = data;
+      slot.ts = Date.now();
+      slot.inFlight = null;
+      if (includeLog) {
+        activeDungeonCache.lite.data = data;
+        activeDungeonCache.lite.ts = slot.ts;
+      }
+      return data;
+    })
+    .catch((err) => {
+      slot.inFlight = null;
+      throw err;
+    });
+  return slot.inFlight;
+}
+
+async function fetchActiveExpeditions(options = {}) {
+  const force = options.force === true;
+  const now = Date.now();
+  if (!force && activeExpeditionCache.data && now - activeExpeditionCache.ts < ACTIVE_DUNGEON_CACHE_MS) {
+    return activeExpeditionCache.data;
+  }
+  if (activeExpeditionCache.inFlight) return activeExpeditionCache.inFlight;
+  activeExpeditionCache.inFlight = apiFetch("/expeditions/active")
+    .then((data) => {
+      activeExpeditionCache.data = data;
+      activeExpeditionCache.ts = Date.now();
+      activeExpeditionCache.inFlight = null;
+      return data;
+    })
+    .catch((err) => {
+      activeExpeditionCache.inFlight = null;
+      throw err;
+    });
+  return activeExpeditionCache.inFlight;
+}
+
+function refreshAtticChips(opts = {}) {
+  if (!hasAtticChrome()) return;
+  const skipDungeon = opts.skipDungeon === true || isDungeonsPage();
+  if (!skipDungeon) {
+    fetchActiveDungeon({ includeLog: false }).then(renderAtticDungeon).catch(() => {});
+  }
+  fetchActiveExpeditions()
+    .then((res) => {
+      const actives = Array.isArray(res?.active) ? res.active : [];
+      const maxConcurrent = Number(res?.max_concurrent) || 3;
+      renderAtticExpeditions(actives, maxConcurrent);
+    })
+    .catch(() => renderAtticExpeditions([], 3));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function populateFromProfile(profile) {
+function populateFromProfile(profile, opts = {}) {
   if (!profile) return;
   profileState.currentProfile = profile;
 
@@ -946,16 +1454,15 @@ function populateFromProfile(profile) {
       raceEl.title = raceName(raceId);
     }
 
-    // XP progress — profile tab bar + ОЧ mini-bar (attic-xp-fill)
+    // XP progress — profile card + ОЧ level ring
     if (w.level != null && w.experience != null) {
       const lvl = Number(w.level);
       const xp = Number(w.experience);
       const fill = document.getElementById("profile-xp-fill");
-      const atticFill = document.getElementById("attic-xp-fill");
       if (lvl >= PLAYER_MAX_LEVEL) {
         setText("profile-xp-text", `Ур. ${lvl} · макс.`);
         if (fill) fill.style.width = "100%";
-        if (atticFill) atticFill.style.width = "100%";
+        renderAtticLevelCircle(lvl, 100);
       } else {
         const nextTotal = totalExpForLevel(lvl + 1);
         const curTotal = totalExpForLevel(lvl);
@@ -964,15 +1471,123 @@ function populateFromProfile(profile) {
         const pct = Math.round(clamp01(into / span) * 100);
         setText("profile-xp-text", `Ур. ${lvl} · ${xp} / ${nextTotal} EXP`);
         if (fill) fill.style.width = `${pct}%`;
-        if (atticFill) atticFill.style.width = `${pct}%`;
+        renderAtticLevelCircle(lvl, pct);
       }
+    } else if (w.level != null) {
+      renderAtticLevelCircle(w.level, 0);
     }
   }
 
   // Async: update dynamic ОЧ chips on every page load/refresh
-  refreshAtticChips();
+  if (!opts.skipAtticRefresh && hasAtticChrome()) {
+    refreshAtticChips();
+    renderAtticPlayerAvatar(profile);
+    startAtticMailBadgePolling();
+  }
 
   if (document.getElementById("shop-gamble-cost")) updateShopGambleCost();
+}
+
+function getTelegramUser() {
+  try {
+    return tg?.initDataUnsafe?.user || null;
+  } catch {
+    return null;
+  }
+}
+
+function playerDisplayInitials(profile) {
+  const u = getTelegramUser();
+  const name = (u?.first_name || profile?.main_waifu?.name || "И").trim();
+  return name ? name.slice(0, 1).toUpperCase() : "?";
+}
+
+function applyPlayerAvatarUrl(avatarUrl, profile) {
+  const initials = playerDisplayInitials(profile);
+  const pairs = [
+    ["attic-player-avatar-img", "attic-player-avatar-fallback"],
+    ["player-hero-avatar-img", "player-hero-avatar-fallback"],
+  ];
+  pairs.forEach(([imgId, fbId]) => {
+    const img = document.getElementById(imgId);
+    const fb = document.getElementById(fbId);
+    if (!img && !fb) return;
+    if (avatarUrl && img) {
+      img.src = avatarUrl;
+      img.hidden = false;
+      if (fb) fb.textContent = "";
+    } else {
+      if (img) {
+        img.hidden = true;
+        img.removeAttribute("src");
+      }
+      if (fb) fb.textContent = initials;
+    }
+  });
+}
+
+async function fetchPlayerAvatarUrl() {
+  if (playerPageState.cachedAvatarUrl) return playerPageState.cachedAvatarUrl;
+  try {
+    const d = await apiFetch("/player/avatar");
+    playerPageState.cachedAvatarUrl = d?.avatar_url || null;
+    return playerPageState.cachedAvatarUrl;
+  } catch {
+    return null;
+  }
+}
+
+async function applyPlayerAvatarToElements(profile) {
+  const url =
+    playerPageState.profileData?.avatar_url ||
+    playerPageState.cachedAvatarUrl ||
+    (await fetchPlayerAvatarUrl());
+  applyPlayerAvatarUrl(url, profile);
+}
+
+function renderAtticPlayerAvatar(profile) {
+  const btn = document.getElementById("attic-player-avatar");
+  if (!btn) return;
+  applyPlayerAvatarToElements(profile);
+  if (!btn.__waifuBound) {
+    btn.__waifuBound = true;
+    btn.addEventListener("click", () => {
+      window.location.href = "./player.html";
+    });
+  }
+}
+
+async function refreshAtticMailBadge() {
+  const badge = document.getElementById("attic-player-mail-badge");
+  const tabBadge = document.getElementById("player-tab-mail-badge");
+  const overflowBadge = document.getElementById("player-overflow-mail-badge");
+  const topbarOverflowBadge = document.getElementById("player-topbar-overflow-mail-badge");
+  if (!badge && !tabBadge && !overflowBadge && !topbarOverflowBadge) return;
+  try {
+    const data = await apiFetch("/mail/badge");
+    const show =
+      Boolean(data?.show) ||
+      safeInt(data?.unread, 0) > 0 ||
+      safeInt(data?.pending_rewards, 0) > 0;
+    if (badge) badge.hidden = !show;
+    if (tabBadge) tabBadge.hidden = !show;
+    if (overflowBadge) overflowBadge.hidden = !show;
+    if (topbarOverflowBadge) topbarOverflowBadge.hidden = !show;
+  } catch {
+    if (badge) badge.hidden = true;
+    if (tabBadge) tabBadge.hidden = true;
+    if (overflowBadge) overflowBadge.hidden = true;
+    if (topbarOverflowBadge) topbarOverflowBadge.hidden = true;
+  }
+}
+
+function startAtticMailBadgePolling() {
+  if (!document.getElementById("attic-player-avatar")) return;
+  refreshAtticMailBadge().catch(() => {});
+  if (window.__waifuMailBadgeInterval) return;
+  window.__waifuMailBadgeInterval = setInterval(() => {
+    refreshAtticMailBadge().catch(() => {});
+  }, 60000);
 }
 
 function appendEvent(text) {
@@ -1035,28 +1650,57 @@ function connectSSE() {
   };
   sse.onerror = () => {
     appendEvent("SSE connection lost, retrying...");
+    if (typeof window.WaifuApp._scheduleSseRefetch === "function") {
+      window.WaifuApp._scheduleSseRefetch();
+    }
     setTimeout(connectSSE, 3000);
   };
 }
 
+let _sseRefetchTimer = null;
+window.WaifuApp._scheduleSseRefetch = function scheduleSseRefetch() {
+  if (_sseRefetchTimer) clearTimeout(_sseRefetchTimer);
+  _sseRefetchTimer = setTimeout(() => {
+    _sseRefetchTimer = null;
+    if (typeof window.WaifuApp.refreshBattleState === "function") {
+      window.WaifuApp.refreshBattleState();
+    }
+    if (typeof window.WaifuApp.loadProfile === "function") {
+      window.WaifuApp.loadProfile();
+    }
+  }, 300);
+};
+
+const WAIFU_GEN_BASE = `${GAME_STATIC_BASE}/waifu-gen`;
+const WAIFU_GEN_PLACEHOLDER = `${WAIFU_GEN_BASE}/placeholder.svg`;
+const WAIFU_GEN_STAT_ORDER = ["strength", "agility", "intelligence", "endurance", "charm", "luck"];
+const WAIFU_GEN_STAT_LABELS = {
+  strength: "СИЛ",
+  agility: "ЛОВ",
+  intelligence: "ИНТ",
+  endurance: "ВЫН",
+  charm: "ОБА",
+  luck: "УДЧ",
+};
+
 const WAIFU_RACES = [
-  { id: 1, name: "Человек", icon: "🧑" },
-  { id: 2, name: "Эльф", icon: "🧝" },
-  { id: 3, name: "Зверолюд", icon: "🐾" },
-  { id: 4, name: "Ангел", icon: "😇" },
-  { id: 5, name: "Вампир", icon: "🦇" },
-  { id: 6, name: "Демон", icon: "😈" },
-  { id: 7, name: "Фея", icon: "🧚" },
+  { id: 1, name: "Человек", icon: "🧑", slug: "human" },
+  { id: 2, name: "Эльф", icon: "🧝", slug: "elf" },
+  { id: 3, name: "Зверолюд", icon: "🐾", slug: "beastman" },
+  { id: 4, name: "Ангел", icon: "😇", slug: "angel" },
+  { id: 5, name: "Вампир", icon: "🦇", slug: "vampire" },
+  { id: 6, name: "Демон", icon: "😈", slug: "demon" },
+  { id: 7, name: "Фея", icon: "🧚", slug: "fey" },
 ];
 
 const WAIFU_CLASSES = [
-  { id: 1, name: "Рыцарь", icon: "🛡️" },
-  { id: 2, name: "Воин", icon: "⚔️" },
-  { id: 3, name: "Лучник", icon: "🏹" },
-  { id: 4, name: "Маг", icon: "🔮" },
-  { id: 5, name: "Ассасин", icon: "🗡️" },
-  { id: 6, name: "Хилер", icon: "💚" },
-  { id: 7, name: "Торговец", icon: "💰" },
+  { id: 1, name: "Рыцарь", icon: "🛡️", slug: "knight" },
+  { id: 2, name: "Воин", icon: "⚔️", slug: "warrior" },
+  { id: 3, name: "Лучник", icon: "🏹", slug: "archer" },
+  { id: 4, name: "Маг", icon: "🔮", slug: "mage" },
+  { id: 5, name: "Ассасин", icon: "🗡️", slug: "assassin" },
+  { id: 6, name: "Хилер", icon: "💚", slug: "healer" },
+  { id: 7, name: "Торговец", icon: "💰", slug: "merchant" },
 ];
 
 const WAIFU_RACE_BONUSES = {
@@ -1079,7 +1723,7 @@ const WAIFU_CLASS_BONUSES = {
   7: { charm: 2, luck: 2 },
 };
 
-/** Тексты пассивов расы — ТЗ «Пассивные навыки и расовые бонусы» (числа X,Y,N — из skill_config в БД). */
+/** Тексты пассивов расы — ориентировочные значения для экрана создания персонажа. */
 const WAIFU_GEN_RACE_PASSIVES = {
   1: [
     "«Адаптивность» — каждые 10 уровней (10, 20, 30…) +1 свободное очко характеристики на выбор",
@@ -1088,85 +1732,85 @@ const WAIFU_GEN_RACE_PASSIVES = {
   ],
   2: [
     "«Лесное чутьё» — вклад ЛОВ в шанс крита удваивается (в формуле крита ЛОВ даёт ×2 к своему слагаемому)",
-    "+X% к шансу крит. атаки (базовый расовый бонус, X из БД)",
+    "+3% к шансу крит. атаки (базовый расовый бонус)",
     "×2 к коэффициенту крита от ЛОВ",
     "−5% к максимальному HP",
   ],
   3: [
     "«Хищный инстинкт» — каждое N-е текстовое сообщение в подземелье: урон ×1,5; N = max(3, 10 − ⌊СИЛ/5⌋) (при СИЛ 10 → N=8, при 25 → 5, при СИЛ ≥ 35 → 3)",
-    "+X к урону ближнего боя (плоский бонус, X из БД)",
-    "+Y% к шансу уклонения (Y из БД)",
+    "+2 к урону ближнего боя (плоский бонус)",
+    "+4% к шансу уклонения",
     "−5% к цене продажи предметов",
   ],
   4: [
-    "«Благодать» — множитель формулы регенерации HP +50% (пассивная регенерация сильнее); бонус ИНТ к EXP дополнительно +X% (X из БД)",
+    "«Благодать» — множитель формулы регенерации HP +50% (пассивная регенерация сильнее); дополнительно +2% к EXP от ИНТ",
     "+50% к скорости регенерации HP (множитель к формуле)",
-    "+X% к получаемому EXP (дополнительно к бонусу ИНТ, X из БД)",
-    "−Y% к урону крит. атак (Y из БД)",
+    "+3% к получаемому EXP (дополнительно к бонусу ИНТ)",
+    "−8% к урону крит. атак",
   ],
   5: [
-    "«Жизнекрада» — X% урона текстовых атак восстанавливает HP; X = (СИЛ + ЛОВ) × K_vampir (K из БД), исцеление после расчёта урона по монстру",
-    "+Y% к шансу крит. атаки (Y из БД)",
+    "«Жизнекрада» — часть урона текстовых атак восстанавливает HP; зависит от (СИЛ + ЛОВ)",
+    "+5% к шансу крит. атаки",
     "−10% к навыку «Торговля»",
   ],
   6: [
-    "«Инфернальный пакт» — вклад ИНТ к урону медиа-навыков удваивается: множитель (1 + ИНТ × K_инт × 2)",
-    "+X% к урону активных навыков (медиа), базовый расовый бонус (X из БД)",
+    "«Инфернальный пакт» — вклад ИНТ к урону медиа-навыков удваивается",
+    "+4% к урону активных навыков (медиа), базовый расовый бонус",
     "×2 к коэффициенту урона навыков от ИНТ",
     "−15% к навыку «Торговля»",
   ],
   7: [
-    "«Торговая магия» — Торговля: T = ОБА × K_оба × 2 (двойной бонус от ОБА)",
+    "«Торговая магия» — Торговля: двойной бонус от ОБА",
     "×2 к коэффициенту «Торговля» от ОБА",
-    "+X% к цене продажи предметов (X из БД)",
+    "+5% к цене продажи предметов",
     "−10% к урону ближнего боя",
   ],
 };
 
-/** Тексты пассивов класса — то же ТЗ (коэффициенты K_* в skill_config). */
+/** Тексты пассивов класса — ориентировочные значения для экрана создания персонажа. */
 const WAIFU_GEN_CLASS_PASSIVES = {
   1: [
-    "«Железная воля» — получаемый урон снижен на X%; X = ВЫН × K_zhv; при HP < 30% бонус удваивается",
-    "−X% к получаемому урону (от ВЫН через K_zhv)",
-    "+Y к максимальному HP (Y из БД)",
-    "−Z% к урону дальнего боя (Z из БД)",
+    "«Железная воля» — получаемый урон снижен; при HP < 30% бонус удваивается (от ВЫН)",
+    "−5% к получаемому урону (от ВЫН)",
+    "+15 к максимальному HP",
+    "−5% к урону дальнего боя",
   ],
   2: [
-    "«Берсерк» — при HP < 50% урон текстовых атак (ближний бой) +X%; X = СИЛ × K_brs; проверка перед каждой атакой",
-    "+X% к урону ближнего боя при HP < 50% (от СИЛ через K_brs)",
-    "+Y к урону крит. атак (плоский бонус, Y из БД)",
-    "−Z% к урону магических навыков (Z из БД)",
+    "«Берсерк» — при HP < 50% урон текстовых атак выше (от СИЛ)",
+    "+8% к урону ближнего боя при HP < 50%",
+    "+3 к урону крит. атак (плоский бонус)",
+    "−5% к урону магических навыков",
   ],
   3: [
-    "«Меткий глаз» — шанс крита от текстовых атак +X%; X = ЛОВ × K_met; каждый 5-й крит — ×2 к крит-урону (счётчик в сессии подземелья)",
-    "+X% к шансу крит. атаки (от ЛОВ через K_met)",
-    "+Y% к урону дальнего боя (Y из БД)",
-    "−Z% к урону ближнего боя (Z из БД)",
+    "«Меткий глаз» — шанс крита от текстовых атак выше (от ЛОВ); каждый 5-й крит — ×2 к крит-урону",
+    "+6% к шансу крит. атаки (от ЛОВ)",
+    "+5% к урону дальнего боя",
+    "−5% к урону ближнего боя",
   ],
   4: [
-    "«Аркана» — урон медиа-навыков +X%; X = ИНТ × K_ark; бонус ИНТ к EXP дополнительно +Y%",
-    "+X% к урону медиа-навыков (от ИНТ через K_ark)",
-    "+Y% к получаемому EXP (дополнительно к стандартному бонусу ИНТ, Y из БД)",
-    "−Z% к урону ближнего боя (Z из БД)",
+    "«Аркана» — урон медиа-навыков выше (от ИНТ); бонус ИНТ к EXP усилен",
+    "+6% к урону медиа-навыков (от ИНТ)",
+    "+4% к получаемому EXP (дополнительно к стандартному бонусу ИНТ)",
+    "−5% к урону ближнего боя",
   ],
   5: [
-    "«Тень» — шанс уклонения +X%; X = ЛОВ × K_ten; после уклонения следующее текстовое сообщение-атака +30% урона (флаг сбрасывается после удара)",
-    "+X% к шансу уклонения (от ЛОВ через K_ten)",
+    "«Тень» — шанс уклонения выше (от ЛОВ); после уклонения следующая атака +30% урона",
+    "+6% к шансу уклонения (от ЛОВ)",
     "+30% к урону следующей атаки после успешного уклонения",
-    "−Y к максимальному HP (штраф, Y из БД)",
+    "−10 к максимальному HP (штраф)",
   ],
   6: [
-    "«Регенерация» — каждые N текстовых сообщений в подземелье +X HP; N = max(2, 8 − ⌊ВЫН/K_n⌋), X = ВЫН × K_reg; параллельно с пассивной регенерацией вне боя",
-    "+X HP каждые N сообщений в подземелье (формулы из БД)",
-    "+Y% к скорости пассивной регенерации HP (Y из БД)",
-    "−Z% к урону ближнего боя (Z из БД)",
+    "«Регенерация» — периодическое исцеление в подземелье + усиленная пассивная регенерация",
+    "+HP каждые несколько сообщений в подземелье (от ВЫН)",
+    "+10% к скорости пассивной регенерации HP",
+    "−5% к урону ближнего боя",
   ],
   7: [
-    "«Чутьё» — золото с монстров +X%; X = (УДЧ + ОБА) × K_chut; стоимость найма в Таверне −Y%; Y = ОБА × K_hire",
-    "+X% к золоту с монстров (от УДЧ + ОБА через K_chut)",
-    "+Z% к навыку «Торговля» (Z из БД)",
-    "−Y% к стоимости найма вайфу в Таверне (от ОБА через K_hire)",
-    "−W% к урону в бою (W из БД)",
+    "«Чутьё» — больше золота с монстров (от УДЧ + ОБА); найм в Таверне дешевле",
+    "+8% к золоту с монстров",
+    "+5% к навыку «Торговля»",
+    "−8% к стоимости найма вайфу в Таверне",
+    "−5% к урону в бою",
   ],
 };
 
@@ -1325,83 +1969,251 @@ function waifuGenSyncHiddenSelects() {
   if (cs) cs.value = String(waifuGeneratorState.selectedClassId);
 }
 
-function waifuGenRefreshPassiveBonuses() {
-  const root = document.getElementById("waifu-passive-modal-body");
-  if (!root) return;
-  const r = waifuGeneratorState.selectedRaceId;
-  const c = waifuGeneratorState.selectedClassId;
-  const raceLines = WAIFU_GEN_RACE_PASSIVES[r] || [];
-  const classLines = WAIFU_GEN_CLASS_PASSIVES[c] || [];
-  const ulRace = raceLines.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
-  const ulClass = classLines.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
-  root.innerHTML =
-    `<div class="waifu-gen-passive-sub">Раса</div><ul>${ulRace}</ul>` +
-    `<div class="waifu-gen-passive-sub">Класс</div><ul>${ulClass}</ul>`;
+function waifuGenRaceAssetUrl(slug) {
+  return `${WAIFU_GEN_BASE}/races/${slug}.webp`;
 }
 
-function waifuGenBuildRaceClassPickers() {
-  const raceRoot = document.getElementById("waifu-race-pick");
-  const classRoot = document.getElementById("waifu-class-pick");
-  if (raceRoot) {
-    raceRoot.innerHTML = WAIFU_RACES.map(
-      (r) =>
-        `<button type="button" class="waifu-gen-pick-btn${r.id === waifuGeneratorState.selectedRaceId ? " waifu-gen-pick-btn--on" : ""}" data-kind="race" data-id="${r.id}" aria-pressed="${r.id === waifuGeneratorState.selectedRaceId}" aria-label="${escapeHtml(r.name)}">
-        <span class="waifu-gen-pick-ico" aria-hidden="true">${escapeHtml(r.icon || "•")}</span>
-      </button>`
-    ).join("");
-    raceRoot.querySelectorAll('[data-kind="race"]').forEach((btn) => {
-      btn.addEventListener("click", () => {
-        waifuGeneratorState.selectedRaceId = Number(btn.getAttribute("data-id"));
-        waifuGenSyncHiddenSelects();
-        waifuGenBuildRaceClassPickers();
-        if (typeof window.__waifuGenRecalc === "function") window.__waifuGenRecalc();
-      });
-    });
+function waifuGenClassAssetUrl(slug) {
+  return `${WAIFU_GEN_BASE}/classes/${slug}.webp`;
+}
+
+function waifuGenCosmeticAssetUrl(group, slug) {
+  return `${WAIFU_GEN_BASE}/cosmetic/${group}/${slug}.webp`;
+}
+
+function waifuGenImgHtml(src, alt, className) {
+  const cls = className || "waifu-gen-card-ico";
+  const s = escapeHtml(src);
+  const a = escapeHtml(alt || "");
+  const ph = escapeHtml(WAIFU_GEN_PLACEHOLDER);
+  return `<img class="${cls}" src="${s}" alt="${a}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='${ph}'" />`;
+}
+
+function waifuGenPassiveTitle(lines, fallback) {
+  const first = (lines || [])[0] || "";
+  const m = first.match(/«([^»]+)»/);
+  return m ? m[1] : fallback;
+}
+
+function waifuGenRenderRadar(el, stats) {
+  if (!el) return;
+  const size = 240;
+  const cx = size / 2;
+  const cy = size / 2;
+  const rOuter = 92;
+  const scale = 20;
+  const entries = WAIFU_GEN_STAT_ORDER.map((k) => [WAIFU_GEN_STAT_LABELS[k], Number(stats[k] ?? 0)]);
+  const n = entries.length;
+
+  function angle(i) {
+    return -Math.PI / 2 + (i * Math.PI * 2) / n;
   }
-  if (classRoot) {
-    classRoot.innerHTML = WAIFU_CLASSES.map(
-      (c) =>
-        `<button type="button" class="waifu-gen-pick-btn${c.id === waifuGeneratorState.selectedClassId ? " waifu-gen-pick-btn--on" : ""}" data-kind="class" data-id="${c.id}" aria-pressed="${c.id === waifuGeneratorState.selectedClassId}" aria-label="${escapeHtml(c.name)}">
-        <span class="waifu-gen-pick-ico" aria-hidden="true">${escapeHtml(c.icon || "•")}</span>
-      </button>`
-    ).join("");
-    classRoot.querySelectorAll('[data-kind="class"]').forEach((btn) => {
-      btn.addEventListener("click", () => {
-        waifuGeneratorState.selectedClassId = Number(btn.getAttribute("data-id"));
-        waifuGenSyncHiddenSelects();
-        waifuGenBuildRaceClassPickers();
-        if (typeof window.__waifuGenRecalc === "function") window.__waifuGenRecalc();
-      });
-    });
+
+  const rings = [0.25, 0.5, 0.75, 1].map((f) => {
+    const r = f * rOuter;
+    return entries
+      .map((_, i) => {
+        const a = angle(i);
+        return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`;
+      })
+      .join(" ");
+  });
+
+  const axes = entries.map((_, i) => {
+    const a = angle(i);
+    return { x2: (cx + rOuter * Math.cos(a)).toFixed(1), y2: (cy + rOuter * Math.sin(a)).toFixed(1) };
+  });
+
+  const valuePoints = entries
+    .map(([, v], i) => {
+      const a = angle(i);
+      const r = (Math.max(0, Math.min(scale, v)) / scale) * rOuter;
+      return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`;
+    })
+    .join(" ");
+
+  const vertices = entries.map(([, v], i) => {
+    const a = angle(i);
+    const r = (Math.max(0, Math.min(scale, v)) / scale) * rOuter;
+    return { cx: (cx + r * Math.cos(a)).toFixed(1), cy: (cy + r * Math.sin(a)).toFixed(1) };
+  });
+
+  const rLabel = rOuter + 18;
+  const labelTexts = entries
+    .map(([label, v], i) => {
+      const a = angle(i);
+      const lx = (cx + rLabel * Math.cos(a)).toFixed(1);
+      const ly = (cy + rLabel * Math.sin(a)).toFixed(1);
+      return (
+        `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle">` +
+        `<tspan class="stat-value">${escapeHtml(String(v))}</tspan>` +
+        `<tspan> ${escapeHtml(label)}</tspan>` +
+        `</text>`
+      );
+    })
+    .join("");
+
+  el.innerHTML = `<svg viewBox="0 -22 240 272" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Радар характеристик">
+    ${rings.map((pts) => `<polygon class="ring" points="${pts}" />`).join("")}
+    ${axes.map((ax) => `<line class="axis" x1="${cx}" y1="${cy}" x2="${ax.x2}" y2="${ax.y2}" />`).join("")}
+    <polygon class="area" points="${valuePoints}" />
+    ${vertices.map((v) => `<circle class="vertex" cx="${v.cx}" cy="${v.cy}" r="2.5" />`).join("")}
+    ${labelTexts}
+  </svg>`;
+}
+
+function waifuGenSyncTriggerIco(kind, entry) {
+  const img = document.getElementById(`waifu-trigger-${kind}-img`);
+  const emoji = document.getElementById(`waifu-trigger-${kind}-emoji`);
+  if (!entry) return;
+  const src = kind === "race" ? waifuGenRaceAssetUrl(entry.slug) : waifuGenClassAssetUrl(entry.slug);
+  if (img) {
+    img.onerror = () => {
+      img.hidden = true;
+      if (emoji) emoji.textContent = entry.icon || "•";
+    };
+    img.onload = () => {
+      img.hidden = false;
+      if (emoji) emoji.textContent = "";
+    };
+    img.src = src;
+    img.alt = entry.name;
+  } else if (emoji) {
+    emoji.textContent = entry.icon || "•";
   }
 }
 
-function waifuGenRenderChipGrid(containerId, pairs, currentVal, mode, onPick) {
+function waifuGenSyncTriggers() {
+  const race = WAIFU_RACES.find((r) => r.id === waifuGeneratorState.selectedRaceId);
+  const cls = WAIFU_CLASSES.find((c) => c.id === waifuGeneratorState.selectedClassId);
+  const raceNameEl = document.getElementById("waifu-trigger-race-name");
+  const classNameEl = document.getElementById("waifu-trigger-class-name");
+  if (raceNameEl) raceNameEl.textContent = race?.name || "—";
+  if (classNameEl) classNameEl.textContent = cls?.name || "—";
+  waifuGenSyncTriggerIco("race", race);
+  waifuGenSyncTriggerIco("class", cls);
+}
+
+function waifuGenRenderRaceClassGrid(containerId, entries, selectedId, kind) {
   const root = document.getElementById(containerId);
   if (!root) return;
-  const curSet =
-    mode === "multi" || mode === "multi2" ? new Set(currentVal || []) : null;
+  const cards = entries.map((e) => {
+    const on = e.id === selectedId;
+    const src = kind === "race" ? waifuGenRaceAssetUrl(e.slug) : waifuGenClassAssetUrl(e.slug);
+    return `<button type="button" class="waifu-gen-card${on ? " waifu-gen-card--on" : ""}" data-id="${e.id}" aria-pressed="${on}" aria-label="${escapeHtml(e.name)}">
+      <span class="waifu-gen-card-media">${waifuGenImgHtml(src, e.name)}</span>
+      <span class="waifu-gen-card-caption">${escapeHtml(e.name)}</span>
+    </button>`;
+  });
+  while (cards.length < 9) {
+    cards.push(`<div class="waifu-gen-card waifu-gen-card--coming" aria-hidden="true"></div>`);
+  }
+  root.innerHTML = cards.join("");
+  root.querySelectorAll(".waifu-gen-card:not(.waifu-gen-card--coming)").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.getAttribute("data-id"));
+      if (kind === "race") waifuGeneratorState.selectedRaceId = id;
+      else waifuGeneratorState.selectedClassId = id;
+      waifuGenSyncHiddenSelects();
+      waifuGenBuildRaceClassPickers();
+      waifuGenSyncTriggers();
+      if (typeof window.__waifuGenRecalc === "function") window.__waifuGenRecalc();
+      waifuGenCloseModal(kind === "race" ? "waifu-modal-race" : "waifu-modal-class");
+    });
+  });
+}
+
+function waifuGenRenderAssetCardGrid(containerId, pairs, assetGroup, currentVal, mode, onPick) {
+  const root = document.getElementById(containerId);
+  if (!root) return;
+  const curSet = mode === "multi" || mode === "multi2" ? new Set(currentVal || []) : null;
   root.innerHTML = pairs
     .map(([v, l]) => {
       const on =
         mode === "multi" || mode === "multi2"
           ? curSet && curSet.has(v)
           : String(currentVal) === String(v);
-      return `<button type="button" class="waifu-gen-chip${on ? " waifu-gen-chip--on" : ""}" data-val="${String(v).replace(/"/g, "&quot;")}">${escapeHtml(l)}</button>`;
+      const src = waifuGenCosmeticAssetUrl(assetGroup, v);
+      return `<button type="button" class="waifu-gen-card${on ? " waifu-gen-card--on" : ""}" data-val="${String(v).replace(/"/g, "&quot;")}" aria-pressed="${on}" aria-label="${escapeHtml(l)}">
+      <span class="waifu-gen-card-media">${waifuGenImgHtml(src, l)}</span>
+      <span class="waifu-gen-card-caption">${escapeHtml(l)}</span>
+    </button>`;
     })
     .join("");
-  root.querySelectorAll(".waifu-gen-chip").forEach((btn) => {
+  root.querySelectorAll(".waifu-gen-card").forEach((btn) => {
     btn.addEventListener("click", () => onPick(btn.getAttribute("data-val") || ""));
   });
 }
 
+function waifuGenOpenPassiveModal(kind) {
+  const raceId = waifuGeneratorState.selectedRaceId;
+  const clsId = waifuGeneratorState.selectedClassId;
+  const lines =
+    kind === "race" ? WAIFU_GEN_RACE_PASSIVES[raceId] || [] : WAIFU_GEN_CLASS_PASSIVES[clsId] || [];
+  const fallback = kind === "race" ? "Расовый бонус" : "Классовый бонус";
+  const title = waifuGenPassiveTitle(lines, fallback);
+  const titleEl = document.getElementById("waifu-modal-passive-title");
+  const body = document.getElementById("waifu-passive-modal-body");
+  if (titleEl) titleEl.textContent = title;
+  if (body) {
+    const ul = lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+    body.innerHTML = `<ul>${ul || `<li class="muted tiny">—</li>`}</ul>`;
+  }
+  waifuGenOpenModal("waifu-modal-passive");
+}
+
+function waifuGenRenderPassiveList() {
+  const root = document.getElementById("waifu-gen-passive-list");
+  if (!root) return;
+  const raceId = waifuGeneratorState.selectedRaceId;
+  const clsId = waifuGeneratorState.selectedClassId;
+  const race = WAIFU_RACES.find((r) => r.id === raceId);
+  const cls = WAIFU_CLASSES.find((c) => c.id === clsId);
+  const raceLines = WAIFU_GEN_RACE_PASSIVES[raceId] || [];
+  const classLines = WAIFU_GEN_CLASS_PASSIVES[clsId] || [];
+  const raceTitle = waifuGenPassiveTitle(raceLines, "Расовый бонус");
+  const classTitle = waifuGenPassiveTitle(classLines, "Классовый бонус");
+
+  const cardHtml = (kind, entry, title, tag) => {
+    const src =
+      kind === "race" ? waifuGenRaceAssetUrl(entry?.slug || "human") : waifuGenClassAssetUrl(entry?.slug || "knight");
+    return `<button type="button" class="waifu-gen-passive-card" data-passive-kind="${kind}" aria-label="${escapeHtml(title)}">
+      ${waifuGenImgHtml(src, title, "waifu-gen-passive-ico")}
+      <span class="waifu-gen-passive-card-body">
+        <span class="waifu-gen-passive-tag">${escapeHtml(tag)}</span>
+        <span class="waifu-gen-passive-name">${escapeHtml(title)}</span>
+      </span>
+    </button>`;
+  };
+
+  root.innerHTML = cardHtml("race", race, raceTitle, "Раса") + cardHtml("class", cls, classTitle, "Класс");
+  root.querySelectorAll(".waifu-gen-passive-card").forEach((btn) => {
+    btn.addEventListener("click", () => waifuGenOpenPassiveModal(btn.getAttribute("data-passive-kind") || ""));
+  });
+}
+
+function waifuGenBuildRaceClassPickers() {
+  waifuGenRenderRaceClassGrid(
+    "waifu-modal-race-grid",
+    WAIFU_RACES,
+    waifuGeneratorState.selectedRaceId,
+    "race"
+  );
+  waifuGenRenderRaceClassGrid(
+    "waifu-modal-class-grid",
+    WAIFU_CLASSES,
+    waifuGeneratorState.selectedClassId,
+    "class"
+  );
+}
+
 function waifuGenRefreshHairModal() {
   const c = waifuGeneratorState.cosmetics;
-  waifuGenRenderChipGrid("waifu-modal-hair-colors", WAIFU_GEN_COSMETIC.hair, c.hair_color, "single", (v) => {
+  waifuGenRenderAssetCardGrid("waifu-modal-hair-colors", WAIFU_GEN_COSMETIC.hair, "hair-colors", c.hair_color, "single", (v) => {
     waifuGeneratorState.cosmetics.hair_color = v;
     waifuGenRefreshHairModal();
   });
-  waifuGenRenderChipGrid("waifu-modal-hair-styles", WAIFU_GEN_COSMETIC.hairstyle, c.hairstyle, "single", (v) => {
+  waifuGenRenderAssetCardGrid("waifu-modal-hair-styles", WAIFU_GEN_COSMETIC.hairstyle, "hair-styles", c.hairstyle, "single", (v) => {
     waifuGeneratorState.cosmetics.hairstyle = v;
     waifuGenRefreshHairModal();
   });
@@ -1411,7 +2223,7 @@ function waifuGenRefreshEyesModal() {
   const c = waifuGeneratorState.cosmetics;
   let colors = Array.isArray(c.eye_colors) ? c.eye_colors.filter(Boolean) : [];
   if (colors.length === 0) colors = ["amber"];
-  waifuGenRenderChipGrid("waifu-modal-eye-colors", WAIFU_GEN_COSMETIC.eyes, colors, "multi2", (v) => {
+  waifuGenRenderAssetCardGrid("waifu-modal-eye-colors", WAIFU_GEN_COSMETIC.eyes, "eye-colors", colors, "multi2", (v) => {
     let next = [...(Array.isArray(waifuGeneratorState.cosmetics.eye_colors) ? waifuGeneratorState.cosmetics.eye_colors : [])].filter(Boolean);
     if (next.length === 0) next = ["amber"];
     const i = next.indexOf(v);
@@ -1426,7 +2238,7 @@ function waifuGenRefreshEyesModal() {
     waifuGeneratorState.cosmetics.eye_colors = next;
     waifuGenRefreshEyesModal();
   });
-  waifuGenRenderChipGrid("waifu-modal-eye-shapes", WAIFU_GEN_EYE_SHAPES, c.eye_shape, "single", (v) => {
+  waifuGenRenderAssetCardGrid("waifu-modal-eye-shapes", WAIFU_GEN_EYE_SHAPES, "eye-shapes", c.eye_shape, "single", (v) => {
     waifuGeneratorState.cosmetics.eye_shape = v;
     waifuGenRefreshEyesModal();
   });
@@ -1434,7 +2246,7 @@ function waifuGenRefreshEyesModal() {
 
 function waifuGenRefreshOutfitModal() {
   const c = waifuGeneratorState.cosmetics;
-  waifuGenRenderChipGrid("waifu-modal-outfits", WAIFU_GEN_OUTFITS, c.outfit, "single", (v) => {
+  waifuGenRenderAssetCardGrid("waifu-modal-outfits", WAIFU_GEN_OUTFITS, "outfits", c.outfit, "single", (v) => {
     waifuGeneratorState.cosmetics.outfit = v;
     waifuGenRefreshOutfitModal();
   });
@@ -1443,7 +2255,7 @@ function waifuGenRefreshOutfitModal() {
 function waifuGenRefreshAccModal() {
   const c = waifuGeneratorState.cosmetics;
   let acc = Array.isArray(c.accessories) ? [...c.accessories] : [];
-  waifuGenRenderChipGrid("waifu-modal-accs", WAIFU_GEN_ACCS_MULTI, acc, "multi", (v) => {
+  waifuGenRenderAssetCardGrid("waifu-modal-accs", WAIFU_GEN_ACCS_MULTI, "accessories", acc, "multi", (v) => {
     if (v === "none") {
       waifuGeneratorState.cosmetics.accessories = [];
     } else {
@@ -1461,11 +2273,11 @@ function waifuGenOpenModal(id) {
   if (!el) return;
   el.hidden = false;
   el.removeAttribute("hidden");
+  if (id === "waifu-modal-race" || id === "waifu-modal-class") waifuGenBuildRaceClassPickers();
   if (id === "waifu-modal-hair") waifuGenRefreshHairModal();
   if (id === "waifu-modal-eyes") waifuGenRefreshEyesModal();
   if (id === "waifu-modal-outfit") waifuGenRefreshOutfitModal();
   if (id === "waifu-modal-acc") waifuGenRefreshAccModal();
-  if (id === "waifu-modal-passive") waifuGenRefreshPassiveBonuses();
 }
 
 function waifuGenCloseModal(id) {
@@ -1475,20 +2287,30 @@ function waifuGenCloseModal(id) {
   el.setAttribute("hidden", "");
 }
 
-function waifuGenBindCosmeticModalsOnce() {
+function waifuGenBindModalsOnce() {
   if (window.__waifuGenModalsBound) return;
   window.__waifuGenModalsBound = true;
+  const openRace = document.getElementById("waifu-open-race");
+  if (openRace) openRace.addEventListener("click", () => waifuGenOpenModal("waifu-modal-race"));
+  const openClass = document.getElementById("waifu-open-class");
+  if (openClass) openClass.addEventListener("click", () => waifuGenOpenModal("waifu-modal-class"));
   ["waifu-open-hair", "waifu-open-eyes", "waifu-open-outfit", "waifu-open-acc"].forEach((bid, i) => {
     const ids = ["waifu-modal-hair", "waifu-modal-eyes", "waifu-modal-outfit", "waifu-modal-acc"];
     const b = document.getElementById(bid);
     if (b) b.addEventListener("click", () => waifuGenOpenModal(ids[i]));
   });
-  const openPassive = document.getElementById("waifu-open-passive");
-  if (openPassive) openPassive.addEventListener("click", () => waifuGenOpenModal("waifu-modal-passive"));
   document.querySelectorAll("[data-waifu-close-modal]").forEach((btn) => {
     btn.addEventListener("click", () => waifuGenCloseModal(btn.getAttribute("data-waifu-close-modal") || ""));
   });
-  ["waifu-modal-hair", "waifu-modal-eyes", "waifu-modal-outfit", "waifu-modal-acc", "waifu-modal-passive"].forEach((mid) => {
+  [
+    "waifu-modal-race",
+    "waifu-modal-class",
+    "waifu-modal-hair",
+    "waifu-modal-eyes",
+    "waifu-modal-outfit",
+    "waifu-modal-acc",
+    "waifu-modal-passive",
+  ].forEach((mid) => {
     const m = document.getElementById(mid);
     if (!m) return;
     m.addEventListener("click", (ev) => {
@@ -1536,6 +2358,13 @@ function waifuGenRefreshGenerateButton() {
   const genBtn = document.getElementById("waifu-generate-btn");
   if (!genBtn) return;
   genBtn.disabled = waifuGenGensUsed() >= 3;
+}
+
+function setWaifuGenMagicLoading(on) {
+  if (typeof document === "undefined" || !document.body) return;
+  const modal = document.getElementById("waifu-gen-magic-modal");
+  if (modal) modal.hidden = !on;
+  document.body.classList.toggle("waifu-gen-magic-busy", Boolean(on));
 }
 
 function waifuGenApplyPortraitPreview(dataUrl) {
@@ -1646,6 +2475,12 @@ const profileState = {
   inventoryFilters: { weapon: true, armor: true, accessory: true },
   activeAccordion: null,
   infoTab: "indicators",
+  slotSort: "level",
+  slotSortDir: "desc",
+  slotPickerItems: [],
+  slotPickerEquipped: null,
+  equipmentLoaded: false,
+  equipmentLoading: false,
 };
 
 const EQUIPMENT_SLOT_NAMES = {
@@ -1773,10 +2608,11 @@ function compareProfileInventoryItems(a, b) {
   return result * dir;
 }
 
-const SELL_PAGE_SIZE = 9;
+const SELL_PAGE_SIZE = 12;
 
 const shopState = {
   act: 1,
+  size: 12,
   offers: [],
   selectedSlot: null,
   selectedOffer: null,
@@ -1788,23 +2624,35 @@ const shopState = {
   sellFilters: { weapon: true, armor: true, accessory: true },
   sellSort: "equipability",
   sellSortDir: "desc",
-  /** Активная вкладка магазина: buy | sell | gamble */
+  /** Активная вкладка магазина: buy | sell | gamble | smith */
   activeTab: "buy",
+  gambleOffers: [],
+  shopRefreshAt: null,
+  gambleRefreshAt: null,
   /** Слот витрины (1–9), который ИИ выделил в реплике «купить» */
   merchantPickBuySlot: null,
   /** inventory_items.id предмета, который ИИ выделил в реплике «продать» */
   merchantPickSellId: null,
   /** Подсветка совета торговца — только после нажатия на торговца */
   merchantAdviceUnlocked: false,
+  /** Кэш AI-реплик торговца (ключ: buy:slot / sell:id / gamble / smith) */
+  merchantLineCache: {},
   /** inventory_items.id выбранный для заточки */
   smithSelectedId: null,
   /** кэш списка для модалки выбора (сортировка: экип первыми) */
   smithItems: [],
   /** страница сетки выбора (по 9 предметов) */
   smithPickPage: 0,
+  /** sharpen | craft — подвкладка кузницы */
+  smithSubTab: "sharpen",
 };
 
 const SMITH_PICK_PAGE_SIZE = 9;
+const SMITH_SAFE_MAX = 7;
+
+const SMITH_PICK_LOADING_HTML = `<div class="shop-smith-pick-loading" aria-busy="true" aria-label="Загрузка инвентаря">
+  ${Array.from({ length: 9 }, () => '<div class="shop-smith-pick-loading-card"></div>').join("")}
+</div>`;
 
 function resolveShopOfferSlot(offer) {
   if (!offer) return null;
@@ -1849,12 +2697,254 @@ function isAdminUser() {
   }
 }
 
-async function loadProfile() {
+const ADMIN_UI_STORAGE_KEY = "waifu_admin_ui_enabled";
+
+function isAdminUiEnabled() {
+  if (!isAdminUser()) return false;
+  try {
+    return localStorage.getItem(ADMIN_UI_STORAGE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function setAdminUiEnabled(on) {
+  try {
+    localStorage.setItem(ADMIN_UI_STORAGE_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  syncAdminUiVisibility();
+}
+
+function syncAdminUiVisibility() {
+  const show = isAdminUiEnabled();
+  document.querySelectorAll(".admin-only").forEach((el) => {
+    el.style.display = show ? "" : "none";
+  });
+}
+
+const settingsState = {
+  dmPrefs: null,
+  notifySaveTimer: null,
+  notifyModalReadyAt: 0,
+  notifyBackHandler: null,
+};
+
+function resetSettingsNotifyModalDom() {
+  const modal = document.getElementById("settings-notify-modal");
+  if (!modal) return;
+  modal.classList.remove("settings-notify-modal--open");
+  modal.style.display = "none";
+}
+
+async function loadDmNotificationPrefs() {
+  const data = await apiFetch("/player/dm-notification-prefs");
+  settingsState.dmPrefs = data;
+  return data;
+}
+
+function applyDmPrefsToModal(prefs) {
+  document.querySelectorAll("#settings-notify-modal [data-notify-key]").forEach((input) => {
+    const key = input.getAttribute("data-notify-key");
+    if (key && prefs && Object.prototype.hasOwnProperty.call(prefs, key)) {
+      input.checked = Boolean(prefs[key]);
+    }
+  });
+}
+
+function scheduleSaveDmNotificationPrefs() {
+  if (settingsState.notifySaveTimer) clearTimeout(settingsState.notifySaveTimer);
+  settingsState.notifySaveTimer = setTimeout(() => {
+    settingsState.notifySaveTimer = null;
+    saveDmNotificationPrefsFromModal();
+  }, 400);
+}
+
+async function saveDmNotificationPrefsFromModal() {
+  const patch = {};
+  document.querySelectorAll("#settings-notify-modal [data-notify-key]").forEach((input) => {
+    const key = input.getAttribute("data-notify-key");
+    if (key) patch[key] = input.checked;
+  });
+  try {
+    const data = await apiFetch("/player/dm-notification-prefs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    settingsState.dmPrefs = data;
+  } catch (e) {
+    console.warn("saveDmNotificationPrefs failed:", e);
+    showToast("Не удалось сохранить уведомления", "error");
+  }
+}
+
+async function ensureDmNotificationPrefsLoaded() {
+  if (settingsState.dmPrefs) return settingsState.dmPrefs;
+  if (settingsState.dmPrefsLoadPromise) return settingsState.dmPrefsLoadPromise;
+  settingsState.dmPrefsLoadPromise = loadDmNotificationPrefs()
+    .then((prefs) => {
+      settingsState.dmPrefs = prefs;
+      applyDmPrefsToModal(prefs);
+      return prefs;
+    })
+    .catch((e) => {
+      console.warn("loadDmNotificationPrefs failed:", e);
+      return null;
+    })
+    .finally(() => {
+      settingsState.dmPrefsLoadPromise = null;
+    });
+  return settingsState.dmPrefsLoadPromise;
+}
+
+function openSettingsNotifyModal() {
+  if (Date.now() < settingsState.notifyModalReadyAt) return;
+  const modal = document.getElementById("settings-notify-modal");
+  if (!modal) return;
+  void ensureDmNotificationPrefsLoaded().then((prefs) => {
+    if (prefs) applyDmPrefsToModal(prefs);
+    modal.style.display = "";
+    modal.classList.add("settings-notify-modal--open");
+    if (tg?.BackButton) {
+      if (!settingsState.notifyBackHandler) {
+        settingsState.notifyBackHandler = () => closeSettingsNotifyModal();
+      }
+      tg.BackButton.onClick(settingsState.notifyBackHandler);
+      tg.BackButton.show();
+    }
+  });
+}
+
+function closeSettingsNotifyModal() {
+  const modal = document.getElementById("settings-notify-modal");
+  if (!modal) return;
+  modal.classList.remove("settings-notify-modal--open");
+  modal.style.display = "none";
+  if (tg?.BackButton && settingsState.notifyBackHandler) {
+    tg.BackButton.offClick(settingsState.notifyBackHandler);
+    tg.BackButton.hide();
+  }
+}
+
+function initSettingsPageBindings() {
+  resetSettingsNotifyModalDom();
+  closeSettingsNotifyModal();
+
+  if (!window.__waifuSettingsPageshowBound) {
+    window.__waifuSettingsPageshowBound = true;
+    window.addEventListener("pageshow", () => {
+      if (
+        document.body.classList.contains("page-settings") ||
+        document.body.classList.contains("page-player")
+      ) {
+        closeSettingsNotifyModal();
+      }
+    });
+  }
+
+  if (!window.__waifuSettingsEscapeBound) {
+    window.__waifuSettingsEscapeBound = true;
+    window.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Escape") return;
+      const modal = document.getElementById("settings-notify-modal");
+      if (modal?.classList.contains("settings-notify-modal--open")) {
+        ev.preventDefault();
+        closeSettingsNotifyModal();
+      }
+    });
+  }
+
+  syncAdminUiVisibility();
+  const adminRow = document.getElementById("settings-admin-row");
+  const adminToggle = document.getElementById("settings-admin-toggle");
+  if (isAdminUser() && adminRow) {
+    adminRow.style.display = "";
+    if (adminToggle) {
+      adminToggle.checked = isAdminUiEnabled();
+      if (!adminToggle.__waifuBound) {
+        adminToggle.__waifuBound = true;
+        adminToggle.addEventListener("change", () => {
+          setAdminUiEnabled(adminToggle.checked);
+        });
+      }
+    }
+  }
+
+  const openBtn = document.getElementById("settings-open-notify");
+  if (openBtn && !openBtn.__waifuBound) {
+    openBtn.__waifuBound = true;
+    openBtn.addEventListener("click", () => openSettingsNotifyModal());
+  }
+
+  const modal = document.getElementById("settings-notify-modal");
+  if (modal && !modal.__waifuBound) {
+    modal.__waifuBound = true;
+    modal.addEventListener("click", (ev) => {
+      if (ev.target === modal) closeSettingsNotifyModal();
+    });
+    const panel = modal.querySelector(".settings-notify-panel");
+    if (panel) {
+      panel.addEventListener("click", (ev) => ev.stopPropagation());
+    }
+    document.getElementById("settings-notify-close")?.addEventListener("click", () => {
+      closeSettingsNotifyModal();
+    });
+    document.getElementById("settings-notify-done")?.addEventListener("click", () => {
+      closeSettingsNotifyModal();
+    });
+    document.querySelectorAll("#settings-notify-modal [data-notify-key]").forEach((input) => {
+      input.addEventListener("change", scheduleSaveDmNotificationPrefs);
+    });
+  }
+
+  settingsState.notifyModalReadyAt = Date.now() + 300;
+}
+
+async function initSettingsPage() {
+  initSettingsPageBindings();
+  try {
+    const prefs = await loadDmNotificationPrefs();
+    applyDmPrefsToModal(prefs);
+  } catch (e) {
+    console.warn("loadDmNotificationPrefs failed:", e);
+  }
+}
+
+// In-flight dedup for /profile. Many call sites refresh the profile right after
+// a mutation, so we deliberately do NOT add a TTL cache (that would serve stale
+// gold/state). Instead we only collapse *concurrent* duplicate requests — e.g.
+// an SSE-triggered refetch firing while the page bootstrap is still loading —
+// into a single blocking network call. Sequential (post-await) calls still hit
+// the network and get fresh data.
+const profileInFlight = { lite: null, full: null };
+
+async function loadProfile(options = {}) {
+  const lite = options.lite ?? !isProfilePage();
+  const key = lite ? "lite" : "full";
+  const populateOpts = { skipAtticRefresh: options.skipAtticRefresh === true };
+
+  if (profileInFlight[key]) {
+    const profile = await profileInFlight[key];
+    populateFromProfile(profile, populateOpts);
+    return profile;
+  }
+
   const initData = getInitData();
-  const qs = initData ? `?initData=${encodeURIComponent(initData)}` : "";
-  const profile = await apiFetch(`/profile${qs}`);
-  populateFromProfile(profile);
-  return profile;
+  const params = new URLSearchParams();
+  if (initData) params.set("initData", initData);
+  if (lite) params.set("lite", "1");
+  const qs = params.toString();
+  const promise = apiFetch(`/profile${qs ? `?${qs}` : ""}`);
+  profileInFlight[key] = promise;
+  try {
+    const profile = await promise;
+    populateFromProfile(profile, populateOpts);
+    return profile;
+  } finally {
+    if (profileInFlight[key] === promise) profileInFlight[key] = null;
+  }
 }
 
 /** One-time bind: ОЧ chip clicks open dungeons.html with the right tab. */
@@ -1862,29 +2952,85 @@ function initAtticChipClicks() {
   if (window.__atticChipClicksBound) return;
   window.__atticChipClicksBound = true;
   const dungeonChip = document.getElementById("attic-dungeon-chip");
-  const expeditionChip = document.getElementById("attic-expedition-chip");
   if (dungeonChip) {
     dungeonChip.addEventListener("click", () => {
       window.location.href = "./dungeons.html?tab=solo";
     });
     dungeonChip.style.cursor = "pointer";
   }
-  if (expeditionChip) {
-    expeditionChip.addEventListener("click", () => {
+  const expChip = document.getElementById("attic-exp-chip");
+  if (expChip) {
+    expChip.addEventListener("click", () => {
       window.location.href = "./dungeons.html?tab=expedition";
     });
-    expeditionChip.style.cursor = "pointer";
+    expChip.style.cursor = "pointer";
   }
+  if (document.getElementById("attic-exp-cells")) {
+    renderAtticExpeditions([], 3);
+  }
+}
+
+function initAtticMenu() {
+  if (window.__atticMenuBound) return;
+  window.__atticMenuBound = true;
+  const btn = document.getElementById("attic-menu-btn");
+  const menu = document.getElementById("attic-menu");
+  if (!btn || !menu) return;
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = menu.hidden;
+    menu.hidden = !open;
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  menu.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => {
+    if (!menu.hidden) {
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !menu.hidden) {
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      btn.focus();
+    }
+  });
+}
+
+function registerWaifuServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  if (!window.__waifuSwControllerBound) {
+    window.__waifuSwControllerBound = true;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (window.__waifuSwReloading) return;
+      window.__waifuSwReloading = true;
+      window.location.reload();
+    });
+  }
+  const doUpdate = (reg) => {
+    if (reg) reg.update().catch(() => {});
+  };
+  if (window.__waifuSwRegistered) {
+    navigator.serviceWorker.getRegistration("/webapp/sw.js").then(doUpdate).catch(() => {});
+    return;
+  }
+  window.__waifuSwRegistered = true;
+  navigator.serviceWorker
+    .register("/webapp/sw.js")
+    .then((reg) => doUpdate(reg))
+    .catch(() => {});
 }
 
 async function bootstrapPage(page, afterLoad) {
   await initPage(page);
   let profile = null;
   try {
-    profile = await loadProfile();
+    profile = await loadProfile({ lite: page !== "profile" });
   } catch (err) {
     if (isWebAppUnauthorizedError(err)) {
       console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
+      profile = { __authRequired: true };
     } else {
       console.error("Failed to load profile:", err);
     }
@@ -1892,10 +3038,66 @@ async function bootstrapPage(page, afterLoad) {
 
   if (typeof afterLoad === "function") {
     try {
-      await afterLoad(profile || { act: 1 });
+      await afterLoad(profile ?? (page === "index" ? null : { act: 1 }));
     } catch (err) {
       console.error("Failed to bootstrap page:", err);
     }
+  }
+
+  try {
+    const forced = new URLSearchParams(window.location.search).get("tutorial");
+    const hasWaifu = Boolean(
+      profile?.main_waifu && (profile.main_waifu.id != null || profile.main_waifu.level != null),
+    );
+    if (hasWaifu || page !== "profile") {
+      window.WaifuApp?.Tutorial?.maybeRun(page, profile?.tutorial, forced);
+    }
+  } catch (err) {
+    console.warn("Tutorial bootstrap failed:", err);
+  }
+
+  if (page === "settings") {
+    try {
+      await initSettingsPage();
+    } catch (err) {
+      console.warn("initSettingsPage failed:", err);
+    }
+  }
+
+  return profile;
+}
+
+async function bootstrapTrainingHall() {
+  await initPage("training");
+  let profile = null;
+  const profilePromise = loadProfile({ lite: true, skipAtticRefresh: true })
+    .then((p) => {
+      profile = p;
+      return p;
+    })
+    .catch((err) => {
+      if (isWebAppUnauthorizedError(err)) {
+        console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
+        profile = { __authRequired: true };
+        return profile;
+      }
+      console.error("Failed to load profile:", err);
+      return null;
+    });
+  await Promise.all([profilePromise, loadPassiveSkillTree()]);
+  bindHiddenSkillsListenersOnce();
+  scheduleDeferredAtticRefresh(profile);
+
+  try {
+    const forced = new URLSearchParams(window.location.search).get("tutorial");
+    const hasWaifu = Boolean(
+      profile?.main_waifu && (profile.main_waifu.id != null || profile.main_waifu.level != null),
+    );
+    if (hasWaifu) {
+      window.WaifuApp?.Tutorial?.maybeRun("training", profile?.tutorial, forced);
+    }
+  } catch (err) {
+    console.warn("Tutorial bootstrap failed:", err);
   }
 
   return profile;
@@ -1935,43 +3137,219 @@ async function applyShopSmithNavigationIntent(intent) {
   }
 }
 
+async function bootstrapShopPage() {
+  await initPage("shop");
+  let profile = null;
+  const actHint = safeInt(profileState.currentProfile?.act ?? shopState.act, 1);
+  const shopSmithNavIntent = consumeShopSmithIntent();
+  const profilePromise = loadProfile({ lite: true, skipAtticRefresh: true })
+    .then((p) => {
+      profile = p;
+      return p;
+    })
+    .catch((err) => {
+      if (isWebAppUnauthorizedError(err)) {
+        console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
+        profile = { __authRequired: true };
+        return profile;
+      }
+      console.error("Failed to load profile:", err);
+      return null;
+    });
+
+  await Promise.all([profilePromise, loadShop(actHint)]);
+
+  const p = profile || profileState.currentProfile;
+  const act = safeInt(p?.act ?? actHint, 1);
+  applyShopHeroImages(act);
+  updateShopProfileError(p);
+  if (act !== actHint) {
+    await loadShop(act);
+  }
+  if (shopSmithNavIntent.openSmith) {
+    await applyShopSmithNavigationIntent(shopSmithNavIntent);
+  } else {
+    try {
+      const shopTab = new URLSearchParams(window.location.search).get("tab");
+      if (shopTab && ["buy", "sell", "gamble", "smith"].includes(shopTab)) {
+        switchShopTab(shopTab);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  ensureShopSellToolbar();
+  updateShopGambleCost();
+  scheduleDeferredAtticRefresh(profile);
+
+  try {
+    const forced = new URLSearchParams(window.location.search).get("tutorial");
+    const hasWaifu = Boolean(
+      p?.main_waifu && (p.main_waifu.id != null || p.main_waifu.level != null),
+    );
+    if (hasWaifu) {
+      window.WaifuApp?.Tutorial?.maybeRun("shop", p?.tutorial, forced);
+    }
+  } catch (err) {
+    console.warn("Tutorial bootstrap failed:", err);
+  }
+
+  return profile;
+}
+
+async function bootstrapTavernPage() {
+  await initPage("tavern");
+  let profile = null;
+  const profilePromise = loadProfile({ lite: true, skipAtticRefresh: true })
+    .then((p) => {
+      profile = p;
+      return p;
+    })
+    .catch((err) => {
+      if (isWebAppUnauthorizedError(err)) {
+        console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
+        profile = { __authRequired: true };
+        return profile;
+      }
+      console.error("Failed to load profile:", err);
+      return null;
+    });
+  const availablePromise = apiFetch("/tavern/available").catch((err) => {
+    console.error("Failed to load tavern available:", err);
+    return null;
+  });
+  const [, available] = await Promise.all([profilePromise, availablePromise]);
+  const p = profile || profileState.currentProfile || { act: 1 };
+  try {
+    await window.WaifuApp?.loadTavernWithProfile?.(p, { preloadedAvailable: available });
+  } catch (err) {
+    console.error("Failed to bootstrap tavern:", err);
+  }
+  scheduleDeferredAtticRefresh(profile);
+
+  try {
+    const tavernTab = new URLSearchParams(window.location.search).get("tab");
+    if (tavernTab && ["hire", "squad", "heal", "upgrade"].includes(tavernTab)) {
+      window.WaifuApp?.switchTavernTab?.(tavernTab);
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const forced = new URLSearchParams(window.location.search).get("tutorial");
+    const hasWaifu = Boolean(
+      p?.main_waifu && (p.main_waifu.id != null || p.main_waifu.level != null),
+    );
+    if (hasWaifu) {
+      window.WaifuApp?.Tutorial?.maybeRun("tavern", p?.tutorial, forced);
+    }
+  } catch (err) {
+    console.warn("Tutorial bootstrap failed:", err);
+  }
+
+  return profile;
+}
+
+async function bootstrapPlayerPage() {
+  await initPage("player");
+  initSettingsPageBindings();
+
+  const viewId = getPlayerViewIdFromQuery();
+  let profile = null;
+  const profilePromise = loadProfile({ lite: true, skipAtticRefresh: true })
+    .then((p) => {
+      profile = p;
+      return p;
+    })
+    .catch((err) => {
+      if (isWebAppUnauthorizedError(err)) {
+        console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
+        profile = { __authRequired: true };
+        return profile;
+      }
+      console.error("Failed to load profile:", err);
+      return null;
+    });
+
+  const playerProfilePromise =
+    viewId == null
+      ? apiFetch("/player/profile").catch((err) => {
+          console.error("Failed to load player profile:", err);
+          return null;
+        })
+      : profilePromise.then((p) => {
+          const selfId = p?.player_id != null ? Number(p.player_id) : null;
+          const path =
+            viewId != null && (selfId == null || viewId !== selfId)
+              ? `/player/${encodeURIComponent(viewId)}/profile`
+              : "/player/profile";
+          return apiFetch(path).catch((err) => {
+            console.error("Failed to load player profile:", err);
+            return null;
+          });
+        });
+
+  const [, preloadedPlayerProfile] = await Promise.all([profilePromise, playerProfilePromise]);
+  const p = profile || profileState.currentProfile || {};
+
+  try {
+    await initPlayerPage(p, { preloadedPlayerProfile });
+  } catch (err) {
+    console.error("Failed to bootstrap player page:", err);
+  }
+
+  schedulePlayerMailBadgeRefresh();
+
+  try {
+    const forced = new URLSearchParams(window.location.search).get("tutorial");
+    const hasWaifu = Boolean(
+      p?.main_waifu && (p.main_waifu.id != null || p.main_waifu.level != null),
+    );
+    if (hasWaifu) {
+      window.WaifuApp?.Tutorial?.maybeRun("player", p?.tutorial, forced);
+    }
+  } catch (err) {
+    console.warn("Tutorial bootstrap failed:", err);
+  }
+
+  return profile;
+}
+
+function updateShopProfileError(profile) {
+  const p = profile || profileState.currentProfile;
+  const errBox = document.getElementById("shop-profile-error");
+  if (!errBox) return;
+  if (!p?.main_waifu) {
+    errBox.textContent = "Сначала создайте вайфу.";
+    errBox.style.display = "";
+  } else {
+    errBox.style.display = "none";
+    errBox.textContent = "";
+  }
+}
+
 async function shopPageBootstrap(profile, merchantMeta) {
   void merchantMeta;
   const p = profile || profileState.currentProfile || { act: 1 };
   const act = safeInt(p?.act ?? shopState.act, 1);
   shopState.act = act;
   shopState.activeTab = shopState.activeTab || "buy";
-
-  applyShopStageImages(act);
-
-  const errBox = document.getElementById("shop-profile-error");
-  if (errBox) {
-    if (!p?.main_waifu) {
-      errBox.textContent = "Сначала создайте вайфу.";
-      errBox.style.display = "";
-    } else {
-      errBox.style.display = "none";
-      errBox.textContent = "";
-    }
-  }
-
+  updateShopProfileError(p);
   await loadShop(act);
-  updateShopGambleCost();
   return p;
 }
 
 async function loadShop(act) {
-  applyShopStageImages(act);
-  const shopSmithNavIntent = consumeShopSmithIntent();
   const data = await apiFetch(`/shop/inventory?act=${act}`);
   shopState.act = act;
+  shopState.size = safeInt(data?.size, 12);
   shopState.offers = Array.isArray(data?.items) ? data.items : [];
+  shopState.shopRefreshAt = data?.refresh_at || null;
+  updateShopRefreshLabel("buy");
 
   if (typeof window !== "undefined") {
-    const adminBtns = document.querySelectorAll(".admin-only");
-    adminBtns.forEach((el) => {
-      el.style.display = isAdminUser() ? "" : "none";
-    });
+    syncAdminUiVisibility();
   }
 
   // New shop v1.3 layout
@@ -1985,7 +3363,7 @@ async function loadShop(act) {
       const slot = Number(o.slot || o.offer_slot || o.shop_slot || idx + 1);
       if (Number.isFinite(slot)) bySlot.set(slot, { ...o, __slot: slot });
     });
-    for (let s = 1; s <= 9; s += 1) {
+    for (let s = 1; s <= shopState.size; s += 1) {
       const offer = bySlot.get(s) || null;
       const card = document.createElement("div");
       const isSold = Boolean(offer?.sold);
@@ -1995,7 +3373,7 @@ async function loadShop(act) {
       const priceBottomStr = offer && !isSold && offer?.price != null
         ? `🪙 ${offer.price}`
         : (isSold ? "Продано" : "—");
-      const iconHtml = offer ? itemArtHtml(offer) : "🎁";
+      const iconHtml = offer ? itemArtHtml(offer, { lazy: true }) : "🎁";
       card.dataset.shopSlot = String(s);
       card.innerHTML = `
         <div class="item-icon">${iconHtml}</div>
@@ -2011,17 +3389,10 @@ async function loadShop(act) {
       newGrid.appendChild(card);
     }
 
-    generateMerchantLine(shopState.activeTab || "buy").catch(() => {});
     const sellBtn = document.getElementById("shop-sell-submit");
     if (sellBtn) sellBtn.style.display = (shopState.activeTab || "buy") === "sell" ? "" : "none";
-    if (typeof document !== "undefined" && document.body) {
-      document.body.classList.toggle("shop-tab-smith", (shopState.activeTab || "buy") === "smith");
-    }
     if ((shopState.activeTab || "buy") === "smith") {
       loadSmithTab().catch(() => {});
-    }
-    if (shopSmithNavIntent.openSmith) {
-      await applyShopSmithNavigationIntent(shopSmithNavIntent);
     }
     ensureShopSellToolbar();
     return data;
@@ -2069,7 +3440,7 @@ async function loadShop(act) {
     const priceBottomStr = offer && !isSold && offer?.price != null
       ? `🪙 ${offer.price}`
       : (isSold ? "Продано" : "—");
-    const iconHtml = offer ? itemArtHtml(offer) : "🎁";
+    const iconHtml = offer ? itemArtHtml(offer, { lazy: true }) : "🎁";
     card.dataset.shopSlot = String(slot);
     card.innerHTML = `
       <div class="item-icon">${iconHtml}</div>
@@ -2103,7 +3474,203 @@ function rarityClassFromValue(r) {
 }
 
 async function refreshMerchantLine() {
-  return generateMerchantLine(shopState.activeTab || "buy");
+  return onShopHeroAdvice(shopState.activeTab || "buy");
+}
+
+let shopHeroDialogTimer = null;
+const SHOP_HERO_DIALOG_MS = 5000;
+
+function hideShopHeroDialogs() {
+  clearTimeout(shopHeroDialogTimer);
+  shopHeroDialogTimer = null;
+  document.querySelectorAll("body.page-shop .shop-dialog.show").forEach((el) => {
+    el.classList.remove("show");
+  });
+}
+
+function updateShopHeroDialogText(tab, html) {
+  const textEl = document.getElementById(`shop-dialog-text-${tab}`);
+  if (textEl) textEl.innerHTML = html;
+}
+
+function showShopHeroDialog(tab, html) {
+  const ctx = tab || shopState.activeTab || "buy";
+  const dialog = document.getElementById(`shop-dialog-${ctx}`);
+  const textEl = document.getElementById(`shop-dialog-text-${ctx}`);
+  const fillEl = document.getElementById(`shop-dialog-timer-fill-${ctx}`);
+  if (!dialog || !textEl) return;
+
+  document.querySelectorAll("body.page-shop .shop-dialog.show").forEach((el) => {
+    if (el !== dialog) el.classList.remove("show");
+  });
+
+  textEl.innerHTML = html;
+  dialog.classList.add("show");
+
+  if (fillEl) {
+    fillEl.style.transition = "none";
+    fillEl.style.width = "100%";
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        fillEl.style.transition = `width ${SHOP_HERO_DIALOG_MS}ms linear`;
+        fillEl.style.width = "0%";
+      });
+    });
+  }
+
+  clearTimeout(shopHeroDialogTimer);
+  shopHeroDialogTimer = setTimeout(() => {
+    dialog.classList.remove("show");
+    shopHeroDialogTimer = null;
+  }, SHOP_HERO_DIALOG_MS);
+}
+
+function prepareMerchantAdvice(context) {
+  const ctx = context || shopState.activeTab || "buy";
+  shopState.merchantPickBuySlot = null;
+  shopState.merchantPickSellId = null;
+
+  if (ctx === "buy") {
+    const available = (shopState.offers || []).filter((o) => !o?.sold);
+    if (!available.length) {
+      return {
+        cacheKey: "buy:empty",
+        fallback: "На сегодня товара нет, странник. Загляни позже.",
+        apiBody: null,
+      };
+    }
+    const chosen = available[Math.floor(Math.random() * available.length)];
+    const slot = resolveShopOfferSlot(chosen);
+    if (slot != null) shopState.merchantPickBuySlot = slot;
+    const fallback = `Странник, присмотрись к <b>${escapeHtml(String(chosen?.display_name || chosen?.name || "товару"))}</b> — отличная вещь для твоего пути.`;
+    return {
+      cacheKey: `buy:${slot ?? chosen?.id ?? chosen?.name}`,
+      fallback,
+      apiBody: {
+        context: "buy",
+        name: chosen?.display_name || chosen?.name || "предмет",
+        level: Number(chosen?.level || 1),
+        rarity: rarityLabel(chosen?.rarity || 1),
+        bonuses: typeof getItemBonusesText === "function" ? getItemBonusesText(chosen) : "",
+      },
+    };
+  }
+
+  if (ctx === "sell") {
+    const items = shopState.sellItems || [];
+    if (!items.length) {
+      return {
+        cacheKey: "sell:empty",
+        fallback:
+          "Развяжи ремни сумки — покажи, что продаёшь, странник. Золото у меня есть, а терпение — на вес.",
+        apiBody: null,
+      };
+    }
+    const chosen = items[Math.floor(Math.random() * items.length)];
+    if (chosen?.id != null) shopState.merchantPickSellId = Number(chosen.id);
+    const fallback = `Дай глянуть на <b>${escapeHtml(String(chosen?.display_name || chosen?.name || "эту штуку"))}</b>, странник — может, сойдёмся в цене.`;
+    return {
+      cacheKey: `sell:${chosen?.id ?? chosen?.name}`,
+      fallback,
+      apiBody: {
+        context: "sell",
+        name: chosen?.display_name || chosen?.name || "предмет",
+        level: Number(chosen?.level || 1),
+        rarity: rarityLabel(chosen?.rarity || 1),
+        bonuses: typeof getItemBonusesText === "function" ? getItemBonusesText(chosen) : "",
+      },
+    };
+  }
+
+  if (ctx === "gamble") {
+    return {
+      cacheKey: "gamble",
+      fallback:
+        "Испытай удачу, странник! Мистическая гемба голодна по золоту — зато сыплет редкостями не хуже драконьего логова.",
+      apiBody: {
+        context: "gamble",
+        name: "",
+        level: 1,
+        rarity: "",
+        bonuses: "",
+      },
+    };
+  }
+
+  return {
+    cacheKey: "smith",
+    fallback:
+      "Кузнец затачивает сталь до звона. До +7 — без риска; выше удача решает судьбу клинка. Камень защиты убережёт от поломки.",
+    apiBody: {
+      context: "smith",
+      name: "заточка",
+      level: 1,
+      rarity: "",
+      bonuses: "",
+    },
+  };
+}
+
+async function fetchMerchantLineAi(apiBody, fallback, cacheKey) {
+  const cached = shopState.merchantLineCache[cacheKey];
+  if (cached) return cached;
+  try {
+    const payload = await apiFetch("/shop/merchant-line", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(apiBody),
+    });
+    const text = String(payload?.text || "").trim();
+    const out = text || fallback;
+    if (!text && payload?.error && typeof console !== "undefined" && console.warn) {
+      console.warn("[shop merchant-line]", payload.error);
+    }
+    shopState.merchantLineCache[cacheKey] = out;
+    return out;
+  } catch (e) {
+    if (typeof console !== "undefined" && console.warn) {
+      console.warn("[shop merchant-line] запрос не удался:", e?.message || e);
+    }
+    return fallback;
+  }
+}
+
+async function onShopHeroAdvice(tab) {
+  const ctx = tab || shopState.activeTab || "buy";
+  window.__shopMerchantTab = ctx;
+  shopState.merchantAdviceUnlocked = false;
+
+  const { cacheKey, fallback, apiBody } = prepareMerchantAdvice(ctx);
+  window.__shopMerchantLine = shopState.merchantLineCache[cacheKey] || fallback;
+
+  revealMerchantAdvice();
+  showShopHeroDialog(ctx, window.__shopMerchantLine);
+
+  if (!apiBody) return window.__shopMerchantLine;
+
+  const cached = shopState.merchantLineCache[cacheKey];
+  if (cached) return cached;
+
+  const text = await fetchMerchantLineAi(apiBody, fallback, cacheKey);
+  window.__shopMerchantLine = text;
+  const dialog = document.getElementById(`shop-dialog-${ctx}`);
+  if (dialog?.classList.contains("show")) {
+    updateShopHeroDialogText(ctx, text);
+  }
+  applyShopMerchantHighlight();
+  return text;
+}
+
+/**
+ * Подготовка реплики торговца (без сетевого запроса; AI — только через onShopHeroAdvice).
+ */
+async function generateMerchantLine(context) {
+  const ctx = context || shopState.activeTab || "buy";
+  const { cacheKey, fallback } = prepareMerchantAdvice(ctx);
+  window.__shopMerchantTab = ctx;
+  window.__shopMerchantLine = shopState.merchantLineCache[cacheKey] || fallback;
+  applyShopMerchantHighlight();
+  return window.__shopMerchantLine;
 }
 
 /** Цена гембы как на бэкенде (game.constants + formulas.calculate_gamble_price). */
@@ -2124,2456 +3691,31 @@ function updateShopGambleCost() {
   el.textContent = `🪙 ${price.toLocaleString()} золота`;
 }
 
-/**
- * Подготовка реплики торговца под вкладку: buy / sell / gamble.
- * Выставляет window.__shopMerchantLine и window.__shopMerchantTab.
- */
-async function generateMerchantLine(context) {
-  const ctx = context || shopState.activeTab || "buy";
-  window.__shopMerchantTab = ctx;
-  shopState.merchantAdviceUnlocked = false;
-  shopState.merchantPickBuySlot = null;
-  shopState.merchantPickSellId = null;
-
-  try {
-    if (ctx === "buy") {
-      const items = shopState.offers || [];
-      const available = items.filter((o) => !o?.sold);
-      if (!available.length) {
-        window.__shopMerchantLine = "На сегодня товара нет, странник. Загляни позже.";
-        return;
-      }
-      const chosen = available[Math.floor(Math.random() * available.length)];
-      if (!chosen) return;
-
-      const slot = resolveShopOfferSlot(chosen);
-      if (slot != null) shopState.merchantPickBuySlot = slot;
-
-      const fallback = `Странник, присмотрись к <b>${escapeHtml(String(chosen?.display_name || chosen?.name || "товару"))}</b> — отличная вещь для твоего пути.`;
-
-      try {
-        const payload = await apiFetch("/shop/merchant-line", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            context: "buy",
-            name: chosen?.display_name || chosen?.name || "предмет",
-            level: Number(chosen?.level || 1),
-            rarity: rarityLabel(chosen?.rarity || 1),
-            bonuses: typeof getItemBonusesText === "function" ? getItemBonusesText(chosen) : "",
-          }),
-        });
-        const text = String(payload?.text || "").trim();
-        window.__shopMerchantLine = text || fallback;
-        if (!text && payload?.error && typeof console !== "undefined" && console.warn) {
-          console.warn("[shop merchant-line]", payload.error);
-        }
-      } catch (e) {
-        window.__shopMerchantLine = fallback;
-        if (typeof console !== "undefined" && console.warn) console.warn("[shop merchant-line] запрос не удался:", e?.message || e);
-      }
-      return;
-    }
-
-    if (ctx === "sell") {
-      const items = shopState.sellItems || [];
-      if (!items.length) {
-        window.__shopMerchantLine =
-          "Развяжи ремни сумки — покажи, что продаёшь, странник. Золото у меня есть, а терпение — на вес.";
-        return;
-      }
-      const chosen = items[Math.floor(Math.random() * items.length)];
-      if (chosen?.id != null) shopState.merchantPickSellId = Number(chosen.id);
-
-      const fallback = `Дай глянуть на <b>${escapeHtml(String(chosen?.display_name || chosen?.name || "эту штуку"))}</b>, странник — может, сойдёмся в цене.`;
-
-      try {
-        const payload = await apiFetch("/shop/merchant-line", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            context: "sell",
-            name: chosen?.display_name || chosen?.name || "предмет",
-            level: Number(chosen?.level || 1),
-            rarity: rarityLabel(chosen?.rarity || 1),
-            bonuses: typeof getItemBonusesText === "function" ? getItemBonusesText(chosen) : "",
-          }),
-        });
-        const text = String(payload?.text || "").trim();
-        window.__shopMerchantLine = text || fallback;
-        if (!text && payload?.error && typeof console !== "undefined" && console.warn) {
-          console.warn("[shop merchant-line]", payload.error);
-        }
-      } catch (e) {
-        window.__shopMerchantLine = fallback;
-        if (typeof console !== "undefined" && console.warn) console.warn("[shop merchant-line] запрос не удался:", e?.message || e);
-      }
-      return;
-    }
-
-    if (ctx === "gamble") {
-      const fallback =
-        "Испытай удачу, странник! Мистическая гемба голодна по золоту — зато сыплет редкостями не хуже драконьего логова.";
-      try {
-        const payload = await apiFetch("/shop/merchant-line", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            context: "gamble",
-            name: "",
-            level: 1,
-            rarity: "",
-            bonuses: "",
-          }),
-        });
-        const text = String(payload?.text || "").trim();
-        window.__shopMerchantLine = text || fallback;
-        if (!text && payload?.error && typeof console !== "undefined" && console.warn) {
-          console.warn("[shop merchant-line]", payload.error);
-        }
-      } catch (e) {
-        window.__shopMerchantLine = fallback;
-        if (typeof console !== "undefined" && console.warn) console.warn("[shop merchant-line] запрос не удался:", e?.message || e);
-      }
-      return;
-    }
-
-    if (ctx === "smith") {
-      const fallback =
-        "Кузнец затачивает сталь до звона. До +7 — без риска; выше удача решает судьбу клинка. Камень защиты убережёт от поломки.";
-      window.__shopMerchantLine = fallback;
-      try {
-        const payload = await apiFetch("/shop/merchant-line", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            context: "smith",
-            name: "заточка",
-            level: 1,
-            rarity: "",
-            bonuses: "",
-          }),
-        });
-        const text = String(payload?.text || "").trim();
-        if (text) window.__shopMerchantLine = text;
-      } catch {
-        /* keep fallback */
-      }
-    }
-  } finally {
-    applyShopMerchantHighlight();
-  }
-}
-
-async function loadTavern(profile) {
-  const p = profile || (await loadProfile().catch(() => null));
-  return loadTavernWithProfile(p || { act: 1 });
-}
-
-const tavernState = {
-  act: 1,
-  available: null,
-  squad: [],
-  reserve: [],
-  selectedWaifu: null,
-  pendingHireSlot: null, // 1..4
-  lastHiredResult: null, // result of last successful hire for result modal
-};
-
 const expeditionState = {
-  slots: [],
   active: [],
   roster: [],
-  refreshAt: null,
+  catalog: { reward_types: [], depth_tiers: [] },
 };
-const expeditionUiCache = { activeById: {}, dailyById: {}, _activeRaw: null };
+const expeditionUiCache = { activeById: {}, _activeRaw: null };
 const expeditionSend = {
   squadSlots: [null, null, null],
-  pickerSlot: -1,
-  diffVal: 1,
-  durVal: 30,
-  slotId: null,
+  rewardType: "gold",
+  depthTier: 1,
 };
-
-function showTavernError(message, kind = "info") {
-  const box = document.getElementById("tavern-hire-error");
-  if (!box) return;
-  if (!message) {
-    box.style.display = "none";
-    box.textContent = "";
-    box.classList.remove("danger");
-    return;
-  }
-  box.style.display = "";
-  box.textContent = String(message);
-  if (kind === "danger") box.classList.add("danger");
-  else box.classList.remove("danger");
-}
-
-const TAVERN_HEAL_GOLD_PER_HP = 2; // золото за 1 HP; при 0 HP (обморок) ×2
-const TAVERN_POOL_MAX = 10;
-
-function hiredWaifuHp(w) {
-  const max = Number(w?.hpMax ?? w?.max_hp ?? 65);
-  const cur = Number(w?.hpCurrent ?? w?.current_hp ?? max);
-  return { cur, max };
-}
-
-function hiredWaifuImageUrl(w) {
-  const u = w?.imageUrl ?? w?.image_url;
-  return u ? String(u) : "";
-}
-
-/** Статус в пуле наёмниц: экспедиция / обморок (0 HP) / готова. Без «отряд vs запас». */
-function hiredWaifuPoolUiStatus(w) {
-  const expId = w?.expedition_id ?? w?.expeditionId;
-  if (w?.status === "expedition" || (expId != null && Number(expId) > 0)) {
-    return { key: "traveling", label: "В пути" };
-  }
-  const { cur } = hiredWaifuHp(w);
-  if (cur <= 0) {
-    return { key: "fainted", label: "В обмороке" };
-  }
-  return { key: "ready", label: "Готова" };
-}
-
-function sortTavernPool(squad, reserve) {
-  const squadList = (squad || []).slice().sort((a, b) => {
-    const pa = Number(a?.squad_position ?? 999);
-    const pb = Number(b?.squad_position ?? 999);
-    return pa - pb;
-  });
-  const reserveList = (reserve || []).slice().sort((a, b) => Number(a.id) - Number(b.id));
-  return [...squadList, ...reserveList];
-}
-
-/** Слоты, оставшиеся сегодня (0–4) → фон вкладки найма. */
-function tavernHireBackgroundUrl(remaining) {
-  const rem = Math.max(0, Math.min(4, Number(remaining) || 0));
-  const n = 4 - rem;
-  const root = `${TAVERN_STATIC_BASE}/tavern.background`;
-  return n === 0 ? `${root}.webp` : `${root}_${n}.webp`;
-}
-
-function preloadTavernBg(url) {
-  return new Promise((resolve) => {
-    if (!url || typeof url !== "string") {
-      resolve();
-      return;
-    }
-    const img = new Image();
-    img.onload = img.onerror = () => resolve();
-    img.src = url;
-  });
-}
-
-function setTavernPageLoading(on) {
-  if (typeof document === "undefined" || !document.body?.classList?.contains("page-tavern")) return;
-  const v = Boolean(on);
-  document.body.classList.toggle("tavern-loading", v);
-  const layer = document.getElementById("tavern-page-loading");
-  if (layer) layer.setAttribute("aria-busy", v ? "true" : "false");
-}
-
-const TAVERN_BGM_MUTED_KEY = "waifu_tavern_bgm_muted";
-
-let tavernBgmAudio = null;
-let tavernBgmFadeRaf = null;
-let tavernBgmLastIndex = -1;
-let tavernBgmHooksBound = false;
-let tavernBgmGestureArmed = false;
-
-function isTavernBgmMuted() {
-  try {
-    return localStorage.getItem(TAVERN_BGM_MUTED_KEY) === "1";
-  } catch (e) {
-    return false;
-  }
-}
-
-function setTavernBgmMuted(muted) {
-  try {
-    localStorage.setItem(TAVERN_BGM_MUTED_KEY, muted ? "1" : "0");
-  } catch (e) {
-    /* ignore */
-  }
-  syncTavernBgmMuteButton();
-}
-
-function syncTavernBgmMuteButton() {
-  const btn = document.getElementById("tavern-bgm-toggle");
-  if (!btn) return;
-  const muted = isTavernBgmMuted();
-  btn.classList.toggle("tavern-tab-bgm--muted", muted);
-  btn.setAttribute("aria-pressed", muted ? "true" : "false");
-  if (muted) {
-    btn.textContent = "🔇";
-    btn.title = "Включить музыку";
-    btn.setAttribute("aria-label", "Включить музыку");
-  } else {
-    btn.textContent = "🔊";
-    btn.title = "Выключить музыку";
-    btn.setAttribute("aria-label", "Выключить музыку");
-  }
-}
-
-function toggleTavernBgmMuted() {
-  if (isTavernBgmMuted()) {
-    setTavernBgmMuted(false);
-    startTavernBgm();
-  } else {
-    setTavernBgmMuted(true);
-    stopTavernBgm(400);
-  }
-}
-
-function ensureTavernBgmPageHooks() {
-  if (tavernBgmHooksBound || typeof window === "undefined") return;
-  tavernBgmHooksBound = true;
-  window.addEventListener("pagehide", () => {
-    stopTavernBgm(400);
-  });
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") stopTavernBgm(400);
-  });
-}
-
-function cancelTavernBgmFade() {
-  if (tavernBgmFadeRaf != null) {
-    cancelAnimationFrame(tavernBgmFadeRaf);
-    tavernBgmFadeRaf = null;
-  }
-}
-
-function stopTavernBgm(fadeOutMs = 400) {
-  cancelTavernBgmFade();
-  const a = tavernBgmAudio;
-  if (!a) return;
-  const startVol = Number(a.volume) || 0;
-  const t0 = performance.now();
-  const dur = Math.max(0, fadeOutMs);
-  if (dur === 0 || startVol <= 0.01) {
-    try {
-      a.pause();
-    } catch (e) {
-      /* ignore */
-    }
-    a.src = "";
-    tavernBgmAudio = null;
-    return;
-  }
-  function tick(now) {
-    const t = Math.min(1, (now - t0) / dur);
-    a.volume = startVol * (1 - t);
-    if (t >= 1) {
-      tavernBgmFadeRaf = null;
-      try {
-        a.pause();
-      } catch (e) {
-        /* ignore */
-      }
-      a.src = "";
-      tavernBgmAudio = null;
-      return;
-    }
-    tavernBgmFadeRaf = requestAnimationFrame(tick);
-  }
-  tavernBgmFadeRaf = requestAnimationFrame(tick);
-}
-
-function fadeInTavernBgm(audio, durationMs) {
-  cancelTavernBgmFade();
-  const t0 = performance.now();
-  const dur = Math.max(200, durationMs);
-  function tick(now) {
-    if (!tavernBgmAudio || tavernBgmAudio !== audio) {
-      tavernBgmFadeRaf = null;
-      return;
-    }
-    const t = Math.min(1, (now - t0) / dur);
-    audio.volume = t;
-    if (t >= 1) {
-      tavernBgmFadeRaf = null;
-      return;
-    }
-    tavernBgmFadeRaf = requestAnimationFrame(tick);
-  }
-  audio.volume = 0;
-  tavernBgmFadeRaf = requestAnimationFrame(tick);
-}
-
-function pickTavernBgmStartIndex() {
-  const n = TAVERN_BGM_TRACKS.length;
-  if (n <= 0) return -1;
-  if (n === 1) return 0;
-  let i = Math.floor(Math.random() * n);
-  if (i === tavernBgmLastIndex) i = (i + 1) % n;
-  return i;
-}
-
-function armTavernBgmUserGesture() {
-  if (tavernBgmGestureArmed || typeof document === "undefined") return;
-  if (isTavernBgmMuted()) return;
-  tavernBgmGestureArmed = true;
-  const unlock = () => {
-    document.body.removeEventListener("pointerdown", unlock, true);
-    tavernBgmGestureArmed = false;
-    if (!isTavernBgmMuted()) startTavernBgm();
-  };
-  document.body.addEventListener("pointerdown", unlock, { once: true, capture: true });
-}
-
-function startTavernBgm() {
-  if (typeof document === "undefined" || !document.body?.classList?.contains("page-tavern")) return;
-  if (isTavernBgmMuted()) return;
-  if (!TAVERN_BGM_TRACKS.length) return;
-  ensureTavernBgmPageHooks();
-  stopTavernBgm(0);
-
-  const n = TAVERN_BGM_TRACKS.length;
-  const startIdx = pickTavernBgmStartIndex();
-  if (startIdx < 0) return;
-  const order = [];
-  for (let k = 0; k < n; k += 1) {
-    order.push((startIdx + k) % n);
-  }
-  let i = 0;
-
-  function tryNext() {
-    if (i >= order.length) return;
-    const idx = order[i++];
-    const url = `${TAVERN_STATIC_BASE}/audio/${TAVERN_BGM_TRACKS[idx]}`;
-    const a = new Audio();
-    a.loop = true;
-    a.preload = "auto";
-    a.volume = 0;
-    const fail = () => {
-      a.removeEventListener("error", fail);
-      try {
-        a.pause();
-      } catch (e) {
-        /* ignore */
-      }
-      a.src = "";
-      tryNext();
-    };
-    a.addEventListener("error", fail, { once: true });
-    a.src = url;
-    a.load();
-    a.play()
-      .then(() => {
-        a.removeEventListener("error", fail);
-        tavernBgmLastIndex = idx;
-        tavernBgmAudio = a;
-        fadeInTavernBgm(a, 3200);
-      })
-      .catch(() => {
-        armTavernBgmUserGesture();
-      });
-  }
-  tryNext();
-}
-
-function firstAvailableTavernSlot(available) {
-  const slots = available?.slots || [];
-  for (let i = 1; i <= 4; i += 1) {
-    const slotObj = slots.find((s) => Number(s?.slot) === i);
-    if (slotObj?.available) return i;
-  }
-  return null;
-}
-
-function onTavernHirePrimaryClick() {
-  const slot = firstAvailableTavernSlot(tavernState.available);
-  if (slot == null) {
-    showToast("Все слоты найма на сегодня заняты", "error");
-    return;
-  }
-  openTavernConfirmHire(slot);
-}
-
-function switchTavernTab(name) {
-  document.querySelectorAll(".tavern-tabs .tab").forEach((btn) => {
-    if (btn.dataset.tab) btn.classList.toggle("active", btn.dataset.tab === name);
-  });
-  ["hire", "squad", "heal", "upgrade"].forEach((t) => {
-    const panel = document.getElementById(`tab-${t}`);
-    if (!panel) return;
-    const isActive = t === name;
-    panel.classList.toggle("active", isActive);
-    panel.style.display = isActive ? "" : "none";
-  });
-  const footer = document.getElementById("tavern-hire-footer");
-  if (footer) footer.style.display = name === "hire" ? "flex" : "none";
-  if (name === "heal") renderTavernHealList();
-  if (name === "squad") renderTavernSquad();
-}
-
-function renderTavernHealList() {
-  const container = document.getElementById("tavern-heal-list");
-  if (!container) return;
-  const squad = Array.isArray(tavernState.squad) ? tavernState.squad : [];
-  const reserve = Array.isArray(tavernState.reserve) ? tavernState.reserve : [];
-  const all = [...squad, ...reserve];
-  const wounded = all.filter((w) => {
-    const { cur, max: maxHp } = hiredWaifuHp(w);
-    return cur < maxHp;
-  });
-  if (wounded.length === 0) {
-    container.innerHTML = '<p class="muted" style="font-style:italic;">Нет раненых наёмниц.</p>';
-    container.className = "placeholder muted";
-    return;
-  }
-  container.className = "";
-  container.innerHTML = wounded
-    .map((w) => {
-      const { cur, max: maxHp } = hiredWaifuHp(w);
-      const need = maxHp - cur;
-      const mult = cur === 0 ? 2 : 1;
-      const cost = need * TAVERN_HEAL_GOLD_PER_HP * mult;
-      const pct = maxHp > 0 ? Math.round((cur / maxHp) * 100) : 0;
-      const label = cur === 0 ? "В обмороке" : `HP ${cur}/${maxHp}`;
-      return `
-        <div class="tavern-heal-card" data-waifu-id="${w.id}">
-          <div class="tavern-heal-info">
-            <span class="tavern-waifu-name">${escapeHtml(w.name || "Наёмница")}</span>
-            <span class="tavern-heal-hp">${label}</span>
-            <div class="tavern-hp-bar-wrap"><div class="tavern-hp-bar" style="width:${pct}%"></div></div>
-          </div>
-          <div class="tavern-heal-action">
-            <span class="tavern-heal-cost">🪙 ${cost}</span>
-            <button type="button" class="btn btn-primary tavern-heal-btn" data-waifu-id="${w.id}" data-cost="${cost}">Лечить</button>
-          </div>
-        </div>`;
-    })
-    .join("");
-  container.querySelectorAll(".tavern-heal-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = parseInt(btn.dataset.waifuId, 10);
-      if (!id) return;
-      (async () => {
-        try {
-          const res = await apiFetch(`/tavern/heal?hired_waifu_id=${encodeURIComponent(id)}`, { method: "POST" });
-          if (res && res.success) {
-            showToast("Наёмница вылечена");
-            if (typeof res.gold_total === "number") profileState.gold = res.gold_total;
-            const { squad: s, reserve: r } = await loadTavernWithProfile(undefined, { innerRefresh: true });
-            tavernState.squad = s || tavernState.squad;
-            tavernState.reserve = r || tavernState.reserve;
-            renderTavernHealList();
-            renderTavernSquad();
-          }
-        } catch (e) {
-          showToast("Ошибка лечения: " + (e?.message || ""), "error");
-        }
-      })();
-    });
-  });
-}
-
-async function loadTavernWithProfile(profile, opts = {}) {
-  const inner = Boolean(opts.innerRefresh);
-  if (!inner) {
-    syncTavernBgmMuteButton();
-    setTavernPageLoading(true);
-  }
-  let loadOk = false;
-  try {
-    const p = profile || (await loadProfile());
-    tavernState.act = Number(p?.act || 1);
-
-    const [available, squadRes, reserveRes] = await Promise.all([
-      apiFetch("/tavern/available"),
-      apiFetch("/tavern/squad"),
-      apiFetch("/tavern/reserve"),
-    ]);
-
-    tavernState.available = available;
-    tavernState.squad = Array.isArray(squadRes?.squad) ? squadRes.squad : [];
-    tavernState.reserve = Array.isArray(reserveRes?.reserve) ? reserveRes.reserve : [];
-    const perksList = Array.isArray(available?.perks) ? available.perks : [];
-    tavernState.perksMap = Object.fromEntries(perksList.map((x) => [x.id, x.name || x.id]));
-
-    renderTavernHire(p, available);
-    renderTavernSquad();
-
-    if (!inner) {
-      const pageBg = document.getElementById("tavern-page-bg");
-      const url = pageBg?.currentSrc || pageBg?.src || "";
-      await preloadTavernBg(url);
-    }
-    loadOk = true;
-    return { available, squad: tavernState.squad, reserve: tavernState.reserve };
-  } finally {
-    if (!inner) {
-      setTavernPageLoading(false);
-      syncTavernBgmMuteButton();
-      if (loadOk && !isTavernBgmMuted()) startTavernBgm();
-    }
-  }
-}
-
-function renderTavernHire(profile, available) {
-  const act = Number(profile?.act || tavernState.act || 1);
-  const scene = document.getElementById("tavern-scene");
-  if (scene) {
-    ["act-1", "act-2", "act-3", "act-4", "act-5"].forEach((c) => scene.classList.remove(c));
-    scene.classList.add(`act-${Math.max(1, Math.min(5, act))}`);
-  }
-
-  const remaining = Number(available?.remaining ?? 0);
-  const price = Number(available?.price ?? 10000);
-  const freeSlot = firstAvailableTavernSlot(available);
-
-  const pageBg = document.getElementById("tavern-page-bg");
-  if (pageBg) {
-    pageBg.style.display = "";
-    pageBg.src = tavernHireBackgroundUrl(remaining);
-  }
-
-  const hireBtn = document.getElementById("tavern-hire-primary-btn");
-  if (hireBtn) {
-    if (freeSlot != null) {
-      hireBtn.textContent = `Нанять — 🪙 ${price.toLocaleString("ru-RU")}`;
-      hireBtn.disabled = false;
-      hireBtn.setAttribute("aria-label", `Нанять наёмницу. Осталось слотов: ${remaining}`);
-    } else {
-      hireBtn.textContent = "Слоты заняты";
-      hireBtn.disabled = true;
-      hireBtn.setAttribute("aria-label", "Все слоты найма на сегодня заняты");
-    }
-  }
-}
-
-function waifuPortraitEmoji(w) {
-  const race = raceIcon(w?.race);
-  const cls = classIcon(w?.class ?? w?.class_ ?? w?.["class"]);
-  return `${race}${cls}`;
-}
-
-function renderWaifuCardHtml(w, opts = {}) {
-  const empty = !w;
-  if (empty) {
-    return `
-      <div class="tavern-waifu-card tavern-empty">
-        <div class="tavern-waifu-head">
-          <div style="display:flex; gap:10px; align-items:center; min-width:0;">
-            <div class="tavern-portrait" aria-hidden="true">—</div>
-            <div style="min-width:0;">
-              <div class="tavern-waifu-name">Пусто</div>
-              <div class="tavern-waifu-sub">Свободный слот</div>
-            </div>
-          </div>
-          <div class="tag">—</div>
-        </div>
-        <div class="tavern-mini-stats">
-          <div class="pill"><span class="muted">Мощь</span><strong>—</strong></div>
-          <div class="pill"><span class="muted">Перки</span><strong>—</strong></div>
-        </div>
-      </div>
-    `;
-  }
-
-  const clsId = Number(w?.class ?? w?.class_ ?? w?.["class"]);
-  const raceId = Number(w?.race);
-  const rarity = Number(w?.rarity ?? 1);
-  const lvl = w?.level ?? "—";
-  const pos = w?.squad_position != null ? Number(w.squad_position) : null;
-  const tag = pos != null ? `#${pos}` : "запас";
-  const nm = String(w?.name || "Вайфу");
-  const sub = `lvl ${lvl} · ${rarityLabel(rarity)} · ${className(clsId)} / ${raceName(raceId)}`;
-  const extra = String(opts?.extraClass || "").trim();
-  const cls = `${"tavern-waifu-card"}${extra ? ` ${extra}` : ""}`;
-  const power = w?.power ?? "—";
-  const perksCount = Array.isArray(w?.perks) ? w.perks.length : 0;
-  const portraitUrl = hiredWaifuImageUrl(w);
-  const portraitContent = portraitUrl
-    ? `<img src="${escapeHtml(portraitUrl)}" alt="" style="width:100%;height:100%;object-fit:cover;" />`
-    : waifuPortraitEmoji(w);
-  return `
-    <div class="${cls}">
-      <div class="tavern-waifu-head">
-        <div style="display:flex; gap:10px; align-items:center; min-width:0;">
-          <div class="tavern-portrait" aria-hidden="true">${portraitContent}</div>
-          <div style="min-width:0;">
-            <div class="tavern-waifu-name">${nm}</div>
-            <div class="tavern-waifu-sub">${sub}</div>
-          </div>
-        </div>
-        <div class="tag">${tag}</div>
-      </div>
-      <div class="tavern-mini-stats">
-        <div class="pill"><span class="muted">Мощь</span><strong>${power}</strong></div>
-        <div class="pill"><span class="muted">Перки</span><strong>${perksCount}</strong></div>
-      </div>
-    </div>
-  `;
-}
-
-function renderTavernSquad() {
-  const box = document.getElementById("tavern-squad-grid");
-  if (!box) return;
-
-  const roster = sortTavernPool(tavernState.squad, tavernState.reserve);
-  const pool = roster.slice(0, TAVERN_POOL_MAX);
-  const perksMap = tavernState.perksMap || {};
-
-  const countersEl = document.getElementById("tavern-squad-counters");
-  if (countersEl) {
-    let nReady = 0;
-    let nTravel = 0;
-    let nFaint = 0;
-    roster.forEach((w) => {
-      const ui = hiredWaifuPoolUiStatus(w);
-      if (ui.key === "traveling") nTravel += 1;
-      else if (ui.key === "fainted") nFaint += 1;
-      else nReady += 1;
-    });
-    countersEl.textContent = `${nReady} готовы · ${nTravel} в пути · ${nFaint} в обмороке`;
-  }
-
-  box.innerHTML = "";
-
-  for (let i = 0; i < TAVERN_POOL_MAX; i += 1) {
-    const w = pool[i] || null;
-    if (!w) {
-      const empty = document.createElement("div");
-      empty.className = "squad-slot";
-      empty.innerHTML = `<span style="font-size:24px;opacity:.3">＋</span><span style="font-size:11px;">Пустой слот</span>`;
-      empty.onclick = () => {
-        if (roster.length >= TAVERN_POOL_MAX) {
-          showToast("Пул наёмниц заполнен", "error");
-          return;
-        }
-        switchTavernTab("hire");
-      };
-      box.appendChild(empty);
-      continue;
-    }
-
-    const uiSt = hiredWaifuPoolUiStatus(w);
-    const badge =
-      uiSt.key === "traveling"
-        ? "🗺 В пути"
-        : uiSt.key === "fainted"
-          ? "💤 В обмороке"
-          : "✓ Готова";
-
-    const rarity = Number(w?.rarity ?? 1);
-    const rCls = rarityClass(rarity);
-    const clsId = Number(w?.class ?? w?.class_ ?? 0);
-    const raceId = Number(w?.race ?? 0);
-    const nm = escapeHtml(String(w?.name || "Вайфу"));
-    const meta = `${escapeHtml(raceName(raceId))} · ${escapeHtml(className(clsId))} · Ур.${escapeHtml(String(w?.level ?? "—"))} · Мощь ${escapeHtml(String(w?.power ?? "—"))}`;
-    const perkIds = Array.isArray(w.perks) ? w.perks : [];
-    const perkBadges = perkIds.length
-      ? perkIds
-          .map((pid) => `<span class="perk-badge">${escapeHtml(String(perksMap[pid] || pid))}</span>`)
-          .join("")
-      : `<span class="muted tiny" style="opacity:.75;">—</span>`;
-
-    const url = hiredWaifuImageUrl(w);
-    const portraitLayer = url ? `<img class="squad-mtg-bg-img" src="${escapeHtml(url)}" alt="" />` : "";
-    const bgCls = url ? "squad-mtg-bg" : "squad-mtg-bg squad-mtg-bg--placeholder";
-
-    const slot = document.createElement("div");
-    slot.className = "squad-slot occupied";
-    slot.setAttribute("role", "button");
-    slot.tabIndex = 0;
-    slot.innerHTML = `
-      <div class="squad-mtg-card ${rCls}">
-        <div class="${bgCls}" role="img" aria-label="">${portraitLayer}</div>
-        <div class="squad-mtg-scrim-top" aria-hidden="true"></div>
-        <div class="squad-mtg-scrim-bottom" aria-hidden="true"></div>
-        <div class="squad-mtg-slot-mark" aria-hidden="true">${escapeHtml(badge)}</div>
-        <div class="squad-mtg-top">
-          <div class="squad-mtg-name">${nm}</div>
-          <div class="squad-mtg-meta">${meta}</div>
-        </div>
-        <div class="squad-mtg-bottom">
-          <div class="squad-mtg-perks">${perkBadges}</div>
-        </div>
-      </div>`;
-
-    const open = () => openTavernWaifuModal(w);
-    slot.onclick = open;
-    slot.onkeydown = (ev) => {
-      if (ev.key === "Enter" || ev.key === " ") {
-        ev.preventDefault();
-        open();
-      }
-    };
-    box.appendChild(slot);
-  }
-}
-
-function openTavernConfirmHire(slot) {
-  const id = Number(slot || 0);
-  if (!Number.isFinite(id) || id < 1 || id > 4) return;
-  const available = tavernState.available;
-  const price = Number(available?.price ?? 10000);
-  tavernState.pendingHireSlot = id;
-  const priceEl = document.getElementById("confirm-price");
-  if (priceEl) priceEl.textContent = `🪙 ${price}`;
-  const modal = document.getElementById("modal-confirm-hire");
-  if (modal) {
-    modal.classList.remove("hidden");
-    modal.style.display = "flex";
-  }
-}
-
-function closeTavernConfirmHire() {
-  tavernState.pendingHireSlot = null;
-  const modal = document.getElementById("modal-confirm-hire");
-  if (modal) {
-    modal.classList.add("hidden");
-    modal.style.display = "none";
-  }
-}
-
-function setGenOverlay(show, label, detail, pct) {
-  const overlay = document.getElementById("gen-overlay");
-  const labelEl = document.getElementById("gen-stage-label");
-  const detailEl = document.getElementById("gen-stage-detail");
-  const fillEl = document.getElementById("gen-progress-fill");
-  if (overlay) {
-    overlay.classList.toggle("hidden", !show);
-    overlay.style.display = show ? "flex" : "none";
-  }
-  if (labelEl && label != null) labelEl.textContent = label || "";
-  if (detailEl && detail != null) detailEl.textContent = detail || "";
-  if (fillEl && pct != null) fillEl.style.width = String(pct) + "%";
-}
-
-async function confirmTavernHire() {
-  const slot = tavernState.pendingHireSlot;
-  if (!slot) return;
-  closeTavernConfirmHire();
-  showTavernError("");
-  setGenOverlay(true, "Призыв наёмницы...", "Ожидание ответа сервера", 20);
-  try {
-    const result = await apiFetch(`/tavern/hire?slot=${encodeURIComponent(slot)}`, { method: "POST" });
-    setGenOverlay(true, "Параметры получены", "Добавление в запас...", 70);
-    await loadProfile().catch(() => {});
-    await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true }).catch(() => {});
-    setGenOverlay(true, "✦ Наёмница готова ✦", "", 100);
-    await new Promise((r) => setTimeout(r, 400));
-    tavernState.lastHiredResult = result;
-    showTavernHireResultModal(result);
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showTavernError(detail || "Ошибка найма", "danger");
-  } finally {
-    setGenOverlay(false, "", "", 0);
-  }
-}
-
-function toggleHireResultFlip(ev) {
-  if (ev) ev.stopPropagation();
-  const inner = document.getElementById("hire-result-flip-inner");
-  if (inner) inner.classList.toggle("is-flipped");
-}
-
-function showTavernHireResultModal(result) {
-  const name = result?.waifu_name || "Вайфу";
-  const rarity = Number(result?.waifu_rarity ?? 1);
-  const flipInner = document.getElementById("hire-result-flip-inner");
-  const bg = document.getElementById("result-card-bg");
-  const rFrame = ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"];
-  if (flipInner) {
-    flipInner.classList.remove("is-flipped");
-    rFrame.forEach((c) => flipInner.classList.remove(c));
-    flipInner.classList.add(rarityClass(rarity));
-  }
-  setText("result-name", name);
-  const newWaifu = (tavernState.reserve || []).find((w) => w.id === result?.waifu_id);
-  const raceId = Number(newWaifu?.race ?? 0);
-  const classId = Number(newWaifu?.class ?? newWaifu?.class_ ?? 0);
-  setText("result-meta", `${raceName(raceId)} · ${className(classId)}`);
-  const bioText =
-    result?.bio ||
-    newWaifu?.bio ||
-    "Новая наёмница присоединилась к вашему отряду. Управляйте ею во вкладке «Отряд».";
-  setText("result-bio-back", bioText);
-  const statsEl = document.getElementById("result-hire-stats");
-  if (statsEl) {
-    statsEl.textContent = newWaifu
-      ? `Ур. ${newWaifu.level ?? "—"} · Мощь ${newWaifu.power ?? "—"}`
-      : "—";
-  }
-  const perksEl = document.getElementById("result-perks");
-  const perkIds = Array.isArray(newWaifu?.perks) ? newWaifu.perks : [];
-  const perksMap = tavernState.perksMap || {};
-  if (perksEl) {
-    perksEl.innerHTML = perkIds.length
-      ? perkIds.map((pid) => `<span class="perk-badge">${perksMap[pid] || pid}</span>`).join("")
-      : "<span class=\"muted tiny\" style=\"opacity:.75;\">—</span>";
-  }
-  if (bg) {
-    bg.classList.remove("hire-result-bg--placeholder");
-    const url = result?.image_url || hiredWaifuImageUrl(newWaifu);
-    if (url) {
-      bg.style.backgroundImage = `url(${JSON.stringify(String(url))})`;
-    } else {
-      bg.style.backgroundImage = "none";
-      bg.classList.add("hire-result-bg--placeholder");
-    }
-  }
-  const modal = document.getElementById("modal-hire-result");
-  if (modal) {
-    modal.classList.remove("hidden");
-    modal.style.display = "flex";
-  }
-}
-
-function closeTavernHireResult() {
-  const modal = document.getElementById("modal-hire-result");
-  if (modal) {
-    modal.classList.add("hidden");
-    modal.style.display = "none";
-  }
-  const flipInner = document.getElementById("hire-result-flip-inner");
-  if (flipInner) flipInner.classList.remove("is-flipped");
-  tavernState.lastHiredResult = null;
-}
-
-function goToSquadTab() {
-  closeTavernHireResult();
-  switchTavernTab("squad");
-}
-
-async function hireFromTavern(slot) {
-  openTavernConfirmHire(slot);
-}
-
-function hiredWaifuExpForLevel(level) {
-  if (level <= 1) return 0;
-  let total = 0;
-  for (let lvl = 2; lvl <= level; lvl++) total += 50 * (lvl * lvl);
-  return total;
-}
-
-function hideTavernPerkTip(root) {
-  const wrap = root || document.getElementById("tavern-waifu-modal-body");
-  const tip = wrap?.querySelector?.("#tavern-perk-tip");
-  if (tip) {
-    tip.hidden = true;
-    tip.classList.remove("tavern-perk-tip--open");
-    tip.style.left = "";
-    tip.style.top = "";
-    tip.style.transform = "";
-  }
-}
-
-function setTavernWaifuModalPageScrollLocked(locked) {
-  if (document.body?.classList?.contains("page-tavern")) {
-    document.body.classList.toggle("tavern-modal-scroll-lock", Boolean(locked));
-  }
-}
-
-function openTavernWaifuModal(w) {
-  tavernState.selectedWaifu = w || null;
-  const m = document.getElementById("tavern-waifu-modal");
-  const body = document.getElementById("tavern-waifu-modal-body");
-  if (!m || !body || !w) return;
-
-  const clsId = Number(w?.class ?? w?.class_ ?? w?.["class"]);
-  const raceId = Number(w?.race);
-  const rarity = Number(w?.rarity ?? 1);
-  const rCls = rarityClass(rarity);
-  const nm = String(w?.name || "Вайфу");
-  const perksMap = tavernState.perksMap || {};
-  const perkIds = Array.isArray(w?.perks) ? w.perks : [];
-  const perkCells = perkIds.length
-    ? perkIds
-        .map((pid) => {
-          const p = String(pid);
-          const icon = PERK_ICONS[p] || "✦";
-          const label = String(perksMap[p] || p);
-          return `<button type="button" class="waifu-mtg-perk-cell" data-perk-id="${escapeHtml(p)}" aria-label="${escapeHtml(label)}"><span class="waifu-mtg-perk-ico" aria-hidden="true">${icon}</span></button>`;
-        })
-        .join("")
-    : `<div class="waifu-mtg-no-perks">Нет перков</div>`;
-
-  const imgUrl = hiredWaifuImageUrl(w);
-  const portraitInner = imgUrl
-    ? `<img class="waifu-mtg-art-img" src="${escapeHtml(imgUrl)}" alt="" />`
-    : `<div class="waifu-mtg-art-placeholder" aria-hidden="true">${waifuPortraitEmoji(w)}</div>`;
-
-  const level = Number(w?.level ?? 1);
-  const exp = Number(w?.experience ?? 0);
-  const expCur = hiredWaifuExpForLevel(level);
-  const expNext = hiredWaifuExpForLevel(level + 1);
-  const expInLevel = Math.max(0, exp - expCur);
-  const expNeed = Math.max(1, expNext - expCur);
-  const expPct = Math.min(100, Math.round((expInLevel / expNeed) * 100));
-  const xpBarHtml =
-    level >= 1 && level < 50
-      ? `<div class="waifu-mtg-xp full-bar-row"><div class="full-bar-label"><span>Опыт</span><span>${expInLevel}/${expNeed}</span></div><div class="full-bar"><div class="full-bar-fill" style="width:${expPct}%;background:linear-gradient(90deg,#c8922a,#e8b84b);"></div></div></div>`
-      : level >= 50
-        ? `<div class="waifu-mtg-xp waifu-mtg-xp--max">Макс. уровень</div>`
-        : "";
-
-  const bioText = (w?.bio && String(w.bio).trim()) ? String(w.bio).trim() : "Биография не задана.";
-
-  body.innerHTML = `
-    <div class="tavern-waifu-mtg-wrap">
-      <div class="waifu-mtg-flip-scene">
-        <div class="waifu-mtg-flip-inner" id="waifu-mtg-flip-inner">
-          <div class="waifu-mtg-face waifu-mtg-face--front">
-            <div class="waifu-mtg-card ${rCls}">
-              <div class="waifu-mtg-art">
-                ${portraitInner}
-                <div class="waifu-mtg-art-scrim" aria-hidden="true"></div>
-                <header class="waifu-mtg-header-row">
-                  <h2 class="waifu-mtg-name">${escapeHtml(nm)}</h2>
-                  <div class="waifu-mtg-lvl-badge" title="Уровень"><span class="waifu-mtg-lvl-num">${escapeHtml(String(level))}</span></div>
-                </header>
-                <div class="waifu-mtg-lower-overlay">
-                  <div class="waifu-mtg-typebar">
-                    ${escapeHtml(raceName(raceId))} · ${escapeHtml(className(clsId))} · ${escapeHtml(rarityLabel(rarity))} · Мощь ${escapeHtml(String(w?.power ?? "—"))}
-                  </div>
-                  <div class="waifu-mtg-perks-head">
-                    <span class="waifu-mtg-perks-label">Перки</span>
-                    <button type="button" class="waifu-mtg-bio-chip" data-flip-to="back">BIO</button>
-                  </div>
-                  <div class="waifu-mtg-perk-grid">${perkCells}</div>
-                </div>
-                <div class="tavern-perk-tip" id="tavern-perk-tip" role="dialog" aria-modal="true" hidden>
-                  <div class="tavern-perk-tip-name" id="tavern-perk-tip-name"></div>
-                  <div class="tavern-perk-tip-desc" id="tavern-perk-tip-desc"></div>
-                  <div class="tavern-perk-tip-diff" id="tavern-perk-tip-diff"></div>
-                  <button type="button" class="tavern-perk-tip-close tavern-btn-mini">Понятно</button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="waifu-mtg-face waifu-mtg-face--back">
-            <div class="waifu-mtg-card ${rCls} waifu-mtg-card--backface">
-              <div class="waifu-mtg-bio-back-head">
-                <span class="waifu-mtg-bio-back-title">${escapeHtml(nm)}</span>
-                <button type="button" class="waifu-mtg-bio-chip" data-flip-to="front">Перки</button>
-              </div>
-              <div class="waifu-mtg-bio-back-text"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      ${xpBarHtml}
-    </div>
-  `;
-
-  const bioBack = body.querySelector(".waifu-mtg-bio-back-text");
-  if (bioBack) bioBack.textContent = bioText;
-
-  const flipInner = body.querySelector("#waifu-mtg-flip-inner");
-  body.querySelectorAll("[data-flip-to]").forEach((btn) => {
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      hideTavernPerkTip(body);
-      const to = btn.getAttribute("data-flip-to");
-      if (!flipInner) return;
-      if (to === "back") flipInner.classList.add("is-flipped");
-      else flipInner.classList.remove("is-flipped");
-    });
-  });
-
-  const tipEl = body.querySelector("#tavern-perk-tip");
-  const tipName = body.querySelector("#tavern-perk-tip-name");
-  const tipDesc = body.querySelector("#tavern-perk-tip-desc");
-  const tipDiff = body.querySelector("#tavern-perk-tip-diff");
-  const tipClose = body.querySelector(".tavern-perk-tip-close");
-
-  body.querySelectorAll(".waifu-mtg-perk-cell").forEach((cell) => {
-    cell.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      const pid = cell.getAttribute("data-perk-id") || "";
-      if (!tipEl || !tipName || !tipDesc || !tipDiff) return;
-      tipName.textContent = String(perksMap[pid] ?? perksMap[String(pid)] ?? pid);
-      tipDesc.textContent = PERK_DESCS[pid] || "Специальное умение для экспедиций.";
-      tipDiff.textContent = PERK_EXPEDITION_COUNTER_HINT;
-      tipEl.hidden = false;
-      tipEl.classList.add("tavern-perk-tip--open");
-    });
-  });
-
-  if (tipClose) {
-    tipClose.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      hideTavernPerkTip(body);
-    });
-  }
-
-  const backFace = body.querySelector(".waifu-mtg-face--back");
-  if (backFace && flipInner) {
-    backFace.addEventListener("click", () => {
-      if (!flipInner.classList.contains("is-flipped")) return;
-      hideTavernPerkTip(body);
-      flipInner.classList.remove("is-flipped");
-    });
-  }
-
-  setTavernWaifuModalPageScrollLocked(true);
-  m.style.display = "grid";
-}
-
-function closeTavernWaifuModal() {
-  const body = document.getElementById("tavern-waifu-modal-body");
-  hideTavernPerkTip(body);
-  const flip = document.getElementById("waifu-mtg-flip-inner");
-  if (flip) flip.classList.remove("is-flipped");
-  const m = document.getElementById("tavern-waifu-modal");
-  if (m) m.style.display = "none";
-  setTavernWaifuModalPageScrollLocked(false);
-  tavernState.selectedWaifu = null;
-}
-
-function closeTavernSlotModal() {
-  const body = document.getElementById("tavern-slot-modal-body");
-  if (body) {
-    body.classList.remove("tavern-slot-modal-grid-body");
-    body.innerHTML = "";
-  }
-  const m = document.getElementById("tavern-slot-modal");
-  if (m) m.style.display = "none";
-}
-
-function openAddToSquadPicker(slotPosition) {
-  const reserve = tavernState.reserve || [];
-  if (reserve.length === 0) {
-    switchTavernTab("hire");
-    return;
-  }
-  tavernState.pendingSquadSlot = slotPosition;
-  renderSquadPickerModal(reserve, slotPosition);
-  const modal = document.getElementById("modal-squad-picker");
-  if (modal) modal.classList.remove("hidden");
-}
-
-function closeSquadPickerModal() {
-  const modal = document.getElementById("modal-squad-picker");
-  if (modal) modal.classList.add("hidden");
-  tavernState.pendingSquadSlot = null;
-}
-
-function renderSquadPickerModal(available, slotPosition) {
-  const listEl = document.getElementById("squad-picker-list");
-  const subEl = document.querySelector("#modal-squad-picker .modal-subtitle");
-  if (subEl) subEl.textContent = `Выберите наёмницу из запаса для слота #${slotPosition}`;
-  if (!listEl) return;
-  const perksMap = tavernState.perksMap || {};
-  listEl.innerHTML = available.map((u) => {
-    const { cur, max: hpMax } = hiredWaifuHp(u);
-    const hpPct = hpMax > 0 ? Math.round((cur / hpMax) * 100) : 100;
-    const statusOk = cur > 0;
-    const clsId = Number(u?.class ?? u?.class_ ?? 0);
-    const perkPips = (u.perks || []).slice(0, 3).map((pid) => `<span class="perk-pip" title="${PERK_DESCS[pid] || ""}">${(perksMap[pid] || pid).toString().split(" ")[0] || "?"}</span>`).join("");
-    return `
-      <div class="squad-picker-card ${statusOk ? "" : "squad-picker-card--weak"}" data-waifu-id="${u.id}" role="button" tabindex="0">
-        <div class="squad-picker-icon">${waifuPortraitEmoji(u)}</div>
-        <div class="squad-picker-info">
-          <div class="squad-picker-name">${String(u?.name || "Вайфу")}</div>
-          <div class="squad-picker-meta">${className(clsId)} · Ур.${u?.level ?? "—"}</div>
-          <div class="squad-picker-bars">
-            <div class="mini-bar" style="width:80px"><div class="mini-bar-fill hp" style="width:${hpPct}%"></div></div>
-          </div>
-        </div>
-        <div class="squad-picker-perks">${perkPips}</div>
-      </div>`;
-  }).join("");
-  listEl.querySelectorAll(".squad-picker-card").forEach((card) => {
-    const waifuId = Number(card.dataset.waifuId);
-    card.addEventListener("click", () => pickForSquad(waifuId));
-  });
-}
-
-async function pickForSquad(waifuId) {
-  const slot = tavernState.pendingSquadSlot;
-  if (!slot || !waifuId) return;
-  try {
-    await apiFetch(`/tavern/squad/add?waifu_id=${encodeURIComponent(waifuId)}&slot=${encodeURIComponent(slot)}`, { method: "POST" });
-    closeSquadPickerModal();
-    await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true }).catch(() => {});
-    renderTavernSquad();
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showTavernError(detail || "Ошибка добавления в отряд", "danger");
-  }
-}
-
-function openTavernSlotModal(w) {
-  const m = document.getElementById("tavern-slot-modal");
-  const body = document.getElementById("tavern-slot-modal-body");
-  if (!m || !body || !w) return;
-
-  const subtitle = document.getElementById("tavern-slot-modal-subtitle");
-  if (subtitle) subtitle.textContent = `Поставить в слот: ${w?.name || "—"}`;
-
-  const squadByPos = new Map();
-  (tavernState.squad || []).forEach((x) => {
-    const pos = Number(x?.squad_position);
-    if (Number.isFinite(pos) && pos >= 1 && pos <= 6) squadByPos.set(pos, x);
-  });
-
-  body.innerHTML = "";
-  body.classList.add("tavern-slot-modal-grid-body");
-
-  const grid = document.createElement("div");
-  grid.className = "tavern-slot-pick-grid";
-  for (let pos = 1; pos <= 6; pos += 1) {
-    const cur = squadByPos.get(pos) || null;
-    const cell = document.createElement("button");
-    cell.type = "button";
-    cell.className = "tavern-slot-pick-cell" + (cur ? " tavern-slot-pick-cell--filled" : " tavern-slot-pick-cell--empty");
-    const url = cur?.image_url ? String(cur.image_url) : "";
-    const portraitHtml = cur
-      ? url
-        ? `<img class="tavern-slot-pick-img" src="${escapeHtml(url)}" alt="" />`
-        : `<span class="tavern-slot-pick-emoji">${waifuPortraitEmoji(cur)}</span>`
-      : `<span class="tavern-slot-pick-plus" aria-hidden="true">＋</span>`;
-    const nameLine = cur ? escapeHtml(String(cur.name || "—")) : "Свободно";
-    const hint = cur
-      ? `<span class="tavern-slot-pick-hint">Заменит слот → в запас</span>`
-      : `<span class="tavern-slot-pick-hint">Пустой слот</span>`;
-    cell.innerHTML = `
-      <span class="tavern-slot-pick-num">#${pos}</span>
-      <div class="tavern-slot-pick-portrait">${portraitHtml}</div>
-      <div class="tavern-slot-pick-name">${nameLine}</div>
-      ${hint}
-    `;
-    cell.addEventListener("click", async (ev) => {
-      ev.stopPropagation();
-      try {
-        await apiFetch(`/tavern/squad/add?waifu_id=${encodeURIComponent(w.id)}&slot=${encodeURIComponent(pos)}`, {
-          method: "POST",
-        });
-        closeTavernSlotModal();
-        closeTavernWaifuModal();
-        await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true }).catch(() => {});
-      } catch (e) {
-        const { detail } = parseHttpErrorDetail(e);
-        showTavernError(detail || "Ошибка формирования отряда", "danger");
-        closeTavernSlotModal();
-      }
-    });
-    grid.appendChild(cell);
-  }
-  body.appendChild(grid);
-
-  m.style.display = "grid";
-}
-
-async function dismissTavernWaifu() {
-  const w = tavernState.selectedWaifu;
-  if (!w?.id) return;
-  const nm = String(w?.name || "наёмницу").trim() || "наёмницу";
-  const ok = window.confirm(`Уволить «${nm}»? Уровень передастся следующей нанятой наёмнице.`);
-  if (!ok) return;
-  try {
-    const res = await apiFetch(`/tavern/dismiss?waifu_id=${encodeURIComponent(w.id)}`, { method: "POST" });
-    closeTavernWaifuModal();
-    showTavernError(res.hint || "Вайфу уволена. Уровень сохранён для следующей нанятой.");
-    await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true }).catch(() => {});
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showTavernError(detail || "Ошибка увольнения", "danger");
-  }
-}
-
-/** Кнопка 🔄 у вкладок: у игрока — перезагрузка с сервера; у админа — принудительное обновление слотов найма. */
-async function refreshTavernPage() {
-  if (isAdminUser()) {
-    await adminRefreshTavern();
-    return;
-  }
-  showTavernError("");
-  try {
-    await loadTavernWithProfile({ act: tavernState.act });
-  } catch (e) {
-    showTavernError("Не удалось обновить таверну.", "danger");
-  }
-}
-
-async function adminRefreshTavern() {
-  showTavernError("");
-  try {
-    const response = await apiFetch(`/admin/tavern/refresh`, { method: "POST" });
-    tavernState.available = response;
-    const perksList = Array.isArray(response?.perks) ? response.perks : [];
-    tavernState.perksMap = Object.fromEntries(perksList.map((x) => [x.id, x.name || x.id]));
-    renderTavernHire({ act: tavernState.act }, response);
-    await loadProfile().catch(() => {});
-    await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true }).catch(() => {});
-    showTavernError("Слоты найма обновлены.", "info");
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showTavernError(detail || "Ошибка обновления слотов", "danger");
-  }
-}
-
-async function loadDungeons(act) {
-  const data = await apiFetch(`/dungeons?act=${act}`);
-  const soloList = document.getElementById("solo-dungeons");
-  const townList = document.getElementById("dungeon-list");
-  const list = soloList || townList;
-  if (!list) return data;
-
-  list.innerHTML = "";
-  data.dungeons.forEach((d) => {
-    if (soloList) {
-      const card = document.createElement("div");
-      card.className = "dungeon-card";
-      card.innerHTML = `
-        <div class="dungeon-header"><h3>${d.name}</h3></div>
-        <div class="dungeon-body">
-          <div class="dungeon-info">
-            <div>Акт: <strong>${d.act}</strong></div>
-            <div>Уровень: <strong>${d.level}</strong></div>
-            <div>Тип: <strong>${d.dungeon_type}</strong></div>
-          </div>
-          <button class="dungeon-start-btn" onclick="WaifuApp.startDungeon(${d.id})">Старт</button>
-        </div>
-      `;
-      list.appendChild(card);
-    } else {
-      const li = document.createElement("div");
-      li.className = "list-item";
-      li.innerHTML = `<strong>${d.name}</strong> — акт ${d.act}, ур. ${d.level}, тип ${d.dungeon_type}
-        <div><button onclick="WaifuApp.startDungeon(${d.id})">Старт</button></div>`;
-      list.appendChild(li);
-    }
-  });
-  return data;
-}
-
-function dungeonThemeByNumber(dungeonNumber) {
-  const n = Number(dungeonNumber);
-  return (
-    {
-      1: { title: "Пещера", emoji: "🕳️" },
-      2: { title: "Лес", emoji: "🌲" },
-      3: { title: "Руины", emoji: "🏚️" },
-      4: { title: "Склеп", emoji: "⚰️" },
-      5: { title: "Бездна", emoji: "🌀" },
-    }[n] || { title: "Подземелье", emoji: "🏰" }
-  );
-}
-
-function dungeonTypeLabel(type) {
-  const t = Number(type);
-  return (
-    {
-      1: "Одиночное",
-      2: "Экспедиция",
-      3: "Групповое",
-    }[t] || `Тип ${t || "—"}`
-  );
-}
-
-function safeInt(x, fallback = 0) {
-  const v = Number.parseInt(String(x), 10);
-  return Number.isFinite(v) ? v : fallback;
-}
-
-let dungeonsFinishBlockedMsg = null;
-let soloActiveMonsterTemplateId = null;
-
-function showDungeonsError(message, kind = "info") {
-  const box = document.getElementById("dungeons-error");
-  if (!box) return;
-  if (!message) {
-    box.style.display = "none";
-    box.textContent = "";
-    box.classList.remove("danger");
-    return;
-  }
-  box.style.display = "";
-  box.textContent = String(message);
-  if (kind === "danger") box.classList.add("danger");
-  else box.classList.remove("danger");
-}
-
-/** FastAPI/Pydantic: detail может быть строкой, массивом {loc,msg,type} или объектом — не использовать String(arr). */
-function formatApiErrorDetail(detail) {
-  if (detail == null) return "";
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) {
-    return detail
-      .map((e) => {
-        if (e && typeof e === "object") {
-          const loc = Array.isArray(e.loc) ? e.loc.filter((x) => x !== "body").join(" → ") : "";
-          const msg = e.msg != null ? String(e.msg) : JSON.stringify(e);
-          return loc ? `${loc}: ${msg}` : msg;
-        }
-        return String(e);
-      })
-      .join("; ");
-  }
-  if (typeof detail === "object") {
-    try {
-      return JSON.stringify(detail);
-    } catch {
-      return String(detail);
-    }
-  }
-  return String(detail);
-}
-
-function parseHttpErrorDetail(err) {
-  const msg = String(err?.message || err || "");
-  // "HTTP 400: {json}" -> try to parse json and extract detail
-  const idx = msg.indexOf(":");
-  if (idx === -1) return { raw: msg, detail: msg };
-  const tail = msg.slice(idx + 1).trim();
-  try {
-    const obj = JSON.parse(tail);
-    const detail = obj?.detail != null ? formatApiErrorDetail(obj.detail) : tail;
-    return { raw: msg, detail };
-  } catch {
-    return { raw: msg, detail: tail || msg };
-  }
-}
-
-function isWebAppUnauthorizedError(err) {
-  const msg = String(err?.message || "");
-  if (!msg.includes("HTTP 401")) return false;
-  const { detail } = parseHttpErrorDetail(err);
-  const d = (detail || "").toLowerCase();
-  return (
-    d.includes("telegram") ||
-    d.includes("init data") ||
-    d.includes("hash missing") ||
-    d.includes("invalid init") ||
-    d.includes("expired")
-  );
-}
-
-/** Сообщение при открытии WebApp вне Telegram или без валидного initData. */
-function webAppAuthNoticeHtml() {
-  const devBlock = `<details class="webapp-auth-details"><summary>Для разработчиков</summary>
-    <p>При <code>APP_ENV=dev</code> на сервере можно открыть страницу с параметром <code>?devPlayerId=</code><em>id</em> (id игрока в БД) — тогда запросы пойдут с заголовком <code>X-Player-Id</code>. В production это отключено.</p>
-  </details>`;
-  return `<div class="webapp-auth-notice" role="alert">
-    <h3 class="webapp-auth-notice-title">Нужен вход через Telegram</h3>
-    <p>Откройте эту страницу из <strong>мини-приложения бота</strong> в Telegram. В обычном браузере не передаётся подпись <code>initData</code>, поэтому сервер отвечает 401.</p>
-    <p class="muted">Если вы уже внутри Telegram, закройте мини-приложение полностью и откройте снова — иногда устаревает сессия.</p>
-    ${devBlock}
-  </div>`;
-}
-
-function renderSoloDungeonTile(d, waifuLevel) {
-  const did = Number(d?.id);
-  const lvlReq = safeInt(d?.level, 1);
-  const baseCanEnter = safeInt(waifuLevel, 0) >= lvlReq;
-  const lockedByAct = Boolean(d?.locked_by_act);
-  const lockedByPrev = Boolean(d?.locked_by_prev);
-  const pl = getPlusLevelForDungeon(did);
-  const st = dungeonPlusStatusById?.[did];
-  const unlocked = Number(st?.unlocked_plus_level || 0);
-  const isPlusLocked = pl > 0 && pl > unlocked;
-  const canEnter =
-    !lockedByAct &&
-    !lockedByPrev &&
-    (pl > 0 ? !isPlusLocked : baseCanEnter);
-  const act = safeInt(d?.act, 1);
-  const dungeonNum = safeInt(d?.dungeon_number, 1);
-  const artUrl = `${DUNGEONS_STATIC_BASE}/act-${act}/dungeon-${dungeonNum}.webp`;
-  const lockedClass = canEnter ? "" : "locked";
-  let lockReason = "";
-  if (!canEnter) {
-    if (lockedByAct) lockReason = "Акт не открыт";
-    else if (lockedByPrev) lockReason = "Сначала пройдите предыдущее";
-    else if (pl > 0 && isPlusLocked) lockReason = `Нужен разблокированный +${pl}`;
-    else if (!baseCanEnter) lockReason = `Требуется ур. ${lvlReq}+`;
-  }
-  const lockHint = lockReason ? ` title="${escapeHtml(lockReason)}"` : "";
-  const plusLabel = pl > 0 ? `+${pl}` : "0";
-  const showPlusBtn = Boolean(plusBottomSheetUnlocked);
-  const maxUn = Math.max(1, unlocked);
-  const hue = Math.round(120 * (1 - Math.min(1, pl / maxUn)));
-  const plusHueStyle = ` style="--plus-hue:${hue}"`;
-  const plusBtn = showPlusBtn
-    ? `<button type="button" class="chip chip-plus solo-dungeon-plus-btn"${plusHueStyle} data-dungeon-id="${did}" title="Сложность этого подземелья" aria-label="Выбрать сложность" onclick="event.stopPropagation(); event.preventDefault(); WaifuApp.openPlusBottomSheet(${did});">
-        <span aria-hidden="true">➕</span>
-        <span class="solo-dungeon-plus-label">${plusLabel}</span>
-      </button>`
-    : "";
-  const nm = escapeHtml(String(d.name || "Подземелье"));
-  const showMinLvl = safeInt(waifuLevel, 0) < lvlReq;
-  const lvlLine = showMinLvl
-    ? `<div class="solo-dungeon-card__meta-line solo-dungeon-card__meta-line--lvl">Мин. ур.: <strong>${lvlReq}</strong></div>`
-    : "";
-  const lineDiff =
-    pl > 0
-      ? `<div class="solo-dungeon-card__meta-line solo-dungeon-card__meta-line--diff">Сложность <strong>+${pl}</strong></div>`
-      : `<div class="solo-dungeon-card__meta-line solo-dungeon-card__meta-line--diff solo-dungeon-card__meta-line--spacer" aria-hidden="true">&nbsp;</div>`;
-  const lockLine =
-    lockReason && !canEnter
-      ? `<div class="solo-dungeon-card__meta-line solo-dungeon-card__meta-line--lock">${escapeHtml(lockReason)}</div>`
-      : `<div class="solo-dungeon-card__meta-line solo-dungeon-card__meta-line--lock solo-dungeon-card__meta-line--spacer" aria-hidden="true">&nbsp;</div>`;
-  const bottomClass =
-    "solo-dungeon-card__bottombar" + (showMinLvl ? "" : " solo-dungeon-card__bottombar--compact");
-  return `
-    <div class="solo-dungeon-card dungeon-tile ${lockedClass}" data-dungeon-id="${did}" data-can-enter="${canEnter ? "1" : "0"}"${lockHint}
-      onclick="WaifuApp.handleSoloDungeonTileClick(event, ${did})">
-      <div class="solo-dungeon-card__frame">
-        <img class="solo-dungeon-card__bg" src="${artUrl}" alt="" loading="lazy" decoding="async" />
-        <div class="solo-dungeon-card__overlay">
-          <div class="solo-dungeon-card__hdr">
-            <h3 class="solo-dungeon-card__title">${nm}</h3>
-            ${plusBtn}
-          </div>
-          <div class="${bottomClass}">
-            ${lvlLine}
-            ${lineDiff}
-            ${lockLine}
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function handleSoloDungeonTileClick(ev, dungeonId) {
-  if (ev?.target?.closest?.(".solo-dungeon-plus-btn")) return;
-  const tile = ev?.currentTarget;
-  if (!tile || !dungeonId) return;
-  const can = tile.getAttribute("data-can-enter") === "1";
-  if (!can) {
-    const t = tile.getAttribute("title");
-    if (t) showDungeonsError(t, "info");
-    return;
-  }
-  const pl = getPlusLevelForDungeon(dungeonId);
-  startDungeon(dungeonId, pl);
-}
-
-async function renderSoloDungeonsForAct(profile) {
-  const box = document.getElementById("solo-dungeons");
-  if (!box) return;
-  window.__lastProfileForDungeons = profile;
-  const waifuLevel = profile?.main_waifu?.level ?? 0;
-  const act = safeInt(profile?.act, 1);
-
-  const res = await apiFetch(`/dungeons?act=${act}&type=1`).catch(() => ({ dungeons: [] }));
-  const dungeons = Array.isArray(res?.dungeons) ? res.dungeons : [];
-  const subtitle = `5 данжей · доступно: ${dungeons.filter((d) => safeInt(waifuLevel, 0) >= safeInt(d?.level, 1)).length}`;
-  const tiles = dungeons.length
-    ? dungeons.map((d) => renderSoloDungeonTile(d, waifuLevel)).join("")
-    : `<div class="placeholder">Нет данжей для акта ${act}.</div>`;
-
-  box.innerHTML = `
-    <div class="act-block">
-      <div class="act-head">
-        <div class="act-title">Акт ${act}</div>
-        <div class="act-subtitle">${subtitle}</div>
-      </div>
-      <div class="dungeon-grid">
-        ${tiles}
-      </div>
-    </div>
-  `;
-}
-
-function buildStageDots(pos, total) {
-  if (!pos || !total) return "";
-  const dots = [];
-  for (let i = 1; i <= total; i++) {
-    const isBoss = i === total;
-    const isDone = i < pos;
-    const isActive = i === pos;
-    let cls = "stage-dot2";
-    if (isBoss) cls += " boss";
-    if (isDone) cls += " done";
-    else if (isActive) cls += " active";
-    const title = isBoss ? (isDone ? "Босс (побеждён)" : isActive ? "Босс (текущий)" : "Босс") : isDone ? `Монстр ${i} (побеждён)` : isActive ? `Монстр ${i} (текущий)` : `Монстр ${i}`;
-    dots.push(`<div class="${cls}" title="${title}"></div>`);
-  }
-  return `<div class="stage-dots" aria-label="Прогресс: ${pos}/${total}">${dots.join("")}</div>`;
-}
-
-// ─── Monster image (WebP) system ─────────────────────────────────────────
-const MONSTER_STATIC_BASE =
-  (typeof window !== "undefined" && window.APP_CONFIG?.staticBase) || `${GAME_STATIC_BASE}/monsters`;
-
-function buildMonsterImageUrls(family, slug, tier, imageOverride) {
-  if (imageOverride) return [imageOverride, `${MONSTER_STATIC_BASE}/_unknown.webp`];
-  return [
-    `${MONSTER_STATIC_BASE}/${family}/${slug}.webp`,
-    `${MONSTER_STATIC_BASE}/${family}/_family_t${tier}.webp`,
-    `${MONSTER_STATIC_BASE}/${family}/_family.webp`,
-    `${MONSTER_STATIC_BASE}/_unknown.webp`,
-  ];
-}
-
-function loadMonsterImage(family, slug, tier, imageOverride) {
-  const visual = document.getElementById("monster-visual");
-  const img = document.getElementById("monster-img");
-  const placeholder = document.getElementById("monster-placeholder");
-  if (!visual || !img || !placeholder) return;
-
-  const urls = buildMonsterImageUrls(family, slug, tier, imageOverride);
-  img.dataset.fallbackUrls = JSON.stringify(urls);
-  img.dataset.fallbackIndex = "0";
-
-  img.classList.add("fading");
-  placeholder.classList.add("visible");
-
-  visual.dataset.family = family || "";
-  visual.dataset.slug = slug || "";
-  visual.dataset.tier = String(tier || 1);
-
-  img.style.display = "";
-  img.src = urls[0];
-  img.alt = `Монстр ${slug}`;
-}
-
-function onMonsterImageLoad(img) {
-  const placeholder = document.getElementById("monster-placeholder");
-  if (placeholder) placeholder.classList.remove("visible");
-  if (img) img.classList.remove("fading");
-}
-
-function formatSoloBattleLogStepHtml(step) {
-  if (!step || typeof step !== "object") return "";
-  const kind = step.kind || "";
-  const label = String(step.label_ru || step.source || "").replace(/</g, "&lt;");
-  if (kind === "contrib") {
-    const pct = step.pct_add != null ? ` (+${(Number(step.pct_add) * 100).toFixed(2)}%)` : "";
-    const flat = step.flat_add != null ? ` (+${step.flat_add})` : "";
-    return `<div class="solo-battle-log-step solo-battle-log-step--contrib"><span class="solo-battle-log-step-lbl">${label}${pct}${flat}</span></div>`;
-  }
-  if (kind === "cap") {
-    return `<div class="solo-battle-log-step solo-battle-log-step--cap"><span class="solo-battle-log-step-lbl">${label}</span></div>`;
-  }
-  const vb = step.value_before;
-  const va = step.value_after;
-  let val = "";
-  if (vb != null && va != null) val = `: ${vb} → ${va}`;
-  else if (va != null) val = `: ${va}`;
-  return `<div class="solo-battle-log-step"><span class="solo-battle-log-step-lbl">${label}${val}</span></div>`;
-}
-
-function buildSoloBattleLogHtml(entries) {
-  const list = Array.isArray(entries) ? entries : [];
-  if (!list.length) {
-    return '<div class="solo-battle-log-empty muted tiny">Журнал боя пуст.</div>';
-  }
-  return list
-    .map((entry, idx) => {
-      const media = entry.log_media_label_ru || entry.log_media_key || "";
-      const sum = entry.summary_ru || "—";
-      const head = `<div class="solo-battle-log-entry-sum">#${idx + 1}${media ? ` [${media}]` : ""} ${sum}</div>`;
-      const steps = entry.damage_breakdown || entry.incoming_breakdown;
-      const stepsHtml = Array.isArray(steps)
-        ? `<div class="solo-battle-log-steps">${steps.map(formatSoloBattleLogStepHtml).join("")}</div>`
-        : "";
-      return `<details class="solo-battle-log-entry"><summary>${head}</summary>${stepsHtml}</details>`;
-    })
-    .join("");
-}
-
-function mountSoloBattleLog(entries) {
-  const host = document.getElementById("solo-battle-log-host");
-  if (!host) return;
-  const list = Array.isArray(entries) ? entries : [];
-  if (!list.length) {
-    host.style.display = "none";
-    host.innerHTML = "";
-    return;
-  }
-  host.style.display = "";
-  host.innerHTML = `<div class="solo-battle-log-root"><div class="solo-battle-log-inner">${buildSoloBattleLogHtml(list)}</div></div>`;
-}
-
-function onMonsterImageError(img) {
-  const urls = JSON.parse(img?.dataset?.fallbackUrls || "[]");
-  let index = parseInt(img?.dataset?.fallbackIndex || "0", 10) + 1;
-  if (index < urls.length) {
-    img.dataset.fallbackIndex = String(index);
-    img.src = urls[index];
-  } else {
-    if (img) img.style.display = "none";
-  }
-}
-
-function renderSoloBattleCard(monster, dungeon, waifu) {
-  const card = document.getElementById("solo-active");
-  if (!card) return;
-  const list = document.getElementById("solo-dungeons");
-  if (list) list.style.display = "none";
-  card.style.display = "block";
-
-  setText("solo-dungeon-name", dungeon.name ?? "—");
-  const total = dungeon.total_rooms || 0;
-  const current = dungeon.current_room || 1;
-  const progressDots = Array.from({ length: total }, (_, i) =>
-    i < current - 1 ? "⚫" : i === current - 1 ? "🔴" : "⚪"
-  ).join("");
-  const progressEl = document.getElementById("solo-dungeon-progress");
-  if (progressEl) progressEl.textContent = progressDots;
-
-  const visual = document.getElementById("monster-visual");
-  if (visual) {
-    visual.className = "monster-visual";
-    if (monster.is_boss) visual.classList.add("boss");
-    else if (monster.is_elite) {
-      const glow = monster.affix_count >= 4 ? "elite-red" : monster.affix_count >= 3 ? "elite-gold" : "elite-blue";
-      visual.classList.add(glow);
-    }
-  }
-
-  setText("monster-name-text", (monster.emoji ? monster.emoji + " " : "") + (monster.name ?? "—"));
-  setText("monster-name-level", `Ур. ${monster.level ?? "—"}`);
-
-  const emojiEl = document.getElementById("monster-emoji");
-  if (emojiEl) emojiEl.textContent = monster.emoji ?? "👾";
-  const placeholderLabel = document.getElementById("monster-placeholder-label");
-  if (placeholderLabel) placeholderLabel.textContent = monster.family ?? "";
-
-  const img = document.getElementById("monster-img");
-  if (img) img.classList.add("fading");
-  setTimeout(() => {
-    loadMonsterImage(
-      monster.family || "unknown",
-      monster.slug || "unknown",
-      monster.tier ?? 1,
-      monster.image_override ?? null
-    );
-  }, 150);
-
-  const monsterPct = monster.max_hp > 0 ? Math.max(0, Math.min(100, (monster.current_hp / monster.max_hp) * 100)) : 0;
-  setText("monster-hp-text", `${monster.current_hp} / ${monster.max_hp}`);
-  const hpFill = document.getElementById("monster-hp-fill");
-  if (hpFill) hpFill.style.width = monsterPct + "%";
-
-  const affixesEl = document.getElementById("monster-affixes");
-  if (affixesEl) {
-    if (monster.is_elite && monster.affixes?.length) {
-      const colorClass = monster.affix_count >= 4 ? "red" : monster.affix_count >= 3 ? "gold" : "blue";
-      affixesEl.innerHTML = monster.affixes.map((a) => `<span class="affix-chip ${colorClass}">${a.name}</span>`).join("");
-      affixesEl.style.display = "flex";
-    } else {
-      affixesEl.style.display = "none";
-    }
-  }
-
-  setText("solo-waifu-name", waifu.name ?? "—");
-  setText("solo-waifu-hp-text", `${waifu.current_hp} / ${waifu.max_hp}`);
-  const waifuPct = waifu.max_hp > 0 ? Math.max(0, Math.min(100, (waifu.current_hp / waifu.max_hp) * 100)) : 0;
-  const waifuHpFill = document.getElementById("solo-waifu-hp-fill");
-  if (waifuHpFill) waifuHpFill.style.width = waifuPct + "%";
-
-  const unconsciousBanner = document.getElementById("unconscious-banner");
-  if (unconsciousBanner) unconsciousBanner.style.display = waifu.current_hp <= 0 ? "block" : "none";
-  const unconsciousTimer = document.getElementById("unconscious-timer");
-  if (unconsciousTimer) unconsciousTimer.textContent = "восстановление...";
-
-  const metaEl = document.getElementById("solo-active-meta");
-  if (metaEl) {
-    const lastDmg = typeof window._lastSoloDamage === "number" ? window._lastSoloDamage : null;
-    const lastCrit = window._lastSoloCrit === true;
-    const dealt = typeof window._lastSoloDealt === "number" ? window._lastSoloDealt : null;
-    const parts = [];
-    if (lastDmg != null) parts.push(`<div class="meta-tag">Последний удар: <strong>${lastDmg}</strong>${lastCrit ? " <span style=\"color:#fbbf24\">★крит</span>" : ""}</div>`);
-    if (dealt != null && dealt > 0) parts.push(`<div class="meta-tag">Нанесено: <strong>${dealt}</strong></div>`);
-    metaEl.innerHTML = parts.length ? parts.join("") : "";
-  }
-}
-
-function renderSoloActiveProgress(active) {
-  const host = document.getElementById("solo-active");
-  const list = document.getElementById("solo-dungeons");
-  if (!host || !list) return;
-
-  if (!active?.active) {
-    soloActiveMonsterTemplateId = null;
-    host.style.display = "none";
-    list.style.display = "";
-    return;
-  }
-
-  soloActiveMonsterTemplateId =
-    active.monster_template_id != null ? Number(active.monster_template_id) : null;
-
-  const hpCur = safeNumber(active.monster_current_hp, 0);
-  const hpMax = Math.max(1, safeNumber(active.monster_max_hp, 1));
-  const dealt = safeNumber(active.damage_done, Math.max(0, hpMax - hpCur));
-  const monPct = Math.round(clamp01(hpCur / hpMax) * 100);
-  const log = Array.isArray(active.battle_log) ? active.battle_log.slice(-6) : [];
-  const pos = safeNumber(active.monster_position, null);
-  const total = safeNumber(active.total_monsters, null);
-  const lastDmg = active.last_damage != null ? safeNumber(active.last_damage, null) : null;
-  const lastCrit = active.last_is_crit === true;
-  const pl = safeNumber(active.plus_level, 0);
-  window._lastSoloDamage = lastDmg;
-  window._lastSoloCrit = lastCrit;
-  window._lastSoloDealt = dealt;
-
-  const monster = {
-    name: active.monster_name,
-    level: active.monster_level,
-    current_hp: hpCur,
-    max_hp: hpMax,
-    family: active.monster_family || "unknown",
-    slug: active.monster_slug || "unknown",
-    tier: active.monster_tier ?? 1,
-    has_image: active.monster_has_image === true,
-    image_override: active.monster_image_override || null,
-    emoji: active.monster_emoji || "👾",
-    is_boss: active.is_boss === true,
-    is_elite: active.is_elite === true,
-    affix_count: active.affix_count ?? 0,
-    affixes: Array.isArray(active.affixes) ? active.affixes : [],
-  };
-  const dungeon = {
-    name: active.dungeon_name,
-    total_rooms: total || 0,
-    current_room: pos || 1,
-  };
-  const waifu = {
-    name: active.waifu_name,
-    current_hp: safeNumber(active.waifu_current_hp, 0),
-    max_hp: Math.max(1, safeNumber(active.waifu_max_hp, 1)),
-  };
-  host.style.display = "";
-  list.style.display = "none";
-  const content = document.getElementById("solo-active-content");
-  const fallback = document.getElementById("solo-active-fallback");
-  if (content) content.style.display = "";
-  if (fallback) fallback.style.display = "none";
-  renderSoloBattleCard(monster, dungeon, waifu);
-  mountSoloBattleLog(active.battle_log_entries || []);
-}
-
-function renderSoloActiveFallback(reason) {
-  const host = document.getElementById("solo-active");
-  const list = document.getElementById("solo-dungeons");
-  const content = document.getElementById("solo-active-content");
-  const fallback = document.getElementById("solo-active-fallback");
-  if (!host || !list) return;
-  host.style.display = "";
-  list.style.display = "none";
-  if (content) content.style.display = "none";
-  if (fallback) {
-    fallback.style.display = "block";
-    fallback.innerHTML = `
-      <div class="solo-active-head">
-        <div class="solo-active-title">🏰 Активное подземелье</div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <div class="muted tiny">Прогресс недоступен</div>
-          <button class="icon-btn" title="Покинуть подземелье" aria-label="Покинуть подземелье" onclick="WaifuApp.openExitDungeonConfirm()">✕</button>
-        </div>
-      </div>
-      <div class="detail-row">
-        <span class="muted">Причина</span>
-        <strong>${String(reason || "—").replace(/</g, "&lt;")}</strong>
-      </div>
-      <div style="margin-top:6px;">
-        <button class="btn" onclick="WaifuApp.refreshSoloActive()">🔄 Обновить</button>
-      </div>
-    `;
-  }
-}
-
-async function refreshSoloActive() {
-  if (!dungeonsFinishBlockedMsg) showDungeonsError("");
-  try {
-    const active = await apiFetch("/dungeons/active");
-    renderAtticDungeon(active);
-    if (active?.active) renderSoloActiveProgress(active);
-    else {
-      renderSoloActiveProgress({ active: false });
-      showDungeonsError("Активного подземелья нет (active:false).");
-    }
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    renderSoloActiveFallback(detail || "Ошибка загрузки /dungeons/active");
-    showDungeonsError(`Не удалось загрузить прогресс: ${detail || "ошибка"}`);
-  }
-}
-
-async function populateDungeonsPage(profile) {
-  const p = profile || (await loadProfile());
-  // attic: show act in compact header
-  if (p?.act != null) setText("badge-act", p.act);
-  showDungeonsError("");
-
-  // Load Dungeon+ status for the global selector (per-dungeon unlock caps)
-  try {
-    const st = await apiFetch("/dungeons/plus/status");
-    dungeonPlusStatusById = {};
-    for (const r of st?.status || []) {
-      dungeonPlusStatusById[Number(r.dungeon_id)] = r;
-    }
-    initPlusSelect(Boolean(st?.global_unlocked), dungeonPlusStatusById);
-  } catch {
-    initPlusSelect(false, {});
-  }
-
-  // Page-scoped SSE handler: refresh progress, show reward modal on completion.
-  let refreshTimer;
-  window.WaifuApp.onSseEvent = (evt) => {
-    if (evt && evt.type === "gd") {
-      clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => {
-        loadActiveGdDungeons().catch?.(() => {});
-        updateGdSessionUI().catch?.(() => {});
-      }, 150);
-      return;
-    }
-    if (!evt || evt.type !== "battle") return;
-    // Debounced refresh of active progress
-    clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => {
-      refreshSoloActive().catch?.(() => {});
-    }, 250);
-    const payload = evt.payload || {};
-    if (payload.finish_blocked) {
-      const msg = payload.message || "Не хватает здоровья для победы.";
-      dungeonsFinishBlockedMsg = msg;
-      showDungeonsError(msg, "danger");
-      return;
-    }
-    // clear once we receive any normal battle payload
-    if (dungeonsFinishBlockedMsg && (payload.damage != null || payload.monster_defeated || payload.dungeon_completed)) {
-      dungeonsFinishBlockedMsg = null;
-      showDungeonsError("");
-    }
-    if (payload.dungeon_completed) {
-      dungeonsFinishBlockedMsg = null;
-      openRewardModal(payload);
-    }
-  };
-
-  // First render list for current act, then overlay active-progress if needed.
-  await renderSoloDungeonsForAct(p);
-  try {
-    const active = await apiFetch("/dungeons/active");
-    renderSoloActiveProgress(active);
-  } catch (e) {
-    // Don't break page if active endpoint fails.
-    const { detail } = parseHttpErrorDetail(e);
-    renderSoloActiveProgress({ active: false });
-    showDungeonsError(`Не удалось проверить активный данж: ${detail || "ошибка"}`);
-  }
-
-  // Open tab from URL (e.g. from ОЧ chip click)
-  const tabParam = new URLSearchParams(window.location.search).get("tab");
-  if (tabParam === "solo" || tabParam === "expedition" || tabParam === "group") {
-    showTab(tabParam);
-  }
-}
-
-let plusBottomSheetUnlocked = false;
-
-function initPlusSelect(globalUnlocked, statusById) {
-  plusBottomSheetUnlocked = globalUnlocked;
-  for (const idStr of Object.keys(selectedPlusLevelByDungeonId)) {
-    const id = Number(idStr);
-    if (!Number.isFinite(id)) continue;
-    const u = Number(statusById?.[id]?.unlocked_plus_level || 0);
-    const raw = Number(selectedPlusLevelByDungeonId[id] ?? 0);
-    if (raw > u) selectedPlusLevelByDungeonId[id] = u;
-  }
-}
-
-function getDifficultyDescription(n) {
-  const lvl = Number(n || 0);
-  if (lvl === 0) return "Базовая сложность.";
-  const hpDmg = Math.round(lvl * 20);
-  const reward = (1 + lvl * 0.15 + Math.log1p(lvl) * 0.10).toFixed(2);
-  const rarityLabels = ["обычная", "необычная", "редкая", "эпическая", "легендарная"];
-  const rarity = rarityLabels[Math.min(Math.floor(lvl / 2), 4)];
-  const elite = Math.min(40, lvl * 2);
-  return `+${hpDmg}% HP/урон. Награды x${reward}. Предмет +${lvl} ур. Редкость: ${rarity}. Элиты +${elite}%.`;
-}
-
-window.WaifuApp.openPlusBottomSheet = (dungeonId) => {
-  const did = Number(dungeonId);
-  if (!Number.isFinite(did)) return;
-  const bs = document.getElementById("plus-bottomsheet");
-  const list = document.getElementById("plus-options-list");
-  if (!bs || !list) return;
-  const max = plusBottomSheetUnlocked ? Math.max(0, Number(dungeonPlusStatusById[did]?.unlocked_plus_level || 0)) : 0;
-  const current = getPlusLevelForDungeon(did);
-  list.innerHTML = "";
-  const titleEl = bs.querySelector(".bottomsheet-title");
-  if (titleEl) {
-    titleEl.textContent = max > 0 ? "Сложность ➕ (это подземелье)" : "Сложность ➕";
-  }
-  for (let i = 0; i <= Math.max(0, max); i++) {
-    const hue = max > 0 ? Math.round(120 * (1 - i / Math.max(1, max))) : 120;
-    const bgColor = `hsla(${hue},70%,45%,0.22)`;
-    const borderColor = `hsla(${hue},60%,55%,0.50)`;
-    const desc = getDifficultyDescription(i);
-    const btn = document.createElement("button");
-    btn.className = "plus-option" + (i === current ? " selected" : "");
-    btn.innerHTML = `
-      <div class="plus-option-badge" style="background:${bgColor};border-color:${borderColor};color:#fff;">
-        ${i === 0 ? "0" : `+${i}`}
-      </div>
-      <div class="plus-option-info">
-        <div class="plus-option-label">${i === 0 ? "Обычная" : `Сложность +${i}`}</div>
-        <div class="plus-option-desc">${desc}</div>
-      </div>`;
-    btn.addEventListener("click", () => {
-      setPlusLevelForDungeon(did, i);
-      window.WaifuApp.closePlusBottomSheet();
-      const p = window.__lastProfileForDungeons || null;
-      if (p) renderSoloDungeonsForAct(p).catch?.(() => {});
-    });
-    list.appendChild(btn);
-  }
-  bs.dataset.plusDungeonId = String(did);
-  bs.style.display = "flex";
-  document.body.style.overflow = "hidden";
-};
-
-window.WaifuApp.closePlusBottomSheet = () => {
-  const bs = document.getElementById("plus-bottomsheet");
-  if (bs) bs.style.display = "none";
-  document.body.style.overflow = "";
-};
-
-function rarityLabel(r) {
-  const v = Number(r);
-  return (
-    {
-      1: "Обычный",
-      2: "Необычный",
-      3: "Редкий",
-      4: "Эпический",
-      5: "Легендарный",
-    }[v] || `Rarity ${v || "—"}`
-  );
-}
-
-function rarityClass(r) {
-  const v = Number(r);
-  return (
-    {
-      1: "rarity-common",
-      2: "rarity-uncommon",
-      3: "rarity-rare",
-      4: "rarity-epic",
-      5: "rarity-legendary",
-    }[v] || "rarity-common"
-  );
-}
-
-function slotTypeLabel(slotType) {
-  const st = String(slotType || "").toLowerCase();
-  if (!st) return "—";
-  return (
-    {
-      weapon_1h: "Оружие (1H)",
-      weapon_2h: "Оружие (2H)",
-      offhand: "Оффхенд / Щит",
-      costume: "Доспех",
-      armor: "Доспех",
-      ring: "Кольцо",
-      amulet: "Амулет",
-    }[st] || st
-  );
-}
-
-function attackTypeLabel(atk) {
-  const a = String(atk || "").toLowerCase();
-  if (!a) return "—";
-  return (
-    {
-      melee: "Ближний бой (СИЛ)",
-      ranged: "Дальний бой (ЛОВ)",
-      magic: "Магия (ИНТ)",
-    }[a] || a
-  );
-}
-
-function weaponTypeLabel(wt) {
-  const w = String(wt || "").toLowerCase();
-  if (!w) return "—";
-  return (
-    {
-      axe: "Топор",
-      sword: "Меч",
-      bow: "Лук",
-      staff: "Посох",
-      wand: "Жезл",
-      dagger: "Кинжал",
-      mace: "Булава",
-      hammer: "Молот",
-    }[w] || w
-  );
-}
-
-function itemIconForSlotType(slotType) {
-  const st = String(slotType || "");
-  if (st.includes("weapon")) return "⚔️";
-  if (st.includes("offhand")) return "🛡️";
-  if (st.includes("costume")) return "🥋";
-  if (st.includes("ring")) return "💍";
-  if (st.includes("amulet")) return "🧿";
-  return "🎁";
-}
-
-function buildRewardItemCard(item) {
-  const rc = rarityClass(item.rarity);
-  const icon = itemIconForSlotType(item.slot_type);
-  const invId = item.inventory_item_id ?? item.id ?? null;
-  return `
-    <div class="reward-item-card ${rc}" id="reward-item-card-${invId}">
-      <div class="reward-item-top">
-        <div class="reward-item-icon">${icon}</div>
-        <div style="display:grid;gap:2px;min-width:0;flex:1;">
-          <div class="reward-item-name ${rc}">${item.display_name || item.name || "Предмет"}</div>
-          <div class="muted tiny">lvl ${item.level ?? "—"} · ${rarityLabel(item.rarity)} · ${slotTypeLabel(item.slot_type)}</div>
-        </div>
-        ${invId ? `<button type="button" class="secondary" style="flex-shrink:0;font-size:12px;padding:4px 10px;" onclick="event.stopPropagation();WaifuApp.viewRewardItem(${invId})">Подробнее</button>` : ""}
-      </div>
-    </div>`;
-}
-
-async function viewRewardItem(inventoryItemId) {
-  try {
-    const item = await apiFetch(`/inventory/${inventoryItemId}`);
-    openItemModal(item);
-  } catch (e) {
-    showToast("Не удалось загрузить предмет: " + (e?.message || e), "error");
-  }
-}
-
-function openRewardModal(payload) {
-  const m = document.getElementById("reward-modal");
-  const body = document.getElementById("reward-modal-body");
-  const sub = document.getElementById("reward-modal-subtitle");
-  if (!m || !body) return;
-
-  if (sub) sub.textContent = "Победа над боссом!";
-
-  const expMobs = payload.exp_from_monsters ?? payload.experience_gained ?? null;
-  const expBoss = payload.exp_from_boss ?? null;
-  const expTotal =
-    payload.total_experience_gained ??
-    (expMobs != null && expBoss != null ? expMobs + expBoss : expMobs ?? expBoss);
-
-  const goldMobs = payload.gold_from_monsters ?? payload.gold_gained ?? null;
-  const goldBoss = payload.gold_from_boss ?? null;
-  const goldTotal =
-    payload.total_gold_gained ??
-    (goldMobs != null && goldBoss != null ? goldMobs + goldBoss : goldMobs ?? goldBoss);
-
-  const itemsRaw = Array.isArray(payload.items_dropped)
-    ? payload.items_dropped
-    : payload.item_dropped
-      ? [payload.item_dropped]
-      : [];
-  const guaranteedItem = payload.guaranteed_item || null;
-  if (guaranteedItem) {
-    const gId = guaranteedItem.inventory_item_id ?? guaranteedItem.id;
-    const has = itemsRaw.some((i) => (i.inventory_item_id ?? i.id) === gId);
-    if (!has) itemsRaw.push({ ...guaranteedItem, _guaranteed: true });
-  }
-
-  const fmt = (v) => (v != null ? Number(v).toLocaleString() : "—");
-
-  const totalsBlock = `
-    <div class="reward-totals-panel">
-      <div class="reward-total-row"><span class="muted">Опыт</span><strong>+${fmt(expTotal)} ✨</strong></div>
-      <div class="reward-total-row"><span class="muted">Золото</span><strong>+${fmt(goldTotal)} 🪙</strong></div>
-    </div>`;
-
-  const itemsHtml = itemsRaw.length
-    ? `<div class="reward-section-title reward-section-title--items">Предметы</div>
-       <div class="reward-items-list">
-        ${itemsRaw.map((it) => buildRewardItemCard(it)).join("")}
-       </div>`
-    : `<div class="reward-section-title reward-section-title--items">Предметы</div>
-       <div class="reward-item-card"><div class="muted tiny">Ничего не выпало</div></div>`;
-
-  body.innerHTML = `
-    <div class="reward-grid reward-grid--compact">
-      ${totalsBlock}
-      ${itemsHtml}
-    </div>
-  `;
-  m.style.display = "grid";
-}
-
-async function closeRewardModal() {
-  const m = document.getElementById("reward-modal");
-  if (m) m.style.display = "none";
-  // Refresh page state after completion (new act unlock, inventory changes, etc.)
-  try {
-    const p = await loadProfile();
-    await populateDungeonsPage(p);
-  } catch {
-    // ignore
-  }
-}
-
-async function startDungeon(dungeonId, plusLevel = 0) {
-  let res;
-  try {
-    const pl = Math.max(0, Number(plusLevel || 0));
-    res = await apiFetch(`/dungeons/${dungeonId}/start?plus_level=${encodeURIComponent(pl)}`, { method: "POST" });
-  } catch (e) {
-    const { detail, raw } = parseHttpErrorDetail(e);
-    // If already active: show progress card instead of throwing unhandled promise
-    if (raw.includes("dungeon_already_active") || detail.includes("dungeon_already_active")) {
-      // ensure solo tab visible
-      showTab("solo");
-      try {
-        const active = await apiFetch("/dungeons/active");
-        if (active?.active) {
-          renderSoloActiveProgress(active);
-          showDungeonsError("У вас уже есть активное подземелье. Показал прогресс ниже.");
-        } else {
-          renderSoloActiveFallback("API вернул active:false");
-          showDungeonsError("У вас уже есть активное подземелье, но прогресс не получен (active:false).");
-        }
-      } catch (err2) {
-        const { detail: d2 } = parseHttpErrorDetail(err2);
-        renderSoloActiveFallback(d2 || "Ошибка загрузки /dungeons/active");
-        showDungeonsError(`У вас уже есть активное подземелье, но прогресс не загрузился: ${d2 || "ошибка"}`);
-      }
-      return;
-    }
-    if (detail.includes("dungeon_already_completed")) {
-      showDungeonsError("Это подземелье уже пройдено.");
-      return;
-    }
-    if (detail.includes("dungeon_plus_locked")) {
-      showDungeonsError("Dungeon+ откроется после прохождения Подземелья №5 в 5 акте.");
-      return;
-    }
-    if (detail.includes("dungeon_plus_level_locked")) {
-      showDungeonsError("Этот уровень Dungeon+ ещё не открыт для данного подземелья.");
-      return;
-    }
-    if (detail.toLowerCase().includes("level requirement")) {
-      showDungeonsError(detail.replace("Level requirement not met.", "Недостаточный уровень."));
-      return;
-    }
-    if (detail.toLowerCase().includes("no main waifu")) {
-      showDungeonsError("Сначала создайте основную вайфу.");
-      return;
-    }
-    // Generic 400/other errors
-    showDungeonsError(detail || "Ошибка старта подземелья.");
-    return;
-  }
-  appendEvent(`Данж ${dungeonId} стартован: ${res.monster_name} HP ${res.monster_hp}`);
-  // refresh progress for this screen as well
-  try {
-    const active = await apiFetch("/dungeons/active");
-    renderSoloActiveProgress(active);
-  } catch {
-    // ignore
-  }
-  showDungeonsError("");
-}
-
-async function loadActiveDungeon() {
-  const data = await apiFetch("/dungeons/active");
-
-  // Town widget
-  const townBox = document.getElementById("dungeon-active");
-  if (townBox) {
-    townBox.innerHTML = data?.active
-      ? `<div class="list-item"><strong>${data.dungeon_name}</strong><br/>Монстр: ${data.monster_name} · HP ${data.monster_current_hp} / ${data.monster_max_hp}</div>`
-      : '<div class="muted">Активного данжа нет</div>';
-  }
-
-  // Dungeons screen widget
-  const activeSection = document.getElementById("active-dungeon-section");
-  const listSection = document.getElementById("dungeon-list-section");
-  const content = document.getElementById("active-dungeon-content");
-  if (activeSection && content) {
-    if (data?.active) {
-      activeSection.style.display = "";
-      if (listSection) listSection.style.display = "";
-
-      const log = Array.isArray(data.battle_log) ? data.battle_log.slice(-6) : [];
-      const logHtml = log.length
-        ? `<div class="active-dungeon-info"><span>Лог</span><strong>${log.join(" · ")}</strong></div>`
-        : "";
-
-      content.innerHTML = `
-        <div class="active-dungeon-info"><span>Данж</span><strong>${data.dungeon_name}</strong></div>
-        <div class="active-dungeon-info"><span>Монстр</span><strong>${data.monster_name} (lvl ${data.monster_level})</strong></div>
-        <div class="active-dungeon-info"><span>HP монстра</span><strong>${data.monster_current_hp}/${data.monster_max_hp}</strong></div>
-        <div class="active-dungeon-info"><span>Вайфу</span><strong>${data.waifu_name} (lvl ${data.waifu_level})</strong></div>
-        <div class="active-dungeon-info"><span>HP вайфу</span><strong>${data.waifu_current_hp}/${data.waifu_max_hp}</strong></div>
-        ${logHtml}
-      `;
-    } else {
-      activeSection.style.display = "none";
-    }
-  }
-
-  return data;
-}
-
-function continueActiveDungeon() {
-  // Open battle screen for current dungeon combat
-  window.location.href = "./battle.html";
-}
-
-async function exitDungeon() {
-  const result = await apiFetch("/dungeons/exit", { method: "POST" });
-  const profile = await loadProfile().catch(() => null);
-  if (profile) await renderSoloDungeonsForAct(profile);
-  renderSoloActiveProgress({ active: false });
-  await loadActiveDungeon();
-  // Show a brief summary if rewards were accumulated
-  if (result?.exp_gained > 0 || result?.gold_gained > 0) {
-    appendEvent(`🚪 Покинули подземелье · +${result.exp_gained ?? 0} EXP · +${result.gold_gained ?? 0} 🪙`);
-  }
-}
-
-function openExitDungeonConfirm() {
-  const modal = document.getElementById("exit-dungeon-modal");
-  if (modal) modal.style.display = "grid";
-}
-
-function closeExitDungeonConfirm() {
-  const modal = document.getElementById("exit-dungeon-modal");
-  if (modal) modal.style.display = "none";
-}
-
-async function confirmExitDungeon() {
-  closeExitDungeonConfirm();
-  await exitDungeon();
-}
-
-async function adminExitDungeon() {
-  return exitDungeon();
-}
-
-async function loadBattle() {
-  const data = await apiFetch("/dungeons/active");
-
-  if (!data?.active) {
-    setText("battle-title", "БИТВА: Нет активного подземелья");
-    setText("enemy-name", "ПРОТИВНИК: —");
-    setText("waifu-battle-name", "ВАША ВАЙФУ: —");
-    setHTML("battle-log-content", '<div class="muted tiny">Нет активного подземелья.</div>');
-    const btn = document.getElementById("battle-continue-btn");
-    if (btn) btn.disabled = true;
-    return data;
-  }
-
-  setText("battle-title", `БИТВА: ${data.dungeon_name}`);
-  setText("enemy-name", `ПРОТИВНИК: ${data.monster_name}`);
-  setText(
-    "enemy-stats",
-    `Атака: ${data.monster_damage} | Защита: ${data.monster_defense} | Тип: ${data.monster_type}`
-  );
-  setText("waifu-battle-name", `ВАША ВАЙФУ: ${data.waifu_name}`);
-  setText(
-    "waifu-stats",
-    `Атака: ${data.waifu_attack_min}-${data.waifu_attack_max} | Защита: ${data.waifu_defense}`
-  );
-
-  const enemyHp = safeNumber(data.monster_current_hp, 0);
-  const enemyHpMax = Math.max(1, safeNumber(data.monster_max_hp, 1));
-  const waifuHp = safeNumber(data.waifu_current_hp, 0);
-  const waifuHpMax = Math.max(1, safeNumber(data.waifu_max_hp, 1));
-
-  const enemyFill = document.getElementById("enemy-hp-fill");
-  if (enemyFill) enemyFill.style.width = `${Math.round(clamp01(enemyHp / enemyHpMax) * 100)}%`;
-  setText("enemy-hp-text", `HP: ${enemyHp}/${enemyHpMax}`);
-
-  const waifuFill = document.getElementById("waifu-hp-fill");
-  if (waifuFill) waifuFill.style.width = `${Math.round(clamp01(waifuHp / waifuHpMax) * 100)}%`;
-  setText("waifu-hp-text", `HP: ${waifuHp}/${waifuHpMax}`);
-
-  const logs = Array.isArray(data.battle_log) ? data.battle_log : [];
-  const logHtml = logs.length
-    ? logs.map((l) => `<div class="muted tiny">${String(l)}</div>`).join("")
-    : '<div class="muted tiny">Битва начата...</div>';
-  setHTML("battle-log-content", logHtml);
-
-  const btn = document.getElementById("battle-continue-btn");
-  if (btn) btn.disabled = false;
-
-  return data;
-}
-
-function appendBattleLog(text) {
-  const log = document.getElementById("battle-log-content");
-  if (log) {
-    const div = document.createElement("div");
-    div.className = "muted tiny";
-    div.textContent = text;
-    log.prepend(div);
-  } else {
-    appendEvent(text);
-  }
-}
-
-async function continueBattle() {
-  const btn = document.getElementById("battle-continue-btn");
-  if (btn) btn.disabled = true;
-  try {
-    const res = await apiFetch("/dungeons/continue", { method: "POST" });
-    if (res?.error) {
-      appendBattleLog(`Ошибка: ${res.message || res.error}`);
-      return;
-    }
-    if (res?.elite_spawn) {
-      const es = res.elite_spawn;
-      const color = es.elite_color || "blue";
-      const affixNames = (es.applied_affixes || []).map(a => a.name || a).join(" ");
-      appendBattleLog(`⚠️ Элитный монстр! ${affixNames ? `[${affixNames}]` : ""} (${color})`);
-    }
-    const dmg = res?.damage ?? null;
-    const crit = res?.is_crit;
-    const dodged = res?.monster_dodged === true;
-    if (dodged) {
-      appendBattleLog("🛡️ Монстр уклонился!");
-    } else if (dmg != null) {
-      appendBattleLog(crit ? `⚔️ Удар ${dmg} (крит!)` : `⚔️ Удар ${dmg}`);
-    }
-    if (res?.experience_gained) appendBattleLog(`✨ +${res.experience_gained} EXP`);
-    if (res?.gold_gained) appendBattleLog(`🪙 +${res.gold_gained} золото`);
-    // Death: waifu left dungeon at 1 HP
-    if (res?.waifu_died) {
-      const penalty = res.gold_penalty_pct ?? 50;
-      appendBattleLog(`💀 Вайфу погибла! Штраф к золоту: −${penalty}%. XP сохранён.`);
-      setTimeout(() => { window.location.href = "./dungeons.html"; }, 1800);
-      return;
-    }
-    if (res?.dungeon_completed) {
-      openRewardModal(res);
-      return;
-    }
-    const after = await loadBattle();
-    if (!after?.active) {
-      window.location.href = "./dungeons.html";
-    }
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-async function exitBattle() {
-  await exitDungeon();
-  window.location.href = "./dungeons.html";
-}
 
 function switchShopTab(name) {
   shopState.merchantAdviceUnlocked = false;
   shopState.activeTab = name;
-  if (typeof document !== "undefined" && document.body) {
-    document.body.classList.toggle("shop-tab-smith", name === "smith");
-  }
+
+  document.querySelectorAll(".shop-hero[data-tab-hero]").forEach((hero) => {
+    const tab = hero.getAttribute("data-tab-hero");
+    hero.classList.toggle("active", tab === name);
+  });
 
   document.querySelectorAll(".tabs .tab, .shop-btab").forEach((btn) => {
     if (btn.dataset.tab) btn.classList.toggle("active", btn.dataset.tab === name);
   });
-  document.querySelectorAll(".tab-panel").forEach((panel) => {
+  document.querySelectorAll(".shop-tab-panel, .tab-panel").forEach((panel) => {
     if (panel.id?.startsWith("tab-")) {
       const active = panel.id === `tab-${name}`;
       panel.classList.toggle("active", active);
@@ -4585,20 +3727,14 @@ function switchShopTab(name) {
     const sellBtn = document.getElementById("shop-sell-submit");
     if (sellBtn) sellBtn.style.display = name === "sell" ? "" : "none";
     if (name === "sell") {
-      loadSellInventory()
-        .then(() => {
-          syncShopSellToolbarUI();
-          return generateMerchantLine("sell").catch(() => {});
-        })
-        .catch(console.error);
+      loadSellInventory().then(() => syncShopSellToolbarUI()).catch(console.error);
     } else if (name === "smith") {
       loadSmithTab().catch(console.error);
-      generateMerchantLine("smith").catch(() => {});
-    } else {
-      generateMerchantLine(name).catch(() => {});
+    } else if (name === "gamble") {
+      loadGambleTab(shopState.act || 1).catch(console.error);
     }
-    if (name === "gamble") updateShopGambleCost();
   }
+  hideShopHeroDialogs();
 }
 
 function sortSmithInventoryItems(items) {
@@ -4648,43 +3784,79 @@ function buildItemModalMetaLine(item) {
 function updateSmithMetaFromProfile(pr) {
   if (!pr) return;
   const stEl = document.getElementById("shop-smith-stones");
-  const gEl = document.getElementById("shop-smith-gold-hint");
+  const dEl = document.getElementById("shop-smith-dust-hint");
   if (stEl) stEl.textContent = String(pr.protection_stones ?? 0);
-  if (gEl) gEl.textContent = String(pr.gold ?? "—");
+  if (dEl) dEl.textContent = String(pr.enchant_dust ?? 0);
 }
+
+function syncSmithEnchantBadge(level, visible) {
+  const badge = document.getElementById("shop-smith-enchant-badge");
+  if (!badge) return;
+  const lv = Number(level) || 0;
+  if (!visible || lv <= 0) {
+    badge.hidden = true;
+    return;
+  }
+  badge.textContent = `+${lv}`;
+  badge.hidden = false;
+}
+
+function setSmithSharpenControlsDisabled(disabled) {
+  const enchantBtn = document.getElementById("shop-smith-enchant-btn");
+  const autoBtn = document.getElementById("shop-smith-auto-btn");
+  const stoneCb = document.getElementById("shop-smith-use-stone");
+  if (enchantBtn) enchantBtn.disabled = disabled;
+  if (autoBtn) autoBtn.disabled = disabled;
+  if (stoneCb) stoneCb.disabled = disabled;
+}
+
+function switchSmithSubTab(name) {
+  const tab = name === "craft" ? "craft" : "sharpen";
+  shopState.smithSubTab = tab;
+  ["sharpen", "craft"].forEach((t) => {
+    const btn = document.getElementById(`shop-smith-subtab-${t}`);
+    if (btn) btn.classList.toggle("active", t === tab);
+    const panel = document.getElementById(`shop-smith-panel-${t}`);
+    if (panel) panel.style.display = t === tab ? "" : "none";
+    const controls = document.getElementById(`shop-smith-controls-${t}`);
+    if (controls) controls.style.display = t === tab ? "" : "none";
+  });
+  if (tab === "craft") {
+    refreshSmithCraftPreview().catch(console.error);
+  } else {
+    refreshSmithPreview().catch(console.error);
+  }
+}
+
+window.WaifuApp = window.WaifuApp || {};
+window.WaifuApp.switchSmithSubTab = switchSmithSubTab;
 
 function updateSmithSelectionUI() {
   const id = shopState.smithSelectedId;
   const items = shopState.smithItems || [];
   const it = id ? items.find((x) => x.id === id) : null;
   const wrap = document.getElementById("shop-smith-icon-wrap");
-  const lbl = document.getElementById("shop-smith-selected-label");
   const btn = document.getElementById("shop-smith-enchant-btn");
   if (wrap) {
-    wrap.innerHTML = it ? itemArtHtml(it) : '<span class="muted">—</span>';
+    wrap.innerHTML = it ? itemArtHtml(it) : "⚒";
   }
-  if (lbl) {
-    if (it) {
-      lbl.innerHTML = composeItemDisplayName(it);
-      lbl.classList.remove("muted");
-    } else {
-      lbl.textContent = "выбор предмета";
-      lbl.classList.add("muted");
-    }
-  }
+  const lv = it ? Number(it.enchant_level ?? 0) : 0;
+  syncSmithEnchantBadge(lv, Boolean(it) && lv > 0);
   if (btn && !it) btn.disabled = true;
+  const autoBtn = document.getElementById("shop-smith-auto-btn");
+  if (autoBtn && !it) autoBtn.disabled = true;
 }
 
 function syncSmithProtectionStoneCheckbox(targetLevel) {
-  const stoneRow = document.getElementById("shop-smith-stone-row");
+  const stoneCheck = document.getElementById("shop-smith-stone-check-wrap");
   const stoneCb = document.getElementById("shop-smith-use-stone");
   if (!stoneCb) return;
   const t = Number(targetLevel);
   if (!Number.isFinite(t) || t < 8) {
     stoneCb.checked = false;
-    if (stoneRow) stoneRow.style.display = "none";
-  } else if (stoneRow) {
-    stoneRow.style.display = "";
+    if (stoneCheck) stoneCheck.hidden = true;
+  } else if (stoneCheck) {
+    stoneCheck.hidden = false;
   }
 }
 
@@ -4710,16 +3882,11 @@ function renderSmithPickPage() {
       const equipped = it.equipment_slot != null;
       const sel = shopState.smithSelectedId === it.id ? " shop-smith-pick-card--selected" : "";
       const lv = it.total_level != null ? safeNumber(it.total_level, 1) : safeNumber(it.level, 1);
-      const lvLine = equipped
-        ? `<div class="shop-smith-pick-lv muted tiny">t${safeNumber(it.tier, 1)} · ${lv}</div>`
-        : "";
-      return `<button type="button" class="shop-smith-pick-card ${cls}${sel}" data-id="${it.id}" onclick="WaifuApp.pickSmithItem(${it.id})">
+      const label = composeItemDisplayName(it).replace(/<[^>]+>/g, "").trim();
+      return `<button type="button" class="shop-smith-pick-card ${cls}${sel}" data-id="${it.id}" aria-label="${escapeHtml(label)}" onclick="WaifuApp.pickSmithItem(${it.id})">
         ${equipped ? '<span class="shop-smith-pick-equipped" title="Экипировано">⚔</span>' : ""}
-        <div class="shop-smith-pick-card-top">
-          <div class="shop-smith-pick-icon">${itemArtHtml(it)}</div>
-          ${lvLine}
-        </div>
-        <div class="shop-smith-pick-name tiny">${composeItemDisplayName(it)}</div>
+        <div class="shop-smith-pick-art">${itemArtHtml(it)}${itemEnchantOverlayHtml(it, "bag")}</div>
+        <span class="shop-smith-pick-lv">Ур. ${lv}</span>
       </button>`;
     })
     .join("");
@@ -4751,6 +3918,20 @@ function smithPickNext() {
 }
 
 async function openSmithPickModal() {
+  const m = document.getElementById("shop-smith-pick-modal");
+  const grid = document.getElementById("shop-smith-pick-grid");
+  const nav = document.getElementById("shop-smith-pick-nav");
+  if (m) m.style.display = "grid";
+
+  const cached = Array.isArray(shopState.smithItems) && shopState.smithItems.length;
+  if (cached) {
+    shopState.smithPickPage = 0;
+    renderSmithPickPage();
+  } else if (grid) {
+    grid.innerHTML = SMITH_PICK_LOADING_HTML;
+    if (nav) nav.innerHTML = "";
+  }
+
   try {
     const data = await apiFetch("/inventory?limit=100&offset=0");
     const items = Array.isArray(data?.items) ? data.items : [];
@@ -4763,10 +3944,12 @@ async function openSmithPickModal() {
     }
     shopState.smithPickPage = 0;
     renderSmithPickPage();
-    const m = document.getElementById("shop-smith-pick-modal");
-    if (m) m.style.display = "grid";
   } catch (e) {
     console.error(e);
+    if (grid) {
+      grid.innerHTML = '<div class="muted tiny">Не удалось загрузить инвентарь.</div>';
+    }
+    if (nav) nav.innerHTML = "";
     showToast("Не удалось загрузить инвентарь", "error");
   }
 }
@@ -4781,11 +3964,13 @@ function pickSmithItem(id) {
   closeSmithPickModal();
   updateSmithSelectionUI();
   refreshSmithPreview().catch(console.error);
+  refreshSmithCraftPreview().catch(console.error);
 }
 
 async function loadSmithTab() {
   const pr = await loadProfile().catch(() => null);
   updateSmithMetaFromProfile(pr);
+  switchSmithSubTab(shopState.smithSubTab || "sharpen");
 
   const data = await apiFetch("/inventory?limit=100&offset=0");
   const items = Array.isArray(data?.items) ? data.items : [];
@@ -4798,6 +3983,7 @@ async function loadSmithTab() {
   }
   updateSmithSelectionUI();
   await refreshSmithPreview();
+  await refreshSmithCraftPreview();
 }
 
 async function refreshSmithPreview() {
@@ -4808,8 +3994,9 @@ async function refreshSmithPreview() {
     box.innerHTML = `<div class="muted tiny">Выберите предмет из инвентаря.</div>`;
     const btn = document.getElementById("shop-smith-enchant-btn");
     if (btn) btn.disabled = true;
-    const st = document.getElementById("shop-smith-stone-row");
-    if (st) st.style.display = "none";
+    const autoBtn = document.getElementById("shop-smith-auto-btn");
+    if (autoBtn) autoBtn.disabled = true;
+    syncSmithEnchantBadge(0, false);
     syncSmithProtectionStoneCheckbox(0);
     return;
   }
@@ -4835,6 +4022,11 @@ async function refreshSmithPreview() {
     const ar1 = tp.armor != null ? String(tp.armor) : "—";
     const sec1 = Number(tp.secondary ?? 0);
     const secStr = (x) => (x > 0 ? `+${(x * 100).toFixed(2)}%` : "—");
+    const passiveType = String(prev.passive_secondary_type || "").trim();
+    const fracType = String(prev.fraction_secondary_type || item?.secondary_fraction_type || "").trim();
+    const fracEff = Number(
+      prev.fraction_secondary_effective ?? item?.secondary_fraction_effective ?? prev.fraction_secondary_value ?? 0
+    );
 
     const chanceLine =
       ch == null
@@ -4842,8 +4034,6 @@ async function refreshSmithPreview() {
         : `<div class="shop-smith-risk">⚠️ Шанс успеха: <strong>${Math.round(Number(ch) * 100)}%</strong></div>
            <div class="muted tiny">${escapeHtml(String(prev.on_fail_hint || ""))}</div>`;
 
-    const stoneRow = document.getElementById("shop-smith-stone-row");
-    if (stoneRow) stoneRow.style.display = tgt >= 8 ? "" : "none";
     syncSmithProtectionStoneCheckbox(tgt);
 
     const statRows = [];
@@ -4856,24 +4046,59 @@ async function refreshSmithPreview() {
       statRows.push(`<div><span class="muted">Броня:</span> <strong>${escapeHtml(ar1)}</strong></div>`);
     }
     if (flags.showSecondary && sec1 > 0) {
+      const fracLabel = fracType ? secondaryBonusTitleRu(fracType) : "Вторичка (заточка)";
       statRows.push(
-        `<div><span class="muted">Вторичка:</span> <strong>${escapeHtml(secStr(sec1))}</strong></div>`
+        `<div><span class="muted">${escapeHtml(fracLabel)}:</span> <strong>${escapeHtml(secStr(sec1))}</strong></div>`
+      );
+    }
+    if (passiveType) {
+      const pv = Number(prev.passive_secondary_value ?? item?.secondary_bonus_value ?? 0);
+      if (pv > 0) {
+        statRows.push(
+          `<div><span class="muted">Пассив:</span> <strong>${escapeHtml(formatSecondaryBonusValueDisplay(passiveType, pv))}</strong> <span class="muted tiny">(не растёт от заточки)</span></div>`
+        );
+      }
+    }
+    if (prev.awaken_on_success) {
+      statRows.push(
+        `<div class="muted tiny" style="margin-top:6px;">При +1: случайная вторичка (крит / уклонение / …)</div>`
       );
     }
 
+    let noGainHint = "";
+    if (!statRows.length) {
+      const st = String(item?.slot_type || "").toLowerCase();
+      const secType = String(item?.secondary_bonus_type || passiveType || "").trim().toLowerCase();
+      if (secType.startsWith("passive_")) {
+        noGainHint =
+          '<div class="muted tiny" style="margin-top:8px;">Заточка не усиливает бонус к пассивному навыку — при +1 может пробудиться fraction-вторичка.</div>';
+      } else if (st.includes("ring") || st.includes("amulet")) {
+        noGainHint =
+          '<div class="muted tiny" style="margin-top:8px;">Нет fraction-вторички для роста от заточки. При +1 возможно пробуждение или используйте «Зачарование» за пыль.</div>';
+      } else {
+        noGainHint =
+          '<div class="muted tiny" style="margin-top:8px;">Заточка усилит урон или броню; fraction-вторичку можно добавить во вкладке «Зачарование».</div>';
+      }
+    } else if (fracType && fracEff <= 0 && flags.showSecondary) {
+      noGainHint =
+        '<div class="muted tiny" style="margin-top:8px;">Fraction-вторичка появится при успешной заточке +1 или через «Зачарование».</div>';
+    }
+
     box.innerHTML = `
-      <div class="shop-smith-block">
-        <div class="muted tiny">Текущий уровень: <strong>+${cur}</strong> → цель: <strong>+${tgt}</strong></div>
-        <div class="muted tiny" style="margin-top:6px;">Стоимость: <strong>🪙 ${escapeHtml(String(cost))}</strong></div>
-        ${chanceLine}
-        ${
-          statRows.length
-            ? `<div style="margin-top:8px;font-size:12px;line-height:1.45;">${statRows.join("")}</div>`
-            : ""
-        }
-      </div>`;
+      <div><span class="muted">Уровень:</span> <strong>+${cur}</strong> → <strong>+${tgt}</strong></div>
+      <div style="margin-top:6px;"><span class="muted">Стоимость:</span> <strong>🪙 ${escapeHtml(String(cost))}</strong></div>
+      ${chanceLine}
+      ${
+        statRows.length
+          ? `<div style="margin-top:8px;font-size:12px;">${statRows.join("")}</div>`
+          : noGainHint
+      }`;
+    syncSmithEnchantBadge(cur, cur > 0);
+    const broken = Boolean(item.is_broken);
     const btn = document.getElementById("shop-smith-enchant-btn");
-    if (btn) btn.disabled = cur >= 10;
+    if (btn) btn.disabled = cur >= 10 || broken;
+    const autoBtn = document.getElementById("shop-smith-auto-btn");
+    if (autoBtn) autoBtn.disabled = cur >= SMITH_SAFE_MAX || Boolean(prev.is_risky) || broken;
   } catch (e) {
     console.error(e);
     box.innerHTML = `<div class="muted tiny">Ошибка превью.</div>`;
@@ -4885,8 +4110,7 @@ async function smithTryEnchant() {
   const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
   if (!id) return;
   const useStone = Boolean(document.getElementById("shop-smith-use-stone")?.checked);
-  const btn = document.getElementById("shop-smith-enchant-btn");
-  if (btn) btn.disabled = true;
+  setSmithSharpenControlsDisabled(true);
   try {
     const res = await apiFetch(`/inventory/${id}/enchant`, {
       method: "POST",
@@ -4919,6 +4143,13 @@ async function smithTryEnchant() {
       const stoneCb = document.getElementById("shop-smith-use-stone");
       if (stoneCb) stoneCb.checked = false;
     }
+    if (res?.awaken?.secondary_fraction_type) {
+      const aw = res.awaken;
+      showToast(
+        `Пробуждение: ${secondaryBonusTitleRu(aw.secondary_fraction_type)} +${(Number(aw.secondary_fraction_value || 0) * 100).toFixed(2)}%`,
+        "success"
+      );
+    }
     const pr = await loadProfile().catch(() => null);
     updateSmithMetaFromProfile(pr);
     const it = shopState.smithItems?.find((x) => x.id === id);
@@ -4926,6 +4157,7 @@ async function smithTryEnchant() {
       it.enchant_level = nl;
       if (br) it.is_broken = true;
     }
+    syncSmithEnchantBadge(nl, nl != null && Number(nl) > 0);
     updateSmithSelectionUI();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -4936,8 +4168,170 @@ async function smithTryEnchant() {
     }
     showToast(detail || e?.message || "Ошибка заточки", "error");
   } finally {
-    if (btn) btn.disabled = false;
+    const stoneCb = document.getElementById("shop-smith-use-stone");
+    if (stoneCb) stoneCb.disabled = false;
     await refreshSmithPreview().catch(() => {});
+  }
+}
+
+async function smithAutoSafeEnchant() {
+  const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
+  if (!id) return;
+  const item = shopState.smithItems?.find((x) => x.id === id);
+  if (item?.is_broken) {
+    showToast("Предмет сломан", "error");
+    return;
+  }
+  setSmithSharpenControlsDisabled(true);
+  try {
+    for (let step = 0; step < SMITH_SAFE_MAX; step += 1) {
+      const prev = await apiFetch(`/inventory/${id}/enchant-preview`);
+      if (prev?.error) {
+        showToast(String(prev.error), "error");
+        break;
+      }
+      const cur = Number(prev.current_level ?? 0);
+      const tgt = Number(prev.target_level ?? cur + 1);
+      if (prev.is_risky || tgt >= 8) break;
+      if (cur >= SMITH_SAFE_MAX) break;
+
+      const res = await apiFetch(`/inventory/${id}/enchant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ use_protection_stone: false }),
+      });
+      if (res?.error) {
+        showToast(String(res.error), "error");
+        break;
+      }
+      if (res?.removed) {
+        showToast("Предмет уничтожен при заточке", "error");
+        shopState.smithSelectedId = null;
+        shopState.smithItems = (shopState.smithItems || []).filter((x) => x.id !== id);
+        break;
+      }
+      const nl = res?.new_level;
+      const it = shopState.smithItems?.find((x) => x.id === id);
+      if (it && nl != null) {
+        it.enchant_level = nl;
+        if (res?.broken) it.is_broken = true;
+      }
+      syncSmithEnchantBadge(nl, nl != null && Number(nl) > 0);
+      if (res?.broken) {
+        showToast("Предмет сломан…", "error");
+        break;
+      }
+      if (!res?.success) {
+        showToast(`Неудача. Новый уровень: +${nl}`, "error");
+        break;
+      }
+      if (res?.awaken?.secondary_fraction_type) {
+        const aw = res.awaken;
+        showToast(
+          `Пробуждение: ${secondaryBonusTitleRu(aw.secondary_fraction_type)} +${(Number(aw.secondary_fraction_value || 0) * 100).toFixed(2)}%`,
+          "success"
+        );
+      }
+      if (Number(nl) >= SMITH_SAFE_MAX) break;
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || e?.message || "Ошибка автозаточки", "error");
+  } finally {
+    const stoneCb = document.getElementById("shop-smith-use-stone");
+    if (stoneCb) stoneCb.disabled = false;
+    const pr = await loadProfile().catch(() => null);
+    updateSmithMetaFromProfile(pr);
+    updateSmithSelectionUI();
+    await refreshSmithPreview().catch(() => {});
+  }
+}
+
+async function refreshSmithCraftPreview() {
+  const box = document.getElementById("shop-smith-craft-preview");
+  if (!box) return;
+  const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
+  const addBtn = document.getElementById("shop-smith-craft-add");
+  const rerollBtn = document.getElementById("shop-smith-craft-reroll");
+  const upBtn = document.getElementById("shop-smith-craft-upgrade");
+  if (!id) {
+    box.innerHTML = `<div class="muted tiny">Выберите предмет из инвентаря.</div>`;
+    if (addBtn) addBtn.disabled = true;
+    if (rerollBtn) rerollBtn.disabled = true;
+    if (upBtn) upBtn.disabled = true;
+    return;
+  }
+  try {
+    const prev = await apiFetch(`/inventory/${id}/craft-enchant-preview`);
+    const ft = String(prev?.secondary_fraction_type || "").trim();
+    const fv = Number(prev?.secondary_fraction_value ?? 0);
+    const cap = Number(prev?.fraction_cap ?? 0);
+    const costs = prev?.costs || {};
+    const fracLine =
+      ft && fv > 0
+        ? `<div><span class="muted">Вторичка:</span> <strong>${escapeHtml(secondaryBonusTitleRu(ft))} ${escapeHtml(formatSecondaryBonusValueDisplay(ft, fv))}</strong></div>`
+        : `<div class="muted tiny">Вторичного бонуса пока нет.</div>`;
+    box.innerHTML = `
+      ${fracLine}
+      ${cap > 0 ? `<div class="muted tiny">Максимум для tier: ${(cap * 100).toFixed(2)}%</div>` : ""}`;
+    if (addBtn) {
+      addBtn.disabled = costs.add == null;
+      addBtn.title = "Случайная вторичка, если её ещё нет";
+      addBtn.innerHTML =
+        costs.add != null
+          ? `Выдать бонус<span class="shop-smith-craft-btn-cost">✨ ${costs.add}</span>`
+          : "Выдать бонус";
+    }
+    if (rerollBtn) {
+      rerollBtn.disabled = costs.reroll == null;
+      rerollBtn.title = "Другой тип и сила вторички";
+      rerollBtn.innerHTML =
+        costs.reroll != null
+          ? `Сменить бонус<span class="shop-smith-craft-btn-cost">✨ ${costs.reroll}</span>`
+          : "Сменить бонус";
+    }
+    if (upBtn) {
+      upBtn.disabled = costs.upgrade == null;
+      upBtn.title = "+шаг к текущей вторичке";
+      upBtn.innerHTML =
+        costs.upgrade != null
+          ? `Усилить бонус<span class="shop-smith-craft-btn-cost">✨ ${costs.upgrade}</span>`
+          : "Усилить бонус";
+    }
+  } catch (e) {
+    console.error(e);
+    box.innerHTML = `<div class="muted tiny">Ошибка превью зачарования.</div>`;
+  }
+}
+
+async function smithTryCraftEnchant(operation) {
+  const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
+  if (!id) return;
+  try {
+    const res = await apiFetch(`/inventory/${id}/craft-enchant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ operation, target: "fraction" }),
+    });
+    if (res?.error) {
+      showToast(String(res.error), "error");
+      return;
+    }
+    showToast("Зачарование выполнено", "success");
+    const it = shopState.smithItems?.find((x) => x.id === id);
+    if (it) {
+      it.secondary_fraction_type = res.secondary_fraction_type;
+      it.secondary_fraction_value = res.secondary_fraction_value;
+      it.enchant_sec_step = res.enchant_sec_step;
+    }
+    await loadProfile().catch(() => null);
+    await refreshSmithCraftPreview();
+    if (shopState.smithSubTab !== "craft") {
+      await refreshSmithPreview().catch(() => {});
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || e?.message || "Ошибка зачарования", "error");
   }
 }
 
@@ -4964,1035 +4358,8 @@ function switchProfileTab(name) {
   document.querySelectorAll("main .tab-panel").forEach((panel) => {
     if (panel.id?.startsWith("tab-")) panel.classList.toggle("active", panel.id === `tab-${name}`);
   });
-}
-
-let gdSessionRefreshTimer = null;
-
-function getGdChatIdFromUrl() {
-  const params = new URLSearchParams(window.location.search);
-  const chatId = params.get("chat_id");
-  if (chatId === null || chatId === "") return null;
-  const n = Number(chatId);
-  return Number.isFinite(n) ? n : null;
-}
-
-function formatDuration(seconds) {
-  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-async function loadActiveGdDungeons() {
-  const container = document.getElementById("gd-dungeons-list");
-  if (!container) return;
-  try {
-    const data = await apiFetch("/gd/dungeons/active");
-    const dungeons = data?.dungeons || [];
-    renderGdDungeonsList(container, dungeons);
-  } catch (e) {
-    console.error("loadActiveGdDungeons:", e);
-    container.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">🏰</div>
-        <h3>Ошибка загрузки</h3>
-        <p>Не удалось загрузить список подземелий.</p>
-      </div>`;
-  }
-}
-
-function renderGdDungeonsList(container, dungeons) {
-  container.innerHTML = "";
-  if (dungeons.length === 0) {
-    container.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">🏰</div>
-        <h3>Нет активных подземелий</h3>
-        <p>Присоединяйтесь к групповому чату и запишитесь в поход командой /gd_join</p>
-      </div>`;
-    return;
-  }
-  dungeons.forEach((dungeon) => {
-    const card = createGdDungeonCard(dungeon);
-    container.appendChild(card);
-  });
-}
-
-function gdV1WaveLabelRu(wave) {
-  const m = {
-    trash: "обычные враги",
-    boss: "босс",
-    done: "завершено",
-    pending_init: "ожидание боя",
-  };
-  if (wave == null || wave === "") return "—";
-  return m[wave] || String(wave);
-}
-
-/** Короткая метка на карточке: для active — номер сбора действий (collecting_for_round). */
-function gdV1StageBadge(dungeon) {
-  if (!dungeon.v1) {
-    return `${dungeon.stage || 1}/4`;
-  }
-  if (dungeon.cycle_status === "registration") {
-    return "регистрация";
-  }
-  const m = Number(dungeon.collecting_for_round);
-  return Number.isFinite(m) && m > 0 ? `сбор №${m}` : "поход";
-}
-
-function createGdDungeonCard(dungeon) {
-  const hpBarWidth = `${Math.max(0, Math.min(100, dungeon.hp_percent || 0))}%`;
-  const card = document.createElement("div");
-  card.className = "dungeon-card gd-dungeon-card";
-  card.dataset.dungeonId = dungeon.id;
-  const stageRight = dungeon.v1 ? gdV1StageBadge(dungeon) : `${dungeon.stage || 1}/4`;
-  const roundsStat = dungeon.v1
-    ? `🎯 раундов с вкладом: ${Number(dungeon.contrib_rounds || 0).toLocaleString()}`
-    : `Этап ${dungeon.joined_at_stage || 1}`;
-  card.innerHTML = `
-    <div class="dungeon-header">
-      <span class="dungeon-name">${escapeHtml(dungeon.dungeon_name || "—")}</span>
-      <span class="dungeon-stage">${escapeHtml(stageRight)}</span>
-    </div>
-    <div class="dungeon-monster">
-      <span class="monster-name">${escapeHtml(dungeon.monster_name || "—")}</span>
-      <div class="hp-bar">
-        <div class="hp-fill" style="width: ${hpBarWidth}"></div>
-      </div>
-      <div class="hp-text">${Number(dungeon.hp_current || 0).toLocaleString()} / ${Number(dungeon.hp_max || 0).toLocaleString()}</div>
-    </div>
-    <div class="dungeon-stats">
-      <span class="stat">⚔️ ${Number(dungeon.total_damage || 0).toLocaleString()} (текст+навыки)</span>
-      <span class="stat">👥 ${escapeHtml(roundsStat)}</span>
-    </div>`;
-  card.addEventListener("click", () => openDungeonDetails(dungeon));
-  return card;
-}
-
-function escapeHtml(s) {
-  const div = document.createElement("div");
-  div.textContent = s;
-  return div.innerHTML;
-}
-
-function renderStageProgress(currentStage) {
-  let html = "";
-  for (let i = 1; i <= 4; i++) {
-    const status = i < currentStage ? "completed" : i === currentStage ? "active" : "pending";
-    html += `<div class="stage-dot ${status}">${i}</div>`;
-  }
-  return html;
-}
-
-function renderDungeonDetails(dungeon) {
-  const effects = dungeon.active_effects?.length
-    ? dungeon.active_effects.map((e) => `<div class="effect-badge">${escapeHtml(e.name || "")} (+${e.value || 0}%)</div>`).join("")
-    : '<div class="no-effects">Нет активных эффектов</div>';
-  const lastRec = Number(dungeon.stage) || 0;
-  const collecting = Number(dungeon.collecting_for_round) || 1;
-  const deadlineStr = dungeon.round_deadline_at
-    ? new Date(dungeon.round_deadline_at).toLocaleString()
-    : "—";
-  const stageSection = dungeon.v1
-    ? `<div class="details-section">
-        <h3>Поход GD v1</h3>
-        <p class="muted tiny">${escapeHtml(
-          dungeon.cycle_status === "registration" ? "Регистрация открыта" : "Поход идёт"
-        )} · на карточке: ${escapeHtml(gdV1StageBadge(dungeon))}</p>
-        ${
-          dungeon.cycle_status === "active"
-            ? `<p class="muted tiny">Последний записанный в журнале раунд: <strong>${lastRec}</strong></p>
-        <p class="muted tiny">Сбор действий в чате на раунд: <strong>${collecting}</strong></p>
-        <p class="muted tiny">Волна: ${escapeHtml(gdV1WaveLabelRu(dungeon.wave))}</p>
-        <p class="muted tiny">Дедлайн сбора раунда: ${escapeHtml(deadlineStr)}</p>`
-            : ""
-        }
-      </div>`
-    : `<div class="details-section">
-        <h3>Текущий этап</h3>
-        <div class="stage-progress">${renderStageProgress(dungeon.stage || 1)}</div>
-      </div>`;
-  const effectsSection =
-    dungeon.v1 && (!dungeon.active_effects || dungeon.active_effects.length === 0)
-      ? ""
-      : `<div class="details-section">
-        <h3>Активные эффекты</h3>
-        <div class="effects-list">${effects}</div>
-      </div>`;
-  return `
-    <div class="dungeon-details">
-      <h2>${escapeHtml(dungeon.dungeon_name || "—")}</h2>
-      ${stageSection}
-      <div class="details-section">
-        <h3>Противник</h3>
-        <div class="monster-details">
-          <div class="monster-info">
-            <span class="monster-name">${escapeHtml(dungeon.monster_name || "—")}</span>
-            <div class="hp-bar-large">
-              <div class="hp-fill" style="width: ${dungeon.hp_percent || 0}%"></div>
-            </div>
-            <div class="hp-stats">
-              <span>${Number(dungeon.hp_current || 0).toLocaleString()} / ${Number(dungeon.hp_max || 0).toLocaleString()} HP</span>
-              <span>~${Math.round(Number(dungeon.hp_percent) || 0)}% здоровья</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="details-section">
-        <h3>Ваш вклад</h3>
-        <div class="contribution-stats">
-          <div class="stat-row">
-            <span>⚔️ Условный урон (текст + навыки):</span>
-            <span>${Number(dungeon.total_damage || 0).toLocaleString()}</span>
-          </div>
-          <div class="stat-row">
-            <span>${dungeon.v1 ? "🎯 Раундов с вашим вкладом:" : "👥 Присоединились на этапе:"}</span>
-            <span>${
-              dungeon.v1
-                ? `${Number(dungeon.contrib_rounds || 0).toLocaleString()}`
-                : `${dungeon.joined_at_stage || 1}/4`
-            }</span>
-          </div>
-          <div class="stat-row">
-            <span>⏱️ Время в подземелье:</span>
-            <span>${formatDuration(dungeon.duration_seconds || 0)}</span>
-          </div>
-        </div>
-      </div>
-      ${effectsSection}
-      ${
-        dungeon.v1 && dungeon.id
-          ? `<div class="details-section gd-battle-log-wrap">
-        <h3>Полный лог боя</h3>
-        <p class="muted tiny">Действия отряда и монстров по инициативе (если ИИ дал короткий текст — детали здесь).</p>
-        <div class="gd-battle-log-status muted">Загрузка…</div>
-        <div class="gd-battle-log-body" style="display:none" aria-live="polite"></div>
-      </div>`
-          : ""
-      }
-      <div class="modal-actions">
-        <button type="button" class="btn-primary gd-open-chat" data-chat-id="${dungeon.chat_id || ""}">Перейти в чат</button>
-      </div>
-    </div>`;
-}
-
-async function loadGdBattleLog(modalEl, cycleId) {
-  const status = modalEl.querySelector(".gd-battle-log-status");
-  const body = modalEl.querySelector(".gd-battle-log-body");
-  if (!status || !body) return;
-  try {
-    const data = await apiFetch(`/gd/cycles/${cycleId}/battle-log`);
-    const rounds = Array.isArray(data?.rounds) ? data.rounds : [];
-    if (rounds.length === 0) {
-      status.textContent = "В журнале пока нет завершённых раундов.";
-      return;
-    }
-    const maxRn = Math.max(...rounds.map((r) => Number(r.round_number) || 0));
-    status.style.display = "none";
-    body.style.display = "block";
-    body.innerHTML = rounds
-      .map((r) => {
-        const rn = Number(r.round_number) || 0;
-        const outcome = escapeHtml(r.round_outcome || "—");
-        const narr = (r.ai_narrative || "").trim();
-        const narrHtml = narr ? escapeHtml(narr) : "—";
-        const lines = Array.isArray(r.lines) ? r.lines : [];
-        const linesHtml =
-          lines.length > 0
-            ? `<ul class="gd-battle-log-lines">${lines.map((l) => `<li>${escapeHtml(l)}</li>`).join("")}</ul>`
-            : '<p class="muted tiny">Нет строк журнала для этого раунда.</p>';
-        const openAttr = rn === maxRn ? " open" : "";
-        return `<details class="gd-battle-round"${openAttr}><summary>Раунд ${rn} · ${outcome}</summary><p class="gd-battle-narrative"><span class="muted tiny">ИИ:</span> ${narrHtml}</p>${linesHtml}</details>`;
-      })
-      .join("");
-  } catch (e) {
-    console.error("loadGdBattleLog", e);
-    status.textContent = "Не удалось загрузить лог боя.";
-  }
-}
-
-function openDungeonDetails(dungeon) {
-  const modal = document.createElement("div");
-  modal.className = "modal-overlay gd-modal-overlay";
-  modal.innerHTML = `
-    <div class="modal-content gd-modal-content">
-      <button type="button" class="modal-close" aria-label="Закрыть">&times;</button>
-      ${renderDungeonDetails(dungeon)}
-    </div>`;
-  document.body.appendChild(modal);
-  modal.addEventListener("click", (e) => {
-    if (e.target === modal) closeGdModal(modal);
-  });
-  modal.querySelector(".modal-close").addEventListener("click", () => closeGdModal(modal));
-  const openChatBtn = modal.querySelector(".gd-open-chat");
-  if (dungeon.v1 && dungeon.id) {
-    loadGdBattleLog(modal, dungeon.id);
-  }
-  if (openChatBtn && dungeon.chat_id) {
-    openChatBtn.addEventListener("click", () => {
-      const url = `https://t.me/c/${String(dungeon.chat_id).replace(/^-100/, "")}`;
-      // В WebApp открываем ссылку внутри Telegram (без внешнего браузера); WebApp при этом может свернуться — это поведение клиента
-      if (tg && typeof tg.openTelegramLink === "function") {
-        tg.openTelegramLink(url);
-      } else {
-        window.open(url, "_blank");
-      }
-    });
-  }
-}
-
-function closeGdModal(modal) {
-  if (!modal) return;
-  modal.classList.add("closing");
-  setTimeout(() => modal.remove(), 300);
-}
-
-async function updateGdSessionUI() {
-  const chatId = getGdChatIdFromUrl();
-  const card = document.getElementById("gd-session-status");
-  const infoBlock = document.querySelector("#tab-group .gd-info");
-  if (!card) return;
-  if (chatId === null) {
-    card.style.display = "none";
-    if (infoBlock) infoBlock.style.display = "";
-    return;
-  }
-  try {
-    const v1 = await apiFetch(`/gd/cycle/${chatId}`).catch(() => ({ v1: false }));
-    if (v1 && v1.v1) {
-      if (infoBlock) infoBlock.style.display = "none";
-      card.style.display = "";
-      const st = v1.status === "registration" ? "Регистрация" : "Поход идёт";
-      const closes = v1.registration_closes
-        ? new Date(v1.registration_closes).toLocaleString()
-        : "—";
-      const title = escapeHtml(v1.dungeon_name || "Групповой поход GD v1");
-      const lastR = Number(v1.current_round) || 0;
-      const coll = Number(v1.collecting_for_round) || 1;
-      const deadline =
-        v1.round_deadline_at && v1.status === "active"
-          ? new Date(v1.round_deadline_at).toLocaleString()
-          : null;
-      const hpPct = Math.max(0, Math.min(100, Number(v1.hp_percent) || 0));
-      const waveLine =
-        v1.status === "active"
-          ? `<div class="muted tiny">Волна: ${escapeHtml(gdV1WaveLabelRu(v1.wave))}</div>`
-          : "";
-      const deadlineLine =
-        deadline != null
-          ? `<div class="muted tiny">Дедлайн сбора раунда: ${escapeHtml(deadline)}</div>`
-          : "";
-      const hpBlock =
-        v1.status === "active"
-          ? `<div class="gd-session-monster" style="margin-top:8px;">
-          <span id="gd-session-monster-name">${escapeHtml(v1.monster_name || "—")}</span>
-          <span id="gd-session-hp">${Number(v1.hp_current || 0).toLocaleString()} / ${Number(v1.hp_max || 0).toLocaleString()}</span>
-        </div>
-        <div class="gd-session-hp-bar"><div id="gd-session-hp-fill" class="gd-hp-fill" style="width:${hpPct}%"></div></div>`
-          : "";
-      card.innerHTML = `
-        <h3 class="gd-session-title" id="gd-session-dungeon-name">${title}</h3>
-        <div class="muted tiny" style="margin:6px 0;">${escapeHtml(st)}</div>
-        <div class="muted tiny">Регистрация до: ${escapeHtml(closes)}</div>
-        ${
-          v1.status === "active"
-            ? `<div class="muted tiny" style="margin-top:6px;">В журнале записан раунд: <strong>${lastR}</strong> · сбор на раунд: <strong>${coll}</strong></div>
-        ${waveLine}
-        ${deadlineLine}
-        ${hpBlock}`
-            : ""
-        }
-        <p class="muted tiny" style="margin-top:8px;">Команда в чате: <code>/gd_join</code>. Сообщения в чат попадают в буфер текущего раунда; закрытие по таймеру (~30 мин) или админ-команде.</p>
-      `;
-      return;
-    }
-    card.style.display = "none";
-    if (infoBlock) infoBlock.style.display = "";
-  } catch {
-    card.style.display = "none";
-    if (infoBlock) infoBlock.style.display = "";
-  }
-}
-
-function showExpeditionError(msg, tone = "danger") {
-  const box = document.getElementById("expedition-error");
-  if (!box) return;
-  if (!msg) {
-    box.style.display = "none";
-    box.textContent = "";
-    return;
-  }
-  box.classList.remove("success", "warning", "danger");
-  if (tone) box.classList.add(tone);
-  box.textContent = String(msg);
-  box.style.display = "block";
-}
-
-async function loadExpeditionTab() {
-  showExpeditionError("");
-  try {
-    const [slotsRes, activeRes, rosterRes] = await Promise.all([
-      apiFetch("/expeditions/daily-slots").catch(() => apiFetch("/expeditions/slots")),
-      apiFetch("/expeditions/active"),
-      apiFetch("/expeditions/roster").catch(() => ({ waifus: [] })),
-    ]);
-    expeditionState.slots = Array.isArray(slotsRes?.slots) ? slotsRes.slots : [];
-    expeditionState.active = Array.isArray(activeRes?.active) ? activeRes.active : [];
-    expeditionState.roster = Array.isArray(rosterRes?.waifus) ? rosterRes.waifus : [];
-    expeditionState.refreshAt = slotsRes?.refresh_at || null;
-    expeditionUiCache.activeById = {};
-    expeditionUiCache.dailyById = {};
-    (expeditionState.active || []).forEach((a) => {
-      expeditionUiCache.activeById[a.id] = a;
-    });
-    (expeditionState.slots || []).forEach((s) => {
-      expeditionUiCache.dailyById[s.id] = s;
-    });
-    renderExpeditionGrids();
-    updateExpeditionRefreshLabel();
-    wireExpeditionTabTimers();
-    refreshAtticChips();
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showExpeditionError(detail || "Ошибка загрузки экспедиций");
-  }
-}
-
-function formatExpeditionTime(seconds) {
-  if (seconds == null || seconds <= 0) return "—";
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-function biomeBg(tag) {
-  const t = String(tag || "")
-    .toLowerCase()
-    .trim();
-  const map = {
-    cave: "linear-gradient(135deg,#1a0d2e,#0d0819)",
-    forest: "linear-gradient(135deg,#0d2e1a,#081908)",
-    ruins: "linear-gradient(135deg,#2e1a0d,#190d08)",
-    swamp: "linear-gradient(135deg,#0d2e12,#081208)",
-    temple: "linear-gradient(135deg,#1a0d2e,#0d0819)",
-    dark_temple: "linear-gradient(135deg,#1a0d2e,#12081a)",
-    fortress: "linear-gradient(135deg,#2e1a0d,#120804)",
-    crypt: "linear-gradient(135deg,#0d0d12,#050508)",
-    desert: "linear-gradient(135deg,#2e220d,#190f04)",
-    volcano: "linear-gradient(135deg,#2e0d0d,#190808)",
-    abyss: "linear-gradient(135deg,#0d0518,#020008)",
-    sky: "linear-gradient(135deg,#0d1a2e,#081018)",
-    sea_depth: "linear-gradient(135deg,#0d1e2e,#081318)",
-    tundra: "linear-gradient(135deg,#1a252e,#0d1418)",
-  };
-  return map[t] || "linear-gradient(135deg,#1a1008,#0d0808)";
-}
-
-function expeditionAffixChipsHtml(affixes, affixLevel, withLevelOnFirst) {
-  const roman =
-    affixLevel >= 1 && affixLevel <= 5 ? ["I", "II", "III", "IV", "V"][affixLevel - 1] : "";
-  return (affixes || [])
-    .map((a, i) => {
-      const cat = String(a.category || "enemy")
-        .toLowerCase()
-        .replace(/[^a-z]/g, "") || "enemy";
-      const label =
-        withLevelOnFirst && roman && i === 0
-          ? `${a.icon || "✦"} ${a.name} ${roman}`
-          : `${a.icon || "✦"} ${a.name}`;
-      return `<span class="exp-aff-chip exp-cat-${cat}">${label}</span>`;
-    })
-    .join("");
-}
-
-function renderExpeditionGrids() {
-  const activeSection = document.getElementById("exp-active-section");
-  const activeGrid = document.getElementById("exp-active-grid");
-  const dailyGrid = document.getElementById("exp-daily-grid");
-  if (!activeGrid || !dailyGrid) return;
-
-  const actives = expeditionState.active || [];
-  if (activeSection) {
-    if (actives.length) {
-      activeSection.style.display = "";
-      activeGrid.innerHTML = actives
-        .map((a) => {
-          const name = escapeHtml(a.base_location || a.expedition_name || "—");
-          const affixIcos = (a.affixes || [])
-            .slice(0, 4)
-            .map((x) => `<div class="exp-affix-ico">${x.icon || "✦"}</div>`)
-            .join("");
-          const prog = a.progress_pct != null ? Math.min(100, Number(a.progress_pct)) : 0;
-          const sec = a.seconds_left != null ? a.seconds_left : 0;
-          const timeStr = a.can_claim ? "—" : formatExpeditionTime(sec);
-          const emoji = a.biome_emoji || "🗺";
-          const bg = biomeBg(a.biome_tag);
-          return `<div class="exp-card-item exp-is-active" data-exp-kind="active" data-exp-id="${a.id}">
-            <div class="exp-card-img" style="background:${bg}">
-              <div class="exp-card-emoji">${emoji}</div>
-              <div class="exp-card-affix-icons">${affixIcos}</div>
-              <div class="exp-card-name">${name}</div>
-            </div>
-            <div class="exp-card-progbar"><div class="exp-card-progfill" style="width:${prog}%"></div></div>
-            <div class="exp-card-foot"><span class="exp-foot-active">● В пути</span><span class="exp-foot-timer">${timeStr}</span></div>
-          </div>`;
-        })
-        .join("");
-    } else {
-      activeSection.style.display = "none";
-      activeGrid.innerHTML = "";
-    }
-  }
-
-  const slots = expeditionState.slots || [];
-  if (!slots.length) {
-    dailyGrid.innerHTML = '<div class="placeholder muted tiny">Нет доступных экспедиций</div>';
-  } else {
-    dailyGrid.innerHTML = slots
-      .map((s) => {
-        const used = Boolean(s.is_used);
-        const name = escapeHtml(s.base_location || s.name || "—");
-        const affixIcos = (s.affixes || [])
-          .slice(0, 4)
-          .map((x) => `<div class="exp-affix-ico">${x.icon || "✦"}</div>`)
-          .join("");
-        const emoji = s.biome_emoji || "🗺";
-        const bg = biomeBg(s.biome_tag);
-        const cls = used ? " exp-card-used" : "";
-        const foot = used
-          ? `<div class="exp-card-foot"><span class="exp-foot-muted">● Отправлена</span></div>`
-          : `<div class="exp-card-foot"><span class="exp-foot-ready">● Доступна</span></div>`;
-        return `<div class="exp-card-item${cls}" data-exp-kind="daily" data-exp-id="${s.id}" data-exp-used="${used ? "1" : "0"}">
-            <div class="exp-card-img" style="background:${bg}">
-              <div class="exp-card-emoji">${emoji}</div>
-              <div class="exp-card-affix-icons">${affixIcos}</div>
-              <div class="exp-card-name">${name}</div>
-            </div>
-            ${foot}
-          </div>`;
-      })
-      .join("");
-  }
-
-  document.querySelectorAll("#exp-active-grid [data-exp-kind], #exp-daily-grid [data-exp-kind]").forEach((el) => {
-    el.addEventListener("click", () => {
-      const kind = el.getAttribute("data-exp-kind");
-      const id = Number(el.getAttribute("data-exp-id"));
-      if (kind === "daily" && el.getAttribute("data-exp-used") === "1") return;
-      expOpenCard(kind, id);
-    });
-  });
-}
-
-let expeditionTimerId = null;
-let expActiveModalTimer = null;
-
-function wireExpeditionTabTimers() {
-  const hasRunning = (expeditionState.active || []).some((a) => !a.can_claim);
-  if (hasRunning && !expeditionTimerId) {
-    expeditionTimerId = setInterval(() => {
-      if (document.getElementById("tab-expedition")?.style.display !== "none") {
-        loadExpeditionTab().catch(() => {});
-      }
-    }, 15000);
-  } else if (!hasRunning && expeditionTimerId) {
-    clearInterval(expeditionTimerId);
-    expeditionTimerId = null;
-  }
-}
-
-function updateExpeditionRefreshLabel() {
-  const el = document.getElementById("exp-daily-refresh-label");
-  if (!el || !expeditionState.refreshAt) {
-    if (el) el.textContent = "Обновляются в 00:00 МСК";
-    return;
-  }
-  const end = new Date(expeditionState.refreshAt).getTime();
-  const fmt = () => {
-    const sec = Math.max(0, Math.floor((end - Date.now()) / 1000));
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    el.textContent = `Обновляются в 00:00 МСК — осталось ${h}ч ${m}м`;
-  };
-  fmt();
-}
-
-function expG(id) {
-  return document.getElementById(id);
-}
-
-function expOpenOverlay(id) {
-  const el = expG(id);
-  if (el) {
-    el.style.display = "flex";
-    el.classList.add("exp-open");
-  }
-}
-
-function expCloseOverlay(id) {
-  const el = expG(id);
-  if (el) {
-    el.style.display = "none";
-    el.classList.remove("exp-open");
-  }
-}
-
-function expOpenCard(kind, id) {
-  if (kind === "active") {
-    const raw = expeditionUiCache.activeById[id];
-    if (raw) openActiveExpModal(raw);
-  } else {
-    const slot = expeditionUiCache.dailyById[id];
-    if (slot) openSendExpModal(slot);
-  }
-}
-
-function openActiveExpModal(raw) {
-  expeditionUiCache._activeRaw = raw;
-  expG("eam-title").textContent = raw.base_location || raw.expedition_name || "—";
-  const affHtml = expeditionAffixChipsHtml(raw.affixes || [], raw.affix_level, true);
-  expG("eam-affixes").innerHTML = affHtml;
-  const bg = biomeBg(raw.biome_tag);
-  const img = expG("eam-img");
-  const emo = expG("eam-emoji");
-  if (img) img.style.background = bg;
-  if (emo) emo.textContent = raw.biome_emoji || "🗺";
-
-  tickActiveModal();
-  if (expActiveModalTimer) clearInterval(expActiveModalTimer);
-  expActiveModalTimer = setInterval(tickActiveModal, 1000);
-
-  const squad = raw.squad_snapshot || [];
-  expG("eam-squad").innerHTML = squad.map(expeditionActiveUnitRow).join("");
-
-  window._activeExpId = raw.id;
-  const claimBtn = expG("eam-claim-btn");
-  const abortBtn = expG("eam-abort-btn");
-  if (claimBtn) {
-    claimBtn.onclick = () => {
-      closeActiveExpModal();
-      openExpeditionResult(raw.id);
-    };
-  }
-  if (claimBtn && abortBtn) {
-    const canClaim = Boolean(raw.can_claim);
-    claimBtn.style.display = canClaim ? "block" : "none";
-    abortBtn.style.display = canClaim ? "none" : "";
-  }
-  expOpenOverlay("exp-active-modal");
-}
-
-function expeditionActiveUnitRow(u) {
-  const pct = u.hp_max > 0 ? Math.round((u.hp_current / u.hp_max) * 100) : 0;
-  const color = pct > 50 ? "#4ade80" : pct > 25 ? "#fbbf24" : "#f87171";
-  const sub = [u.unit_class, u.race].filter(Boolean).join(" · ");
-  const warn = pct <= 25 ? '<span style="color:#f87171;font-size:9px"> ⚠ Лечение</span>' : "";
-  return `<div class="exp-unit-row">
-    <div class="exp-unit-ico">${u.icon || "⚔️"}</div>
-    <div class="exp-unit-inf">
-      <div class="exp-unit-name">${escapeHtml(u.name || "—")}</div>
-      <div class="exp-unit-sub">${escapeHtml(sub)}${warn}</div>
-    </div>
-    <div style="text-align:right;flex-shrink:0">
-      <div style="font-size:10px;color:${color};font-weight:700;margin-bottom:3px">${u.hp_current}/${u.hp_max}</div>
-      <div class="exp-unit-hpbar"><div class="exp-unit-hpfill" style="width:${pct}%;background:${color}"></div></div>
-    </div>
-  </div>`;
-}
-
-function tickActiveModal() {
-  const raw = expeditionUiCache._activeRaw;
-  if (!raw) return;
-  const endMs = new Date(raw.ends_at).getTime();
-  const sec = Math.max(0, Math.floor((endMs - Date.now()) / 1000));
-  const canClaim = Date.now() >= endMs;
-  const tEl = expG("eam-timer");
-  if (tEl) tEl.textContent = canClaim ? "Готово" : formatExpeditionTime(sec);
-  const prog = raw.progress_pct != null ? Math.min(100, Number(raw.progress_pct)) : 0;
-  const pTxt = expG("eam-prog-txt");
-  const pFill = expG("eam-prog-fill");
-  if (pTxt) pTxt.textContent = prog + "%";
-  if (pFill) pFill.style.width = prog + "%";
-  const ev = expG("eam-events");
-  if (ev) ev.textContent = `${raw.events_done ?? 0} / ${raw.events_total ?? 0}`;
-  const claimBtn = expG("eam-claim-btn");
-  const abortBtn = expG("eam-abort-btn");
-  if (claimBtn && abortBtn) {
-    claimBtn.style.display = canClaim ? "block" : "none";
-    abortBtn.style.display = canClaim ? "none" : "";
-  }
-}
-
-function closeActiveExpModal() {
-  if (expActiveModalTimer) {
-    clearInterval(expActiveModalTimer);
-    expActiveModalTimer = null;
-  }
-  expeditionUiCache._activeRaw = null;
-  expCloseOverlay("exp-active-modal");
-}
-
-function openSendExpModal(slot) {
-  expeditionSend.slotId = slot.id;
-  expeditionSend.diffVal = 1;
-  expeditionSend.durVal = 30;
-  expeditionSend.squadSlots = [null, null, null];
-  expG("esm-title").textContent = slot.base_location || slot.name || "—";
-  expG("esm-affixes").innerHTML = expeditionAffixChipsHtml(slot.affixes || [], null, false);
-  const bg = biomeBg(slot.biome_tag);
-  const img = expG("esm-img");
-  const emo = expG("esm-emoji");
-  if (img) img.style.background = bg;
-  if (emo) emo.textContent = slot.biome_emoji || "🗺";
-
-  expG("esm-diff-row").querySelectorAll(".exp-opt-btn").forEach((b, i) => b.classList.toggle("active", i === 0));
-  expG("esm-dur-row").querySelectorAll(".exp-opt-btn").forEach((b, i) => b.classList.toggle("active", i === 0));
-  renderExpeditionSquadSlots();
-  expOpenOverlay("exp-send-modal");
-}
-
-function closeSendExpModal() {
-  expCloseOverlay("exp-send-modal");
-}
-
-function expSelDiff(val, btn) {
-  expeditionSend.diffVal = val;
-  expG("esm-diff-row").querySelectorAll(".exp-opt-btn").forEach((b) => b.classList.remove("active"));
-  btn.classList.add("active");
-}
-
-function expSelDur(val, btn) {
-  expeditionSend.durVal = val;
-  expG("esm-dur-row").querySelectorAll(".exp-opt-btn").forEach((b) => b.classList.remove("active"));
-  btn.classList.add("active");
-}
-
-function getAvailableUnits() {
-  return expeditionState.roster || [];
-}
-
-function renderExpeditionSquadSlots() {
-  for (let i = 0; i < 3; i++) {
-    const slot = expG("exp-sl-" + i);
-    const unit = expeditionSend.squadSlots[i];
-    if (!slot) continue;
-    if (unit) {
-      slot.className = "exp-squad-slot exp-slot-filled";
-      const hpC = unit.hp_current ?? unit.current_hp ?? 0;
-      const hpM = unit.hp_max ?? unit.max_hp ?? 1;
-      slot.innerHTML = `<div class="exp-squad-ico">${unit.icon || "⚔️"}</div>
-        <div class="exp-squad-name">${escapeHtml(unit.name || "")}</div>
-        <div class="exp-squad-hp">${hpC}/${hpM}</div>`;
-    } else {
-      slot.className = "exp-squad-slot";
-      slot.innerHTML = '<span class="exp-squad-empty">+ Добавить</span>';
-    }
-    slot.onclick = () => expOpenPicker(i);
-  }
-  const btn = expG("exp-send-btn");
-  if (btn) btn.disabled = expeditionSend.squadSlots.every((s) => !s);
-}
-
-function expOpenPicker(slotIdx) {
-  expeditionSend.pickerSlot = slotIdx;
-  const takenIds = new Set(
-    expeditionSend.squadSlots
-      .map((u, i) => (i !== slotIdx && u ? u.id : null))
-      .filter(Boolean)
-  );
-  const units = getAvailableUnits();
-  const list = expG("exp-unit-list");
-  if (!list) return;
-  list.innerHTML =
-    units
-      .map((u) => {
-        const inExp = u.expedition_id != null;
-        const inSquad = takenIds.has(u.id);
-        const disabled = inExp || inSquad;
-        const hpM = u.hp_max ?? u.max_hp ?? 1;
-        const hpC = u.current_hp ?? u.hp_current ?? hpM;
-        const pct = hpM > 0 ? Math.round((hpC / hpM) * 100) : 0;
-        const hpColor = pct > 50 ? "#4ade80" : pct > 25 ? "#fbbf24" : "#f87171";
-        const cid = Number(u.class ?? u.class_);
-        const rid = Number(u.race);
-        const cls = WAIFU_CLASSES.find((c) => c.id === cid);
-        const race = WAIFU_RACES.find((r) => r.id === rid);
-        const note = inExp ? "🔒 В экспедиции" : `${cls?.name || "—"} · ${race?.name || "—"}`;
-        const clickAttr = disabled ? "" : ` onclick="WaifuApp.expPickUnit(${u.id})"`;
-        return `<div class="exp-ul-item${disabled ? " exp-ul-dis" : ""}"${clickAttr}>
-          <div class="exp-unit-ico">${u.icon || "⚔️"}</div>
-          <div class="exp-unit-inf">
-            <div class="exp-unit-name">${escapeHtml(u.name || "")}</div>
-            <div class="exp-unit-sub">${note}</div>
-          </div>
-          <div class="exp-unit-hpbar">
-            <div class="exp-unit-hpfill" style="width:${pct}%;background:${hpColor}"></div>
-          </div>
-        </div>`;
-      })
-      .join("") || '<div class="placeholder muted tiny">Нет доступных наёмниц</div>';
-
-  closeSendExpModal();
-  expOpenOverlay("exp-picker-overlay");
-}
-
-function expPickUnit(id) {
-  const units = getAvailableUnits();
-  const unit = units.find((u) => u.id === id);
-  if (!unit || unit.expedition_id) return;
-  expeditionSend.squadSlots[expeditionSend.pickerSlot] = unit;
-  expClosePicker();
-  expOpenOverlay("exp-send-modal");
-  renderExpeditionSquadSlots();
-}
-
-function expClosePicker() {
-  expCloseOverlay("exp-picker-overlay");
-}
-
-async function submitExpeditionStart() {
-  const unitIds = expeditionSend.squadSlots.filter(Boolean).map((u) => u.id);
-  if (!unitIds.length || !expeditionSend.slotId) {
-    showExpeditionError("Выберите отряд и слот.");
-    return;
-  }
-  try {
-    await apiFetch("/expeditions/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        slot_id: expeditionSend.slotId,
-        unit_ids: unitIds,
-        difficulty_level: expeditionSend.diffVal,
-        duration_minutes: expeditionSend.durVal,
-      }),
-    });
-    closeSendExpModal();
-    expClosePicker();
-    showExpeditionError("");
-    showDungeonsError("Экспедиция отправлена.");
-    await loadExpeditionTab();
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showExpeditionError(detail || "Ошибка запуска экспедиции");
-  }
-}
-
-async function abortExpedition(activeId) {
-  if (!activeId) return;
-  try {
-    await apiFetch(`/expeditions/${activeId}/abort`, { method: "POST" });
-    showToast?.("Экспедиция завершена (≈50% награды)", "success");
-    closeActiveExpModal();
-    await loadProfile().catch(() => {});
-    await loadExpeditionTab();
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showToast?.(detail || e?.message || "Ошибка", "error");
-  }
-}
-async function claimExpedition(activeId) {
-  try {
-    const res = await apiFetch(`/expeditions/claim?active_id=${activeId}`, { method: "POST" });
-    let msg = `Награда: 🪙 +${res.gold_gained} · ✨ +${res.experience_gained}`;
-    if (res.event_text) {
-      msg += "\n\n" + res.event_text;
-    }
-    showDungeonsError(msg);
-    await loadProfile().catch(() => {});
-    await loadExpeditionTab();
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showDungeonsError(detail || "Ошибка получения награды", "danger");
-  }
-}
-
-async function openExpeditionResult(expeditionId) {
-  const modal = document.getElementById("expedition-result-modal");
-  const loading = document.getElementById("exp-result-loading");
-  const content = document.getElementById("exp-result-content");
-  const fill = document.getElementById("exp-result-loading-fill");
-  const sub = document.getElementById("exp-result-loading-sub");
-  if (!modal || !loading || !content) return;
-
-  modal.style.display = "flex";
-  modal.style.alignItems = "flex-end";
-  modal.style.justifyContent = "center";
-  loading.style.display = "flex";
-  content.style.display = "none";
-  if (fill) fill.style.width = "0%";
-
-  const loadingSteps = [
-    [10, "Отряд возвращается в таверну..."],
-    [30, "Считаем потери и трофеи..."],
-    [55, "Начисляем опыт наёмницам..."],
-    [75, "Рассказчик пишет историю..."],
-    [90, "Почти готово..."],
-  ];
-  let stepIdx = 0;
-  const progressInterval = setInterval(() => {
-    if (stepIdx < loadingSteps.length && fill && sub) {
-      const [pct, text] = loadingSteps[stepIdx++];
-      fill.style.width = pct + "%";
-      sub.textContent = text;
-    }
-  }, 600);
-
-  try {
-    const result = await apiFetch(`/expeditions/${expeditionId}/claim`, { method: "POST" });
-    clearInterval(progressInterval);
-    if (fill) fill.style.width = "100%";
-    if (sub) sub.textContent = "Готово!";
-    await new Promise((r) => setTimeout(r, 400));
-    fillExpeditionResult(result);
-    loading.style.display = "none";
-    content.style.display = "block";
-  } catch (e) {
-    clearInterval(progressInterval);
-    modal.style.display = "none";
-    showToast("Ошибка получения наград: " + (e?.message || e), "error");
-  }
-}
-
-function fillExpeditionResult(result) {
-  const OUTCOME_CONFIG = {
-    success: { icon: "✅", title: "Успешно завершена!", color: "#4ade80", mult: "×1.0" },
-    partial_success: { icon: "⚠️", title: "Завершена с потерями", color: "#facc15", mult: "×0.7" },
-    failure: { icon: "❌", title: "Провал", color: "#f87171", mult: "×0.4" },
-  };
-  const cfg = OUTCOME_CONFIG[result.outcome] || OUTCOME_CONFIG.partial_success;
-
-  const outcomeEl = document.getElementById("exp-result-outcome");
-  if (outcomeEl) {
-    outcomeEl.innerHTML = `
-      <div class="exp-result-outcome-icon">${cfg.icon}</div>
-      <div class="exp-result-outcome-title" style="color:${cfg.color}">${escapeHtml(result.expedition_name || "Экспедиция")}</div>
-      <div class="exp-result-outcome-sub">${cfg.title}</div>`;
-  }
-  const narrativeEl = document.getElementById("exp-result-narrative");
-  if (narrativeEl) narrativeEl.textContent = result.ai_narrative || "Отряд вернулся из экспедиции.";
-
-  const rewardsEl = document.getElementById("exp-result-rewards");
-  if (rewardsEl) {
-    rewardsEl.innerHTML = `
-      <div class="exp-result-reward-box">
-        <div class="exp-result-reward-label">Золото</div>
-        <div class="exp-result-reward-value">🪙 ${result.gold_earned ?? 0}</div>
-        <div class="exp-result-reward-mult">${cfg.mult}</div>
-      </div>
-      <div class="exp-result-reward-box">
-        <div class="exp-result-reward-label">Опыт наёмниц</div>
-        <div class="exp-result-reward-value">✨ ${result.exp_earned ?? 0}</div>
-        <div class="exp-result-reward-mult">${cfg.mult}</div>
-      </div>`;
-  }
-
-  const squadEl = document.getElementById("exp-result-squad");
-  if (squadEl && Array.isArray(result.squad_state)) {
-    squadEl.innerHTML = result.squad_state
-      .map((u) => {
-        const hpPct = u.hp_max ? Math.round((u.hp_current / u.hp_max) * 100) : 100;
-        const needsHeal = u.hp_current < u.hp_max;
-        return `
-          <div class="exp-result-unit">
-            <div class="exp-result-unit-icon">${u.class_icon || "⚔️"}</div>
-            <div class="exp-result-unit-info">
-              <div class="exp-result-unit-name">${escapeHtml(u.name || "—")}</div>
-              <div class="exp-result-unit-stats">
-                ❤ ${u.hp_current}/${u.hp_max}
-                ${needsHeal ? ' · <span style="color:#f87171">Нужно лечение</span>' : " · ✓ Здорова"}
-                ${u.leveled_up ? ' · <span style="color:#4ade80">⭐ Новый уровень!</span>' : ""}
-              </div>
-            </div>
-            <div class="exp-result-unit-bar">
-              <div class="exp-result-unit-bar-fill" style="width:${hpPct}%"></div>
-            </div>
-          </div>`;
-      })
-      .join("");
-  }
-
-  const itemsWrap = document.getElementById("exp-result-items-wrap");
-  const itemsEl = document.getElementById("exp-result-items");
-  if (result.items_earned?.length > 0 && itemsWrap && itemsEl) {
-    itemsEl.innerHTML = result.items_earned
-      .map((item) => `<div class="exp-result-item">${item.emoji || "🎁"} ${escapeHtml(item.name || "—")}</div>`)
-      .join("");
-    itemsWrap.style.display = "block";
-  } else if (itemsWrap) {
-    itemsWrap.style.display = "none";
-  }
-}
-
-function closeExpeditionResult() {
-  const modal = document.getElementById("expedition-result-modal");
-  if (modal) modal.style.display = "none";
-  loadExpeditionTab?.();
-  loadProfile?.catch(() => {});
-}
-
-async function cancelExpedition(activeId) {
-  try {
-    const res = await apiFetch(`/expeditions/cancel?active_id=${activeId}`, { method: "POST" });
-    showDungeonsError(`Отменено. Получено: 🪙 +${res.gold_gained} · ✨ +${res.experience_gained}`);
-    await loadProfile().catch(() => {});
-    await loadExpeditionTab();
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showDungeonsError(detail || "Ошибка отмены", "danger");
-  }
-}
-
-async function adminRefreshExpeditions() {
-  const btn = document.getElementById("expedition-admin-refresh");
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "⏳";
-  }
-  try {
-    await apiFetch("/admin/expeditions/refresh", { method: "POST" });
-    await loadExpeditionTab();
-  } catch (e) {
-    const msg = (e && e.message) || parseHttpErrorDetail(e).detail || "Ошибка обновления слотов";
-    showToast("Ошибка обновления: " + msg, "error");
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "🔄";
-    }
-  }
-}
-
-function showTab(name) {
-  const tabs = document.getElementById("dungeon-tabs");
-  if (!tabs) return;
-  tabs.querySelectorAll(".tab").forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === name));
-  ["solo", "expedition", "group"].forEach((t) => {
-    const panel = document.getElementById(`tab-${t}`);
-    if (!panel) return;
-    const isActive = t === name;
-    panel.classList.toggle("active", isActive);
-    panel.style.display = isActive ? "" : "none";
-  });
-  if (name === "expedition") {
-    loadExpeditionTab().catch(() => {});
-  }
-  if (name === "group") {
-    loadActiveGdDungeons().catch(() => {});
-    updateGdSessionUI().catch(() => {});
-    if (gdSessionRefreshTimer) clearInterval(gdSessionRefreshTimer);
-    gdSessionRefreshTimer = setInterval(() => {
-      if (document.getElementById("tab-group")?.style.display !== "none") {
-        loadActiveGdDungeons().catch(() => {});
-        updateGdSessionUI().catch(() => {});
-      }
-    }, 15000);
-  } else {
-    if (gdSessionRefreshTimer) {
-      clearInterval(gdSessionRefreshTimer);
-      gdSessionRefreshTimer = null;
-    }
+  if (name === "inventory") {
+    ensureProfileEquipmentLoaded().catch(() => {});
   }
 }
 
@@ -6081,7 +4448,7 @@ function openShopOffer(slot) {
     upHint.textContent = "";
     upHint.setAttribute("aria-hidden", "true");
   }
-  if (art) art.innerHTML = itemArtHtml(offer);
+  if (art) art.innerHTML = itemArtHtml(offer, { adminGen: true });
 
   if (contentEl) {
     ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) => contentEl.classList.remove(c));
@@ -6205,6 +4572,9 @@ function compareSellItems(a, b) {
   let result = 0;
   if (sortKey === "level") result = levelA - levelB || rarityA - rarityB;
   if (sortKey === "rarity") result = rarityA - rarityB || levelA - levelB;
+  if (sortKey === "price") {
+    result = estimateProfileSellPrice(a) - estimateProfileSellPrice(b) || levelA - levelB;
+  }
   if (sortKey === "equipability") result = equipA - equipB || levelA - levelB || rarityA - rarityB;
   if (result === 0) {
     const nameA = String(a?.display_name || a?.name || "").toLowerCase();
@@ -6246,7 +4616,7 @@ function toggleShopSellFilter(category) {
 }
 
 function setShopSellSort(value) {
-  shopState.sellSort = ["level", "rarity", "equipability"].includes(value) ? value : "equipability";
+  shopState.sellSort = ["level", "rarity", "equipability", "price"].includes(value) ? value : "equipability";
   shopState.sellPage = 0;
   renderSellPage();
   renderSellPagination();
@@ -6408,7 +4778,6 @@ async function sellSelected() {
   await loadProfile().catch(console.error);
   await loadSellInventory().catch(console.error);
   updateSellResultHint();
-  await generateMerchantLine("sell").catch(() => {});
 }
 
 function openShopGambleResultModal(item, pricePaid, goldRemaining) {
@@ -6421,7 +4790,7 @@ function openShopGambleResultModal(item, pricePaid, goldRemaining) {
   setText("shop-gamble-result-level", item.level != null ? `lvl ${item.level}` : "—");
 
   const art = document.getElementById("shop-gamble-result-art");
-  if (art) art.innerHTML = itemArtHtml(item);
+  if (art) art.innerHTML = itemArtHtml(item, { adminGen: true });
 
   const body = document.getElementById("shop-gamble-result-body");
   if (body) {
@@ -6453,6 +4822,97 @@ function closeShopGambleResultModal() {
     m.classList.remove("shop-modal--open");
     m.style.display = "none";
   }
+}
+
+async function loadGambleTab(act) {
+  const data = await apiFetch(`/shop/gamble/offers?act=${act}`);
+  shopState.gambleOffers = Array.isArray(data?.offers) ? data.offers : [];
+  shopState.gambleRefreshAt = data?.refresh_at || null;
+  updateShopRefreshLabel("gamble");
+  renderGambleGrid();
+}
+
+function updateShopRefreshLabel(tab) {
+  const id = tab === "gamble" ? "shop-gamble-refresh-label" : "shop-buy-refresh-label";
+  const el = document.getElementById(id);
+  if (!el) return;
+  const refreshAt = tab === "gamble" ? shopState.gambleRefreshAt : shopState.shopRefreshAt;
+  if (!refreshAt) {
+    el.textContent = "Обновляется в 00:00 МСК";
+    return;
+  }
+  const end = new Date(refreshAt).getTime();
+  const fmt = () => {
+    const sec = Math.max(0, Math.floor((end - Date.now()) / 1000));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    el.textContent = `Обновляется в 00:00 МСК — осталось ${h}ч ${m}м`;
+  };
+  fmt();
+  if (!window.__shopRefreshLabelTimer) {
+    window.__shopRefreshLabelTimer = setInterval(() => {
+      updateShopRefreshLabel("buy");
+      updateShopRefreshLabel("gamble");
+    }, 60_000);
+  }
+}
+
+function renderGambleGrid() {
+  const grid = document.getElementById("shop-gamble-grid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  for (let s = 1; s <= 12; s += 1) {
+    const offer = (shopState.gambleOffers || []).find((o) => Number(o.slot) === s);
+    const card = document.createElement("div");
+    const purchased = Boolean(offer?.purchased);
+    card.className = `shop-gamble-card shop-item-card item-card${purchased ? " purchased empty" : ""}`.trim();
+    const typeLabel = offer?.slot_type ? slotTypeLabel(offer.slot_type) : "Предмет";
+    const iconHtml = offer && !purchased ? itemArtEmoji(offer) : "❓";
+    card.innerHTML = `
+      <div class="item-icon">${iconHtml}</div>
+      <div class="item-name">${escapeHtml(typeLabel)}</div>
+      <div class="item-price">${purchased ? "Куплено" : `🪙 ${offer?.price ?? "—"}`}</div>
+    `;
+    if (offer && !purchased) {
+      card.onclick = () => openGambleConfirm(s, offer.price, offer);
+    }
+    grid.appendChild(card);
+  }
+}
+
+async function openGambleConfirm(slot, price, offer) {
+  const typeLabel = offer?.slot_type ? slotTypeLabel(offer.slot_type) : "предмет";
+  if (
+    !confirm(
+      `Купить ${typeLabel} за ${price} 🪙?\nХарактеристики скрыты — узнаешь только после покупки.`
+    )
+  ) {
+    return;
+  }
+  try {
+    const res = await apiFetch(`/shop/gamble/buy?act=${shopState.act}&slot=${slot}`, { method: "POST" });
+    if (res?.error === "insufficient_gold" || String(res?.detail || "").includes("insufficient_gold")) {
+      showToast("Недостаточно золота.", "error");
+      return;
+    }
+    if (res?.success && res?.item) {
+      openShopGambleResultModal(res.item, res.price_paid, res.gold_remaining);
+      await loadProfile().catch(() => {});
+      await loadGambleTab(shopState.act);
+    } else if (res?.success) {
+      showToast("Предмет добавлен в инвентарь.", "success");
+      await loadGambleTab(shopState.act);
+    } else {
+      showToast(res?.error || "Не удалось купить", "error");
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || String(e?.message || e), "error");
+  }
+}
+
+function showShopGambleResultModal(item, pricePaid, goldRemaining) {
+  openShopGambleResultModal(item, pricePaid, goldRemaining);
 }
 
 async function gambleShop() {
@@ -6506,6 +4966,10 @@ function closeSlotModal() {
   const m = document.getElementById("slot-modal");
   if (m) m.style.display = "none";
   profileState.selectedSlot = null;
+  profileState.slotPickerItems = [];
+  profileState.slotPickerEquipped = null;
+  const sortWrap = document.getElementById("slot-sort-wrap");
+  if (sortWrap) sortWrap.style.display = "none";
 }
 
 function closeItemSellConfirmOverlay() {
@@ -6515,15 +4979,60 @@ function closeItemSellConfirmOverlay() {
   ov.setAttribute("aria-hidden", "true");
 }
 
-function openItemSellConfirmOverlay() {
+function closeItemDismantleConfirmOverlay() {
+  const ov = document.getElementById("item-modal-dismantle-overlay");
+  if (!ov) return;
+  ov.style.display = "none";
+  ov.setAttribute("aria-hidden", "true");
+}
+
+async function openItemDismantleConfirmOverlay() {
   const item = profileState.selectedItem;
+  if (!item?.id || item.equipment_slot != null) return;
+  const ov = document.getElementById("item-modal-dismantle-overlay");
+  if (!ov) return;
+  const nmEl = document.getElementById("item-modal-dismantle-item-name");
+  if (nmEl) nmEl.innerHTML = composeItemTitlePlain(item) || escapeHtml(String(item?.name || "—"));
+  const dEl = document.getElementById("item-modal-dismantle-dust");
+  if (dEl) dEl.textContent = "…";
+  ov.style.display = "flex";
+  ov.setAttribute("aria-hidden", "false");
+  try {
+    const data = await apiFetch(`/inventory/${item.id}/dismantle-preview`);
+    if (dEl) dEl.textContent = String(data?.dust_preview ?? "—");
+  } catch (e) {
+    if (dEl) dEl.textContent = "—";
+  }
+}
+
+function formatItemSellPriceGold(item) {
+  if (item?.sell_price != null) {
+    const n = Number(item.sell_price);
+    if (Number.isFinite(n)) return n.toLocaleString();
+  }
+  return String(estimateProfileSellPrice(item));
+}
+
+async function openItemSellConfirmOverlay() {
+  let item = profileState.selectedItem;
   if (!item?.id || item.equipment_slot != null) return;
   const ov = document.getElementById("item-modal-sell-overlay");
   if (!ov) return;
   const nmEl = document.getElementById("item-modal-sell-item-name");
   if (nmEl) nmEl.innerHTML = composeItemTitlePlain(item) || escapeHtml(String(item?.name || "—"));
   const gEl = document.getElementById("item-modal-sell-gold");
-  if (gEl) gEl.textContent = String(estimateProfileSellPrice(item));
+  if (item.sell_price == null && item.id) {
+    try {
+      const data = await apiFetch(`/inventory/${item.id}`);
+      if (data?.sell_price != null) {
+        item = { ...item, sell_price: data.sell_price };
+        profileState.selectedItem = item;
+      }
+    } catch (_) {
+      /* keep estimate fallback */
+    }
+  }
+  if (gEl) gEl.textContent = formatItemSellPriceGold(item);
   ov.style.display = "flex";
   ov.setAttribute("aria-hidden", "false");
 }
@@ -6559,8 +5068,13 @@ function openItemEquipRingOverlay() {
 
 function closeItemModal() {
   const m = document.getElementById("item-modal");
-  if (m) m.style.display = "none";
+  if (m) {
+    m.classList.remove("item-modal-v2--open");
+    m.style.removeProperty("--attic-bar-height");
+    m.style.display = "none";
+  }
   closeItemSellConfirmOverlay();
+  closeItemDismantleConfirmOverlay();
   closeItemEquipRingOverlay();
   profileState.selectedItem = null;
   const reqEl = document.getElementById("item-modal-requirements");
@@ -6648,11 +5162,25 @@ function renderItemBonusesHtml(item) {
   return `<div class="affixes">${lines.join("")}</div>`;
 }
 
+function renderLegendaryBonusesHtml(item) {
+  if (!item) return "";
+  const rows = Array.isArray(item.legendary_bonuses) ? item.legendary_bonuses : [];
+  if (!rows.length) return "";
+  const lines = rows.map((b) => {
+    const name = escapeHtml(String(b.name || b.bonus_key || "Уникальный бонус"));
+    const desc = escapeHtml(String(b.description || b.description_tpl || "").trim());
+    const descHtml = desc ? `<div class="legendary-unique-bonus-desc muted tiny">${desc}</div>` : "";
+    return `<div class="legendary-unique-bonus-row"><span class="legendary-unique-bonus-star" aria-hidden="true">★</span> <strong>${name}</strong>${descHtml}</div>`;
+  });
+  return `<div class="legendary-unique-bonuses">${lines.join("")}</div>`;
+}
+
 /** Вторичный бонус + стат/аффиксы — компактный блок карты предмета */
 function renderCombinedBonusesHtml(item) {
   const secondary = renderSecondaryBonusHtml(item);
+  const legendary = renderLegendaryBonusesHtml(item);
   const bonuses = renderItemBonusesHtml(item);
-  const parts = [secondary, bonuses].filter(Boolean);
+  const parts = [secondary, legendary, bonuses].filter(Boolean);
   if (!parts.length) return "";
   return `<div class="item-mtg-cluster">${parts.join("")}</div>`;
 }
@@ -6693,21 +5221,31 @@ function itemArtDisplayLabel(item) {
   return String(item?.display_name || item?.name || item?.base_name || "").trim().slice(0, 200);
 }
 
+/** Admin: pixel-art generate control markup (shared by img wrap and spawn placeholders). */
+function itemArtGenerateBtnHtml(item) {
+  const artKey = String(item?.art_key || "").trim();
+  if (!artKey) return "";
+  const tier = itemArtTierNormalized(item);
+  const wtype = String(item?.weapon_type || "").trim();
+  const stype = String(item?.slot_type || "").trim();
+  const dname = itemArtDisplayLabel(item);
+  const wAttr = wtype ? ` data-weapon-type="${escapeHtml(wtype)}"` : "";
+  const sAttr = stype ? ` data-slot-type="${escapeHtml(stype)}"` : "";
+  const dAttr = dname ? ` data-display-label="${escapeHtml(dname)}"` : "";
+  return `<span class="item-art-generate-btn" role="button" tabindex="0" data-art-key="${escapeHtml(artKey)}" data-art-tier="${tier}"${sAttr}${wAttr}${dAttr} title="Сгенерировать pixel art (admin)" aria-label="Сгенерировать иконку предмета">${ITEM_ART_GEN_SVG}</span>`;
+}
+
 /** Admin: wrap <img> for items under /static/game/items/ with pixel-art generate control. */
 function wrapItemImageWithAdminGen(item, imgHtml) {
-  if (!isAdminUser() || !item || !imgHtml || !String(imgHtml).includes("<img")) return imgHtml;
+  if (!isAdminUiEnabled() || !item || !imgHtml || !String(imgHtml).includes("<img")) return imgHtml;
   const artKey = String(item.art_key || "").trim();
   if (!artKey) return imgHtml;
   const m = String(imgHtml).match(/src="([^"]*)"/);
   const src = m ? m[1] : "";
   const itemsPath = `${GAME_STATIC_BASE}/items/`;
   if (!src || !src.includes(itemsPath)) return imgHtml;
-  const tier = itemArtTierNormalized(item);
-  const wtype = String(item?.weapon_type || "").trim();
-  const dname = itemArtDisplayLabel(item);
-  const wAttr = wtype ? ` data-weapon-type="${escapeHtml(wtype)}"` : "";
-  const dAttr = dname ? ` data-display-label="${escapeHtml(dname)}"` : "";
-  const btn = `<span class="item-art-generate-btn" role="button" tabindex="0" data-art-key="${escapeHtml(artKey)}" data-art-tier="${tier}"${wAttr}${dAttr} title="Сгенерировать pixel art (admin)" aria-label="Сгенерировать иконку предмета">${ITEM_ART_GEN_SVG}</span>`;
+  const btn = itemArtGenerateBtnHtml(item);
+  if (!btn) return imgHtml;
   return `<span class="item-art-admin-wrap">${imgHtml}${btn}</span>`;
 }
 
@@ -6748,7 +5286,34 @@ async function handleItemArtGenerateClick(el) {
         img.src = `${base.split("?")[0]}?v=${Date.now()}`;
       }
       img.onerror = null;
+    } else if (wrap && artKey) {
+      const cardArt = wrap.closest(".lib-card-art");
+      const inSpawnGrid = cardArt && cardArt.closest("#admin-spawn-items-grid");
+      if (inSpawnGrid && cardArt) {
+        adminSpawnArtFailCache.delete(artKey);
+        cardArt.classList.remove("silhouette");
+        const tierNum = Math.min(10, Math.max(1, parseInt(tier, 10) || 1));
+        const base = newUrl || `${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${tierNum}.webp`;
+        let src;
+        try {
+          const u = new URL(base, window.location.origin);
+          u.searchParams.set("v", String(Date.now()));
+          src = u.pathname + (u.search || "") + (u.hash || "");
+        } catch {
+          src = `${base.split("?")[0]}?v=${Date.now()}`;
+        }
+        const urls = [];
+        for (let t = tierNum; t >= 1; t -= 1) {
+          urls.push(`${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${t}.webp`);
+        }
+        const slotType = escapeHtml(el.getAttribute("data-slot-type") || "");
+        const weaponType = escapeHtml(el.getAttribute("data-weapon-type") || "");
+        const imgHtml = `<img src="${src}" alt="" data-art-key="${escapeHtml(artKey)}" data-art-tier="${tierNum}" data-slot-type="${slotType}" data-weapon-type="${weaponType}" data-fallback-urls="${escapeHtml(JSON.stringify(urls))}" data-fallback-index="0" onerror="WaifuApp.adminSpawnOnArtError(this)" />`;
+        wrap.classList.remove("item-art-admin-wrap--placeholder");
+        wrap.innerHTML = `${imgHtml}${el.outerHTML}`;
+      }
     }
+    if (artKey) adminSpawnArtFailCache.delete(artKey);
     showToast("Иконка сохранена");
   } catch (e) {
     const msg = itemArtGenerateErrorMessage(e);
@@ -6800,8 +5365,11 @@ function itemImageUrl(item) {
   return `${GAME_STATIC_BASE}/items/svg/${encodeURIComponent(key)}.svg`;
 }
 
-function itemArtHtml(item) {
+function itemArtHtml(item, options = {}) {
   if (!item) return `${itemArtEmoji(item)}`;
+  const adminGen = Boolean(options.adminGen);
+  const lazyLoad = Boolean(options.lazy);
+  const maybeWrap = (img) => (adminGen ? wrapItemImageWithAdminGen(item, img) : img);
   const tier = itemArtTierNormalized(item);
   const artKey = String(item?.art_key || "").trim();
   const svgKey = String(item?.image_key || "").trim();
@@ -6818,12 +5386,16 @@ function itemArtHtml(item) {
     const onErr = svgUrl
       ? `this.onerror=null;this.src='${svgUrl}';`
       : `this.onerror=null;this.remove();`;
-    const img = `<img src="${webpUrl}" alt="" onerror="${onErr}" />`;
-    return wrapItemImageWithAdminGen(item, img);
+    const lazyAttrs = lazyLoad ? ' loading="lazy" decoding="async"' : "";
+    const img = `<img src="${webpUrl}" alt=""${lazyAttrs} onerror="${onErr}" />`;
+    return maybeWrap(img);
   }
 
   const url = itemImageUrl(item);
-  if (url) return wrapItemImageWithAdminGen(item, `<img src="${url}" alt="" />`);
+  if (url) {
+    const lazyAttrs = lazyLoad ? ' loading="lazy" decoding="async"' : "";
+    return maybeWrap(`<img src="${url}" alt=""${lazyAttrs} />`);
+  }
   return `${itemArtEmoji(item)}`;
 }
 
@@ -6839,38 +5411,45 @@ function itemNameAlreadyIncludesAffixRollup(item) {
   });
 }
 
+function collectAffixNameParts(aff) {
+  const list = Array.isArray(aff) ? aff : [];
+  const prefixes = list
+    .filter((a) => String(a?.kind || "") === "affix")
+    .map((a) => String(a?.name || "").trim())
+    .filter(Boolean);
+  const suffixes = list
+    .filter((a) => String(a?.kind || "") === "suffix")
+    .map((a) => String(a?.name || "").trim())
+    .filter(Boolean);
+  return { prefixes, suffixes };
+}
+
+function composeItemNameCore(item) {
+  const displayName = String(item?.display_name || "").trim();
+  if (displayName) return displayName;
+  if (itemNameAlreadyIncludesAffixRollup(item)) {
+    return String(item.name || "Предмет").trim() || "Предмет";
+  }
+  const base = String(item?.name || "Предмет").trim() || "Предмет";
+  const { prefixes, suffixes } = collectAffixNameParts(item?.affixes);
+  const parts = [...prefixes, base, ...suffixes].filter(Boolean);
+  return parts.join(" ").trim() || base;
+}
+
 function composeItemDisplayName(item) {
   const en = safeNumber(item?.enchant_level, 0);
   const enHtml =
     en > 0 && !item?.is_broken ? ` <span class="enchant-badge">+${en}</span>` : "";
   const brk = item?.is_broken ? ` <span class="broken-badge">💔 Сломан</span>` : "";
-  if (itemNameAlreadyIncludesAffixRollup(item)) {
-    const full = String(item.display_name || item.name || "Предмет");
-    return `${escapeHtml(full)}${enHtml}${brk}`.trim();
-  }
-  const base = String(item?.name || "Предмет");
-  const aff = Array.isArray(item?.affixes) ? item.affixes : [];
-  const prefix = aff.find((a) => String(a?.kind || "") === "affix")?.name;
-  const suffix = aff.find((a) => String(a?.kind || "") === "suffix")?.name;
-  const p = prefix ? `${prefix} ` : "";
-  const s = suffix ? ` ${suffix}` : "";
-  return `${p}${base}${s}${enHtml}${brk}`.trim();
+  const core = composeItemNameCore(item);
+  return `${escapeHtml(core)}${enHtml}${brk}`.trim();
 }
 
 /** Название для шапки модалки v2: префикс/база/суффикс без +заточки (она в блоке «Заточка»). */
 function composeItemTitlePlain(item) {
   const brk = item?.is_broken ? " 💔" : "";
-  if (itemNameAlreadyIncludesAffixRollup(item)) {
-    const full = String(item.display_name || item.name || "Предмет");
-    return `${escapeHtml(full)}${brk}`.trim();
-  }
-  const base = String(item?.name || "Предмет");
-  const aff = Array.isArray(item?.affixes) ? item.affixes : [];
-  const prefix = aff.find((a) => String(a?.kind || "") === "affix")?.name;
-  const suffix = aff.find((a) => String(a?.kind || "") === "suffix")?.name;
-  const p = prefix ? `${escapeHtml(String(prefix))} ` : "";
-  const s = suffix ? ` ${escapeHtml(String(suffix))}` : "";
-  return `${p}${escapeHtml(base)}${s}${brk}`.trim();
+  const core = composeItemNameCore(item);
+  return `${escapeHtml(core)}${brk}`.trim();
 }
 
 const ITEM_MODAL_ENCHANT_PIP_MAX = 10;
@@ -6890,10 +5469,18 @@ function itemModalV2NextIcon() {
 }
 itemModalV2NextIcon._i = 0;
 
-function itemModalV2StatRow(name, valHtml, valCls, secHtml) {
-  const [emoji, icl] = itemModalV2NextIcon();
+function itemModalV2StatRow(name, valHtml, valCls, secHtml, compact = false) {
   const sec = secHtml ? `<div class="item-modal-v2-ssec">${secHtml}</div>` : "";
   const vc = valCls ? ` ${valCls}` : "";
+  if (compact) {
+    return `<div class="item-modal-v2-srow item-modal-v2-srow--compact">
+    <div class="item-modal-v2-srow-l">
+      <div><div class="item-modal-v2-sname">${escapeHtml(name)}</div>${sec}</div>
+    </div>
+    <span class="item-modal-v2-sval${vc}">${valHtml}</span>
+  </div>`;
+  }
+  const [emoji, icl] = itemModalV2NextIcon();
   return `<div class="item-modal-v2-srow">
     <div class="item-modal-v2-srow-l">
       <div class="item-modal-v2-sico ${icl}" aria-hidden="true">${emoji}</div>
@@ -6912,8 +5499,18 @@ function rarityPillModifierClass(r) {
   return "";
 }
 
-function buildItemModalEnchantRowHtml(item) {
+function itemEnchantOverlayHtml(item, context = "bag") {
+  const ctx = ["bag", "slot", "modal"].includes(context) ? context : "bag";
   const br = Boolean(item?.is_broken);
+  const en = safeNumber(item?.enchant_level, 0);
+  if (br) {
+    return `<span class="item-enchant-overlay item-enchant-overlay--${ctx} item-enchant-overlay--broken" title="Сломан">—</span>`;
+  }
+  if (en <= 0) return "";
+  return `<span class="item-enchant-overlay item-enchant-overlay--${ctx}">+${en}</span>`;
+}
+
+function buildItemModalEnchantRowHtml(item) {
   const en = safeNumber(item?.enchant_level, 0);
   const mx = ITEM_MODAL_ENCHANT_PIP_MAX;
   const pips = Array.from({ length: mx }, (_, i) => {
@@ -6922,20 +5519,39 @@ function buildItemModalEnchantRowHtml(item) {
     const cls = mxf ? " item-modal-v2-pip--mx" : f ? " item-modal-v2-pip--f" : "";
     return `<div class="item-modal-v2-pip${cls}" aria-hidden="true"></div>`;
   }).join("");
-  if (br) {
-    return `<span class="item-modal-v2-ench-val item-modal-v2-ench-val--muted" title="Сломан">—</span><div class="item-modal-v2-pips">${pips}</div>`;
-  }
-  const valCell =
-    en > 0
-      ? `<span class="item-modal-v2-ench-val">+${en}</span>`
-      : `<span class="item-modal-v2-ench-val item-modal-v2-ench-val--empty" aria-hidden="true"></span>`;
-  return `${valCell}<div class="item-modal-v2-pips">${pips}</div>`;
+  return `<div class="item-modal-v2-pips">${pips}</div>`;
+}
+
+function itemModalV2Subpanel(modifierClass, innerHtml) {
+  if (!innerHtml) return "";
+  const mod = String(modifierClass || "").trim();
+  return `<div class="item-modal-v2-subpanel${mod ? ` ${mod}` : ""}">${innerHtml}</div>`;
+}
+
+function renderItemModalV2LegendaryBlockHtml(bonuses) {
+  const rows = Array.isArray(bonuses) ? bonuses : [];
+  if (!rows.length) return "";
+  const entries = rows
+    .map((b) => {
+      const name = String(b.name || b.bonus_key || "Уникальный бонус");
+      const desc = String(b.description || b.description_tpl || "").trim();
+      const descHtml = desc
+        ? `<div class="item-modal-v2-leg-desc">${escapeHtml(desc)}</div>`
+        : "";
+      return `<div class="item-modal-v2-leg-entry">
+        <div class="item-modal-v2-leg-name"><span class="item-modal-v2-leg-star" aria-hidden="true">★</span> ${escapeHtml(name)}</div>
+        ${descHtml}
+      </div>`;
+    })
+    .join("");
+  return entries;
 }
 
 function renderItemModalV2CharacteristicsHtml(item) {
   if (!item) return "";
   itemModalV2NextIcon._i = 0;
-  const rows = [];
+  const baseRows = [];
+  const otherRows = [];
 
   const armorEff =
     item?.armor_effective != null
@@ -6949,17 +5565,17 @@ function renderItemModalV2CharacteristicsHtml(item) {
   const isAccessory = st.includes("ring") || st.includes("amulet");
 
   if (!isWeapon && !isAccessory && armorEff > 0) {
-    rows.push(
+    baseRows.push(
       itemModalV2StatRow("Броня", escapeHtml(String(armorEff)), "item-modal-v2-sv-te", null)
     );
   }
   if (isWeapon && Number.isFinite(dmgMinE) && Number.isFinite(dmgMaxE)) {
-    rows.push(
+    baseRows.push(
       itemModalV2StatRow("Урон", escapeHtml(`${dmgMinE}–${dmgMaxE}`), "item-modal-v2-sv-re", null)
     );
   }
   if (isWeapon && speed != null) {
-    rows.push(
+    baseRows.push(
       itemModalV2StatRow("Скорость атаки", escapeHtml(String(speed)), "item-modal-v2-sv-go", null)
     );
   }
@@ -6971,7 +5587,7 @@ function renderItemModalV2CharacteristicsHtml(item) {
       String(item.base_stat).includes("strength") || String(item.base_stat).includes("damage")
         ? "item-modal-v2-sv-re"
         : "item-modal-v2-sv-pu";
-    rows.push(itemModalV2StatRow(m.short, escapeHtml(v), cls, null));
+    otherRows.push(itemModalV2StatRow(m.short, escapeHtml(v), cls, null, true));
   }
 
   const t = String(item?.secondary_bonus_type || "").trim();
@@ -6981,12 +5597,30 @@ function renderItemModalV2CharacteristicsHtml(item) {
   if (t && Number.isFinite(vEff) && vEff > 0) {
     const label = secondaryBonusTitleRu(t);
     const valDisp = formatSecondaryBonusValueDisplay(t, vEff);
-    rows.push(
+    otherRows.push(
       itemModalV2StatRow(
         label,
         escapeHtml(valDisp),
         "item-modal-v2-sv-go",
-        secondaryBonusModalSubtitle(t)
+        secondaryBonusModalSubtitle(t),
+        true
+      )
+    );
+  }
+
+  const ft = String(item?.secondary_fraction_type || "").trim();
+  const fvEff =
+    item?.secondary_fraction_effective != null
+      ? Number(item.secondary_fraction_effective)
+      : Number(item?.secondary_fraction_value ?? 0);
+  if (ft && Number.isFinite(fvEff) && fvEff > 0) {
+    otherRows.push(
+      itemModalV2StatRow(
+        secondaryBonusTitleRu(ft),
+        escapeHtml(formatSecondaryBonusValueDisplay(ft, fvEff)),
+        "item-modal-v2-sv-go",
+        "Fraction-вторичка (растёт от заточки)",
+        true
       )
     );
   }
@@ -7005,10 +5639,20 @@ function renderItemModalV2CharacteristicsHtml(item) {
     ) {
       v = `${v} ур.`;
     }
-    rows.push(itemModalV2StatRow(label, escapeHtml(v), "item-modal-v2-sv-pu", null));
+    otherRows.push(itemModalV2StatRow(label, escapeHtml(v), "item-modal-v2-sv-pu", null, true));
   });
 
-  return rows.join("");
+  const leg = Array.isArray(item.legendary_bonuses) ? item.legendary_bonuses : [];
+  const basePanel = itemModalV2Subpanel("item-modal-v2-subpanel--base", baseRows.join(""));
+  const legendaryPanel = itemModalV2Subpanel(
+    "item-modal-v2-subpanel--legendary",
+    renderItemModalV2LegendaryBlockHtml(leg)
+  );
+  const otherHtml = otherRows.length
+    ? `<div class="item-modal-v2-other-stats">${otherRows.join("")}</div>`
+    : "";
+
+  return [basePanel, legendaryPanel, otherHtml].filter(Boolean).join("");
 }
 
 function goShopSmithEnchant(inventoryItemId) {
@@ -7095,6 +5739,7 @@ const SECONDARY_LABELS = {
   hp_max_pct: "Бонус HP",
   exp_bonus_pct: "Бонус к опыту",
   gold_bonus_pct: "Бонус к золоту",
+  magic_find_pct: "Поиск магических предметов",
   media_damage_text_percent: "Урон от текста",
   media_damage_sticker_percent: "Урон от стикеров",
   media_damage_photo_percent: "Урон от фото",
@@ -7172,7 +5817,9 @@ function secondaryBonusTitleRu(t) {
 
 function secondaryBonusModalSubtitle(t) {
   const low = String(t || "").toLowerCase();
-  if (low.startsWith("passive_node_level_add:")) return "К уровню узла на дереве пассивов";
+  if (low.startsWith("passive_node_level_add:")) {
+    return "К уровню узла на дереве пассивов (для части навыков эффект ограничен капом таблицы)";
+  }
   if (low.startsWith("passive_branch_level_add:") || low === "passive_all_nodes_level_add") {
     return "Легендарный тип бонуса";
   }
@@ -7232,9 +5879,11 @@ function renderProfilePortrait(waifu) {
     metaEl.textContent = `${raceName(waifu?.race)} · ${className(waifu?.class ?? waifu?.class_)}`;
   }
 
-  const portraitUrl = String(
-    waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
-  ).trim();
+  const portraitUrl = resolveImageUrl(
+    String(
+      waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
+    ).trim()
+  );
   const bg = document.getElementById("profile-mtg-bg");
   const fallback = document.getElementById("profile-mtg-fallback");
   if (bg) {
@@ -7305,7 +5954,16 @@ function renderProfileIndicators(waifu, details = null) {
     ["Урон дальний", indicators.rangedRange],
     ["Урон магич.", indicators.magicRange],
     ["Крит", indicators.critChance],
-    ["Уклонение", indicators.dodgeChance],
+    [
+      "Уклонение",
+      indicators.dodgeChance,
+      "Шанс не получить урон от ответного удара монстра. Складывается: ЛОВ × 0,1% + вторички на предметах + пассивы (например Проворство). Потолок 40%.",
+    ],
+    [
+      "Полное уклонение",
+      indicators.fullEvadeChance,
+      "Отдельный бросок после обычного уклонения: при успехе урон = 0. Даётся пассивами вроде «Шаг тени». Не суммируется со строкой «Уклонение».",
+    ],
     ["Бонус EXP", indicators.expBonus],
     ["Бонус золота", indicators.goldBonus],
     ["Скидка найма", indicators.hireDiscount],
@@ -7314,12 +5972,15 @@ function renderProfileIndicators(waifu, details = null) {
   ];
 
   const cells = rows
-    .map(
-      ([label, value]) =>
-        `<div class="profile-detail-cell"><span class="profile-detail-label">${escapeHtml(label)}</span><strong class="profile-detail-value">${escapeHtml(
-          String(value)
-        )}</strong></div>`
-    )
+    .map((row) => {
+      const label = row[0];
+      const value = row[1];
+      const tip = row[2] || "";
+      const tipAttr = tip ? ` title="${escapeHtml(tip)}"` : "";
+      return `<div class="profile-detail-cell"${tipAttr}><span class="profile-detail-label">${escapeHtml(label)}</span><strong class="profile-detail-value">${escapeHtml(
+        String(value)
+      )}</strong></div>`;
+    })
     .join("");
 
   const merchantCell = `<div class="profile-detail-cell profile-detail-cell--merchant">
@@ -7358,6 +6019,40 @@ async function renderProfileStatistics() {
       .join("");
   } catch (e) {
     box.innerHTML = `<div class="profile-detail-cell profile-detail-cell--full"><span class="profile-detail-label">Ошибка загрузки</span></div>`;
+  }
+  renderProfileAbyssStats().catch(() => {});
+}
+
+async function renderProfileAbyssStats() {
+  const section = document.getElementById("profile-abyss-section");
+  const box = document.getElementById("profile-abyss-stats");
+  if (!section || !box) return;
+  try {
+    const st = await apiFetch("/abyss/status");
+    const record = Number(st.max_floor_reached || 0);
+    if (record <= 0 && !st.session_active) {
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+    const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("ru-RU"));
+    const rows = [
+      ["Рекорд (этаж)", fmt(record)],
+      ["Чекпоинт", fmt(st.current_checkpoint)],
+      ["Осколки", fmt(st.abyss_shards)],
+      ["Чекпоинтов сегодня", `${fmt(st.checkpoints_today)} / ${fmt(st.daily_limit)}`],
+    ];
+    if (st.session_active) {
+      rows.unshift(["Сейчас на этаже", fmt(st.current_floor)]);
+    }
+    box.innerHTML = rows
+      .map(
+        ([label, value]) =>
+          `<div class="profile-detail-cell"><span class="profile-detail-label">${escapeHtml(label)}</span><strong class="profile-detail-value">${escapeHtml(String(value))}</strong></div>`
+      )
+      .join("");
+  } catch (e) {
+    section.hidden = true;
   }
 }
 
@@ -7453,26 +6148,146 @@ function renderProfileSlotCard(slot, item) {
     ? itemArtHtml(item)
     : `<span class="profile-slot-fallback">${itemIconForSlotType("")}</span>`;
 
+  const enchantOverlay = item ? itemEnchantOverlayHtml(item, "slot") : "";
   return `
     <button type="button" class="profile-slot-card profile-slot-card--mini ${item ? rarity : "empty"}" title="${escapeHtml(titleText)}" aria-label="${escapeHtml(slotName)}" onclick="WaifuApp.openProfileSlot(${slot})">
       <div class="profile-slot-media">
         ${mediaHtml}
+        ${enchantOverlay}
+        ${item ? `<div class="profile-slot-mini-level profile-slot-mini-level--overlay">Ур. ${lvl}</div>` : ""}
       </div>
-      <div class="profile-slot-mini-level">Ур. ${lvl}</div>
     </button>
   `;
 }
 
+let paperdollMenuOutsideBound = false;
+
+function closePaperdollMenuOnOutside(ev) {
+  const menu = document.getElementById("profile-paperdoll-menu");
+  if (!menu || menu.style.display === "none") return;
+  if (ev.target.closest?.(".profile-paperdoll-menu-btn") || ev.target.closest?.(".profile-paperdoll-menu")) {
+    return;
+  }
+  menu.style.display = "none";
+}
+
+function togglePaperdollMenu(ev) {
+  if (ev) ev.stopPropagation();
+  const menu = document.getElementById("profile-paperdoll-menu");
+  if (!menu) return;
+  const willOpen = menu.style.display === "none" || !menu.style.display;
+  menu.style.display = willOpen ? "block" : "none";
+  if (willOpen && !paperdollMenuOutsideBound) {
+    paperdollMenuOutsideBound = true;
+    document.addEventListener("click", closePaperdollMenuOnOutside, true);
+  }
+}
+
+function paperdollGenerationsRemaining(waifu) {
+  const n = waifu?.paperdoll_generations_remaining;
+  if (n != null && !Number.isNaN(Number(n))) return Number(n);
+  const paperdollUrl = String(waifu?.paperdoll_url || "").trim();
+  return paperdollUrl ? 0 : 1;
+}
+
 function renderProfilePaperDoll(waifu) {
+  const paperdollUrl = resolveImageUrl(String(waifu?.paperdoll_url || "").trim());
+  const portraitUrl = resolveImageUrl(
+    String(
+      waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
+    ).trim()
+  );
+  const hasPortrait = Boolean(portraitUrl);
+  const admin = isAdminUser();
+  const gensLeft = paperdollGenerationsRemaining(waifu);
+  const remaining = admin ? "безлимит" : String(gensLeft);
+  const canGenerate = hasPortrait && (admin || gensLeft > 0);
+  const name = escapeHtml(String(waifu?.name || "Основная вайфу"));
+  const meta = `${escapeHtml(className(waifu?.class ?? waifu?.class_))} · ${escapeHtml(raceName(waifu?.race))}`;
+
+  let bodyInner = "";
+  let bodyClass = "profile-paperdoll-body profile-paperdoll-body--stage";
+  if (paperdollUrl) {
+    bodyInner = `<img class="profile-paperdoll-img" src="${escapeHtml(paperdollUrl)}" alt="${name}" />`;
+  } else {
+    bodyInner = escapeHtml(waifuPortraitEmoji(waifu) || "👤");
+  }
+
+  const menuBtn = `<button type="button" class="profile-paperdoll-menu-btn" title="Действия с образом" aria-label="Меню образа" onclick="event.stopPropagation();WaifuApp.togglePaperdollMenu(event)">⋯</button>`;
+  const menuBlock = `
+    <div id="profile-paperdoll-menu" class="profile-paperdoll-menu" style="display:none" role="menu">
+      <button type="button" class="profile-paperdoll-menu-item" role="menuitem"${canGenerate ? "" : " disabled"}
+        onclick="event.stopPropagation();WaifuApp.generateMainWaifuPaperdoll()">
+        <span class="profile-paperdoll-menu-title">Сгенерировать изображение</span>
+        <span class="profile-paperdoll-menu-meta">Осталось генераций: ${escapeHtml(remaining)}</span>
+      </button>
+    </div>`;
+
   return `
     <div class="profile-paperdoll">
-      <div class="profile-paperdoll-body" aria-hidden="true">${escapeHtml(waifuPortraitEmoji(waifu) || "👤")}</div>
+      <div class="${bodyClass}">${bodyInner}${menuBtn}${menuBlock}</div>
       <div class="profile-paperdoll-caption">
-        <strong>${escapeHtml(String(waifu?.name || "Основная вайфу"))}</strong>
-        <span class="muted tiny">${escapeHtml(className(waifu?.class ?? waifu?.class_))} · ${escapeHtml(raceName(waifu?.race))}</span>
+        <strong>${name}</strong>
+        <span class="muted tiny">${meta}</span>
       </div>
     </div>
   `;
+}
+
+async function generateMainWaifuPaperdoll() {
+  const waifu = profileState.currentProfile?.main_waifu;
+  if (!waifu) {
+    showToast("Нет основной вайфу", "error");
+    return;
+  }
+  const portraitUrl = String(
+    waifu?.portrait_url || waifu?.image_url || waifu?.sprite_url || waifu?.avatar_url || ""
+  ).trim();
+  if (!portraitUrl) {
+    showToast("Сначала нужен портрет вайфу", "error");
+    return;
+  }
+  const admin = isAdminUser();
+  if (!admin && paperdollGenerationsRemaining(waifu) <= 0) {
+    showToast("Генерация образа уже использована", "error");
+    return;
+  }
+  const menu = document.getElementById("profile-paperdoll-menu");
+  if (menu) menu.style.display = "none";
+  setItemArtGenBusy(true);
+  try {
+    const path = admin
+      ? "/profile/main-waifu/paperdoll/regenerate"
+      : "/profile/main-waifu/paperdoll";
+    const payload = await apiFetch(path, { method: "POST" });
+    const url = String(payload?.paperdoll_url || "").trim();
+    if (url && profileState.currentProfile?.main_waifu) {
+      const mw = profileState.currentProfile.main_waifu;
+      mw.paperdoll_url = url;
+      if (!admin) {
+        mw.paperdoll_generations_remaining = Math.max(0, paperdollGenerationsRemaining(mw) - 1);
+      }
+    }
+    renderProfileEquipment();
+    showToast("Образ с экипировкой сохранён");
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    const msg =
+      detail === "portrait_required_for_paperdoll"
+        ? "Сначала нужен портрет вайфу"
+        : detail === "paperdoll_already_generated"
+          ? "Генерация образа уже использована"
+          : detail === "paperdoll_generation_failed"
+            ? "Не удалось сгенерировать образ"
+            : detail || "Ошибка генерации";
+    showToast(msg, "error");
+  } finally {
+    setItemArtGenBusy(false);
+  }
+}
+
+async function adminGenerateMainWaifuPaperdoll() {
+  return generateMainWaifuPaperdoll();
 }
 
 function renderProfileEquipment() {
@@ -7537,19 +6352,21 @@ function renderProfileInventory() {
       const iconHtml = itemArtHtml(item);
       const upgrade = isProfileUpgradeItem(item);
       const locked = item?.can_equip === false;
+      const enchantOverlay = itemEnchantOverlayHtml(item, "bag");
       cells.push(`
         <button type="button" class="item-card profile-inv-item ${rarity} ${locked ? "empty" : ""}" title="${name}" onclick="WaifuApp.openItemById(${Number(
           item?.id || 0
         )})">
-          <div class="item-icon">${iconHtml}</div>
+          <div class="item-icon">${iconHtml}${enchantOverlay}</div>
           ${upgrade ? `<div class="upgrade-arrow" title="Улучшение относительно экипировки">▲</div>` : ""}
           <div class="item-level">Ур. ${item?.level ?? "?"}</div>
-          <div class="item-name">${name}</div>
         </button>
       `);
     });
     for (let i = pageItems.length; i < pageSize; i += 1) {
-      cells.push(`<div class="item-card empty" aria-hidden="true"><div class="item-icon">—</div></div>`);
+      cells.push(
+        `<div class="item-card profile-inv-item profile-inv-placeholder empty" aria-hidden="true"><div class="item-icon">—</div></div>`
+      );
     }
     box.innerHTML = cells.join("");
   }
@@ -7620,8 +6437,130 @@ function changeProfileInventoryPage(delta) {
   renderProfileInventory();
 }
 
+function renderChatRewardsStatus(data) {
+  const bag = document.getElementById("chat-reward-bag-btn");
+  if (!bag || !data) {
+    if (bag) bag.hidden = true;
+    return;
+  }
+
+  const claimable = Boolean(data.claimable);
+  bag.hidden = !claimable;
+  if (!claimable) return;
+
+  const chests = Number(data.wallet?.pending_chests || 0);
+  bag.classList.toggle("chat-reward-bag-btn--chest", chests > 0);
+  bag.classList.toggle("chat-reward-bag-btn--gold", chests <= 0);
+  bag.title = "Награды за чат · авто-начисление в 00:00 МСК · нажмите, чтобы забрать досрочно";
+
+  if (!bag.dataset.bound) {
+    bag.dataset.bound = "1";
+    bag.addEventListener("click", (e) => {
+      e.stopPropagation();
+      claimChatRewards().catch(console.error);
+    });
+  }
+}
+
+async function loadChatRewardsStatus() {
+  try {
+    const data = await apiFetch("/chat-rewards/status");
+    renderChatRewardsStatus(data);
+    return data;
+  } catch (err) {
+    console.warn("chat rewards status failed", err);
+    return null;
+  }
+}
+
+function closeChatRewardClaimModal() {
+  const m = document.getElementById("chat-reward-claim-modal");
+  if (m) m.hidden = true;
+}
+
+function showChatRewardClaimModal(payload) {
+  const m = document.getElementById("chat-reward-claim-modal");
+  const body = document.getElementById("chat-reward-claim-body");
+  const dialog = document.getElementById("chat-reward-claim-dialog");
+  const sub = document.getElementById("chat-reward-claim-sub");
+  if (!m || !body) return;
+
+  const chests = Number(payload?.chests || 0);
+  if (dialog) {
+    dialog.classList.toggle("chat-reward-claim-dialog--chest", chests > 0);
+  }
+  if (sub) {
+    sub.hidden = chests > 0;
+  }
+
+  const lines = [];
+  if (payload.gold > 0) lines.push(`🪙 Золото: +${payload.gold}`);
+  if (payload.exp > 0) lines.push(`✨ Опыт ОВ: +${payload.exp}`);
+  if (chests > 0) lines.push(`📦 Сундуков: ${chests}`);
+  if (payload.level_up) {
+    lines.push(`⭐ Уровень: ${payload.level_before} → ${payload.level_after}`);
+  }
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  items.forEach((it) => {
+    if (it?.name) lines.push(`🎁 ${it.name}`);
+  });
+  if (!lines.length) lines.push("Нечего забирать.");
+  body.innerHTML = lines.map((l) => `<p class="chat-reward-claim-line">${l}</p>`).join("");
+  m.hidden = false;
+}
+
+async function claimChatRewards() {
+  const bag = document.getElementById("chat-reward-bag-btn");
+  if (bag?.classList.contains("chat-reward-bag-btn--claiming")) return;
+  if (bag) bag.classList.add("chat-reward-bag-btn--claiming");
+  try {
+    const payload = await apiFetch("/chat-rewards/claim", { method: "POST" });
+    showChatRewardClaimModal(payload);
+    await loadChatRewardsStatus();
+    const profile = await loadProfile().catch(() => null);
+    if (profile) await populateProfile(profile);
+  } catch (err) {
+    console.error("claim chat rewards failed", err);
+    alert("Не удалось забрать награды. Попробуйте позже.");
+  } finally {
+    if (bag) bag.classList.remove("chat-reward-bag-btn--claiming");
+    await loadChatRewardsStatus();
+  }
+}
+
+async function ensureProfileEquipmentLoaded() {
+  if (profileState.equipmentLoaded || profileState.equipmentLoading) return;
+  profileState.equipmentLoading = true;
+  try {
+    const eq = await apiFetch(`/waifu/equipment`);
+    const equipped = Array.isArray(eq?.equipped) ? eq.equipped : [];
+    const inventory = Array.isArray(eq?.inventory) ? eq.inventory : [];
+    profileState.inventory = inventory;
+    profileState.equippedBySlot = {};
+    equipped.forEach((it) => {
+      if (it?.equipment_slot != null) profileState.equippedBySlot[Number(it.equipment_slot)] = it;
+    });
+    profileState.inventoryPage = 1;
+    profileState.equipmentLoaded = true;
+    renderProfileEquipment();
+    renderProfileInventory();
+  } finally {
+    profileState.equipmentLoading = false;
+  }
+}
+
+async function reloadProfileEquipment() {
+  profileState.equipmentLoaded = false;
+  await ensureProfileEquipmentLoaded();
+}
+
 async function populateProfile(profile) {
-  const p = profile || (await loadProfile());
+  let p = profile;
+  if (!isProfilePage()) {
+    if (!p) p = await loadProfile({ lite: true });
+  } else if (!p) {
+    p = await loadProfile({ lite: false });
+  }
   const w = p?.main_waifu;
   const mainEl = document.querySelector("main.profile-layout");
   const missEl = document.getElementById("profile-missing-waifu");
@@ -7661,28 +6600,66 @@ async function populateProfile(profile) {
   renderStatsStrip("profile-stats-strip", w);
   renderStatsBreakdown("profile-stats-breakdown", w, profileState.currentDetails);
   renderProfileIndicators(w, profileState.currentDetails);
-  renderProfileStatistics();
   switchProfileInfoTab(profileState.infoTab);
 
-  const eq = await apiFetch(`/waifu/equipment`);
-  const equipped = Array.isArray(eq?.equipped) ? eq.equipped : [];
-  const inventory = Array.isArray(eq?.inventory) ? eq.inventory : [];
-  profileState.inventory = inventory;
-  profileState.equippedBySlot = {};
-  equipped.forEach((it) => {
-    if (it?.equipment_slot != null) profileState.equippedBySlot[Number(it.equipment_slot)] = it;
-  });
-  profileState.inventoryPage = 1;
+  const invTabActive = document.getElementById("tab-inventory")?.classList.contains("active");
+  if (invTabActive) {
+    await ensureProfileEquipmentLoaded();
+  } else {
+    const gear = document.getElementById("profile-gear");
+    const inv = document.getElementById("profile-inventory");
+    if (gear && !profileState.equipmentLoaded) {
+      gear.classList.add("placeholder");
+      gear.textContent = "Откройте вкладку «Инвентарь», чтобы загрузить экипировку.";
+    }
+    if (inv && !profileState.equipmentLoaded) {
+      inv.classList.add("placeholder");
+      inv.textContent = "—";
+    }
+  }
 
-  renderProfileEquipment();
-  renderProfileInventory();
+  const scheduleChatRewards = () => {
+    loadChatRewardsStatus().catch(() => null);
+  };
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(scheduleChatRewards, { timeout: 2500 });
+  } else {
+    setTimeout(scheduleChatRewards, 0);
+  }
 
   try {
-    const tab = new URLSearchParams(window.location.search).get("tab");
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    const info = params.get("info");
     if (tab) switchProfileTab(tab);
+    if (info) {
+      if (tab !== "info") switchProfileTab("info");
+      switchProfileInfoTab(info);
+    }
   } catch {
     // ignore
   }
+}
+
+const SLOT_MAIN_STAT_KEYS = new Set([
+  "strength",
+  "agility",
+  "intelligence",
+  "endurance",
+  "charm",
+  "luck",
+]);
+
+function mainStatSum(item) {
+  if (!item) return 0;
+  let sum = 0;
+  const bs = String(item.base_stat || "").trim().toLowerCase();
+  if (SLOT_MAIN_STAT_KEYS.has(bs)) sum += safeNumber(item.base_stat_value, 0);
+  (item.affixes || []).forEach((a) => {
+    const sk = String(a?.stat || "").trim().toLowerCase();
+    if (SLOT_MAIN_STAT_KEYS.has(sk)) sum += safeNumber(a?.value, 0);
+  });
+  return sum;
 }
 
 function averageWeaponDamageForCompare(item) {
@@ -7783,25 +6760,55 @@ function buildSlotReplaceCompareHtml(candidate, equipped) {
   return `<span class="slot-replace-compare">${chips.join(" ")}</span>`;
 }
 
-async function openSlotModal(slot) {
-  profileState.selectedSlot = slot;
-  const modal = document.getElementById("slot-modal");
+function renderSlotPickerList() {
   const body = document.getElementById("slot-modal-body");
-  if (!modal || !body) return;
+  const slot = profileState.selectedSlot;
+  if (!body || slot == null) return;
 
-  setText("slot-modal-title", `Замена: ${EQUIPMENT_SLOT_NAMES[slot] || `Слот ${slot}`}`);
-  setText("slot-modal-subtitle", "Нажмите на предмет, чтобы экипировать его в этот слот.");
-  body.innerHTML = `<div class="placeholder">Загрузка...</div>`;
-  modal.style.display = "grid";
+  const items = Array.isArray(profileState.slotPickerItems) ? profileState.slotPickerItems.slice() : [];
+  const equipped = profileState.slotPickerEquipped;
 
-  const data = await apiFetch(`/waifu/equipment/available?slot=${slot}`);
-  const items = Array.isArray(data?.items) ? data.items : [];
   if (!items.length) {
     body.innerHTML = `<div class="placeholder">Нет подходящих предметов для этого слота.</div>`;
     return;
   }
 
-  const equipped = getProfileEquippedItem(slot);
+  const dir = profileState.slotSortDir === "asc" ? 1 : -1;
+  const sortKey = profileState.slotSort;
+  items.sort((a, b) => {
+    let va = 0;
+    let vb = 0;
+    if (sortKey === "level") {
+      va = safeNumber(a?.level, 0);
+      vb = safeNumber(b?.level, 0);
+    } else if (sortKey === "damage") {
+      va = averageWeaponDamageForCompare(a) ?? 0;
+      vb = averageWeaponDamageForCompare(b) ?? 0;
+      if (equipped) {
+        const base = averageWeaponDamageForCompare(equipped) ?? 0;
+        va -= base;
+        vb -= base;
+      }
+    } else if (sortKey === "stats") {
+      va = mainStatSum(a);
+      vb = mainStatSum(b);
+      if (equipped) {
+        const base = mainStatSum(equipped);
+        va -= base;
+        vb -= base;
+      }
+    }
+    if (va !== vb) return (va - vb) * dir;
+    return String(a?.display_name || a?.name || "").localeCompare(
+      String(b?.display_name || b?.name || ""),
+      "ru"
+    );
+  });
+
+  const sortSelect = document.getElementById("slot-sort-select");
+  if (sortSelect) sortSelect.value = profileState.slotSort;
+  const dirBtn = document.getElementById("slot-sort-direction");
+  if (dirBtn) dirBtn.textContent = profileState.slotSortDir === "asc" ? "▲" : "▼";
 
   body.innerHTML = `<div class="slot-replace-list">${items
     .map((item) => {
@@ -7830,10 +6837,47 @@ async function openSlotModal(slot) {
     .join("")}</div>`;
 }
 
+function setSlotSort(value) {
+  profileState.slotSort = ["level", "damage", "stats"].includes(value) ? value : "level";
+  renderSlotPickerList();
+}
+
+function toggleSlotSortDir() {
+  profileState.slotSortDir = profileState.slotSortDir === "asc" ? "desc" : "asc";
+  renderSlotPickerList();
+}
+
+async function openSlotModal(slot) {
+  profileState.selectedSlot = slot;
+  const modal = document.getElementById("slot-modal");
+  const body = document.getElementById("slot-modal-body");
+  if (!modal || !body) return;
+
+  setText("slot-modal-title", `Замена: ${EQUIPMENT_SLOT_NAMES[slot] || `Слот ${slot}`}`);
+  setText("slot-modal-subtitle", "Нажмите на предмет, чтобы экипировать его в этот слот.");
+  body.innerHTML = `<div class="placeholder">Загрузка...</div>`;
+  modal.style.display = "grid";
+  const sortWrap = document.getElementById("slot-sort-wrap");
+  if (sortWrap) sortWrap.style.display = "";
+
+  const data = await apiFetch(`/waifu/equipment/available?slot=${slot}`);
+  const items = Array.isArray(data?.items) ? data.items : [];
+  profileState.slotPickerItems = items;
+  profileState.slotPickerEquipped = getProfileEquippedItem(slot);
+
+  if (!items.length) {
+    body.innerHTML = `<div class="placeholder">Нет подходящих предметов для этого слота.</div>`;
+    return;
+  }
+
+  renderSlotPickerList();
+}
+
 async function equipItemToProfileSlot(itemId, slot) {
   await apiFetch(`/waifu/equipment/equip?inventory_item_id=${itemId}&slot=${slot}`, { method: "POST" });
   closeSlotModal();
   closeItemModal();
+  profileState.equipmentLoaded = false;
   await bootstrapPage("profile", populateProfile);
   switchProfileTab("inventory");
 }
@@ -7950,7 +6994,13 @@ function openItemModal(item) {
   }
 
   const art = document.getElementById("item-modal-art");
-  if (art) art.innerHTML = itemArtHtml(item);
+  if (art) art.innerHTML = itemArtHtml(item, { adminGen: true });
+  const artFrame = document.getElementById("item-modal-art-frame");
+  if (artFrame) {
+    artFrame.querySelectorAll(".item-enchant-overlay").forEach((el) => el.remove());
+    const overlayHtml = itemEnchantOverlayHtml(item, "modal");
+    if (overlayHtml) artFrame.insertAdjacentHTML("beforeend", overlayHtml);
+  }
 
   const enchRow = document.getElementById("item-modal-ench");
   if (enchRow) enchRow.innerHTML = buildItemModalEnchantRowHtml(item);
@@ -8011,6 +7061,7 @@ function openItemModal(item) {
   if (reqSec) reqSec.style.display = pillsHtml ? "" : "none";
 
   const sellBtn = document.getElementById("item-modal-sell");
+  const dismantleBtn = document.getElementById("item-modal-dismantle");
   const enchBtn = document.getElementById("item-modal-enchant");
   const unequipBtn = document.getElementById("item-modal-unequip");
   const replaceBtn = document.getElementById("item-modal-replace");
@@ -8018,6 +7069,7 @@ function openItemModal(item) {
   const actionsRow = document.getElementById("item-modal-actions-row");
 
   if (sellBtn) sellBtn.style.display = isEquipped ? "none" : "";
+  if (dismantleBtn) dismantleBtn.style.display = isEquipped ? "none" : "";
   if (unequipBtn) unequipBtn.style.display = isEquipped ? "" : "none";
   if (replaceBtn) replaceBtn.style.display = isEquipped ? "" : "none";
   if (equipBtn) {
@@ -8032,14 +7084,20 @@ function openItemModal(item) {
 
   let visibleFooter = 0;
   if (sellBtn && sellBtn.style.display !== "none") visibleFooter += 1;
+  if (dismantleBtn && dismantleBtn.style.display !== "none") visibleFooter += 1;
   if (enchBtn && enchBtn.style.display !== "none") visibleFooter += 1;
   if (unequipBtn && unequipBtn.style.display !== "none") visibleFooter += 1;
   if (replaceBtn && replaceBtn.style.display !== "none") visibleFooter += 1;
   if (equipBtn && equipBtn.style.display !== "none") visibleFooter += 1;
   if (actionsRow) {
-    actionsRow.setAttribute("data-cols", visibleFooter <= 2 ? "2" : "3");
+    actionsRow.setAttribute("data-cols", String(Math.max(1, Math.min(visibleFooter, 4))));
   }
 
+  const atticEl = document.querySelector("header.attic, .attic");
+  const atticH = atticEl ? Math.ceil(atticEl.getBoundingClientRect().height) : 58;
+  modal.style.setProperty("--attic-bar-height", `${atticH}px`);
+
+  modal.classList.add("item-modal-v2--open");
   modal.style.display = "grid";
 }
 
@@ -8059,7 +7117,26 @@ async function refreshAfterInventoryModalAction() {
     }
     return;
   }
+  profileState.equipmentLoaded = false;
   await bootstrapPage("profile", populateProfile);
+}
+
+async function confirmDismantleSelectedItem() {
+  const item = profileState.selectedItem;
+  if (!item?.id) return;
+  try {
+    await apiFetch(`/inventory/${item.id}/dismantle`, { method: "POST" });
+    showToast("Предмет распылён", "success");
+    closeItemDismantleConfirmOverlay();
+    closeItemModal();
+    await loadProfile().catch(() => null);
+    if (typeof loadSellInventory === "function" && shopState.activeTab === "sell") {
+      await loadSellInventory().catch(() => {});
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || e?.message || "Не удалось распылить", "error");
+  }
 }
 
 async function confirmSellSelectedItem() {
@@ -8161,10 +7238,22 @@ function initTitleScreen(profile) {
 
   if (!btn) return;
 
-  const stub = profile && typeof profile.player_id === "undefined";
-  if (stub && authEl) {
-    authEl.style.display = "block";
-    authEl.innerHTML = getWebAppAuthNoticeHtml();
+  if (!profile) {
+    if (authEl) {
+      authEl.style.display = "block";
+      authEl.innerHTML = serverUnavailableNoticeHtml();
+    }
+    btn.textContent = "Повторить";
+    btn.disabled = false;
+    btn.onclick = () => window.location.reload();
+    return;
+  }
+
+  if (profile.__authRequired) {
+    if (authEl) {
+      authEl.style.display = "block";
+      authEl.innerHTML = webAppAuthNoticeHtml();
+    }
     btn.textContent = "Вход недоступен";
     btn.disabled = true;
     btn.onclick = null;
@@ -8200,6 +7289,56 @@ async function adminLevelUpWaifu() {
   }
 }
 
+async function refreshProfileAfterAdminWaifuEdit() {
+  closeProfileStatInfoModal();
+  const p = await loadProfile().catch(() => null);
+  if (p && window.location.pathname.endsWith("/profile.html")) {
+    await populateProfile(p).catch(() => {});
+  }
+  return p;
+}
+
+async function adminAddMainWaifuStat(stat, ev) {
+  if (ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+  closeProfileStatInfoModal();
+  const allowed = ["strength", "agility", "intelligence", "endurance", "charm", "luck"];
+  if (!allowed.includes(stat)) return;
+  try {
+    await apiFetch(`/admin/waifu/add-stat?stat=${encodeURIComponent(stat)}&amount=100`, { method: "POST" });
+    await refreshProfileAfterAdminWaifuEdit();
+  } catch (e) {
+    console.warn("adminAddMainWaifuStat failed:", e);
+  }
+}
+
+async function adminAddStatPoints(ev) {
+  if (ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+  closeProfileStatInfoModal();
+  try {
+    await apiFetch("/admin/waifu/add-stat-points?amount=100", { method: "POST" });
+    await refreshProfileAfterAdminWaifuEdit();
+  } catch (e) {
+    console.warn("adminAddStatPoints failed:", e);
+  }
+}
+
+async function adminResetMainWaifuStatSpend() {
+  if (!confirm("Сбросить потраченные ОХ? Статы вернутся к базе расы/класса.")) return;
+  try {
+    const data = await apiFetch("/admin/waifu/reset-stat-spend", { method: "POST" });
+    await loadProfile();
+    showToast(`Возвращено ${data.refunded} ОХ`);
+  } catch (e) {
+    showToast("Ошибка: " + (e?.message || e), "error");
+  }
+}
+
 async function adminClearAllItems() {
   if (!confirm("Удалить ВСЕ предметы? (экипировка + инвентарь)")) return;
   try {
@@ -8208,6 +7347,521 @@ async function adminClearAllItems() {
     showToast("Все предметы удалены");
   } catch (e) {
     showToast("Ошибка: " + (e?.message || e), "error");
+  }
+}
+
+const adminSpawnState = {
+  catalog: null,
+  filters: { search: "", tier: "all", itemKind: "all", slot: "all", baseGrade: "all" },
+  affixFilters: { search: "", kind: "all", category: "all" },
+  selectedTemplateId: null,
+  rarity: 2,
+  selectedAffixKeys: new Set(),
+};
+
+const adminSpawnArtFailCache = new Set();
+
+function adminSpawnAffixKey(entry) {
+  return `${entry.catalog_kind}:${entry.catalog_id}`;
+}
+
+/** Admin spawn grid: emoji placeholder with optional generate button. */
+function adminSpawnArtPlaceholderHtml(fakeItem) {
+  const emoji = `<span class="lib-art-emoji">${itemArtEmoji(fakeItem)}</span>`;
+  const artKey = String(fakeItem?.art_key || "").trim();
+  if (!isAdminUiEnabled() || !artKey) return emoji;
+  const btn = itemArtGenerateBtnHtml(fakeItem);
+  if (!btn) return emoji;
+  return `<span class="item-art-admin-wrap item-art-admin-wrap--placeholder">${emoji}${btn}</span>`;
+}
+
+function adminSpawnOnArtError(img) {
+  if (!img) return;
+  const artKey = String(img.dataset?.artKey || "").trim();
+  let urls = [];
+  try {
+    urls = JSON.parse(img.dataset?.fallbackUrls || "[]");
+  } catch {
+    urls = [];
+  }
+  let index = parseInt(img.dataset?.fallbackIndex || "0", 10) + 1;
+  if (index < urls.length) {
+    img.dataset.fallbackIndex = String(index);
+    img.src = urls[index];
+    return;
+  }
+  if (artKey) adminSpawnArtFailCache.add(artKey);
+  const wrap = img.closest(".lib-card-art");
+  if (wrap) {
+    wrap.classList.add("silhouette");
+    const card = wrap.closest(".lib-card");
+    const cardName = card?.querySelector(".lib-card-name")?.textContent?.trim() || "";
+    const fakeItem = {
+      art_key: artKey,
+      tier: parseInt(img.dataset?.artTier || "1", 10) || 1,
+      slot_type: img.dataset?.slotType || "",
+      weapon_type: img.dataset?.weaponType || "",
+      name: cardName,
+      display_name: cardName,
+    };
+    wrap.innerHTML = adminSpawnArtPlaceholderHtml(fakeItem);
+  }
+}
+
+function adminSpawnResolveArtKey(entry) {
+  if (adminSpawnResolveIsLegendary()) {
+    const legKey = String(entry?.legendary_art_key || "").trim();
+    if (legKey) return legKey;
+    const base = String(entry?.art_key || "").trim();
+    if (base) return `legendary/${base}`;
+  }
+  return String(entry?.art_key || "").trim();
+}
+
+function adminSpawnCardArtHtml(entry) {
+  const artKey = adminSpawnResolveArtKey(entry);
+  const itemName = adminSpawnDisplayName(entry) || String(entry?.name || "").trim();
+  const fakeItem = {
+    art_key: artKey,
+    tier: entry?.tier,
+    slot_type: entry?.slot_type,
+    weapon_type: entry?.subtype,
+    name: itemName,
+    display_name: itemName,
+  };
+  if (!artKey) {
+    return `<div class="lib-card-art silhouette"><span class="lib-art-emoji">${itemArtEmoji(fakeItem)}</span></div>`;
+  }
+  if (adminSpawnArtFailCache.has(artKey)) {
+    return `<div class="lib-card-art silhouette">${adminSpawnArtPlaceholderHtml(fakeItem)}</div>`;
+  }
+  const startTier = Math.min(10, Math.max(1, Number(entry?.tier) || 1));
+  const urls = [];
+  for (let t = startTier; t >= 1; t -= 1) {
+    urls.push(`${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${t}.webp`);
+  }
+  const slotType = escapeHtml(String(entry?.slot_type || ""));
+  const weaponType = escapeHtml(String(entry?.subtype || ""));
+  const imgHtml = `<img src="${urls[0]}" alt="" data-art-key="${escapeHtml(artKey)}" data-art-tier="${startTier}" data-slot-type="${slotType}" data-weapon-type="${weaponType}" data-fallback-urls="${escapeHtml(JSON.stringify(urls))}" data-fallback-index="0" onerror="WaifuApp.adminSpawnOnArtError(this)" />`;
+  const inner = isAdminUiEnabled() ? wrapItemImageWithAdminGen(fakeItem, imgHtml) : imgHtml;
+  return `<div class="lib-card-art">${inner}</div>`;
+}
+
+function adminSpawnUpdateAffixBtn() {
+  const btn = document.getElementById("admin-spawn-affix-open-btn");
+  if (btn) btn.textContent = `Аффиксы (${adminSpawnState.selectedAffixKeys.size})`;
+}
+
+function adminSpawnSetFabEnabled(on) {
+  const fab = document.getElementById("admin-spawn-submit-fab");
+  if (fab) fab.disabled = !on;
+}
+
+function adminSpawnResolveBaseGrade(tpl) {
+  const f = adminSpawnState.filters.baseGrade;
+  if (f !== "all") return Math.max(0, Math.min(2, parseInt(f, 10) || 0));
+  return Number(tpl?.base_grade) || 0;
+}
+
+function adminSpawnResolveIsLegendary() {
+  return adminSpawnState.filters.itemKind === "legendary";
+}
+
+function adminSpawnResolveSubmitRarity() {
+  if (adminSpawnResolveIsLegendary()) return 5;
+  return Math.max(1, Math.min(4, Number(adminSpawnState.rarity) || 2));
+}
+
+function adminSpawnDisplayName(it) {
+  if (!it) return "?";
+  if (adminSpawnState.filters.itemKind === "legendary") {
+    return String(it.legendary_name_ru || it.name || "?").trim() || "?";
+  }
+  return String(it.name || "?").trim() || "?";
+}
+
+function adminSpawnDisplaySubtitle(it) {
+  if (!it || adminSpawnState.filters.itemKind !== "legendary") return "";
+  const canon = String(it.name || "").trim();
+  const leg = String(it.legendary_name_ru || "").trim();
+  if (!canon || !leg || canon === leg) return "";
+  return canon;
+}
+
+function adminSpawnSyncRarityControl() {
+  const rarity = document.getElementById("admin-spawn-rarity");
+  if (!rarity) return;
+  const leg = adminSpawnResolveIsLegendary();
+  rarity.disabled = leg;
+  rarity.title = leg ? "Редкость фиксирована для легендарных предметов" : "";
+}
+
+function adminSpawnBindFilterHandlers() {
+  const search = document.getElementById("admin-spawn-search");
+  const tier = document.getElementById("admin-spawn-tier");
+  const itemKind = document.getElementById("admin-spawn-item-kind");
+  const slot = document.getElementById("admin-spawn-slot");
+  const baseGrade = document.getElementById("admin-spawn-base-grade-filter");
+  const rarity = document.getElementById("admin-spawn-rarity");
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = "1";
+    search.addEventListener("input", () => {
+      adminSpawnState.filters.search = search.value.trim().toLowerCase();
+      adminSpawnRenderGrid();
+    });
+  }
+  if (tier && !tier.dataset.bound) {
+    tier.dataset.bound = "1";
+    tier.addEventListener("change", () => {
+      adminSpawnState.filters.tier = tier.value;
+      adminSpawnRenderGrid();
+      adminSpawnRenderConfig();
+    });
+  }
+  if (itemKind && !itemKind.dataset.bound) {
+    itemKind.dataset.bound = "1";
+    itemKind.addEventListener("change", () => {
+      adminSpawnState.filters.itemKind = itemKind.value;
+      adminSpawnSyncRarityControl();
+      adminSpawnRenderGrid();
+      adminSpawnRenderConfig();
+    });
+  }
+  if (slot && !slot.dataset.bound) {
+    slot.dataset.bound = "1";
+    slot.addEventListener("change", () => {
+      adminSpawnState.filters.slot = slot.value;
+      adminSpawnRenderGrid();
+    });
+  }
+  if (baseGrade && !baseGrade.dataset.bound) {
+    baseGrade.dataset.bound = "1";
+    baseGrade.addEventListener("change", () => {
+      adminSpawnState.filters.baseGrade = baseGrade.value;
+      adminSpawnRenderGrid();
+    });
+  }
+  if (rarity && !rarity.dataset.bound) {
+    rarity.dataset.bound = "1";
+    rarity.addEventListener("change", () => {
+      adminSpawnState.rarity = Math.max(1, Math.min(4, parseInt(rarity.value, 10) || 2));
+      adminSpawnRenderConfig();
+    });
+  }
+}
+
+function adminSpawnBindAffixFilterHandlers() {
+  const affSearch = document.getElementById("admin-spawn-affix-search");
+  const affKind = document.getElementById("admin-spawn-affix-kind");
+  const affCategory = document.getElementById("admin-spawn-affix-category");
+  if (affSearch && !affSearch.dataset.bound) {
+    affSearch.dataset.bound = "1";
+    affSearch.addEventListener("input", () => {
+      adminSpawnState.affixFilters.search = affSearch.value.trim().toLowerCase();
+      adminSpawnRenderAffixList();
+    });
+  }
+  if (affKind && !affKind.dataset.bound) {
+    affKind.dataset.bound = "1";
+    affKind.addEventListener("change", () => {
+      adminSpawnState.affixFilters.kind = affKind.value;
+      adminSpawnRenderAffixList();
+    });
+  }
+  if (affCategory && !affCategory.dataset.bound) {
+    affCategory.dataset.bound = "1";
+    affCategory.addEventListener("change", () => {
+      adminSpawnState.affixFilters.category = affCategory.value;
+      adminSpawnRenderAffixList();
+    });
+  }
+}
+
+function adminSpawnRenderGrid() {
+  const grid = document.getElementById("admin-spawn-items-grid");
+  const cat = adminSpawnState.catalog;
+  if (!grid || !cat) return;
+  const f = adminSpawnState.filters;
+  let items = cat.items || [];
+  if (f.search) {
+    items = items.filter((it) => String(it.name || "").toLowerCase().includes(f.search));
+  }
+  if (f.tier !== "all") {
+    const t = Number(f.tier);
+    items = items.filter((it) => Number(it.tier) === t);
+  }
+  if (f.itemKind === "legendary") {
+    items = items.filter((it) => Boolean(it.has_curated_legendary) && Boolean(it.legendary_name_ru));
+  }
+  if (f.baseGrade !== "all") {
+    const bg = Number(f.baseGrade);
+    items = items.filter((it) => Number(it.base_grade) === bg);
+  }
+  if (f.slot !== "all") {
+    items = items.filter((it) => String(it.slot_type || "") === f.slot);
+  }
+  const selId = adminSpawnState.selectedTemplateId;
+  grid.innerHTML = items
+    .map((it) => {
+      const tid = Number(it.base_template_id);
+      const tierCls = libraryTierClass(Math.max(1, Number(it.tier) || 1));
+      const selected = tid === selId ? " selected admin-spawn-card" : " admin-spawn-card";
+      const displayName = adminSpawnDisplayName(it);
+      const subtitle = adminSpawnDisplaySubtitle(it);
+      const legBadge =
+        f.itemKind !== "legendary" && it.has_curated_legendary
+          ? `<span class="admin-spawn-leg-badge">★</span>`
+          : "";
+      const subtitleHtml = subtitle
+        ? `<div class="lib-card-sub muted tiny">${escapeHtml(subtitle)}</div>`
+        : "";
+      return `
+        <div class="lib-card ${tierCls}${selected}" role="button" tabindex="0" data-template-id="${tid}"
+          onclick="WaifuApp.adminSpawnSelectTemplate(${tid})">
+          ${adminSpawnCardArtHtml(it)}
+          <div class="lib-card-meta">
+            <div class="lib-card-name">${escapeHtml(displayName)}</div>
+            ${subtitleHtml}
+            <div class="lib-card-tier">T${Number(it.tier) || "?"}${legBadge}</div>
+          </div>
+        </div>`;
+    })
+    .join("");
+}
+
+function adminSpawnFindTemplate(tid) {
+  const items = adminSpawnState.catalog?.items || [];
+  return items.find((it) => Number(it.base_template_id) === Number(tid)) || null;
+}
+
+function adminSpawnRenderConfig() {
+  const box = document.getElementById("admin-spawn-config");
+  const tid = adminSpawnState.selectedTemplateId;
+  if (!box) return;
+  if (!tid) {
+    box.textContent = "Выберите шаблон.";
+    adminSpawnSetFabEnabled(false);
+    return;
+  }
+  const tpl = adminSpawnFindTemplate(tid);
+  if (!tpl) {
+    box.textContent = "Шаблон не найден.";
+    adminSpawnSetFabEnabled(false);
+    return;
+  }
+  adminSpawnSetFabEnabled(true);
+  const displayName = adminSpawnDisplayName(tpl);
+  const subtitle = adminSpawnDisplaySubtitle(tpl);
+  const spawnLeg = adminSpawnResolveIsLegendary();
+  const rar = adminSpawnResolveSubmitRarity();
+  const rarLabels = ["", "обычная", "необычная", "редкая", "эпическая", "легендарная"];
+  const subLine = subtitle ? ` <span class="muted">(${escapeHtml(subtitle)})</span>` : "";
+  box.innerHTML = `<strong>${escapeHtml(displayName)}</strong>${subLine} · T${Number(tpl.tier) || "?"} · редкость: ${escapeHtml(rarLabels[rar] || String(rar))}${spawnLeg ? " · легендарный" : ""} · ilvl по аффиксам · аффиксов: ${adminSpawnState.selectedAffixKeys.size}`;
+}
+
+function adminSpawnRenderAffixList() {
+  const list = document.getElementById("admin-spawn-affix-list");
+  const cat = adminSpawnState.catalog;
+  if (!list || !cat) return;
+  const f = adminSpawnState.affixFilters;
+  let rows = cat.affixes || [];
+  if (f.search) {
+    const q = f.search;
+    rows = rows.filter(
+      (a) =>
+        String(a.name_ru || a.name || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(a.description_ru || "")
+          .toLowerCase()
+          .includes(q)
+    );
+  }
+  if (f.kind !== "all") {
+    if (f.kind === "prefix") {
+      rows = rows.filter((a) => String(a.kind || "") === "prefix" || String(a.kind || "") === "affix");
+    } else if (f.kind === "suffix") {
+      rows = rows.filter((a) => String(a.kind || "") === "suffix");
+    }
+  }
+  rows = rows.filter((a) => String(a.catalog_kind || "") !== "legacy_affix");
+  if (f.category !== "all") {
+    rows = rows.filter((a) => String(a.bonus_category || "other") === f.category);
+  }
+  if (!rows.length) {
+    list.innerHTML = '<p class="muted tiny">Ничего не найдено.</p>';
+    return;
+  }
+  list.innerHTML = rows
+    .map((a) => {
+      const key = adminSpawnAffixKey(a);
+      const on = adminSpawnState.selectedAffixKeys.has(key);
+      const kindLabel =
+        String(a.kind || "") === "suffix"
+          ? "Суффикс"
+          : String(a.kind || "") === "prefix"
+            ? "Префикс"
+            : "Аффикс";
+      const catLabel = a.bonus_category_label || "";
+      const subParts = [kindLabel, catLabel, a.range_label ? String(a.range_label) : ""].filter(Boolean);
+      const subLine = subParts.length ? escapeHtml(subParts.join(" · ")) : "";
+      const descLine = a.description_ru
+        ? `<span class="muted tiny admin-spawn-affix-desc">${escapeHtml(a.description_ru)}</span>`
+        : "";
+      return `
+        <label class="admin-spawn-affix-row${on ? " selected" : ""}">
+          <input type="checkbox" data-affix-key="${key}"${on ? " checked" : ""}
+            onchange="WaifuApp.adminSpawnToggleAffixFromEl(this)" />
+          <span class="admin-spawn-affix-meta">
+            <span class="admin-spawn-affix-name">${escapeHtml(a.name_ru || a.name || "?")}</span>
+            <span class="muted tiny">${subLine}</span>
+            ${descLine}
+          </span>
+        </label>`;
+    })
+    .join("");
+}
+
+function adminSpawnSelectTemplate(templateId) {
+  const tid = Number(templateId);
+  const tpl = adminSpawnFindTemplate(tid);
+  adminSpawnState.selectedTemplateId = tpl ? tid : null;
+  adminSpawnRenderGrid();
+  adminSpawnRenderConfig();
+  adminSpawnRenderAffixList();
+}
+
+function adminSpawnToggleAffix(key, checked) {
+  if (!key) return;
+  if (checked) adminSpawnState.selectedAffixKeys.add(key);
+  else adminSpawnState.selectedAffixKeys.delete(key);
+  adminSpawnUpdateAffixBtn();
+  adminSpawnRenderConfig();
+}
+
+function adminSpawnToggleAffixFromEl(el) {
+  if (!el) return;
+  adminSpawnToggleAffix(el.getAttribute("data-affix-key"), el.checked);
+  const row = el.closest(".admin-spawn-affix-row");
+  if (row) row.classList.toggle("selected", Boolean(el.checked));
+}
+
+async function adminOpenSpawnItemModal() {
+  if (!isAdminUser() || !isAdminUiEnabled()) {
+    showToast("Нужен админ-режим", "error");
+    return;
+  }
+  const modal = document.getElementById("admin-spawn-item-modal");
+  if (!modal) return;
+  try {
+    if (!adminSpawnState.catalog) {
+      adminSpawnState.catalog = await apiFetch("/admin/spawn-item/catalog");
+    }
+  } catch (e) {
+    showToast("Каталог: " + (e?.message || e), "error");
+    return;
+  }
+  adminSpawnBindFilterHandlers();
+  const tierSel = document.getElementById("admin-spawn-tier");
+  const kindSel = document.getElementById("admin-spawn-item-kind");
+  const raritySel = document.getElementById("admin-spawn-rarity");
+  if (tierSel) tierSel.value = adminSpawnState.filters.tier;
+  if (kindSel) kindSel.value = adminSpawnState.filters.itemKind;
+  if (raritySel) raritySel.value = String(adminSpawnState.rarity);
+  adminSpawnSyncRarityControl();
+  adminSpawnUpdateAffixBtn();
+  adminSpawnRenderGrid();
+  adminSpawnRenderConfig();
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function adminOpenSpawnAffixModal() {
+  const modal = document.getElementById("admin-spawn-affix-modal");
+  if (!modal) return;
+  if (!adminSpawnState.catalog) {
+    showToast("Сначала откройте генератор предметов", "error");
+    return;
+  }
+  adminSpawnBindAffixFilterHandlers();
+  const affSearch = document.getElementById("admin-spawn-affix-search");
+  const affKind = document.getElementById("admin-spawn-affix-kind");
+  const affCategory = document.getElementById("admin-spawn-affix-category");
+  if (affSearch) affSearch.value = adminSpawnState.affixFilters.search;
+  if (affKind) affKind.value = adminSpawnState.affixFilters.kind;
+  if (affCategory) affCategory.value = adminSpawnState.affixFilters.category;
+  adminSpawnRenderAffixList();
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function adminCloseSpawnAffixModal() {
+  const modal = document.getElementById("admin-spawn-affix-modal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+function adminCloseSpawnItemModal() {
+  const modal = document.getElementById("admin-spawn-item-modal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+async function adminSpawnSubmit() {
+  const tid = adminSpawnState.selectedTemplateId;
+  if (!tid) {
+    showToast("Выберите шаблон", "error");
+    return;
+  }
+  const affixes = [];
+  for (const key of adminSpawnState.selectedAffixKeys) {
+    const [kind, idStr] = String(key).split(":");
+    const cid = parseInt(idStr, 10);
+    if (!kind || !Number.isFinite(cid)) continue;
+    affixes.push({ catalog_kind: kind, catalog_id: cid });
+  }
+  const tpl = adminSpawnFindTemplate(tid);
+  if (!tpl) {
+    showToast("Шаблон не найден", "error");
+    return;
+  }
+  const fab = document.getElementById("admin-spawn-submit-fab");
+  if (fab) fab.disabled = true;
+  const isLegendary = adminSpawnResolveIsLegendary();
+  const rarity = adminSpawnResolveSubmitRarity();
+  if (isLegendary && !tpl.legendary_name_ru) {
+    showToast("У шаблона нет легендарного имени", "error");
+    if (fab) fab.disabled = false;
+    return;
+  }
+  try {
+    const payload = await apiFetch("/admin/inventory/spawn-item", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        base_template_id: tid,
+        rarity,
+        is_legendary: isLegendary,
+        base_grade: adminSpawnResolveBaseGrade(tpl),
+        affixes,
+      }),
+    });
+    adminCloseSpawnItemModal();
+    await reloadProfileEquipment();
+    await loadProfile();
+    let toastMsg = `Добавлено: ${payload.name || "предмет"} (${payload.affix_count || 0} афф.)`;
+    const affReq = Number(payload.affixes_requested ?? 0);
+    const affApp = Number(payload.affixes_applied ?? 0);
+    if (affReq > 0 && affApp < affReq) {
+      toastMsg += ` · применено ${affApp} из ${affReq}`;
+    }
+    showToast(toastMsg);
+  } catch (e) {
+    showToast("Ошибка: " + (e?.message || e), "error");
+  } finally {
+    adminSpawnSetFabEnabled(Boolean(adminSpawnState.selectedTemplateId));
   }
 }
 
@@ -8227,7 +7881,6 @@ async function initWaifuGenerator(profile) {
   const classSel = document.getElementById("waifu-class-select");
   const raceSel = document.getElementById("waifu-race-select");
   const statsBox = document.getElementById("waifu-stats");
-  const summary = document.getElementById("waifu-summary");
   const nextBtn = document.getElementById("waifu-next-btn");
 
   if (!nameInput || !classSel || !raceSel || !statsBox || !nextBtn) return;
@@ -8241,7 +7894,7 @@ async function initWaifuGenerator(profile) {
   if (!classIds.has(waifuGeneratorState.selectedClassId)) waifuGeneratorState.selectedClassId = WAIFU_CLASSES[0].id;
   waifuGenSyncHiddenSelects();
   waifuGenBuildRaceClassPickers();
-  waifuGenBindCosmeticModalsOnce();
+  waifuGenBindModalsOnce();
 
   const recalc = () => {
     const name = nameInput.value.trim();
@@ -8254,20 +7907,11 @@ async function initWaifuGenerator(profile) {
     Object.entries(rb).forEach(([k, v]) => (cur[k] = (cur[k] || 0) + v));
     Object.entries(cb).forEach(([k, v]) => (cur[k] = (cur[k] || 0) + v));
 
-    if (summary) summary.textContent = `${className(cls)} / ${raceName(race)}`;
-    statsBox.innerHTML = [
-      ["СИЛ", cur.strength],
-      ["ЛОВ", cur.agility],
-      ["ИНТ", cur.intelligence],
-      ["ВЫН", cur.endurance],
-      ["ОБА", cur.charm],
-      ["УДЧ", cur.luck],
-    ]
-      .map(([k, v]) => `<div class="stat-card"><span class="muted">${k}</span><strong>${v}</strong></div>`)
-      .join("");
+    waifuGenRenderRadar(statsBox, cur);
+    waifuGenSyncTriggers();
+    waifuGenRenderPassiveList();
 
     nextBtn.disabled = !name;
-    waifuGenRefreshPassiveBonuses();
   };
 
   window.__waifuGenRecalc = recalc;
@@ -8337,6 +7981,7 @@ function waifuGenGoStep1() {
 async function waifuGenPreviewPortrait() {
   const errP = document.getElementById("waifu-gen-portrait-err");
   const genBtn = document.getElementById("waifu-generate-btn");
+  const createBtn = document.getElementById("waifu-create-btn");
   if (waifuGenGensUsed() >= 3) {
     if (errP) errP.textContent = "Достигнут лимит трёх генераций.";
     return;
@@ -8344,6 +7989,8 @@ async function waifuGenPreviewPortrait() {
 
   if (errP) errP.textContent = "";
   if (genBtn) genBtn.disabled = true;
+  if (createBtn) createBtn.disabled = true;
+  setWaifuGenMagicLoading(true);
 
   const body = waifuGenPortraitRequestBody();
 
@@ -8372,7 +8019,6 @@ async function waifuGenPreviewPortrait() {
     waifuGenApplyPortraitPreview(dataUrl);
     waifuGenRenderVariants();
     waifuGenRefreshHint();
-    waifuGenRefreshGenerateButton();
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     const lim = (detail || "").includes("portrait_preview_limit");
@@ -8382,8 +8028,11 @@ async function waifuGenPreviewPortrait() {
         : detail || String(e?.message || e);
     }
     if (lim) waifuGenSetGensUsed(3);
-    waifuGenRefreshGenerateButton();
     waifuGenRefreshHint();
+  } finally {
+    setWaifuGenMagicLoading(false);
+    waifuGenRefreshGenerateButton();
+    if (createBtn) createBtn.disabled = false;
   }
 }
 
@@ -8435,47 +8084,3817 @@ async function loadSkills(act) {
   return data;
 }
 
-async function searchGuilds(query) {
-  const qs = query ? `?query=${encodeURIComponent(query)}` : "";
-  const data = await apiFetch(`/guilds/search${qs}`);
-  const list = document.getElementById("guild-search-results");
-  if (!list) return data;
-  list.innerHTML = "";
-  data.guilds.forEach((g) => {
-    const li = document.createElement("div");
-    li.className = "list-item";
-    li.innerHTML = `<strong>[${g.tag}] ${g.name}</strong> — ур. ${g.level}, рекрутинг: ${g.is_recruiting ? "да" : "нет"}`;
-    list.appendChild(li);
+// ---- Guild hall ----
+
+const guildHallState = {
+  tab: "main",
+  activitySubTab: "raid",
+  me: null,
+  profileGold: 0,
+  bankItems: [],
+  bankPage: 1,
+  bankPageSize: 12,
+  bankFilters: { weapon: true, armor: true, accessory: true },
+  bankSort: "level",
+  bankSortDir: "desc",
+  bankGoldMode: "deposit",
+  selectedBankItem: null,
+  depositInventory: [],
+  depositPage: 1,
+  depositPageSize: 12,
+  depositPreviewItem: null,
+  memberPreviewData: null,
+  mailCompose: { recipientId: null, inventoryItemId: null, itemLabel: "" },
+  mailState: { inbox: [], selectedId: null, unreadCount: 0 },
+  skillsBranch: "combat",
+  raidParticipantIds: [],
+  raidChatId: null,
+  raidChatTitle: null,
+  raidEligibleMembers: null,
+  raidAvailableChats: [],
+  warTargets: null,
+  questsData: null,
+  questsTab: "milestones",
+  questsLoading: false,
+  heroMenuListener: false,
+  membersModalGuardUntil: 0,
+  historyLoaded: false,
+};
+
+const GUILD_MEMBERS_MODAL_GUARD_MS = 400;
+const GUILD_ME_CACHE_MS = 8000;
+const guildMeCache = { data: null, ts: 0, inFlight: null };
+
+function invalidateGuildMeCache() {
+  guildMeCache.data = null;
+  guildMeCache.ts = 0;
+  guildHallState.historyLoaded = false;
+}
+
+async function fetchGuildMe(opts = {}) {
+  const force = opts.force === true;
+  const now = Date.now();
+  if (!force && guildMeCache.data && now - guildMeCache.ts < GUILD_ME_CACHE_MS) {
+    return guildMeCache.data;
+  }
+  if (guildMeCache.inFlight) return guildMeCache.inFlight;
+  guildMeCache.inFlight = apiFetch("/guilds/me")
+    .then((data) => {
+      guildMeCache.data = data;
+      guildMeCache.ts = Date.now();
+      guildMeCache.inFlight = null;
+      return data;
+    })
+    .catch((err) => {
+      guildMeCache.inFlight = null;
+      throw err;
+    });
+  return guildMeCache.inFlight;
+}
+
+async function loadGuildHistoryTab() {
+  if (guildHallState.historyLoaded && Array.isArray(guildHallState.me?.history)) {
+    return guildHallState.me.history;
+  }
+  const data = await apiFetch("/guilds/me/history");
+  const history = Array.isArray(data?.history) ? data.history : [];
+  if (guildHallState.me) guildHallState.me.history = history;
+  guildHallState.historyLoaded = true;
+  return history;
+}
+
+function isGuildLeader(d) {
+  if (!d) return false;
+  if (d.is_leader) return true;
+  const viewerId = Number(d.viewer_player_id);
+  if (!viewerId) return false;
+  const members = Array.isArray(d.members) ? d.members : [];
+  return members.some((m) => Number(m.player_id) === viewerId && m.is_leader);
+}
+
+function canEditGuildMedia(d) {
+  return isGuildLeader(d);
+}
+
+function guildApiErrorToUser(detail, fallback) {
+  const err =
+    typeof detail === "object" && detail != null
+      ? detail.error || detail.reason
+      : String(detail || "");
+  const map = {
+    insufficient_gold: "Недостаточно золота.",
+    already_in_guild: "Вы уже в гильдии.",
+    name_taken: "Название гильдии занято.",
+    tag_taken: "Тег гильдии занят.",
+    waifu_level_too_low: "Нужна основная вайфу минимум 1 уровня.",
+    guild_not_found: "Гильдия не найдена.",
+    requirements_not_met: "Не выполнены требования вступления.",
+    guild_full: "В гильдии нет свободных мест.",
+    leader_only: "Только глава гильдии.",
+    forbidden: "Недостаточно прав.",
+    leader_cannot_leave: "Глава не может покинуть гильдию — передайте лидерство или распустите гильдию.",
+    not_in_guild: "Вы не в гильдии.",
+    locked: "Навык заблокирован уровнем гильдии.",
+    tier_locked: "Навык заблокирован тиром гильдии.",
+    max_level: "Навык уже максимального уровня.",
+    no_skill_points: "Недостаточно очков прокачки (ОПГ).",
+    cannot_kick_leader: "Нельзя исключить главу гильдии.",
+    cannot_kick_self: "Нельзя исключить самого себя.",
+    invalid_role: "Недопустимое звание.",
+    target_not_found: "Участник не найден.",
+    raid_already_active: "Рейд уже идёт.",
+    no_active_raid: "Нет активного рейда.",
+    not_in_raid: "Вы не участник этого рейда.",
+    need_participants: "Нужно минимум 2 участника.",
+    need_guild_chat: "Выберите групповой чат для рейда.",
+    invalid_raid_chat: "Этот чат недоступен для рейда.",
+    not_in_raid_chat: "Участник не состоит в выбранном чате.",
+    wars_locked: "Войны доступны с 10 уровня гильдии.",
+    already_at_war: "У гильдии уже активная война.",
+    bad_target: "Нельзя объявить войну этой гильдии.",
+    level_range: "Уровень цели вне диапазона ±3.",
+  };
+  return map[err] || fallback || String(err || "Ошибка");
+}
+
+function mailApiErrorToUser(detail, fallback) {
+  const err = typeof detail === "string" ? detail : String(detail?.error || detail || "");
+  const map = {
+    cannot_mail_self: "Нельзя отправить письмо самому себе.",
+    not_same_guild: "Нет доступа к профилю этого игрока.",
+    empty_mail: "Укажите текст, золото или предмет.",
+    body_too_long: "Слишком длинное сообщение.",
+    gold_too_much: "Слишком много золота в одном письме.",
+    insufficient_gold: "Недостаточно золота.",
+    item_not_found: "Предмет не найден.",
+    item_equipped: "Снимите предмет перед отправкой.",
+    recipient_inbox_full: "Входящие получателя переполнены.",
+    daily_send_limit: "Достигнут дневной лимит отправки писем.",
+    sender_not_found: "Отправитель не найден.",
+    recipient_not_found: "Получатель не найден.",
+  };
+  return map[err] || guildApiErrorToUser(detail, fallback);
+}
+
+function setGuildPageLoading(on) {
+  if (typeof document === "undefined" || !document.body?.classList?.contains("page-guild")) return;
+  const v = Boolean(on);
+  document.body.classList.toggle("guild-loading", v);
+  const modal = document.getElementById("guild-page-loading-modal");
+  if (modal) modal.setAttribute("aria-busy", v ? "true" : "false");
+}
+
+function updateGuildHallChrome(inGuild) {
+  const tabs = document.querySelector(".guild-tabs-row");
+  const hero = document.getElementById("guild-hero-banner");
+  const createSec = document.getElementById("guild-create-section");
+  if (tabs) tabs.style.display = inGuild ? "" : "none";
+  if (hero) {
+    hero.hidden = !inGuild;
+    hero.setAttribute("aria-hidden", inGuild ? "false" : "true");
+  }
+  if (createSec) createSec.style.display = inGuild ? "none" : "";
+}
+
+function formatGuildPower(n) {
+  const v = safeInt(n, 0);
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(v);
+}
+
+function formatGuildRelativeTime(iso) {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const sec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (sec < 60) return "только что";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} мин. назад`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} ч. назад`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day} дн. назад`;
+  return new Date(t).toLocaleDateString("ru-RU");
+}
+
+function renderGuildHero(d) {
+  const hero = document.getElementById("guild-hero-banner");
+  if (!hero || !d?.in_guild) return;
+  const tagEl = document.getElementById("guild-hero-tag");
+  const nameEl = document.getElementById("guild-hero-name");
+  const levelEl = document.getElementById("guild-hero-level");
+  const xpFill = document.getElementById("guild-hero-xp-fill");
+  const xpLabel = document.getElementById("guild-hero-xp-label");
+  const emblemEl = document.getElementById("guild-hero-emblem");
+  const emblemInner = document.getElementById("guild-hero-emblem-inner");
+  const heroBg = document.getElementById("guild-hero-bg");
+  const bannerImg = document.getElementById("guild-hero-banner-img");
+  const svgFallback = document.getElementById("guild-hero-svg-fallback");
+  const iconInp = document.getElementById("guild-icon-file-input");
+  const bannerInp = document.getElementById("guild-banner-file-input");
+  const bar = formatGuildGxpBar(d);
+  const canEdit = isGuildLeader(d);
+  if (tagEl) tagEl.textContent = `[${d.guild_tag || ""}]`;
+  if (nameEl) nameEl.textContent = d.guild_name || "—";
+  if (levelEl) levelEl.textContent = `Ур. гильдии ${d.guild_level ?? "—"}`;
+  if (xpFill) xpFill.style.width = `${bar.pct}%`;
+  if (xpLabel) xpLabel.textContent = bar.label;
+  const bannerUrl = d.guild_banner_url || "";
+  if (bannerImg) {
+    if (bannerUrl) {
+      bannerImg.src = bannerUrl;
+      bannerImg.hidden = false;
+      if (svgFallback) svgFallback.style.display = "none";
+    } else {
+      bannerImg.removeAttribute("src");
+      bannerImg.hidden = true;
+      if (svgFallback) svgFallback.style.display = "";
+    }
+  }
+  const iconUrl = d.guild_icon_url || "";
+  if (emblemInner) {
+    if (iconUrl) {
+      emblemInner.innerHTML = `<img src="${escapeHtml(iconUrl)}" alt="" />`;
+    } else {
+      emblemInner.textContent = "🏛️";
+    }
+  }
+  hero.onclick = null;
+  hero.classList.remove("guild-hero-banner--editable");
+  if (heroBg) {
+    heroBg.onclick = null;
+    heroBg.style.cursor = "";
+  }
+  const menuIcon = document.getElementById("guild-hero-menu-icon");
+  const menuBanner = document.getElementById("guild-hero-menu-banner");
+  const menuDivider = document.getElementById("guild-hero-menu-divider");
+  const menuLeave = document.getElementById("guild-hero-menu-leave");
+  if (menuIcon) menuIcon.hidden = !canEdit;
+  if (menuBanner) menuBanner.hidden = !canEdit;
+  if (menuDivider) menuDivider.hidden = !canEdit;
+  if (menuLeave) menuLeave.hidden = canEdit;
+  closeGuildHeroMenu();
+  if (iconInp) iconInp.onchange = () => uploadGuildIcon(iconInp);
+  if (bannerInp) bannerInp.onchange = () => uploadGuildBanner(bannerInp);
+  if (!guildHallState.heroMenuListener) {
+    guildHallState.heroMenuListener = true;
+    document.addEventListener("click", (ev) => {
+      if (!ev.target.closest("#guild-hero-menu") && !ev.target.closest("#guild-hero-menu-btn")) {
+        closeGuildHeroMenu();
+      }
+      if (!ev.target.closest(".guild-member-actions")) {
+        closeGuildMemberActionMenus();
+      }
+    });
+  }
+}
+
+function renderGuildStatsGrid(d) {
+  const members = Array.isArray(d?.members) ? d.members : [];
+  const onlineN = members.filter((m) => m.online).length;
+  const slots = d?.member_slots ?? "—";
+  const power =
+    d?.guild_power != null && d.guild_power !== ""
+      ? formatGuildPower(d.guild_power)
+      : "—";
+  const rating =
+    d?.guild_rating != null && d.guild_rating > 0 ? `#${d.guild_rating}` : "—";
+  return `
+    <div class="guild-section-label">Статистика</div>
+    <div class="guild-stats-grid">
+      <button type="button" id="guild-stat-members-btn" class="guild-stat-card guild-stat-card--btn">
+        <div class="guild-stat-label">Участники</div>
+        <div class="guild-stat-val">${members.length} <span class="guild-stat-sub">/ ${slots}</span></div>
+      </button>
+      <div class="guild-stat-card">
+        <div class="guild-stat-label">Онлайн</div>
+        <div class="guild-stat-val guild-stat-val--green"><span class="guild-dot-online" aria-hidden="true"></span>${onlineN}</div>
+      </div>
+      <div class="guild-stat-card">
+        <div class="guild-stat-label">Мощь</div>
+        <div class="guild-stat-val guild-stat-val--gold" id="guild-stat-power">${escapeHtml(String(power))}</div>
+      </div>
+      <div class="guild-stat-card">
+        <div class="guild-stat-label">Рейтинг</div>
+        <div class="guild-stat-val" id="guild-stat-rating">${escapeHtml(String(rating))}</div>
+      </div>
+    </div>`;
+}
+
+function armGuildMembersModalGuard() {
+  guildHallState.membersModalGuardUntil = Date.now() + GUILD_MEMBERS_MODAL_GUARD_MS;
+  const grid = document.querySelector(".guild-stats-grid");
+  if (!grid) return;
+  grid.classList.add("guild-stats-grid--arming");
+  window.setTimeout(() => grid.classList.remove("guild-stats-grid--arming"), GUILD_MEMBERS_MODAL_GUARD_MS);
+}
+
+function bindGuildMembersStatCard() {
+  const root = document.getElementById("guild-tab-content");
+  if (!root || root.dataset.membersBtnBound === "1") return;
+  root.dataset.membersBtnBound = "1";
+  root.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("#guild-stat-members-btn");
+    if (!btn) return;
+    if (Date.now() < (guildHallState.membersModalGuardUntil || 0)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
+    openGuildMembersModal();
   });
+}
+
+function bindGuildMembersModalChrome() {
+  if (window.__guildMembersModalBound) return;
+  window.__guildMembersModalBound = true;
+
+  const modal = document.getElementById("guild-members-modal");
+  const closeBtn = document.getElementById("guild-members-modal-close");
+  const panel = modal?.querySelector(".guild-members-modal-panel");
+
+  const onCloseClick = (ev) => {
+    ev.preventDefault();
+    closeGuildMembersModal();
+  };
+  closeBtn?.addEventListener("click", onCloseClick);
+  closeBtn?.addEventListener("touchend", onCloseClick);
+
+  modal?.addEventListener("click", (ev) => {
+    if (ev.target === modal) closeGuildMembersModal();
+  });
+  panel?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+  });
+
+  window.addEventListener("pageshow", () => {
+    if (document.body.classList.contains("page-guild")) {
+      closeGuildMembersModal();
+    }
+  });
+}
+
+function openGuildMembersModal() {
+  const d = guildHallState.me;
+  if (!d?.in_guild) return;
+  const body = document.getElementById("guild-members-modal-body");
+  const modal = document.getElementById("guild-members-modal");
+  if (body) body.innerHTML = renderGuildMembersHtml(d.members, d);
+  if (modal) {
+    modal.classList.add("guild-members-modal--open");
+    modal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+  }
+}
+
+function closeGuildMembersModal() {
+  const modal = document.getElementById("guild-members-modal");
+  closeGuildMemberActionMenus();
+  if (modal) {
+    modal.classList.remove("guild-members-modal--open");
+    modal.setAttribute("aria-hidden", "true");
+  }
+  if (document.body.classList.contains("page-guild")) {
+    document.body.style.overflow = "";
+  }
+}
+
+function refreshGuildMembersModal() {
+  const modal = document.getElementById("guild-members-modal");
+  if (!modal?.classList.contains("guild-members-modal--open")) return;
+  const d = guildHallState.me;
+  const body = document.getElementById("guild-members-modal-body");
+  if (body && d?.members) {
+    body.innerHTML = renderGuildMembersHtml(d.members, d);
+  }
+}
+
+function toggleGuildMemberActionMenu(ev, playerId) {
+  ev?.stopPropagation?.();
+  const menu = document.getElementById(`guild-member-menu-${playerId}`);
+  if (!menu) return;
+  const willOpen = menu.hidden;
+  closeGuildMemberActionMenus();
+  if (willOpen) {
+    menu.hidden = false;
+  }
+}
+
+function closeGuildMemberActionMenus() {
+  document.querySelectorAll(".guild-member-actions-menu").forEach((menu) => {
+    menu.hidden = true;
+  });
+}
+
+function toggleGuildHeroMenu(ev) {
+  ev?.stopPropagation?.();
+  const menu = document.getElementById("guild-hero-menu");
+  const btn = document.getElementById("guild-hero-menu-btn");
+  if (!menu) return;
+  const willOpen = menu.hidden;
+  closeGuildHeroMenu();
+  if (willOpen) {
+    menu.hidden = false;
+    if (btn) btn.setAttribute("aria-expanded", "true");
+  }
+}
+
+function closeGuildHeroMenu() {
+  const menu = document.getElementById("guild-hero-menu");
+  const btn = document.getElementById("guild-hero-menu-btn");
+  if (menu) menu.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function renderGuildActivityFeed(d) {
+  const feed = Array.isArray(d?.activity_feed) ? d.activity_feed.slice(0, 3) : [];
+  const inner = !feed.length
+    ? `<p class="muted tiny guild-activity-empty">Пока нет событий.</p>`
+    : `<div class="guild-activity-list">${feed
+        .map((ev) => {
+          const avatar = ev.actor_avatar || "📋";
+          const text = ev.text || "";
+          const time = formatGuildRelativeTime(ev.created_at);
+          return `<div class="guild-act-item">
+        <div class="guild-act-avatar" aria-hidden="true">${escapeHtml(String(avatar))}</div>
+        <div class="guild-act-body">
+          <div class="guild-act-text">${escapeHtml(text)}</div>
+          ${time ? `<div class="guild-act-time">${escapeHtml(time)}</div>` : ""}
+        </div>
+      </div>`;
+        })
+        .join("")}</div>`;
+  return `<div class="guild-activity-panel">
+    <div class="guild-section-label">Активность</div>
+    ${inner}
+  </div>`;
+}
+
+function renderGuildHistoryPane(d) {
+  const history = Array.isArray(d?.history) ? d.history : [];
+  if (!history.length) {
+    return `<p class="muted tiny" style="padding:12px 0;text-align:center">История пуста.</p>`;
+  }
+  const items = history
+    .map((ev) => {
+      const avatar = ev.actor_avatar || "📜";
+      const text = ev.text || "";
+      const time = formatGuildRelativeTime(ev.created_at);
+      return `<div class="guild-act-item">
+        <div class="guild-act-avatar" aria-hidden="true">${escapeHtml(String(avatar))}</div>
+        <div class="guild-act-body">
+          <div class="guild-act-text">${escapeHtml(text)}</div>
+          ${time ? `<div class="guild-act-time">${escapeHtml(time)}</div>` : ""}
+        </div>
+      </div>`;
+    })
+    .join("");
+  return `<div class="guild-history-list">${items}</div>`;
+}
+
+function switchGuildTab(name) {
+  guildHallState.tab = name;
+  document.querySelectorAll("[data-guild-tab-btn]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.guildTabBtn === name);
+  });
+  if (name === "battles" && !guildHallState.activitySubTab) {
+    guildHallState.activitySubTab = "raid";
+  }
+  void renderGuildTabContent();
+}
+
+function switchGuildActivityTab(sub) {
+  guildHallState.activitySubTab = sub;
+  if (sub === "quests") {
+    void loadGuildQuests().then(() => renderGuildTabContent());
+    return;
+  }
+  void renderGuildTabContent();
+}
+
+function formatGuildGxpBar(d) {
+  const gxp = safeInt(d?.gxp, 0);
+  const next = d?.gxp_next_level;
+  if (next == null || next <= 0) {
+    return { pct: 100, label: `${gxp} GXP · макс. уровень` };
+  }
+  const prev = Math.max(0, gxp);
+  const pct = Math.min(100, Math.max(0, Math.round((prev / next) * 100)));
+  return { pct, label: `${gxp} / ${next} GXP` };
+}
+
+function guildMemberLabel(m) {
+  const un = (m.telegram_username || "").trim();
+  if (un) return `@${un}`;
+  return escapeHtml(m.display_name || `Игрок ${m.player_id}`);
+}
+
+function guildMemberPlainName(m) {
+  const un = (m.telegram_username || "").trim();
+  if (un) return `@${un}`;
+  return m.display_name || `Игрок ${m.player_id}`;
+}
+
+function guildMemberRankLabel(m) {
+  if (m.rank) return m.rank;
+  if (m.is_leader) return "Глава";
+  if (m.is_officer) return "Офицер";
+  return "Участник";
+}
+
+function guildMemberAvatarHtml(m) {
+  const url = resolveImageUrl((m.portrait_url || "").trim());
+  if (url && m.has_portrait !== false) {
+    return `<img class="guild-member-avatar" src="${escapeHtml(url)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'guild-member-avatar guild-member-avatar--fallback',textContent:'🧙',ariaHidden:'true'}))" />`;
+  }
+  return `<div class="guild-member-avatar guild-member-avatar--fallback" aria-hidden="true">🧙</div>`;
+}
+
+function guildMemberActionMenuHtml(m, d) {
+  const viewerId = Number(d?.viewer_player_id);
+  const targetId = Number(m.player_id);
+  if (!isGuildLeader(d) || !viewerId || targetId === viewerId || m.is_leader) {
+    return `<span class="guild-member-actions-spacer" aria-hidden="true"></span>`;
+  }
+  const items = [];
+  if (m.is_officer) {
+    items.push(
+      `<button type="button" class="guild-member-actions-menu-item" onclick="WaifuApp.guildSetMemberRank(${targetId}, 'member')">Снять с офицера</button>`
+    );
+  } else {
+    items.push(
+      `<button type="button" class="guild-member-actions-menu-item" onclick="WaifuApp.guildSetMemberRank(${targetId}, 'officer')">Назначить офицером</button>`
+    );
+  }
+  items.push(
+    `<button type="button" class="guild-member-actions-menu-item guild-member-actions-menu-item--danger" onclick="WaifuApp.guildKickMember(${targetId})">Исключить</button>`
+  );
+  items.push(
+    `<button type="button" class="guild-member-actions-menu-item" onclick="WaifuApp.guildSetMemberRank(${targetId}, 'leader')">Передать лидерство</button>`
+  );
+  return `<div class="guild-member-actions">
+    <button type="button" class="guild-member-actions-btn" aria-label="Действия" aria-haspopup="true" onclick="WaifuApp.toggleGuildMemberActionMenu(event, ${targetId})">⋯</button>
+    <div id="guild-member-menu-${targetId}" class="guild-member-actions-menu" hidden>${items.join("")}</div>
+  </div>`;
+}
+
+function renderGuildMembersHtml(members, viewerContext) {
+  if (!Array.isArray(members) || !members.length) {
+    return `<p class="muted tiny">Нет участников.</p>`;
+  }
+  const sorted = [...members].sort((a, b) => {
+    const ao = a.online ? 1 : 0;
+    const bo = b.online ? 1 : 0;
+    if (bo !== ao) return bo - ao;
+    const al = a.is_leader ? 2 : a.is_officer ? 1 : 0;
+    const bl = b.is_leader ? 2 : b.is_officer ? 1 : 0;
+    if (bl !== al) return bl - al;
+    return String(a.display_name || "").localeCompare(String(b.display_name || ""), "ru");
+  });
+  const rows = sorted
+    .map((m) => {
+      const dotCls = m.online ? "guild-member-dot--online" : "guild-member-dot--offline";
+      const pwr =
+        m.member_power != null && m.member_power !== ""
+          ? formatGuildPower(m.member_power)
+          : "—";
+      return `<div class="guild-members-table-row">
+      <span class="gmc gmc--dot"><span class="guild-member-dot ${dotCls}" aria-hidden="true" title="${m.online ? "Онлайн" : "Оффлайн"}"></span></span>
+      <span class="gmc gmc--avatar">${guildMemberAvatarHtml(m)}</span>
+      <span class="gmc gmc--name"><button type="button" class="guild-member-name-btn" onclick="WaifuApp.openPlayerProfile(${Number(m.player_id)})">${guildMemberLabel(m)}</button></span>
+      <span class="gmc gmc--rank"><span class="guild-member-rank">${escapeHtml(guildMemberRankLabel(m))}</span></span>
+      <span class="gmc gmc--power"><span class="guild-member-power">${escapeHtml(String(pwr))}</span></span>
+      <span class="gmc gmc--actions">${guildMemberActionMenuHtml(m, viewerContext)}</span>
+    </div>`;
+    })
+    .join("");
+  return `<div class="guild-members-table">
+    <div class="guild-members-table-head">
+      <span class="gmc gmc--dot" aria-hidden="true"></span>
+      <span class="gmc gmc--avatar" aria-hidden="true"></span>
+      <span class="gmc gmc--name">Игрок</span>
+      <span class="gmc gmc--rank">Звание</span>
+      <span class="gmc gmc--power">Мощь</span>
+      <span class="gmc gmc--actions" aria-hidden="true"></span>
+    </div>
+    <div class="guild-members-table-body">${rows}</div>
+  </div>`;
+}
+
+async function guildKickMember(targetId) {
+  closeGuildMemberActionMenus();
+  const d = guildHallState.me;
+  const member = (d?.members || []).find((m) => Number(m.player_id) === Number(targetId));
+  const name = member ? guildMemberPlainName(member) : `игрока ${targetId}`;
+  if (!confirm(`Исключить ${name} из гильдии?`)) return;
+  try {
+    const res = await apiFetch(`/guilds/members/${targetId}/kick`, { method: "POST" });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось исключить"), "error");
+      return;
+    }
+    showToast("Участник исключён", "success");
+    await refreshGuildHall({ force: true });
+    refreshGuildMembersModal();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+async function guildSetMemberRank(targetId, role) {
+  closeGuildMemberActionMenus();
+  if (role === "leader") {
+    const d = guildHallState.me;
+    const member = (d?.members || []).find((m) => Number(m.player_id) === Number(targetId));
+    const name = member ? guildMemberPlainName(member) : `игроку ${targetId}`;
+    if (!confirm(`Передать лидерство ${name}? Вы станете обычным участником.`)) return;
+  }
+  try {
+    const res = await apiFetch(`/guilds/members/${targetId}/rank`, {
+      method: "POST",
+      body: JSON.stringify({ role }),
+    });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось изменить звание"), "error");
+      return;
+    }
+    const toastMsg =
+      role === "leader"
+        ? "Лидерство передано"
+        : role === "officer"
+          ? "Участник назначен офицером"
+          : "Офицер снят";
+    showToast(toastMsg, "success");
+    await refreshGuildHall({ force: true });
+    refreshGuildMembersModal();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+function getGuildRaidChatId(d) {
+  const fromGuild = d?.raid?.telegram_chat_id ?? d?.telegram_chat_id;
+  if (fromGuild != null && Number(fromGuild) !== 0) return Number(fromGuild);
+  const chat = tg?.initDataUnsafe?.chat;
+  if (chat?.id) return Number(chat.id);
+  return null;
+}
+
+function guildRaidMusterStatusLabel(st) {
+  const map = {
+    pending: "ожидает",
+    accepted: "принял",
+    declined: "отказался",
+    timeout: "таймаут (3 ч)",
+  };
+  return map[String(st || "").toLowerCase()] || st || "—";
+}
+
+function closeGuildRaidChatModal() {
+  const modal = document.getElementById("guild-raid-chat-modal");
+  if (!modal) return;
+  modal.classList.remove("guild-raid-participants-modal--open");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+async function openGuildRaidChatModal() {
+  const d = guildHallState.me;
+  if (!isGuildLeader(d)) {
+    showToast("Только глава гильдии может выбрать чат", "error");
+    return;
+  }
+  const body = document.getElementById("guild-raid-chat-modal-body");
+  const modal = document.getElementById("guild-raid-chat-modal");
+  if (!body || !modal) return;
+  body.innerHTML = `<p class="muted tiny">Загрузка чатов…</p>`;
+  modal.classList.add("guild-raid-participants-modal--open");
+  modal.setAttribute("aria-hidden", "false");
+  try {
+    const data = await apiFetch("/guilds/raid/available-chats");
+    const chats = Array.isArray(data?.chats) ? data.chats : [];
+    guildHallState.raidAvailableChats = chats;
+    if (!chats.length) {
+      const hint = data?.hint || "Нет доступных чатов. Напишите сообщение в группе с ботом.";
+      body.innerHTML = `<p class="muted tiny">${escapeHtml(hint)}</p>`;
+      return;
+    }
+    body.innerHTML = chats
+      .map((c, idx) => {
+        const cid = Number(c.chat_id);
+        const rawTitle = String(c.title || `Чат ${cid}`);
+        const title = escapeHtml(rawTitle);
+        const current = c.is_current ? ' <span class="muted tiny">(текущий)</span>' : "";
+        return `<button type="button" class="guild-raid-chat-row" data-chat-index="${idx}">
+          <span class="guild-raid-chat-row-title">${title}${current}</span>
+          <span class="muted tiny">${cid}</span>
+        </button>`;
+      })
+      .join("");
+    body.querySelectorAll(".guild-raid-chat-row").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.chatIndex);
+        const c = (guildHallState.raidAvailableChats || [])[idx];
+        if (!c) return;
+        selectGuildRaidChat(Number(c.chat_id), c.title || "");
+      });
+    });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    body.innerHTML = `<p class="muted tiny">${escapeHtml(guildApiErrorToUser(detail, "Не удалось загрузить чаты"))}</p>`;
+  }
+}
+
+async function selectGuildRaidChat(chatId, title) {
+  guildHallState.raidChatId = Number(chatId);
+  guildHallState.raidChatTitle = String(title || "").trim() || `Чат ${chatId}`;
+  guildHallState.raidParticipantIds = [];
+  guildHallState.raidEligibleMembers = null;
+  closeGuildRaidChatModal();
+  await openGuildRaidParticipantModal();
+}
+
+async function openGuildRaidParticipantModal() {
+  const d = guildHallState.me;
+  const chatId = guildHallState.raidChatId;
+  if (!chatId) {
+    showToast("Сначала выберите чат", "error");
+    return;
+  }
+  const maxSlots = safeInt(d?.raid?.raid_party_slots, 10) || 10;
+  const body = document.getElementById("guild-raid-participants-modal-body");
+  const modal = document.getElementById("guild-raid-participants-modal");
+  const chatLabel = document.getElementById("guild-raid-participants-chat-label");
+  if (!body || !modal) return;
+  const chatTitle = guildHallState.raidChatTitle || `Чат ${chatId}`;
+  if (chatLabel) {
+    chatLabel.textContent = `Чат: ${chatTitle}. Минимум 2 участника из этого чата. Окно подтверждения — 3 часа.`;
+  }
+  body.innerHTML = `<p class="muted tiny">Загрузка участников…</p>`;
+  modal.classList.add("guild-raid-participants-modal--open");
+  modal.setAttribute("aria-hidden", "false");
+  let members = guildHallState.raidEligibleMembers;
+  try {
+    if (!Array.isArray(members)) {
+      const data = await apiFetch(`/guilds/raid/chat-members?chat_id=${encodeURIComponent(chatId)}`);
+      members = Array.isArray(data?.members) ? data.members : [];
+      guildHallState.raidEligibleMembers = members;
+      if (data?.chat_title) guildHallState.raidChatTitle = data.chat_title;
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    body.innerHTML = `<p class="muted tiny">${escapeHtml(guildApiErrorToUser(detail, "Не удалось загрузить участников"))}</p>`;
+    return;
+  }
+  if (!members.length) {
+    body.innerHTML = `<p class="muted tiny">В этом чате нет членов гильдии, которых бот видел. Участники должны написать хотя бы одно сообщение в чате.</p>`;
+    return;
+  }
+  const eligibleIds = new Set(members.map((m) => Number(m.player_id)));
+  if (!guildHallState.raidParticipantIds.length) {
+    const viewerId = safeInt(d?.viewer_player_id, 0);
+    if (viewerId && eligibleIds.has(viewerId)) guildHallState.raidParticipantIds = [viewerId];
+  } else {
+    guildHallState.raidParticipantIds = guildHallState.raidParticipantIds.filter((pid) =>
+      eligibleIds.has(Number(pid))
+    );
+  }
+  body.innerHTML = members
+    .map((m) => {
+      const pid = Number(m.player_id);
+      const checked = guildHallState.raidParticipantIds.includes(pid);
+      const label = guildMemberLabel(m);
+      const online = m.online ? " 🟢" : "";
+      return `<label class="guild-raid-participant-row">
+        <input type="checkbox" ${checked ? "checked" : ""} onchange="WaifuApp.toggleGuildRaidParticipant(${pid}, this.checked)" />
+        ${guildMemberAvatarHtml(m)}
+        <span>${label}${online}</span>
+      </label>`;
+    })
+    .join("");
+  body.innerHTML += `<p class="muted tiny" style="margin-top:8px">Выбрано: <span id="guild-raid-picked-count">${guildHallState.raidParticipantIds.length}</span> / ${maxSlots}</p>`;
+}
+
+function closeGuildRaidParticipantModal() {
+  const modal = document.getElementById("guild-raid-participants-modal");
+  if (!modal) return;
+  modal.classList.remove("guild-raid-participants-modal--open");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+function updateGuildRaidPickedCount() {
+  const el = document.getElementById("guild-raid-picked-count");
+  const d = guildHallState.me;
+  const maxSlots = safeInt(d?.raid?.raid_party_slots, 10) || 10;
+  if (el) el.textContent = String(Math.min(guildHallState.raidParticipantIds.length, maxSlots));
+}
+
+async function loadGuildBankItems() {
+  const data = await apiFetch("/guilds/bank/items");
+  guildHallState.bankItems = Array.isArray(data?.items) ? data.items : [];
+  return guildHallState.bankItems;
+}
+
+function fillItemOfferModal(item, prefix) {
+  const offer = item;
+  const el = (suffix) => document.getElementById(`${prefix}-${suffix}`);
+  const contentEl = el("content");
+  const nameEl = el("name");
+  const subEl = el("subline");
+  const rpill = el("rpill");
+  const art = el("art");
+  const body = el("body");
+  const upHint = el("upgrade-hint");
+  if (!offer) return;
+  const nm = String(offer?.display_name || offer?.name || "Предмет").trim();
+  if (nameEl) nameEl.innerHTML = composeItemTitlePlain(offer) || escapeHtml(nm);
+  if (subEl) subEl.textContent = buildItemModalMetaLine(offer);
+  if (rpill) {
+    rpill.textContent = rarityLabel(offer?.rarity);
+    rpill.className = `item-modal-v2-rpill ${rarityPillModifierClass(offer?.rarity)}`.trim();
+  }
+  if (upHint) {
+    upHint.style.display = "none";
+    upHint.setAttribute("aria-hidden", "true");
+  }
+  if (art) art.innerHTML = itemArtHtml(offer);
+  if (contentEl) {
+    ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) =>
+      contentEl.classList.remove(c)
+    );
+    contentEl.classList.add(offer?.rarity != null ? rarityClass(offer.rarity) : "rarity-common");
+  }
+  const charHtml =
+    renderItemModalV2CharacteristicsHtml(offer) ||
+    `<div class="muted tiny" style="padding:6px 0;">Нет характеристик.</div>`;
+  if (body) body.innerHTML = charHtml;
+  const reqSec = el("req-section");
+  const reqFoot = el("requirements");
+  const mw = profileState.currentProfile?.main_waifu || null;
+  const pillsHtml = buildItemModalRequirementsPillsHtml(offer, mw);
+  if (reqFoot) reqFoot.innerHTML = pillsHtml;
+  if (reqSec) reqSec.style.display = pillsHtml ? "" : "none";
+  const descEl = el("desc");
+  const descText = String(offer?.description || "").trim();
+  if (descEl) {
+    if (descText) {
+      descEl.style.display = "";
+      descEl.textContent = `"${descText}"`;
+    } else {
+      descEl.style.display = "none";
+      descEl.innerHTML = "";
+    }
+  }
+}
+
+function fillGuildBankOfferModal(item) {
+  fillItemOfferModal(item, "guild-bank-offer-modal");
+}
+
+function openGuildBankItemModal(bankItemId) {
+  const it = guildHallState.bankItems.find((x) => Number(x.bank_item_id) === Number(bankItemId));
+  if (!it) return;
+  guildHallState.selectedBankItem = it;
+  fillGuildBankOfferModal(it);
+  const m = document.getElementById("guild-bank-item-modal");
+  if (m) {
+    m.classList.add("shop-modal--open");
+    m.style.display = "grid";
+  }
+}
+
+function closeGuildBankItemModal() {
+  guildHallState.selectedBankItem = null;
+  const m = document.getElementById("guild-bank-item-modal");
+  if (m) {
+    m.classList.remove("shop-modal--open");
+    m.style.display = "none";
+  }
+}
+
+async function confirmGuildBankTake() {
+  const it = guildHallState.selectedBankItem;
+  if (!it?.bank_item_id) return;
+  try {
+    const res = await apiFetch(`/guilds/withdraw/item?bank_item_id=${encodeURIComponent(it.bank_item_id)}`, {
+      method: "POST",
+    });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось взять предмет"), "error");
+      return;
+    }
+    showToast("Предмет взят из банка");
+    closeGuildBankItemModal();
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+function openGuildBankGoldModal(mode) {
+  const m = mode === "withdraw" ? "withdraw" : "deposit";
+  guildHallState.bankGoldMode = m;
+  const d = guildHallState.me;
+  const bal = document.getElementById("guild-bank-gold-modal-balance");
+  const pl = document.getElementById("guild-bank-gold-modal-player");
+  const title = document.getElementById("guild-bank-gold-modal-title");
+  const confirm = document.getElementById("guild-bank-gold-confirm");
+  const inp = document.getElementById("guild-bank-gold-amount");
+  if (bal) bal.textContent = formatGuildBankGold(d?.bank_gold ?? 0);
+  if (pl) pl.textContent = formatGuildBankGold(guildHallState.profileGold ?? 0);
+  if (title) title.textContent = m === "withdraw" ? "Снять золото" : "Внести золото";
+  if (confirm) confirm.textContent = m === "withdraw" ? "Снять" : "Внести";
+  if (inp) inp.value = "1";
+  const modal = document.getElementById("guild-bank-gold-modal");
+  if (modal) {
+    modal.style.display = "flex";
+    modal.setAttribute("aria-hidden", "false");
+  }
+}
+
+function closeGuildBankGoldModal() {
+  const m = document.getElementById("guild-bank-gold-modal");
+  if (m) {
+    m.style.display = "none";
+    m.setAttribute("aria-hidden", "true");
+  }
+}
+
+async function confirmGuildBankGold() {
+  if (guildHallState.bankGoldMode === "withdraw") {
+    await confirmGuildBankGoldTake();
+  } else {
+    await confirmGuildBankGoldDeposit();
+  }
+}
+
+async function confirmGuildBankGoldDeposit() {
+  const inp = document.getElementById("guild-bank-gold-amount");
+  const amount = safeInt(inp?.value, 0);
+  if (amount < 1) {
+    showToast("Укажите сумму", "error");
+    return;
+  }
+  try {
+    const res = await apiFetch(`/guilds/deposit/gold?amount=${encodeURIComponent(amount)}`, { method: "POST" });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Ошибка вложения"), "error");
+      return;
+    }
+    closeGuildBankGoldModal();
+    await loadProfile().catch(() => {});
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+async function confirmGuildBankGoldTake() {
+  const inp = document.getElementById("guild-bank-gold-amount");
+  const amount = safeInt(inp?.value, 0);
+  if (amount < 1) {
+    showToast("Укажите сумму", "error");
+    return;
+  }
+  try {
+    const res = await apiFetch(`/guilds/withdraw/gold?amount=${encodeURIComponent(amount)}`, { method: "POST" });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Ошибка снятия"), "error");
+      return;
+    }
+    showToast("Золото снято из банка");
+    closeGuildBankGoldModal();
+    await loadProfile().catch(() => {});
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+function renderGuildBankDepositCell(it) {
+  const rCls = rarityClassFromValue(it?.rarity);
+  const lvl = safeInt(it?.level, 0);
+  const lvlLabel = lvl > 0 ? `ур. ${lvl}` : "ур. ?";
+  return `<button type="button" class="guild-bank-deposit-cell ${rCls}" onclick="WaifuApp.openGuildBankDepositItemPreview(${Number(it.id)})" aria-label="${escapeHtml(composeItemDisplayName(it))}">
+    <span class="item-level">${lvlLabel}</span>
+    <span class="guild-bank-deposit-cell-art">${itemArtHtml(it)}</span>
+  </button>`;
+}
+
+function renderGuildBankDepositPicker() {
+  const grid = document.getElementById("guild-bank-deposit-grid");
+  const pager = document.getElementById("guild-bank-deposit-pagination");
+  const emptyNote = document.getElementById("guild-bank-deposit-empty-note");
+  if (!grid || !pager) return;
+  const items = guildHallState.depositInventory;
+  const pageSize = guildHallState.depositPageSize;
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const page = Math.min(Math.max(1, guildHallState.depositPage), totalPages);
+  if (page !== guildHallState.depositPage) guildHallState.depositPage = page;
+  const start = (page - 1) * pageSize;
+  const slice = items.slice(start, start + pageSize);
+  const cells = [];
+  for (let i = 0; i < pageSize; i += 1) {
+    if (i < slice.length) {
+      cells.push(renderGuildBankDepositCell(slice[i]));
+    } else {
+      cells.push(`<div class="guild-bank-deposit-cell guild-bank-deposit-cell--empty" aria-hidden="true"></div>`);
+    }
+  }
+  grid.innerHTML = cells.join("");
+  if (emptyNote) {
+    if (!items.length) {
+      emptyNote.textContent = "Нет предметов для вложения (только неэкипированные).";
+      emptyNote.style.display = "";
+    } else {
+      emptyNote.textContent = "";
+      emptyNote.style.display = "none";
+    }
+  }
+  if (totalPages > 1) {
+    pager.innerHTML = `<button type="button" class="guild-bank-pag-btn" ${page <= 1 ? "disabled" : ""} onclick="WaifuApp.guildBankDepositPrevPage()">← Назад</button>
+      <span class="guild-bank-pag-info">Стр. ${page}</span>
+      <button type="button" class="guild-bank-pag-btn" ${page >= totalPages ? "disabled" : ""} onclick="WaifuApp.guildBankDepositNextPage()">Вперёд →</button>`;
+    pager.style.display = "";
+  } else {
+    pager.innerHTML = "";
+    pager.style.display = "none";
+  }
+}
+
+function syncGuildBankDepositModalBodyScrollLock() {
+  const picker = document.getElementById("guild-bank-deposit-modal");
+  const preview = document.getElementById("guild-bank-deposit-item-modal");
+  const pickerOpen = Boolean(picker && picker.style.display !== "none");
+  const previewOpen = Boolean(preview && preview.classList.contains("shop-modal--open"));
+  document.body.style.overflow = pickerOpen || previewOpen ? "hidden" : "";
+}
+
+async function openGuildBankDepositModal() {
+  try {
+    const eq = await apiFetch("/waifu/equipment");
+    const inv = (Array.isArray(eq?.inventory) ? eq.inventory : []).filter((i) => i?.id && !i?.equipment_slot);
+    guildHallState.depositInventory = inv;
+    guildHallState.depositPage = 1;
+    guildHallState.depositPreviewItem = null;
+    renderGuildBankDepositPicker();
+    const m = document.getElementById("guild-bank-deposit-modal");
+    if (m) {
+      m.style.display = "flex";
+      m.setAttribute("aria-hidden", "false");
+    }
+    syncGuildBankDepositModalBodyScrollLock();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось загрузить инвентарь", "error");
+  }
+}
+
+function guildBankDepositPrevPage() {
+  guildHallState.depositPage = Math.max(1, guildHallState.depositPage - 1);
+  renderGuildBankDepositPicker();
+}
+
+function guildBankDepositNextPage() {
+  const pageSize = guildHallState.depositPageSize;
+  const totalPages = Math.max(1, Math.ceil(guildHallState.depositInventory.length / pageSize));
+  guildHallState.depositPage = Math.min(guildHallState.depositPage + 1, totalPages);
+  renderGuildBankDepositPicker();
+}
+
+function openGuildBankDepositItemPreview(inventoryItemId) {
+  const it = guildHallState.depositInventory.find((x) => Number(x.id) === Number(inventoryItemId));
+  if (!it) return;
+  guildHallState.depositPreviewItem = it;
+  fillItemOfferModal(it, "guild-bank-deposit-offer-modal");
+  const m = document.getElementById("guild-bank-deposit-item-modal");
+  if (m) {
+    m.classList.add("shop-modal--open");
+    m.style.display = "grid";
+    m.setAttribute("aria-hidden", "false");
+  }
+  syncGuildBankDepositModalBodyScrollLock();
+}
+
+function closeGuildBankDepositItemPreview() {
+  guildHallState.depositPreviewItem = null;
+  const m = document.getElementById("guild-bank-deposit-item-modal");
+  if (m) {
+    m.classList.remove("shop-modal--open");
+    m.style.display = "none";
+    m.setAttribute("aria-hidden", "true");
+  }
+  syncGuildBankDepositModalBodyScrollLock();
+}
+
+async function confirmGuildBankDepositItem() {
+  const it = guildHallState.depositPreviewItem;
+  const iid = Number(it?.id);
+  if (!iid) return;
+  try {
+    const res = await apiFetch(`/guilds/deposit/item?inventory_item_id=${encodeURIComponent(iid)}`, {
+      method: "POST",
+    });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось вложить"), "error");
+      return;
+    }
+    closeGuildBankDepositItemPreview();
+    closeGuildBankDepositModal();
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+function closeGuildBankDepositModal() {
+  closeGuildBankDepositItemPreview();
+  const m = document.getElementById("guild-bank-deposit-modal");
+  if (m) {
+    m.style.display = "none";
+    m.setAttribute("aria-hidden", "true");
+  }
+  syncGuildBankDepositModalBodyScrollLock();
+}
+
+function closeGuildSkillModal() {
+  const m = document.getElementById("guild-skill-modal");
+  if (m) {
+    m.style.display = "none";
+    m.setAttribute("aria-hidden", "true");
+  }
+}
+
+function guildSkillUpgradeCost(sk) {
+  const cur = safeInt(sk?.current_level, 0);
+  if (sk?.upgrade_cost != null && cur < 3) return safeInt(sk.upgrade_cost, 1);
+  return cur === 0 ? safeInt(sk?.cost_sp, 1) : safeInt(sk?.cost_per_upgrade, 1);
+}
+
+function guildSkillCanUpgradeClientFallback(sk, d) {
+  const cur = safeInt(sk?.current_level, 0);
+  const guildLevel = safeInt(d?.guild_level, 1);
+  const tierUnlock = safeInt(d?.skill_tier_unlock, 1);
+  const glReq = safeInt(sk?.guild_level_req, 1);
+  const tier = safeInt(sk?.tier, 1);
+  const avail = safeInt(d?.skill_points_available, 0);
+  const cost = guildSkillUpgradeCost(sk);
+  return (
+    isGuildLeader(d) &&
+    cur < 3 &&
+    guildLevel >= glReq &&
+    tier <= tierUnlock &&
+    avail >= cost
+  );
+}
+
+function guildSkillCanUpgrade(sk, d) {
+  if (typeof sk?.can_upgrade === "boolean") return sk.can_upgrade;
+  return guildSkillCanUpgradeClientFallback(sk, d);
+}
+
+function guildSkillBlockReasonRu(sk, d, reason) {
+  const cost = guildSkillUpgradeCost(sk);
+  const glReq = safeInt(sk?.guild_level_req, 1);
+  const tier = safeInt(sk?.tier, 1);
+  switch (String(reason || "").trim()) {
+    case "leader_only":
+      return "Только глава гильдии";
+    case "locked":
+      return `Нужен ${glReq} ур. гильдии`;
+    case "tier_locked":
+      return `Откроется с тиром навыков ${tier}`;
+    case "no_skill_points":
+      return `Недостаточно ОПГ (нужно ${cost})`;
+    case "max_level":
+      return "Максимальный уровень";
+    default:
+      if (!isGuildLeader(d)) return "Только глава гильдии";
+      return guildApiErrorToUser(reason, "Нельзя улучшить");
+  }
+}
+
+function openGuildSkillModal(skillId) {
+  const d = guildHallState.me;
+  const sk = (d?.definitions || []).find((x) => Number(x.id) === Number(skillId));
+  if (!sk) return;
+  const title = document.getElementById("guild-skill-modal-title");
+  const body = document.getElementById("guild-skill-modal-body");
+  const footer = document.getElementById("guild-skill-modal-footer");
+  if (title) title.textContent = sk.name || "Навык";
+  const cur = safeInt(sk.current_level, 0);
+  const eff = Array.isArray(sk.effect_per_level) ? sk.effect_per_level : [];
+  const effCur = cur > 0 && eff[cur - 1] != null ? eff[cur - 1] : "—";
+  const effNext = cur < 3 && eff[cur] != null ? eff[cur] : null;
+  const cost = guildSkillUpgradeCost(sk);
+  const avail = safeInt(d?.skill_points_available, 0);
+  const canUp = guildSkillCanUpgrade(sk, d);
+  const blockReason = sk.upgrade_block_reason || (canUp ? null : "no_skill_points");
+  if (body) {
+    body.innerHTML = `
+      <div class="detail-row"><span>Тир</span><strong>${sk.tier ?? "—"}</strong></div>
+      <div class="detail-row"><span>Уровень</span><strong>${cur} / 3</strong></div>
+      <div class="detail-row"><span>Треб. ур. гильдии</span><strong>${sk.guild_level_req ?? "—"}</strong></div>
+      <div class="detail-row"><span>Эффект сейчас</span><strong>${escapeHtml(String(effCur))}</strong></div>
+      ${effNext != null ? `<div class="detail-row"><span>След. уровень</span><strong>${escapeHtml(String(effNext))}</strong></div>` : ""}
+      <div class="detail-row"><span>Стоимость ОПГ</span><strong>${cost}</strong></div>
+      <div class="detail-row"><span>ОПГ доступно</span><strong>${avail}</strong></div>`;
+  }
+  if (footer) {
+    footer.innerHTML = canUp
+      ? `<button type="button" class="btn primary" onclick="WaifuApp.guildSkillUpgrade(${Number(sk.id)})">+1 ОПГ (${cost})</button>`
+      : `<span class="muted tiny">${escapeHtml(guildSkillBlockReasonRu(sk, d, blockReason))}</span>`;
+  }
+  const m = document.getElementById("guild-skill-modal");
+  if (m) {
+    m.style.display = "flex";
+    m.setAttribute("aria-hidden", "false");
+  }
+}
+
+async function guildSkillUpgrade(skillId) {
+  try {
+    const res = await apiFetch(`/guilds/skill/upgrade?skill_definition_id=${encodeURIComponent(skillId)}`, {
+      method: "POST",
+    });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Ошибка прокачки"), "error");
+      return;
+    }
+    showToast("Навык улучшен");
+    closeGuildSkillModal();
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+async function guildSkillReset() {
+  if (!confirm("Сбросить все навыки гильдии? Стоимость зависит от уровня гильдии.")) return;
+  try {
+    const res = await apiFetch("/guilds/skill/reset", { method: "POST" });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Ошибка сброса"), "error");
+      return;
+    }
+    showToast("Навыки сброшены");
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+function formatGuildContrib(n) {
+  const v = safeInt(n, 0);
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+  return String(v);
+}
+
+function guildMemberPreviewHeroUrl(data) {
+  const mw = data?.main_waifu;
+  if (!mw) return "";
+  return mw.paperdoll_url || mw.portrait_url || "";
+}
+
+function renderGuildMemberPreviewBody() {
+  const data = guildHallState.memberPreviewData;
+  if (!data) return;
+
+  const mw = data.main_waifu;
+  const charNameEl = document.getElementById("guild-member-preview-char-name");
+  const heroImg = document.getElementById("guild-member-preview-hero-img");
+  const statusDot = document.getElementById("guild-member-preview-status-dot");
+  const statusLabel = document.getElementById("guild-member-preview-status-label");
+  const rankEl = document.getElementById("guild-member-preview-rank");
+  const levelEl = document.getElementById("guild-member-preview-level");
+  const powerEl = document.getElementById("guild-member-preview-power");
+  const contribEl = document.getElementById("guild-member-preview-contrib");
+  const contribBar = document.getElementById("guild-member-preview-contrib-bar");
+  const heroesRow = document.getElementById("guild-member-preview-heroes-row");
+
+  const charName = (mw?.name || data.first_name || "Участник").trim();
+  if (charNameEl) charNameEl.textContent = charName.toUpperCase();
+
+  const heroUrl = guildMemberPreviewHeroUrl(data);
+  if (heroImg) {
+    if (heroUrl) {
+      heroImg.src = heroUrl;
+      heroImg.hidden = false;
+    } else {
+      heroImg.removeAttribute("src");
+      heroImg.hidden = true;
+    }
+  }
+
+  const online = Boolean(data.online);
+  if (statusDot) statusDot.classList.toggle("online", online);
+  if (statusLabel) statusLabel.textContent = online ? "В сети" : "Офлайн";
+  if (rankEl) rankEl.textContent = data.rank || "Участник";
+
+  const viewerId = Number(guildHallState.me?.viewer_player_id);
+  const mailBtn = document.getElementById("guild-member-preview-mail");
+  if (mailBtn) {
+    const isSelf =
+      Boolean(data.is_self) ||
+      (viewerId > 0 && viewerId === Number(data.player_id)) ||
+      Number(profileState.currentProfile?.player_id) === Number(data.player_id);
+    mailBtn.hidden = isSelf;
+    mailBtn.style.display = isSelf ? "none" : "";
+  }
+
+  if (levelEl) levelEl.textContent = mw?.level != null ? String(mw.level) : "—";
+  if (powerEl) {
+    const mp = data.member_power != null ? Number(data.member_power) : 0;
+    powerEl.innerHTML =
+      mp > 0
+        ? `${escapeHtml(formatGuildPower(mp))} <em>(GvG)</em>`
+        : `<span class="gold">—</span> <em>(GvG)</em>`;
+  }
+
+  const contrib = safeInt(data.contribution_week, 0);
+  const contribCap = safeInt(data.contribution_week_cap, 200_000);
+  const contribPct = contribCap > 0 ? Math.min(100, (contrib / contribCap) * 100) : 0;
+  if (contribEl) {
+    contribEl.innerHTML = `${escapeHtml(formatGuildContrib(contrib))} <em>/ ${escapeHtml(formatGuildContrib(contribCap))}</em>`;
+  }
+  if (contribBar) contribBar.style.width = `${contribPct}%`;
+
+  if (heroesRow) {
+    const hired = Array.isArray(data.hired_waifus) ? data.hired_waifus : [];
+    if (!hired.length) {
+      heroesRow.innerHTML = `<div class="guild-member-preview-heroes-empty">Нет наёмниц</div>`;
+    } else {
+      heroesRow.innerHTML = hired
+        .map((hw) => {
+          const portrait = hw.portrait_url ? String(hw.portrait_url) : "";
+          const imgInner = portrait
+            ? `<img src="${escapeHtml(portrait)}" alt="" />`
+            : "🧝";
+          return `<div class="guild-member-preview-hero-thumb">
+            <div class="guild-member-preview-hero-thumb-img">${imgInner}</div>
+            <div class="guild-member-preview-hero-level">Ур. ${Number(hw.level || 1)}</div>
+          </div>`;
+        })
+        .join("");
+    }
+  }
+}
+
+function closeGuildMemberPreviewModal() {
+  const m = document.getElementById("guild-member-preview-modal");
+  if (!m) return;
+  m.classList.remove("visible");
+  const onEnd = () => {
+    m.style.display = "none";
+    m.setAttribute("aria-hidden", "true");
+    guildHallState.memberPreviewData = null;
+  };
+  m.addEventListener("transitionend", onEnd, { once: true });
+  setTimeout(onEnd, 300);
+}
+
+async function openGuildMemberPreviewModal(playerId) {
+  try {
+    const data = await apiFetch(`/guilds/members/${encodeURIComponent(playerId)}/preview`);
+    guildHallState.memberPreviewData = data;
+    renderGuildMemberPreviewBody();
+    const m = document.getElementById("guild-member-preview-modal");
+    if (m) {
+      m.style.display = "flex";
+      m.setAttribute("aria-hidden", "false");
+      requestAnimationFrame(() => m.classList.add("visible"));
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось загрузить профиль", "error");
+  }
+}
+
+function openGuildMemberMailCompose() {
+  const data = guildHallState.memberPreviewData;
+  if (!data?.player_id) return;
+  const isSelf =
+    Boolean(data.is_self) ||
+    Number(guildHallState.me?.viewer_player_id) === Number(data.player_id) ||
+    Number(profileState.currentProfile?.player_id) === Number(data.player_id);
+  if (isSelf) {
+    showToast("Нельзя отправить письмо самому себе.", "error");
+    return;
+  }
+  openPlayerMailComposeModal(Number(data.player_id), data);
+}
+
+function mailRecipientLabel(data) {
+  const un = (data?.telegram_username || "").trim();
+  if (un) return `@${un}`;
+  return (data?.first_name || data?.main_waifu?.name || `Игрок ${data?.player_id || ""}`).trim();
+}
+
+async function openPlayerMailComposeModal(recipientId, previewData = null) {
+  const rid = Number(recipientId);
+  if (!Number.isFinite(rid) || rid <= 0) return;
+  guildHallState.mailCompose = { recipientId: rid, inventoryItemId: null, itemLabel: "" };
+  let label = previewData ? mailRecipientLabel(previewData) : `Игрок ${rid}`;
+  if (!previewData) {
+    try {
+      const p = await apiFetch(`/guilds/members/${encodeURIComponent(rid)}/preview`);
+      label = mailRecipientLabel(p);
+    } catch {
+      /* keep fallback */
+    }
+  }
+  const recEl = document.getElementById("player-mail-compose-recipient");
+  const bodyEl = document.getElementById("player-mail-compose-body");
+  const goldEl = document.getElementById("player-mail-compose-gold");
+  const pickEl = document.getElementById("player-mail-compose-item-pick");
+  const listEl = document.getElementById("player-mail-compose-item-list");
+  if (recEl) recEl.textContent = label;
+  if (bodyEl) bodyEl.value = "";
+  if (goldEl) goldEl.value = "0";
+  if (pickEl) pickEl.textContent = "Не выбран";
+  if (listEl) listEl.style.display = "none";
+  const m = document.getElementById("player-mail-compose-modal");
+  if (m) {
+    m.style.display = "flex";
+    m.setAttribute("aria-hidden", "false");
+  }
+}
+
+function closePlayerMailComposeModal() {
+  const m = document.getElementById("player-mail-compose-modal");
+  if (m) {
+    m.style.display = "none";
+    m.setAttribute("aria-hidden", "true");
+  }
+  guildHallState.mailCompose = { recipientId: null, inventoryItemId: null, itemLabel: "" };
+}
+
+function getActiveMailComposeContext() {
+  const tabPane = document.getElementById("player-mail-compose-pane");
+  if (
+    document.body.classList.contains("page-player") &&
+    tabPane &&
+    !tabPane.hidden &&
+    playerPageState.activeSection === "mail"
+  ) {
+    return {
+      state: playerPageState.mailCompose,
+      bodyId: "player-mail-tab-body",
+      goldId: "player-mail-tab-gold",
+      pickId: "player-mail-tab-item-pick",
+      onSuccess: () => {
+        resetPlayerMailComposeForm();
+        setPlayerMailTab("inbox");
+        refreshMailInbox().catch(() => {});
+      },
+    };
+  }
+  return {
+    state: guildHallState.mailCompose,
+    bodyId: "player-mail-compose-body",
+    goldId: "player-mail-compose-gold",
+    pickId: "player-mail-compose-item-pick",
+    listId: "player-mail-compose-item-list",
+    onSuccess: () => {
+      refreshAtticMailBadge().catch(() => {});
+      closePlayerMailComposeModal();
+    },
+  };
+}
+
+function renderPlayerMailItemCell(it) {
+  const rCls = rarityClassFromValue(it?.rarity);
+  const lvl = safeInt(it?.level, 0);
+  const lvlLabel = lvl > 0 ? `ур. ${lvl}` : "ур. ?";
+  return `<button type="button" class="guild-bank-deposit-cell ${rCls}" onclick="WaifuApp.selectPlayerMailItem(${Number(it.id)})" aria-label="${escapeHtml(composeItemDisplayName(it))}">
+    <span class="item-level">${lvlLabel}</span>
+    <span class="guild-bank-deposit-cell-art">${itemArtHtml(it)}</span>
+  </button>`;
+}
+
+function renderPlayerMailItemPicker() {
+  const grid = document.getElementById("player-mail-item-grid");
+  const pager = document.getElementById("player-mail-item-pagination");
+  const emptyNote = document.getElementById("player-mail-item-empty-note");
+  if (!grid || !pager) return;
+  const items = playerPageState.mailItemInventory;
+  const pageSize = playerPageState.mailItemPageSize;
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const page = Math.min(Math.max(1, playerPageState.mailItemPage), totalPages);
+  if (page !== playerPageState.mailItemPage) playerPageState.mailItemPage = page;
+  const start = (page - 1) * pageSize;
+  const slice = items.slice(start, start + pageSize);
+  const cells = [];
+  for (let i = 0; i < pageSize; i += 1) {
+    if (i < slice.length) {
+      cells.push(renderPlayerMailItemCell(slice[i]));
+    } else {
+      cells.push(`<div class="guild-bank-deposit-cell guild-bank-deposit-cell--empty" aria-hidden="true"></div>`);
+    }
+  }
+  grid.innerHTML = cells.join("");
+  if (emptyNote) {
+    if (!items.length) {
+      emptyNote.textContent = "Нет предметов для отправки (только неэкипированные).";
+      emptyNote.hidden = false;
+    } else {
+      emptyNote.textContent = "";
+      emptyNote.hidden = true;
+    }
+  }
+  if (totalPages > 1) {
+    pager.innerHTML = `<button type="button" class="guild-bank-pag-btn" ${page <= 1 ? "disabled" : ""} onclick="WaifuApp.playerMailItemPrevPage()">← Назад</button>
+      <span class="guild-bank-pag-info">Стр. ${page}</span>
+      <button type="button" class="guild-bank-pag-btn" ${page >= totalPages ? "disabled" : ""} onclick="WaifuApp.playerMailItemNextPage()">Вперёд →</button>`;
+    pager.hidden = false;
+  } else {
+    pager.innerHTML = "";
+    pager.hidden = true;
+  }
+}
+
+async function openPlayerMailItemModal() {
+  try {
+    const eq = await apiFetch("/waifu/equipment");
+    const inv = (Array.isArray(eq?.inventory) ? eq.inventory : []).filter((i) => i?.id && !i?.equipment_slot);
+    playerPageState.mailItemInventory = inv;
+    playerPageState.mailItemPage = 1;
+    renderPlayerMailItemPicker();
+    const m = document.getElementById("player-mail-item-modal");
+    if (m) {
+      m.style.display = "flex";
+      m.setAttribute("aria-hidden", "false");
+    }
+    document.body.style.overflow = "hidden";
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось загрузить инвентарь", "error");
+  }
+}
+
+function closePlayerMailItemModal() {
+  const m = document.getElementById("player-mail-item-modal");
+  if (m) {
+    m.style.display = "none";
+    m.setAttribute("aria-hidden", "true");
+  }
+  document.body.style.overflow = "";
+}
+
+function playerMailItemPrevPage() {
+  playerPageState.mailItemPage = Math.max(1, playerPageState.mailItemPage - 1);
+  renderPlayerMailItemPicker();
+}
+
+function playerMailItemNextPage() {
+  const pageSize = playerPageState.mailItemPageSize;
+  const totalPages = Math.max(1, Math.ceil(playerPageState.mailItemInventory.length / pageSize));
+  playerPageState.mailItemPage = Math.min(playerPageState.mailItemPage + 1, totalPages);
+  renderPlayerMailItemPicker();
+}
+
+async function openPlayerMailItemPicker() {
+  const tabPane = document.getElementById("player-mail-compose-pane");
+  if (
+    document.body.classList.contains("page-player") &&
+    tabPane &&
+    !tabPane.hidden &&
+    playerPageState.activeSection === "mail"
+  ) {
+    return openPlayerMailItemModal();
+  }
+  const ctx = getActiveMailComposeContext();
+  const listEl = document.getElementById(ctx.listId);
+  if (!listEl) return;
+  try {
+    const eq = await apiFetch("/waifu/equipment");
+    const inv = (Array.isArray(eq?.inventory) ? eq.inventory : []).filter((i) => i?.id);
+    if (!inv.length) {
+      listEl.innerHTML = `<p class="muted tiny">Нет предметов (только неэкипированные).</p>`;
+    } else {
+      listEl.innerHTML = inv
+        .map((it) => {
+          const iid = Number(it.id);
+          const sel = ctx.state.inventoryItemId === iid ? " selected" : "";
+          return `<div class="player-mail-compose-item-row${sel}" data-id="${iid}" onclick="WaifuApp.selectPlayerMailItem(${iid})">
+            <span>${itemArtHtml(it)}</span>
+            <span>${escapeHtml(composeItemDisplayName(it))}</span>
+          </div>`;
+        })
+        .join("");
+    }
+    listEl.hidden = false;
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось загрузить инвентарь", "error");
+  }
+}
+
+function renderMailComposeItemPick(item) {
+  const pickEl = document.getElementById("player-mail-tab-item-pick");
+  if (!pickEl) return;
+  if (!item) {
+    pickEl.innerHTML = `<span class="player-mail-item-pick-empty">Не выбран</span>`;
+    return;
+  }
+  pickEl.innerHTML = `<span class="player-mail-item-pick-art">${itemArtHtml(item)}</span><span class="player-mail-item-pick-name">${composeItemDisplayName(item)}</span>`;
+}
+
+function selectPlayerMailItem(id) {
+  const ctx = getActiveMailComposeContext();
+  const iid = Number(id);
+  ctx.state.inventoryItemId = iid;
+  const fromModal = playerPageState.mailItemInventory.find((x) => Number(x.id) === iid);
+  const row = document.querySelector(`.player-mail-compose-item-row[data-id="${iid}"]`);
+  const item = fromModal || null;
+  if (item) {
+    ctx.state.itemLabel = composeItemDisplayName(item).replace(/<[^>]+>/g, "").trim();
+  } else {
+    ctx.state.itemLabel = row?.querySelector("span:last-child")?.textContent?.trim() || `Предмет #${iid}`;
+  }
+  if (ctx.pickId === "player-mail-tab-item-pick") {
+    renderMailComposeItemPick(item);
+  } else {
+    const pickEl = document.getElementById(ctx.pickId);
+    if (pickEl) pickEl.textContent = ctx.state.itemLabel;
+  }
+  document.querySelectorAll(".player-mail-compose-item-row").forEach((el) => {
+    el.classList.toggle("selected", Number(el.dataset.id) === iid);
+  });
+  const listEl = document.getElementById(ctx.listId);
+  if (listEl) listEl.hidden = true;
+  if (
+    document.body.classList.contains("page-player") &&
+    playerPageState.activeSection === "mail"
+  ) {
+    closePlayerMailItemModal();
+  }
+}
+
+async function sendPlayerMail() {
+  const ctx = getActiveMailComposeContext();
+  const rid = Number(ctx.state.recipientId);
+  if (!Number.isFinite(rid) || rid <= 0) {
+    showToast("Выберите получателя", "error");
+    return;
+  }
+  const bodyText = (document.getElementById(ctx.bodyId)?.value || "").trim();
+  const goldAmount = Math.max(0, safeInt(document.getElementById(ctx.goldId)?.value, 0));
+  const inventoryItemId = ctx.state.inventoryItemId;
+  const payload = { recipient_player_id: rid, body_text: bodyText || null, gold_amount: goldAmount };
+  if (inventoryItemId) payload.inventory_item_id = Number(inventoryItemId);
+  try {
+    await apiFetch("/mail/send", { method: "POST", body: JSON.stringify(payload) });
+    showToast("Письмо отправлено");
+    ctx.onSuccess();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(mailApiErrorToUser(detail, "Не удалось отправить"), "error");
+  }
+}
+
+async function initMailPage() {
+  await refreshMailInbox();
+  await refreshMailSent().catch(() => {});
+}
+
+const playerPageState = {
+  activeSection: null,
+  profileData: null,
+  cachedAvatarUrl: null,
+  viewPlayerId: null,
+  isViewMode: false,
+  selfPlayerId: null,
+  mailTab: "inbox",
+  mailCompose: { recipientId: null, recipientLabel: "", inventoryItemId: null, itemLabel: "" },
+  mailGuildSuggestions: null,
+  mailItemInventory: [],
+  mailItemPage: 1,
+  mailItemPageSize: 12,
+};
+
+const PLAYER_AVATAR_PRESET_COUNT = 20;
+
+function getPlayerViewIdFromQuery() {
+  const raw = new URLSearchParams(window.location.search).get("playerId");
+  const id = Number(raw);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function openPlayerProfile(playerId) {
+  const id = Number(playerId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  window.location.href = `./player.html?playerId=${encodeURIComponent(id)}`;
+}
+
+function syncPlayerViewModeUi() {
+  const view = playerPageState.isViewMode;
+  document.body.classList.toggle("player-view-mode", view);
+  document.querySelectorAll(".player-only-self").forEach((el) => {
+    el.hidden = view;
+  });
+  document.querySelectorAll(".player-overflow-item--self").forEach((el) => {
+    el.hidden = view;
+  });
+  const overflowBtn = document.getElementById("player-overflow-btn");
+  const topbarOverflowBtn = document.getElementById("player-topbar-overflow-btn");
+  if (overflowBtn) overflowBtn.hidden = view;
+  if (topbarOverflowBtn) topbarOverflowBtn.hidden = view;
+  const avatarBtn = document.getElementById("player-hero-avatar-btn");
+  if (avatarBtn) avatarBtn.disabled = view;
+  const showcaseToggle = document.getElementById("player-showcase-toggle");
+  if (showcaseToggle) showcaseToggle.hidden = view;
+}
+
+function syncPlayerChromeMode() {
+  const onOverview = !playerPageState.activeSection;
+  const view = playerPageState.isViewMode;
+  document.body.classList.toggle("player-chrome--overview", onOverview);
+  const subpanelTopbar = document.getElementById("player-subpanel-topbar");
+  const titleEl = document.getElementById("player-topbar-title");
+  const showcaseOverflow = document.getElementById("player-overflow-btn");
+  const topbarOverflow = document.getElementById("player-topbar-overflow-btn");
+  if (onOverview) {
+    if (subpanelTopbar) subpanelTopbar.hidden = true;
+    if (showcaseOverflow) showcaseOverflow.hidden = view;
+    if (topbarOverflow) topbarOverflow.hidden = true;
+  } else {
+    if (subpanelTopbar) subpanelTopbar.hidden = false;
+    const titles = { mail: "Почта", guild: "Гильдия", settings: "Настройки" };
+    if (titleEl) titleEl.textContent = titles[playerPageState.activeSection] || "Профиль";
+    if (showcaseOverflow) showcaseOverflow.hidden = true;
+    if (topbarOverflow) topbarOverflow.hidden = view;
+  }
+}
+
+async function rehydratePlayerPage() {
+  const menu = document.getElementById("player-overflow-menu");
+  if (menu) menu.hidden = true;
+  closePlayerMailItemModal();
+  playerPageState.mailTab = "inbox";
+  setPlayerMailTab("inbox");
+  const fallback = profileState.currentProfile || {};
+  applyPlayerHashSection();
+  syncPlayerChromeMode();
+  syncPlayerViewModeUi();
+  try {
+    if (playerPageState.isViewMode && playerPageState.viewPlayerId) {
+      await loadPublicPlayerProfile(playerPageState.viewPlayerId, fallback);
+    } else {
+      await loadSelfPlayerProfile(fallback);
+      if (!playerPageState.isViewMode) {
+        refreshAtticMailBadge().catch(() => {});
+      }
+    }
+  } catch {
+    /* ignore rehydrate errors */
+  }
+}
+
+function bindPlayerPageLifecycle() {
+  if (window.__waifuPlayerPageshowBound) return;
+  window.__waifuPlayerPageshowBound = true;
+  window.addEventListener("pageshow", (ev) => {
+    if (!document.body.classList.contains("page-player")) return;
+    if (!ev.persisted) return;
+    rehydratePlayerPage().catch(() => {});
+  });
+}
+
+function openPlayerSection(section) {
+  const name = section || "overview";
+  playerPageState.activeSection = name === "overview" ? null : name;
+  const menu = document.getElementById("player-overflow-menu");
+  if (menu) menu.hidden = true;
+
+  const mainScroll = document.getElementById("player-main-scroll");
+  const subpanels = ["mail", "guild", "settings"];
+
+  if (!playerPageState.activeSection) {
+    if (mainScroll) mainScroll.hidden = false;
+    subpanels.forEach((s) => {
+      const el = document.getElementById(`player-panel-${s}`);
+      if (el) el.hidden = true;
+    });
+    syncPlayerChromeMode();
+    return;
+  }
+
+  if (mainScroll) mainScroll.hidden = true;
+  subpanels.forEach((s) => {
+    const el = document.getElementById(`player-panel-${s}`);
+    if (el) el.hidden = s !== playerPageState.activeSection;
+  });
+  syncPlayerChromeMode();
+
+  if (playerPageState.activeSection === "mail") {
+    setPlayerMailTab(playerPageState.mailTab || "inbox");
+    refreshMailInbox().catch(() => {});
+  }
+  if (playerPageState.activeSection === "guild") {
+    renderPlayerGuildBlock().catch(() => {});
+  }
+  if (playerPageState.activeSection === "settings") {
+    ensureDmNotificationPrefsLoaded().catch(() => {});
+  }
+}
+
+function applyPlayerHashSection() {
+  const hash = (window.location.hash || "").replace(/^#/, "").trim();
+  if (hash === "mail" || hash === "settings" || hash === "guild") {
+    if (playerPageState.isViewMode && (hash === "mail" || hash === "settings")) {
+      openPlayerSection("overview");
+      return;
+    }
+    openPlayerSection(hash);
+  } else {
+    openPlayerSection("overview");
+  }
+}
+
+function renderPlayerHeroFromProfileData(data, fallbackProfile) {
+  const name = (data?.display_name || fallbackProfile?.main_waifu?.name || "Игрок").trim();
+  setText("player-hero-name", name);
+  const unEl = document.getElementById("player-hero-username");
+  const un = (data?.telegram_username || getTelegramUser()?.username || "").trim();
+  if (unEl) unEl.textContent = un ? `@${un}` : "";
+  playerPageState.cachedAvatarUrl = data?.avatar_url || playerPageState.cachedAvatarUrl;
+  applyPlayerAvatarUrl(data?.avatar_url, fallbackProfile || profileState.currentProfile);
+}
+
+function renderPlayerWaifuShowcase(data) {
+  const img = document.getElementById("player-waifu-showcase-img");
+  const emptyEl = document.getElementById("player-waifu-showcase-empty");
+  const toggle = document.getElementById("player-showcase-toggle");
+  const nameEl = document.getElementById("player-waifu-name");
+  const levelEl = document.getElementById("player-waifu-level");
+  const mw = data?.main_waifu;
+  const mode = (data?.profile_showcase || "portrait").toLowerCase();
+  let url = null;
+  if (mode === "paperdoll") {
+    url = mw?.paperdoll_url || mw?.portrait_url || null;
+  } else {
+    url = mw?.portrait_url || mw?.paperdoll_url || null;
+  }
+  if (nameEl) nameEl.textContent = (mw?.name || "").trim() || "—";
+  if (levelEl) {
+    const lvl = mw?.level;
+    levelEl.textContent = lvl != null && lvl !== "" ? `Ур. ${lvl}` : "";
+  }
+  if (img) {
+    if (url) {
+      if (img.dataset.showcaseSrc !== url) {
+        img.dataset.showcaseSrc = url;
+        img.src = url;
+      }
+      img.hidden = false;
+      if (emptyEl) emptyEl.hidden = true;
+    } else {
+      img.hidden = true;
+      img.removeAttribute("src");
+      if (emptyEl) emptyEl.hidden = false;
+    }
+  }
+  if (toggle && !playerPageState.isViewMode) {
+    const hasBoth = !!(mw?.portrait_url && mw?.paperdoll_url);
+    toggle.hidden = !hasBoth;
+    toggle.querySelectorAll(".player-showcase-switch-btn").forEach((btn) => {
+      const m = btn.getAttribute("data-showcase");
+      btn.classList.toggle("active", m === mode);
+    });
+  } else if (toggle) {
+    toggle.hidden = true;
+  }
+}
+
+function formatStoryActDungeon(act, dungeonNumber) {
+  const a = Math.max(0, parseInt(act, 10) || 0);
+  const n = Math.max(0, parseInt(dungeonNumber, 10) || 0);
+  if (a > 0 && n > 0) return `Акт ${a}-${n}`;
+  return null;
+}
+
+function renderPlayerCampaignCompact(campaign) {
+  const el = document.getElementById("player-campaign-compact");
+  if (!el) return;
+  const c = campaign || {};
+  if (c.main_campaign_complete) {
+    el.textContent = "🏰 Кампания пройдена";
+    el.hidden = false;
+    return;
+  }
+  const code = formatStoryActDungeon(c.story_next_act, c.story_next_dungeon_number);
+  if (!code) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.textContent = `🏰 ${code}`;
+  el.hidden = false;
+}
+
+function renderPlayerAbyssCompact(abyss) {
+  const el = document.getElementById("player-abyss-compact");
+  if (!el) return;
+  const a = abyss || {};
+  const maxFloor = safeInt(a.max_floor_reached, 0);
+  if (maxFloor <= 0 && !a.session_active) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const floor =
+    a.session_active && a.current_floor != null
+      ? safeInt(a.current_floor, 0)
+      : maxFloor;
+  const chk = a.current_checkpoint != null ? safeInt(a.current_checkpoint, 0) : null;
+  const parts = [`Этаж ${floor}`];
+  if (chk != null) parts.push(`ЧК ${chk}`);
+  el.textContent = `🕳️ ${parts.join(" · ")}`;
+  el.hidden = false;
+}
+
+function applyPlayerProfilePayload(data, fallbackProfile) {
+  playerPageState.profileData = data;
+  renderPlayerHeroFromProfileData(data, fallbackProfile);
+  renderPlayerWaifuShowcase(data);
+  renderPlayerCampaignCompact(data?.campaign);
+  renderPlayerAbyssCompact(data?.abyss);
+}
+
+async function loadSelfPlayerProfile(fallbackProfile) {
+  const data = await apiFetch("/player/profile");
+  applyPlayerProfilePayload(data, fallbackProfile);
   return data;
+}
+
+async function loadPublicPlayerProfile(targetId, fallbackProfile) {
+  const data = await apiFetch(`/player/${encodeURIComponent(targetId)}/profile`);
+  applyPlayerProfilePayload(data, fallbackProfile);
+  return data;
+}
+
+async function renderPlayerGuildBlock() {
+  const root = document.getElementById("player-guild-root");
+  if (!root) return;
+  if (playerPageState.isViewMode) {
+    const rank = playerPageState.profileData?.guild_rank;
+    root.innerHTML = `<p>${rank ? `<strong>${escapeHtml(rank)}</strong> в вашей гильдии` : "Участник гильдии"}</p>
+      <a href="./guild_hall.html" class="btn secondary" style="margin-top:8px;display:inline-block">Зал гильдии</a>`;
+    return;
+  }
+  root.innerHTML = `<p class="muted">Загрузка…</p>`;
+  try {
+    const data = await apiFetch("/guilds/me");
+    if (!data?.in_guild) {
+      root.innerHTML = `<p class="muted">Вы не состоите в гильдии.</p>
+        <a href="./guild_hall.html" class="btn secondary" style="margin-top:8px;display:inline-block">Зал гильдии</a>`;
+      return;
+    }
+    const rank = data.is_leader ? "Глава" : data.is_officer ? "Офицер" : "Участник";
+    const memberCount = Array.isArray(data.members) ? data.members.length : 0;
+    const tag = (data.guild_tag || "").trim();
+    root.innerHTML = `<p><strong>${escapeHtml(data.guild_name || "Гильдия")}</strong>${tag ? ` [${escapeHtml(tag)}]` : ""} · ${escapeHtml(rank)}</p>
+      <p class="muted tiny">Ур. гильдии ${safeInt(data.guild_level, 1)} · участников ${memberCount}</p>
+      <a href="./guild_hall.html" class="btn secondary" style="margin-top:8px;display:inline-block">Зал гильдии</a>`;
+  } catch {
+    root.innerHTML = `<p class="muted">Не удалось загрузить данные гильдии.</p>`;
+  }
+}
+
+async function refreshMailSent() {
+  const root = document.getElementById("mail-sent-root");
+  if (!root) return;
+  try {
+    const data = await apiFetch("/mail/sent?limit=30");
+    const items = Array.isArray(data?.items) ? data.items : [];
+    if (!items.length) {
+      root.innerHTML = `<p class="muted">Исходящих писем нет.</p>`;
+      return;
+    }
+    root.innerHTML = items
+      .map((m) => {
+        const status =
+          m.status === "claimed"
+            ? "забрано"
+            : m.status === "read"
+              ? "прочитано"
+              : "доставлено";
+        const attach = [];
+        if (m.gold_amount > 0) attach.push(`🪙 ${Number(m.gold_amount).toLocaleString("ru-RU")}`);
+        if (m.inventory_item_id) attach.push("📦 предмет");
+        const preview = (m.body_text || attach.join(" · ") || "—").slice(0, 60);
+        return `<div class="mail-inbox-row" style="cursor:default">
+          <span style="flex:1;min-width:0">
+            <strong>${escapeHtml(m.recipient_label || "Игрок")}</strong>
+            <span class="muted tiny"> · ${escapeHtml(status)}</span>
+            <div class="muted tiny">${escapeHtml(preview)}</div>
+          </span>
+        </div>`;
+      })
+      .join("");
+  } catch {
+    root.innerHTML = `<p class="muted">Не удалось загрузить отправленные.</p>`;
+  }
+}
+
+function setPlayerMailTab(tab) {
+  const name = tab === "compose" ? "compose" : "inbox";
+  playerPageState.mailTab = name;
+  document.querySelectorAll(".player-mail-tab").forEach((btn) => {
+    const t = btn.getAttribute("data-mail-tab");
+    const active = t === name;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  const inboxPane = document.getElementById("player-mail-inbox-pane");
+  const composePane = document.getElementById("player-mail-compose-pane");
+  if (inboxPane) inboxPane.hidden = name !== "inbox";
+  if (composePane) composePane.hidden = name !== "compose";
+  if (name === "compose") {
+    loadPlayerMailGuildSuggestions().catch(() => {});
+  }
+}
+
+function resetPlayerMailComposeForm() {
+  playerPageState.mailCompose = {
+    recipientId: null,
+    recipientLabel: "",
+    inventoryItemId: null,
+    itemLabel: "",
+  };
+  const input = document.getElementById("player-mail-recipient-input");
+  const body = document.getElementById("player-mail-tab-body");
+  const gold = document.getElementById("player-mail-tab-gold");
+  const suggest = document.getElementById("player-mail-recipient-suggest");
+  if (input) input.value = "";
+  if (body) body.value = "";
+  if (gold) gold.value = "0";
+  renderMailComposeItemPick(null);
+  if (suggest) suggest.hidden = true;
+}
+
+function playerMailRecipientRowLabel(item) {
+  const un = (item.username || "").trim();
+  if (un) return `@${un.replace(/^@/, "")}`;
+  const name = (item.character_name || item.first_name || "").trim();
+  if (name) return name;
+  const id = item.telegram_id ?? item.player_id;
+  return id != null ? `Игрок ${id}` : "Игрок";
+}
+
+function renderPlayerMailRecipientSuggest(items, sectionLabel) {
+  const box = document.getElementById("player-mail-recipient-suggest");
+  if (!box) return;
+  if (!items.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  const head = sectionLabel
+    ? `<div class="player-mail-suggest-section">${escapeHtml(sectionLabel)}</div>`
+    : "";
+  box.innerHTML =
+    head +
+    items
+      .map((item) => {
+        const pid = Number(item.telegram_id ?? item.player_id);
+        const label = escapeHtml(playerMailRecipientRowLabel(item));
+        return `<button type="button" class="player-mail-suggest-row" data-player-id="${pid}" data-label="${label}">${label}</button>`;
+      })
+      .join("");
+  box.hidden = false;
+  box.querySelectorAll(".player-mail-suggest-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      const pid = Number(row.getAttribute("data-player-id"));
+      const label = row.getAttribute("data-label") || "";
+      playerPageState.mailCompose.recipientId = pid;
+      playerPageState.mailCompose.recipientLabel = label;
+      const input = document.getElementById("player-mail-recipient-input");
+      if (input) input.value = label;
+      box.hidden = true;
+    });
+  });
+}
+
+async function loadPlayerMailGuildSuggestions() {
+  if (playerPageState.mailGuildSuggestions) return playerPageState.mailGuildSuggestions;
+  try {
+    const data = await apiFetch("/guilds/me");
+    if (!data?.in_guild || !Array.isArray(data.members)) {
+      playerPageState.mailGuildSuggestions = [];
+      return [];
+    }
+    const selfId = Number(profileState.currentProfile?.player_id);
+    const items = data.members
+      .filter((m) => Number(m.player_id) !== selfId)
+      .map((m) => ({
+        telegram_id: m.player_id,
+        username: m.telegram_username,
+        first_name: m.display_name,
+        character_name: m.main_waifu_name,
+      }));
+    playerPageState.mailGuildSuggestions = items;
+    return items;
+  } catch {
+    playerPageState.mailGuildSuggestions = [];
+    return [];
+  }
+}
+
+let playerMailSearchTimer = null;
+
+async function searchPlayerMailRecipients(query) {
+  const q = (query || "").trim();
+  if (q.length < 1) {
+    const guild = await loadPlayerMailGuildSuggestions();
+    renderPlayerMailRecipientSuggest(guild, guild.length ? "Гильдия" : "");
+    const friendsNote = document.getElementById("player-mail-recipient-suggest");
+    if (friendsNote && !guild.length) {
+      friendsNote.innerHTML = `<p class="muted tiny" style="padding:10px 12px">Друзья — скоро</p>`;
+      friendsNote.hidden = false;
+    }
+    return;
+  }
+  try {
+    const data = await apiFetch(`/players/search?q=${encodeURIComponent(q)}`);
+    const items = Array.isArray(data?.items) ? data.items : [];
+    const selfId = Number(profileState.currentProfile?.player_id);
+    const filtered = items.filter((it) => Number(it.telegram_id) !== selfId);
+    renderPlayerMailRecipientSuggest(filtered, filtered.length ? "Поиск" : "");
+    if (!filtered.length) {
+      const box = document.getElementById("player-mail-recipient-suggest");
+      if (box) {
+        box.innerHTML = `<p class="muted tiny" style="padding:10px 12px">Никого не найдено</p>`;
+        box.hidden = false;
+      }
+    }
+  } catch {
+    const box = document.getElementById("player-mail-recipient-suggest");
+    if (box) {
+      box.innerHTML = `<p class="muted tiny" style="padding:10px 12px">Ошибка поиска</p>`;
+      box.hidden = false;
+    }
+  }
+}
+
+function initPlayerMailTabs() {
+  if (window.__waifuPlayerMailTabsBound) return;
+  window.__waifuPlayerMailTabsBound = true;
+  document.querySelectorAll(".player-mail-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.getAttribute("data-mail-tab");
+      if (tab) setPlayerMailTab(tab);
+    });
+  });
+}
+
+function initPlayerMailCompose() {
+  if (window.__waifuPlayerMailComposeBound) return;
+  window.__waifuPlayerMailComposeBound = true;
+  const input = document.getElementById("player-mail-recipient-input");
+  const suggest = document.getElementById("player-mail-recipient-suggest");
+  const itemBtn = document.getElementById("player-mail-tab-item-btn");
+  const sendBtn = document.getElementById("player-mail-tab-send");
+
+  input?.addEventListener("focus", () => {
+    searchPlayerMailRecipients(input.value).catch(() => {});
+  });
+  input?.addEventListener("input", () => {
+    const q = input.value.trim();
+    playerPageState.mailCompose.recipientId = null;
+    clearTimeout(playerMailSearchTimer);
+    playerMailSearchTimer = setTimeout(() => {
+      searchPlayerMailRecipients(q).catch(() => {});
+    }, 280);
+  });
+  document.addEventListener("click", (ev) => {
+    if (!suggest || suggest.hidden) return;
+    if (ev.target === input || suggest.contains(ev.target)) return;
+    suggest.hidden = true;
+  });
+  itemBtn?.addEventListener("click", () => openPlayerMailItemPicker());
+  sendBtn?.addEventListener("click", () => sendPlayerMail());
+}
+
+function togglePlayerOverflowMenu(ev) {
+  ev?.stopPropagation();
+  const menu = document.getElementById("player-overflow-menu");
+  if (menu) menu.hidden = !menu.hidden;
+}
+
+function initPlayerOverflowMenu() {
+  if (window.__waifuPlayerOverflowBound) return;
+  window.__waifuPlayerOverflowBound = true;
+  const menu = document.getElementById("player-overflow-menu");
+  const backBtn = document.getElementById("player-topbar-back");
+  document.querySelectorAll("#player-overflow-btn, #player-topbar-overflow-btn").forEach((btn) => {
+    if (menu) {
+      btn.addEventListener("click", togglePlayerOverflowMenu);
+    }
+  });
+  if (menu) {
+    document.addEventListener("click", () => {
+      if (menu) menu.hidden = true;
+    });
+    menu.addEventListener("click", (ev) => ev.stopPropagation());
+    menu.querySelectorAll("[data-player-section]").forEach((item) => {
+      item.addEventListener("click", () => {
+        const sec = item.getAttribute("data-player-section");
+        if (sec) {
+          if (sec === "overview") {
+            history.replaceState(null, "", window.location.pathname + window.location.search);
+            openPlayerSection("overview");
+          } else {
+            window.location.hash = sec;
+            openPlayerSection(sec);
+          }
+        }
+        menu.hidden = true;
+      });
+    });
+  }
+  if (backBtn) {
+    backBtn.addEventListener("click", () => {
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+      openPlayerSection("overview");
+    });
+  }
+}
+
+function initPlayerShowcaseToggle() {
+  if (window.__waifuPlayerShowcaseBound) return;
+  window.__waifuPlayerShowcaseBound = true;
+  document.querySelectorAll(".player-showcase-switch-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mode = btn.getAttribute("data-showcase");
+      if (!mode || playerPageState.isViewMode) return;
+      const prev = playerPageState.profileData?.profile_showcase;
+      const data = { ...(playerPageState.profileData || {}), profile_showcase: mode };
+      playerPageState.profileData = data;
+      renderPlayerWaifuShowcase(data);
+      apiFetch("/player/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile_showcase: mode }),
+      })
+        .then((res) => {
+          playerPageState.profileData = res;
+          renderPlayerWaifuShowcase(res);
+        })
+        .catch((e) => {
+          const rollback = {
+            ...(playerPageState.profileData || {}),
+            profile_showcase: prev || "portrait",
+          };
+          playerPageState.profileData = rollback;
+          renderPlayerWaifuShowcase(rollback);
+          const { detail } = parseHttpErrorDetail(e);
+          showToast(detail || "Не удалось сохранить", "error");
+        });
+    });
+  });
+}
+
+function fillPlayerAvatarPresetGrid(grid, closeModal) {
+  if (!grid || grid.__filled) return;
+  grid.__filled = true;
+  let html = "";
+  for (let i = 1; i <= PLAYER_AVATAR_PRESET_COUNT; i++) {
+    const url = `/static/game/ui/player-avatars/preset-${String(i).padStart(2, "0")}.webp`;
+    html += `<button type="button" class="player-avatar-preset-btn" data-preset-id="${i}" aria-label="Пресет ${i}"><img src="${url}" alt="" loading="lazy" decoding="async" /></button>`;
+  }
+  grid.innerHTML = html;
+  grid.querySelectorAll(".player-avatar-preset-btn").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const pid = Number(b.getAttribute("data-preset-id"));
+      try {
+        const data = await apiFetch("/player/profile", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ avatar_preset_id: pid, clear_custom_avatar: true }),
+        });
+        playerPageState.cachedAvatarUrl = data.avatar_url;
+        applyPlayerProfilePayload(data, profileState.currentProfile);
+        applyPlayerAvatarUrl(data.avatar_url, profileState.currentProfile);
+        if (typeof closeModal === "function") closeModal();
+      } catch (e) {
+        const { detail } = parseHttpErrorDetail(e);
+        showToast(detail || "Ошибка", "error");
+      }
+    });
+  });
+}
+
+function initPlayerAvatarModal() {
+  if (window.__waifuPlayerAvatarModalBound) return;
+  window.__waifuPlayerAvatarModalBound = true;
+  const openBtn = document.getElementById("player-hero-avatar-btn");
+  const modal = document.getElementById("player-avatar-modal");
+  const closeBtn = document.getElementById("player-avatar-modal-close");
+  const grid = document.getElementById("player-avatar-preset-grid");
+  const fileInput = document.getElementById("player-avatar-file-input");
+  const resetBtn = document.getElementById("player-avatar-reset-preset");
+
+  const closeModal = () => {
+    if (!modal) return;
+    modal.classList.remove("player-avatar-modal--open");
+    modal.style.display = "none";
+  };
+
+  const openModal = () => {
+    if (playerPageState.isViewMode || !modal) return;
+    fillPlayerAvatarPresetGrid(grid, closeModal);
+    const cur = playerPageState.profileData?.avatar_preset_id || 1;
+    grid?.querySelectorAll(".player-avatar-preset-btn").forEach((x) => {
+      x.classList.toggle("selected", Number(x.getAttribute("data-preset-id")) === Number(cur));
+    });
+    modal.style.display = "";
+    modal.classList.add("player-avatar-modal--open");
+  };
+
+  openBtn?.addEventListener("click", openModal);
+  closeBtn?.addEventListener("click", closeModal);
+  modal?.addEventListener("click", (ev) => {
+    if (ev.target === modal) closeModal();
+  });
+
+  resetBtn?.addEventListener("click", async () => {
+    try {
+      const data = await apiFetch("/player/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatar_preset_id: 1, clear_custom_avatar: true }),
+      });
+      playerPageState.cachedAvatarUrl = data.avatar_url;
+      applyPlayerProfilePayload(data, profileState.currentProfile);
+      applyPlayerAvatarUrl(data.avatar_url, profileState.currentProfile);
+      closeModal();
+    } catch (e) {
+      const { detail } = parseHttpErrorDetail(e);
+      showToast(detail || "Ошибка", "error");
+    }
+  });
+
+  fileInput?.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const res = await fetch(`${API_BASE}/player/avatar/upload`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: fd,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail?.error || err.detail || res.statusText);
+      }
+      const data = await res.json();
+      playerPageState.cachedAvatarUrl = data.avatar_url;
+      const full = await apiFetch("/player/profile");
+      applyPlayerProfilePayload(full, profileState.currentProfile);
+      applyPlayerAvatarUrl(data.avatar_url, profileState.currentProfile);
+      fileInput.value = "";
+      closeModal();
+    } catch (e) {
+      showToast(String(e.message || e) || "Не удалось загрузить", "error");
+    }
+  });
+}
+
+async function initPlayerPage(profile, opts = {}) {
+  const fallback = profile || profileState.currentProfile || {};
+  const viewId = getPlayerViewIdFromQuery();
+  let selfId = fallback?.player_id != null ? Number(fallback.player_id) : null;
+  if (opts.preloadedPlayerProfile?.player_id != null && opts.preloadedPlayerProfile?.is_self) {
+    selfId = Number(opts.preloadedPlayerProfile.player_id);
+  }
+  playerPageState.viewPlayerId = viewId;
+  playerPageState.selfPlayerId = selfId;
+  playerPageState.isViewMode = viewId != null && (selfId == null || viewId !== selfId);
+
+  initPlayerOverflowMenu();
+  initPlayerShowcaseToggle();
+  initPlayerAvatarModal();
+  initPlayerMailTabs();
+  initPlayerMailCompose();
+  bindPlayerPageLifecycle();
+  syncPlayerViewModeUi();
+
+  try {
+    if (opts.preloadedPlayerProfile != null) {
+      applyPlayerProfilePayload(opts.preloadedPlayerProfile, fallback);
+    } else if (playerPageState.isViewMode) {
+      await loadPublicPlayerProfile(viewId, fallback);
+    } else {
+      await loadSelfPlayerProfile(fallback);
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось загрузить профиль", "error");
+  }
+
+  applyPlayerHashSection();
+}
+
+async function refreshMailInbox() {
+  try {
+    const [inbox, badge] = await Promise.all([
+      apiFetch("/mail/inbox?limit=50"),
+      apiFetch("/mail/badge").catch(() => ({ unread: 0, pending_rewards: 0 })),
+    ]);
+    guildHallState.mailState.inbox = Array.isArray(inbox?.items) ? inbox.items : [];
+    guildHallState.mailState.unreadCount = safeInt(badge?.unread, 0);
+    guildHallState.mailState.pendingRewards = safeInt(badge?.pending_rewards, 0);
+    renderMailInbox();
+    await refreshAtticMailBadge();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    const root = document.getElementById("mail-inbox-root");
+    if (root) root.innerHTML = `<p class="muted" style="color:#f87171">${escapeHtml(detail || "Не удалось загрузить почту")}</p>`;
+  }
+}
+
+function formatMailListDate(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const sameDay =
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate();
+    if (sameDay) {
+      return d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+  } catch {
+    return "";
+  }
+}
+
+function renderMailInbox() {
+  const root = document.getElementById("mail-inbox-root");
+  const isPlayerPage = document.body.classList.contains("page-player");
+  if (!root) return;
+  const items = guildHallState.mailState.inbox;
+  if (!items.length) {
+    root.innerHTML = `<p class="muted">Входящих писем нет.</p>`;
+    return;
+  }
+  if (isPlayerPage) {
+    root.innerHTML = items
+      .map((m) => {
+        const unread = m.status === "unread";
+        const sender = escapeHtml(m.sender_label || "Игрок");
+        const date = escapeHtml(formatMailListDate(m.created_at));
+        const readMark = unread ? "" : `<span class="mail-inbox-read-mark muted tiny">прочитано</span>`;
+        return `<button type="button" class="mail-inbox-row${unread ? " unread" : ""}" onclick="WaifuApp.openMailDetail(${Number(m.id)})">
+          <span class="mail-inbox-dot" aria-hidden="true"></span>
+          <span class="mail-inbox-row-main">
+            <span class="mail-inbox-sender">${unread ? `<strong>${sender}</strong>` : sender} ${readMark}</span>
+            <span class="mail-inbox-date">${date}</span>
+          </span>
+        </button>`;
+      })
+      .join("");
+    return;
+  }
+  root.innerHTML = items
+    .map((m) => {
+      const unread = m.status === "unread";
+      const attach = [];
+      if (m.gold_amount > 0) attach.push(`🪙 ${Number(m.gold_amount).toLocaleString("ru-RU")}`);
+      if (m.inventory_item_id) attach.push("📦 предмет");
+      const preview = (m.body_text || attach.join(" · ") || "—").slice(0, 80);
+      return `<button type="button" class="mail-inbox-row${unread ? " unread" : ""}" onclick="WaifuApp.openMailDetail(${Number(m.id)})">
+        <span class="mail-inbox-dot"></span>
+        <span style="flex:1;min-width:0">
+          <strong>${escapeHtml(m.sender_label || "Игрок")}</strong>
+          <div class="muted tiny">${escapeHtml(preview)}</div>
+        </span>
+      </button>`;
+    })
+    .join("");
+}
+
+async function openMailDetail(mailId) {
+  const id = Number(mailId);
+  if (!Number.isFinite(id)) return;
+  try {
+    const mail = await apiFetch(`/mail/${encodeURIComponent(id)}`);
+    guildHallState.mailState.selectedId = id;
+    const panel = document.getElementById("mail-detail-root");
+    if (!panel) return;
+    const attach = [];
+    if (mail.gold_amount > 0) attach.push(`🪙 ${Number(mail.gold_amount).toLocaleString("ru-RU")} золота`);
+    if (mail.item_name) attach.push(`📦 ${mail.item_name}`);
+    const canClaim =
+      mail.status !== "claimed" && (mail.gold_amount > 0 || mail.inventory_item_id);
+    panel.innerHTML = `<div class="mail-detail-panel">
+      <p><strong>От:</strong> ${escapeHtml(mail.sender_label || "Игрок")}</p>
+      <p class="muted tiny">${escapeHtml(new Date(mail.created_at).toLocaleString("ru-RU"))}</p>
+      ${mail.body_text ? `<p>${escapeHtml(mail.body_text)}</p>` : ""}
+      ${attach.length ? `<p>${attach.map((a) => escapeHtml(a)).join("<br>")}</p>` : ""}
+      ${canClaim ? `<button type="button" class="btn primary" onclick="WaifuApp.claimMail(${id})">Забрать награду</button>` : ""}
+      <button type="button" class="btn secondary" style="margin-top:8px" onclick="WaifuApp.deleteMail(${id})">Удалить</button>
+    </div>`;
+    panel.hidden = false;
+    await refreshMailInbox();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось открыть письмо", "error");
+  }
+}
+
+async function claimMail(mailId) {
+  try {
+    await apiFetch(`/mail/${encodeURIComponent(mailId)}/claim`, { method: "POST" });
+    showToast("Награда получена");
+    await openMailDetail(mailId);
+    await refreshMailInbox();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось забрать награду", "error");
+  }
+}
+
+async function deleteMail(mailId) {
+  try {
+    await apiFetch(`/mail/${encodeURIComponent(mailId)}`, { method: "DELETE" });
+    showToast("Письмо удалено");
+    const panel = document.getElementById("mail-detail-root");
+    if (panel) {
+      panel.innerHTML = "";
+      panel.hidden = true;
+    }
+    await refreshMailInbox();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось удалить", "error");
+  }
+}
+
+function onGuildBannerClick() {
+  const inp = document.getElementById("guild-banner-file-input");
+  if (inp) inp.click();
+}
+
+function onGuildEmblemClick() {
+  const inp = document.getElementById("guild-icon-file-input");
+  if (inp) inp.click();
+  else {
+    const hidden = document.createElement("input");
+    hidden.type = "file";
+    hidden.accept = "image/jpeg,image/png,image/webp";
+    hidden.id = "guild-icon-file-input";
+    hidden.style.display = "none";
+    hidden.onchange = () => uploadGuildIcon(hidden);
+    document.body.appendChild(hidden);
+    hidden.click();
+  }
+}
+
+async function uploadGuildBanner(fileInput) {
+  const file = fileInput?.files?.[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const res = await fetch(`${API_BASE}/guilds/me/banner`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: fd,
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      showToast(guildApiErrorToUser(detail?.detail || detail, "Не удалось загрузить баннер"), "error");
+      return;
+    }
+    showToast("Баннер гильдии обновлён");
+    if (fileInput) fileInput.value = "";
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+async function uploadGuildIcon(fileInput) {
+  const file = fileInput?.files?.[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const res = await fetch(`${API_BASE}/guilds/me/icon`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: fd,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text || "failed"}`);
+    }
+    showToast("Эмблема обновлена");
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail || "Ошибка загрузки"), "error");
+  } finally {
+    if (fileInput) fileInput.value = "";
+  }
+}
+
+function guildCreateErrorToUser(detail) {
+  return guildApiErrorToUser(detail, "Не удалось создать гильдию");
+}
+
+async function createGuildFromHall() {
+  const nameEl = document.getElementById("guild-create-name");
+  const tagEl = document.getElementById("guild-create-tag");
+  const descEl = document.getElementById("guild-create-desc");
+  const errEl = document.getElementById("guild-create-error");
+  const btn = document.getElementById("guild-create-btn");
+  const name = (nameEl?.value || "").trim();
+  const tag = (tagEl?.value || "").trim();
+  const description = (descEl?.value || "").trim();
+  if (!name || !tag) {
+    if (errEl) errEl.textContent = "Укажите название и тег.";
+    return;
+  }
+  if (errEl) errEl.textContent = "";
+  if (btn) btn.disabled = true;
+  try {
+    let qs = `?name=${encodeURIComponent(name)}&tag=${encodeURIComponent(tag)}`;
+    if (description) qs += `&description=${encodeURIComponent(description)}`;
+    await apiFetch(`/guilds${qs}`, { method: "POST" });
+    showToast("Гильдия создана");
+    await loadProfile().catch(() => {});
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    const msg = guildCreateErrorToUser(detail);
+    if (errEl) errEl.textContent = msg;
+    else showToast(msg, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function joinGuildFromSearch(guildId) {
+  try {
+    const res = await apiFetch(`/guilds/${encodeURIComponent(guildId)}/join`, { method: "POST" });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось вступить"), "error");
+      return;
+    }
+    showToast("Вы вступили в гильдию");
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+async function leaveGuildFromHall() {
+  if (!confirm("Покинуть гильдию?")) return;
+  try {
+    const res = await apiFetch("/guilds/leave", { method: "POST" });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось выйти"), "error");
+      return;
+    }
+    showToast("Вы покинули гильдию");
+    guildHallState.tab = "search";
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+function toggleGuildRaidParticipant(playerId, checked) {
+  const pid = Number(playerId);
+  const set = new Set(guildHallState.raidParticipantIds.map(Number));
+  const maxSlots = safeInt(guildHallState.me?.raid?.raid_party_slots, 10) || 10;
+  if (checked) {
+    if (set.size >= maxSlots) {
+      showToast(`Максимум ${maxSlots} участников`, "error");
+      void renderGuildTabContent();
+      return;
+    }
+    set.add(pid);
+  } else set.delete(pid);
+  guildHallState.raidParticipantIds = [...set];
+  updateGuildRaidPickedCount();
+}
+
+async function startGuildRaidMuster() {
+  const d = guildHallState.me;
+  const chatId = guildHallState.raidChatId;
+  if (!chatId) {
+    showToast("Сначала выберите чат для рейда", "error");
+    return;
+  }
+  const pids = guildHallState.raidParticipantIds.filter((x) => Number(x) > 0);
+  if (pids.length < 2) {
+    showToast("Выберите минимум 2 участников", "error");
+    return;
+  }
+  try {
+    const res = await apiFetch("/guilds/raid/muster", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ participant_ids: pids, chat_id: chatId }),
+    });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось начать сбор"), "error");
+      return;
+    }
+    closeGuildRaidParticipantModal();
+    guildHallState.raidChatId = null;
+    guildHallState.raidChatTitle = null;
+    guildHallState.raidEligibleMembers = null;
+    guildHallState.raidParticipantIds = [];
+    showToast("Сбор начат — приглашения в личку (3 ч)");
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+async function startGuildRaid(templateId) {
+  const d = guildHallState.me;
+  const chatId = getGuildRaidChatId(d);
+  if (!chatId) {
+    showToast("Откройте WebApp из группового чата бота или привяжите chat_id гильдии", "error");
+    return;
+  }
+  const pids = guildHallState.raidParticipantIds.filter((x) => Number(x) > 0);
+  if (pids.length < 2) {
+    showToast("Выберите минимум 2 участников", "error");
+    return;
+  }
+  try {
+    const res = await apiFetch("/guilds/raid/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: Number(templateId),
+        participant_ids: pids,
+        chat_id: chatId,
+      }),
+    });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось начать рейд"), "error");
+      return;
+    }
+    showToast("Рейд начат");
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+async function leaveGuildRaid() {
+  try {
+    const res = await apiFetch("/guilds/raid/leave", { method: "POST" });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Ошибка"), "error");
+      return;
+    }
+    showToast(res?.raid_cancelled ? "Рейд завершён — можно начать новый" : "Вы вышли из рейда");
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail, "error");
+  }
+}
+
+async function cancelGuildRaid() {
+  if (!confirmAction("Отменить текущий рейд? Отряд не получит награду.")) return;
+  try {
+    const res = await apiFetch("/guilds/raid/cancel", { method: "POST" });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Ошибка"), "error");
+      return;
+    }
+    showToast("Рейд отменён — можно начать новый");
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+async function loadGuildWarTargets() {
+  try {
+    const data = await apiFetch("/guilds/war/targets");
+    if (data?.error) {
+      guildHallState.warTargets = [];
+      return [];
+    }
+    guildHallState.warTargets = data.targets || [];
+    return guildHallState.warTargets;
+  } catch {
+    guildHallState.warTargets = [];
+    return [];
+  }
+}
+
+async function declareGuildWar(targetGuildId, stakeGold) {
+  try {
+    const res = await apiFetch("/guilds/war/declare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_guild_id: Number(targetGuildId), stake_gold: safeInt(stakeGold, 0) }),
+    });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Не удалось объявить войну"), "error");
+      return;
+    }
+    showToast("Война объявлена");
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+async function respondGuildWar(warId, accept) {
+  try {
+    const res = await apiFetch("/guilds/war/respond", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ war_id: Number(warId), accept: Boolean(accept) }),
+    });
+    if (res?.error) {
+      showToast(guildApiErrorToUser(res, "Ошибка ответа"), "error");
+      return;
+    }
+    showToast(accept ? "Война принята" : "Война отклонена");
+    await refreshGuildHall({ force: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(guildApiErrorToUser(detail, detail), "error");
+  }
+}
+
+function renderGuildSkillsGrid(d) {
+  return renderGuildSkillsPanel(d);
+}
+
+const GUILD_SKILL_BRANCH_COMBAT = new Set([
+  "gd_party_damage_pct",
+  "raid_attack_flat",
+  "raid_boss_damage_pct",
+  "raid_completion_reward_pct",
+  "damage_per_online_member_pct",
+  "raid_gxp_multiplier",
+]);
+const GUILD_SKILL_BRANCH_DEFENSE = new Set(["max_hp_pct", "raid_monster_damage_reduction_pct"]);
+const GUILD_SKILL_EFFECT_LABELS = {
+  gd_party_damage_pct: "Урон отряда в GD",
+  raid_attack_flat: "Атака в рейдах",
+  raid_boss_damage_pct: "Урон боссам в рейде",
+  raid_completion_reward_pct: "Награда за рейд",
+  damage_per_online_member_pct: "Урон за каждого онлайн участника",
+  raid_gxp_multiplier: "Множитель GXP рейда",
+  max_hp_pct: "Макс. HP",
+  raid_monster_damage_reduction_pct: "Снижение урона монстров в рейде",
+  monster_gold_pct: "Золото с монстров",
+  dungeon_exp_pct: "Опыт в подземельях",
+  bank_slots_bonus: "Слоты банка",
+  item_drop_pct: "Шанс выпадения предметов",
+  tavern_heal_discount_pct: "Скидка на лечение в таверне",
+  tavern_hire_discount_pct: "Скидка на найм",
+  global_reward_pct: "Глобальный бонус наград",
+};
+const GUILD_SKILL_BRANCH_ICONS = {
+  combat: ["⚔️", "🗡️", "💥", "🔥", "⚡", "🎯"],
+  defense: ["🛡️", "🗿", "💪", "🧱"],
+  utility: ["🪙", "💰", "📦", "✨", "🏦", "🍺"],
+};
+
+function guildSkillBranch(sk) {
+  const p = String(sk?.effect_param || "");
+  if (GUILD_SKILL_BRANCH_COMBAT.has(p)) return "combat";
+  if (GUILD_SKILL_BRANCH_DEFENSE.has(p)) return "defense";
+  return "utility";
+}
+
+function formatGuildSkillEffectValue(param, val) {
+  if (val == null) return "—";
+  const n = Number(val);
+  if (!Number.isFinite(n)) return String(val);
+  const key = String(param || "");
+  if (key.endsWith("_multiplier")) {
+    return `×${n % 1 === 0 ? n : n.toFixed(1)}`;
+  }
+  if (key.endsWith("_flat") || key === "bank_slots_bonus") {
+    return `+${n % 1 === 0 ? n : n}`;
+  }
+  const pct = Math.abs(n) <= 1 ? n * 100 : n;
+  const shown = pct % 1 === 0 ? pct : Math.round(pct * 10) / 10;
+  return `+${shown}%`;
+}
+
+function formatGuildSkillEffectDesc(sk) {
+  const param = String(sk?.effect_param || "");
+  const label = GUILD_SKILL_EFFECT_LABELS[param] || sk.name || "Эффект";
+  const cur = safeInt(sk.current_level, 0);
+  const eff = Array.isArray(sk.effect_per_level) ? sk.effect_per_level : [];
+  if (cur >= 3 && eff[2] != null) {
+    return `${label} <span class="guild-skill-desc-gold">${formatGuildSkillEffectValue(param, eff[2])}</span>`;
+  }
+  const fmtCur =
+    cur > 0 && eff[cur - 1] != null
+      ? `<span class="guild-skill-desc-current">${formatGuildSkillEffectValue(param, eff[cur - 1])}</span>`
+      : "";
+  const fmtNext =
+    cur < 3 && eff[cur] != null
+      ? `<span class="guild-skill-desc-arrow"> ➔ </span><span class="guild-skill-desc-next">${formatGuildSkillEffectValue(param, eff[cur])}</span>`
+      : "";
+  if (cur > 0 && fmtNext) return `${label} ${fmtCur}${fmtNext}`;
+  if (cur > 0) return `${label} ${fmtCur}`;
+  if (eff[0] != null) {
+    return `${label} <span class="guild-skill-desc-current">${formatGuildSkillEffectValue(param, eff[0])}</span>`;
+  }
+  return label;
+}
+
+function guildSkillIcon(sk, branch, locked) {
+  if (locked) return "🔒";
+  const icons = GUILD_SKILL_BRANCH_ICONS[branch] || ["✨"];
+  const idx = (safeInt(sk.sort_order, safeInt(sk.id, 0)) - 1) % icons.length;
+  return icons[idx] || icons[0];
+}
+
+function renderGuildSkillCard(sk, d) {
+  const cur = safeInt(sk.current_level, 0);
+  const guildLevel = safeInt(d?.guild_level, 1);
+  const tierUnlock = safeInt(d?.skill_tier_unlock, 1);
+  const glReq = safeInt(sk.guild_level_req, 1);
+  const tier = safeInt(sk.tier, 1);
+  const locked = guildLevel < glReq || tier > tierUnlock;
+  const maxed = cur >= 3;
+  const branch = guildSkillBranch(sk);
+  const cost = guildSkillUpgradeCost(sk);
+  const canUp = !locked && !maxed && guildSkillCanUpgrade(sk, d);
+  const blockReason = sk.upgrade_block_reason;
+  const avatarClass = locked
+    ? "guild-skill-card-avatar guild-skill-card-avatar--locked"
+    : `guild-skill-card-avatar guild-skill-card-avatar--${branch}`;
+  const icon = guildSkillIcon(sk, branch, locked);
+  const pips = [0, 1, 2]
+    .map((i) => {
+      const filled = i < cur;
+      const cls = maxed && filled
+        ? "guild-skill-card-pip guild-skill-card-pip--gold"
+        : filled
+          ? "guild-skill-card-pip guild-skill-card-pip--filled"
+          : "guild-skill-card-pip";
+      return `<div class="${cls}"></div>`;
+    })
+    .join("");
+  let lockReq = "";
+  if (locked) {
+    if (guildLevel < glReq) {
+      lockReq = `<div class="guild-skill-card-req">Требуется ${glReq} уровень гильдии</div>`;
+    } else if (tier > tierUnlock) {
+      lockReq = `<div class="guild-skill-card-req">Требуется тир навыков ${tier}</div>`;
+    }
+  }
+  let action = "";
+  if (maxed) {
+    action = `<span class="guild-skill-badge-max">Изучено</span>`;
+  } else if (locked) {
+    action = `<button type="button" class="guild-skill-card-upgrade" disabled aria-label="Заблокировано">🔒</button>`;
+  } else if (canUp) {
+    action = `<button type="button" class="guild-skill-card-upgrade guild-skill-card-upgrade--primary" onclick="event.stopPropagation();WaifuApp.guildSkillUpgrade(${Number(sk.id)})"><span class="guild-skill-card-upgrade-plus">+</span><span class="guild-skill-card-upgrade-cost">${cost} ОПГ</span></button>`;
+  } else {
+    const reasonText = escapeHtml(guildSkillBlockReasonRu(sk, d, blockReason));
+    action = `<button type="button" class="guild-skill-card-upgrade" disabled onclick="event.stopPropagation()" title="${reasonText}"><span class="guild-skill-card-upgrade-plus">+</span><span class="guild-skill-card-upgrade-cost">${cost} ОПГ</span></button>`;
+  }
+  const cardClass = `guild-skill-card${maxed ? " maxed" : ""}${locked ? " locked" : ""}`;
+  const lvlLabel = maxed
+    ? `<span class="guild-skill-card-level guild-skill-card-level--gold">МАКС. ур.</span>`
+    : `<span class="guild-skill-card-level">ур. ${cur}/3</span>`;
+  return `<div class="${cardClass}" role="button" tabindex="0" onclick="WaifuApp.openGuildSkillModal(${Number(sk.id)})">
+    <div class="guild-skill-card-main">
+      <div class="${avatarClass}">${icon}</div>
+      <div class="guild-skill-card-body">
+        <div class="guild-skill-card-title-row">
+          <strong class="guild-skill-card-name">${escapeHtml(sk.name || "")}</strong>
+          ${lvlLabel}
+        </div>
+        <p class="guild-skill-card-desc">${formatGuildSkillEffectDesc(sk)}</p>
+        ${lockReq}
+        <div class="guild-skill-card-pips">${pips}</div>
+      </div>
+    </div>
+    <div class="guild-skill-card-action">${action}</div>
+  </div>`;
+}
+
+function renderGuildSkillsPanel(d) {
+  const avail = safeInt(d?.skill_points_available, 0);
+  const spent = safeInt(d?.skill_points_spent, 0);
+  const total = safeInt(d?.skill_points_total, 0);
+  const activeBranch = guildHallState.skillsBranch || "combat";
+  const branches = [
+    { id: "combat", icon: "⚔️", label: "Боевые" },
+    { id: "defense", icon: "🛡️", label: "Защитные" },
+    { id: "utility", icon: "💰", label: "Мирные" },
+  ];
+  const resetBtn = isGuildLeader(d)
+    ? `<button type="button" class="guild-skills-panel-reset" onclick="WaifuApp.guildSkillReset()">🔄 Сбросить</button>`
+    : "";
+  const tabs = branches
+    .map(
+      (b) =>
+        `<button type="button" role="tab" aria-selected="${activeBranch === b.id ? "true" : "false"}" class="guild-skills-panel-tab${activeBranch === b.id ? " active" : ""}" onclick="WaifuApp.switchGuildSkillsBranch('${b.id}')"><span>${b.icon}</span> ${b.label}</button>`
+    )
+    .join("");
+  const defs = Array.isArray(d?.definitions) ? d.definitions : [];
+  const branchSkills = defs
+    .filter((sk) => guildSkillBranch(sk) === activeBranch)
+    .sort(
+      (a, b) =>
+        safeInt(a.sort_order, safeInt(a.id, 0)) - safeInt(b.sort_order, safeInt(b.id, 0))
+    );
+  const cards = branchSkills.map((sk) => renderGuildSkillCard(sk, d)).join("");
+  return `
+    <div class="guild-skills-panel">
+      <div class="guild-skills-panel-header">
+        <div>
+          <div class="guild-skills-panel-title">Навыки гильдии</div>
+          <p class="guild-skills-panel-sp">Доступно: <strong>${avail} ОПГ</strong> <em>(распределено: ${spent}/${total})</em></p>
+        </div>
+        ${resetBtn}
+      </div>
+      <div class="guild-skills-panel-tabs" role="tablist">${tabs}</div>
+      <div class="guild-skills-panel-list" role="tabpanel">${cards || `<p class="muted tiny">Нет навыков в этой ветке.</p>`}</div>
+    </div>`;
+}
+
+function switchGuildSkillsBranch(branchId) {
+  guildHallState.skillsBranch = branchId || "combat";
+  void renderGuildTabContent();
+}
+
+function formatGuildBankGold(n) {
+  return safeInt(n, 0).toLocaleString("ru-RU");
+}
+
+function compareGuildBankItems(a, b) {
+  const sortKey = guildHallState.bankSort || "level";
+  const dir = guildHallState.bankSortDir === "asc" ? 1 : -1;
+  const rarityA = safeNumber(a?.rarity, 1);
+  const rarityB = safeNumber(b?.rarity, 1);
+  const levelA = safeNumber(a?.level, 0);
+  const levelB = safeNumber(b?.level, 0);
+  let result = 0;
+  if (sortKey === "level") result = levelA - levelB || rarityA - rarityB;
+  if (sortKey === "rarity") result = rarityA - rarityB || levelA - levelB;
+  if (sortKey === "type") {
+    const typeA = slotTypeLabel(a?.slot_type).toLowerCase();
+    const typeB = slotTypeLabel(b?.slot_type).toLowerCase();
+    result = typeA.localeCompare(typeB, "ru") || levelA - levelB || rarityA - rarityB;
+  }
+  if (result === 0) {
+    const nameA = String(a?.display_name || a?.name || "").toLowerCase();
+    const nameB = String(b?.display_name || b?.name || "").toLowerCase();
+    result = nameA.localeCompare(nameB, "ru");
+  }
+  return result * dir;
+}
+
+function getGuildBankFilteredSortedItems() {
+  const items = Array.isArray(guildHallState.bankItems) ? guildHallState.bankItems : [];
+  return items
+    .filter((item) => guildHallState.bankFilters[getProfileItemCategory(item)])
+    .sort(compareGuildBankItems);
+}
+
+function toggleGuildBankFilter(category) {
+  if (!Object.prototype.hasOwnProperty.call(guildHallState.bankFilters, category)) return;
+  guildHallState.bankFilters[category] = !guildHallState.bankFilters[category];
+  guildHallState.bankPage = 1;
+  void renderGuildTabContent();
+}
+
+function setGuildBankSort(value) {
+  guildHallState.bankSort = ["level", "rarity", "type"].includes(value) ? value : "level";
+  guildHallState.bankPage = 1;
+  void renderGuildTabContent();
+}
+
+function toggleGuildBankSortDir() {
+  guildHallState.bankSortDir = guildHallState.bankSortDir === "asc" ? "desc" : "asc";
+  void renderGuildTabContent();
+}
+
+function renderGuildBankItemCell(it) {
+  const rCls = rarityClassFromValue(it?.rarity);
+  return `<button type="button" class="guild-bank-item-cell ${rCls}" onclick="WaifuApp.openGuildBankItemModal(${Number(it.bank_item_id)})" aria-label="${escapeHtml(composeItemDisplayName(it))}">
+    <span class="guild-bank-item-cell-art">${itemArtHtml(it)}</span>
+  </button>`;
+}
+
+function renderGuildBankPanel(d) {
+  const maxItems = safeInt(d?.max_bank_items, 100);
+  const count = safeInt(d?.bank_items_count, 0);
+  const page = Math.max(1, guildHallState.bankPage);
+  const pageSize = guildHallState.bankPageSize;
+  const allItems = Array.isArray(guildHallState.bankItems) ? guildHallState.bankItems : [];
+  const items = getGuildBankFilteredSortedItems();
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize) || 1);
+  const safePage = Math.min(page, totalPages);
+  if (safePage !== page) guildHallState.bankPage = safePage;
+  const start = (safePage - 1) * pageSize;
+  const slice = items.slice(start, start + pageSize);
+  const sortDirIcon = guildHallState.bankSortDir === "asc" ? "▲" : "▼";
+  const sortOptions = [
+    { value: "level", label: "Ур." },
+    { value: "rarity", label: "Ред." },
+    { value: "type", label: "Тип" },
+  ];
+  const sortSelectHtml = sortOptions
+    .map(
+      (opt) =>
+        `<option value="${opt.value}"${guildHallState.bankSort === opt.value ? " selected" : ""}>${opt.label}</option>`
+    )
+    .join("");
+
+  const cells = [];
+  for (let i = 0; i < pageSize; i += 1) {
+    if (i < slice.length) {
+      cells.push(renderGuildBankItemCell(slice[i]));
+    } else {
+      cells.push(`<div class="guild-bank-item-cell guild-bank-item-cell--empty" aria-hidden="true"></div>`);
+    }
+  }
+
+  const emptyNote = !allItems.length
+    ? `<p class="guild-bank-items-empty-note muted tiny">Банк пуст.</p>`
+    : !items.length
+      ? `<p class="guild-bank-items-empty-note muted tiny">Нет предметов по выбранным фильтрам.</p>`
+      : "";
+
+  const pager =
+    totalPages > 1
+      ? `<div class="guild-bank-pagination">
+          <button type="button" class="guild-bank-pag-btn" ${safePage <= 1 ? "disabled" : ""} onclick="WaifuApp.guildBankPrevPage()">← Назад</button>
+          <span class="guild-bank-pag-info">Стр. ${safePage}</span>
+          <button type="button" class="guild-bank-pag-btn" ${safePage >= totalPages ? "disabled" : ""} onclick="WaifuApp.guildBankNextPage()">Вперёд →</button>
+        </div>`
+      : "";
+
+  return `
+    <div class="guild-bank-panel">
+      <div class="guild-bank-top-row">
+        <div class="guild-bank-gold-panel">
+          <div class="guild-bank-gold-box">
+            <span class="guild-bank-gold-value">${formatGuildBankGold(d?.bank_gold)}</span>
+          </div>
+          <div class="guild-bank-gold-actions">
+            <button type="button" class="guild-bank-gold-btn guild-bank-gold-btn--deposit" aria-label="Внести золото" onclick="WaifuApp.openGuildBankGoldModal('deposit')">+</button>
+            <button type="button" class="guild-bank-gold-btn guild-bank-gold-btn--withdraw" aria-label="Снять золото" onclick="WaifuApp.openGuildBankGoldModal('withdraw')">−</button>
+          </div>
+        </div>
+        <div class="guild-bank-storage-panel">
+          <div class="guild-bank-storage-main">
+            <span class="guild-bank-storage-count">${count} / ${maxItems}</span>
+          </div>
+          <button type="button" class="guild-bank-add-item-btn" aria-label="Положить предмет" onclick="WaifuApp.openGuildBankDepositModal()">🤲</button>
+        </div>
+      </div>
+      <div class="guild-bank-items-panel">
+        <div class="guild-bank-controls">
+          <button type="button" class="guild-bank-filter-btn${guildHallState.bankFilters.weapon ? " active" : ""}" onclick="WaifuApp.toggleGuildBankFilter('weapon')">⚔ Оружие</button>
+          <button type="button" class="guild-bank-filter-btn${guildHallState.bankFilters.armor ? " active" : ""}" onclick="WaifuApp.toggleGuildBankFilter('armor')">🛡 Броня</button>
+          <button type="button" class="guild-bank-filter-btn${guildHallState.bankFilters.accessory ? " active" : ""}" onclick="WaifuApp.toggleGuildBankFilter('accessory')">💍 Акс.</button>
+          <div class="guild-bank-sort-wrap">
+            <select class="guild-bank-sort-select" onchange="WaifuApp.setGuildBankSort(this.value)">${sortSelectHtml}</select>
+            <button type="button" class="guild-bank-sort-dir" onclick="WaifuApp.toggleGuildBankSortDir()">${sortDirIcon}</button>
+          </div>
+        </div>
+        ${emptyNote}
+        <div class="guild-bank-items-grid">${cells.join("")}</div>
+        ${pager}
+      </div>
+    </div>`;
+}
+
+function renderGuildBankTab(d) {
+  return renderGuildBankPanel(d);
+}
+
+function guildBankPrevPage() {
+  guildHallState.bankPage = Math.max(1, guildHallState.bankPage - 1);
+  void renderGuildTabContent();
+}
+
+function guildBankNextPage() {
+  const pageSize = guildHallState.bankPageSize;
+  const totalPages = Math.max(1, Math.ceil(getGuildBankFilteredSortedItems().length / pageSize));
+  guildHallState.bankPage = Math.min(guildHallState.bankPage + 1, totalPages);
+  void renderGuildTabContent();
+}
+
+function renderGuildRaidPane(d) {
+  const raid = d?.raid || {};
+  const active = raid?.active_raid;
+  const muster = raid?.active_muster;
+  const chronicle = Array.isArray(raid?.chronicle) ? raid.chronicle : [];
+  const members = Array.isArray(d?.members) ? d.members : [];
+  const memberById = Object.fromEntries(members.map((m) => [Number(m.player_id), m]));
+  let html = "";
+
+  if (muster && muster.status === "pending") {
+    html += `<h4 class="guild-activity-section-title">Сбор на рейд</h4>
+      <p class="muted tiny">Подтверждение в личке бота · до ${escapeHtml(muster.deadline_at || "—")}</p>
+      <ul class="guild-raid-muster-list">${(muster.participants || [])
+        .map((p) => {
+          const m = memberById[Number(p.player_id)];
+          const nm = m ? guildMemberLabel(m) : `Игрок ${p.player_id}`;
+          return `<li>${nm}: <strong>${escapeHtml(guildRaidMusterStatusLabel(p.status))}</strong></li>`;
+        })
+        .join("")}</ul>`;
+  }
+
+  if (active) {
+    const isV2 = safeInt(active.raid_version, 1) >= 2;
+    if (isV2) {
+      const vit = safeInt(active.company_vitality, 0);
+      const prog = safeInt(active.story_progress, 0);
+      const day = safeInt(active.day_index, 0);
+      html += `<h4 class="guild-activity-section-title">Рейд · недельная хроника</h4>
+        <p>День ${day} / 7 · локация: ${escapeHtml(active.location_archetype_id || "—")}</p>
+        <div class="guild-raid-vitals">
+          <div class="guild-raid-vital-row"><span>Выносливость</span><div class="guild-raid-bar"><div class="guild-raid-bar-fill guild-raid-bar-fill--vit" style="width:${vit}%"></div></div><span>${vit}%</span></div>
+          <div class="guild-raid-vital-row"><span>Прогресс</span><div class="guild-raid-bar"><div class="guild-raid-bar-fill guild-raid-bar-fill--prog" style="width:${prog}%"></div></div><span>${prog}%</span></div>
+        </div>`;
+      if (active.prologue_html) {
+        html += `<details class="guild-raid-chronicle-entry"><summary>Prologue</summary><div class="guild-raid-narrative">${active.prologue_html}</div></details>`;
+      }
+      chronicle.forEach((c) => {
+        html += `<details class="guild-raid-chronicle-entry"><summary>День ${c.day_index}</summary>
+          <div class="guild-raid-narrative">${c.narrative_html || ""}</div>
+          ${c.winning_tactic ? `<p class="muted tiny">Тактика: ${escapeHtml(c.winning_tactic.label || "—")}</p>` : ""}
+        </details>`;
+      });
+      if (isGuildLeader(d)) {
+        html += `<button type="button" class="btn secondary" style="margin-top:8px" onclick="WaifuApp.cancelGuildRaid()">Отменить рейд</button>`;
+      }
+      html += `<button type="button" class="btn secondary" style="margin-top:8px" onclick="WaifuApp.leaveGuildRaid()">Покинуть рейд</button>`;
+    } else {
+      const hpPct =
+        active.hp_max > 0 ? Math.round((safeInt(active.hp, 0) / safeInt(active.hp_max, 1)) * 100) : 0;
+      html += `<h4 class="guild-activity-section-title">Активный рейд (legacy)</h4>
+        <p>Этап ${active.stage ?? "—"} · HP ${active.hp ?? 0}/${active.hp_max ?? 0} (${hpPct}%)</p>`;
+      if (isGuildLeader(d)) {
+        html += `<button type="button" class="btn secondary" onclick="WaifuApp.cancelGuildRaid()">Отменить рейд</button>`;
+      }
+      html += `<button type="button" class="btn secondary" onclick="WaifuApp.leaveGuildRaid()">Покинуть рейд</button>`;
+    }
+  } else if (isGuildLeader(d) && !muster) {
+    html += `<h4 class="guild-activity-section-title">Начать рейд</h4>
+      <p class="muted tiny">Выберите чат гильдии, затем состав. Участникам придёт рейд-чек в личку (3 ч).</p>
+      <button type="button" class="btn primary" onclick="WaifuApp.openGuildRaidChatModal()">Выбрать чат</button>`;
+  } else if (!isGuildLeader(d)) {
+    html += `<p class="muted tiny">${muster ? "Идёт сбор на рейд." : "Рейд запускает глава гильдии."}</p>`;
+  }
+  return html;
+}
+
+function renderGuildWarPane(d) {
+  const war = d?.war;
+  const canLead = d?.is_leader;
+  let html = "";
+  if (!d?.wars_unlocked) {
+    return `<p class="muted tiny">Войны гильдий открываются с 10 уровня гильдии.</p>`;
+  }
+  if (war) {
+    const opp = war.opponent;
+    const oppName = opp ? `[${opp.tag}] ${opp.name}` : "—";
+    html += `<h4 class="guild-activity-section-title">Война</h4>
+      <p>Статус: <strong>${escapeHtml(String(war.status || ""))}</strong></p>
+      <p>Противник: ${escapeHtml(oppName)}</p>
+      <p>Счёт: ${safeInt(war.our_score, 0)} : ${safeInt(war.enemy_score, 0)}</p>`;
+    if (war.ends_at) html += `<p class="muted tiny">До конца: ${escapeHtml(war.ends_at)}</p>`;
+    if (war.status === "pending" && canLead && war.response_deadline_at) {
+      html += `<div style="display:flex;gap:8px;margin-top:8px">
+        <button type="button" class="btn primary" onclick="WaifuApp.respondGuildWar(${Number(war.id)}, true)">Принять</button>
+        <button type="button" class="btn secondary" onclick="WaifuApp.respondGuildWar(${Number(war.id)}, false)">Отклонить</button>
+      </div>`;
+    }
+    return html;
+  }
+  if (canLead) {
+    html += `<h4 class="guild-activity-section-title">Объявить войну</h4>
+      <button type="button" class="btn secondary" onclick="WaifuApp.loadGuildWarTargetsForUi()">Загрузить цели</button>
+      <div id="guild-war-targets-list" class="guild-search-results" style="margin-top:8px"></div>`;
+  } else {
+    html += `<p class="muted tiny">Нет активной войны.</p>`;
+  }
+  return html;
+}
+
+async function loadGuildWarTargetsForUi() {
+  const targets = await loadGuildWarTargets();
+  const box = document.getElementById("guild-war-targets-list");
+  if (!box) return;
+  if (!targets.length) {
+    box.innerHTML = `<p class="muted tiny">Нет подходящих гильдий.</p>`;
+    return;
+  }
+  box.innerHTML = targets
+    .map(
+      (g) => `<div class="list-item">
+        <strong>[${escapeHtml(g.tag)}] ${escapeHtml(g.name)}</strong> — ур. ${g.level}
+        <button type="button" class="btn primary" style="margin-top:6px" onclick="WaifuApp.declareGuildWar(${Number(g.id)}, 0)">Объявить</button>
+      </div>`
+    )
+    .join("");
+}
+
+function formatGuildQuestVal(n) {
+  const v = safeInt(n, 0);
+  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(v);
+}
+
+function guildQuestCategoryMeta(category) {
+  const map = {
+    chat: { emoji: "💬", cls: "chat" },
+    combat: { emoji: "⚔️", cls: "combat" },
+    expedition: { emoji: "🗺️", cls: "expedition" },
+    economy: { emoji: "💰", cls: "economy" },
+  };
+  return map[category] || { emoji: "📋", cls: "chat" };
+}
+
+function guildQuestProgressFillClass(category) {
+  if (category === "combat") return "red";
+  if (category === "expedition") return "amber";
+  if (category === "economy") return "green";
+  return "blue";
+}
+
+function renderGuildQuestLeaders(leaders) {
+  if (!Array.isArray(leaders) || !leaders.length) return "";
+  const items = leaders
+    .map((l, idx) => {
+      const name = escapeHtml(l.display_name || "?");
+      const initial = name.charAt(0).toUpperCase();
+      const url = l.avatar_url ? escapeHtml(l.avatar_url) : "";
+      const rankCls = idx === 0 ? " guild-quest-leader-avatar--gold" : idx === 1 ? " guild-quest-leader-avatar--silver" : idx === 2 ? " guild-quest-leader-avatar--bronze" : "";
+      const img = url
+        ? `<img class="guild-quest-leader-avatar${rankCls}" src="${url}" alt="" title="${name}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'guild-quest-leader-avatar guild-quest-leader-fallback${rankCls}',textContent:'${initial}',title:'${name}'}))" onclick="WaifuApp.openPlayerProfile(${Number(l.player_id)})" />`
+        : `<span class="guild-quest-leader-avatar guild-quest-leader-fallback${rankCls}" title="${name}" onclick="WaifuApp.openPlayerProfile(${Number(l.player_id)})">${initial}</span>`;
+      return img;
+    })
+    .join("");
+  return `<div class="guild-quest-leaders">${items}</div>`;
+}
+
+function renderGuildQuestTiers(tiers) {
+  if (!Array.isArray(tiers) || !tiers.length) return "";
+  const items = tiers
+    .map((t) => {
+      const roman = ["I", "II", "III", "IV", "V"][safeInt(t.tier, 1) - 1] || String(t.tier);
+      const st = t.status === "done" ? "done-tier" : t.status === "active" ? "active-tier" : "";
+      return `<div class="guild-quest-tier-item ${st}">
+        <div class="guild-quest-tier-num ${st}">${roman}</div>
+        <div class="guild-quest-tier-val">${formatGuildQuestVal(t.target)}</div>
+        <div class="guild-quest-tier-xp">+${safeInt(t.reward_xp, 0)} XP</div>
+      </div>`;
+    })
+    .join("");
+  return `<div class="guild-quest-tiers">${items}</div>`;
+}
+
+function renderGuildQuestCard(q, { done = false } = {}) {
+  const cat = guildQuestCategoryMeta(q.category);
+  const fillCls = guildQuestProgressFillClass(q.category);
+  const typeLabel =
+    q.type === "daily" ? "Ежедневный" : q.type === "weekly" ? "Еженедельный" : "Веха";
+  const typeCls = q.type === "daily" ? "daily" : q.type === "weekly" ? "weekly" : "milestone";
+  const leaders = renderGuildQuestLeaders(q.leaders);
+  const other =
+    safeInt(q.other_contributors_count, 0) > 0
+      ? `<span class="guild-quest-contrib-more">+${safeInt(q.other_contributors_count, 0)} участников</span>`
+      : "";
+  const tiers = q.type === "milestone" ? renderGuildQuestTiers(q.tiers) : "";
+  const doneBlock = done
+    ? `<div class="guild-quest-done-badge">✅ Выполнено · +${safeInt(q.reward_xp, 0)} Guild XP получено</div>`
+    : `<div class="guild-quest-prog-row">
+        <div class="guild-quest-prog-bar"><div class="guild-quest-prog-fill ${fillCls}" style="width:${Math.min(100, Math.max(0, Number(q.progress_pct) || 0))}%"></div></div>
+        <span class="guild-quest-prog-val">${formatGuildQuestVal(q.current)} / ${formatGuildQuestVal(q.target)}</span>
+      </div>
+      <div class="guild-quest-contrib-row">
+        <span class="guild-quest-contrib-label">Лидеры:</span>
+        ${leaders}
+        ${other}
+        <span class="guild-quest-reward">+${safeInt(q.reward_xp, 0)} Guild XP</span>
+      </div>`;
+  return `<div class="guild-quest-card${done ? " guild-quest-card--done" : ""}">
+    <div class="guild-quest-card-top">
+      <div class="guild-quest-cat guild-quest-cat--${cat.cls}">${cat.emoji}</div>
+      <div class="guild-quest-info">
+        <div class="guild-quest-name">${escapeHtml(q.name || "")}</div>
+        <div class="guild-quest-desc">${escapeHtml(q.description || "")}</div>
+      </div>
+      <div class="guild-quest-tags">
+        <span class="guild-quest-tag guild-quest-tag--${typeCls}">${typeLabel}</span>
+      </div>
+    </div>
+    ${tiers}
+    ${doneBlock}
+  </div>`;
+}
+
+function formatGuildQuestReset(secondsLeft) {
+  const s = Math.max(0, safeInt(secondsLeft, 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `Обновляется в 00:00 МСК — осталось ${h}ч ${m}м`;
+}
+
+function renderGuildQuestBallot(ballot, viewerOfficer) {
+  if (!ballot || ballot.chosen_template_id) return "";
+  const opts = (ballot.options || [])
+    .map((o) => {
+      const cat = guildQuestCategoryMeta(o.category);
+      const voteBtn =
+        ballot.can_vote && viewerOfficer
+          ? `<button type="button" class="guild-quest-vote-btn" onclick="WaifuApp.voteWeeklyQuest(${Number(o.template_id)})">Выбрать</button>`
+          : "";
+      return `<div class="guild-quest-ballot-option">
+        <div class="guild-quest-cat guild-quest-cat--${cat.cls}">${cat.emoji}</div>
+        <div class="guild-quest-info">
+          <div class="guild-quest-name">${escapeHtml(o.name || "")}</div>
+          <div class="guild-quest-desc">${escapeHtml(o.description || "")}</div>
+          <div class="guild-quest-ballot-meta">Цель: ${formatGuildQuestVal(o.target)} · +${safeInt(o.reward_xp, 0)} XP</div>
+        </div>
+        ${voteBtn}
+      </div>`;
+    })
+    .join("");
+  return `<div class="guild-quest-section">
+    <div class="guild-section-label">Голосование за еженедельный квест</div>
+    ${opts || `<p class="muted tiny">Ожидание вариантов…</p>`}
+  </div>`;
+}
+
+function renderGuildQuestsPaneContent(data) {
+  const tab = guildHallState.questsTab || "milestones";
+  const tabs = data?.tabs || {};
+  const tabBtns = [
+    ["milestones", "Вехи"],
+    ["daily", "Ежедневные"],
+    ["weekly", "Еженедельные"],
+  ]
+    .map(
+      ([id, label]) =>
+        `<button type="button" class="guild-quest-tab${tab === id ? " active" : ""}" onclick="WaifuApp.switchGuildQuestTab('${id}')">${label}</button>`
+    )
+    .join("");
+
+  let body = "";
+  if (tab === "milestones") {
+    const ms = tabs.milestones || {};
+    const inProg = (ms.in_progress || []).map((q) => renderGuildQuestCard(q)).join("");
+    const done = (ms.recently_completed || []).map((q) => renderGuildQuestCard(q, { done: true })).join("");
+    body = `
+      ${inProg ? `<div class="guild-quest-section"><div class="guild-section-label">В процессе</div>${inProg}</div>` : ""}
+      ${done ? `<div class="guild-quest-section"><div class="guild-section-label">Недавно выполнено</div>${done}</div>` : ""}
+      ${!inProg && !done ? `<p class="muted tiny">Нет активных вех.</p>` : ""}
+      <p class="guild-quest-hint">Вехи накапливаются постоянно и никогда не сбрасываются</p>`;
+  } else if (tab === "daily") {
+    const daily = tabs.daily || {};
+    const cards = (daily.quests || []).map((q) => renderGuildQuestCard(q)).join("");
+    body = `
+      <p class="guild-quest-reset-hint">${formatGuildQuestReset(daily.seconds_left)}</p>
+      ${cards || `<p class="muted tiny">Ежедневные квесты появятся после полуночи МСК.</p>`}`;
+  } else {
+    const weekly = tabs.weekly || {};
+    const ballot = renderGuildQuestBallot(weekly.ballot, !!data?.viewer_is_officer);
+    const quest = weekly.quest ? renderGuildQuestCard(weekly.quest) : "";
+    body = `
+      <p class="guild-quest-reset-hint">${formatGuildQuestReset(weekly.seconds_left)}</p>
+      ${ballot}
+      ${quest || (!ballot ? `<p class="muted tiny">Еженедельный квест ещё не выбран.</p>` : "")}`;
+  }
+
+  return `<div class="guild-quests-board">
+    <nav class="guild-quest-tabs" aria-label="Типы квестов">${tabBtns}</nav>
+    ${body}
+  </div>`;
+}
+
+function renderGuildQuestsPane() {
+  if (guildHallState.questsLoading) {
+    return `<p class="muted tiny">Загрузка квестов…</p>`;
+  }
+  const data = guildHallState.questsData;
+  if (!data) {
+    return `<p class="muted tiny">Не удалось загрузить квесты.</p>`;
+  }
+  return renderGuildQuestsPaneContent(data);
+}
+
+async function loadGuildQuests() {
+  guildHallState.questsLoading = true;
+  try {
+    const data = await apiFetch("/guilds/me/quests");
+    guildHallState.questsData = data;
+    return data;
+  } catch (e) {
+    guildHallState.questsData = null;
+    throw e;
+  } finally {
+    guildHallState.questsLoading = false;
+  }
+}
+
+function switchGuildQuestTab(tab) {
+  guildHallState.questsTab = tab;
+  const pane = document.querySelector(".guild-activity-pane");
+  if (pane && guildHallState.questsData) {
+    pane.innerHTML = renderGuildQuestsPane();
+  } else {
+    void renderGuildTabContent();
+  }
+}
+
+async function voteWeeklyQuest(templateId) {
+  try {
+    await apiFetch("/guilds/me/quests/weekly/vote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ template_id: Number(templateId) }),
+    });
+    await loadGuildQuests();
+    await renderGuildTabContent();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    alert(detail || "Не удалось проголосовать");
+  }
+}
+
+async function renderGuildTabContent() {
+  const root = document.getElementById("guild-tab-content");
+  if (!root) return;
+  const d = guildHallState.me;
+  const tab = guildHallState.tab;
+
+  if (!d?.in_guild) {
+    if (tab === "search") {
+      root.innerHTML = `
+        <h3>Поиск гильдии</h3>
+        <div class="guild-search-row">
+          <div class="guild-search-row-inner">
+            <input id="guild-search-q" type="search" placeholder="Название или тег" autocomplete="off" />
+            <button type="button" class="btn primary" onclick="WaifuApp.runGuildSearch()">Найти</button>
+          </div>
+        </div>
+        <div id="guild-search-results" class="guild-search-results"></div>`;
+      return;
+    }
+    root.innerHTML = `<p class="muted">Вы не в гильдии. Создайте гильдию ниже или откройте вкладку 🔍 для поиска.</p>`;
+    return;
+  }
+
+  if (tab === "main") {
+    root.innerHTML = `
+      ${renderGuildStatsGrid(d)}
+      ${renderGuildActivityFeed(d)}`;
+    armGuildMembersModalGuard();
+    return;
+  }
+
+  if (tab === "skills") {
+    root.innerHTML = renderGuildSkillsPanel(d);
+    return;
+  }
+
+  if (tab === "bank") {
+    try {
+      await loadGuildBankItems();
+    } catch (e) {
+      const { detail } = parseHttpErrorDetail(e);
+      root.innerHTML = `<p class="muted" style="color:#f87171">${escapeHtml(detail || "Ошибка банка")}</p>`;
+      return;
+    }
+    root.innerHTML = renderGuildBankPanel(d);
+    return;
+  }
+
+  if (tab === "battles") {
+    const sub = guildHallState.activitySubTab || "raid";
+    root.innerHTML = `
+      <nav class="guild-subtabs" aria-label="Подвкладки битв">
+        <button type="button" class="guild-subtab-btn ${sub === "raid" ? "active" : ""}" onclick="WaifuApp.switchGuildActivityTab('raid')">Рейды</button>
+        <button type="button" class="guild-subtab-btn ${sub === "war" ? "active" : ""}" onclick="WaifuApp.switchGuildActivityTab('war')">Война</button>
+        <button type="button" class="guild-subtab-btn ${sub === "quests" ? "active" : ""}" onclick="WaifuApp.switchGuildActivityTab('quests')">Квесты</button>
+      </nav>
+      <div class="guild-activity-pane">${
+        sub === "raid"
+          ? renderGuildRaidPane(d)
+          : sub === "war"
+            ? renderGuildWarPane(d)
+            : renderGuildQuestsPane()
+      }</div>`;
+    return;
+  }
+
+  if (tab === "history") {
+    root.innerHTML = `<p class="muted tiny" style="padding:12px 0;text-align:center">Загрузка истории…</p>`;
+    try {
+      await loadGuildHistoryTab();
+      root.innerHTML = `<div class="guild-section-label">История</div>${renderGuildHistoryPane(guildHallState.me)}`;
+    } catch (e) {
+      const { detail } = parseHttpErrorDetail(e);
+      root.innerHTML = `<p class="muted" style="color:#f87171">${escapeHtml(detail || "Не удалось загрузить историю")}</p>`;
+    }
+    return;
+  }
+
+  if (tab === "search") {
+    root.innerHTML = `
+      <h3>Поиск гильдии</h3>
+      <p class="muted tiny">Вы уже в гильдии. Здесь можно искать другие гильдии для справки.</p>
+      <div class="guild-search-row">
+        <div class="guild-search-row-inner">
+          <input id="guild-search-q" type="search" placeholder="Название или тег" autocomplete="off" />
+          <button type="button" class="btn primary" onclick="WaifuApp.runGuildSearch()">Найти</button>
+        </div>
+      </div>
+      <div id="guild-search-results" class="guild-search-results"></div>`;
+  }
+}
+
+async function runGuildSearch() {
+  const q = (document.getElementById("guild-search-q")?.value || "").trim();
+  const qs = q ? `?query=${encodeURIComponent(q)}` : "";
+  try {
+    const data = await apiFetch(`/guilds/search${qs}`);
+    const list = document.getElementById("guild-search-results");
+    if (!list) return data;
+    const inGuild = guildHallState.me?.in_guild;
+    list.innerHTML = "";
+    (data.guilds || []).forEach((g) => {
+      const li = document.createElement("div");
+      li.className = "list-item";
+      const joinBtn =
+        !inGuild && g.is_recruiting !== false
+          ? `<button type="button" class="btn primary" style="margin-top:6px" onclick="WaifuApp.joinGuildFromSearch(${Number(g.id)})">Вступить</button>`
+          : "";
+      li.innerHTML = `<strong>[${escapeHtml(g.tag)}] ${escapeHtml(g.name)}</strong> — ур. ${g.level}${g.is_recruiting ? "" : " · набор закрыт"}
+        ${joinBtn}`;
+      list.appendChild(li);
+    });
+    if (!(data.guilds || []).length) {
+      list.innerHTML = `<p class="muted tiny">Ничего не найдено.</p>`;
+    }
+    return data;
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Ошибка поиска", "error");
+  }
+}
+
+async function searchGuilds(query) {
+  if (query != null) {
+    const inp = document.getElementById("guild-search-q");
+    if (inp) inp.value = String(query);
+  }
+  return runGuildSearch();
+}
+
+async function refreshGuildHall(opts = {}) {
+  return populateGuildHall(null, opts);
+}
+
+async function populateGuildHall(profile, opts = {}) {
+  closeGuildMembersModal();
+  const p = profile || profileState.currentProfile || {};
+  guildHallState.profileGold = safeInt(p?.gold, 0);
+  const root = document.getElementById("guild-tab-content");
+  if (!root) return;
+  const firstLoad = !guildHallState.me;
+  if (firstLoad) setGuildPageLoading(true);
+  try {
+    if (opts.force) guildHallState.historyLoaded = false;
+    const data = await fetchGuildMe({ force: Boolean(opts.force) || firstLoad });
+    guildHallState.me = data;
+    updateGuildHallChrome(Boolean(data?.in_guild));
+    if (!data?.in_guild) {
+      guildHallState.tab = guildHallState.tab === "main" ? "search" : guildHallState.tab;
+      if (
+        guildHallState.tab === "main" ||
+        guildHallState.tab === "skills" ||
+        guildHallState.tab === "bank" ||
+        guildHallState.tab === "battles" ||
+        guildHallState.tab === "activities" ||
+        guildHallState.tab === "history"
+      ) {
+        guildHallState.tab = "search";
+      }
+    } else {
+      if (guildHallState.tab === "activities") guildHallState.tab = "battles";
+      if (guildHallState.tab === "search") guildHallState.tab = "main";
+      renderGuildHero(data);
+    }
+    document.querySelectorAll("[data-guild-tab-btn]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.guildTabBtn === guildHallState.tab);
+    });
+    await renderGuildTabContent();
+    if (!window.__guildHallModalBound) {
+      window.__guildHallModalBound = true;
+      bindGuildMembersModalChrome();
+      bindGuildMembersStatCard();
+      document.getElementById("guild-skill-modal-close")?.addEventListener("click", closeGuildSkillModal);
+      document.getElementById("guild-member-preview-mail")?.addEventListener("click", openGuildMemberMailCompose);
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          const membersModal = document.getElementById("guild-members-modal");
+          if (membersModal?.classList.contains("guild-members-modal--open")) {
+            closeGuildMembersModal();
+            return;
+          }
+          const compose = document.getElementById("player-mail-compose-modal");
+          if (compose && compose.style.display !== "none") {
+            closePlayerMailComposeModal();
+            return;
+          }
+          const m = document.getElementById("guild-member-preview-modal");
+          if (m && m.style.display !== "none") closeGuildMemberPreviewModal();
+        }
+      });
+    }
+  } catch (e) {
+    console.error(e);
+    if (isWebAppUnauthorizedError(e)) {
+      root.innerHTML = webAppAuthNoticeHtml();
+      return;
+    }
+    const { detail } = parseHttpErrorDetail(e);
+    root.innerHTML = `<p class="muted" style="color:#f87171">${escapeHtml(detail || "Не удалось загрузить гильдию")}</p>`;
+    updateGuildHallChrome(false);
+  } finally {
+    if (firstLoad) setGuildPageLoading(false);
+  }
 }
 
 async function initPage(page) {
   applyTheme();
+  initNavIcons();
   if (tg) {
-    tg.ready();
-    tg.expand();
+    try {
+      tg.ready();
+      tg.expand();
+    } catch (err) {
+      console.warn("Telegram WebApp init:", err);
+    }
   }
   setActiveNav(page);
   if (page !== "index") {
     connectSSE();
   }
   initAtticChipClicks();
+  initAtticMenu();
   initItemArtGenerateDelegated();
 
-  // Reveal admin-only controls for the admin Telegram ID.
-  if (isAdminUser()) {
-    document.querySelectorAll(".admin-only").forEach((el) => {
-      el.style.display = "";
-    });
-  }
+  registerWaifuServiceWorker();
+
+  syncAdminUiVisibility();
 
   // Passive UI refresh: regen is time-based but applied on API calls.
   // Keep numbers fresh without forcing full-page reload.
   if (!window.__waifuProfileAutoRefresh) {
     window.__waifuProfileAutoRefresh = setInterval(async () => {
+      if (!document.getElementById("badge-level")) return;
       try {
-        const p = await loadProfile();
+        const p = await loadProfile({ lite: !isProfilePage() });
         const w = p?.main_waifu;
         if (!w) return;
         // If we're on profile screen, refresh visible stat widgets without refetching inventory/equipment.
@@ -8514,8 +11933,45 @@ async function adminRestoreHpEnergy() {
   await loadProfile().catch(() => {});
 }
 
+async function _generateMonsterArtByTemplateId(templateId) {
+  if (!isAdminUser()) return null;
+  const tid = Number(templateId);
+  if (!Number.isFinite(tid) || tid < 1) {
+    throw new Error("invalid_template");
+  }
+  return apiFetch(`/admin/monster-art/generate?template_id=${encodeURIComponent(tid)}`, {
+    method: "POST",
+  });
+}
+
 async function adminGenerateMonsterArt() {
   if (!isAdminUser()) return;
+  const storyBossId = Number(soloActiveStoryBossId);
+  if (Number.isFinite(storyBossId) && storyBossId >= 1) {
+    setItemArtGenBusy(true);
+    try {
+      const payload = await apiFetch(
+        `/admin/story-boss-art/generate?story_boss_definition_id=${encodeURIComponent(storyBossId)}`,
+        { method: "POST" }
+      );
+      const visual = document.getElementById("monster-visual");
+      const family = visual?.dataset?.family || "unknown";
+      const slug = visual?.dataset?.slug || "unknown";
+      const tier = Number(visual?.dataset?.tier) || 1;
+      let override = String(payload?.image_url || "").trim();
+      if (override) {
+        override = override + (override.includes("?") ? "&" : "?") + "v=" + Date.now();
+      }
+      loadMonsterImage(family, slug, tier, override || null);
+      showToast("Портрет сюжетного босса сохранён");
+    } catch (e) {
+      const { detail } = parseHttpErrorDetail(e);
+      showToast(detail || "Ошибка генерации", "error");
+    } finally {
+      setItemArtGenBusy(false);
+    }
+    return;
+  }
   const templateId = Number(soloActiveMonsterTemplateId);
   if (!Number.isFinite(templateId) || templateId < 1) {
     showToast("Нет активного монстра (зайдите в бой)", "error");
@@ -8523,19 +11979,57 @@ async function adminGenerateMonsterArt() {
   }
   setItemArtGenBusy(true);
   try {
-    const payload = await apiFetch(
-      `/admin/monster-art/generate?template_id=${encodeURIComponent(templateId)}`,
-      { method: "POST" }
-    );
+    const payload = await _generateMonsterArtByTemplateId(templateId);
     const visual = document.getElementById("monster-visual");
     const family = payload?.family || visual?.dataset?.family || "unknown";
     const slug = payload?.slug || visual?.dataset?.slug || "unknown";
     const tier = Number(visual?.dataset?.tier) || 1;
+    const bust = Date.now();
+    window.monsterArtVersion = window.monsterArtVersion || {};
+    window.monsterArtVersion[templateId] = bust;
     let override = String(payload?.image_url || "").trim();
     if (override) {
-      override = override + (override.includes("?") ? "&" : "?") + "v=" + Date.now();
+      override = override + (override.includes("?") ? "&" : "?") + "v=" + bust;
     }
-    loadMonsterImage(family, slug, tier, override || null);
+    const loadMonster = window.WaifuApp?.loadMonsterImage;
+    if (typeof loadMonster === "function") {
+      loadMonster(family, slug, tier, override || null, String(bust));
+    }
+    showToast("Изображение монстра сохранено");
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Ошибка генерации", "error");
+  } finally {
+    setItemArtGenBusy(false);
+  }
+}
+
+async function adminGenerateLibraryMonsterArt(templateId) {
+  if (!isAdminUser()) return;
+  const tid = Number(templateId);
+  if (!Number.isFinite(tid) || tid < 1) return;
+  setItemArtGenBusy(true);
+  try {
+    const payload = await _generateMonsterArtByTemplateId(tid);
+    libraryArtVersionByTemplate[tid] = Date.now();
+    if (libraryCatalogCache?.monsters) {
+      const row = libraryCatalogCache.monsters.find((m) => Number(m.template_id) === tid);
+      if (row) {
+        row.seen = true;
+        row.has_image = true;
+        row.family = payload?.family || row.family || "unknown";
+        row.slug = payload?.slug || row.slug || "unknown";
+        row.image_updated_at = new Date().toISOString();
+        if (!row.name_known) {
+          row.name_known = true;
+        }
+      }
+    }
+    if (libraryState.detailId === tid) {
+      libraryRenderDetail(tid);
+    } else if (libraryState.tab === "bestiary" && !libraryState.detailId) {
+      libraryRenderGrid();
+    }
     showToast("Изображение монстра сохранено");
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
@@ -8559,14 +12053,23 @@ let caravanPendingAct = null;
 let caravanTravelInProgress = false;
 let caravanDriverTipInProgress = false;
 
+/**
+ * Acts that actually ship pin art under /static/game/ui/caravan/.
+ * Empty by default: no pin art exists yet, so the map shows the act emoji from
+ * ACT_META. Keeping this empty avoids 5x2 guaranteed 404s on every caravan open.
+ * Add an act number here once act-{N}/map-pin.webp (or pin_act{N}.webp) ships.
+ */
+const CARAVAN_ACTS_WITH_PIN_ART = new Set();
+
 /** Иконка точки на карте каравана (см. static/game/ui/caravan/README.md). */
 function caravanPinImageUrls(act) {
   const a = Math.max(1, Math.min(5, safeInt(act, 1)));
+  if (!CARAVAN_ACTS_WITH_PIN_ART.has(a)) return [];
   return [`${CARAVAN_STATIC_BASE}/act-${a}/map-pin.webp`, `${CARAVAN_STATIC_BASE}/pin_act${a}.webp`];
 }
 
 /** Подбор картинки по цепочке URL (onerror → следующий). */
-function attachCaravanImage(el, urls, onGiveUp) {
+function attachCaravanImage(el, urls, onGiveUp, onResolved) {
   if (!el) {
     onGiveUp?.();
     return;
@@ -8580,9 +12083,15 @@ function attachCaravanImage(el, urls, onGiveUp) {
     }
     const url = urls[i];
     i += 1;
+    if (el.dataset.waifuResolvedImg === url) {
+      el.style.display = "";
+      return;
+    }
     el.onerror = () => next();
     el.onload = () => {
+      el.dataset.waifuResolvedImg = url;
       el.style.display = "";
+      onResolved?.(url);
     };
     el.src = url;
   }
@@ -8622,37 +12131,47 @@ function applyCaravanStageImages(currentAct) {
   }
 }
 
-/** Фон и портрет торговца по акту (см. static/game/ui/shop/README.md). */
-function applyShopStageImages(currentAct) {
+/** Hero banners per shop tab (merchant / gambler / blacksmith). */
+const SHOP_HERO_KIND = { buy: "merchant", sell: "merchant", gamble: "gambler", smith: "blacksmith" };
+
+function applyShopHeroImages(currentAct) {
   const a = Math.max(1, Math.min(5, safeInt(currentAct, 1)));
-  const bgImg = document.getElementById("shop-bg-img");
-  const merchantImg = document.getElementById("shop-merchant-img");
-  const fallback = document.querySelector(".shop-merchant-visual .fallback");
-
-  const bgUrls = [
-    `${SHOP_STATIC_BASE}/act-${a}/shop.background.webp`,
-    `${SHOP_STATIC_BASE}/bg_act${a}.webp`,
-    `${SHOP_STATIC_BASE}/background.webp`,
-  ];
-  const merchantUrls = [
-    `${SHOP_STATIC_BASE}/act-${a}/merchant.webp`,
-    `${SHOP_STATIC_BASE}/merchant_act${a}.webp`,
-    `${SHOP_STATIC_BASE}/merchant.webp`,
-  ];
-
-  if (bgImg) {
-    bgImg.style.display = "";
-    attachCaravanImage(bgImg, bgUrls, null);
+  const kindSrc = new Map();
+  for (const [tab, kind] of Object.entries(SHOP_HERO_KIND)) {
+    const img = document.getElementById(`shop-hero-img-${tab}`);
+    const fb = document.getElementById(`shop-hero-fb-${tab}`);
+    const cachedSrc = kindSrc.get(kind);
+    if (cachedSrc && img) {
+      img.style.display = "";
+      img.src = cachedSrc;
+      if (fb) fb.style.display = "none";
+      continue;
+    }
+    const heroUrls = [
+      `${SHOP_STATIC_BASE}/act-${a}/${kind}.webp`,
+      `${SHOP_STATIC_BASE}/${kind}_act${a}.webp`,
+      `${SHOP_STATIC_BASE}/${kind}.webp`,
+    ];
+    if (img) {
+      img.style.display = "";
+      if (fb) fb.style.display = "none";
+      attachCaravanImage(
+        img,
+        heroUrls,
+        () => {
+          img.style.display = "none";
+          if (fb) fb.style.display = "";
+        },
+        (url) => {
+          kindSrc.set(kind, url);
+        },
+      );
+    }
   }
+}
 
-  if (merchantImg) {
-    merchantImg.style.display = "";
-    if (fallback) fallback.style.display = "none";
-    attachCaravanImage(merchantImg, merchantUrls, () => {
-      merchantImg.style.display = "none";
-      if (fallback) fallback.style.display = "";
-    });
-  }
+function applyShopStageImages(currentAct) {
+  applyShopHeroImages(currentAct);
 }
 
 function openCaravanTipModal(text) {
@@ -8711,7 +12230,8 @@ async function populateCaravanPage(profile) {
       ? rawCosts.map((x) => safeInt(x, 0))
       : [50, 200, 500, 1200, 2500];
 
-  pinsLayer.innerHTML = ACT_META.map(({ act, short, emoji, levelRange }) => {
+  pinsLayer.innerHTML =
+    ACT_META.map(({ act, short, emoji, levelRange }) => {
     const unlocked = act <= maxAct;
     const isCurrent = act === currentAct;
     const cost = costs[act - 1] ?? 0;
@@ -8727,7 +12247,11 @@ async function populateCaravanPage(profile) {
         ${icoBlock}
         <div class="caravan-pin-title" title="Ур. ${escapeHtml(levelRange)}">${escapeHtml(short)}</div>
       </div>`;
-  }).join("");
+    }).join("") +
+    `
+    <div class="caravan-pin caravan-pin--library" role="group" aria-label="Библиотека">
+      <button type="button" class="caravan-pin-ico-btn" onclick="WaifuApp.openLibrary()" aria-label="Библиотека">📖</button>
+    </div>`;
 
   ACT_META.forEach(({ act }) => {
     const wrap = pinsLayer.querySelector(`[data-act-pin="${act}"]`);
@@ -8801,12 +12325,1265 @@ async function confirmTravelToAct() {
   await travelToAct(act);
 }
 
+/* ===================================================================== */
+/* Библиотека (Кодекс) + Бестиарий                                        */
+/* ===================================================================== */
+
+const LIBRARY_MONSTER_BASE = `${GAME_STATIC_BASE}/monsters`;
+
+let libraryCatalogCache = null;
+let libraryFilters = { search: "", act: "all", family: "all", tier: "all", seen: "all" };
+let librarySort = "act";
+let libraryState = { tab: "bestiary", detailId: null, itemsSubtab: "items", itemDetailId: null, affixDetailKey: null };
+let libraryItemsCatalogCache = null;
+let libraryAffixesCatalogCache = null;
+let libraryItemsFilters = { search: "", tier: "all", seen: "all", slot: "all" };
+let libraryAffixFilters = { search: "", kind: "all", seen: "all" };
+const libraryArtVersionByTemplate = {};
+
+const LIBRARY_ACT_OPTIONS = [1, 2, 3, 4, 5];
+
+const LIBRARY_TABS = [
+  { id: "bestiary", icon: "👹", label: "Монстры", enabled: true },
+  { id: "mechanics", icon: "📜", label: "Механики", enabled: true },
+  { id: "items", icon: "🎒", label: "Предметы", enabled: true },
+  { id: "classes", icon: "🛡️", label: "Классы", enabled: false },
+  { id: "races", icon: "🧝", label: "Расы", enabled: false },
+];
+
+const LIBRARY_TIER_BORDER = {
+  0: "#5a5248",
+  1: "#9ca3af",
+  2: "#22c55e",
+  3: "#3b82f6",
+  4: "#a855f7",
+  5: "#f59e0b",
+  6: "#ef4444",
+  7: "#ec4899",
+  8: "#06b6d4",
+  9: "#eab308",
+  10: "#f472b6",
+};
+
+function libraryTierClass(tier) {
+  const t = Math.max(0, Math.min(10, Number(tier) || 0));
+  return `lib-tier-${t}`;
+}
+
+function libraryArtCacheBust(templateId, imageUpdatedAt) {
+  let v = 0;
+  const tid = Number(templateId);
+  if (Number.isFinite(tid) && libraryArtVersionByTemplate[tid]) {
+    v = Math.max(v, Number(libraryArtVersionByTemplate[tid]) || 0);
+  }
+  if (imageUpdatedAt) {
+    const t = Date.parse(imageUpdatedAt);
+    if (!Number.isNaN(t)) v = Math.max(v, t);
+  }
+  if (v > 0) return String(v);
+  return WAIFU_WEBAPP_VERSION || null;
+}
+
+function libraryMonsterImageUrls(e) {
+  if (!e?.seen || !e.family || !e.slug) return [];
+  const ver = libraryArtCacheBust(e.template_id, e.image_updated_at);
+  const q = ver ? `?v=${encodeURIComponent(ver)}` : "";
+  const family = e.family || "unknown";
+  const slug = e.slug || "unknown";
+  const tier = e.monster_tier ?? 1;
+  return [
+    `${LIBRARY_MONSTER_BASE}/${family}/${slug}.webp${q}`,
+    `${LIBRARY_MONSTER_BASE}/${family}/_family_t${tier}.webp${q}`,
+    `${LIBRARY_MONSTER_BASE}/${family}/_family.webp${q}`,
+    `${LIBRARY_MONSTER_BASE}/_unknown.webp${q}`,
+  ];
+}
+
+function libraryOnArtError(img) {
+  const urls = JSON.parse(img?.dataset?.fallbackUrls || "[]");
+  let index = parseInt(img?.dataset?.fallbackIndex || "0", 10) + 1;
+  if (index < urls.length) {
+    img.dataset.fallbackIndex = String(index);
+    img.src = urls[index];
+  } else {
+    img.style.display = "none";
+    const wrap = img.closest(".lib-card-art, .lib-mtg-art");
+    if (wrap) wrap.classList.add("silhouette");
+  }
+}
+
+function libraryAttachArt(wrap, e) {
+  if (!wrap) return;
+  const img = wrap.querySelector("[data-lib-art]");
+  const emoji = wrap.querySelector(".lib-art-emoji");
+  const seen = Boolean(e?.seen);
+  wrap.classList.toggle("silhouette", !seen);
+  if (!seen) {
+    if (img) {
+      img.style.display = "none";
+      img.removeAttribute("src");
+    }
+    if (emoji) {
+      emoji.textContent = "👾";
+      emoji.style.display = "";
+    }
+    return;
+  }
+  const urls = libraryMonsterImageUrls(e);
+  if (!img || !urls.length) {
+    if (emoji) {
+      emoji.textContent = e?.emoji || "👾";
+      emoji.style.display = "";
+    }
+    return;
+  }
+  if (emoji) emoji.style.display = "none";
+  img.style.display = "";
+  img.dataset.fallbackUrls = JSON.stringify(urls);
+  img.dataset.fallbackIndex = "0";
+  img.dataset.family = e.family || "unknown";
+  img.dataset.slug = e.slug || "unknown";
+  img.onerror = () => libraryOnArtError(img);
+  if (img.getAttribute("src") === urls[0] && img.complete && img.naturalWidth > 0) {
+    wrap.classList.remove("silhouette");
+    return;
+  }
+  img.src = urls[0];
+  img.onload = () => wrap.classList.remove("silhouette");
+}
+
+function libraryFmtActRange(mm) {
+  const a = Number(mm?.act_min) || 1;
+  const b = Number(mm?.act_max) || a;
+  return a === b ? `Акт ${a}` : `Акт ${a}–${b}`;
+}
+
+function libraryStudyProgressHtml(e, tiers) {
+  const kills = Number(e?.kills) || 0;
+  const tierRows = Array.isArray(tiers) ? tiers : libraryCatalogCache?.tiers || [];
+  const maxKills = tierRows.length
+    ? Math.max(...tierRows.map((t) => Number(t.kills_required) || 0), 100)
+    : 100;
+  const fillPct = maxKills > 0 ? Math.min(100, (kills / maxKills) * 100) : 0;
+  const ticks = tierRows
+    .filter((t) => Number(t.kills_required) > 0)
+    .map((t) => {
+      const req = Number(t.kills_required);
+      const left = maxKills > 0 ? (req / maxKills) * 100 : 0;
+      const reached = kills >= req;
+      return `<span class="lib-study-tick ${reached ? "reached" : ""}" style="left:${left}%"><span class="lib-study-tick-dot"></span><span class="lib-study-tick-k">${req}</span></span>`;
+    })
+    .join("");
+  const bonusRows = tierRows
+    .filter((t) => Number(t.tier) > 0 && Number(e?.tier) >= Number(t.tier))
+    .map((t) => {
+      const parts = [];
+      if (Array.isArray(t.bonuses) && t.bonuses.length) parts.push(...t.bonuses);
+      if (Array.isArray(t.reveals) && t.reveals.length) {
+        parts.push(`откр.: ${t.reveals.join(", ")}`);
+      }
+      if (!parts.length) return "";
+      return `<div class="lib-study-bonus-row">${escapeHtml(String(t.kills_required))} уб. · ${escapeHtml(parts.join(" · "))}</div>`;
+    })
+    .filter(Boolean)
+    .join("");
+  const bonusesBlock = bonusRows
+    ? `<div class="lib-study-bonuses"><div class="lib-study-bonuses-title">Бонусы изучения</div>${bonusRows}</div>`
+    : "";
+  return `
+    <div class="lib-study">
+      <div class="lib-study-status">${escapeHtml(e?.tier_name || "—")} · ${kills} уб.</div>
+      <div class="lib-study-track-wrap">
+        <div class="lib-study-track">
+          <div class="lib-study-fill" style="width:${fillPct}%"></div>
+          ${ticks}
+        </div>
+      </div>
+      ${bonusesBlock}
+    </div>`;
+}
+
+function libraryBuildDetailStats(e) {
+  const rows = [];
+  rows.push(
+    `<div class="lib-kv"><span>Убито</span><strong>${Number(e?.kills) || 0}</strong></div>`
+  );
+  rows.push(
+    `<div class="lib-kv"><span>Локация</span><strong>${escapeHtml(libraryFmtActRange(e))}</strong></div>`
+  );
+  if (e?.name_known && e?.type) {
+    const typeLabel = formatMonsterTypeLabelRu(e.type) || e.type;
+    rows.push(`<div class="lib-kv"><span>Тип</span><strong>${escapeHtml(typeLabel)}</strong></div>`);
+  }
+  if (e.hp_base != null) {
+    rows.push(
+      `<div class="lib-kv"><span>HP (база)</span><strong>${escapeHtml(String(e.hp_base))}+${escapeHtml(String(e.hp_per_level || 0))}/ур.</strong></div>`
+    );
+  }
+  if (e.dmg_base != null) {
+    rows.push(
+      `<div class="lib-kv"><span>Урон (база)</span><strong>${escapeHtml(String(e.dmg_base))}+${escapeHtml(String(e.dmg_per_level || 0))}/ур.</strong></div>`
+    );
+  }
+  if (e.exp_base != null) {
+    rows.push(
+      `<div class="lib-kv"><span>Опыт</span><strong>${escapeHtml(String(e.exp_base))}+${escapeHtml(String(e.exp_per_level || 0))}/ур.</strong></div>`
+    );
+  }
+  if (e.gold_base != null) {
+    rows.push(
+      `<div class="lib-kv"><span>Золото</span><strong>${escapeHtml(String(e.gold_base))}+${escapeHtml(String(e.gold_per_level || 0))}/ур.</strong></div>`
+    );
+  }
+  if (e.level_min != null) {
+    rows.push(
+      `<div class="lib-kv"><span>Уровень</span><strong>${escapeHtml(String(e.level_min))}–${escapeHtml(String(e.level_max))}</strong></div>`
+    );
+  }
+  if (e.next_tier_kills != null && Number(e.tier) < Number(e.max_tier)) {
+    rows.push(
+      `<div class="lib-kv"><span>До след. уровня</span><strong>${escapeHtml(String(e.next_tier_kills))} уб.</strong></div>`
+    );
+  }
+  return rows.join("");
+}
+
+function statsGuideContentHtml() {
+  return `
+    <p><strong>Основные характеристики</strong> — база персонажа + раса/класс + экипировка + плоский бонус «Трансценд.»; затем множители «+% ко всем статам» с предметов и пассивов.</p>
+    <p><strong>Урон</strong> — отдельно ближний (СИЛ), дальний (ЛОВ), магический (ИНТ); пассивы с одинаковым типом эффекта <em>суммируются</em>, разные типы — перемножаются по цепочке боя.</p>
+    <p><strong>Уклонение</strong> (строка в профиле) — один общий шанс: ЛОВ × 0,1% + вторички на предметах + пассивы вроде «Проворство». Потолок 40%. Удача в уклонение не входит.</p>
+    <p><strong>Полное уклонение</strong> — отдельная строка и отдельный бросок в бою (например «Шаг тени»). Срабатывает после обычного уклонения, если оно не сработало.</p>
+    <p><strong>Снижение урона</strong> — ВЫН + вторички + броня складываются в один пул (до 90%).</p>
+    <p><strong>Пассивы с предметов</strong> — «+N к уровню навыка» повышает эффективный уровень. Для части навыков (полное уклонение, instakill и др.) эффект не растёт выше максимума таблицы — смотрите предупреждение в модалке навыка.</p>
+    <p><strong>Заточка</strong> — усиливает урон/броню на оружии и доспехах; на аксессуарах — вторичные бонусы (крит, уклонение…). Предметы с бонусом к пассивному навыку заточкой не усиливаются.</p>`;
+}
+
+const LIBRARY_MECHANICS_SUBTABS = [
+  { id: "waifu", label: "Основная Вайфу" },
+  { id: "dungeons", label: "Подземелья" },
+  { id: "shop", label: "Магазин" },
+  { id: "guilds", label: "Гильдии" },
+  { id: "skills", label: "Навыки" },
+  { id: "tavern", label: "Таверна" },
+];
+
+let libraryMechanicsSubtab = "waifu";
+
+function libraryMechanicsSectionHtml(subtabId) {
+  const id = subtabId || "waifu";
+  if (id === "waifu") {
+    return `
+      <h3>Характеристики</h3>
+      <p>СИЛ, ЛОВ, ИНТ, ВЫН, ОБА и УДЧ влияют на урон, защиту, крит и награды. Итоговые значения видны в профиле основной вайфу.</p>
+      <h3 id="lib-stats-guide">Как считаются статы</h3>
+      <div class="lib-stats-guide-body">${statsGuideContentHtml()}</div>
+      <h3>Бестиарий и кодекс</h3>
+      <p>Встречайте монстров и предметы в игре — в библиотеке открываются карточки с подробностями. У монстров прогресс идёт по убийствам одного шаблона.</p>`;
+  }
+  if (id === "dungeons") {
+    return `
+      <h3>Соло-подземелья</h3>
+      <p>Атакуйте монстра сообщениями в чате. Урон зависит от статов, оружия и пассивов. Монстр отвечает, когда его HP падает ниже порога.</p>
+      <h3>Типы урона</h3>
+      <p>Физический, магический и чистый урон по-разному взаимодействуют с защитой и аффиксами элитных монстров.</p>
+      <h3>Экспедиции</h3>
+      <p>Отправляйте отряд на слот экспедиции: сложность, теги препятствий и аффиксы слота влияют на шанс успеха и награды. Перки наёмниц могут перекрывать теги.</p>
+      <h3>Групповые подземелья</h3>
+      <p>В групповом чате игроки бьют общего монстра раундами. Награды и прогресс зависят от вклада и настроек цикла.</p>
+      <h3>Бездна</h3>
+      <p>Отдельный режим с чекпоинтами и усилением врагов. Используйте вкладку «Бездна» на странице подземелий.</p>
+      <h3>Акты</h3>
+      <p>Караван перемещается между актами. В каждом акте свой пул монстров, уровней лута и цен в магазине.</p>`;
+  }
+  if (id === "shop") {
+    return `
+      <h3>Магазин</h3>
+      <p>Ежедневные офферы привязаны к акту. Цена зависит от уровня предмета, редкости и скидок (обаяние, пассивы). Имя на витрине уже включает выпавшие префиксы и суффиксы.</p>
+      <h3>Gamble</h3>
+      <p>Случайный предмет повышенной редкости за золото. Шансы и уровень зависят от акта и уровня вайфу.</p>
+      <h3>Кузнец: заточка</h3>
+      <p>Усиливает урон и броню на оружии и доспехах; на аксессуарах — вторичные бонусы. Есть риск поломки на высоких уровнях заточки.</p>
+      <h3>Кузнец: зачарование</h3>
+      <p>Отдельная система шагов зачарования, записанных при создании предмета. Предметы с бонусом к пассивному навыку заточкой не усиливаются.</p>`;
+  }
+  if (id === "guilds") {
+    return `
+      <h3>Гильдии</h3>
+      <p>Объединение игроков: общий банк, навыки гильдии, рейды и войны. Вклад участников влияет на развитие и награды.</p>
+      <h3>Рейды</h3>
+      <p>Совместный урон по боссу в окне рейда. Бонусы гильдии могут усиливать урон или награды в бою.</p>
+      <h3>Войны</h3>
+      <p>Соревнование гильдий по очкам за период. Следите за статусом войны в зале гильдии.</p>`;
+  }
+  if (id === "skills") {
+    return `
+      <h3>Пассивные навыки</h3>
+      <p>Дерево веток (воин, тень, мудрец): узлы дают плоские бонусы, множители урона, скидки и особые эффекты. Одинаковые типы эффектов суммируются, разные — перемножаются в бою.</p>
+      <h3>Скрытые навыки</h3>
+      <p>Открываются за особые действия (марафоны, серии побед и т.д.). Не отображаются в основном дереве до разблокировки.</p>
+      <h3>Сброс</h3>
+      <p>Сброс дерева возвращает очки навыков; скрытые навыки и прогресс аккуратно обрабатываются отдельными правилами.</p>
+      <h3>Предметы и навыки</h3>
+      <p>Аффиксы «+N к уровню навыка» повышают эффективный уровень. Для части навыков действует потолок таблицы — смотрите предупреждение в модалке навыка.</p>`;
+  }
+  if (id === "tavern") {
+    return `
+      <h3>Найм</h3>
+      <p>Слоты найма обновляются по расписанию. Наёмницы участвуют в экспедициях; у каждой раса, класс, статы и перки.</p>
+      <h3>Прокачка</h3>
+      <p>Опыт и уровень наёмниц растут от экспедиций и событий. Перки усиливают подходящие теги слотов.</p>
+      <h3>Лечение</h3>
+      <p>Восстановление HP наёмниц за золото в таверне. Скидки могут давать пассивы и предметы.</p>`;
+  }
+  return "";
+}
+
+function libraryMechanicsShellHtml() {
+  const subTabs = LIBRARY_MECHANICS_SUBTABS.map((t) => {
+    const active = t.id === libraryMechanicsSubtab ? " active" : "";
+    return `<button type="button" class="lib-mechanics-subtab${active}" data-mech-sub="${t.id}" onclick="WaifuApp.librarySwitchMechanicsSubtab('${t.id}')">${escapeHtml(t.label)}</button>`;
+  }).join("");
+  return `
+    <div class="lib-mechanics">
+      <div class="lib-mechanics-subtabs" role="tablist">${subTabs}</div>
+      <div id="lib-mechanics-body" class="lib-mechanics-body">${libraryMechanicsSectionHtml(libraryMechanicsSubtab)}</div>
+    </div>`;
+}
+
+function librarySwitchMechanicsSubtab(subtabId) {
+  libraryMechanicsSubtab = subtabId || "waifu";
+  const body = document.getElementById("lib-mechanics-body");
+  if (body) body.innerHTML = libraryMechanicsSectionHtml(libraryMechanicsSubtab);
+  document.querySelectorAll(".lib-mechanics-subtab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.mechSub === libraryMechanicsSubtab);
+  });
+}
+
+function libraryRenderMechanics() {
+  const body = document.getElementById("lib-body");
+  if (!body) return;
+  body.innerHTML = libraryMechanicsShellHtml();
+}
+
+function libraryItemCardArtHtml(entry) {
+  if (!entry?.seen) {
+    return `<div class="lib-card-art silhouette"><span class="lib-art-emoji">🎒</span></div>`;
+  }
+  const fakeItem = {
+    art_key: entry.art_key,
+    tier: entry.tier,
+    slot_type: entry.slot_type,
+    weapon_type: entry.subtype,
+  };
+  return `<div class="lib-card-art">${itemArtHtml(fakeItem)}</div>`;
+}
+
+function libraryBindItemsFilterHandlers() {
+  const search = document.getElementById("lib-items-search");
+  const tier = document.getElementById("lib-items-tier");
+  const seen = document.getElementById("lib-items-seen");
+  const slot = document.getElementById("lib-items-slot");
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = "1";
+    search.addEventListener("input", () => {
+      libraryItemsFilters.search = search.value.trim().toLowerCase();
+      libraryRenderItemsGrid();
+    });
+  }
+  if (tier && !tier.dataset.bound) {
+    tier.dataset.bound = "1";
+    tier.addEventListener("change", () => {
+      libraryItemsFilters.tier = tier.value;
+      libraryRenderItemsGrid();
+    });
+  }
+  if (seen && !seen.dataset.bound) {
+    seen.dataset.bound = "1";
+    seen.addEventListener("change", () => {
+      libraryItemsFilters.seen = seen.value;
+      libraryRenderItemsGrid();
+    });
+  }
+  if (slot && !slot.dataset.bound) {
+    slot.dataset.bound = "1";
+    slot.addEventListener("change", () => {
+      libraryItemsFilters.slot = slot.value;
+      libraryRenderItemsGrid();
+    });
+  }
+}
+
+function libraryRenderItemsGrid() {
+  const grid = document.getElementById("lib-items-grid");
+  if (!grid || !libraryItemsCatalogCache) return;
+  const f = libraryItemsFilters;
+  let items = libraryItemsCatalogCache.items || [];
+  if (f.search) {
+    items = items.filter((it) => String(it.name || "").toLowerCase().includes(f.search));
+  }
+  if (f.tier !== "all") {
+    const t = Number(f.tier);
+    items = items.filter((it) => Number(it.tier) === t);
+  }
+  if (f.seen === "seen") items = items.filter((it) => it.seen);
+  if (f.seen === "unseen") items = items.filter((it) => !it.seen);
+  if (f.slot !== "all") {
+    items = items.filter((it) => String(it.slot_type || "") === f.slot);
+  }
+  const summary = libraryItemsCatalogCache.summary || {};
+  const sumEl = document.getElementById("lib-items-summary");
+  if (sumEl) {
+    sumEl.textContent = `Открыто ${summary.seen || 0} из ${summary.total || 0} (${summary.seen_pct || 0}%)`;
+  }
+  grid.innerHTML = items
+    .map((it) => {
+      const tid = Number(it.base_template_id);
+      const tierCls = libraryTierClass(Math.max(1, Number(it.tier) || 1));
+      const label = escapeHtml(it.name || "???");
+      return `
+        <div class="lib-card ${tierCls}" role="button" tabindex="0" data-base-template-id="${tid}"
+          onclick="WaifuApp.libraryOpenItem(${tid})">
+          ${libraryItemCardArtHtml(it)}
+          <div class="lib-card-meta">
+            <div class="lib-card-name">${label}</div>
+            <div class="lib-card-tier">T${Number(it.tier) || "?"}</div>
+          </div>
+        </div>`;
+    })
+    .join("");
+}
+
+function libraryBindAffixFilterHandlers() {
+  const search = document.getElementById("lib-affix-search");
+  const kind = document.getElementById("lib-affix-kind-filter");
+  const seen = document.getElementById("lib-affix-seen");
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = "1";
+    search.addEventListener("input", () => {
+      libraryAffixFilters.search = search.value.trim().toLowerCase();
+      libraryRenderAffixesList();
+    });
+  }
+  if (kind && !kind.dataset.bound) {
+    kind.dataset.bound = "1";
+    kind.addEventListener("change", () => {
+      libraryAffixFilters.kind = kind.value;
+      libraryRenderAffixesList();
+    });
+  }
+  if (seen && !seen.dataset.bound) {
+    seen.dataset.bound = "1";
+    seen.addEventListener("change", () => {
+      libraryAffixFilters.seen = seen.value;
+      libraryRenderAffixesList();
+    });
+  }
+}
+
+function libraryAffixDetailKey(entry) {
+  return `${entry.catalog_kind}:${entry.catalog_id}`;
+}
+
+function libraryRenderAffixesList() {
+  const list = document.getElementById("lib-affix-list");
+  if (!list || !libraryAffixesCatalogCache) return;
+  const f = libraryAffixFilters;
+  let rows = libraryAffixesCatalogCache.affixes || [];
+  if (f.search) {
+    const q = f.search;
+    rows = rows.filter(
+      (a) =>
+        String(a.name_ru || a.name || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(a.description_ru || "")
+          .toLowerCase()
+          .includes(q)
+    );
+  }
+  if (f.kind !== "all") {
+    const k = f.kind === "prefix" ? "affix" : f.kind;
+    rows = rows.filter((a) => String(a.kind || "") === k || (f.kind === "prefix" && a.kind === "prefix"));
+  }
+  if (f.seen === "seen") rows = rows.filter((a) => a.seen);
+  if (f.seen === "unseen") rows = rows.filter((a) => !a.seen);
+  const summary = libraryAffixesCatalogCache.summary || {};
+  const sumEl = document.getElementById("lib-affix-summary");
+  if (sumEl) {
+    sumEl.textContent = `Открыто ${summary.seen || 0} из ${summary.total || 0} (${summary.seen_pct || 0}%)`;
+  }
+  if (!rows.length) {
+    list.innerHTML = '<p class="muted tiny">Ничего не найдено.</p>';
+    return;
+  }
+  list.innerHTML = rows
+    .map((a) => {
+      const kindLabel = a.kind === "suffix" ? "Суфф." : a.kind === "affix" || a.kind === "prefix" ? "Преф." : "—";
+      const displayName = a.name_ru || a.name || "???";
+      if (!a.seen) {
+        return `
+          <div class="lib-affix-row lib-affix-row--hidden">
+            <div class="lib-affix-row-head">
+              <span class="lib-affix-row-name">${escapeHtml(displayName)}</span>
+              <span class="lib-affix-row-badge">${escapeHtml(kindLabel)}</span>
+            </div>
+            <div class="lib-affix-row-effect muted tiny">Встретите предмет с этим аффиксом в игре.</div>
+          </div>`;
+      }
+      const desc = a.description_ru || statMeta(a.stat || "").short;
+      const range = a.range_label ? ` (${a.range_label})` : "";
+      return `
+        <div class="lib-affix-row">
+          <div class="lib-affix-row-head">
+            <span class="lib-affix-row-name">${escapeHtml(displayName)}</span>
+            <span class="lib-affix-row-badge">${escapeHtml(kindLabel)}</span>
+          </div>
+          <div class="lib-affix-row-effect">${escapeHtml(desc)}${escapeHtml(range)}</div>
+        </div>`;
+    })
+    .join("");
+}
+
+function libraryItemsSubtabShellHtml() {
+  const sub = libraryState.itemsSubtab || "items";
+  const itemsActive = sub === "items" ? " active" : "";
+  const affActive = sub === "affixes" ? " active" : "";
+  if (sub === "affixes") {
+    return `
+      <div class="lib-items-subtabs">
+        <button type="button" class="lib-items-subtab${itemsActive}" onclick="WaifuApp.librarySwitchItemsSubtab('items')">Предметы</button>
+        <button type="button" class="lib-items-subtab${affActive}" onclick="WaifuApp.librarySwitchItemsSubtab('affixes')">Аффиксы</button>
+      </div>
+      <div id="lib-affix-summary" class="lib-summary"></div>
+      <div class="lib-filters">
+        <input id="lib-affix-search" type="search" placeholder="Поиск…" />
+        <select id="lib-affix-kind-filter">
+          <option value="all">Все</option>
+          <option value="prefix">Префиксы</option>
+          <option value="suffix">Суффиксы</option>
+        </select>
+        <select id="lib-affix-seen">
+          <option value="all">Все</option>
+          <option value="seen">Открытые</option>
+          <option value="unseen">Скрытые</option>
+        </select>
+      </div>
+      <div id="lib-affix-list" class="lib-affix-list"></div>`;
+  }
+  return `
+    <div class="lib-items-subtabs">
+      <button type="button" class="lib-items-subtab${itemsActive}" onclick="WaifuApp.librarySwitchItemsSubtab('items')">Предметы</button>
+      <button type="button" class="lib-items-subtab${affActive}" onclick="WaifuApp.librarySwitchItemsSubtab('affixes')">Аффиксы</button>
+    </div>
+    <div id="lib-items-summary" class="lib-summary"></div>
+    <div class="lib-filters">
+      <input id="lib-items-search" type="search" placeholder="Поиск…" />
+      <select id="lib-items-tier">
+        <option value="all">Все тиры</option>
+        ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((t) => `<option value="${t}">T${t}</option>`).join("")}
+      </select>
+      <select id="lib-items-slot">
+        <option value="all">Все слоты</option>
+        <option value="weapon_1h">Оружие 1H</option>
+        <option value="weapon_2h">Оружие 2H</option>
+        <option value="offhand">Offhand</option>
+        <option value="costume">Доспех</option>
+        <option value="ring">Кольцо</option>
+        <option value="amulet">Амулет</option>
+      </select>
+      <select id="lib-items-seen">
+        <option value="all">Все</option>
+        <option value="seen">Открытые</option>
+        <option value="unseen">Скрытые</option>
+      </select>
+    </div>
+    <p class="lib-tier-hint muted tiny">Цветная рамка — тир предмета (T1–T10).</p>
+    <div id="lib-items-grid" class="lib-grid lib-grid--items"></div>`;
+}
+
+function librarySwitchItemsSubtab(subtab) {
+  libraryState.itemsSubtab = subtab || "items";
+  libraryRenderItemsTab();
+}
+
+function libraryRenderItemsTab() {
+  const body = document.getElementById("lib-body");
+  if (!body) return;
+  body.innerHTML = libraryItemsSubtabShellHtml();
+  if (libraryState.itemsSubtab === "affixes") {
+    libraryBindAffixFilterHandlers();
+    libraryRenderAffixesList();
+  } else {
+    libraryBindItemsFilterHandlers();
+    libraryRenderItemsGrid();
+  }
+}
+
+function ensureLibraryItemModal() {
+  let modal = document.getElementById("library-item-modal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "library-item-modal";
+  modal.className = "lib-monster-overlay hidden";
+  modal.setAttribute("aria-modal", "true");
+  modal.innerHTML = `
+    <div class="lib-monster-panel lib-item-detail-panel" role="dialog" aria-label="Карточка предмета" onclick="event.stopPropagation()">
+      <button type="button" class="lib-monster-close" aria-label="Закрыть" onclick="WaifuApp.libraryCloseItem()">×</button>
+      <div id="library-item-body"></div>
+    </div>`;
+  modal.addEventListener("click", () => libraryCloseItem());
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function libraryCloseItem() {
+  libraryState.itemDetailId = null;
+  libraryState.affixDetailKey = null;
+  const modal = document.getElementById("library-item-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
+}
+
+function libraryBuildItemDetailHtml(e) {
+  if (!e?.seen) {
+    return `<div class="lib-item-detail"><div class="lib-item-detail-name">???</div><p class="muted tiny">Встретите этот предмет в игре.</p></div>`;
+  }
+  const rows = [];
+  if (e.level_min != null) {
+    rows.push(
+      `<div class="lib-kv"><span>Уровень</span><strong>${escapeHtml(String(e.level_min))}–${escapeHtml(String(e.level_max))}</strong></div>`
+    );
+  }
+  rows.push(`<div class="lib-kv"><span>Тир</span><strong>T${escapeHtml(String(e.tier))}</strong></div>`);
+  if (e.damage_min != null) {
+    rows.push(
+      `<div class="lib-kv"><span>Урон</span><strong>${escapeHtml(String(e.damage_min))}–${escapeHtml(String(e.damage_max))}</strong></div>`
+    );
+  }
+  if (e.armor_base != null) {
+    rows.push(`<div class="lib-kv"><span>Броня</span><strong>${escapeHtml(String(e.armor_base))}</strong></div>`);
+  }
+  if (e.attack_speed != null) {
+    rows.push(`<div class="lib-kv"><span>Скорость</span><strong>${escapeHtml(String(e.attack_speed))}</strong></div>`);
+  }
+  if (e.base_stat) {
+    const m = statMeta(e.base_stat);
+    rows.push(
+      `<div class="lib-kv"><span>${escapeHtml(m.short)}</span><strong>+${escapeHtml(String(e.base_stat_value))}</strong></div>`
+    );
+  }
+  const fakeItem = { art_key: e.art_key, tier: e.tier, slot_type: e.slot_type, weapon_type: e.subtype };
+  const artBlock = `<div class="lib-item-detail-art">${itemArtHtml(fakeItem)}</div>`;
+  const flavor = String(e.flavor_ru || "").trim();
+  const flavorBlock = flavor
+    ? `<div class="lib-item-flavor">${escapeHtml(flavor)}</div>`
+    : "";
+  const tierCls = libraryTierClass(Number(e.tier) || 1);
+  return `
+    <div class="lib-item-detail lib-mtg ${tierCls}">
+      <div class="lib-item-detail-head">
+        ${artBlock}
+        <div class="lib-item-detail-title">
+          <div class="lib-item-detail-name">${escapeHtml(e.name || "???")}</div>
+          <div class="lib-item-detail-tier">T${escapeHtml(String(e.tier))}</div>
+        </div>
+      </div>
+      ${flavorBlock}
+      <div class="lib-mtg-stats lib-item-detail-stats">${rows.join("")}</div>
+    </div>`;
+}
+
+function libraryOpenItem(baseTemplateId) {
+  const tid = Number(baseTemplateId);
+  if (!Number.isFinite(tid)) return;
+  libraryCloseMonster();
+  libraryState.itemDetailId = tid;
+  libraryState.affixDetailKey = null;
+  const e = (libraryItemsCatalogCache?.items || []).find((it) => Number(it.base_template_id) === tid);
+  ensureLibraryItemModal();
+  const body = document.getElementById("library-item-body");
+  if (!body) return;
+  if (!e) {
+    body.innerHTML = '<p class="muted">Нет данных</p>';
+  } else {
+    body.innerHTML = libraryBuildItemDetailHtml(e);
+  }
+  const modal = document.getElementById("library-item-modal");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+  }
+}
+
+function libraryBuildAffixDetailHtml(a) {
+  if (!a?.seen) {
+    return `<div class="lib-mtg"><div class="lib-mtg-name">???</div><p class="muted">Встретьте предмет с этим аффиксом в игре.</p></div>`;
+  }
+  const desc = a.description_ru || statMeta(a.stat || "").short;
+  const range = a.range_label ? ` · ${a.range_label}` : "";
+  const effectLine = `${escapeHtml(desc)}${escapeHtml(range)}`;
+  const kindRu = a.kind === "suffix" ? "Суффикс" : "Префикс";
+  return `
+    <div class="lib-mtg lib-tier-3">
+      <div class="lib-mtg-name"><span class="lib-mtg-name-text">${escapeHtml(a.name || "—")}</span></div>
+      <div class="lib-mtg-stats">
+        <div class="lib-kv"><span>Тип</span><strong>${escapeHtml(kindRu)}</strong></div>
+        <div class="lib-kv"><span>Эффект</span><strong>${effectLine}</strong></div>
+      </div>
+    </div>`;
+}
+
+function libraryOpenAffix(key) {
+  libraryCloseMonster();
+  libraryState.affixDetailKey = key;
+  libraryState.itemDetailId = null;
+  const entry = (libraryAffixesCatalogCache?.affixes || []).find((a) => libraryAffixDetailKey(a) === key);
+  ensureLibraryItemModal();
+  const body = document.getElementById("library-item-body");
+  if (!body) return;
+  body.innerHTML = entry ? libraryBuildAffixDetailHtml(entry) : '<p class="muted">Нет данных</p>';
+  const modal = document.getElementById("library-item-modal");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+  }
+}
+
+async function loadLibraryItemsCatalog(force) {
+  if (libraryItemsCatalogCache && !force) return libraryItemsCatalogCache;
+  const data = await apiFetch("/library/items");
+  libraryItemsCatalogCache = data;
+  return data;
+}
+
+async function loadLibraryAffixesCatalog(force) {
+  if (libraryAffixesCatalogCache && !force) return libraryAffixesCatalogCache;
+  const data = await apiFetch("/library/affixes");
+  libraryAffixesCatalogCache = data;
+  return data;
+}
+
+async function loadLibraryItemsCatalogs(force) {
+  return Promise.all([loadLibraryItemsCatalog(force), loadLibraryAffixesCatalog(force)]);
+}
+
+function ensureLibraryStyles() {
+  let style = document.getElementById("lib-styles");
+  if (!style) {
+    style = document.createElement("style");
+    style.id = "lib-styles";
+    document.head.appendChild(style);
+  }
+  style.textContent = `
+#library-modal.lib-overlay{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.72);display:flex;align-items:flex-end;justify-content:center;padding:0}
+#library-modal.lib-overlay.hidden{display:none!important}
+.lib-panel{width:100%;max-width:480px;max-height:92vh;background:#16100b;border-radius:14px 14px 0 0;border:1px solid rgba(200,146,42,.35);display:flex;flex-direction:column;overflow:hidden}
+.lib-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgba(200,146,42,.2);flex-shrink:0}
+.lib-head h2{margin:0;font-size:16px;color:#e8b84b}
+.lib-close{background:transparent;border:0;color:#c9b8a8;font-size:22px;cursor:pointer;padding:4px 8px}
+.lib-tabs{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:nowrap;width:100%;box-sizing:border-box;flex-shrink:0;position:relative;z-index:2;background:#16100b}
+.lib-tab{display:inline-flex;align-items:center;justify-content:center;flex:1;min-width:0;padding:8px 6px;border:1px solid rgba(200,146,42,.25);border-radius:8px;background:rgba(0,0,0,.25);font-size:18px;line-height:1;cursor:pointer}
+.lib-tab.active{border-color:rgba(232,184,75,.7);background:rgba(200,146,42,.15)}
+.lib-tab[disabled]{opacity:.35;cursor:not-allowed}
+.lib-body{flex:1;min-height:0;overflow-y:auto;padding:10px 12px 16px;-webkit-overflow-scrolling:touch;position:relative;z-index:1}
+#library-monster-modal.lib-monster-overlay,#library-item-modal.lib-monster-overlay{position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box}
+#library-monster-modal.lib-monster-overlay.hidden,#library-item-modal.lib-monster-overlay.hidden{display:none!important}
+.lib-monster-panel{position:relative;width:min(420px,94vw);max-height:88vh;overflow-y:auto;-webkit-overflow-scrolling:touch;border-radius:12px}
+.lib-monster-close{position:absolute;top:8px;right:8px;z-index:2;width:32px;height:32px;border-radius:8px;border:1px solid rgba(200,146,42,.4);background:rgba(22,16,11,.92);color:#e8b84b;font-size:20px;line-height:1;cursor:pointer;padding:0}
+.lib-summary{font-size:11px;color:rgba(201,184,168,.85);margin-bottom:8px}
+.lib-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.lib-filters select,.lib-filters input{flex:1;min-width:100px;font-size:12px;padding:6px 8px;border-radius:8px;border:1px solid rgba(200,146,42,.3);background:#1f1812;color:#e5e2e1}
+.lib-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.lib-grid.lib-grid--items{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.lib-grid--items .lib-card-meta{padding:3px 4px 5px;font-size:9px}
+.lib-tier-hint{margin:-4px 0 8px}
+.lib-card{border:2px solid #5a5248;border-radius:10px;background:rgba(0,0,0,.35);cursor:pointer;overflow:hidden;text-align:center}
+.lib-card.lib-tier-1{border-color:#9ca3af}.lib-card.lib-tier-2{border-color:#22c55e}.lib-card.lib-tier-3{border-color:#3b82f6}
+.lib-card.lib-tier-4{border-color:#a855f7}.lib-card.lib-tier-5{border-color:#f59e0b}.lib-card.lib-tier-6{border-color:#ef4444}
+.lib-card.lib-tier-7{border-color:#ec4899}.lib-card.lib-tier-8{border-color:#06b6d4}.lib-card.lib-tier-9{border-color:#eab308}
+.lib-card.lib-tier-10{border-color:#f472b6;box-shadow:0 0 8px rgba(234,179,8,.35)}
+.lib-card-art{position:relative;aspect-ratio:1;background:#0d0a08;display:flex;align-items:center;justify-content:center}
+.lib-card-art.silhouette{filter:brightness(.35) contrast(.9)}
+.lib-card-art img{width:100%;height:100%;object-fit:cover}
+.lib-art-emoji{font-size:28px}
+.lib-card-meta{padding:4px 6px 6px;font-size:10px;line-height:1.2}
+.lib-card-name{font-weight:700;color:#e8dcc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lib-card-tier{color:rgba(201,184,168,.8)}
+.lib-mtg{border:2px solid #5a5248;border-radius:12px;background:#f0e6d8;color:#3d2e1f;overflow:hidden;margin:0}
+.lib-mtg.lib-tier-1{border-color:#9ca3af}.lib-mtg.lib-tier-2{border-color:#22c55e}.lib-mtg.lib-tier-3{border-color:#3b82f6}
+.lib-mtg.lib-tier-4{border-color:#a855f7}.lib-mtg.lib-tier-5{border-color:#f59e0b}.lib-mtg.lib-tier-6{border-color:#ef4444}
+.lib-mtg.lib-tier-7{border-color:#ec4899}.lib-mtg.lib-tier-8{border-color:#06b6d4}.lib-mtg.lib-tier-9{border-color:#eab308}
+.lib-mtg.lib-tier-10{border-color:#f472b6;box-shadow:0 0 8px rgba(234,179,8,.35)}
+.lib-item-detail-panel{width:min(340px,92vw);max-height:85vh}
+.lib-item-detail{background:#f0e6d8;color:#3d2e1f;border-radius:12px;overflow:hidden}
+.lib-item-detail-head{display:flex;gap:10px;padding:10px 12px;align-items:center;background:#e5d9c8}
+.lib-item-detail-art{width:56px;height:56px;flex-shrink:0;border-radius:8px;background:#d8cbb8;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.lib-item-detail-art img{width:100%;height:100%;object-fit:contain}
+.lib-item-detail-name{font-weight:700;font-size:14px;color:#5c4030}
+.lib-item-detail-tier{font-size:11px;color:rgba(92,64,48,.75)}
+.lib-item-flavor{margin:0;padding:10px 12px;font-size:12px;line-height:1.55;font-style:italic;color:rgba(61,46,31,.85);border-left:2px solid rgba(200,146,42,.45);background:rgba(61,46,31,.06)}
+.lib-item-detail-stats{padding:8px 12px 12px;font-size:12px}
+.lib-affix-list{display:flex;flex-direction:column;gap:4px}
+.lib-affix-row{padding:8px 10px;border-radius:8px;border:1px solid rgba(200,146,42,.22);background:rgba(0,0,0,.28)}
+.lib-affix-row--hidden{opacity:.65}
+.lib-affix-row-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px}
+.lib-affix-row-name{font-weight:700;font-size:13px;color:#e8dcc8}
+.lib-affix-row-badge{font-size:9px;color:rgba(201,184,168,.8);flex-shrink:0}
+.lib-affix-row-effect{font-size:11px;line-height:1.4;color:rgba(201,184,168,.92)}
+.lib-mtg-name{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:10px 12px;background:#e5d9c8;font-weight:700;color:#5c4030}
+.lib-monster-panel .lib-mtg-name{padding-right:44px}
+.lib-mtg-name-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lib-mtg-admin-art{flex-shrink:0;width:32px;height:32px;border-radius:8px;border:1px solid rgba(92,64,48,.35);background:#f5ebe0;cursor:pointer;font-size:16px;line-height:1}
+.lib-mtg-art{position:relative;width:100%;aspect-ratio:4/3;background:#d8cbb8;display:flex;align-items:center;justify-content:center}
+.lib-mtg-art.silhouette img{filter:brightness(.4)}
+.lib-mtg-art img{width:100%;height:100%;object-fit:contain}
+.lib-mtg-stats{padding:10px 12px 12px;font-size:12px}
+.lib-kv{display:flex;justify-content:space-between;gap:8px;margin-bottom:4px}
+.lib-kv span{color:rgba(61,46,31,.65)}
+.lib-study{margin-top:8px;padding-top:8px;border-top:1px solid rgba(61,46,31,.15)}
+.lib-study-status{font-weight:600;margin-bottom:6px;color:#5c4030}
+.lib-study-track-wrap{position:relative;padding-bottom:24px}
+.lib-study-track{position:relative;height:10px;background:rgba(61,46,31,.12);border-radius:6px;overflow:visible}
+.lib-study-fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#c9a227,#e8b84b);border-radius:6px}
+.lib-study-tick{position:absolute;top:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center}
+.lib-study-tick-dot{width:8px;height:8px;border-radius:50%;background:#9ca3af;border:2px solid #f0e6d8}
+.lib-study-tick.reached .lib-study-tick-dot{background:#e8b84b;border-color:#5c4030}
+.lib-study-tick-k{font-size:9px;margin-top:2px;color:rgba(61,46,31,.75)}
+.lib-study-bonuses{margin-top:8px}
+.lib-study-bonuses-title{font-size:11px;font-weight:600;margin-bottom:4px}
+.lib-study-bonus-row{font-size:11px;color:rgba(61,46,31,.85);margin-bottom:2px}
+.lib-mechanics h3{font-size:13px;color:#e8b84b;margin:12px 0 6px}
+.lib-mechanics p{font-size:12px;color:rgba(201,184,168,.9);line-height:1.45;margin:0 0 8px}
+.lib-mechanics-subtabs{display:flex;gap:4px;overflow-x:auto;margin-bottom:10px;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.lib-mechanics-subtab{flex:0 0 auto;font-size:10px;padding:6px 8px;border-radius:8px;border:1px solid rgba(200,146,42,.25);background:rgba(0,0,0,.25);color:#c9b8a8;cursor:pointer;white-space:nowrap}
+.lib-mechanics-subtab.active{border-color:rgba(232,184,75,.7);background:rgba(200,146,42,.15);color:#e8b84b}
+.lib-mechanics-body{min-height:40px}
+.lib-stats-guide-body p{font-size:12px;color:rgba(201,184,168,.9);line-height:1.45;margin:0 0 8px}
+.lib-items-subtabs{display:flex;gap:6px;margin-bottom:10px}
+.lib-items-subtab{flex:1;font-size:12px;padding:8px;border-radius:8px;border:1px solid rgba(200,146,42,.25);background:rgba(0,0,0,.25);color:#c9b8a8;cursor:pointer}
+.lib-items-subtab.active{border-color:rgba(232,184,75,.7);background:rgba(200,146,42,.15);color:#e8b84b}
+.lib-affix-kind{font-size:9px;color:rgba(201,184,168,.75)}
+.lib-soon{text-align:center;padding:32px 16px;color:rgba(201,184,168,.7);font-size:13px}
+.lib-loading{text-align:center;padding:24px;color:rgba(201,184,168,.8)}
+`;
+}
+
+function ensureLibraryMonsterModal() {
+  let modal = document.getElementById("library-monster-modal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "library-monster-modal";
+  modal.className = "lib-monster-overlay hidden";
+  modal.setAttribute("aria-modal", "true");
+  modal.innerHTML = `
+    <div class="lib-monster-panel" role="dialog" aria-label="Карточка монстра" onclick="event.stopPropagation()">
+      <button type="button" class="lib-monster-close" aria-label="Закрыть" onclick="WaifuApp.libraryCloseMonster()">×</button>
+      <div id="library-monster-body"></div>
+    </div>`;
+  modal.addEventListener("click", () => libraryCloseMonster());
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function libraryCloseMonster() {
+  libraryState.detailId = null;
+  const modal = document.getElementById("library-monster-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
+}
+
+function libraryBindFilterHandlers() {
+  const search = document.getElementById("lib-f-search");
+  const act = document.getElementById("lib-f-act");
+  const family = document.getElementById("lib-f-family");
+  const tier = document.getElementById("lib-f-tier");
+  const seen = document.getElementById("lib-f-seen");
+  const sort = document.getElementById("lib-f-sort");
+  if (search) {
+    search.oninput = () => {
+      libraryFilters.search = search.value.trim().toLowerCase();
+      libraryRenderGrid();
+    };
+  }
+  if (act) {
+    act.onchange = () => {
+      libraryFilters.act = act.value;
+      libraryRenderGrid();
+    };
+  }
+  if (family) {
+    family.onchange = () => {
+      libraryFilters.family = family.value;
+      libraryRenderGrid();
+    };
+  }
+  if (tier) {
+    tier.onchange = () => {
+      libraryFilters.tier = tier.value;
+      libraryRenderGrid();
+    };
+  }
+  if (seen) {
+    seen.onchange = () => {
+      libraryFilters.seen = seen.value;
+      libraryRenderGrid();
+    };
+  }
+  if (sort) {
+    sort.onchange = () => {
+      librarySort = sort.value;
+      libraryRenderGrid();
+    };
+  }
+}
+
+function libraryRenderGrid() {
+  const body = document.getElementById("lib-body");
+  if (!body || !libraryCatalogCache) return;
+  const monsters = libraryCatalogCache.monsters || [];
+  const f = libraryFilters;
+  const families = [...new Set(monsters.map((m) => m.type || m.family).filter(Boolean))].sort();
+
+  let filtered = monsters.filter((mm) => {
+    if (f.search) {
+      const hay = `${mm.name || ""} ${mm.type || ""} ${mm.family || ""}`.toLowerCase();
+      if (!hay.includes(f.search)) return false;
+    }
+    if (f.act !== "all") {
+      const act = Number(f.act);
+      if (act < Number(mm.act_min) || act > Number(mm.act_max)) return false;
+    }
+    if (f.family !== "all") {
+      const fam = mm.type || mm.family || "";
+      if (fam !== f.family) return false;
+    }
+    if (f.seen === "seen" && !mm.seen) return false;
+    if (f.seen === "undiscovered" && mm.seen) return false;
+    if (f.tier !== "all" && Number(mm.tier) !== Number(f.tier)) return false;
+    return true;
+  });
+
+  filtered = [...filtered].sort((a, b) => {
+    if (librarySort === "name") {
+      return String(a.name || "").localeCompare(String(b.name || ""), "ru");
+    }
+    if (librarySort === "kills") {
+      return (Number(b.kills) || 0) - (Number(a.kills) || 0);
+    }
+    if (librarySort === "tier") {
+      return (Number(b.tier) || 0) - (Number(a.tier) || 0);
+    }
+    const actA = Number(a.act_min) || 0;
+    const actB = Number(b.act_min) || 0;
+    if (actA !== actB) return actA - actB;
+    return Number(a.template_id) - Number(b.template_id);
+  });
+
+  const summary = libraryCatalogCache.summary || {};
+  const actOpts = LIBRARY_ACT_OPTIONS.map(
+    (a) => `<option value="${a}" ${String(f.act) === String(a) ? "selected" : ""}>Акт ${a}</option>`
+  ).join("");
+  const famOpts =
+    `<option value="all">Все типы</option>` +
+    families.map((fam) => {
+      const label = formatMonsterTypeLabelRu(fam) || fam;
+      return `<option value="${escapeHtml(fam)}" ${f.family === fam ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("");
+  const tierOpts = `
+    <option value="all" ${f.tier === "all" ? "selected" : ""}>Все уровни</option>
+    ${[0, 1, 2, 3, 4, 5, 6]
+      .map((t) => `<option value="${t}" ${String(f.tier) === String(t) ? "selected" : ""}>Тир ${t}</option>`)
+      .join("")}`;
+  const seenOpts = `
+    <option value="all" ${f.seen === "all" ? "selected" : ""}>Все</option>
+    <option value="seen" ${f.seen === "seen" ? "selected" : ""}>Встречено</option>
+    <option value="undiscovered" ${f.seen === "undiscovered" ? "selected" : ""}>Не встречены</option>`;
+
+  const cards = filtered
+    .map((mm) => {
+      const tid = Number(mm.template_id);
+      const known = mm.name_known !== false && mm.name !== "???";
+      const label = known ? mm.name : "???";
+      const artInner = `<img data-lib-art alt="" /><span class="lib-art-emoji" aria-hidden="true">👾</span>`;
+      return `
+        <div class="lib-card ${libraryTierClass(mm.tier)}" role="button" tabindex="0" data-template-id="${tid}"
+          onclick="WaifuApp.libraryOpenMonster(${tid})"
+          aria-label="${escapeHtml(label)}">
+          <div class="lib-card-art">${artInner}</div>
+          <div class="lib-card-meta">
+            <div class="lib-card-name">${escapeHtml(label)}</div>
+            <div class="lib-card-tier">${Number(mm.kills) || 0} уб.</div>
+          </div>
+        </div>`;
+    })
+    .join("");
+
+  body.innerHTML = `
+    <div class="lib-summary">Встречено: ${summary.seen ?? 0} / ${summary.total ?? 0} · Покорено: ${summary.completed ?? 0}</div>
+    <div class="lib-filters">
+      <input id="lib-f-search" type="search" placeholder="Поиск…" value="${escapeHtml(f.search)}" />
+      <select id="lib-f-act"><option value="all">Все акты</option>${actOpts}</select>
+      <select id="lib-f-family">${famOpts}</select>
+      <select id="lib-f-tier">${tierOpts}</select>
+      <select id="lib-f-seen">${seenOpts}</select>
+      <select id="lib-f-sort">
+        <option value="act" ${librarySort === "act" ? "selected" : ""}>По акту</option>
+        <option value="name" ${librarySort === "name" ? "selected" : ""}>По имени</option>
+        <option value="kills" ${librarySort === "kills" ? "selected" : ""}>По убийствам</option>
+        <option value="tier" ${librarySort === "tier" ? "selected" : ""}>По тиру</option>
+      </select>
+    </div>
+    <div class="lib-grid" id="lib-grid">${cards || '<p class="muted tiny">Ничего не найдено.</p>'}</div>`;
+
+  libraryBindFilterHandlers();
+  body.querySelectorAll(".lib-card[data-template-id]").forEach((card) => {
+    const tid = Number(card.dataset.templateId);
+    const mm = filtered.find((m) => Number(m.template_id) === tid);
+    if (mm) libraryAttachArt(card.querySelector(".lib-card-art"), mm);
+  });
+}
+
+function libraryRenderDetail(templateId) {
+  ensureLibraryMonsterModal();
+  const body = document.getElementById("library-monster-body");
+  if (!body || !libraryCatalogCache) return;
+  const tid = Number(templateId);
+  libraryState.detailId = tid;
+  let e = (libraryCatalogCache.monsters || []).find((m) => Number(m.template_id) === tid);
+  if (!e) {
+    body.innerHTML = '<p class="muted">Монстр не найден.</p>';
+    return;
+  }
+  const known = e.name_known !== false && e.name !== "???";
+  const tiers = libraryCatalogCache.tiers || [];
+  const adminBtn = isAdminUser()
+    ? `<button type="button" class="lib-mtg-admin-art" title="Сгенерировать изображение (admin)" aria-label="Сгенерировать изображение" onclick="event.stopPropagation();WaifuApp.adminGenerateLibraryMonsterArt(${tid})">🖼</button>`
+    : "";
+  const artInner = `<img data-lib-art alt="" /><span class="lib-art-emoji" aria-hidden="true">${escapeHtml(e.emoji || "👾")}</span>`;
+
+  body.innerHTML = `
+    <div class="lib-mtg ${libraryTierClass(e.tier)}">
+      <div class="lib-mtg-name">
+        ${adminBtn}
+        <span class="lib-mtg-name-text">${escapeHtml(known ? e.name : "Неизвестный монстр")}</span>
+      </div>
+      <div class="lib-mtg-art">${artInner}</div>
+      <div class="lib-mtg-stats">
+        ${libraryBuildDetailStats(e)}
+        <h4 style="margin:10px 0 4px;font-size:12px;color:#5c4030">Уровни изучения</h4>
+        ${libraryStudyProgressHtml(e, tiers)}
+      </div>
+    </div>`;
+  libraryAttachArt(body.querySelector(".lib-mtg-art"), e);
+}
+
+function libraryBackToGrid() {
+  libraryCloseMonster();
+}
+
+function libraryOpenMonster(templateId) {
+  ensureLibraryMonsterModal();
+  libraryRenderDetail(templateId);
+  const modal = document.getElementById("library-monster-modal");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+  }
+}
+
+async function librarySwitchTab(tabId) {
+  libraryCloseMonster();
+  libraryCloseItem();
+  libraryState.tab = tabId;
+  const tabs = document.querySelectorAll("#lib-tabs .lib-tab");
+  tabs.forEach((btn) => {
+    const active = btn.dataset.libTab === tabId;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  const body = document.getElementById("lib-body");
+  if (!body) return;
+  if (tabId === "bestiary") {
+    libraryRenderGrid();
+    return;
+  }
+  if (tabId === "mechanics") {
+    libraryRenderMechanics();
+    return;
+  }
+  if (tabId === "items") {
+    if (!libraryItemsCatalogCache || !libraryAffixesCatalogCache) {
+      body.innerHTML = '<div class="lib-loading">Загрузка…</div>';
+    }
+    try {
+      await loadLibraryItemsCatalogs(Boolean(!libraryItemsCatalogCache || !libraryAffixesCatalogCache));
+      libraryRenderItemsTab();
+    } catch (e) {
+      const { detail } = parseHttpErrorDetail(e);
+      body.innerHTML = `<p class="muted" style="color:#f87171">${escapeHtml(
+        detail || "Не удалось загрузить каталог предметов"
+      )}</p>`;
+    }
+    return;
+  }
+  body.innerHTML = '<div class="lib-soon">Этот раздел появится позже.</div>';
+}
+
+function closeLibrary() {
+  libraryCloseMonster();
+  const modal = document.getElementById("library-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
+}
+
+async function loadLibraryCatalog(force) {
+  if (libraryCatalogCache && !force) return libraryCatalogCache;
+  const data = await apiFetch("/library/bestiary");
+  libraryCatalogCache = data;
+  return data;
+}
+
+async function openLibrary(opts) {
+  opts = opts || {};
+  ensureLibraryStyles();
+  let modal = document.getElementById("library-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "library-modal";
+    modal.className = "lib-overlay hidden";
+    modal.innerHTML = `
+      <div class="lib-panel" role="dialog" aria-labelledby="lib-title">
+        <div class="lib-head">
+          <h2 id="lib-title">Библиотека</h2>
+          <button type="button" class="lib-close" aria-label="Закрыть" onclick="WaifuApp.closeLibrary()">×</button>
+        </div>
+        <div class="lib-tabs" id="lib-tabs"></div>
+        <div class="lib-body" id="lib-body"><div class="lib-loading">Загрузка…</div></div>
+      </div>`;
+    modal.addEventListener("click", (ev) => {
+      if (ev.target !== modal) return;
+      if (libraryState.detailId != null) {
+        libraryCloseMonster();
+        return;
+      }
+      if (libraryState.itemDetailId != null || libraryState.affixDetailKey != null) {
+        libraryCloseItem();
+        return;
+      }
+      closeLibrary();
+    });
+    document.body.appendChild(modal);
+  }
+  ensureLibraryMonsterModal();
+  ensureLibraryItemModal();
+
+  const tabsEl = document.getElementById("lib-tabs");
+  if (tabsEl) {
+    tabsEl.innerHTML = LIBRARY_TABS.map((t) => {
+      const dis = t.enabled ? "" : " disabled";
+      const click = t.enabled ? ` onclick="WaifuApp.librarySwitchTab('${t.id}')"` : "";
+      return `<button type="button" class="lib-tab${t.id === (opts.tab || "bestiary") ? " active" : ""}" data-lib-tab="${t.id}" aria-label="${escapeHtml(t.label)}" title="${escapeHtml(t.label)}"${dis}${click}>${t.icon}</button>`;
+    }).join("");
+  }
+
+  modal.classList.remove("hidden");
+  modal.style.display = "flex";
+  const body = document.getElementById("lib-body");
+  if (body) body.innerHTML = '<div class="lib-loading">Загрузка…</div>';
+
+  const tab = opts.tab || "bestiary";
+  libraryState.tab = tab;
+  libraryState.detailId = null;
+
+  if (opts.itemsSubtab) {
+    libraryState.itemsSubtab = opts.itemsSubtab;
+  }
+
+  try {
+    const force = Boolean(opts.force);
+    if (force) {
+      libraryCatalogCache = null;
+      libraryItemsCatalogCache = null;
+      libraryAffixesCatalogCache = null;
+    }
+    await Promise.all([
+      loadLibraryCatalog(force),
+      loadLibraryItemsCatalog(force),
+      loadLibraryAffixesCatalog(force),
+    ]);
+    await librarySwitchTab(tab);
+    if (opts.templateId != null) {
+      libraryOpenMonster(Number(opts.templateId));
+    }
+    if (opts.baseTemplateId != null) {
+      libraryOpenItem(Number(opts.baseTemplateId));
+    }
+    if (opts.affixKey) {
+      libraryState.itemsSubtab = "affixes";
+      librarySwitchItemsSubtab("affixes");
+      libraryOpenAffix(String(opts.affixKey));
+    }
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    if (body) {
+      body.innerHTML = `<p class="muted" style="color:#f87171">${escapeHtml(detail || "Не удалось загрузить библиотеку")}</p>`;
+    }
+  }
+}
+
 let passiveTreeCache = null;
 let passiveActiveBranch = "warrior";
 /** Вкладка зала: ветка дерева или «hidden» — скрытые навыки. */
 let trainingHallTab = "warrior";
 let passiveTreeListenersBound = false;
+let hiddenSkillsCache = [];
+let hiddenSkillsListenersBound = false;
+let hiddenSkillsLoaded = false;
+let hiddenSkillsLoadInFlight = null;
+const HIDDEN_SKILL_WEBP_BASE = `${GAME_STATIC_BASE}/hidden-skills/webp`;
 const PASSIVE_SKILL_PLACEHOLDER = `${GAME_STATIC_BASE}/passive-skill-placeholder.svg`;
+const PASSIVE_SKILL_WEBP_BASE = `${GAME_STATIC_BASE}/passive-skills/webp`;
+
+function passiveNodeArtUrl(nodeId) {
+  const id = String(nodeId || "").trim();
+  if (!id) return "";
+  return `${PASSIVE_SKILL_WEBP_BASE}/${encodeURIComponent(id)}.webp`;
+}
+
+function bindPassiveNodeArt(imgEl, artWrapEl, nodeId) {
+  if (!imgEl) return;
+  const url = passiveNodeArtUrl(nodeId);
+  if (!url) {
+    imgEl.src = PASSIVE_SKILL_PLACEHOLDER;
+    artWrapEl?.classList.remove("passive-skill-cell-art--has-art");
+    if (artWrapEl?.classList.contains("passive-modal-dota-icon-wrap")) {
+      artWrapEl.classList.remove("passive-modal-dota-icon-wrap--has-art");
+    }
+    return;
+  }
+  imgEl.onerror = () => {
+    imgEl.onerror = null;
+    imgEl.src = PASSIVE_SKILL_PLACEHOLDER;
+    artWrapEl?.classList.remove("passive-skill-cell-art--has-art");
+    if (artWrapEl?.classList.contains("passive-modal-dota-icon-wrap")) {
+      artWrapEl.classList.remove("passive-modal-dota-icon-wrap--has-art");
+    }
+  };
+  imgEl.onload = () => {
+    artWrapEl?.classList.add("passive-skill-cell-art--has-art");
+    if (artWrapEl?.classList.contains("passive-modal-dota-icon-wrap")) {
+      artWrapEl.classList.add("passive-modal-dota-icon-wrap--has-art");
+    }
+  };
+  imgEl.src = url;
+}
 
 /** Иконки узлов пассивного дерева (совпадают с id в БД). */
 const PASSIVE_NODE_ICONS = {
@@ -8865,6 +13642,70 @@ function findPassiveNodeById(nodeId) {
   return null;
 }
 
+function passiveLearnBlockMessage(node) {
+  const reason = node?.learn_block_reason;
+  if (!reason) return "";
+  const gold = Number(passiveTreeCache?.gold ?? 0);
+  const cost = Number(node.cost_gold ?? 0);
+  switch (reason) {
+    case "locked_waifu_level":
+      return `Нужен уровень ОВ ≥ ${node.waifu_level_req}`;
+    case "locked_waifu_level_step": {
+      const cur = Number(node.current_level) || 0;
+      const nextWaifu = Number(node.waifu_level_req) + cur;
+      return `Для следующего уровня навыка нужен уровень ОВ ≥ ${nextWaifu}`;
+    }
+    case "locked_branch_points":
+      return `Нужно ≥ ${node.branch_points_req} оч. в этой ветке`;
+    case "skill_maxed":
+      return "Навык уже максимального уровня";
+    case "no_skill_points":
+      return "Нет свободных очков навыков (ОПГ)";
+    case "insufficient_gold":
+      return `Нужно ${cost} 🪙 (у вас ${gold})`;
+    default:
+      return reason;
+  }
+}
+
+function passiveLearnErrorToUser(out) {
+  const err = (out && out.error) || "";
+  if (err === "insufficient_gold") {
+    const req = out.required != null ? out.required : "?";
+    const have = out.have != null ? out.have : 0;
+    return `Нужно ${req} 🪙 (есть ${have})`;
+  }
+  const map = {
+    no_skill_points: "Недостаточно очков навыков (ОПГ)",
+    insufficient_waifu_level: "Недостаточный уровень основной вайфу",
+    insufficient_branch_points: "Недостаточно очков в ветке",
+    waifu_level_step: "Для следующего уровня навыка нужен более высокий уровень ОВ",
+    skill_maxed: "Навык уже максимального уровня",
+    node_not_found: "Узел не найден",
+    player_not_found: "Игрок не найден",
+  };
+  return map[err] || err || "Ошибка";
+}
+
+function passiveNodeCornerOverlay(node) {
+  const esc = passiveEscHtml;
+  const costNum = Number(node.cost_gold || 0);
+  const cost = esc(String(costNum));
+  if (node.can_learn) {
+    return `<button type="button" class="passive-cell-upgrade passive-cell-upgrade--compact" data-passive-learn="${esc(
+      node.id,
+    )}" aria-label="Прокачать за ${cost} золота" title="Прокачать · ${cost} 🪙">
+      <span class="passive-cell-upgrade-plus" aria-hidden="true">+</span>
+      <span class="passive-cell-upgrade-cost">🪙${cost}</span>
+    </button>`;
+  }
+  if (node.learn_block_reason === "insufficient_gold") {
+    const hint = esc(passiveLearnBlockMessage(node));
+    return `<span class="passive-cell-gold-hint" title="${hint}" aria-label="${hint}">🪙 ${cost}</span>`;
+  }
+  return "";
+}
+
 async function learnPassiveNode(nodeId, triggerEl) {
   const btn = triggerEl;
   if (btn) btn.disabled = true;
@@ -8875,9 +13716,7 @@ async function learnPassiveNode(nodeId, triggerEl) {
       body: JSON.stringify({ node_id: nodeId }),
     });
     if (!out || !out.ok) {
-      let msg = (out && out.error) || "Ошибка";
-      if (out && out.error === "insufficient_gold") msg = `Нужно ${out.required} 🪙`;
-      showToast(msg, "error");
+      showToast(passiveLearnErrorToUser(out), "error");
       return;
     }
     closePassiveSkillModal();
@@ -8914,11 +13753,13 @@ function openPassiveSkillModal(nodeId) {
     node.branch_points_req > 0
       ? `<p class="muted passive-modal-req">Уровень ОВ ≥ ${node.waifu_level_req}, в ветке ≥ ${node.branch_points_req} оч.</p>`
       : `<p class="muted passive-modal-req">Уровень ОВ ≥ ${node.waifu_level_req}</p>`;
-  const learnBlock =
-    node.can_learn
-      ? `<div class="passive-modal-learn-wrap"><button type="button" class="btn passive-modal-learn-btn" data-passive-modal-learn="${passiveEscHtml(
-          node.id,
-        )}">Прокачать · 🪙&nbsp;${passiveEscHtml(String(node.cost_gold || 0))}</button></div>`
+  const blockMsg = passiveLearnBlockMessage(node);
+  const learnBlock = node.can_learn
+    ? `<div class="passive-modal-learn-wrap"><button type="button" class="btn passive-modal-learn-btn" data-passive-modal-learn="${passiveEscHtml(
+        node.id,
+      )}">Прокачать · 🪙&nbsp;${passiveEscHtml(String(node.cost_gold || 0))}</button></div>`
+    : blockMsg
+      ? `<p class="passive-modal-blocked muted" role="status">${passiveEscHtml(blockMsg)}</p>`
       : "";
   const ico = getPassiveNodeIcon(node);
   const levelRow = `<div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Уровень (очки)</span><span class="passive-modal-stat-v">${cur} / ${max}</span></div>`;
@@ -8928,7 +13769,7 @@ function openPassiveSkillModal(nodeId) {
       : "";
   let curBonusRaw =
     effLv >= 1 && node.effective_effect_value != null && node.effective_effect_value !== undefined
-      ? formatPassiveEffectValue(node.effect_type, node.effective_effect_value)
+      ? passiveEffectDisplayLabel(node.effect_type, node.effective_effect_value)
       : null;
   if (
     curBonusRaw == null &&
@@ -8936,7 +13777,7 @@ function openPassiveSkillModal(nodeId) {
     node.current_effect_value != null &&
     node.current_effect_value !== undefined
   ) {
-    curBonusRaw = formatPassiveEffectValue(node.effect_type, node.current_effect_value);
+    curBonusRaw = passiveEffectDisplayLabel(node.effect_type, node.current_effect_value);
   }
   if (curBonusRaw == null) curBonusRaw = "—";
   let nextVal = node.next_effective_effect_value;
@@ -8949,14 +13790,22 @@ function openPassiveSkillModal(nodeId) {
   }
   const nextBonusRaw =
     nextVal != null && nextVal !== undefined && nextVal !== ""
-      ? formatPassiveEffectValue(node.effect_type, nextVal)
+      ? passiveEffectDisplayLabel(node.effect_type, nextVal)
       : "—";
+  const cappedEt = PASSIVE_EFFECT_CAPPED_AT_TABLE_MAX.has(String(node.effect_type || ""));
+  const cappedWarn =
+    cappedEt && eq > 0 && effLv > max
+      ? `<p class="muted passive-modal-cap-warn" style="margin:8px 0 0;font-size:12px;">Уровень от предметов не увеличивает эффект — действует максимум по таблице (${curBonusRaw}).</p>`
+      : "";
   const curBonusRow = `<div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Текущий бонус</span><span class="passive-modal-stat-v">${passiveEscHtml(
     curBonusRaw,
   )}</span></div>`;
-  const nextBonusRow = `<div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Бонус на сл. уровне</span><span class="passive-modal-stat-v">${passiveEscHtml(
-    nextBonusRaw,
-  )}</span></div>`;
+  const nextBonusRow =
+    cur < max
+      ? `<div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Бонус на сл. уровне</span><span class="passive-modal-stat-v">${passiveEscHtml(
+          nextBonusRaw,
+        )}</span></div>`
+      : "";
   body.innerHTML = `
     <div class="passive-modal-dota">
       <div class="passive-modal-dota-top">
@@ -8975,10 +13824,16 @@ function openPassiveSkillModal(nodeId) {
         ${equipHint}
         ${curBonusRow}
         ${nextBonusRow}
+        ${cappedWarn}
       </div>
       ${learnBlock}
     </div>
   `;
+  bindPassiveNodeArt(
+    body.querySelector(".passive-modal-dota-placeholder"),
+    body.querySelector(".passive-modal-dota-icon-wrap"),
+    node.id
+  );
   const learnBtn = body.querySelector("[data-passive-modal-learn]");
   if (learnBtn) {
     learnBtn.addEventListener("click", (ev) => {
@@ -9021,7 +13876,7 @@ function passiveExtrapolateEffectValue(effectValues, level, effectType) {
   if (!vals.length) return null;
   const et = String(effectType || "");
   const n = vals.length;
-  const capped = new Set(["instakill_chance", "revive_chance", "survive_chance", "full_evade_chance"]);
+  const capped = PASSIVE_EFFECT_CAPPED_AT_TABLE_MAX;
   if (capped.has(et)) {
     const idx = Math.min(level, n) - 1;
     return idx >= 0 ? vals[idx] : null;
@@ -9033,7 +13888,7 @@ function passiveExtrapolateEffectValue(effectValues, level, effectType) {
   const step = vLast - vPrev;
   const over = level - n;
   const out = vLast + step * over;
-  if (et === "trade_flat" || et === "nth_hit_crit") {
+  if (et === "trade_flat" || et === "nth_hit_crit" || et === "main_stats_flat" || et === "armor_flat") {
     if (et === "nth_hit_crit") return Math.max(1, Math.round(out));
     return Math.round(out);
   }
@@ -9043,18 +13898,48 @@ function passiveExtrapolateEffectValue(effectValues, level, effectType) {
 /** Форматирование одного значения эффекта (для тултипа и шкалы уровней). */
 function formatPassiveEffectValue(effectType, raw) {
   if (raw == null || raw === undefined) return "—";
-  if (effectType === "trade_flat" || effectType === "nth_hit_crit") return String(raw);
+  if (effectType === "trade_flat" || effectType === "nth_hit_crit" || effectType === "main_stats_flat" || effectType === "armor_flat") return String(raw);
   const n = Number(raw);
   if (Number.isNaN(n)) return String(raw);
   return `+${Math.round(n * 100)}%`;
 }
 
+/** Человекочитаемая подпись эффекта пассива (с контекстом механики). */
+function passiveEffectDisplayLabel(effectType, raw) {
+  if (raw == null || raw === undefined) return "—";
+  const et = String(effectType || "");
+  if (et === "full_evade_chance") {
+    const pct = Math.round(Number(raw) * 100);
+    return `Шанс полного уклонения: ${pct}% (отдельный бросок после обычного уклонения)`;
+  }
+  if (et === "evade_pct") {
+    return `${formatPassiveEffectValue(et, raw)} к шансу уклонения (строка «Уклонение» в профиле)`;
+  }
+  if (et === "instakill_chance") {
+    return `Шанс мгновенного убийства: ${Math.round(Number(raw) * 100)}%`;
+  }
+  if (et === "revive_chance" || et === "survive_chance") {
+    return `${formatPassiveEffectValue(et, raw)} (эффект с потолком по таблице уровней)`;
+  }
+  return formatPassiveEffectValue(et, raw);
+}
+
+const PASSIVE_EFFECT_CAPPED_AT_TABLE_MAX = new Set([
+  "instakill_chance",
+  "revive_chance",
+  "survive_chance",
+  "full_evade_chance",
+]);
+
 function passiveNodeStateClass(node) {
   const cur = Number(node.current_level) || 0;
   const max = Number(node.max_level) || 1;
-  if (node.is_locked && cur === 0) return "passive-skill-cell--locked";
-  if (cur >= max) return "passive-skill-cell--maxed";
-  if (cur > 0) return "passive-skill-cell--partial";
+  const eq = Number(node.equipment_level_bonus) || 0;
+  const effLvRaw = Number(node.effective_level);
+  const effLv = (Number.isFinite(effLvRaw) && effLvRaw > 0 ? effLvRaw : 0) || cur + eq;
+  if (node.is_locked && effLv === 0) return "passive-skill-cell--locked";
+  if (effLv >= max) return "passive-skill-cell--maxed";
+  if (effLv > 0) return "passive-skill-cell--partial";
   return "passive-skill-cell--available";
 }
 
@@ -9063,6 +13948,19 @@ function passiveBranchPointsInCache(branch) {
   const arr = passiveTreeCache.branches[branch];
   if (!Array.isArray(arr)) return 0;
   return arr.reduce((s, n) => s + (Number(n.current_level) || 0), 0);
+}
+
+function updatePassiveTabLabels(branchPoints) {
+  const bp = branchPoints || {};
+  const labels = [
+    ["warrior", "passive-tab-label-warrior", "Воин"],
+    ["shadow", "passive-tab-label-shadow", "Тень"],
+    ["sage", "passive-tab-label-sage", "Мудрец"],
+  ];
+  for (const [key, id, title] of labels) {
+    const n = Number(bp[key]) || 0;
+    setText(id, `${title} ${n}`);
+  }
 }
 
 function updatePassiveResetButtonLabel() {
@@ -9075,51 +13973,52 @@ function updatePassiveResetButtonLabel() {
     pts > 0 ? `Сбросить ветку (~${cost} 🪙)` : "Сбросить очки текущей ветки";
 }
 
-/** Одна ячейка дерева: картинка-заглушка, эффективный уровень одной цифрой, оверлей +/стоимость. */
+/** Одна ячейка дерева: бейдж уровня на art, оверлей +/стоимость. */
 function renderPassiveNodeCard(node) {
   const esc = passiveEscHtml;
   const cur = Number(node.current_level) || 0;
-  const max = Number(node.max_level) || 1;
   const eq = Number(node.equipment_level_bonus) || 0;
   const effLvRaw = Number(node.effective_level);
   const displayEffLv =
     (Number.isFinite(effLvRaw) && effLvRaw > 0 ? effLvRaw : 0) || cur + eq;
   const hasEquipLift = eq > 0 || displayEffLv > cur;
   const st = `${passiveNodeStateClass(node)}${hasEquipLift ? " passive-skill-cell--equip-bonus" : ""}`;
+  const artEquipClass = hasEquipLift ? " passive-skill-cell-art--equip-bonus" : "";
   const ico = getPassiveNodeIcon(node);
   const reqHint =
-    node.is_locked && cur === 0
+    node.is_locked && displayEffLv === 0
       ? `ур.${node.waifu_level_req}, в ветке ≥${node.branch_points_req} оч.`
       : "";
-  const titleAttr = (reqHint ? `${node.name} — ${reqHint}` : node.name)
+  const levelHint = displayEffLv > 0 ? ` · ур. ${displayEffLv}` : "";
+  const blockHint = !node.can_learn && node.learn_block_reason ? passiveLearnBlockMessage(node) : "";
+  const titleExtra = blockHint ? ` — ${blockHint}` : "";
+  const titleAttr = (reqHint ? `${node.name} — ${reqHint}` : `${node.name}${levelHint}${titleExtra}`)
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;");
-  const upgradeOverlay = node.can_learn
-    ? `<button type="button" class="passive-cell-upgrade" data-passive-learn="${esc(
-        node.id,
-      )}" aria-label="Прокачать за ${esc(String(node.cost_gold || 0))} золота">
-        <span class="passive-cell-upgrade-plus" aria-hidden="true">+</span>
-        <span class="passive-cell-upgrade-cost">🪙&nbsp;${esc(String(node.cost_gold || 0))}</span>
-      </button>`
-    : "";
+  const cornerOverlay = passiveNodeCornerOverlay(node);
+  const badgeEquip = hasEquipLift;
+  const levelBadge =
+    displayEffLv > 0
+      ? `<span class="passive-skill-cell-lv-badge${
+          badgeEquip ? " passive-skill-cell-lv-badge--equip" : ""
+        }" aria-label="Уровень ${displayEffLv}${
+          badgeEquip ? ", есть бонус от предметов" : ""
+        }">${esc(String(displayEffLv))}</span>`
+      : "";
   return `<div class="passive-skill-cell ${st}" data-node-id="${esc(node.id)}" role="button" tabindex="0" title="${titleAttr}">
     <div class="passive-skill-cell-inner">
-      <div class="passive-skill-cell-art">
+      <div class="passive-skill-cell-art${artEquipClass}">
         <img class="passive-skill-cell-img" src="${PASSIVE_SKILL_PLACEHOLDER}" alt="" decoding="async" />
         <span class="passive-skill-cell-emoji" aria-hidden="true">${ico}</span>
-        ${node.is_locked && cur === 0 ? `<span class="passive-skill-cell-lock" aria-hidden="true">🔒</span>` : ""}
-        ${upgradeOverlay}
+        ${levelBadge}
+        ${
+          node.is_locked && cur === 0 && displayEffLv === 0
+            ? `<span class="passive-skill-cell-lock" aria-hidden="true">🔒</span>`
+            : ""
+        }
+        ${cornerOverlay}
       </div>
       <div class="passive-skill-cell-title">${esc(node.name)}</div>
-      <div class="passive-skill-cell-levels" aria-label="Эффективный уровень ${displayEffLv}, очки ${cur} из ${max}${
-        hasEquipLift ? ", есть бонус от предметов" : ""
-      }">
-        <span class="passive-skill-cell-lv-single${
-          displayEffLv === 0 ? " passive-skill-cell-lv-single--zero" : ""
-        }${hasEquipLift && displayEffLv > 0 ? " passive-skill-cell-lv-single--equip" : ""}">${esc(
-          String(displayEffLv),
-        )}</span>
-      </div>
     </div>
   </div>`;
 }
@@ -9128,7 +14027,6 @@ function renderPassiveEmptyCell() {
   return `<div class="passive-skill-cell passive-skill-cell--empty" aria-hidden="true">
     <div class="passive-skill-cell-inner">
       <div class="passive-skill-cell-art passive-skill-cell-art--empty"></div>
-      <div class="passive-skill-cell-levels passive-skill-cell-levels--empty" aria-hidden="true"></div>
     </div>
   </div>`;
 }
@@ -9176,9 +14074,10 @@ function renderPassiveTree() {
     btn.addEventListener("click", onPassiveLearnClick);
   });
   root.querySelectorAll(".passive-skill-cell[data-node-id]").forEach((el) => {
+    const id = el.getAttribute("data-node-id");
+    bindPassiveNodeArt(el.querySelector(".passive-skill-cell-img"), el.querySelector(".passive-skill-cell-art"), id);
     el.addEventListener("click", (ev) => {
       if (ev.target.closest("[data-stop-modal]") || ev.target.closest("[data-passive-learn]")) return;
-      const id = el.getAttribute("data-node-id");
       if (id) openPassiveSkillModal(id);
     });
     el.addEventListener("keydown", (ev) => {
@@ -9189,6 +14088,7 @@ function renderPassiveTree() {
       if (id) openPassiveSkillModal(id);
     });
   });
+  updatePassiveTabLabels(passiveTreeCache.branch_points);
   updatePassiveResetButtonLabel();
 }
 
@@ -9227,6 +14127,7 @@ function bindPassiveTreeListenersOnce() {
       trainingHallTab = key;
       if (key === "hidden") {
         applyTrainingHallTabUI();
+        loadHiddenSkillsIfNeeded();
         return;
       }
       passiveActiveBranch = key;
@@ -9252,7 +14153,8 @@ function bindPassiveTreeListenersOnce() {
           : passiveActiveBranch === "shadow"
             ? "Тень"
             : "Мудрец";
-      if (!window.confirm(`Сбросить ветку «${branchRu}»? Примерно ${cost} 🪙.`)) return;
+      const confirmed = await confirmAction(`Сбросить ветку «${branchRu}»? Примерно ${cost} 🪙.`);
+      if (!confirmed) return;
       resetBtn.disabled = true;
       try {
         const out = await apiFetch(`/skills/passive/reset/${encodeURIComponent(passiveActiveBranch)}`, {
@@ -9265,6 +14167,8 @@ function bindPassiveTreeListenersOnce() {
           showToast(msg, "error");
           return;
         }
+        const refunded = Number(out.points_refunded) || pts;
+        showToast(`Ветка «${branchRu}» сброшена. Возвращено ${refunded} очк.`, "success");
         await loadPassiveSkillTree();
         if (typeof refreshAtticChips === "function") refreshAtticChips();
       } catch (e) {
@@ -9284,9 +14188,11 @@ async function loadPassiveSkillTree() {
   try {
     const data = await apiFetch("/skills/passive/tree");
     passiveTreeCache = data;
+    const ptsWrap = document.getElementById("passive-free-pts-wrap");
+    if (ptsWrap) ptsWrap.hidden = false;
     setText("passive-free-pts", data.skill_points);
-    const bp = data.branch_points || {};
-    setText("passive-branch-pts", `${bp.warrior ?? 0} / ${bp.shadow ?? 0} / ${bp.sage ?? 0}`);
+    if (data.gold != null && typeof setText === "function") setText("badge-gold", data.gold);
+    updatePassiveTabLabels(data.branch_points || {});
     renderPassiveTree();
   } catch (e) {
     if (isWebAppUnauthorizedError(e)) {
@@ -9308,122 +14214,356 @@ async function loadPassiveSkillTree() {
   }
 }
 
-async function populateTrainingHall() {
-  await loadPassiveSkillTree();
+function formatHiddenEffectValue(effectType, raw) {
+  if (raw == null || raw === undefined) return "—";
+  const n = Number(raw);
+  if (Number.isNaN(n)) return String(raw);
+  const t = String(effectType || "");
+  if (t.startsWith("media_") && t.endsWith("_mult")) return `×${n.toFixed(2)}`;
+  if (t === "all_stats_pct") return `+${Math.round(n)}% к СИЛ/ЛОВ/ИНТ/УДЧ`;
+  if (t === "enchant_cost_pct") {
+    return `${n > 0 ? "+" : ""}${Math.round(n)}%`;
+  }
+  if (t === "enchant_chance_pct") {
+    return `+${Math.round(-n)}%`;
+  }
+  return `+${Math.round(n)}%`;
+}
+
+function formatHiddenEffectsBlock(effects) {
+  if (!effects || typeof effects !== "object") return "—";
+  const keys = Object.keys(effects);
+  if (!keys.length) return "—";
+  return keys
+    .map((k) => `${formatHiddenEffectValue(k, effects[k])}`)
+    .join(" · ");
+}
+
+function hiddenSkillArtUrl(skill) {
+  const direct = String(skill?.image_url || "").trim();
+  if (direct) return direct;
+  const id = String(skill?.id || "").trim();
+  if (!id) return "";
+  return `${HIDDEN_SKILL_WEBP_BASE}/${encodeURIComponent(id)}.webp`;
+}
+
+function hiddenSkillArtHasClass(artWrapEl) {
+  return artWrapEl?.classList.contains("hidden-skill-modal-icon-wrap")
+    ? "hidden-skill-modal-icon-wrap--has-art"
+    : "hidden-skill-card-art--has-art";
+}
+
+function bindHiddenSkillArt(imgEl, artWrapEl, skill) {
+  if (!imgEl) return;
+  const hasArtClass = hiddenSkillArtHasClass(artWrapEl);
+  const url = hiddenSkillArtUrl(skill);
+  const clearArt = () => {
+    artWrapEl?.classList.remove(hasArtClass);
+    imgEl.removeAttribute("src");
+  };
+  if (!url) {
+    clearArt();
+    return;
+  }
+  imgEl.onerror = () => {
+    imgEl.onerror = null;
+    clearArt();
+  };
+  imgEl.onload = () => {
+    artWrapEl?.classList.add(hasArtClass);
+  };
+  imgEl.src = url;
+}
+
+function findHiddenSkillById(skillId) {
+  return hiddenSkillsCache.find((s) => s.id === skillId) || null;
+}
+
+function openHiddenSkillModal(skillId) {
+  const s = findHiddenSkillById(skillId);
+  if (!s) return;
+  const m = document.getElementById("hidden-skill-modal");
+  const title = document.getElementById("hidden-skill-modal-title");
+  const iconWrap = document.getElementById("hidden-skill-modal-icon-wrap");
+  const iconImg = document.getElementById("hidden-skill-modal-img");
+  const iconEmoji = document.getElementById("hidden-skill-modal-emoji");
+  const body = document.getElementById("hidden-skill-modal-body");
+  if (!m || !title || !body) return;
+  if (iconEmoji) iconEmoji.textContent = s.icon || "✨";
+  bindHiddenSkillArt(iconImg, iconWrap, s);
+  title.textContent = s.name || "—";
+  const lv = Number(s.level) || 0;
+  const cnt = Number(s.counter) || 0;
+  const next = s.next_threshold != null ? Number(s.next_threshold) : null;
+  const curFx = formatHiddenEffectsBlock(s.current_effects);
+  const nextFx =
+    s.next_effects && Object.keys(s.next_effects).length
+      ? formatHiddenEffectsBlock(s.next_effects)
+      : "—";
+  const unlockHint = s.unlock_hint || "—";
+  body.innerHTML = `
+    <div class="passive-modal-dota">
+      <p class="muted" style="margin:0 0 8px">${passiveEscHtml(s.category || "")}</p>
+      <p class="passive-modal-dota-desc">${passiveEscHtml(s.description || "—")}</p>
+      <div class="passive-modal-dota-stats">
+        <div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Текущий бонус</span><span class="passive-modal-stat-v">${passiveEscHtml(curFx)}</span></div>
+        <div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Бонус на сл. уровне</span><span class="passive-modal-stat-v">${passiveEscHtml(nextFx)}</span></div>
+        <div class="passive-modal-stat-row"><span class="passive-modal-stat-k">Уровень</span><span class="passive-modal-stat-v">${lv} / ${Number(s.max_level) || 5}</span></div>
+      </div>
+      <div class="hidden-skill-modal-progress">
+        <strong>Прогресс</strong>
+        <p>Счётчик: ${cnt}${next != null ? ` / ${next}` : ""}</p>
+        ${
+          next && next > 0
+            ? `<div class="hidden-skill-bar"><div class="hidden-skill-bar-fill" style="width:${Math.min(100, Math.round((cnt / next) * 100))}%"></div></div>`
+            : ""
+        }
+      </div>
+      <p class="hidden-skill-modal-hint"><strong>Как открыть:</strong> ${passiveEscHtml(unlockHint)}</p>
+    </div>
+  `;
+  m.style.display = "grid";
+}
+
+function closeHiddenSkillModal() {
+  const m = document.getElementById("hidden-skill-modal");
+  if (m) m.style.display = "none";
+}
+
+function bindHiddenSkillsListenersOnce() {
+  if (hiddenSkillsListenersBound) return;
+  hiddenSkillsListenersBound = true;
+  const closeBtn = document.getElementById("hidden-skill-modal-close");
+  if (closeBtn) closeBtn.addEventListener("click", closeHiddenSkillModal);
   const root = document.getElementById("hidden-skills-root");
   if (!root) return;
-  try {
-    const data = await apiFetch("/skills/hidden");
-    const skills = (Array.isArray(data?.skills) ? data.skills : []).filter((s) => Boolean(s.revealed));
-    if (!skills.length) {
-      root.textContent = "Нет открытых скрытых навыков.";
-      root.classList.remove("placeholder");
-      return;
-    }
-    const byCat = new Map();
-    skills.forEach((s) => {
-      const c = s.category || "Прочее";
-      if (!byCat.has(c)) byCat.set(c, []);
-      byCat.get(c).push(s);
-    });
-    const esc = (v) =>
-      String(v ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-    let html = "";
-    for (const [cat, list] of byCat) {
-      html += `<div class="hidden-skills-cat">${esc(cat)}</div>`;
-      list.forEach((s) => {
-        const lv = Number(s.level) || 0;
-        const cnt = Number(s.counter) || 0;
-        const next = s.next_threshold != null ? Number(s.next_threshold) : null;
-        let pct = 0;
-        if (next && next > 0) {
-          pct = Math.min(100, Math.round((cnt / next) * 100));
-        }
-        const hint = s.description || "";
-        html += `<div class="hidden-skill-card">
-          <div class="hidden-skill-card-top"><span>${esc(s.icon || "✨")}</span>
-            <span class="hidden-skill-card-title">${esc(s.name)}</span></div>
-          <div class="hidden-skill-meta">${esc(hint)}</div>
-          <div class="hidden-skill-meta">Ур. ${lv} / ${s.max_level || 5} · ${cnt}${
-            next != null ? ` / ${next}` : ""
-          }</div>
-          <div class="hidden-skill-bar"><div class="hidden-skill-bar-fill" style="width:${pct}%"></div></div>
-        </div>`;
-      });
-    }
-    root.classList.remove("placeholder");
-    root.innerHTML = html;
-  } catch (e) {
-    if (isWebAppUnauthorizedError(e)) {
-      console.warn("Скрытые навыки: нет авторизации Telegram WebApp.");
-    } else {
-      console.error(e);
-    }
-    root.classList.remove("placeholder");
-    if (isWebAppUnauthorizedError(e)) {
-      root.innerHTML = `<div class="webapp-auth-notice webapp-auth-notice--compact" role="alert"><p>Раздел недоступен без авторизации Telegram (см. блок выше).</p></div>`;
-    } else {
-      const { detail } = parseHttpErrorDetail(e);
-      root.textContent = detail || "Не удалось загрузить скрытые навыки.";
-    }
-  }
+  root.addEventListener("click", (ev) => {
+    const card = ev.target.closest("[data-hidden-skill-id]");
+    if (!card) return;
+    const id = card.getAttribute("data-hidden-skill-id");
+    if (id) openHiddenSkillModal(id);
+  });
+  root.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    const card = ev.target.closest("[data-hidden-skill-id]");
+    if (!card) return;
+    ev.preventDefault();
+    const id = card.getAttribute("data-hidden-skill-id");
+    if (id) openHiddenSkillModal(id);
+  });
 }
+
+async function renderHiddenSkillsList() {
+  bindHiddenSkillsListenersOnce();
+  const root = document.getElementById("hidden-skills-root");
+  if (!root) return;
+  const skills = hiddenSkillsCache.filter((s) => Boolean(s.revealed));
+  if (!skills.length) {
+    root.textContent = "Нет открытых скрытых навыков.";
+    root.classList.remove("placeholder");
+    return;
+  }
+  const byCat = new Map();
+  skills.forEach((s) => {
+    const c = s.category || "Прочее";
+    if (!byCat.has(c)) byCat.set(c, []);
+    byCat.get(c).push(s);
+  });
+  const esc = (v) =>
+    String(v ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  let html = "";
+  for (const [cat, list] of byCat) {
+    html += `<div class="hidden-skills-cat">${esc(cat)}</div>`;
+    list.forEach((s) => {
+      const lv = Number(s.level) || 0;
+      html += `<div class="hidden-skill-card" data-hidden-skill-id="${esc(s.id)}" role="button" tabindex="0" title="Подробнее">
+          <div class="hidden-skill-card-inner">
+            <div class="hidden-skill-card-title">${esc(s.name)}</div>
+            <div class="hidden-skill-card-art">
+              <img class="hidden-skill-card-img" alt="" decoding="async" />
+              <span class="hidden-skill-card-emoji" aria-hidden="true">${esc(s.icon || "✨")}</span>
+              <span class="hidden-skill-card-lv-badge" aria-label="Уровень ${lv}">${esc(String(lv))}</span>
+            </div>
+          </div>
+        </div>`;
+    });
+  }
+  root.classList.remove("placeholder");
+  root.innerHTML = html;
+  root.querySelectorAll(".hidden-skill-card[data-hidden-skill-id]").forEach((el) => {
+    const id = el.getAttribute("data-hidden-skill-id");
+    const skill = findHiddenSkillById(id);
+    if (!skill) return;
+    bindHiddenSkillArt(
+      el.querySelector(".hidden-skill-card-img"),
+      el.querySelector(".hidden-skill-card-art"),
+      skill,
+    );
+  });
+}
+
+async function loadHiddenSkillsIfNeeded() {
+  if (hiddenSkillsLoaded) return;
+  if (hiddenSkillsLoadInFlight) return hiddenSkillsLoadInFlight;
+  const root = document.getElementById("hidden-skills-root");
+  if (!root) return;
+  hiddenSkillsLoadInFlight = (async () => {
+    try {
+      const data = await apiFetch("/skills/hidden");
+      hiddenSkillsCache = Array.isArray(data?.skills) ? data.skills : [];
+      hiddenSkillsLoaded = true;
+      await renderHiddenSkillsList();
+    } catch (e) {
+      if (isWebAppUnauthorizedError(e)) {
+        console.warn("Скрытые навыки: нет авторизации Telegram WebApp.");
+      } else {
+        console.error(e);
+      }
+      root.classList.remove("placeholder");
+      if (isWebAppUnauthorizedError(e)) {
+        root.innerHTML = `<div class="webapp-auth-notice webapp-auth-notice--compact" role="alert"><p>Раздел недоступен без авторизации Telegram (см. блок выше).</p></div>`;
+      } else {
+        const { detail } = parseHttpErrorDetail(e);
+        root.textContent = detail || "Не удалось загрузить скрытые навыки.";
+      }
+    } finally {
+      hiddenSkillsLoadInFlight = null;
+    }
+  })();
+  return hiddenSkillsLoadInFlight;
+}
+
+async function populateTrainingHall() {
+  await loadHiddenSkillsIfNeeded();
+}
+
+const SMITH_HELP_HTML = `
+  <h4>Заточка +N</h4>
+  <p>Оплачивается золотом. Оружие усиливает урон, броня — броню, аксессуары — вторичный бонус (крит, уклонение и т.д.). Уровни +1…+7 без риска; с +8 возможна неудача. Камень защиты смягчает откат до +6. При первой успешной заточке +1 на подходящем предмете может пробудиться случайная вторичка.</p>
+  <h4>Зачарование</h4>
+  <p>Оплачивается пылью. Можно выдать, сменить (другой тип и значение) или усилить вторичный бонус на любом предмете. Пассивный бонус предмета зачарованием не меняется.</p>
+  <h4>Пыль</h4>
+  <p>Получается распылением предметов в инвентаре. Продажа предметов пыль не даёт.</p>
+  <h4>Ресурсы</h4>
+  <p>Золото отображается в чердаке. Пыль и камни защиты — в строке над кузницей.</p>
+`;
+
+function openSmithHelpModal() {
+  const modal = document.getElementById("smith-help-modal");
+  const body = document.getElementById("smith-help-body");
+  if (!modal || !body) return;
+  body.innerHTML = SMITH_HELP_HTML;
+  modal.style.display = "grid";
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function closeSmithHelpModal() {
+  const modal = document.getElementById("smith-help-modal");
+  if (!modal) return;
+  modal.style.display = "none";
+  modal.setAttribute("aria-hidden", "true");
+}
+
+// Page IIFE bundles (dungeons.min.js, tavern.min.js) resolve shell helpers via window.*
+function exportWebAppShellGlobals() {
+  Object.assign(window, {
+    GAME_STATIC_BASE,
+    WAIFU_WEBAPP_VERSION,
+    DUNGEONS_STATIC_BASE,
+    TAVERN_STATIC_BASE,
+    EXPEDITION_BIOMES_BASE,
+    EXPEDITION_ARCHETYPES_BASE,
+    TAVERN_BGM_TRACKS,
+    expeditionArchetypeArtVersion,
+    PERK_ICONS,
+    PERK_DESCS,
+    PERK_NAMES,
+    PERK_EXPEDITION_COUNTER_HINT,
+    WAIFU_RACES,
+    WAIFU_CLASSES,
+    apiFetch,
+    loadProfile,
+    safeNumber,
+    safeInt,
+    clamp01,
+    escapeHtml,
+    setText,
+    setHTML,
+    showToast,
+    parseHttpErrorDetail,
+    confirmAction,
+    getPlusLevelForDungeon,
+    setPlusLevelForDungeon,
+    dungeonPlusStatusById,
+    selectedPlusLevelByDungeonId,
+    fetchActiveDungeon,
+    invalidateActiveDungeonCache,
+    formatMonsterTypeLabelRu,
+    setSoloExitBtnVisible,
+    renderAtticDungeon,
+    renderAtticLevelCircle,
+    renderAtticExpeditions,
+    refreshAtticChips,
+    appendEvent,
+    expeditionState,
+    expeditionUiCache,
+    expeditionSend,
+    rarityLabel,
+    rarityClass,
+    slotTypeLabel,
+    itemIconForSlotType,
+    hiredWaifuImageUrl,
+    resolveImageUrl,
+    classIcon,
+    raceIcon,
+    waifuPortraitEmoji,
+    openItemModal,
+    isAdminUser,
+    isAdminUiEnabled,
+    profileState,
+    tg,
+    className,
+    raceName,
+  });
+}
+exportWebAppShellGlobals();
 
 // Expose helpers globally for inline usage (merge, don't clobber handlers assigned earlier)
 window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   initPage,
   bootstrapPage,
+  bootstrapTrainingHall,
+  bootstrapShopPage,
+  bootstrapTavernPage,
+  bootstrapPlayerPage,
   populateTrainingHall,
   loadPassiveSkillTree,
+  loadHiddenSkillsIfNeeded,
   closePassiveSkillModal,
+  openHiddenSkillModal,
+  closeHiddenSkillModal,
   loadProfile,
   renderAtticDungeon,
+  renderAtticLevelCircle,
   renderAtticExpeditions,
   refreshAtticChips,
   shopPageBootstrap,
   loadShop,
-  loadTavern,
-  switchTavernTab,
-  onTavernHirePrimaryClick,
-  toggleHireResultFlip,
-  hireFromTavern,
-  openTavernConfirmHire,
-  closeTavernConfirmHire,
-  confirmTavernHire,
-  closeTavernHireResult,
-  goToSquadTab,
-  openTavernWaifuModal,
-  closeTavernWaifuModal,
-  dismissTavernWaifu,
-  closeTavernSlotModal,
-  openAddToSquadPicker,
-  closeSquadPickerModal,
-  pickForSquad,
-  adminRefreshTavern,
-  refreshTavernPage,
-  toggleTavernBgmMuted,
-  loadDungeons,
-  handleSoloDungeonTileClick,
-  startDungeon,
-  loadActiveDungeon,
-  continueActiveDungeon,
-  exitDungeon,
-  openExitDungeonConfirm,
-  onMonsterImageLoad,
-  onMonsterImageError,
-  closeExitDungeonConfirm,
-  confirmExitDungeon,
-  adminExitDungeon,
-  loadBattle,
-  continueBattle,
-  exitBattle,
+  onShopHeroAdvice,
+  hideShopHeroDialogs,
   switchShopTab,
+  switchSmithSubTab,
   loadSmithTab,
   smithTryEnchant,
+  smithAutoSafeEnchant,
+  smithTryCraftEnchant,
+  refreshSmithCraftPreview,
+  openSmithHelpModal,
+  closeSmithHelpModal,
   openSmithPickModal,
   closeSmithPickModal,
   pickSmithItem,
@@ -9432,9 +14572,10 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   buyProtectionStoneShop,
   switchProfileTab,
   switchProfileInfoTab,
-  showTab,
-  loadExpeditionTab,
   populateProfile,
+  loadChatRewardsStatus,
+  claimChatRewards,
+  closeChatRewardClaimModal,
   openProfileStatInfoModal,
   closeProfileStatInfoModal,
   toggleProfileStatAccordion,
@@ -9446,6 +14587,10 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   openProfileSlot,
   openItemById,
   closeSlotModal,
+  setSlotSort,
+  toggleSlotSortDir,
+  togglePaperdollMenu,
+  generateMainWaifuPaperdoll,
   closeItemModal,
   equipItemToProfileSlot,
   unequipItemFromModal,
@@ -9453,6 +14598,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   openProfileSlotReplacementFromModal,
   openItemSellConfirmOverlay,
   closeItemSellConfirmOverlay,
+  openItemDismantleConfirmOverlay,
+  closeItemDismantleConfirmOverlay,
+  confirmDismantleSelectedItem,
   closeItemEquipRingOverlay,
   confirmEquipToRingSlot,
   confirmSellSelectedItem,
@@ -9460,13 +14608,32 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   goShopSmithEnchantFromModal,
   resetMainWaifu,
   adminLevelUpWaifu,
+  adminAddMainWaifuStat,
+  adminAddStatPoints,
+  adminResetMainWaifuStatSpend,
   adminClearAllItems,
+  adminOpenSpawnItemModal,
+  adminCloseSpawnItemModal,
+  adminOpenSpawnAffixModal,
+  adminCloseSpawnAffixModal,
+  adminSpawnOnArtError,
+  adminSpawnSelectTemplate,
+  adminSpawnToggleAffix,
+  adminSpawnToggleAffixFromEl,
+  adminSpawnSubmit,
   showToast,
   initWaifuGenerator,
   initTitleScreen,
+  initSettingsPage,
+  openSettingsNotifyModal,
+  closeSettingsNotifyModal,
+  isAdminUiEnabled,
+  syncAdminUiVisibility,
+  setAdminUiEnabled,
   waifuGenGoStep1,
   waifuGenGoStep2,
   waifuGenPreviewPortrait,
+  setWaifuGenMagicLoading,
   submitWaifuCreation,
   closeShopModal,
   confirmBuy,
@@ -9478,36 +14645,118 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   adminCompleteDungeon,
   adminRestoreHpEnergy,
   adminGenerateMonsterArt,
+  adminGenerateLibraryMonsterArt,
+  openLibrary,
+  closeLibrary,
+  librarySwitchTab,
+  librarySwitchMechanicsSubtab,
+  librarySwitchItemsSubtab,
+  libraryOpenMonster,
+  libraryCloseMonster,
+  libraryOpenItem,
+  libraryCloseItem,
+  libraryOpenAffix,
+  libraryBackToGrid,
+  adminGenerateMainWaifuPaperdoll,
   sellSelected,
   toggleShopSellFilter,
   setShopSellSort,
   toggleShopSellSortDir,
   gambleShop,
+  loadGambleTab,
+  openGambleConfirm,
+  showShopGambleResultModal,
   closeShopGambleResultModal,
   loadSkills,
   searchGuilds,
+  populateGuildHall,
+  refreshGuildHall,
+  setGuildPageLoading,
+  switchGuildTab,
+  switchGuildActivityTab,
+  loadGuildQuests,
+  switchGuildQuestTab,
+  voteWeeklyQuest,
+  createGuildFromHall,
+  joinGuildFromSearch,
+  leaveGuildFromHall,
+  runGuildSearch,
+  openGuildBankGoldModal,
+  closeGuildBankGoldModal,
+  confirmGuildBankGold,
+  confirmGuildBankGoldDeposit,
+  confirmGuildBankGoldTake,
+  openGuildBankDepositModal,
+  closeGuildBankDepositModal,
+  guildBankDepositPrevPage,
+  guildBankDepositNextPage,
+  openGuildBankDepositItemPreview,
+  closeGuildBankDepositItemPreview,
+  confirmGuildBankDepositItem,
+  openGuildBankItemModal,
+  closeGuildBankItemModal,
+  confirmGuildBankTake,
+  toggleGuildBankFilter,
+  setGuildBankSort,
+  toggleGuildBankSortDir,
+  guildBankPrevPage,
+  guildBankNextPage,
+  openGuildSkillModal,
+  closeGuildSkillModal,
+  guildSkillUpgrade,
+  guildSkillReset,
+  switchGuildSkillsBranch,
+  openGuildMemberPreviewModal,
+  closeGuildMemberPreviewModal,
+  openGuildMemberMailCompose,
+  openPlayerMailComposeModal,
+  closePlayerMailComposeModal,
+  openPlayerMailItemPicker,
+  openPlayerMailItemModal,
+  closePlayerMailItemModal,
+  playerMailItemPrevPage,
+  playerMailItemNextPage,
+  selectPlayerMailItem,
+  sendPlayerMail,
+  initMailPage,
+  initPlayerPage,
+  openPlayerProfile,
+  openPlayerSection,
+  refreshAtticMailBadge,
+  refreshMailInbox,
+  refreshMailSent,
+  openMailDetail,
+  claimMail,
+  deleteMail,
+  onGuildBannerClick,
+  onGuildEmblemClick,
+  uploadGuildIcon,
+  uploadGuildBanner,
+  openGuildMembersModal,
+  closeGuildMembersModal,
+  refreshGuildMembersModal,
+  toggleGuildMemberActionMenu,
+  closeGuildMemberActionMenus,
+  guildKickMember,
+  guildSetMemberRank,
+  toggleGuildHeroMenu,
+  closeGuildHeroMenu,
+  toggleGuildRaidParticipant,
+  openGuildRaidChatModal,
+  closeGuildRaidChatModal,
+  selectGuildRaidChat,
+  openGuildRaidParticipantModal,
+  closeGuildRaidParticipantModal,
+  startGuildRaidMuster,
+  startGuildRaid,
+  leaveGuildRaid,
+  cancelGuildRaid,
+  loadGuildWarTargetsForUi,
+  declareGuildWar,
+  respondGuildWar,
   apiFetch,
   getInitData,
   spendStatPoint,
-  populateDungeonsPage,
-  refreshSoloActive,
-  closeRewardModal,
-  viewRewardItem,
-  loadExpeditionTab,
-  submitExpeditionStart,
-  expSelDiff,
-  expSelDur,
-  expPickUnit,
-  expClosePicker,
-  closeActiveExpModal,
-  closeSendExpModal,
-  abortExpedition,
-  getAvailableUnits,
-  claimExpedition,
-  openExpeditionResult,
-  closeExpeditionResult,
-  cancelExpedition,
-  adminRefreshExpeditions,
   populateCaravanPage,
   travelToAct,
   openCaravanModal,

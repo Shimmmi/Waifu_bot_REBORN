@@ -260,6 +260,9 @@ class DungeonRun(Base):
     # Solo run: debuffs on main waifu from monster abilities (DoT, shock, weakness); JSON list
     active_waifu_debuffs: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
+    # Legendary bonus encounter/session state (fight-level + run-level counters)
+    battle_state: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -366,6 +369,30 @@ class MonsterAffix(Base):
     forbidden_families: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     max_per_monster: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class PlayerMonsterCodex(Base):
+    """Per-player bestiary progress for a monster template (pokedex-style).
+
+    Kill count drives the discovery tier (see waifu_bot.game.bestiary). The tier
+    itself is derived on read and not stored, so thresholds can be re-tuned.
+    """
+
+    __tablename__ = "player_monster_codex"
+
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id", ondelete="CASCADE"), primary_key=True
+    )
+    monster_template_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("monster_templates.id", ondelete="CASCADE"), primary_key=True
+    )
+    kills: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    first_kill_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_kill_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class DropRule(Base):

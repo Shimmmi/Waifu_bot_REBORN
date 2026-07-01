@@ -3,15 +3,21 @@ from __future__ import annotations
 
 import logging
 import random
+import secrets
 from typing import Any
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from waifu_bot.db.models import ActiveExpedition, ExpeditionAffix, ExpeditionSlot, HiredWaifu, Player
-from waifu_bot.services.hidden_skills import increment_skill_counter, sync_loyal_commander_counter
+from waifu_bot.services.hidden_skills import (
+    get_hidden_skill_bonuses,
+    increment_skill_counter,
+    sync_loyal_commander_counter,
+)
 from waifu_bot.services.passive_skills import (
     expedition_reward_multiplier,
     expedition_success_probability_boost,
@@ -19,10 +25,19 @@ from waifu_bot.services.passive_skills import (
 )
 from waifu_bot.game.expedition_data import AFFIX_BY_ID
 from waifu_bot.game.expedition_perk_resolve import normalize_expedition_paired_perk_ids
+from waifu_bot.game.expedition_difficulty_tags import (
+    calc_tag_effectiveness_mult,
+    sorted_tag_list,
+    squad_covered_tags,
+    tag_effectiveness_pct,
+    union_affix_tags,
+    union_legacy_affix_tags,
+)
 from waifu_bot.game.expedition_redesign import (
     PERK_CHALLENGE_CATEGORIES,
     affix_display_icon,
     events_count_for_duration,
+    expedition_event_interval_minutes,
     roman_numeral,
     union_challenge_categories_from_db_affix_rows,
 )
@@ -30,7 +45,6 @@ from waifu_bot.game.constants import (
     EXPEDITION_AFFIX_PENALTY_PCT,
     EXPEDITION_BASE_EXP,
     EXPEDITION_BASE_GOLD,
-    EXPEDITION_CANCEL_REWARD_PCT,
     EXPEDITION_CHANCE_CAP_MAX,
     EXPEDITION_CHANCE_CAP_MIN,
     EXPEDITION_DIFFICULTY_BASE_BONUS,
@@ -59,7 +73,15 @@ from waifu_bot.game.constants import (
     HIRED_EXP_LEVEL_SQUARE,
     HIRED_MAX_LEVEL,
 )
-from waifu_bot.services.expedition_ticks import run_one_tick
+from waifu_bot.game.expedition_narrative_catalog import (
+    fallback_narrative_brief,
+    pick_expedition_mode,
+    pick_location_archetype,
+    pick_narrative_style,
+    resolve_archetype_and_mode,
+    slot_preview_name,
+)
+from waifu_bot.services.expedition_ticks import run_one_tick, tick_narrative_history
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +112,95 @@ BASE_LOCATIONS = [
 
 def _moscow_today():
     return datetime.now(tz=MOSCOW_TZ).date()
+
+
+def _msk_day_start_utc() -> datetime:
+    """00:00 MSK for the current MSK calendar day, as UTC-aware datetime."""
+    today = _moscow_today()
+    return datetime(today.year, today.month, today.day, tzinfo=MOSCOW_TZ).astimezone(timezone.utc)
+
+
+async def _apply_narrative_at_start(
+    session: AsyncSession,
+    active: ActiveExpedition,
+    *,
+    location_archetype_id: str | None,
+    expedition_mode_id: str | None,
+    legacy_base_location: str | None,
+    affix_rows: list,
+    squad: list[HiredWaifu],
+    events_total: int,
+    duration_minutes: int,
+) -> str | None:
+    """Генерирует narrative_brief при старте и обновляет display поля. Возвращает текст intro для Telegram."""
+    from waifu_bot.services.expedition_events_ai import (
+        format_expedition_start_intro_telegram,
+        generate_expedition_narrative_brief,
+    )
+    from waifu_bot.services.player_notification_prefs import should_send_dm
+
+    dm_narratives = await should_send_dm(session, int(active.player_id), "expedition_result")
+
+    style_rng = random.Random(int(active.id))
+    narrative_style = pick_narrative_style(style_rng)
+    arch, mode = resolve_archetype_and_mode(
+        location_archetype_id=location_archetype_id,
+        expedition_mode_id=expedition_mode_id,
+        legacy_base_location=legacy_base_location,
+        rng=style_rng,
+    )
+    affix_names = [str(getattr(a, "name", "") or "").strip() for a in affix_rows if getattr(a, "name", None)]
+    affix_hints = [str(getattr(a, "description_hint", "") or "").strip() for a in affix_rows]
+    squad_names = [w.name or "Наёмница" for w in squad]
+
+    brief = await generate_expedition_narrative_brief(
+        archetype_id=arch.id,
+        archetype_name=arch.name_ru,
+        archetype_hints=list(arch.narrative_hints),
+        mode_id=mode.id,
+        mode_name=mode.name_ru,
+        mode_focus=mode.narrative_focus,
+        mode_prompt_rules=mode.prompt_rules_ru,
+        affix_names=affix_names,
+        affix_hints=affix_hints,
+        events_total=max(1, int(events_total or 1)),
+        duration_minutes=int(duration_minutes),
+        squad_names=squad_names,
+        narrative_style=narrative_style,
+    )
+    if not brief:
+        brief = fallback_narrative_brief(
+            arch,
+            mode,
+            max(1, int(events_total or 1)),
+            affix_names=affix_names,
+            rng=style_rng,
+            narrative_style=narrative_style,
+            squad_names=squad_names,
+        )
+
+    brief.setdefault("narrative_style_id", narrative_style.id)
+    brief.setdefault("narrative_style_name", narrative_style.name_ru)
+    if not brief.get("intro_narrative"):
+        brief["intro_narrative"] = brief.get("setting_summary") or ""
+
+    active.location_archetype_id = arch.id
+    active.expedition_mode_id = mode.id
+    active.narrative_brief = brief
+    active.display_base_location = (brief.get("title") or slot_preview_name(mode, arch)).strip()[:120]
+    active.display_biome_tag = arch.biome_tag
+
+    if not dm_narratives:
+        return None
+
+    return format_expedition_start_intro_telegram(
+        title=active.display_base_location or brief.get("title") or "Экспедиция",
+        intro_narrative=str(brief.get("intro_narrative") or ""),
+        mode_name=mode.name_ru,
+        archetype_name=arch.name_ru,
+        squad_names=squad_names,
+        style_name=str(brief.get("narrative_style_name") or narrative_style.name_ru),
+    )
 
 
 def _build_expedition_name(base_location: str, affix_objects: list) -> str:
@@ -154,6 +265,69 @@ def slot_challenge_categories_union(
         return frozenset()
     rows = [affix_by_id[int(aid)] for aid in aids if int(aid) in affix_by_id]
     return union_challenge_categories_from_db_affix_rows(rows) if rows else frozenset()
+
+
+def slot_active_tags(
+    slot: ExpeditionSlot,
+    affix_by_id: dict[int, Any] | None,
+) -> frozenset[str]:
+    """Union игровых тегов сложности слота (кэш или вычисление)."""
+    from waifu_bot.game.expedition_difficulty_tags import (
+        DIFFICULTY_TAG_LABEL_RU,
+        union_affix_tags,
+        union_legacy_affix_tags,
+    )
+
+    cached = getattr(slot, "difficulty_tags", None)
+    if cached:
+        valid = {str(t) for t in cached if str(t) in DIFFICULTY_TAG_LABEL_RU}
+        if valid:
+            return frozenset(valid)
+    aids = list(getattr(slot, "affix_ids", None) or [])
+    if aids and affix_by_id:
+        rows = [affix_by_id[int(aid)] for aid in aids if int(aid) in affix_by_id]
+        if rows:
+            return union_affix_tags(rows)
+    legacy = list(getattr(slot, "affixes", None) or [])
+    if legacy:
+        return union_legacy_affix_tags(legacy)
+    return frozenset()
+
+
+def tags_snapshot_for_affix_rows(rows: list) -> list[str]:
+    from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, union_affix_tags
+
+    return sorted_tag_list(union_affix_tags(rows))
+
+
+def tag_preview_for_squad(
+    squad: list[HiredWaifu],
+    slot: ExpeditionSlot,
+    affix_by_id: dict[int, Any] | None,
+    affix_level: int = 1,
+) -> dict:
+    from waifu_bot.game.expedition_difficulty_tags import (
+        calc_tag_effectiveness_mult,
+        squad_covered_tags,
+        sorted_tag_list,
+        squad_perk_effectiveness_pct,
+        tag_effectiveness_pct,
+    )
+
+    active = slot_active_tags(slot, affix_by_id)
+    covered = squad_covered_tags(squad) & active
+    al = max(1, min(5, int(affix_level or 1)))
+    mult = calc_tag_effectiveness_mult(active, covered, squad=squad, affix_level=al)
+    return {
+        "active_tags": sorted_tag_list(active),
+        "covered_tags": sorted_tag_list(covered),
+        "tag_effectiveness_mult": round(mult, 4),
+        "tag_effectiveness_pct": tag_effectiveness_pct(
+            active, covered, squad=squad, affix_level=al
+        ),
+        "perk_effectiveness_pct": squad_perk_effectiveness_pct(active, covered, squad, al),
+        "affix_level": al,
+    }
 
 
 def _slot_required_perks(slot: ExpeditionSlot) -> set[str]:
@@ -375,6 +549,19 @@ def calculate_squad_chance(
     return out
 
 
+def enrich_chance_with_tags(
+    data: dict,
+    squad: list[HiredWaifu],
+    slot: ExpeditionSlot,
+    affix_by_id: dict[int, Any] | None,
+    affix_level: int = 1,
+) -> dict:
+    """Добавляет поля тегов v1.4 к результату calculate_squad_chance."""
+    tp = tag_preview_for_squad(squad, slot, affix_by_id, affix_level=affix_level)
+    data.update(tp)
+    return data
+
+
 def calculate_success_chance(
     slot: ExpeditionSlot,
     squad_waifus: list[HiredWaifu],
@@ -445,7 +632,8 @@ async def _expedition_passive_p_success(
     """Шанс успеха при броске исхода: базовый шанс слота + бонус пассивного дерева."""
     p_base = float(chance_pct or 0) / 100.0
     ps = await get_passive_skill_bonuses(session, player_id)
-    boost = expedition_success_probability_boost(ps)
+    hs = await get_hidden_skill_bonuses(session, player_id)
+    boost = expedition_success_probability_boost(ps, hs)
     return min(0.95, max(0.05, p_base + boost))
 
 
@@ -509,6 +697,9 @@ def _apply_exp_to_hired_unit(unit: HiredWaifu, exp: int) -> tuple[bool, int]:
         new_max_hp = 50 + level * 15
         unit.max_hp = new_max_hp
         unit.current_hp = min(getattr(unit, "current_hp", new_max_hp), new_max_hp)
+        from waifu_bot.services.hired_waifu_state import refresh_hired_power
+
+        refresh_hired_power(unit)
     return (leveled_up, level)
 
 
@@ -518,7 +709,35 @@ class ExpeditionService:
     async def get_slots(self, session: AsyncSession) -> list[ExpeditionSlot]:
         """Слоты экспедиций на сегодня (3 шт.), при необходимости создаёт."""
         today = _moscow_today()
-        return await self._ensure_day_slots(session, today)
+        slots, created = await self._ensure_day_slots(session, today)
+        if created:
+            await session.commit()
+        return slots
+
+    async def _lock_player_for_update(self, session: AsyncSession, player_id: int) -> Player | None:
+        stmt = select(Player).where(Player.id == player_id).with_for_update()
+        return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def _count_starts_today(self, session: AsyncSession, player_id: int) -> int:
+        day_start = _msk_day_start_utc()
+        stmt = select(func.count()).select_from(ActiveExpedition).where(
+            ActiveExpedition.player_id == player_id,
+            ActiveExpedition.started_at >= day_start,
+        )
+        return int((await session.execute(stmt)).scalar_one() or 0)
+
+    async def _check_daily_start_limit(self, session: AsyncSession, player_id: int) -> dict | None:
+        if await self._count_starts_today(session, player_id) >= EXPEDITION_SLOTS_PER_DAY:
+            return {"error": "daily_limit_reached", "max": EXPEDITION_SLOTS_PER_DAY}
+        return None
+
+    async def _commit_start_or_slot_conflict(self, session: AsyncSession) -> dict | None:
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            return {"error": "already_started"}
+        return None
 
     async def get_used_slot_ids(self, session: AsyncSession, player_id: int) -> set[int]:
         """ID слотов, по которым у игрока уже есть экспедиция (активная или завершённая) — слот «использован»."""
@@ -579,11 +798,14 @@ class ExpeditionService:
         )
         actives = list((await session.execute(stmt)).scalars().all())
         out: list[tuple[int, str | None, str | None]] = []
+        from waifu_bot.services.player_notification_prefs import should_send_dm
+
         for active in actives:
             if int(active.events_done or 0) >= int(active.events_total or 0):
                 active.next_tick_at = None
                 continue
-            res = await run_one_tick(session, active, silent=False)
+            silent = not await should_send_dm(session, int(active.player_id), "expedition_result")
+            res = await run_one_tick(session, active, silent=silent)
             if not res.get("ok"):
                 continue
             narr = (res.get("telegram_narrative") or "").strip()
@@ -602,123 +824,51 @@ class ExpeditionService:
         squad_waifu_ids: list[int],
         duration_minutes: int,
         *,
+        reward_type: str | None = None,
+        depth_tier: int | None = None,
         affix_template_id: int | None = None,
         affix_level: int | None = None,
         display_base_location: str | None = None,
         display_biome_tag: str | None = None,
         difficulty_level: int | None = None,
     ) -> dict:
-        """
-        Запуск экспедиции: v1.3 — тип аффикса × уровень × длительность; либо старый дневной слот.
-        Ежедневный слот + difficulty_level + длительность из EXPEDITION_V13_DURATIONS → тики v1.3 с привязкой к слоту.
-        """
-        if affix_template_id is not None and affix_level is not None and display_base_location:
-            return await self._start_v13(
+        """Запуск экспедиции v2: тип награды + тир глубины + отряд."""
+        if reward_type is not None and depth_tier is not None:
+            from waifu_bot.services.expedition_v2_start import start_expedition_v2
+
+            return await start_expedition_v2(
+                self,
                 session,
                 player_id,
                 squad_waifu_ids,
-                duration_minutes,
-                affix_template_id=int(affix_template_id),
-                affix_level=int(affix_level),
-                display_base_location=display_base_location,
-                display_biome_tag=display_biome_tag,
+                str(reward_type),
+                int(depth_tier),
             )
 
-        if (
+        # Legacy daily-slot path (старые клиенты / активные миграции)
+        if affix_template_id is not None and affix_level is not None and display_base_location:
+            if expedition_slot_id is None:
+                return {"error": "constructor_disabled"}
+
+        if not (
             expedition_slot_id is not None
             and difficulty_level is not None
             and duration_minutes in EXPEDITION_V13_DURATIONS
         ):
-            return await self._start_daily_slot_v13(
-                session,
-                player_id,
-                int(expedition_slot_id),
-                squad_waifu_ids,
-                duration_minutes,
-                int(difficulty_level),
-            )
-
-        if expedition_slot_id is None:
             return {"error": "missing_expedition_config"}
 
-        if duration_minutes not in EXPEDITION_TIME_COEFFS:
-            return {"error": "invalid_duration"}
-        if not (EXPEDITION_MIN_SQUAD <= len(squad_waifu_ids) <= EXPEDITION_MAX_SQUAD):
-            return {"error": "squad_size", "min": EXPEDITION_MIN_SQUAD, "max": EXPEDITION_MAX_SQUAD}
+        player = await self._lock_player_for_update(session, player_id)
+        if not player:
+            return {"error": "player_not_found"}
 
-        slot = await session.get(ExpeditionSlot, expedition_slot_id)
-        if not slot:
-            return {"error": "slot_not_found"}
-
-        today = _moscow_today()
-        if slot.day != today:
-            return {"error": "slot_expired"}
-
-        squad: list[HiredWaifu] = []
-        for wid in squad_waifu_ids:
-            w = await session.get(HiredWaifu, wid)
-            if not w or w.player_id != player_id:
-                return {"error": "waifu_not_found", "waifu_id": wid}
-            if not (w.squad_position and 1 <= w.squad_position <= 6):
-                return {"error": "waifu_not_in_squad", "waifu_id": wid}
-            squad.append(w)
-
-        used_ids = await self.get_used_slot_ids(session, player_id)
-        if expedition_slot_id in used_ids:
-            return {"error": "already_started"}
-
-        power = _squad_power(squad)
-        player = await session.get(Player, player_id, options=[selectinload(Player.main_waifu)])
-        player_level = (
-            int(player.main_waifu.level or 1) if (player and player.main_waifu) else 1
-        )
-        affix_by_id: dict[int, Any] = {}
-        if getattr(slot, "affix_ids", None):
-            stmt_aff = select(ExpeditionAffix).where(ExpeditionAffix.id.in_(list(slot.affix_ids)))
-            affix_rows = list((await session.execute(stmt_aff)).scalars().all())
-            affix_by_id = {a.id: a for a in affix_rows}
-        ch_union = slot_challenge_categories_union(slot, affix_by_id)
-        chance_pct, reward_gold, reward_exp = _chance_and_rewards(
-            slot,
+        return await self._start_daily_slot_v13(
+            session,
+            player_id,
+            int(expedition_slot_id),
+            squad_waifu_ids,
             duration_minutes,
-            power,
-            squad,
-            player_level=player_level,
-            challenge_union=ch_union,
+            int(difficulty_level),
         )
-        ps_exp = await get_passive_skill_bonuses(session, player_id)
-        rm = expedition_reward_multiplier(ps_exp)
-        reward_gold = max(0, int(round(reward_gold * rm)))
-        reward_exp = max(0, int(round(reward_exp * rm)))
-        now = datetime.now(tz=timezone.utc)
-        ends_at = now + timedelta(minutes=duration_minutes)
-
-        active = ActiveExpedition(
-            player_id=player_id,
-            expedition_slot_id=expedition_slot_id,
-            started_at=now,
-            ends_at=ends_at,
-            duration_minutes=duration_minutes,
-            chance=chance_pct,
-            success=False,
-            reward_gold=reward_gold,
-            reward_experience=reward_exp,
-            squad_waifu_ids=squad_waifu_ids,
-        )
-        session.add(active)
-        await session.commit()
-        await session.refresh(active)
-        return {
-            "success": True,
-            "active_id": active.id,
-            "expedition_name": slot.name,
-            "chance": chance_pct,
-            "success": False,
-            "reward_gold": reward_gold,
-            "reward_experience": reward_exp,
-            "ends_at": ends_at.isoformat(),
-            "duration_minutes": duration_minutes,
-        }
 
     async def _start_v13(
         self,
@@ -771,12 +921,17 @@ class ExpeditionService:
         reward_gold = int(EXPEDITION_BASE_GOLD * reward_mult * ar * level_bonus)
         reward_exp = int(EXPEDITION_BASE_EXP * reward_mult * ar * level_bonus)
         ps_exp = await get_passive_skill_bonuses(session, player_id)
-        rm = expedition_reward_multiplier(ps_exp)
+        hs_exp = await get_hidden_skill_bonuses(session, player_id)
+        rm = expedition_reward_multiplier(ps_exp, hs_exp)
         reward_gold = max(0, int(round(reward_gold * rm)))
         reward_exp = max(0, int(round(reward_exp * rm)))
 
         now = datetime.now(tz=timezone.utc)
         ends_at = now + timedelta(minutes=duration_minutes)
+
+        from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
+
+        tag_snap = sorted_tag_list(tags_for_db_affix_row(affix_row))
 
         active = ActiveExpedition(
             player_id=player_id,
@@ -795,18 +950,35 @@ class ExpeditionService:
             display_biome_tag=(display_biome_tag or "").strip() or None,
             events_total=events_total,
             events_done=0,
-            next_tick_at=now + timedelta(minutes=15),
+            next_tick_at=now + timedelta(
+                minutes=expedition_event_interval_minutes(duration_minutes, events_total)
+            ),
             tick_state={},
+            difficulty_tags_snapshot=tag_snap,
         )
         session.add(active)
         await session.flush()
+        start_intro_narrative: str | None = None
+        if events_total > 0:
+            start_intro_narrative = await _apply_narrative_at_start(
+                session,
+                active,
+                location_archetype_id=None,
+                expedition_mode_id=None,
+                legacy_base_location=loc,
+                affix_rows=[affix_row],
+                squad=squad,
+                events_total=events_total,
+                duration_minutes=duration_minutes,
+            )
         await self._lock_squad_expedition(session, active.id, squad_waifu_ids)
         await session.commit()
         await session.refresh(active)
+        exp_name = (active.display_base_location or loc).strip()
         return {
             "success": True,
             "active_id": active.id,
-            "expedition_name": loc,
+            "expedition_name": exp_name,
             "chance": 0.0,
             "success": False,
             "reward_gold": reward_gold,
@@ -816,6 +988,7 @@ class ExpeditionService:
             "affix_icon": affix_display_icon(affix_row),
             "affix_level_roman": roman_numeral(affix_level),
             "events_total": events_total,
+            "start_intro_narrative": start_intro_narrative,
         }
 
     async def _start_daily_slot_v13(
@@ -887,12 +1060,19 @@ class ExpeditionService:
         reward_gold = int(base_g * reward_mult * ar * level_bonus * slot_rm)
         reward_exp = int(base_e * reward_mult * ar * level_bonus * slot_rm)
         ps_exp = await get_passive_skill_bonuses(session, player_id)
-        rm = expedition_reward_multiplier(ps_exp)
+        hs_exp = await get_hidden_skill_bonuses(session, player_id)
+        rm = expedition_reward_multiplier(ps_exp, hs_exp)
         reward_gold = max(0, int(round(reward_gold * rm)))
         reward_exp = max(0, int(round(reward_exp * rm)))
 
         now = datetime.now(tz=timezone.utc)
         ends_at = now + timedelta(minutes=duration_minutes)
+
+        affix_rows_for_tags = []
+        if affix_ids:
+            stmt_t = select(ExpeditionAffix).where(ExpeditionAffix.id.in_(affix_ids))
+            affix_rows_for_tags = list((await session.execute(stmt_t)).scalars().all())
+        tag_snap = tags_snapshot_for_affix_rows(affix_rows_for_tags) if affix_rows_for_tags else []
 
         active = ActiveExpedition(
             player_id=player_id,
@@ -911,18 +1091,41 @@ class ExpeditionService:
             display_biome_tag=biome,
             events_total=events_total,
             events_done=0,
-            next_tick_at=now + timedelta(minutes=15) if has_affix else None,
+            next_tick_at=(
+                now + timedelta(
+                    minutes=expedition_event_interval_minutes(duration_minutes, events_total)
+                )
+                if has_affix
+                else None
+            ),
             tick_state={},
+            difficulty_tags_snapshot=tag_snap,
         )
         session.add(active)
         await session.flush()
+        start_intro_narrative: str | None = None
+        if has_affix and events_total > 0:
+            start_intro_narrative = await _apply_narrative_at_start(
+                session,
+                active,
+                location_archetype_id=getattr(slot, "location_archetype_id", None),
+                expedition_mode_id=getattr(slot, "expedition_mode_id", None),
+                legacy_base_location=slot.base_location or loc,
+                affix_rows=affix_rows_for_tags,
+                squad=squad,
+                events_total=events_total,
+                duration_minutes=duration_minutes,
+            )
         await self._lock_squad_expedition(session, active.id, squad_waifu_ids)
-        await session.commit()
+        commit_err = await self._commit_start_or_slot_conflict(session)
+        if commit_err:
+            return commit_err
         await session.refresh(active)
+        exp_name = (active.display_base_location or loc).strip()
         return {
             "success": True,
             "active_id": active.id,
-            "expedition_name": loc,
+            "expedition_name": exp_name,
             "chance": 0.0,
             "success": False,
             "reward_gold": reward_gold,
@@ -932,6 +1135,7 @@ class ExpeditionService:
             "affix_icon": affix_display_icon(affix_row) if affix_row else "",
             "affix_level_roman": roman_numeral(difficulty_level),
             "events_total": events_total,
+            "start_intro_narrative": start_intro_narrative,
         }
 
     async def claim(
@@ -992,7 +1196,44 @@ class ExpeditionService:
         exp = active.reward_experience
         outcome = getattr(active, "outcome", None) or EXPEDITION_OUTCOME_FAILURE
 
-        player.gold += gold
+        reward_summary: dict[str, Any] = {}
+        leveled_up_ids: list[int] = []
+        items_earned: list[dict] = []
+        gate_log: list[dict] = []
+        ts = active.tick_state or {}
+        if isinstance(ts.get("gate_log"), list):
+            gate_log = list(ts.get("gate_log") or [])
+
+        if getattr(active, "reward_type", None):
+            from waifu_bot.db.models import MainWaifu
+
+            mw = await session.scalar(select(MainWaifu).where(MainWaifu.player_id == int(player_id)))
+            plv = int(mw.level or 1) if mw else 10
+            from waifu_bot.services.expedition_rewards import grant_expedition_rewards
+
+            reward_summary = await grant_expedition_rewards(
+                session,
+                player=player,
+                active=active,
+                outcome=outcome,
+                squad_ids=squad_ids,
+                player_level=plv,
+            )
+            gold = int(reward_summary.get("gold_gained") or 0)
+            exp = int(reward_summary.get("experience_gained") or 0)
+            leveled_up_ids = list(reward_summary.get("leveled_up_ids") or [])
+            items_earned = list(reward_summary.get("items_earned") or [])
+        else:
+            player.gold += gold
+            if exp and squad_ids:
+                per_waifu = max(0, exp // len(squad_ids))
+                for wid in squad_ids:
+                    w = await session.get(HiredWaifu, wid)
+                    if w and w.player_id == player_id:
+                        leveled, _ = _apply_exp_to_hired_unit(w, per_waifu)
+                        if leveled:
+                            leveled_up_ids.append(w.id)
+
         active.claimed = True
         active.finished_at = now
 
@@ -1012,47 +1253,17 @@ class ExpeditionService:
 
         await self._unlock_squad_expedition(session, squad_ids)
 
-        # Опыт только наёмницам отряда, поровну (ТЗ v1.1); ОВ не получает
-        leveled_up_ids: list[int] = []
-        if exp and squad_ids:
-            per_waifu = max(0, exp // len(squad_ids))
-            for wid in squad_ids:
-                w = await session.get(HiredWaifu, wid)
-                if w and w.player_id == player_id:
-                    leveled, _ = _apply_exp_to_hired_unit(w, per_waifu)
-                    if leveled:
-                        leveled_up_ids.append(w.id)
-
         slot = active.expedition_slot
         expedition_name = (
             (active.display_base_location or "").strip()
             or (slot.name if slot else None)
             or "Экспедиция"
         )
-        squad_names: list[str] = []
-        for wid in squad_ids:
-            w = await session.get(HiredWaifu, wid)
-            if w and w.player_id == player_id:
-                squad_names.append(w.name or "Вайфу")
-        from waifu_bot.services.expedition_events_ai import generate_expedition_event
-        import asyncio
-        try:
-            # Должно быть не меньше httpx-таймаута в generate_expedition_event (30s), иначе часто срывается ИИ-текст.
-            event_text = await asyncio.wait_for(
-                generate_expedition_event(
-                    expedition_name=expedition_name,
-                    success=outcome == EXPEDITION_OUTCOME_SUCCESS,
-                    duration_minutes=active.duration_minutes,
-                    squad_names=squad_names,
-                    reward_gold=gold,
-                    reward_experience=exp,
-                ),
-                timeout=35.0,
-            )
-        except asyncio.TimeoutError:
-            event_text = f"Отряд вернулся из экспедиции «{expedition_name}». Награда: {gold} золота, {exp} опыта наёмницам."
-        if event_text:
-            active.event_text = event_text
+        event_text = (getattr(active, "event_text", None) or "").strip()
+        if not event_text:
+            event_text = await self._generate_final_event_text(session, active)
+            if event_text:
+                active.event_text = event_text
 
         await increment_skill_counter(session, player_id, "expedition_complete", 1)
         for wid in squad_ids:
@@ -1069,6 +1280,24 @@ class ExpeditionService:
             except Exception:
                 pass
 
+        try:
+            from waifu_bot.services.guild_quest_service import record_metric
+
+            await record_metric(session, player_id, "expedition_minutes", int(active.duration_minutes or 0))
+            if outcome == EXPEDITION_OUTCOME_SUCCESS:
+                await record_metric(session, player_id, "expeditions_completed", 1)
+                await record_metric(session, player_id, "expeditions_no_death", 1)
+        except Exception:
+            pass
+
+        from waifu_bot.services.event_log import log_event
+
+        await log_event(
+            session,
+            player_id,
+            "expedition_completed",
+            {"name": expedition_name, "outcome": outcome, "gold": gold, "exp": exp},
+        )
         await session.commit()
         return {
             "success": True,
@@ -1080,116 +1309,11 @@ class ExpeditionService:
             "gold_total": player.gold,
             "event_text": getattr(active, "event_text", None) or event_text,
             "leveled_up_ids": leveled_up_ids,
-        }
-
-    async def abort_early(
-        self, session: AsyncSession, player_id: int, active_id: int
-    ) -> dict:
-        """Досрочное завершение по кнопке в Telegram: доля награды как при отмене (EXPEDITION_CANCEL_REWARD_PCT)."""
-        active = await session.get(
-            ActiveExpedition, active_id, options=[selectinload(ActiveExpedition.expedition_slot)]
-        )
-        if not active or active.player_id != player_id:
-            return {"error": "not_found"}
-        if active.claimed:
-            return {"error": "already_claimed"}
-
-        player = await session.get(Player, player_id)
-        if not player:
-            return {"error": "player_not_found"}
-
-        now = datetime.now(tz=timezone.utc)
-        pct = EXPEDITION_CANCEL_REWARD_PCT / 100.0
-        gold = max(0, int(active.reward_gold * pct))
-        exp = max(0, int(active.reward_experience * pct))
-        player.gold += gold
-        active.claimed = True
-        active.finished_at = now
-        active.notification_sent = True
-
-        squad_ids = active.squad_waifu_ids or []
-        if exp and squad_ids:
-            per_waifu = max(0, exp // len(squad_ids))
-            for wid in squad_ids:
-                w = await session.get(HiredWaifu, wid)
-                if w and w.player_id == player_id:
-                    w.experience = (w.experience or 0) + per_waifu
-
-        await self._unlock_squad_expedition(session, list(squad_ids))
-
-        slot = active.expedition_slot
-        expedition_name = (
-            (active.display_base_location or "").strip()
-            or (slot.name if slot else None)
-            or "Экспедиция"
-        )
-        squad_names: list[str] = []
-        for wid in squad_ids:
-            w = await session.get(HiredWaifu, wid)
-            if w and w.player_id == player_id:
-                squad_names.append(w.name or "Вайфу")
-        from waifu_bot.services.expedition_events_ai import generate_expedition_event
-        event_text = await generate_expedition_event(
-            expedition_name=expedition_name,
-            success=active.success,
-            duration_minutes=active.duration_minutes,
-            squad_names=squad_names,
-            reward_gold=gold,
-            reward_experience=exp,
-        )
-        if event_text:
-            active.event_text = event_text
-
-        await increment_skill_counter(session, player_id, "expedition_complete", 1)
-        for wid in squad_ids:
-            hw = await session.get(HiredWaifu, wid)
-            if hw and hw.player_id == player_id:
-                hw.expedition_completions = int(hw.expedition_completions or 0) + 1
-        await sync_loyal_commander_counter(session, player_id)
-
-        await session.commit()
-        return {
-            "success": True,
-            "active_id": active_id,
-            "gold_gained": gold,
-            "experience_gained": exp,
-            "gold_total": player.gold,
-            "event_text": getattr(active, "event_text", None) or event_text,
-        }
-
-    async def cancel(
-        self, session: AsyncSession, player_id: int, active_id: int
-    ) -> dict:
-        """Отменить экспедицию (из WebApp) и получить 50% награды."""
-        active = await session.get(ActiveExpedition, active_id)
-        if not active or active.player_id != player_id:
-            return {"error": "not_found"}
-        if active.claimed:
-            return {"error": "already_claimed"}
-        if active.cancelled:
-            return {"error": "already_cancelled"}
-
-        player = await session.get(Player, player_id)
-        if not player:
-            return {"error": "player_not_found"}
-
-        pct = EXPEDITION_CANCEL_REWARD_PCT / 100.0
-        gold = max(0, int(active.reward_gold * pct))
-        exp = max(0, int(active.reward_experience * pct))
-        player.gold += gold
-        active.cancelled = True
-        active.finished_at = datetime.now(tz=timezone.utc)
-        active.claimed = True  # чтобы не забирать повторно
-
-        await self._unlock_squad_expedition(session, list(active.squad_waifu_ids or []))
-
-        await session.commit()
-        return {
-            "success": True,
-            "active_id": active_id,
-            "gold_gained": gold,
-            "experience_gained": exp,
-            "gold_total": player.gold,
+            "reward_type": getattr(active, "reward_type", None),
+            "items_earned": items_earned,
+            "gate_log": gate_log,
+            "enchant_stones": int(reward_summary.get("enchant_stones") or 0),
+            "waifu_exp_gained": int(reward_summary.get("waifu_exp_gained") or 0),
         }
 
     async def get_finished_unnotified(
@@ -1246,6 +1370,90 @@ class ExpeditionService:
         result = await session.execute(stmt)
         return result.rowcount > 0
 
+    async def _generate_final_event_text(
+        self, session: AsyncSession, active: ActiveExpedition
+    ) -> str:
+        """ИИ-описание итога экспедиции (финальный narrative)."""
+        import asyncio
+
+        from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
+        from waifu_bot.services.expedition_events_ai import generate_expedition_event
+
+        player_id = int(active.player_id)
+        squad_ids = list(active.squad_waifu_ids or [])
+        outcome = getattr(active, "outcome", None) or EXPEDITION_OUTCOME_FAILURE
+        gold = int(active.reward_gold or 0)
+        exp = int(active.reward_experience or 0)
+
+        slot = active.expedition_slot
+        if slot is None and active.expedition_slot_id:
+            slot = await session.get(ExpeditionSlot, active.expedition_slot_id)
+        expedition_name = (
+            (active.display_base_location or "").strip()
+            or (slot.name if slot else None)
+            or "Экспедиция"
+        )
+        squad_names: list[str] = []
+        for wid in squad_ids:
+            w = await session.get(HiredWaifu, wid)
+            if w and w.player_id == player_id:
+                squad_names.append(w.name or "Вайфу")
+
+        ts = active.tick_state or {}
+        gate_log = list(ts.get("gate_log") or []) if isinstance(ts.get("gate_log"), list) else []
+        if getattr(active, "reward_type", None):
+            from waifu_bot.services.expedition_events_ai import generate_gate_log_final_narrative
+
+            try:
+                text = await asyncio.wait_for(
+                    generate_gate_log_final_narrative(
+                        expedition_name=expedition_name,
+                        outcome=outcome,
+                        gate_log=gate_log,
+                    ),
+                    timeout=30.0,
+                )
+                if text:
+                    return text
+            except asyncio.TimeoutError:
+                pass
+
+        brief = getattr(active, "narrative_brief", None) or {}
+        arch = archetype_for_id(getattr(active, "location_archetype_id", None))
+        mode = mode_for_id(getattr(active, "expedition_mode_id", None))
+        ts = active.tick_state or {}
+        squad_prepared = ts.get("squad_prepared")
+        try:
+            return await asyncio.wait_for(
+                generate_expedition_event(
+                    expedition_name=expedition_name,
+                    success=outcome == EXPEDITION_OUTCOME_SUCCESS,
+                    duration_minutes=active.duration_minutes,
+                    squad_names=squad_names,
+                    reward_gold=gold,
+                    reward_experience=exp,
+                    narrative_brief=brief if isinstance(brief, dict) else None,
+                    mode_name=mode.name_ru if mode else None,
+                    archetype_name=arch.name_ru if arch else None,
+                    tick_summaries=tick_narrative_history(ts),
+                    squad_prepared=squad_prepared if isinstance(squad_prepared, bool) else None,
+                ),
+                timeout=65.0,
+            )
+        except asyncio.TimeoutError:
+            return f"Отряд вернулся из экспедиции «{expedition_name}» — усталый, но живой."
+
+    async def finalize_completed_expedition(
+        self, session: AsyncSession, active: ActiveExpedition
+    ) -> None:
+        """Исход, финальные награды и предгенерация event_text для забора награды."""
+        await self.ensure_outcome_and_rewards(session, active)
+        if not (getattr(active, "event_text", None) or "").strip():
+            event_text = await self._generate_final_event_text(session, active)
+            if event_text:
+                active.event_text = event_text
+        await session.flush()
+
     async def ensure_outcome_and_rewards(
         self, session: AsyncSession, active: ActiveExpedition
     ) -> None:
@@ -1279,8 +1487,12 @@ class ExpeditionService:
         active.success = outcome == EXPEDITION_OUTCOME_SUCCESS
 
     async def _ensure_day_slots(
-        self, session: AsyncSession, day
-    ) -> list[ExpeditionSlot]:
+        self,
+        session: AsyncSession,
+        day,
+        *,
+        generation_nonce: str | None = None,
+    ) -> tuple[list[ExpeditionSlot], bool]:
         stmt = (
             select(ExpeditionSlot)
             .where(ExpeditionSlot.day == day)
@@ -1288,7 +1500,16 @@ class ExpeditionService:
         )
         existing = (await session.execute(stmt)).scalars().all()
         have = {int(s.slot) for s in existing}
-        trial_slot = random.randint(1, EXPEDITION_SLOTS_PER_DAY) if EXPEDITION_SLOTS_PER_DAY else 1
+        if len(have) >= EXPEDITION_SLOTS_PER_DAY:
+            return list(existing), False
+        slots_created = False
+        if generation_nonce:
+            day_rng = random.Random(f"{day.isoformat()}-{generation_nonce}")
+            trial_slot = (
+                day_rng.randint(1, EXPEDITION_SLOTS_PER_DAY) if EXPEDITION_SLOTS_PER_DAY else 1
+            )
+        else:
+            trial_slot = random.randint(1, EXPEDITION_SLOTS_PER_DAY) if EXPEDITION_SLOTS_PER_DAY else 1
 
         # Загружаем аффиксы из БД (ТЗ v1.1 / cursor_plan_6)
         affix_stmt = select(ExpeditionAffix).order_by(ExpeditionAffix.id)
@@ -1301,18 +1522,23 @@ class ExpeditionService:
             is_trial = slot_num == trial_slot
             target_difficulty = 5 if is_trial else {1: 1, 2: 3, 3: 5}.get(slot_num, 3)
 
-            # 1. Случайная базовая локация (взвешенно)
-            weights = [w for _, _, w in BASE_LOCATIONS]
-            base_name, biome_tag, _ = random.choices(
-                BASE_LOCATIONS, weights=weights, k=1
-            )[0]
+            # 1. Архетип локации и режим экспедиции (нарративный слой)
+            slot_seed = f"{day.isoformat()}-{slot_num}"
+            if generation_nonce:
+                slot_seed = f"{slot_seed}-{generation_nonce}"
+            slot_rng = random.Random(slot_seed)
+            archetype = pick_location_archetype(slot_rng)
+            mode = pick_expedition_mode(slot_rng)
+            base_name = archetype.name_ru
+            biome_tag = archetype.biome_tag
+            preview_name = slot_preview_name(mode, archetype)
 
             # 2. Подбор аффиксов до нужной суммы difficulty; лимит по количеству (лёгк 0–1, ср 2–3, тяж 4–5)
             max_affixes = 5 if is_trial else {1: 1, 2: 3, 3: 5}.get(slot_num, 3)
             remaining = min(target_difficulty - 1, max_affixes * 2)  # не набирать больше очков, чем нужно
             chosen: list[ExpeditionAffix] = []
             shuffled = list(all_affixes)
-            random.shuffle(shuffled)
+            slot_rng.shuffle(shuffled)
             for affix in shuffled:
                 if remaining <= 0 or len(chosen) >= max_affixes:
                     break
@@ -1333,7 +1559,7 @@ class ExpeditionService:
             if not chosen and all_affixes:
                 remaining_fb = min(target_difficulty - 1, max_affixes * 2)
                 shuffled_fb = list(all_affixes)
-                random.shuffle(shuffled_fb)
+                slot_rng.shuffle(shuffled_fb)
                 for affix in shuffled_fb:
                     if remaining_fb <= 0 or len(chosen) >= max_affixes:
                         break
@@ -1346,6 +1572,20 @@ class ExpeditionService:
                     remaining_fb -= affix.difficulty_add
                 chosen = chosen[:max_affixes]
 
+            # Инвариант: у КАЖДОЙ экспедиции есть хотя бы одна «сложность» (включая лёгкий слот 1,
+            # где target_difficulty=1 раньше давал пустой набор). Берём самую лёгкую доступную
+            # по биому сложность, чтобы лёгкий слот оставался посильным, но всё же имел 1 affix.
+            if not chosen and all_affixes:
+                biome_ok = [
+                    a
+                    for a in all_affixes
+                    if not (a.forbidden_biomes and biome_tag in (a.forbidden_biomes or []))
+                    and not (a.allowed_biomes and biome_tag not in (a.allowed_biomes or []))
+                ]
+                pool = biome_ok or list(all_affixes)
+                pool_sorted = sorted(pool, key=lambda a: (a.difficulty_add, a.id))
+                chosen = [pool_sorted[0]]
+
             # 3. Детерминированная сборка имени
             computed_name = _build_expedition_name(base_name, chosen)
             real_difficulty = 1 + sum(a.difficulty_add for a in chosen)
@@ -1357,17 +1597,28 @@ class ExpeditionService:
                 total_reward_mult *= a.reward_mult
                 all_paired.extend(a.paired_perks or [])
             paired_perks_list = list(dict.fromkeys(normalize_expedition_paired_perk_ids(all_paired)))
+            slot_tags = tags_snapshot_for_affix_rows(chosen) if chosen else []
 
             slot_level = max(1, default_player_level - 5 + (real_difficulty - 1) * 2)
-            base_gold = EXPEDITION_BASE_GOLD + slot_level * 10 + random.randint(0, 50) + (80 if is_trial else 0)
-            base_exp = EXPEDITION_BASE_EXP + slot_level * 5 + random.randint(0, 30) + (40 if is_trial else 0)
+            base_gold = (
+                EXPEDITION_BASE_GOLD
+                + slot_level * 10
+                + slot_rng.randint(0, 50)
+                + (80 if is_trial else 0)
+            )
+            base_exp = (
+                EXPEDITION_BASE_EXP
+                + slot_level * 5
+                + slot_rng.randint(0, 30)
+                + (40 if is_trial else 0)
+            )
             base_diff = 80 + slot_level * 5 + len(chosen) * 10 + (30 if is_trial else 0)
 
             session.add(
                 ExpeditionSlot(
                     day=day,
                     slot=slot_num,
-                    name=computed_name,
+                    name=preview_name,
                     base_level=slot_level,
                     base_difficulty=base_diff,
                     affixes=[],
@@ -1379,21 +1630,25 @@ class ExpeditionService:
                     damage_mult=round(total_damage_mult, 2),
                     reward_mult=round(total_reward_mult, 2),
                     paired_perks=paired_perks_list,
+                    difficulty_tags=slot_tags,
                     base_gold=base_gold,
                     base_experience=base_exp,
                     trial=is_trial,
+                    location_archetype_id=archetype.id,
+                    expedition_mode_id=mode.id,
                 )
             )
+            slots_created = True
         await session.flush()
         result = await session.execute(stmt)
-        return list(result.scalars().all())
+        return list(result.scalars().all()), slots_created
 
     async def admin_refresh_slots(self, session: AsyncSession) -> list[ExpeditionSlot]:
         """
-        Админ: пересоздать слоты на сегодня.
+        Админ: пересоздать слоты на сегодня с новым случайным содержимым (имитация полночного обновления).
         1) Автоматически «забирает» награды по всем экспедициям с ends_at <= now (висят незавершёнными).
         2) Обнуляет ссылку на слот у записей active_expeditions по слотам дня.
-        3) Удаляет все слоты дня и создаёт 3 новых.
+        3) Удаляет все слоты дня и создаёт 3 новых (уникальный generation_nonce).
         """
         today = _moscow_today()
         now = datetime.now(tz=timezone.utc)
@@ -1425,7 +1680,10 @@ class ExpeditionService:
                 .values(expedition_slot_id=None)
             )
 
-        # Удалить все слоты дня и создать 3 новых
+        # Удалить все слоты дня и создать 3 новых с уникальным seed (не как при том же day без nonce)
         await session.execute(delete(ExpeditionSlot).where(ExpeditionSlot.day == today))
         await session.flush()
-        return await self._ensure_day_slots(session, today)
+        nonce = secrets.token_hex(8)
+        slots, _created = await self._ensure_day_slots(session, today, generation_nonce=nonce)
+        await session.commit()
+        return slots

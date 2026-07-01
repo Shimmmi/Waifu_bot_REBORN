@@ -3,10 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Профиль вайфу</title>
+    <title>Профиль вайфу — Waifu REBORN</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" /></noscript>
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v50" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
     <style>
       /* Палитра как у магазина / таверны */
       body.page-profile .profile-missing-waifu {
@@ -66,98 +68,6 @@
         width: 100%;
         margin: 0 auto;
         padding: 10px 10px 24px;
-      }
-
-      body.page-profile .attic {
-        background: rgba(13, 10, 8, 0.95) !important;
-        border-bottom: 1px solid rgba(200, 146, 42, 0.2) !important;
-        padding: 7px 10px !important;
-        backdrop-filter: blur(8px);
-      }
-      body.page-profile .attic-row {
-        display: flex;
-        gap: 5px;
-        align-items: center;
-        flex-wrap: nowrap;
-        overflow: hidden;
-        padding: 2px 0;
-      }
-      body.page-profile .attic-row .chip {
-        flex: 0 0 auto;
-        min-width: 0;
-        padding: 3px 9px;
-        font-size: 11px;
-        border-radius: 20px;
-        background: rgba(255, 255, 255, 0.06) !important;
-        border: 1px solid rgba(200, 146, 42, 0.2) !important;
-        color: var(--cream) !important;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      body.page-profile .attic-row .chip b,
-      body.page-profile .attic-row .chip strong {
-        color: var(--amber-glow) !important;
-      }
-      body.page-profile .chip-ghost {
-        background: rgba(255, 255, 255, 0.06) !important;
-      }
-      body.page-profile .attic-level-chip {
-        flex: 1.2 1 0;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 3px;
-        white-space: normal;
-      }
-      body.page-profile .attic-xp-fill {
-        background: linear-gradient(90deg, rgba(200, 146, 42, 0.9), rgba(232, 184, 75, 0.9)) !important;
-      }
-      body.page-profile #attic-dungeon-chip {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 2px;
-        padding-top: 4px;
-        padding-bottom: 4px;
-        max-width: 38%;
-      }
-      body.page-profile #attic-dungeon-label {
-        display: block;
-        font-size: 10px;
-        line-height: 1.2;
-        color: var(--cream) !important;
-      }
-      body.page-profile .attic-dungeon-stages {
-        display: flex;
-        gap: 2px;
-        margin-top: 2px;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-      body.page-profile .attic-dungeon-stages:empty {
-        display: none;
-      }
-      body.page-profile .attic-stage-pixel {
-        width: 6px;
-        height: 6px;
-        border-radius: 1px;
-        background: rgba(200, 146, 42, 0.18);
-        border: 1px solid rgba(200, 146, 42, 0.2);
-        box-sizing: border-box;
-      }
-      body.page-profile .attic-stage-pixel--done {
-        background: rgba(232, 184, 75, 0.65);
-        border-color: rgba(232, 184, 75, 0.75);
-      }
-      body.page-profile .attic-stage-pixel--active {
-        background: rgba(200, 146, 42, 0.95);
-        border-color: rgba(200, 146, 42, 0.95);
-        box-shadow: 0 0 6px rgba(200, 146, 42, 0.3);
-      }
-      body.page-profile #attic-expedition-chip {
-        flex: 0 1 auto;
-        min-width: 48px;
-        max-width: 22%;
-        justify-content: center;
       }
 
       /* Вкладки страницы — один ряд, компактно */
@@ -316,6 +226,14 @@
       }
       body.page-profile .profile-mtg-card--portrait-only .profile-mtg-top,
       body.page-profile .profile-mtg-card--portrait-only .profile-mtg-bottom {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      body.page-profile .profile-mtg-card--portrait-only .profile-mtg-vignette {
+        opacity: 0;
+      }
+      body.page-profile .profile-mtg-card--portrait-only .chat-reward-bag-btn {
         opacity: 0;
         visibility: hidden;
         pointer-events: none;
@@ -654,6 +572,128 @@
         font-size: 10px;
         font-weight: 700;
       }
+
+      body.page-profile .chat-reward-bag-btn {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 4;
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        background: rgba(8, 6, 4, 0.72);
+        backdrop-filter: blur(4px);
+        -webkit-tap-highlight-color: transparent;
+      }
+      body.page-profile .chat-reward-bag-btn[hidden] {
+        display: none !important;
+      }
+      body.page-profile .chat-reward-bag-btn__icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        pointer-events: none;
+      }
+      body.page-profile .chat-reward-bag-btn__icon svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      body.page-profile .chat-reward-bag-btn--gold {
+        animation: chatRewardBagBreatheGold 2.4s ease-in-out infinite;
+      }
+      body.page-profile .chat-reward-bag-btn--chest {
+        animation: chatRewardBagBreathePurple 2.4s ease-in-out infinite;
+      }
+      body.page-profile .chat-reward-bag-btn--claiming {
+        pointer-events: none;
+        opacity: 0.55;
+        animation: none;
+      }
+      @keyframes chatRewardBagBreatheGold {
+        0%,
+        100% {
+          transform: scale(1);
+          box-shadow:
+            0 0 0 2px rgba(232, 184, 75, 0.55),
+            0 0 10px rgba(232, 184, 75, 0.35);
+        }
+        50% {
+          transform: scale(1.08);
+          box-shadow:
+            0 0 0 2px rgba(232, 184, 75, 0.95),
+            0 0 22px rgba(232, 184, 75, 0.75),
+            0 0 36px rgba(200, 146, 42, 0.35);
+        }
+      }
+      @keyframes chatRewardBagBreathePurple {
+        0%,
+        100% {
+          transform: scale(1);
+          box-shadow:
+            0 0 0 2px rgba(168, 120, 255, 0.55),
+            0 0 10px rgba(168, 120, 255, 0.35);
+        }
+        50% {
+          transform: scale(1.08);
+          box-shadow:
+            0 0 0 2px rgba(196, 150, 255, 0.95),
+            0 0 22px rgba(168, 120, 255, 0.75),
+            0 0 36px rgba(120, 60, 200, 0.4);
+        }
+      }
+      body.page-profile #chat-reward-claim-modal[hidden] {
+        display: none !important;
+      }
+      body.page-profile #chat-reward-claim-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 1200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.65);
+        padding: 16px;
+      }
+      body.page-profile .chat-reward-claim-dialog {
+        max-width: 360px;
+        width: 100%;
+        padding: 18px;
+        border-radius: 14px;
+        border: 1px solid rgba(200, 146, 42, 0.45);
+        background: linear-gradient(165deg, rgba(22, 18, 14, 0.98), rgba(8, 6, 4, 0.99));
+        box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
+      }
+      body.page-profile .chat-reward-claim-dialog--chest {
+        border-color: rgba(168, 120, 255, 0.55);
+        box-shadow:
+          0 20px 48px rgba(0, 0, 0, 0.55),
+          0 0 24px rgba(168, 120, 255, 0.2);
+      }
+      body.page-profile .chat-reward-claim-dialog h3 {
+        margin: 0 0 8px;
+        font-family: "Cinzel", serif;
+        color: var(--amber-glow);
+      }
+      body.page-profile .chat-reward-claim-dialog--chest h3 {
+        color: #c896ff;
+      }
+      body.page-profile .chat-reward-claim-sub {
+        margin: 0 0 10px;
+        font-size: 12px;
+        opacity: 0.75;
+      }
+      body.page-profile .chat-reward-claim-line {
+        margin: 6px 0;
+        font-size: 14px;
+      }
       body.page-profile .profile-detail-cell strong.profile-detail-value {
         font-weight: 800;
       }
@@ -744,17 +784,28 @@
         height: 100%;
         max-width: 100%;
         max-height: 100%;
-        object-fit: contain;
+        object-fit: cover;
+        object-position: center;
         display: block;
       }
-      body.page-profile #tab-inventory .profile-slot-card--mini .profile-slot-media .item-art-admin-wrap {
-        width: 100%;
-        height: 100%;
-        max-width: 100%;
-        max-height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+      body.page-profile #tab-inventory .profile-slot-card--mini.rarity-common {
+        border-color: rgba(255, 255, 255, 0.28) !important;
+      }
+      body.page-profile #tab-inventory .profile-slot-card--mini.rarity-uncommon {
+        border-color: rgba(70, 190, 90, 0.65) !important;
+      }
+      body.page-profile #tab-inventory .profile-slot-card--mini.rarity-rare {
+        border-color: rgba(70, 130, 240, 0.7) !important;
+      }
+      body.page-profile #tab-inventory .profile-slot-card--mini.rarity-epic {
+        border-color: rgba(155, 70, 240, 0.75) !important;
+      }
+      body.page-profile #tab-inventory .profile-slot-card--mini.rarity-legendary {
+        border-color: rgba(230, 180, 42, 0.85) !important;
+      }
+      body.page-profile #tab-inventory .profile-slot-card--mini.empty {
+        border-style: dashed !important;
+        border-color: rgba(255, 255, 255, 0.18) !important;
       }
       body.page-profile #tab-inventory .profile-slot-card--mini .profile-slot-fallback {
         font-size: 26px;
@@ -779,15 +830,28 @@
         color: var(--ash) !important;
         border-color: rgba(255, 255, 255, 0.12);
       }
-      body.page-profile #tab-inventory .profile-paperdoll-body .profile-paperdoll-generate {
-        border: 1px solid rgba(200, 146, 42, 0.45);
-        background: linear-gradient(180deg, rgba(200, 146, 42, 0.35), rgba(160, 110, 30, 0.45));
-        color: #fff8ee;
+      body.page-profile #tab-inventory .profile-paperdoll-menu-btn {
+        background: rgba(26, 20, 16, 0.88) !important;
+        border-color: rgba(200, 146, 42, 0.4) !important;
+        color: var(--amber-glow) !important;
       }
-      body.page-profile #tab-inventory .profile-paperdoll-body .profile-paperdoll-generate:disabled {
-        background: rgba(255, 255, 255, 0.08);
-        color: var(--ash);
-        border-color: rgba(200, 146, 42, 0.2);
+      body.page-profile #tab-inventory .profile-paperdoll-menu-btn:hover {
+        background: rgba(200, 146, 42, 0.16) !important;
+        border-color: var(--amber-glow) !important;
+      }
+      body.page-profile #tab-inventory .profile-paperdoll-menu {
+        background: rgba(26, 20, 16, 0.97) !important;
+        border-color: rgba(200, 146, 42, 0.35) !important;
+      }
+      body.page-profile #tab-inventory .profile-paperdoll-menu-item {
+        color: var(--cream) !important;
+      }
+      body.page-profile #tab-inventory .profile-paperdoll-menu-item:hover:not(:disabled) {
+        background: rgba(200, 146, 42, 0.12) !important;
+        color: var(--amber-glow) !important;
+      }
+      body.page-profile #tab-inventory .profile-paperdoll-menu-meta {
+        color: rgba(232, 220, 200, 0.65) !important;
       }
       body.page-profile #tab-inventory .profile-paperdoll-caption .muted {
         color: rgba(232, 220, 200, 0.65) !important;
@@ -825,66 +889,386 @@
 
       /* Ячейки предметов в сумке */
       body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item {
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: stretch !important;
-        justify-content: flex-start !important;
+        display: block !important;
+        padding: 0 !important;
+        overflow: hidden !important;
         background: rgba(22, 18, 14, 0.95) !important;
         border-width: 2px;
-        padding: 3px 3px 2px;
-        min-height: 58px;
         box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
       }
       body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item .item-icon {
-        position: relative !important;
-        flex: 1 1 auto !important;
-        min-height: 36px !important;
+        position: absolute !important;
+        inset: 0 !important;
         width: 100% !important;
-        height: auto !important;
-        min-width: 0 !important;
-        font-size: 18px !important;
-        background: rgba(0, 0, 0, 0.35) !important;
-        border-color: rgba(200, 146, 42, 0.2) !important;
-        color: var(--cream) !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
+        height: 100% !important;
+        border: none !important;
+        border-radius: 0 !important;
+        background: rgba(0, 0, 0, 0.3) !important;
+        display: block !important;
+      }
+      body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item .item-icon img {
+        position: absolute !important;
+        inset: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
+        object-position: center !important;
       }
       body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item .item-level {
-        background: rgba(0, 0, 0, 0.65) !important;
+        background: rgba(0, 0, 0, 0.72) !important;
         color: var(--amber-glow) !important;
         font-size: 8px !important;
         padding: 1px 4px !important;
-        top: 3px;
-        left: 3px;
-        right: auto;
+        top: 3px !important;
+        left: 3px !important;
+        right: auto !important;
+        bottom: auto !important;
+        z-index: 2 !important;
       }
-      body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item .item-name {
-        background: rgba(0, 0, 0, 0.72) !important;
-        color: rgba(248, 245, 240, 0.95) !important;
-        font-size: 7.5px !important;
-        font-weight: 700;
-        bottom: 2px;
-        left: 2px;
-        right: 2px;
-        padding: 2px 3px !important;
-        line-height: 1.15;
-        white-space: normal !important;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-      }
-      body.page-profile #tab-inventory .profile-bag-grid.mode-compact .item-card.profile-inv-item {
-        min-height: 50px;
-      }
-      body.page-profile #tab-inventory .profile-bag-grid.mode-compact .item-card.profile-inv-item .item-icon {
-        min-height: 28px !important;
-        font-size: 16px !important;
+      body.page-profile #tab-inventory .profile-bag-grid .item-card.profile-inv-item .upgrade-arrow {
+        top: auto !important;
+        left: auto !important;
+        right: 3px !important;
+        bottom: 3px !important;
+        width: 12px !important;
+        height: 12px !important;
+        font-size: 7px !important;
+        z-index: 2 !important;
       }
       body.page-profile #tab-inventory .inv-bag-summary,
       body.page-profile #tab-inventory .inv-pagination .tag {
         color: rgba(232, 220, 200, 0.75) !important;
+      }
+      body.page-profile #tab-inventory .inv-spawn-admin-btn {
+        border-color: rgba(200, 146, 42, 0.55) !important;
+        color: #e8b84b !important;
+      }
+      #admin-spawn-item-modal.admin-spawn-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9200;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        box-sizing: border-box;
+      }
+      #admin-spawn-item-modal.admin-spawn-overlay.hidden {
+        display: none !important;
+      }
+      .admin-spawn-panel {
+        position: relative;
+        width: min(960px, 98vw);
+        max-height: 92vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        border-radius: 12px;
+        border: 1px solid rgba(200, 146, 42, 0.45);
+        background: #1a1410;
+        color: #e8dcc8;
+      }
+      .admin-spawn-close {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 3;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.4);
+        background: rgba(22, 16, 11, 0.92);
+        color: #e8b84b;
+        font-size: 20px;
+        cursor: pointer;
+      }
+      .admin-spawn-head {
+        padding: 10px 40px 8px 12px;
+        font-size: 14px;
+        font-weight: 700;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.2);
+      }
+      .admin-spawn-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.15);
+        flex-shrink: 0;
+      }
+      .admin-spawn-toolbar input,
+      .admin-spawn-toolbar select {
+        flex: 1;
+        min-width: 72px;
+        font-size: 11px;
+        padding: 6px 8px;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.3);
+        background: #1f1812;
+        color: #e5e2e1;
+      }
+      .admin-spawn-summary {
+        padding: 6px 10px;
+        font-size: 11px;
+        border-bottom: 1px solid rgba(200, 146, 42, 0.1);
+        flex-shrink: 0;
+      }
+      .admin-spawn-body {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 8px 10px 56px;
+      }
+      .admin-spawn-body-items {
+        margin-bottom: 10px;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid.lib-grid {
+        display: grid;
+        gap: 6px;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid.lib-grid--items {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card {
+        border: 2px solid #5a5248;
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.35);
+        cursor: pointer;
+        overflow: hidden;
+        text-align: center;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-1 {
+        border-color: #9ca3af;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-2 {
+        border-color: #22c55e;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-3 {
+        border-color: #3b82f6;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-4 {
+        border-color: #a855f7;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-5 {
+        border-color: #f59e0b;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-6 {
+        border-color: #ef4444;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-7 {
+        border-color: #ec4899;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-8 {
+        border-color: #06b6d4;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-9 {
+        border-color: #eab308;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card.lib-tier-10 {
+        border-color: #f472b6;
+        box-shadow: 0 0 8px rgba(234, 179, 8, 0.35);
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-art {
+        position: relative;
+        aspect-ratio: 1;
+        overflow: hidden;
+        background: #0d0a08;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-art img {
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        display: block;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-art .item-art-admin-wrap {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-art .item-art-admin-wrap--placeholder {
+        width: 100%;
+        height: 100%;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-art .item-art-admin-wrap--placeholder .lib-art-emoji {
+        font-size: 28px;
+        line-height: 1;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-art .item-art-admin-wrap img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .item-art-generate-btn {
+        width: 22px;
+        height: 22px;
+        top: 1px;
+        right: 1px;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-meta {
+        padding: 3px 4px 5px;
+        font-size: 9px;
+        line-height: 1.2;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-name {
+        font-weight: 700;
+        color: #e8dcc8;
+        white-space: normal;
+        word-break: break-word;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        min-height: 2.4em;
+      }
+      #admin-spawn-item-modal #admin-spawn-items-grid .lib-card-tier {
+        color: rgba(201, 184, 168, 0.8);
+      }
+      .admin-spawn-card.selected {
+        outline: 2px solid #e8b84b;
+        outline-offset: 1px;
+      }
+      .admin-spawn-leg-badge {
+        display: block;
+        font-size: 8px;
+        color: #f59e0b;
+        margin-top: 2px;
+      }
+      .admin-spawn-affix-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 36vh;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      #admin-spawn-affix-modal.admin-spawn-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9300;
+        background: rgba(0, 0, 0, 0.55);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        box-sizing: border-box;
+      }
+      #admin-spawn-affix-modal.admin-spawn-overlay.hidden {
+        display: none !important;
+      }
+      #admin-spawn-affix-modal .admin-spawn-affix-panel {
+        width: min(520px, 96vw);
+        max-height: 88vh;
+        display: flex;
+        flex-direction: column;
+        border-radius: 12px;
+        border: 1px solid rgba(200, 146, 42, 0.45);
+        background: #1a1410;
+        color: #e8dcc8;
+        padding: 12px;
+        gap: 8px;
+      }
+      #admin-spawn-affix-modal .admin-spawn-affix-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      #admin-spawn-affix-modal .admin-spawn-affix-toolbar input,
+      #admin-spawn-affix-modal .admin-spawn-affix-toolbar select {
+        flex: 1 1 120px;
+        min-width: 0;
+        font-size: 12px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        background: rgba(0, 0, 0, 0.35);
+        color: #e8dcc8;
+      }
+      #admin-spawn-affix-modal .admin-spawn-affix-list {
+        flex: 1;
+        min-height: 0;
+        max-height: 60vh;
+      }
+      .admin-spawn-affix-open-btn {
+        flex: 0 0 auto;
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        border: 1px solid rgba(200, 146, 42, 0.45);
+        background: rgba(200, 146, 42, 0.12);
+        color: #e8b84b;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .admin-spawn-fab {
+        position: absolute;
+        right: 14px;
+        bottom: 14px;
+        z-index: 4;
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        border: 2px solid rgba(232, 184, 75, 0.75);
+        background: linear-gradient(145deg, #3d2e14, #1a1410);
+        color: #e8b84b;
+        font-size: 24px;
+        line-height: 1;
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+      }
+      .admin-spawn-fab:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .admin-spawn-affix-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 8px;
+        border: 1px solid rgba(200, 146, 42, 0.2);
+        background: rgba(0, 0, 0, 0.25);
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .admin-spawn-affix-row.selected {
+        border-color: rgba(232, 184, 75, 0.65);
+        background: rgba(200, 146, 42, 0.12);
+      }
+      .admin-spawn-affix-row input {
+        margin-top: 2px;
+        flex-shrink: 0;
+      }
+      .admin-spawn-affix-meta {
+        flex: 1;
+        min-width: 0;
+      }
+      .admin-spawn-affix-name {
+        font-weight: 700;
+        color: #e8dcc8;
+      }
+      .admin-spawn-affix-desc {
+        display: block;
+        margin-top: 2px;
+        line-height: 1.25;
+      }
+      @media (max-width: 720px) {
+        #admin-spawn-item-modal #admin-spawn-items-grid.lib-grid--items {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
       }
       body.page-profile .section-head .tag {
         color: var(--amber-glow) !important;
@@ -905,22 +1289,49 @@
         color: rgba(232, 220, 200, 0.88);
       }
     </style>
-    <script src="./vendor/telegram-web-app.js"></script>
-    <script defer src="./app.js"></script>
+    <link rel="stylesheet" href="./assets/tutorial.css" />
+    <script defer src="./vendor/telegram-web-app.js"></script>
+    <script defer src="./assets/tutorial.js"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v50" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
   </head>
   <body class="page-profile" onload="WaifuApp.bootstrapPage('profile', WaifuApp.populateProfile);">
     <header class="attic">
       <div class="attic-row" aria-label="Основной чердак">
-        <div class="chip attic-level-chip" title="Уровень и опыт">
-          <div class="attic-level-top">⭐&nbsp;<strong id="badge-level">—</strong></div>
-          <div class="attic-xp-bar"><div class="attic-xp-fill" id="attic-xp-fill"></div></div>
+        <button type="button" class="attic-player-avatar" id="attic-player-avatar" aria-label="Профиль игрока" title="Профиль игрока" data-tutorial="attic-player-avatar">
+          <img id="attic-player-avatar-img" alt="" hidden />
+          <span class="attic-player-avatar-fallback" id="attic-player-avatar-fallback"></span>
+          <span class="attic-player-mail-badge" id="attic-player-mail-badge" hidden aria-hidden="true"></span>
+        </button>
+        <div class="attic-level-circle" id="attic-level-circle" title="Уровень основной вайфу / опыт">
+          <svg class="attic-level-ring" viewBox="0 0 36 36" aria-hidden="true">
+            <circle class="attic-level-ring-bg" cx="18" cy="18" r="16" />
+            <circle class="attic-level-ring-fg" id="attic-level-ring-fg" cx="18" cy="18" r="16" />
+          </svg>
+          <strong id="badge-level">—</strong>
         </div>
         <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)">
           <span id="attic-dungeon-label">Нет боя</span>
-          <span id="attic-dungeon-stages" class="attic-dungeon-stages" aria-hidden="true"></span>
+          <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden></div>
         </div>
-        <div class="chip chip-ghost" id="attic-expedition-chip" title="Активные экспедиции (нажми — вкладка Экспедиции)"></div>
-        <div class="chip" title="Золото">🪙&nbsp;<strong id="badge-gold">—</strong></div>
+        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Экспедиции">
+          <span class="attic-exp-ico" aria-hidden="true">🗺</span>
+          <div class="attic-exp-cells" id="attic-exp-cells" aria-label="Статус экспедиций"></div>
+        </div>
+        <div class="chip attic-gold-chip" id="attic-gold-chip" title="Золото">
+          <span class="attic-gold-ico" aria-hidden="true">🪙</span><strong id="badge-gold">—</strong>
+        </div>
+        <button type="button" class="attic-menu-btn" id="attic-menu-btn" aria-label="Меню разделов" aria-haspopup="true" aria-expanded="false">☰</button>
+      </div>
+      <div class="attic-menu" id="attic-menu" hidden role="menu" aria-label="Дополнительные разделы">
+        <a class="attic-menu-item" href="./profile.html?tab=inventory" role="menuitem">🎒 Инвентарь</a>
+        <a class="attic-menu-item" href="./profile.html?tab=info&info=statistics" role="menuitem">📊 Статистика</a>
+        <a class="attic-menu-item" href="./dungeons.html?tab=expedition" role="menuitem">🗺 Экспедиции</a>
+        <a class="attic-menu-item" href="./dungeons.html?tab=abyss" role="menuitem">🕳 Бездна</a>
+        <a class="attic-menu-item" href="./shop.html?tab=gamble" role="menuitem">🎲 Gamble</a>
+        <a class="attic-menu-item" href="./shop.html?tab=smith" role="menuitem">🔨 Кузнец</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=heal" role="menuitem">💊 Лечение</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=upgrade" role="menuitem">⬆ Прокачка наёмниц</a>
+        <a class="attic-menu-item" href="./player.html#settings" role="menuitem">⚙ Настройки</a>
       </div>
     </header>
 
@@ -941,7 +1352,7 @@
       </div>
       <div class="tabs profile-tabs">
         <button class="tab active" data-tab="profile" onclick="WaifuApp.switchProfileTab('profile')">Профиль</button>
-        <button class="tab" data-tab="inventory" onclick="WaifuApp.switchProfileTab('inventory')">Инвентарь</button>
+        <button class="tab" data-tab="inventory" data-tutorial="profile-inventory-tab" onclick="WaifuApp.switchProfileTab('inventory')">Инвентарь</button>
         <button class="tab" data-tab="info" onclick="WaifuApp.switchProfileTab('info')">Подробно</button>
         <button class="tab tab-reset admin-only" title="Сбросить вайфу" aria-label="Сбросить вайфу" onclick="WaifuApp.resetMainWaifu()" style="display:none">♻️</button>
         <button class="tab tab-levelup admin-only" title="Повысить уровень +1" aria-label="Повысить уровень ОВ на 1" onclick="WaifuApp.adminLevelUpWaifu()" style="display:none">⬆️</button>
@@ -952,14 +1363,38 @@
       <section id="tab-profile" class="tab-panel active">
         <div class="profile-mtg-stage">
           <div class="profile-mtg-stage-bg" aria-hidden="true"></div>
-          <img
-            class="profile-mtg-stage-bg-img"
-            src="/static/game/ui/profile/background.webp"
-            alt=""
-            onerror="this.style.display='none'"
-          />
           <div class="profile-mtg-wrap">
-            <article class="profile-mtg-card" aria-label="Основная вайфу">
+            <article class="profile-mtg-card" data-tutorial="profile-portrait" aria-label="Основная вайфу">
+              <button
+                type="button"
+                id="chat-reward-bag-btn"
+                class="chat-reward-bag-btn"
+                hidden
+                aria-label="Забрать награды за чат досрочно"
+                title="Награды за чат · авто-начисление в 00:00 МСК · нажмите, чтобы забрать досрочно"
+              >
+                <span class="chat-reward-bag-btn__icon" aria-hidden="true">
+                  <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      d="M16 4C12.5 4 10 6.2 10 9v2H8.5C6.8 11 5.5 12.5 5.5 14.5V24c0 2.2 1.8 4 4 4h13c2.2 0 4-1.8 4-4V14.5c0-2-1.3-3.5-3-3.5H22V9c0-2.8-2.5-5-6-5Z"
+                      fill="url(#chatBagGrad)"
+                      stroke="#e8b84b"
+                      stroke-width="1.2"
+                    />
+                    <path d="M12 11h8V9.5c0-1.7-1.3-3-4-3s-4 1.3-4 3V11Z" fill="#c8922a" opacity="0.85" />
+                    <circle cx="13" cy="18" r="1.2" fill="#fff8dc" opacity="0.9" />
+                    <circle cx="19" cy="21" r="0.9" fill="#fff8dc" opacity="0.75" />
+                    <circle cx="16" cy="24" r="1" fill="#fff8dc" opacity="0.85" />
+                    <defs>
+                      <linearGradient id="chatBagGrad" x1="8" y1="6" x2="24" y2="28" gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#f0d060" />
+                        <stop offset="0.55" stop-color="#c8922a" />
+                        <stop offset="1" stop-color="#8a5a12" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                </span>
+              </button>
               <div class="profile-mtg-bg" id="profile-mtg-bg" aria-hidden="true">
                 <span class="profile-mtg-fallback" id="profile-mtg-fallback" aria-hidden="true"></span>
               </div>
@@ -980,6 +1415,7 @@
                 <div
                   class="profile-stats-list profile-stats-list--mtg"
                   id="profile-stats-strip"
+                  data-tutorial="profile-stats"
                   aria-label="Основные характеристики"
                 ></div>
                 <div class="profile-mtg-xp-block" aria-label="Опыт">
@@ -997,13 +1433,13 @@
               aria-label="Админ: добавить к характеристикам"
               style="display: none"
             >
-              <button type="button" class="profile-admin-stat-btn" title="СИЛ +100" aria-label="СИЛ +100" onclick="WaifuApp.adminAddMainWaifuStat('strength')">💪</button>
-              <button type="button" class="profile-admin-stat-btn" title="ЛОВ +100" aria-label="ЛОВ +100" onclick="WaifuApp.adminAddMainWaifuStat('agility')">🎯</button>
-              <button type="button" class="profile-admin-stat-btn" title="ИНТ +100" aria-label="ИНТ +100" onclick="WaifuApp.adminAddMainWaifuStat('intelligence')">🧠</button>
-              <button type="button" class="profile-admin-stat-btn" title="ВЫН +100" aria-label="ВЫН +100" onclick="WaifuApp.adminAddMainWaifuStat('endurance')">🛡️</button>
-              <button type="button" class="profile-admin-stat-btn" title="ОБА +100" aria-label="ОБА +100" onclick="WaifuApp.adminAddMainWaifuStat('charm')">🎭</button>
-              <button type="button" class="profile-admin-stat-btn" title="УДЧ +100" aria-label="УДЧ +100" onclick="WaifuApp.adminAddMainWaifuStat('luck')">🍀</button>
-              <button type="button" class="profile-admin-stat-btn" title="ОХ +100" aria-label="Очки характеристик +100" onclick="WaifuApp.adminAddStatPoints()">⭐</button>
+              <button type="button" class="profile-admin-stat-btn" title="СИЛ +100" aria-label="СИЛ +100" onclick="WaifuApp.adminAddMainWaifuStat('strength', event)">💪</button>
+              <button type="button" class="profile-admin-stat-btn" title="ЛОВ +100" aria-label="ЛОВ +100" onclick="WaifuApp.adminAddMainWaifuStat('agility', event)">🎯</button>
+              <button type="button" class="profile-admin-stat-btn" title="ИНТ +100" aria-label="ИНТ +100" onclick="WaifuApp.adminAddMainWaifuStat('intelligence', event)">🧠</button>
+              <button type="button" class="profile-admin-stat-btn" title="ВЫН +100" aria-label="ВЫН +100" onclick="WaifuApp.adminAddMainWaifuStat('endurance', event)">🛡️</button>
+              <button type="button" class="profile-admin-stat-btn" title="ОБА +100" aria-label="ОБА +100" onclick="WaifuApp.adminAddMainWaifuStat('charm', event)">🎭</button>
+              <button type="button" class="profile-admin-stat-btn" title="УДЧ +100" aria-label="УДЧ +100" onclick="WaifuApp.adminAddMainWaifuStat('luck', event)">🍀</button>
+              <button type="button" class="profile-admin-stat-btn" title="ОХ +100" aria-label="Очки характеристик +100" onclick="WaifuApp.adminAddStatPoints(event)">⭐</button>
             </div>
           </div>
         </div>
@@ -1022,7 +1458,7 @@
         </button>
 
         <!-- Equipment (JS renders content here) -->
-        <div id="profile-gear" class="profile-gear-layout placeholder">Загрузка экипировки...</div>
+        <div id="profile-gear" class="profile-gear-layout placeholder" data-tutorial="profile-equipment">Загрузка экипировки...</div>
 
         <!-- Bag section -->
         <div class="inv-bag-wrap">
@@ -1031,6 +1467,14 @@
             <button class="inv-filter-btn active" id="profile-filter-weapon" onclick="WaifuApp.toggleProfileInventoryFilter('weapon')">⚔ Оружие</button>
             <button class="inv-filter-btn active" id="profile-filter-armor" onclick="WaifuApp.toggleProfileInventoryFilter('armor')">🛡 Броня</button>
             <button class="inv-filter-btn active" id="profile-filter-accessory" onclick="WaifuApp.toggleProfileInventoryFilter('accessory')">💍 Акс.</button>
+            <button
+              type="button"
+              class="inv-filter-btn inv-spawn-admin-btn admin-only"
+              id="admin-spawn-item-btn"
+              title="Сгенерировать предмет (админ)"
+              onclick="WaifuApp.adminOpenSpawnItemModal()"
+              style="display: none"
+            >＋ Предмет</button>
             <div class="inv-sort-wrap">
               <select id="profile-sort-select" class="inv-sort-select" onchange="WaifuApp.setProfileInventorySort(this.value)">
                 <option value="level">Ур.</option>
@@ -1083,6 +1527,13 @@
             <div id="profile-raceclass-content" class="profile-raceclass-root"></div>
           </div>
         </div>
+
+        <div class="section" id="profile-abyss-section" hidden>
+          <div class="section-head">
+            <h3>🕳️ Бездна</h3>
+          </div>
+          <div id="profile-abyss-stats" class="details-grid profile-detail-grid"></div>
+        </div>
       </section>
     </main>
 
@@ -1109,6 +1560,14 @@
             <div class="muted tiny" id="slot-modal-subtitle">—</div>
           </div>
           <button type="button" class="secondary slot-modal-close" onclick="WaifuApp.closeSlotModal()" aria-label="Закрыть">✖</button>
+        </div>
+        <div id="slot-sort-wrap" class="inv-sort-wrap" style="display:none;">
+          <select id="slot-sort-select" class="inv-sort-select" onchange="WaifuApp.setSlotSort(this.value)">
+            <option value="level">Ур.</option>
+            <option value="damage">Урон</option>
+            <option value="stats">Статы</option>
+          </select>
+          <button id="slot-sort-direction" class="inv-sort-dir" onclick="WaifuApp.toggleSlotSortDir()">▼</button>
         </div>
         <div class="modal-body slot-modal-body" id="slot-modal-body">
           <div class="placeholder">Загрузка...</div>
@@ -1165,17 +1624,18 @@
             <div class="item-modal-v2-req-pills" id="item-modal-requirements" aria-live="polite"></div>
           </div>
           <div class="item-modal-v2-desc" id="item-modal-desc" style="display:none;"></div>
-          <div class="item-modal-v2-scroll-pad" aria-hidden="true"></div>
-        </div>
-        <footer class="item-modal-v2-footer">
-          <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
-            <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
-            <button class="item-modal-v2-btn item-modal-v2-btn--ench" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;">Заточить</button>
-            <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
-            <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
-            <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip" type="button" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Надеть</button>
+          <div class="item-modal-v2-cta">
+            <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
+              <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip" type="button" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Надеть</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--ench item-modal-v2-btn--icon" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;" aria-label="Заточить" title="Заточить">⚒</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--neutral item-modal-v2-btn--icon" id="item-modal-dismantle" type="button" onclick="WaifuApp.openItemDismantleConfirmOverlay()" style="display:none;" aria-label="Распылить" title="Распылить">✨</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
+            </div>
           </div>
-        </footer>
+          <div class="item-modal-v2-scroll-pad shop-offer-modal-scroll-pad" aria-hidden="true"></div>
+        </div>
       </div>
       </div>
       <div
@@ -1195,6 +1655,26 @@
           <div class="item-modal-sell-actions">
             <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemSellConfirmOverlay()">Отмена</button>
             <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" onclick="WaifuApp.confirmSellSelectedItem()">Продать</button>
+          </div>
+        </div>
+      </div>
+      <div
+        id="item-modal-dismantle-overlay"
+        class="item-modal-sell-overlay"
+        style="display: none"
+        role="dialog"
+        aria-modal="true"
+        aria-hidden="true"
+        aria-labelledby="item-modal-dismantle-title"
+        onclick="if (event.target === this) WaifuApp.closeItemDismantleConfirmOverlay()"
+      >
+        <div class="item-modal-sell-panel" onclick="event.stopPropagation()">
+          <div class="item-modal-sell-title" id="item-modal-dismantle-title">Распылить предмет?</div>
+          <div class="item-modal-sell-name muted tiny" id="item-modal-dismantle-item-name">—</div>
+          <div class="item-modal-sell-price-line">Вы получите <strong>✨ <span id="item-modal-dismantle-dust">—</span></strong> пыли (без золота)</div>
+          <div class="item-modal-sell-actions">
+            <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemDismantleConfirmOverlay()">Отмена</button>
+            <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" onclick="WaifuApp.confirmDismantleSelectedItem()">Распылить</button>
           </div>
         </div>
       </div>
@@ -1244,15 +1724,129 @@
       </div>
     </div>
 
+    <div id="chat-reward-claim-modal" hidden role="dialog" aria-modal="true" aria-labelledby="chat-reward-claim-title">
+      <div id="chat-reward-claim-dialog" class="chat-reward-claim-dialog">
+        <h3 id="chat-reward-claim-title">Награды за чат</h3>
+        <p id="chat-reward-claim-sub" class="chat-reward-claim-sub muted">Золото и опыт уже на счету. Обычно начисляются автоматически в 00:00 МСК.</p>
+        <div id="chat-reward-claim-body"></div>
+        <button type="button" class="btn primary" style="width:100%;margin-top:12px" onclick="WaifuApp.closeChatRewardClaimModal()">Отлично</button>
+      </div>
+    </div>
+
+    <div
+      id="admin-spawn-item-modal"
+      class="admin-spawn-overlay hidden"
+      aria-hidden="true"
+      onclick="if (event.target === this) WaifuApp.adminCloseSpawnItemModal()"
+    >
+      <div class="admin-spawn-panel" role="dialog" aria-labelledby="admin-spawn-title">
+        <button
+          type="button"
+          class="admin-spawn-close"
+          aria-label="Закрыть"
+          onclick="WaifuApp.adminCloseSpawnItemModal()"
+        >×</button>
+        <div class="admin-spawn-head" id="admin-spawn-title">Генерация предмета (админ)</div>
+        <div class="admin-spawn-toolbar">
+          <input id="admin-spawn-search" type="search" placeholder="Предмет…" />
+          <select id="admin-spawn-tier">
+            <option value="all">Все тиры</option>
+            <option value="1">T1</option><option value="2">T2</option><option value="3">T3</option>
+            <option value="4">T4</option><option value="5">T5</option><option value="6">T6</option>
+            <option value="7">T7</option><option value="8">T8</option><option value="9">T9</option>
+            <option value="10">T10</option>
+          </select>
+          <select id="admin-spawn-item-kind">
+            <option value="all">Все типы</option>
+            <option value="base">Базовые</option>
+            <option value="legendary">Легендарные</option>
+          </select>
+          <select id="admin-spawn-slot">
+            <option value="all">Все слоты</option>
+            <option value="weapon_1h">Оружие 1H</option>
+            <option value="weapon_2h">Оружие 2H</option>
+            <option value="offhand">Offhand</option>
+            <option value="costume">Доспех</option>
+            <option value="ring">Кольцо</option>
+            <option value="amulet">Амулет</option>
+          </select>
+          <select id="admin-spawn-base-grade-filter">
+            <option value="all">Все грейды</option>
+            <option value="0">Обычный</option>
+            <option value="1">Возвышенный</option>
+            <option value="2">Апогей</option>
+          </select>
+          <button
+            type="button"
+            id="admin-spawn-affix-open-btn"
+            class="admin-spawn-affix-open-btn"
+            onclick="WaifuApp.adminOpenSpawnAffixModal()"
+          >Аффиксы (0)</button>
+          <select id="admin-spawn-rarity">
+            <option value="1">Обычная</option>
+            <option value="2" selected>Необычная</option>
+            <option value="3">Редкая</option>
+            <option value="4">Эпическая</option>
+          </select>
+        </div>
+        <div id="admin-spawn-config" class="admin-spawn-summary muted tiny">Выберите шаблон.</div>
+        <div class="admin-spawn-body">
+          <div class="admin-spawn-body-items">
+            <div id="admin-spawn-items-grid" class="lib-grid lib-grid--items"></div>
+          </div>
+        </div>
+        <button
+          type="button"
+          class="admin-spawn-fab"
+          id="admin-spawn-submit-fab"
+          aria-label="Добавить в инвентарь"
+          onclick="WaifuApp.adminSpawnSubmit()"
+          disabled
+        >🎒</button>
+      </div>
+    </div>
+
+    <div
+      id="admin-spawn-affix-modal"
+      class="admin-spawn-overlay hidden"
+      aria-hidden="true"
+      onclick="if (event.target === this) WaifuApp.adminCloseSpawnAffixModal()"
+    >
+      <div class="admin-spawn-affix-panel" role="dialog" aria-labelledby="admin-spawn-affix-title">
+        <div class="admin-spawn-head" id="admin-spawn-affix-title">Аффиксы</div>
+        <div class="admin-spawn-affix-toolbar">
+          <input id="admin-spawn-affix-search" type="search" placeholder="Аффиксы…" />
+          <select id="admin-spawn-affix-kind">
+            <option value="all">Все типы</option>
+            <option value="prefix">Префиксы</option>
+            <option value="suffix">Суффиксы</option>
+          </select>
+          <select id="admin-spawn-affix-category">
+            <option value="all">Все категории</option>
+            <option value="stats">Основные статы</option>
+            <option value="damage">Урон и крит</option>
+            <option value="defense">Защита и выживаемость</option>
+            <option value="economy">Золото, опыт, торговля</option>
+            <option value="skills">Навыки / пассивы</option>
+            <option value="monster">Урон по типам монстров</option>
+            <option value="media">Урон от медиа</option>
+            <option value="other">Прочее</option>
+          </select>
+        </div>
+        <div id="admin-spawn-affix-list" class="admin-spawn-affix-list"></div>
+        <button type="button" class="btn primary" style="width:100%" onclick="WaifuApp.adminCloseSpawnAffixModal()">Готово</button>
+      </div>
+    </div>
+
     <nav class="nav basement">
-      <a href="./profile.html" data-page="profile" title="Профиль"><span aria-hidden="true">👤</span></a>
-      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"><span aria-hidden="true">🏰</span></a>
-      <a href="./shop.html" data-page="shop" title="Магазин"><span aria-hidden="true">🏪</span></a>
-      <a href="./tavern.html" data-page="tavern" title="Таверна"><span aria-hidden="true">🍻</span></a>
-      <a href="./caravan.html" data-page="caravan" title="Караван"><span aria-hidden="true">🐫</span></a>
-      <a href="./guild_hall.html" data-page="guild" title="Гильдия"><span aria-hidden="true">🏛️</span></a>
-      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"><span aria-hidden="true">💪</span></a>
-      <a href="./index.html" data-page="menu" title="Главное меню"><span aria-hidden="true">🏠</span></a>
+      <a href="./profile.html" data-page="profile" title="Профиль"></a>
+      <a href="./dungeons.html" data-page="dungeons" title="Подземелья"></a>
+      <a href="./shop.html" data-page="shop" title="Магазин"></a>
+      <a href="./tavern.html" data-page="tavern" title="Таверна"></a>
+      <a href="./caravan.html" data-page="caravan" title="Караван"></a>
+      <a href="./guild_hall.html" data-page="guild" title="Гильдия"></a>
+      <a href="./training_hall.html" data-page="training" title="Тренировочный зал"></a>
+      <a href="./index.html" data-page="menu" title="Главное меню"></a>
     </nav>
   </body>
 </html>

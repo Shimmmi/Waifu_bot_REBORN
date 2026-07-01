@@ -41,6 +41,13 @@ from waifu_bot.db.models import (  # noqa: F401
     PlayerGameAction,
     GDEventTemplate,
     GDCompletion,
+    ChatAudioTrack,
+    ChatAudioCapturePending,
+    AbyssProgress,
+    AbyssCheckpointBoss,
+    AbyssGrace,
+    AbyssWeeklyLeaderboard,
+    AbyssShardsShopItem,
 )
 
 # this is the Alembic Config object, which provides

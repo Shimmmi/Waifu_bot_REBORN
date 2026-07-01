@@ -13,6 +13,8 @@ from sqlalchemy import (
     String,
     Text,
     CheckConstraint,
+    UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -96,7 +98,7 @@ class InventoryItem(Base):
     __tablename__ = "inventory_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    player_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("players.id"))
+    player_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("players.id"), nullable=True)
     item_id: Mapped[int] = mapped_column(Integer, ForeignKey("items.id"))
     rarity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -130,6 +132,18 @@ class InventoryItem(Base):
     enchant_arm_step: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     enchant_sec_step: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     is_broken: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Instance secondary snapshot (template / awaken / craft)
+    secondary_bonus_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    secondary_bonus_value: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    secondary_awakened: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    secondary_fraction_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    secondary_fraction_value: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+
+    # Snapshot of curated legendary unique bonus ids from item_base_templates
+    legendary_bonus_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer), nullable=False, default=list
+    )
 
     # Relationships
     player: Mapped["Player"] = relationship("Player", back_populates="inventory_items")
@@ -232,19 +246,68 @@ class InventoryAffix(Base):
     )
 
     inventory_item: Mapped["InventoryItem"] = relationship("InventoryItem", back_populates="affixes")
+    family: Mapped["AffixFamily | None"] = relationship("AffixFamily", foreign_keys=[family_id])
+
+
+class PlayerItemCodex(Base):
+    """Per-player discovery of a base item template (library items tab)."""
+
+    __tablename__ = "player_item_codex"
+
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id", ondelete="CASCADE"), primary_key=True
+    )
+    base_template_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("item_base_templates.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    seen_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class PlayerAffixCodex(Base):
+    """Per-player discovery of an affix catalog entry (legacy affix or diablo family)."""
+
+    __tablename__ = "player_affix_codex"
+
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id", ondelete="CASCADE"), primary_key=True
+    )
+    catalog_kind: Mapped[str] = mapped_column(String(32), primary_key=True)
+    catalog_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
 
 
 class ShopOffer(Base):
-    """Daily shop offer for an act."""
+    """Daily personal shop offer for a player and act."""
 
     __tablename__ = "shop_offers"
+    __table_args__ = (
+        UniqueConstraint("player_id", "act", "slot", name="uq_shop_offers_player_act_slot"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id", ondelete="CASCADE"), index=True, nullable=False
+    )
     act: Mapped[int] = mapped_column(Integer, nullable=False)
     slot: Mapped[int] = mapped_column(Integer, nullable=False)
-    inventory_item_id: Mapped[int] = mapped_column(Integer, ForeignKey("inventory_items.id", ondelete="CASCADE"))
+    inventory_item_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("inventory_items.id", ondelete="SET NULL"), nullable=True
+    )
     price_base: Mapped[int] = mapped_column(Integer, nullable=False)
+    purchased: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    refreshed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )

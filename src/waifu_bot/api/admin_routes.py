@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,8 +20,13 @@ from waifu_bot.services.passive_skills import compute_tavern_hire_price
 from waifu_bot.services.player_new_game_reset import clear_player_redis_keys, reset_player_to_new_game
 from waifu_bot.services.tavern import TavernService
 from waifu_bot.services.waifu_hp import sync_waifu_max_hp as _sync_waifu_max_hp
-
+from waifu_bot.services.item_service import ItemService
+from waifu_bot.api.library_routes import build_admin_template_entry, build_affix_catalog_entries
+from waifu_bot.services.item_codex import CATALOG_LEGACY
+from waifu_bot.game.item_display_name import compose_item_display_name_ru
 logger = logging.getLogger(__name__)
+
+item_service = ItemService()
 
 router = APIRouter()
 
@@ -74,6 +79,41 @@ async def admin_complete_dungeon(
 ):
     """Admin debug: complete current dungeon instantly."""
     result = await combat_service.admin_complete_dungeon(session, player_id)
+    if result.get("error"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result["error"])
+    return result
+
+
+@router.post("/admin/dungeons/simulate-damage", tags=["admin"])
+async def admin_simulate_damage(
+    media_type: int = Query(..., ge=1, le=8),
+    message_length: int = Query(0, ge=0, le=500),
+    message_text: str | None = Query(None),
+    player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: simulate one outgoing hit by media type (balance testing)."""
+    from waifu_bot.game.constants import MediaType
+
+    result = await combat_service.admin_simulate_message_damage(
+        session,
+        player_id,
+        MediaType(media_type),
+        message_length=message_length,
+        message_text=message_text,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result["error"])
+    return result
+
+
+@router.post("/admin/dungeons/simulate-retaliation", tags=["admin"])
+async def admin_simulate_retaliation(
+    player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: simulate monster retaliation without defeating the monster."""
+    result = await combat_service.admin_simulate_retaliation(session, player_id)
     if result.get("error"):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result["error"])
     return result
@@ -250,6 +290,94 @@ async def admin_reset_main_waifu_stat_spend(
     }
 
 
+@router.get("/admin/spawn-item/catalog", tags=["admin"])
+async def admin_spawn_item_catalog(
+    player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Full item templates + affix catalog for admin spawn UI (no codex redaction)."""
+    templates = list(
+        (
+            await session.execute(
+                text("SELECT * FROM item_base_templates ORDER BY tier, name")
+            )
+        )
+        .mappings()
+        .all()
+    )
+    items = [build_admin_template_entry(t) for t in templates]
+    seen_legacy = {int(x) for x in (await session.scalars(select(m.Affix.id))).all()}
+    seen_diablo = {int(x) for x in (await session.scalars(select(m.AffixFamily.id))).all()}
+    affix_entries = [
+        e
+        for e in await build_affix_catalog_entries(
+            session, seen_legacy=seen_legacy, seen_diablo=seen_diablo
+        )
+        if e.get("catalog_kind") != CATALOG_LEGACY
+    ]
+    return {
+        "items": items,
+        "affixes": affix_entries,
+        "summary": {
+            "items_total": len(items),
+            "affixes_total": len(affix_entries),
+        },
+    }
+
+
+@router.post("/admin/inventory/spawn-item", tags=["admin"], response_model=schemas.AdminSpawnItemResponse)
+async def admin_spawn_inventory_item(
+    body: schemas.AdminSpawnItemRequest,
+    player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: create inventory item from base template + optional affix picks."""
+    player = await session.get(m.Player, int(player_id))
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="player_not_found")
+    act = max(1, int(getattr(player, "current_act", 1) or 1))
+    affix_payload = [
+        {"catalog_kind": a.catalog_kind, "catalog_id": int(a.catalog_id)}
+        for a in (body.affixes or [])
+    ]
+    try:
+        inv, affixes_requested, affixes_applied = await item_service.generate_admin_inventory_item(
+            session,
+            int(player_id),
+            base_template_id=int(body.base_template_id),
+            act=act,
+            rarity=int(body.rarity),
+            level=body.level,
+            is_legendary=bool(body.is_legendary),
+            affixes=affix_payload,
+            base_grade=int(body.base_grade or 0),
+        )
+    except ValueError as e:
+        if str(e) == "base_template_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="base_template_not_found"
+            ) from e
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("admin_spawn_inventory_item failed player_id=%s", player_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="spawn_failed",
+        ) from e
+
+    _base, display_name = compose_item_display_name_ru(inv)
+    await session.commit()
+    return schemas.AdminSpawnItemResponse(
+        success=True,
+        inventory_item_id=int(inv.id),
+        name=display_name,
+        rarity=int(inv.rarity or body.rarity),
+        affix_count=len(inv.affixes or []),
+        affixes_requested=int(affixes_requested),
+        affixes_applied=int(affixes_applied),
+    )
+
+
 @router.post("/admin/items/clear", tags=["admin"])
 async def admin_clear_all_items(
     player_id: int = Depends(require_admin),
@@ -357,6 +485,88 @@ async def admin_expeditions_refresh(
             detail=str(e),
         )
 
+
+@router.post("/admin/expedition-art/generate", tags=["admin"])
+async def admin_generate_expedition_art(
+    slot_id: int | None = Query(None, ge=1),
+    archetype_id: str | None = Query(None, min_length=1, max_length=32),
+    active_id: int | None = Query(None, ge=1),
+    _admin: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: generate watercolor expedition location WEBP via OpenRouter."""
+    from waifu_bot.paths import static_game_directory
+
+    try:
+        from waifu_bot.services.expedition_art_generation import generate_expedition_archetype_art_webp
+    except ImportError:
+        logger.exception("admin_generate_expedition_art: Pillow/expedition_art_generation import failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="expedition_art_pillow_unavailable",
+        )
+
+    resolved_archetype_id = (archetype_id or "").strip() or None
+    resolved_slot_id = slot_id
+
+    if active_id is not None:
+        from waifu_bot.db.models.expedition import ActiveExpedition
+
+        active = await session.get(ActiveExpedition, int(active_id))
+        if not active:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="active_expedition_not_found")
+        resolved_archetype_id = resolved_archetype_id or getattr(active, "location_archetype_id", None)
+        if not resolved_slot_id:
+            resolved_slot_id = getattr(active, "expedition_slot_id", None)
+
+    if resolved_slot_id is not None:
+        slot = await session.get(m.ExpeditionSlot, int(resolved_slot_id))
+        if slot:
+            if not resolved_archetype_id:
+                resolved_archetype_id = getattr(slot, "location_archetype_id", None)
+        else:
+            # Слот мог устареть (новый день) — генерируем по archetype_id без контекста affix/mode.
+            resolved_slot_id = None
+
+    if not resolved_archetype_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="archetype_id_required")
+
+    result = await generate_expedition_archetype_art_webp(
+        session,
+        archetype_id=str(resolved_archetype_id),
+        slot_id=int(resolved_slot_id) if resolved_slot_id else None,
+    )
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="expedition_art_generation_failed",
+        )
+
+    out_file = static_game_directory() / result.relative_path
+    try:
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_bytes(result.webp_bytes)
+    except OSError:
+        logger.exception(
+            "admin_generate_expedition_art write failed path=%s (check REPO_ROOT / filesystem permissions)",
+            out_file,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="expedition_art_write_failed",
+        )
+
+    import time
+
+    cache_bust = int(time.time())
+    image_url = f"/static/game/{result.relative_path}?v={cache_bust}"
+    return {
+        "ok": True,
+        "archetype_id": result.archetype_id,
+        "image_url": image_url,
+    }
+
+
 @router.post("/admin/item-art/generate", tags=["admin"])
 async def admin_generate_item_art(
     art_key: str = Query(..., min_length=1, max_length=191),
@@ -367,8 +577,7 @@ async def admin_generate_item_art(
     session: AsyncSession = Depends(get_db),
 ):
     """Admin: generate pixel-art WEBP icon via OpenRouter; save under static/game/items/webp/."""
-    from waifu_bot.paths import static_game_directory
-    from waifu_bot.services.item_art import game_asset_public_url
+    from waifu_bot.services.item_art import ItemArtPersistError, persist_item_art_webp
 
     try:
         from waifu_bot.services.item_art_generation import generate_item_pixel_art_webp, normalize_art_key
@@ -398,57 +607,21 @@ async def admin_generate_item_art(
             detail="item_art_generation_failed",
         )
 
-    out_dir = static_game_directory() / "items" / "webp" / ak
-    out_file = out_dir / f"t{tier}.webp"
     try:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_file.write_bytes(webp)
-    except OSError:
-        logger.exception(
-            "admin_generate_item_art write failed path=%s (check REPO_ROOT / filesystem permissions)",
-            out_file,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="item_art_write_failed",
-        )
-
-    db_rel = f"items_webp/{ak}/t{tier}.webp"
-    row = (
-        await session.execute(
-            select(m.ItemArt).where(m.ItemArt.art_key == ak, m.ItemArt.tier == int(tier))
-        )
-    ).scalar_one_or_none()
-    if row:
-        row.relative_path = db_rel
-        row.mime = "image/webp"
-        row.enabled = True
-    else:
-        session.add(
-            m.ItemArt(
-                art_key=ak,
-                tier=int(tier),
-                relative_path=db_rel,
-                mime="image/webp",
-                enabled=True,
-            )
-        )
-    try:
-        await session.commit()
-    except SQLAlchemyError:
-        await session.rollback()
-        logger.exception("admin_generate_item_art DB commit failed art_key=%s tier=%s", ak, tier)
-        try:
-            out_file.unlink(missing_ok=True)
-        except OSError:
-            logger.exception("admin_generate_item_art unlink after DB fail path=%s", out_file)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="item_art_db_failed")
+        image_url = await persist_item_art_webp(session, ak, tier, webp)
+    except ItemArtPersistError as exc:
+        code = exc.code
+        if code == "invalid_art_key":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code)
+        if code == "item_art_db_failed":
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=code)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=code)
 
     return {
         "success": True,
         "art_key": ak,
         "tier": int(tier),
-        "image_url": game_asset_public_url(db_rel),
+        "image_url": image_url,
     }
 
 
@@ -518,4 +691,93 @@ async def admin_generate_monster_art(
         "slug": result.slug,
         "image_url": game_asset_public_url(result.relative_path),
     }
+
+
+@router.post("/admin/story-boss-art/generate", tags=["admin"])
+async def admin_generate_story_boss_art(
+    story_boss_definition_id: int = Query(..., ge=1),
+    admin_player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: generate anime-style story boss WEBP; save under static/game/bosses/webp/."""
+    from waifu_bot.paths import static_game_directory
+    from waifu_bot.services.item_art import game_asset_public_url
+
+    try:
+        from waifu_bot.services.monster_art_generation import generate_story_boss_art_webp
+    except ImportError:
+        logger.exception("admin_generate_story_boss_art: Pillow/monster_art_generation import failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="monster_art_pillow_unavailable",
+        )
+
+    sbd = await session.get(m.StoryBossDefinition, int(story_boss_definition_id))
+    if not sbd:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="story_boss_definition_not_found")
+
+    result = await generate_story_boss_art_webp(session, int(story_boss_definition_id))
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="story_boss_art_generation_failed",
+        )
+
+    out_file = static_game_directory() / "bosses" / "webp" / f"{result.slug}.webp"
+    try:
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_bytes(result.webp_bytes)
+    except OSError:
+        logger.exception(
+            "admin_generate_story_boss_art write failed path=%s (check REPO_ROOT / filesystem permissions)",
+            out_file,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="story_boss_art_write_failed",
+        )
+
+    public_path = game_asset_public_url(result.relative_path)
+    sbd.image_webp_path = public_path
+    try:
+        await session.commit()
+    except SQLAlchemyError:
+        await session.rollback()
+        logger.exception(
+            "admin_generate_story_boss_art DB commit failed story_boss_definition_id=%s",
+            story_boss_definition_id,
+        )
+        try:
+            out_file.unlink(missing_ok=True)
+        except OSError:
+            logger.exception("admin_generate_story_boss_art unlink after DB fail path=%s", out_file)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="story_boss_art_db_failed")
+
+    return {
+        "success": True,
+        "story_boss_definition_id": int(story_boss_definition_id),
+        "slug": result.slug,
+        "image_url": public_path,
+    }
+
+
+@router.post("/admin/guilds/{guild_id}/restore-founder-leadership", tags=["admin"])
+async def admin_restore_founder_leadership(
+    guild_id: int,
+    player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.guild_leader_integrity import restore_founder_leadership
+
+    result = await restore_founder_leadership(
+        session, int(guild_id), actor_player_id=int(player_id)
+    )
+    if result.get("error"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result["error"],
+        )
+    if result.get("changed"):
+        await session.commit()
+    return result
 

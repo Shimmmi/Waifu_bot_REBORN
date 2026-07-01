@@ -1,8 +1,15 @@
 """Database models."""
+from waifu_bot.db.models.chat_reward import (
+    PlayerChatActivityDaily,
+    PlayerChatActivityTotal,
+    PlayerChatRewardWallet,
+)
 from waifu_bot.db.models.player import Player
+from waifu_bot.db.models.player_mail import PlayerMail, PlayerMailStatus
 from waifu_bot.db.models.hidden_skill import HiddenSkillDefinition, PlayerHiddenSkill
 from waifu_bot.db.models.passive_skill import PassiveSkillNode, PlayerPassiveSkill
 from waifu_bot.db.models.game_config import GameConfig
+from waifu_bot.db.models.legendary_bonus import LegendaryBonus
 from waifu_bot.db.models.waifu import (
     MainWaifu,
     MainWaifuPortraitDraft,
@@ -13,7 +20,19 @@ from waifu_bot.db.models.waifu import (
     WaifuClass,
     WaifuRarity,
 )
-from waifu_bot.db.models.item import Item, InventoryItem, ItemRarity, ItemType, ItemTemplate, Affix, InventoryAffix, ShopOffer
+from waifu_bot.db.models.item import (
+    Item,
+    InventoryItem,
+    ItemRarity,
+    ItemType,
+    ItemTemplate,
+    Affix,
+    InventoryAffix,
+    PlayerItemCodex,
+    PlayerAffixCodex,
+    ShopOffer,
+)
+from waifu_bot.db.models.gamble_offer import GambleOffer
 from waifu_bot.db.models.story_boss import PlayerStoryBossFirstKill, StoryBossDefinition
 from waifu_bot.db.models.story_seen import PlayerDungeonStorySeen
 from waifu_bot.db.models.dungeon import (
@@ -28,10 +47,22 @@ from waifu_bot.db.models.dungeon import (
     DungeonRun,
     DungeonRunMonster,
     DropRule,
+    PlayerMonsterCodex,
 )
 from waifu_bot.db.models.endless import PlayerDungeonPlus, ItemBase, AffixFamily, AffixFamilyTier
 from waifu_bot.db.models.art import ItemArt
 from waifu_bot.db.models.guild import Guild, GuildMember, GuildBank
+from waifu_bot.db.models.guild_quest import (
+    GuildQuest,
+    GuildQuestCategory,
+    GuildQuestContribution,
+    GuildQuestPlayerBuff,
+    GuildQuestStatus,
+    GuildQuestTemplate,
+    GuildQuestTier,
+    GuildQuestType,
+    GuildWeeklyQuestBallot,
+)
 from waifu_bot.db.models.guild_extended import (
     GuildLevelThreshold,
     GuildSkillDefinition,
@@ -39,16 +70,29 @@ from waifu_bot.db.models.guild_extended import (
     GuildRaidTemplate,
     GuildRaid,
     GuildRaidParticipant,
+    GuildRaidMuster,
+    GuildRaidChatEvent,
+    GuildRaidDailyLog,
+    GuildRaidSlotSummary,
     GuildWar,
+    GuildMemberContributionWeekly,
     GuildGxpBankDaily,
     GuildWarScoreBankDaily,
     GuildWarStatus,
     GuildRaidStatus,
     GuildWarRowStatus,
+    GuildActivityLog,
 )
 from waifu_bot.db.models.skill import Skill, WaifuSkill
 from waifu_bot.db.models.battle import BattleLog
 from waifu_bot.db.models.tavern import TavernHireSlot, TavernState
+from waifu_bot.db.models.tavern_audio import (
+    ChatAudioCapturePending,
+    ChatAudioTrack,
+    PlayerBgmPlaylist,
+    PlayerBgmPlaylistTrack,
+    PlayerBgmPrefs,
+)
 from waifu_bot.db.models.expedition import ExpeditionAffix, ExpeditionSlot, ActiveExpedition
 from waifu_bot.db.models.group_dungeon import (
     GDDungeonTemplate,
@@ -57,6 +101,8 @@ from waifu_bot.db.models.group_dungeon import (
     GDEventTemplate,
     GDCompletion,
 )
+from waifu_bot.db.models.armory import ArmoryAdminActionLog, PlayerBan, PlayerEventLog
+from waifu_bot.db.models.bot_group_chat import BotGroupChat
 from waifu_bot.db.models.gd_cycle import (
     GDClassSkill,
     GDCycle,
@@ -66,14 +112,31 @@ from waifu_bot.db.models.gd_cycle import (
     GDSkillCooldown,
     GDRewardRow,
 )
+from waifu_bot.db.models.abyss import (
+    AbyssProgress,
+    AbyssCheckpointBoss,
+    AbyssGrace,
+    AbyssWeeklyLeaderboard,
+    AbyssShardsShopItem,
+)
 
 __all__ = [
+    "PlayerEventLog",
+    "ArmoryAdminActionLog",
+    "BotGroupChat",
+    "PlayerBan",
     "Player",
+    "PlayerChatRewardWallet",
+    "PlayerChatActivityDaily",
+    "PlayerChatActivityTotal",
+    "PlayerMail",
+    "PlayerMailStatus",
     "HiddenSkillDefinition",
     "PlayerHiddenSkill",
     "PassiveSkillNode",
     "PlayerPassiveSkill",
     "GameConfig",
+    "LegendaryBonus",
     "MainWaifu",
     "MainWaifuPortraitDraft",
     "MainWaifuPortraitVariant",
@@ -89,7 +152,10 @@ __all__ = [
     "ItemTemplate",
     "Affix",
     "InventoryAffix",
+    "PlayerItemCodex",
+    "PlayerAffixCodex",
     "ShopOffer",
+    "GambleOffer",
     "Dungeon",
     "DungeonProgress",
     "Monster",
@@ -101,6 +167,7 @@ __all__ = [
     "DungeonRun",
     "DungeonRunMonster",
     "DropRule",
+    "PlayerMonsterCodex",
     "StoryBossDefinition",
     "PlayerStoryBossFirstKill",
     "PlayerDungeonStorySeen",
@@ -112,13 +179,27 @@ __all__ = [
     "Guild",
     "GuildMember",
     "GuildBank",
+    "GuildQuest",
+    "GuildQuestCategory",
+    "GuildQuestContribution",
+    "GuildQuestPlayerBuff",
+    "GuildQuestStatus",
+    "GuildQuestTemplate",
+    "GuildQuestTier",
+    "GuildQuestType",
+    "GuildWeeklyQuestBallot",
     "GuildLevelThreshold",
     "GuildSkillDefinition",
     "GuildSkillLevelRow",
     "GuildRaidTemplate",
     "GuildRaid",
     "GuildRaidParticipant",
+    "GuildRaidMuster",
+    "GuildRaidChatEvent",
+    "GuildRaidDailyLog",
+    "GuildRaidSlotSummary",
     "GuildWar",
+    "GuildMemberContributionWeekly",
     "GuildGxpBankDaily",
     "GuildWarScoreBankDaily",
     "GuildWarStatus",
@@ -129,6 +210,11 @@ __all__ = [
     "BattleLog",
     "TavernHireSlot",
     "TavernState",
+    "ChatAudioTrack",
+    "ChatAudioCapturePending",
+    "PlayerBgmPlaylist",
+    "PlayerBgmPlaylistTrack",
+    "PlayerBgmPrefs",
     "ExpeditionAffix",
     "ExpeditionSlot",
     "ActiveExpedition",
@@ -144,4 +230,9 @@ __all__ = [
     "GDActiveEffect",
     "GDSkillCooldown",
     "GDRewardRow",
+    "AbyssProgress",
+    "AbyssCheckpointBoss",
+    "AbyssGrace",
+    "AbyssWeeklyLeaderboard",
+    "AbyssShardsShopItem",
 ]

@@ -1,6 +1,7 @@
 """GD v1.0: registration deadlines, round ticks, rewards."""
 from __future__ import annotations
 
+import asyncio
 import copy
 import logging
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from waifu_bot.db.models import (
 )
 from waifu_bot.db.session import get_session
 from waifu_bot.game.constants import (
+    GD_ROUND_DURATION_MINUTES_DEFAULT,
     GD_V1_START_CHAT_MESSAGE,
     MAX_LEVEL,
     WAIFU_CLASS_LABEL_RU,
@@ -31,6 +33,7 @@ from waifu_bot.services.combat import apply_main_waifu_levelups
 from waifu_bot.services.game_config_service import get_game_config_map, cfg_float
 from waifu_bot.services.gd_scaling import reward_level_multiplier
 from waifu_bot.services.gd_cycle_service import GDCycleService
+from waifu_bot.services import gd_active_cache as gd_active_cache_mod
 from waifu_bot.services.gd_narrative_ai import (
     generate_gd_finale_narrative,
     generate_gd_round_narrative,
@@ -66,6 +69,30 @@ def gd_v1_try_begin_round_processing(cycle_id: int) -> bool:
 def gd_v1_end_round_processing(cycle_id: int) -> None:
     """Освободить слот (после run_locked или при отмене в хендлере)."""
     _gd_v1_processing_cycle_ids.discard(cycle_id)
+
+
+def _chunk_text(text: str, limit: int = 3900) -> list[str]:
+    """Разбить длинный текст на сообщения <= limit, по возможности по границам строк."""
+    if len(text) <= limit:
+        return [text]
+    chunks: list[str] = []
+    cur = ""
+    for line in text.split("\n"):
+        if len(line) > limit:
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            for i in range(0, len(line), limit):
+                chunks.append(line[i : i + limit])
+            continue
+        if len(cur) + len(line) + 1 > limit:
+            chunks.append(cur)
+            cur = line
+        else:
+            cur = f"{cur}\n{line}" if cur else line
+    if cur:
+        chunks.append(cur)
+    return chunks
 
 
 def format_gd_battle_hp_system_message(battle_state: dict[str, Any] | None) -> str:
@@ -106,6 +133,54 @@ def format_gd_battle_hp_system_message(battle_state: dict[str, Any] | None) -> s
                 pct = int(100 * cur / mx)
                 lines.append(f"• {name}{boss} — {cur} / {mx} HP (~{pct}%)")
     return "\n".join(lines)
+
+
+def _compute_round_mvp(state: dict[str, Any] | None) -> tuple[int, str] | None:
+    """MVP по накопленному вкладу/активности на момент раунда (для победного нарратива)."""
+    st = state or {}
+    contrib = st.get("contribution") or {}
+    activity = st.get("activity_totals") or {}
+    party = st.get("party") or []
+    name_by_uid: dict[int, str] = {}
+    for p in party:
+        uid = p.get("user_id")
+        if uid is not None:
+            name_by_uid[int(uid)] = str(p.get("name") or f"Игрок {uid}")
+    scores: dict[int, float] = {}
+    for uid_str in set(list(contrib.keys()) + list(activity.keys())):
+        try:
+            uid = int(uid_str)
+        except (TypeError, ValueError):
+            continue
+        sc = float(activity.get(uid_str, 0.0))
+        if sc < 1.0:
+            c = contrib.get(uid_str, {}) or {}
+            sc = (
+                float(c.get("text") or 0) * 1.0
+                + float(c.get("skill") or 0) * 1.5
+                + float(c.get("heal") or 0) * 1.2
+                + float(c.get("rounds") or 0) * 10.0
+            )
+        scores[uid] = sc
+    if not scores:
+        return None
+    mvp_uid = max(scores, key=lambda u: scores[u])
+    return mvp_uid, name_by_uid.get(mvp_uid, f"Игрок {mvp_uid}")
+
+
+def format_gd_round_battle_log_message(
+    result: dict[str, Any], ctx: dict[str, Any]
+) -> str:
+    """Полный лог боя за раунд (по циклам, с цифрами) для отправки в чат."""
+    from waifu_bot.services.gd_battle_log import format_gd_round_log_lines_ru
+
+    resolved = (result.get("actions_json") or {}).get("resolved")
+    lines = format_gd_round_log_lines_ru(resolved, ctx, result.get("outcomes_json"))
+    rnd = result.get("round_number", "?")
+    header = f"🧾 Журнал боя — раунд {rnd}"
+    if not lines:
+        return header + "\n• (нет зафиксированных действий)"
+    return header + "\n" + "\n".join(lines)
 
 
 async def _refresh_party_display_from_main_waifu(
@@ -246,11 +321,29 @@ async def process_gd_registration_deadlines(
 ) -> None:
     closed = await gd_cycle.process_due_registration_closures(session)
     await session.commit()
+    if closed:
+        logger.info(
+            "GD v1 registration auto-close: %s cycle(s) processed (%s)",
+            len(closed),
+            ", ".join(f"#{c.id}:{c.status}" for c in closed),
+        )
     for c in closed:
         if bot and c.status == "active":
+            logger.info(
+                "GD v1 auto-start cycle_id=%s chat_id=%s — отправляю стартовый нарратив",
+                c.id,
+                c.chat_id,
+            )
             fresh = await session.get(GDCycle, c.id)
             if fresh:
                 await send_gd_v1_group_start_narrative(bot, session, fresh)
+        elif not bot and c.status == "active":
+            logger.warning(
+                "GD v1 auto-start cycle_id=%s chat_id=%s: bot=None — поход активен, "
+                "но стартовое сообщение не отправлено (проверьте get_bot()/webhook).",
+                c.id,
+                c.chat_id,
+            )
         elif bot and c.status == "cancelled":
             try:
                 await bot.send_message(
@@ -318,6 +411,12 @@ async def _gd_v1_execute_round_resolution_after_simulation(
         "round_outcome": result["round_outcome"],
         "hits_n": len((result.get("outcomes_json") or {}).get("hits") or []),
     }
+    battle_party = list((cycle.battle_state_json or {}).get("party") or ctx.get("party") or [])
+    ctx["party"] = await _refresh_party_display_from_main_waifu(session, battle_party)
+    if result["round_outcome"] == "victory":
+        mvp = _compute_round_mvp(cycle.battle_state_json or {})
+        if mvp:
+            ctx["mvp_name"] = mvp[1]
     timeout = float(
         (await get_game_config_map(session)).get("gd_ai_timeout_seconds") or "15"
     )
@@ -345,6 +444,12 @@ async def _gd_v1_execute_round_resolution_after_simulation(
 
     if bot and chat_id is not None:
         try:
+            battle_log_text = format_gd_round_battle_log_message(result, ctx)
+            for chunk in _chunk_text(battle_log_text, 3900):
+                await bot.send_message(chat_id=chat_id, text=chunk)
+        except Exception:
+            logger.exception("GD round battle log message failed cycle_id=%s", cycle_id)
+        try:
             hp_text = format_gd_battle_hp_system_message(cycle.battle_state_json)
             await bot.send_message(chat_id=chat_id, text=hp_text)
         except Exception:
@@ -365,6 +470,14 @@ async def _gd_v1_execute_round_resolution_after_simulation(
     if result["round_outcome"] == "victory":
         cycle2.status = "finished"
         cycle2.finished_at = datetime.now(timezone.utc)
+        try:
+            from waifu_bot.core import redis as redis_core
+
+            await gd_active_cache_mod.set_active_cycle_cache(
+                redis_core.get_redis(), cycle2.chat_id, None
+            )
+        except Exception:
+            logger.debug("gd active cache invalidate on victory failed", exc_info=True)
         await session.commit()
         logger.info(
             "GD v1 round tick done cycle_id=%s round=%s outcome=victory narrative_sent=%s buffer_users=%s",
@@ -398,7 +511,7 @@ async def _gd_v1_execute_round_resolution_after_simulation(
 async def heal_gd_active_cycles_missing_deadline(session: AsyncSession) -> None:
     """Активные циклы без дедлайна (миграция / сбой): выставить дедлайн от now."""
     cfg = await get_game_config_map(session)
-    dur_m = int(float(cfg.get("gd_round_duration_minutes", "30")))
+    dur_m = int(float(cfg.get("gd_round_duration_minutes", str(GD_ROUND_DURATION_MINUTES_DEFAULT))))
     now = datetime.now(timezone.utc)
     r = await session.execute(
         select(GDCycle).where(
@@ -500,7 +613,7 @@ async def _process_gd_v1_admin_force_victory_locked(
     async for session in get_session():
         try:
             cfg = await get_game_config_map(session)
-            dur_m = int(float(cfg.get("gd_round_duration_minutes", "30")))
+            dur_m = int(float(cfg.get("gd_round_duration_minutes", str(GD_ROUND_DURATION_MINUTES_DEFAULT))))
             dur_td = timedelta(minutes=dur_m)
 
             cycle = await session.get(GDCycle, cycle_id)
@@ -577,7 +690,7 @@ async def _process_gd_v1_round_for_cycle_locked(
     async for session in get_session():
         try:
             cfg = await get_game_config_map(session)
-            dur_m = int(float(cfg.get("gd_round_duration_minutes", "30")))
+            dur_m = int(float(cfg.get("gd_round_duration_minutes", str(GD_ROUND_DURATION_MINUTES_DEFAULT))))
             dur_td = timedelta(minutes=dur_m)
 
             if not force:
@@ -671,6 +784,16 @@ async def _process_gd_v1_round_for_cycle_locked(
     return GDRoundProcessResult(ok=False, cycle_id=cycle_id, skipped_reason="no_session")
 
 
+async def _send_gd_reward_dm(bot: Any, uid: int, text_dm: str, rew: GDRewardRow) -> None:
+    for attempt in range(3):
+        try:
+            await bot.send_message(chat_id=uid, text=text_dm)
+            rew.dm_sent = True
+            return
+        except Exception:
+            logger.warning("GD reward DM attempt %s failed uid=%s", attempt, uid)
+
+
 async def finalize_gd_v1_rewards_and_notify(session: AsyncSession, cycle: GDCycle, bot: Any | None) -> None:
     fresh = await session.get(GDCycle, cycle.id)
     if not fresh:
@@ -728,6 +851,7 @@ async def finalize_gd_v1_rewards_and_notify(session: AsyncSession, cycle: GDCycl
     ranked = sorted(scores.items(), key=lambda x: -x[1])
     rank_map = {uid: i + 1 for i, (uid, _) in enumerate(ranked)}
 
+    dm_tasks: list[Any] = []
     for uid in uids:
         share = scores[uid] / total_score
         c = contrib.get(str(uid), {})
@@ -785,11 +909,10 @@ async def finalize_gd_v1_rewards_and_notify(session: AsyncSession, cycle: GDCycl
             f"{item_lines}"
         )
         if bot:
-            for attempt in range(3):
-                try:
-                    await bot.send_message(chat_id=uid, text=text_dm)
-                    rew.dm_sent = True
-                    break
-                except Exception:
-                    logger.warning("GD reward DM attempt %s failed uid=%s", attempt, uid)
+            from waifu_bot.services.player_notification_prefs import should_send_dm
+
+            if await should_send_dm(session, int(uid), "group_dungeon"):
+                dm_tasks.append(_send_gd_reward_dm(bot, uid, text_dm, rew))
+    if dm_tasks:
+        await asyncio.gather(*dm_tasks, return_exceptions=True)
     await session.commit()

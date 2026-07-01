@@ -44,9 +44,9 @@ def test_append_passive_pool_trace_one_line_per_node():
 def test_apply_total_reduce_cap_emits_cap_step():
     contribs = [
         {"kind": "contrib", "source": "stat:endurance", "pct_add": 0.35},
-        {"kind": "contrib", "source": "passive:w_iron", "pct_add": 0.18},
-        {"kind": "contrib", "source": "passive:w_fort", "pct_add": 0.27},
-        {"kind": "contrib", "source": "gear:ring:x", "pct_add": 0.15},
+        {"kind": "contrib", "source": "passive:w_iron", "pct_add": 0.08},
+        {"kind": "contrib", "source": "passive:m_rune", "pct_add": 0.12},
+        {"kind": "contrib", "source": "gear:ring:x", "pct_add": 0.40},
     ]
     applied, extra = apply_total_reduce_cap(contribs)
     assert applied == 0.90
@@ -57,14 +57,15 @@ def test_apply_total_reduce_cap_emits_cap_step():
 def test_incoming_breakdown_lists_all_dmg_reduce_sources():
     dr_contribs = [
         {"kind": "contrib", "source": "stat:endurance", "label_ru": "ВЫН", "pct_add": 0.35},
-        {"kind": "contrib", "source": "passive:w_iron", "label_ru": "Железная кожа", "pct_add": 0.18},
-        {"kind": "contrib", "source": "passive:w_fort", "label_ru": "Крепость", "pct_add": 0.27},
-        {"kind": "contrib", "source": "affix:1", "label_ru": "Аффикс", "pct_add": 0.15},
+        {"kind": "contrib", "source": "passive:w_iron", "label_ru": "Железная кожа", "pct_add": 0.08},
+        {"kind": "contrib", "source": "passive:m_rune", "label_ru": "Рун. броня", "pct_add": 0.12},
+        {"kind": "contrib", "source": "affix:1", "label_ru": "Аффикс", "pct_add": 0.40},
     ]
     steps = build_incoming_damage_breakdown_ru(
         raw_monster_damage=100,
         armor_total=0,
-        damage_after_armor=100,
+        armor_dr=0.0,
+        waifu_level=30,
         total_reduce=0.90,
         damage_after_mitigation=10,
         final_armor_pct=0.0,

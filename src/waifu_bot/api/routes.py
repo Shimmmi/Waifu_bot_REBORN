@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal, Optional
@@ -8,19 +9,39 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.api.deps import get_db, get_player_id, get_redis, require_admin
+from waifu_bot.api.hired_waifu_media import hired_waifu_portrait_url
+from waifu_bot.api.main_waifu_media import (
+    main_waifu_profile_paperdoll_url,
+    main_waifu_profile_portrait_url,
+)
 from waifu_bot.core.config import settings
 from waifu_bot.api import schemas
 from waifu_bot.db import models as m
+from waifu_bot.db.inventory_load_options import inventory_item_load_options
 from sqlalchemy import delete, func, select, text, tuple_
 from sqlalchemy.orm import selectinload
 
+from waifu_bot.services.waifu_media_service import (
+    sync_main_waifu_paperdoll_to_static,
+    sync_main_waifu_portrait_to_static,
+)
 from waifu_bot.services.energy import apply_regen
+from waifu_bot.services.enchanting import get_effective_params
 from waifu_bot.services.expedition import ExpeditionService
 from waifu_bot.services.webhook import process_update
 from waifu_bot.services import sse as sse_service
+from waifu_bot.game.solo_rewards import enrich_profile_reward_bonus_pcts, guild_reward_fractions
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
-from waifu_bot.services.item_art import derive_image_key, derive_item_art_key, enrich_items_with_image_urls
-from waifu_bot.services.enchanting import get_effective_params
+from waifu_bot.game.item_display_name import compose_item_display_name_ru
+from waifu_bot.game.legendary_bonuses.loader import fetch_legendary_bonus_payloads
+from waifu_bot.services.item_art import (
+    derive_image_key,
+    enrich_items_with_image_urls,
+    resolve_inventory_item_art_key,
+    normalize_tier,
+    read_game_asset_data_url,
+    resolve_item_art_relative_path,
+)
 from waifu_bot.services.passive_skills import (
     get_passive_skill_bonuses,
     merge_passive_into_profile_details,
@@ -33,16 +54,21 @@ from waifu_bot.services.expedition_events_ai import (
     generate_main_waifu_bio,
     generate_main_waifu_paperdoll_from_portrait,
     generate_main_waifu_portrait,
+    pick_paperdoll_pose_for_equipment,
 )
 from waifu_bot.services.narrative import build_narrative_prompt_context
 from waifu_bot.services.starter_gear import grant_main_waifu_starter_gear
+from waifu_bot.services.paperdoll_quota import (
+    consume_paperdoll_generation,
+    paperdoll_generations_remaining,
+)
 from waifu_bot.services.player_new_game_reset import clear_player_redis_keys, reset_player_to_new_game
 from waifu_bot.game.constants import (
     CARAVAN_TRAVEL_GOLD_TO_ACT,
     WAIFU_CLASS_LABEL_RU,
     WAIFU_RACE_LABEL_RU,
 )
-from waifu_bot.game.effective_stats import resolve_solo_combat_primary_four
+from waifu_bot.game.effective_stats import resolve_equipped_weapon_for_profile, resolve_solo_combat_primary_four
 from waifu_bot.game.main_waifu_base_stats import (
     class_flat_bonuses_for,
     compute_main_waifu_base_stats,
@@ -51,13 +77,21 @@ from waifu_bot.game.main_waifu_base_stats import (
 from waifu_bot.api.admin_routes import router as admin_router
 from waifu_bot.api.inventory_routes import (
     router as inventory_router,
-    _enrich_items_with_template_stats,
 )
+from waifu_bot.services.inventory_payload import enrich_inventory_items_with_template_stats as _enrich_items_with_template_stats
 from waifu_bot.api.guild_routes import router as guild_router
 from waifu_bot.api.shop_routes import router as shop_router
 from waifu_bot.api.tavern_routes import router as tavern_router
 from waifu_bot.api.dungeon_routes import router as dungeon_router
 from waifu_bot.api.skill_routes import router as skill_router
+from waifu_bot.api.mail_routes import router as mail_router
+from waifu_bot.api.chat_rewards_routes import router as chat_rewards_router
+from waifu_bot.api.armory_routes import router as armory_router
+from waifu_bot.api.tutorial_routes import router as tutorial_router
+from waifu_bot.api.player_notification_routes import router as player_notification_router
+from waifu_bot.api.player_profile_routes import router as player_profile_router
+from waifu_bot.api.library_routes import router as library_router
+from waifu_bot.api.abyss_routes import router as abyss_router
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +103,14 @@ router.include_router(shop_router)
 router.include_router(tavern_router)
 router.include_router(dungeon_router)
 router.include_router(skill_router)
+router.include_router(mail_router)
+router.include_router(chat_rewards_router)
+router.include_router(tutorial_router)
+router.include_router(player_notification_router)
+router.include_router(player_profile_router)
+router.include_router(armory_router)
+router.include_router(library_router)
+router.include_router(abyss_router)
 
 # Вторичные бонусы с предметов (шаблон + зачарование) и аффиксы с effect_key *_pct.
 # Значение в аффиксе — целое число в сотых долях процента: 150 => 1.50% => +0.015 к сумме.
@@ -128,6 +170,10 @@ def calculate_item_bonuses(inv: m.InventoryItem) -> dict:
     # Бонусы от аффиксов
     for aff in (inv.affixes or []):
         stat = aff.stat.lower()
+        # Family-specific damage (e.g. damage_vs_monster_type_flat:construct) is combat-only
+        # situational — never counted in general profile «Урон ближний/дальний/магич.».
+        if stat.startswith("damage_vs_monster_type_"):
+            continue
         try:
             value = float(aff.value) if aff.is_percent else int(aff.value)
         except (ValueError, TypeError):
@@ -162,52 +208,23 @@ def calculate_item_bonuses(inv: m.InventoryItem) -> dict:
     return bonuses
 
 
-async def _enrich_items_with_template_stats(
-    session: AsyncSession,
-    items: list[m.InventoryItem] | None,
+def _apply_fraction_secondary_to_total(
+    total_bonuses: dict,
+    sec_type: str,
+    sec_eff: float,
 ) -> None:
-    """Attach armor and secondary bonus attrs from item_base_templates."""
-    if not items:
-        return
-    keys: set[tuple[str, int]] = set()
-    for inv in items:
-        item_name = str(getattr(getattr(inv, "item", None), "name", "") or "").strip()
-        tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 0)
-        if item_name and tier > 0:
-            keys.add((item_name, tier))
-    if not keys:
-        return
-    try:
-        stmt = (
-            select(
-                text("name"),
-                text("tier"),
-                text("armor_base"),
-                text("secondary_bonus_type"),
-                text("secondary_bonus_value"),
-            )
-            .select_from(text("item_base_templates"))
-            .where(tuple_(text("name"), text("tier")).in_(list(keys)))
-        )
-        rows = (await session.execute(stmt)).all()
-    except Exception:
-        return
-
-    stats_map: dict[tuple[str, int], tuple[int, str | None, float]] = {}
-    for row in rows:
-        key = (str(getattr(row, "name", "") or ""), int(getattr(row, "tier", 0) or 0))
-        stats_map[key] = (
-            int(getattr(row, "armor_base", 0) or 0),
-            getattr(row, "secondary_bonus_type", None),
-            float(getattr(row, "secondary_bonus_value", 0.0) or 0.0),
-        )
-    for inv in items:
-        item_name = str(getattr(getattr(inv, "item", None), "name", "") or "").strip()
-        tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 0)
-        armor, sec_type, sec_val = stats_map.get((item_name, tier), (0, None, 0.0))
-        setattr(inv, "_armor_base", armor)
-        setattr(inv, "_secondary_bonus_type", sec_type)
-        setattr(inv, "_secondary_bonus_value", sec_val)
+    key_map = {
+        "crit_chance_pct": "secondary_crit_chance_pct",
+        "evade_pct": "secondary_evade_pct",
+        "dmg_reduce_pct": "secondary_dmg_reduce_pct",
+        "hp_max_pct": "secondary_hp_max_pct",
+        "exp_bonus_pct": "secondary_exp_bonus_pct",
+        "gold_bonus_pct": "secondary_gold_bonus_pct",
+        "magic_find_pct": "secondary_magic_find_pct",
+    }
+    mapped = key_map.get(sec_type)
+    if mapped:
+        total_bonuses[mapped] = float(total_bonuses.get(mapped, 0.0) or 0.0) + float(sec_eff or 0.0)
 
 
 def _compute_details(
@@ -270,25 +287,21 @@ def _compute_details(
                 else:
                     total_bonuses[key] = total_bonuses.get(key, 0) + value
             armor_base = int(getattr(inv, "_armor_base", 0) or 0)
-            sec_val = float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0)
-            eff = get_effective_params(inv, armor_base=armor_base, secondary_bonus_value=sec_val)
+            eff = get_effective_params(inv, armor_base=armor_base, secondary_bonus_value=0.0)
             armor_total += int(eff.get("armor", 0) or 0)
-            sec_type = str(getattr(inv, "_secondary_bonus_type", "") or "")
-            sec_eff = float(eff.get("secondary", 0.0) or 0.0)
-            if sec_type == "crit_chance_pct":
-                total_bonuses["secondary_crit_chance_pct"] += sec_eff
-            elif sec_type == "evade_pct":
-                total_bonuses["secondary_evade_pct"] += sec_eff
-            elif sec_type == "dmg_reduce_pct":
-                total_bonuses["secondary_dmg_reduce_pct"] += sec_eff
-            elif sec_type == "hp_max_pct":
-                total_bonuses["secondary_hp_max_pct"] += sec_eff
-            elif sec_type == "exp_bonus_pct":
-                total_bonuses["secondary_exp_bonus_pct"] += sec_eff
-            elif sec_type == "gold_bonus_pct":
-                total_bonuses["secondary_gold_bonus_pct"] += sec_eff
-            elif sec_type == "magic_find_pct":
-                total_bonuses["secondary_magic_find_pct"] += sec_eff
+            from waifu_bot.game.item_secondary import effective_fraction_combat, resolve_item_secondaries
+
+            resolved = getattr(inv, "_resolved_secondaries", None) or resolve_item_secondaries(inv, None)
+            frac_type, frac_eff = effective_fraction_combat(inv, resolved)
+            if frac_type:
+                _apply_fraction_secondary_to_total(total_bonuses, frac_type, frac_eff)
+            legacy_type = str(getattr(inv, "_secondary_bonus_type", "") or "")
+            if legacy_type and not frac_type:
+                sec_eff = float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0)
+                sec_eff += float(inv.enchant_sec_step or 0.0) * (
+                    0 if bool(inv.is_broken) else int(inv.enchant_level or 0)
+                )
+                _apply_fraction_secondary_to_total(total_bonuses, legacy_type, sec_eff)
 
     # Применяем бонусы к статам
     strength += total_bonuses["strength"]
@@ -317,7 +330,8 @@ def _compute_details(
         str_for_hp = strength
 
     # --- Боевые параметры (приведены к game/formulas.py) ---
-    # NOTE: это "оценка" урона для UI на базе BASE_SKILL_DAMAGE и текущих статов + бонусов экипировки.
+    # NOTE: UI «Урон ближний/дальний/магич.» = BASE_SKILL_DAMAGE + статы + плоский урон с экипа
+    # + диапазон оружия (только если тип атаки оружия совпадает с линией урона).
     from waifu_bot.game.formulas import (
         BASE_SKILL_DAMAGE,
         calculate_damage,
@@ -325,23 +339,40 @@ def _compute_details(
         calculate_dodge_chance,
     )
 
-    def _damage_score(attack_type: str, flat_bonus: float) -> int:
-        base = float(BASE_SKILL_DAMAGE) + float(total_bonuses.get("damage_flat", 0) or 0) + float(flat_bonus or 0)
+    weapon_profile = resolve_equipped_weapon_for_profile(equipped_items or [])
+
+    def _damage_bounds(attack_type: str, type_flat: float) -> tuple[int, int]:
+        flat_add = float(total_bonuses.get("damage_flat", 0) or 0) + float(type_flat or 0)
+        core_base = float(BASE_SKILL_DAMAGE) + flat_add
         if (total_bonuses.get("damage_percent", 0) or 0) > 0:
-            base = base * (1 + float(total_bonuses["damage_percent"]) / 100.0)
-        return int(
+            pct = 1.0 + float(total_bonuses["damage_percent"]) / 100.0
+            core_base *= pct
+        core_score = int(
             calculate_damage(
-                int(base),
+                int(core_base),
                 strength=int(strength),
                 agility=int(agility),
                 intelligence=int(intelligence),
                 attack_type=attack_type,
             )
         )
+        core_min = core_max = core_score
+        if weapon_profile.attack_type == attack_type and weapon_profile.damage_min is not None:
+            wmin = int(weapon_profile.damage_min)
+            wmax = int(
+                weapon_profile.damage_max
+                if weapon_profile.damage_max is not None
+                else weapon_profile.damage_min
+            )
+            return core_min + wmin, core_max + wmax
+        return core_min, core_max
 
-    melee_damage = _damage_score("melee", total_bonuses.get("melee_damage_flat", 0))
-    ranged_damage = _damage_score("ranged", total_bonuses.get("ranged_damage_flat", 0))
-    magic_damage = _damage_score("magic", total_bonuses.get("magic_damage_flat", 0))
+    melee_min, melee_max = _damage_bounds("melee", total_bonuses.get("melee_damage_flat", 0))
+    ranged_min, ranged_max = _damage_bounds("ranged", total_bonuses.get("ranged_damage_flat", 0))
+    magic_min, magic_max = _damage_bounds("magic", total_bonuses.get("magic_damage_flat", 0))
+    melee_damage = (melee_min + melee_max) // 2
+    ranged_damage = (ranged_min + ranged_max) // 2
+    magic_damage = (magic_min + magic_max) // 2
 
     # Crit/Dodge chances from combat formulas (convert to percent for UI)
     from waifu_bot.game.constants import (
@@ -391,11 +422,11 @@ def _compute_details(
     damage_reduction_pct += float(total_bonuses.get("secondary_dmg_reduce_pct", 0.0) or 0.0) * 100.0
     damage_reduction_pct = min(90.0, max(0.0, damage_reduction_pct))
 
-    # Опыт в данже: (1 + вторичка) × (1 + ИНТ×INT_EXP_BONUS_COEFF) — как в combat.py; пассивки — в merge_passive_into_profile_details
+    # Опыт/золото в данже: аддитивное сложение % (как solo_rewards / combat.py)
     from waifu_bot.game.constants import INT_EXP_BONUS_COEFF
 
     sec_exp_frac = float(total_bonuses.get("secondary_exp_bonus_pct", 0.0) or 0.0)
-    exp_bonus_pct = ((1.0 + sec_exp_frac) * (1.0 + float(intelligence) * INT_EXP_BONUS_COEFF) - 1.0) * 100.0
+    exp_bonus_pct = (sec_exp_frac + float(intelligence) * INT_EXP_BONUS_COEFF) * 100.0
 
     # Бонусы от УДЧ
     from waifu_bot.game.constants import (
@@ -405,8 +436,8 @@ def _compute_details(
         MAGIC_FIND_FULL_BLEND_PCT,
     )
 
-    gold_bonus_pct = luck * LCK_GOLD_COEFF * 100.0
-    gold_bonus_pct += float(total_bonuses.get("secondary_gold_bonus_pct", 0.0) or 0.0) * 100.0
+    sec_gold_frac = float(total_bonuses.get("secondary_gold_bonus_pct", 0.0) or 0.0)
+    gold_bonus_pct = (float(luck) * LCK_GOLD_COEFF + sec_gold_frac) * 100.0
     item_drop_bonus_pct = luck * LCK_ITEM_DROP_COEFF * 100.0
     sec_mf_frac = float(total_bonuses.get("secondary_magic_find_pct", 0.0) or 0.0)
     magic_find_pct = float(luck) * LCK_MAGIC_FIND_COEFF * 100.0 + sec_mf_frac * 100.0
@@ -421,8 +452,14 @@ def _compute_details(
         "hp_max": hp_max,
         "armor": int(armor_total),
         "melee_damage": max(0, melee_damage),
+        "melee_damage_min": max(0, melee_min),
+        "melee_damage_max": max(0, melee_max),
         "ranged_damage": max(0, ranged_damage),
+        "ranged_damage_min": max(0, ranged_min),
+        "ranged_damage_max": max(0, ranged_max),
         "magic_damage": max(0, magic_damage),
+        "magic_damage_min": max(0, magic_min),
+        "magic_damage_max": max(0, magic_max),
         "crit_chance": round(crit_chance, 2),
         "dodge_chance": round(dodge_chance, 2),
         "damage_reduction": round(damage_reduction_pct, 2),
@@ -571,7 +608,12 @@ def check_item_requirements(inv: m.InventoryItem, waifu: m.MainWaifu) -> tuple[b
     return len(errors) == 0, errors
 
 
-def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> schemas.GearItemOut:
+def _to_gear_item(
+    inv: m.InventoryItem,
+    waifu: m.MainWaifu | None = None,
+    *,
+    legendary_bonuses: list | None = None,
+) -> schemas.GearItemOut:
     slot = SLOT_MAP.get(inv.equipment_slot or 0, "inventory")
     affixes = []
     for a in inv.affixes or []:
@@ -586,44 +628,10 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
                 description=_ad or None,
             )
         )
-    def _fallback_base_name_ru() -> str:
-        st = (inv.slot_type or "").lower()
-        wt = (inv.weapon_type or "").lower()
-        if "ring" in st:
-            return "Кольцо"
-        if "amulet" in st:
-            return "Амулет"
-        if "costume" in st or "armor" in st:
-            return "Доспех"
-        if "offhand" in st:
-            if wt == "orb" or "сфера" in (inv.item.name if inv.item else "").lower():
-                return "Сфера"
-            return "Щит"
-        if "weapon" in st:
-            if "axe" in wt:
-                return "Топор"
-            if "sword" in wt:
-                return "Меч"
-            if "bow" in wt:
-                return "Лук"
-            if "staff" in wt or "wand" in wt:
-                return "Посох"
-            if "dagger" in wt:
-                return "Кинжал"
-            return "Оружие"
-        return "Предмет"
 
-    base_name = inv.item.name if inv.item else _fallback_base_name_ru()
-    if base_name.strip().lower() in ("предмет", "item"):
-        base_name = _fallback_base_name_ru()
-
-    prefix = next((a.name for a in (inv.affixes or []) if getattr(a, "kind", None) == "affix"), None)
-    suffix = next((a.name for a in (inv.affixes or []) if getattr(a, "kind", None) == "suffix"), None)
-    display_name = f"{(prefix + ' ') if prefix else ''}{base_name}{(' ' + suffix) if suffix else ''}".strip()
+    base_name, display_name = compose_item_display_name_ru(inv)
     image_key = derive_image_key(inv.slot_type, inv.weapon_type, display_name)
-    art_key = derive_item_art_key(
-        inv.slot_type, inv.weapon_type, base_name, display_name=display_name
-    )
+    art_key = resolve_inventory_item_art_key(inv, display_base_name=base_name)
     
     can_equip = None
     requirement_errors = None
@@ -631,8 +639,11 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
         can_equip, requirement_errors = check_item_requirements(inv, waifu)
     
     armor_b = int(getattr(inv, "_armor_base", 0) or 0)
-    sec_v = float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0)
-    eff = get_effective_params(inv, armor_base=armor_b, secondary_bonus_value=sec_v)
+    from waifu_bot.game.item_secondary import effective_fraction_combat, resolve_item_secondaries
+
+    resolved = getattr(inv, "_resolved_secondaries", None) or resolve_item_secondaries(inv, None)
+    frac_type, frac_val = effective_fraction_combat(inv, resolved)
+    eff = get_effective_params(inv, armor_base=armor_b, secondary_bonus_value=frac_val or 0.0)
     return schemas.GearItemOut(
         id=inv.id,
         slot=slot,
@@ -650,7 +661,11 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
         base_stat_value=inv.base_stat_value,
         armor_base=armor_b or None,
         secondary_bonus_type=getattr(inv, "_secondary_bonus_type", None),
-        secondary_bonus_value=sec_v or None,
+        secondary_bonus_value=float(getattr(inv, "_secondary_bonus_value", 0.0) or 0.0) or None,
+        secondary_fraction_type=frac_type,
+        secondary_fraction_value=float(resolved.fraction_value) or None,
+        secondary_fraction_effective=float(frac_val) if frac_val else None,
+        secondary_awakened=bool(getattr(inv, "_secondary_awakened", False)),
         damage_min_effective=eff.get("damage_min"),
         damage_max_effective=eff.get("damage_max"),
         armor_effective=int(eff.get("armor", 0) or 0) or None,
@@ -661,6 +676,7 @@ def _to_gear_item(inv: m.InventoryItem, waifu: m.MainWaifu | None = None) -> sch
         enchant_sec_step=float(getattr(inv, "enchant_sec_step", 0.0) or 0.0),
         is_broken=bool(getattr(inv, "is_broken", False)),
         is_legendary=inv.is_legendary,
+        legendary_bonuses=list(legendary_bonuses or []),
         requirements=inv.requirements,
         affixes=affixes,
         slot_type=inv.slot_type,
@@ -721,9 +737,11 @@ async def telegram_webhook(
         frm = msg.get("from") or {}
         raw_text = msg.get("text")
         cmd_like = bool(isinstance(raw_text, str) and raw_text.lstrip().startswith("/"))
+        doc_obj = msg.get("document") or {}
         logger.info(
             "webhook update received: update_id=%s chat_id=%s chat_type=%s from_id=%s "
-            "has_text=%s has_caption=%s cmd_like=%s",
+            "has_text=%s has_caption=%s cmd_like=%s has_audio=%s has_document=%s has_voice=%s "
+            "doc_mime=%s doc_name=%s",
             (body or {}).get("update_id"),
             chat.get("id"),
             chat.get("type"),
@@ -731,6 +749,11 @@ async def telegram_webhook(
             bool(msg.get("text")),
             bool(msg.get("caption")),
             cmd_like,
+            bool(msg.get("audio")),
+            bool(msg.get("document")),
+            bool(msg.get("voice")),
+            doc_obj.get("mime_type"),
+            doc_obj.get("file_name"),
         )
     except Exception:
         logger.exception("Failed to log webhook update summary")
@@ -794,6 +817,7 @@ async def get_profile(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
     x_telegram_init_data: str | None = Header(None, alias="X-Telegram-Init-Data"),
+    lite: bool = Query(False, description="Minimal payload for non-profile WebApp pages"),
 ):
     try:
         result = await session.execute(
@@ -845,160 +869,248 @@ async def get_profile(
                 pre_max = int(main_waifu.max_hp or 0)
                 await _sync_waifu_max_hp(session, player_id, main_waifu)
                 post_max = int(main_waifu.max_hp or 0)
-                regen_changed = apply_regen(main_waifu)
+                # Passive profile poll: solo regen accrues offline; Abyss only while online.
+                # Never updates last_combat_action_at here.
+                from waifu_bot.services.combat_regen import is_player_online
+
+                suppress_regen = False
+                active_run = (
+                    await session.execute(
+                        select(m.DungeonRun.id).where(
+                            m.DungeonRun.player_id == player_id,
+                            m.DungeonRun.status == "active",
+                        )
+                    )
+                ).first()
+                abyss_active = (
+                    await session.execute(
+                        select(m.AbyssProgress.session_active).where(
+                            m.AbyssProgress.player_id == player_id,
+                            m.AbyssProgress.session_active.is_(True),
+                        )
+                    )
+                ).first()
+                if abyss_active is not None:
+                    suppress_regen = not is_player_online(player)
+                regen_changed = apply_regen(main_waifu, suppress=suppress_regen)
                 if regen_changed or post_max != pre_max:
                     await session.commit()
             except Exception:
                 logger.exception("apply_regen failed in /profile (player_id=%s)", player_id)
-            equipped_items = []
-            try:
-                inv_items = await session.execute(
-                    select(m.InventoryItem)
-                    .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
-                    .where(m.InventoryItem.player_id == player_id, m.InventoryItem.equipment_slot.isnot(None))
+
+            if lite:
+                main_payload = schemas.MainWaifuProfile(
+                    id=main_waifu.id,
+                    name=main_waifu.name,
+                    race=main_waifu.race,
+                    class_=main_waifu.class_,
+                    level=main_waifu.level,
+                    experience=main_waifu.experience,
+                    strength=main_waifu.strength,
+                    agility=main_waifu.agility,
+                    intelligence=main_waifu.intelligence,
+                    endurance=main_waifu.endurance,
+                    charm=main_waifu.charm,
+                    luck=main_waifu.luck,
+                    stat_points=int(getattr(main_waifu, "stat_points", 0) or 0),
+                    current_hp=main_waifu.current_hp,
+                    max_hp=main_waifu.max_hp,
+                    bio=getattr(main_waifu, "bio", None),
                 )
-                equipped_items = inv_items.scalars().all()
-                await _enrich_items_with_template_stats(session, equipped_items)
-            except Exception:
-                equipped_items = []
-
-            psb_profile: dict[str, float] = {}
-            try:
-                psb_profile = await get_passive_skill_bonuses(session, player_id)
-            except Exception:
-                logger.exception("passive fetch failed in /profile player_id=%s", player_id)
-
-            stat_flat = int(psb_profile.get("main_stats_flat", 0) or 0)
-
-            eff_four = None
-            try:
-                eff_four = await resolve_solo_combat_primary_four(
-                    session, player_id, main_waifu, ps=psb_profile
-                )
-            except Exception:
-                logger.exception("resolve_solo_combat_primary_four in /profile player_id=%s", player_id)
-
-            try:
-                if eff_four is not None:
-                    prim = (
-                        eff_four.strength,
-                        eff_four.agility,
-                        eff_four.intelligence,
-                        eff_four.luck,
-                    )
-                    raw_d = _compute_details(
-                        main_waifu,
-                        equipped_items,
-                        main_stats_flat=stat_flat,
-                        effective_primary_four=prim,
-                    )
-                    raw_d = merge_passive_into_profile_details(
-                        raw_d,
-                        psb_profile,
-                        skip_all_stats_pct_on_damage=True,
-                    )
-                else:
-                    raw_d = _compute_details(
-                        main_waifu,
-                        equipped_items,
-                        main_stats_flat=stat_flat,
-                    )
-                    raw_d = merge_passive_into_profile_details(raw_d, psb_profile)
-                main_details = schemas.MainWaifuDetails(**raw_d)
-            except Exception:
-                logger.exception("main_waifu_details build failed player_id=%s", player_id)
-                main_details = None
-
-            try:
-                equipment_payload = [_to_gear_item(inv, main_waifu) for inv in equipped_items]
-            except Exception:
-                equipment_payload = []
-            try:
-                await enrich_items_with_image_urls(session, equipment_payload)
-            except Exception:
-                logger.exception("Failed to enrich item images in /profile (player_id=%s)", player_id)
-
-            # Рассчитываем бонусы от экипировки для отображения в формате X (A+B)
-            total_bonuses = {
-                "strength": 0,
-                "agility": 0,
-                "intelligence": 0,
-                "endurance": 0,
-                "charm": 0,
-                "luck": 0,
-            }
-            for inv in equipped_items or []:
-                item_bonuses = calculate_item_bonuses(inv)
-                for key in total_bonuses.keys():
-                    total_bonuses[key] += item_bonuses.get(key, 0)
-
-            # Базовые значения = значения из БД (они не должны изменяться при экипировке)
-            base_strength = main_waifu.strength
-            base_agility = main_waifu.agility
-            base_intelligence = main_waifu.intelligence
-            base_endurance = main_waifu.endurance
-            base_charm = main_waifu.charm
-            base_luck = main_waifu.luck
-
-            # Четыре основные — как в соло-бое (экип + flat + all_stats_pct); ВЫН/ОБА — экип + flat.
-            if eff_four is not None:
-                current_strength = eff_four.strength
-                current_agility = eff_four.agility
-                current_intelligence = eff_four.intelligence
-                current_luck = eff_four.luck
             else:
-                current_strength = base_strength + total_bonuses["strength"] + stat_flat
-                current_agility = base_agility + total_bonuses["agility"] + stat_flat
-                current_intelligence = base_intelligence + total_bonuses["intelligence"] + stat_flat
-                current_luck = base_luck + total_bonuses["luck"] + stat_flat
-            current_endurance = base_endurance + total_bonuses["endurance"] + stat_flat
-            current_charm = base_charm + total_bonuses["charm"] + stat_flat
+                equipped_items = []
+                try:
+                    inv_items = await session.execute(
+                        select(m.InventoryItem)
+                        .options(*inventory_item_load_options())
+                        .where(m.InventoryItem.player_id == player_id, m.InventoryItem.equipment_slot.isnot(None))
+                    )
+                    equipped_items = inv_items.scalars().all()
+                    await _enrich_items_with_template_stats(session, equipped_items)
+                except Exception:
+                    equipped_items = []
 
-            portrait_url = None
-            if getattr(main_waifu, "image_data", None):
-                mime = getattr(main_waifu, "image_mime", None) or "image/webp"
-                portrait_url = f"data:{mime};base64,{main_waifu.image_data}"
+                psb_profile: dict[str, float] = {}
+                try:
+                    psb_profile = await get_passive_skill_bonuses(session, player_id)
+                except Exception:
+                    logger.exception("passive fetch failed in /profile player_id=%s", player_id)
 
-            paperdoll_url = None
-            if getattr(main_waifu, "paperdoll_image_data", None):
-                pm = getattr(main_waifu, "paperdoll_image_mime", None) or "image/png"
-                paperdoll_url = f"data:{pm};base64,{main_waifu.paperdoll_image_data}"
+                hs_profile: dict[str, float] = {}
+                night_moscow_profile = False
+                try:
+                    from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses, is_night_moscow
 
-            main_payload = schemas.MainWaifuProfile(
-                id=main_waifu.id,
-                name=main_waifu.name,
-                race=main_waifu.race,
-                class_=main_waifu.class_,
-                level=main_waifu.level,
-                experience=main_waifu.experience,
-                strength=current_strength,
-                agility=current_agility,
-                intelligence=current_intelligence,
-                endurance=current_endurance,
-                charm=current_charm,
-                luck=current_luck,
-                stat_points=int(getattr(main_waifu, "stat_points", 0) or 0),
-                current_hp=main_waifu.current_hp,
-                max_hp=main_waifu.max_hp,
-                base_strength=base_strength,
-                base_agility=base_agility,
-                base_intelligence=base_intelligence,
-                base_endurance=base_endurance,
-                base_charm=base_charm,
-                base_luck=base_luck,
-                bonus_strength=current_strength - int(base_strength or 0),
-                bonus_agility=current_agility - int(base_agility or 0),
-                bonus_intelligence=current_intelligence - int(base_intelligence or 0),
-                bonus_endurance=total_bonuses["endurance"] + stat_flat,
-                bonus_charm=total_bonuses["charm"] + stat_flat,
-                bonus_luck=current_luck - int(base_luck or 0),
-                passive_main_stats_flat=stat_flat,
-                race_flat_bonuses=race_flat_bonuses_for(main_waifu.race),
-                class_flat_bonuses=class_flat_bonuses_for(main_waifu.class_),
-                portrait_url=portrait_url,
-                paperdoll_url=paperdoll_url,
-                bio=getattr(main_waifu, "bio", None),
-            )
+                    hs_profile = await get_hidden_skill_bonuses(session, player_id)
+                    night_moscow_profile = is_night_moscow()
+                except Exception:
+                    logger.exception("hidden skills fetch failed in /profile player_id=%s", player_id)
+
+                guild_exp_profile = 0.0
+                guild_gold_profile = 0.0
+                try:
+                    from waifu_bot.services.guild_skill_effects import effect_values_for_player
+
+                    gfx_profile = await effect_values_for_player(session, player_id)
+                    guild_exp_profile, guild_gold_profile = guild_reward_fractions(gfx_profile)
+                except Exception:
+                    logger.exception("guild effects fetch failed in /profile player_id=%s", player_id)
+
+                stat_flat = int(psb_profile.get("main_stats_flat", 0) or 0)
+
+                eff_four = None
+                try:
+                    eff_four = await resolve_solo_combat_primary_four(
+                        session, player_id, main_waifu, ps=psb_profile
+                    )
+                except Exception:
+                    logger.exception("resolve_solo_combat_primary_four in /profile player_id=%s", player_id)
+
+                try:
+                    if eff_four is not None:
+                        prim = (
+                            eff_four.strength,
+                            eff_four.agility,
+                            eff_four.intelligence,
+                            eff_four.luck,
+                        )
+                        raw_d = _compute_details(
+                            main_waifu,
+                            equipped_items,
+                            main_stats_flat=stat_flat,
+                            effective_primary_four=prim,
+                        )
+                        raw_d = merge_passive_into_profile_details(
+                            raw_d,
+                            psb_profile,
+                            skip_all_stats_pct_on_damage=True,
+                        )
+                    else:
+                        raw_d = _compute_details(
+                            main_waifu,
+                            equipped_items,
+                            main_stats_flat=stat_flat,
+                        )
+                        raw_d = merge_passive_into_profile_details(raw_d, psb_profile)
+                    raw_d = enrich_profile_reward_bonus_pcts(
+                        raw_d,
+                        hs=hs_profile,
+                        guild_exp_frac=guild_exp_profile,
+                        guild_gold_frac=guild_gold_profile,
+                        night_moscow=night_moscow_profile,
+                    )
+                    main_details = schemas.MainWaifuDetails(**raw_d)
+                except Exception:
+                    logger.exception("main_waifu_details build failed player_id=%s", player_id)
+                    main_details = None
+
+                try:
+                    eq_bonus_map = await fetch_legendary_bonus_payloads(session, equipped_items)
+                    equipment_payload = [
+                        _to_gear_item(
+                            inv,
+                            main_waifu,
+                            legendary_bonuses=eq_bonus_map.get(int(inv.id), []),
+                        )
+                        for inv in equipped_items
+                    ]
+                except Exception:
+                    equipment_payload = []
+                try:
+                    await enrich_items_with_image_urls(session, equipment_payload)
+                except Exception:
+                    logger.exception("Failed to enrich item images in /profile (player_id=%s)", player_id)
+
+                # Рассчитываем бонусы от экипировки для отображения в формате X (A+B)
+                total_bonuses = {
+                    "strength": 0,
+                    "agility": 0,
+                    "intelligence": 0,
+                    "endurance": 0,
+                    "charm": 0,
+                    "luck": 0,
+                }
+                for inv in equipped_items or []:
+                    item_bonuses = calculate_item_bonuses(inv)
+                    for key in total_bonuses.keys():
+                        total_bonuses[key] += item_bonuses.get(key, 0)
+
+                # Базовые значения = значения из БД (они не должны изменяться при экипировке)
+                base_strength = main_waifu.strength
+                base_agility = main_waifu.agility
+                base_intelligence = main_waifu.intelligence
+                base_endurance = main_waifu.endurance
+                base_charm = main_waifu.charm
+                base_luck = main_waifu.luck
+
+                # Четыре основные — как в соло-бое (экип + flat + all_stats_pct); ВЫН/ОБА — экип + flat.
+                if eff_four is not None:
+                    current_strength = eff_four.strength
+                    current_agility = eff_four.agility
+                    current_intelligence = eff_four.intelligence
+                    current_luck = eff_four.luck
+                else:
+                    current_strength = base_strength + total_bonuses["strength"] + stat_flat
+                    current_agility = base_agility + total_bonuses["agility"] + stat_flat
+                    current_intelligence = base_intelligence + total_bonuses["intelligence"] + stat_flat
+                    current_luck = base_luck + total_bonuses["luck"] + stat_flat
+                current_endurance = base_endurance + total_bonuses["endurance"] + stat_flat
+                current_charm = base_charm + total_bonuses["charm"] + stat_flat
+
+                media_dirty = False
+                portrait_url = main_waifu_profile_portrait_url(main_waifu, player_id)
+                if portrait_url is None and getattr(main_waifu, "image_data", None):
+                    portrait_url = sync_main_waifu_portrait_to_static(main_waifu)
+                    media_dirty = media_dirty or bool(portrait_url)
+
+                paperdoll_url = None
+                if not lite:
+                    paperdoll_url = main_waifu_profile_paperdoll_url(main_waifu, player_id)
+                    if paperdoll_url is None and getattr(main_waifu, "paperdoll_image_data", None):
+                        paperdoll_url = sync_main_waifu_paperdoll_to_static(main_waifu)
+                        media_dirty = media_dirty or bool(paperdoll_url)
+                if media_dirty:
+                    try:
+                        await session.commit()
+                    except Exception:
+                        logger.exception("Failed to commit waifu media sync player_id=%s", player_id)
+
+                main_payload = schemas.MainWaifuProfile(
+                    id=main_waifu.id,
+                    name=main_waifu.name,
+                    race=main_waifu.race,
+                    class_=main_waifu.class_,
+                    level=main_waifu.level,
+                    experience=main_waifu.experience,
+                    strength=current_strength,
+                    agility=current_agility,
+                    intelligence=current_intelligence,
+                    endurance=current_endurance,
+                    charm=current_charm,
+                    luck=current_luck,
+                    stat_points=int(getattr(main_waifu, "stat_points", 0) or 0),
+                    current_hp=main_waifu.current_hp,
+                    max_hp=main_waifu.max_hp,
+                    base_strength=base_strength,
+                    base_agility=base_agility,
+                    base_intelligence=base_intelligence,
+                    base_endurance=base_endurance,
+                    base_charm=base_charm,
+                    base_luck=base_luck,
+                    bonus_strength=current_strength - int(base_strength or 0),
+                    bonus_agility=current_agility - int(base_agility or 0),
+                    bonus_intelligence=current_intelligence - int(base_intelligence or 0),
+                    bonus_endurance=total_bonuses["endurance"] + stat_flat,
+                    bonus_charm=total_bonuses["charm"] + stat_flat,
+                    bonus_luck=current_luck - int(base_luck or 0),
+                    passive_main_stats_flat=stat_flat,
+                    race_flat_bonuses=race_flat_bonuses_for(main_waifu.race),
+                    class_flat_bonuses=class_flat_bonuses_for(main_waifu.class_),
+                    portrait_url=portrait_url,
+                    paperdoll_url=paperdoll_url,
+                    paperdoll_generations_remaining=paperdoll_generations_remaining(main_waifu),
+                    bio=getattr(main_waifu, "bio", None),
+                )
 
         try:
             from waifu_bot.services.player_activity import touch_player_last_active
@@ -1008,6 +1120,10 @@ async def get_profile(
         except Exception:
             logger.exception("touch_player_last_active in /profile failed player_id=%s", player_id)
 
+        from waifu_bot.services.tutorial import tutorial_state_from_player
+
+        tutorial_raw = tutorial_state_from_player(player)
+
         return schemas.ProfileResponse(
             player_id=player.id,
             act=player.current_act,
@@ -1015,10 +1131,17 @@ async def get_profile(
             gold=player.gold,
             skill_points=int(getattr(player, "skill_points", 0) or 0),
             protection_stones=int(getattr(player, "protection_stones", 0) or 0),
+            enchant_dust=int(getattr(player, "enchant_dust", 0) or 0),
             caravan_travel_costs=list(CARAVAN_TRAVEL_GOLD_TO_ACT),
             main_waifu=main_payload,
             main_waifu_details=main_details,
             equipment=equipment_payload,
+            tutorial=schemas.TutorialStateResponse(
+                version=int(tutorial_raw.get("version") or 1),
+                completed=dict(tutorial_raw.get("completed") or {}),
+                skipped=bool(tutorial_raw.get("skipped")),
+                intro_reward_claimed=bool(tutorial_raw.get("intro_reward_claimed")),
+            ),
         )
     except Exception as e:
         logger.exception("Failed /profile for player_id=%s: %s", player_id, e)
@@ -1029,6 +1152,7 @@ async def get_profile(
             gold=0,
             skill_points=0,
             protection_stones=0,
+            enchant_dust=0,
             caravan_travel_costs=list(CARAVAN_TRAVEL_GOLD_TO_ACT),
             main_waifu=None,
             main_waifu_details=None,
@@ -1043,15 +1167,24 @@ async def get_equipment(
 ):
     inv_items = await session.execute(
         select(m.InventoryItem)
-        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+        .options(*inventory_item_load_options())
         .where(m.InventoryItem.player_id == player_id)
     )
     items = inv_items.scalars().all()
     await _enrich_items_with_template_stats(session, items)
+    bonus_map = await fetch_legendary_bonus_payloads(session, items)
     player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
     waifu = player.main_waifu if player else None
-    equipped = [_to_gear_item(i, waifu) for i in items if i.equipment_slot]
-    inventory = [_to_gear_item(i, waifu) for i in items if not i.equipment_slot]
+    equipped = [
+        _to_gear_item(i, waifu, legendary_bonuses=bonus_map.get(int(i.id), []))
+        for i in items
+        if i.equipment_slot
+    ]
+    inventory = [
+        _to_gear_item(i, waifu, legendary_bonuses=bonus_map.get(int(i.id), []))
+        for i in items
+        if not i.equipment_slot
+    ]
     try:
         await enrich_items_with_image_urls(session, equipped)
         await enrich_items_with_image_urls(session, inventory)
@@ -1070,7 +1203,7 @@ async def equip_item(
     inv = await session.get(
         m.InventoryItem,
         inventory_item_id,
-        options=[selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes)],
+        options=[*inventory_item_load_options()],
     )
     if not inv or inv.player_id != player_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item not found")
@@ -1133,6 +1266,10 @@ async def equip_item(
     if player_pre and player_pre.main_waifu:
         await _sync_waifu_max_hp(session, player_id, player_pre.main_waifu)
 
+    item_name = getattr(getattr(inv, "item", None), "name", "item")
+    from waifu_bot.services.event_log import log_event
+
+    await log_event(session, player_id, "item_equipped", {"item_name": item_name, "slot": slot})
     await session.commit()
     await session.refresh(inv)
     player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
@@ -1151,10 +1288,19 @@ async def unequip_item(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    inv = await session.get(m.InventoryItem, inventory_item_id)
+    inv = await session.get(
+        m.InventoryItem,
+        inventory_item_id,
+        options=[selectinload(m.InventoryItem.item)],
+    )
     if not inv or inv.player_id != player_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item not found")
     inv.equipment_slot = None
+
+    item_name = getattr(getattr(inv, "item", None), "name", "item")
+    from waifu_bot.services.event_log import log_event
+
+    await log_event(session, player_id, "item_unequipped", {"item_name": item_name})
 
     # Sync waifu.max_hp with remaining equipment bonuses
     player_pre = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
@@ -1182,7 +1328,7 @@ async def get_available_items_for_slot(
     # Получить все предметы из инвентаря (не экипированные)
     inv_items = await session.execute(
         select(m.InventoryItem)
-        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+        .options(*inventory_item_load_options())
         .where(
             m.InventoryItem.player_id == player_id,
             m.InventoryItem.equipment_slot.is_(None),
@@ -1305,15 +1451,40 @@ async def preview_main_waifu_portrait(
     )
 
 
-async def _build_paperdoll_equipment_prompt_en(
+@dataclass
+class PaperdollEquipmentContext:
+    prompt_text: str
+    item_references: list[tuple[str, str]]
+    avg_tier: float
+    pose_hint_en: str
+
+
+def _paperdoll_equipped_slots_summary(
+    equipped: list[m.InventoryItem],
+    gear_items: list[schemas.GearItemOut],
+) -> dict[int, dict[str, str]]:
+    """Slot index (1–6) → slot_type / weapon_type for pose selection."""
+    out: dict[int, dict[str, str]] = {}
+    for inv, g in zip(equipped, gear_items):
+        sl = int(inv.equipment_slot or 0)
+        if sl < 1:
+            continue
+        out[sl] = {
+            "slot_type": str(g.slot_type or inv.slot_type or "").strip().lower(),
+            "weapon_type": str(g.weapon_type or inv.weapon_type or "").strip().lower(),
+        }
+    return out
+
+
+async def _build_paperdoll_equipment_context(
     session: AsyncSession,
     player_id: int,
     main: m.MainWaifu,
-) -> str:
-    """English equipment summary for image model (current equipped slots)."""
+) -> PaperdollEquipmentContext:
+    """Equipment summary + item image refs + average tier for paperdoll generation."""
     result = await session.execute(
         select(m.InventoryItem)
-        .options(selectinload(m.InventoryItem.item), selectinload(m.InventoryItem.affixes))
+        .options(*inventory_item_load_options())
         .where(
             m.InventoryItem.player_id == player_id,
             m.InventoryItem.equipment_slot.isnot(None),
@@ -1321,12 +1492,24 @@ async def _build_paperdoll_equipment_prompt_en(
     )
     equipped = list(result.scalars().all())
     if not equipped:
-        return (
+        pose_hint = pick_paperdoll_pose_for_equipment({})
+        prompt = (
             "Equipment state: no armor or weapons are currently equipped in the game. "
             "Use simple light adventurer base clothing appropriate to the class; avoid inventing heavy unrelated armor."
+            f"\nPose requirement: {pose_hint}. Rebuild arm positions for this pose; do not inherit arm positions from the portrait."
         )
+        return PaperdollEquipmentContext(
+            prompt_text=prompt,
+            item_references=[],
+            avg_tier=1.0,
+            pose_hint_en=pose_hint,
+        )
+
     await _enrich_items_with_template_stats(session, equipped)
     equipped.sort(key=lambda inv: int(inv.equipment_slot or 0))
+    gear_items = [_to_gear_item(inv, main) for inv in equipped]
+    await enrich_items_with_image_urls(session, gear_items)
+
     slot_label = {
         1: "Main hand",
         2: "Off hand (weapon, shield, or orb)",
@@ -1339,17 +1522,51 @@ async def _build_paperdoll_equipment_prompt_en(
         "Equipment state — show the character wearing and holding exactly this gear (fantasy JRPG, clear silhouettes). "
         "Match these items; do not add unrelated armor or weapons:",
     ]
-    for inv in equipped:
-        g = _to_gear_item(inv, main)
+    item_references: list[tuple[str, str]] = []
+    tier_sum = 0.0
+    tier_count = 0
+
+    for inv, g in zip(equipped, gear_items):
         sl = int(inv.equipment_slot or 0)
         label = slot_label.get(sl, f"Slot {sl}")
         name = (g.display_name or g.name or "item").strip()
         st = (g.slot_type or "").strip()
-        lines.append(f"- {label}: {name} (game type: {st})")
+        tier_sum += float(normalize_tier(g.tier))
+        tier_count += 1
+
+        art_key = str(g.art_key or "").strip()
+        rel = await resolve_item_art_relative_path(session, art_key, g.tier) if art_key else ""
+        data_url = read_game_asset_data_url(rel) if rel else None
+        if data_url:
+            item_references.append((label, data_url))
+            lines.append(
+                f"- {label}: {name} (game type: {st}; tier {normalize_tier(g.tier)}). "
+                f"Reference gear image attached for {label} — match its design on the character."
+            )
+        else:
+            lines.append(
+                f"- {label}: {name} (game type: {st}; tier {normalize_tier(g.tier)}; "
+                "no reference image — infer design from this name only)."
+            )
+
     lines.append(
         "Respect weapon grip for main/off hand; body slot shows armor or outfit; rings and amulet as visible jewelry when applicable."
     )
-    return "\n".join(lines)
+    lines.append(
+        "Main hand: primary weapon grip only. Off hand: at most one secondary item (shield, orb, or weapon) OR empty — never a third arm."
+    )
+    equipped_slots = _paperdoll_equipped_slots_summary(equipped, gear_items)
+    pose_hint = pick_paperdoll_pose_for_equipment(equipped_slots)
+    lines.append(
+        f"Pose requirement: {pose_hint}. Rebuild arm positions for this pose; do not inherit arm positions from the portrait."
+    )
+    avg_tier = tier_sum / tier_count if tier_count else 1.0
+    return PaperdollEquipmentContext(
+        prompt_text="\n".join(lines),
+        item_references=item_references,
+        avg_tier=avg_tier,
+        pose_hint_en=pose_hint,
+    )
 
 
 async def _run_paperdoll_generation_save(
@@ -1367,26 +1584,30 @@ async def _run_paperdoll_generation_save(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="main_waifu_not_found")
 
     main = player.main_waifu
+    had_image_before = bool((getattr(main, "paperdoll_image_data", None) or "").strip())
     portrait_raw = (getattr(main, "image_data", None) or "").strip()
     if not portrait_raw:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="portrait_required_for_paperdoll",
         )
-    if (getattr(main, "paperdoll_image_data", None) or "").strip() and not replace_existing:
+    if not replace_existing and had_image_before and paperdoll_generations_remaining(main) <= 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="paperdoll_already_generated",
         )
 
     mime = (getattr(main, "image_mime", None) or "image/webp").strip() or "image/webp"
-    equip_prompt = await _build_paperdoll_equipment_prompt_en(session, player_id, main)
+    equip_ctx = await _build_paperdoll_equipment_context(session, player_id, main)
     b64 = await generate_main_waifu_paperdoll_from_portrait(
         portrait_b64=portrait_raw,
         portrait_mime=mime,
         race_id=int(main.race),
         class_id=int(main.class_),
-        equipment_prompt_en=equip_prompt,
+        equipment_prompt_en=equip_ctx.prompt_text,
+        equipment_references=equip_ctx.item_references,
+        avg_equipment_tier=equip_ctx.avg_tier,
+        pose_hint_en=equip_ctx.pose_hint_en,
     )
     if not b64:
         raise HTTPException(
@@ -1407,6 +1628,9 @@ async def _run_paperdoll_generation_save(
     main.paperdoll_image_data = b64_stripped
     main.paperdoll_image_mime = mime_out
     main.paperdoll_generated_at = datetime.now(tz=timezone.utc)
+    if not replace_existing:
+        consume_paperdoll_generation(main, had_image_before=had_image_before)
+    sync_main_waifu_paperdoll_to_static(main)
     try:
         await session.commit()
     except SQLAlchemyError:
@@ -1417,7 +1641,7 @@ async def _run_paperdoll_generation_save(
             detail="paperdoll_save_failed",
         )
 
-    url = f"data:{main.paperdoll_image_mime};base64,{main.paperdoll_image_data}"
+    url = main_waifu_profile_paperdoll_url(main, player_id) or ""
     return schemas.MainWaifuPaperdollResponse(paperdoll_url=url)
 
 
@@ -1563,6 +1787,16 @@ async def create_main_waifu(
         if not bio_text:
             bio_text = fallback_main_waifu_bio(main.name, race_ru, class_ru)
         main.bio = bio_text
+        from waifu_bot.services.event_log import log_event
+
+        await log_event(
+            session,
+            player_id,
+            "account_created",
+            {"character_name": main.name, "race": int(main.race), "class": int(main.class_)},
+        )
+        if portrait_b64:
+            sync_main_waifu_portrait_to_static(main)
         await session.commit()
         await session.refresh(main)
     except Exception as e:
@@ -1573,10 +1807,7 @@ async def create_main_waifu(
             detail=f"create_main_waifu_failed: {type(e).__name__}",
         )
 
-    portrait_url = None
-    if getattr(main, "image_data", None):
-        mime = getattr(main, "image_mime", None) or "image/webp"
-        portrait_url = f"data:{mime};base64,{main.image_data}"
+    portrait_url = main_waifu_profile_portrait_url(main, player_id)
 
     return schemas.MainWaifuCreateResponse(
         main_waifu=schemas.MainWaifuProfile(
@@ -1702,10 +1933,12 @@ async def caravan_driver_tip(
     )
     out = {"text": text}
     if text is None:
-        if not getattr(settings, "openrouter_api_key", None):
-            out["error"] = "OPENROUTER_API_KEY не задан в .env"
+        from waifu_bot.services.llm_client import has_text_llm_configured
+
+        if not has_text_llm_configured():
+            out["error"] = "ROUTERAI_API_KEY не задан в .env"
         else:
-            out["error"] = "OpenRouter не вернул текст (см. логи [caravan driver-tip])"
+            out["error"] = "LLM не вернул текст (см. логи [caravan driver-tip])"
     return out
 
 
@@ -1812,6 +2045,8 @@ async def _expedition_active_affixes(session: AsyncSession, active) -> list:
     rows = list((await session.execute(stmt)).scalars().all())
     order = {aid: i for i, aid in enumerate(aids)}
     rows.sort(key=lambda r: order.get(r.id, 99))
+    from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
+
     return [
         schemas.ExpeditionAffixOut(
             id=x.id,
@@ -1821,12 +2056,15 @@ async def _expedition_active_affixes(session: AsyncSession, active) -> list:
             description_hint=getattr(x, "description_hint", None),
             icon=affix_display_icon(x),
             paired_perks=normalize_expedition_paired_perk_ids(getattr(x, "paired_perks", None) or []),
+            difficulty_tags=sorted_tag_list(tags_for_db_affix_row(x)),
         )
         for x in rows
     ]
 
 
 async def _expedition_squad_snapshot(session: AsyncSession, player_id: int, squad_ids: list) -> list:
+    from waifu_bot.game.expedition_overhaul import compute_hired_power
+
     out: list[schemas.ExpeditionSquadUnitOut] = []
     for wid in squad_ids or []:
         w = await session.get(m.HiredWaifu, wid)
@@ -1834,9 +2072,12 @@ async def _expedition_squad_snapshot(session: AsyncSession, player_id: int, squa
             continue
         cid = int(w.class_ or 1)
         rid = int(w.race or 1)
+        lvl = int(getattr(w, "level", 1) or 1)
+        rar = int(getattr(w, "rarity", 1) or 1)
         max_hp = max(1, int(w.max_hp or 1))
         cur = int(getattr(w, "current_hp", max_hp) or 0)
         icon = _EXPEDITION_CLASS_ICONS.get(cid, "⚔️")
+        power = compute_hired_power(lvl, rar)
         out.append(
             schemas.ExpeditionSquadUnitOut(
                 id=w.id,
@@ -1846,22 +2087,94 @@ async def _expedition_squad_snapshot(session: AsyncSession, player_id: int, squa
                 race=_WAIFU_RACE_RU.get(rid),
                 hp_current=cur,
                 hp_max=max_hp,
+                power=power,
+                level=lvl,
+                rarity=rar,
             )
         )
     return out
 
 
+def _expedition_squad_hp_pct(squad_snap: list) -> Optional[float]:
+    if not squad_snap:
+        return None
+    total_max = sum(int(getattr(u, "hp_max", 0) or 0) for u in squad_snap)
+    total_cur = sum(int(getattr(u, "hp_current", 0) or 0) for u in squad_snap)
+    if total_max <= 0:
+        return None
+    return round(100.0 * total_cur / total_max, 1)
+
+
+def _expedition_reward_preview(reward_type: Optional[str], reward_gold: int, reward_experience: int) -> Optional[str]:
+    """Короткая строка превью награды для карточки активной экспедиции."""
+    rt = (reward_type or "").lower()
+    icons = {
+        "gold": "🪙",
+        "waifu_exp": "⭐",
+        "items": "🗡",
+        "enchant": "💎",
+        "merc_exp": "✨",
+        "mixed": "🎁",
+    }
+    if not rt:
+        # legacy: покажем золото/опыт если есть
+        parts = []
+        if reward_gold:
+            parts.append(f"🪙 {reward_gold}")
+        if reward_experience:
+            parts.append(f"⭐ {reward_experience}")
+        return " · ".join(parts) if parts else None
+    ico = icons.get(rt, "🎁")
+    if rt == "gold":
+        return f"{ico} {reward_gold}" if reward_gold else f"{ico} —"
+    if rt in ("waifu_exp", "merc_exp"):
+        return f"{ico} {reward_experience}" if reward_experience else f"{ico} —"
+    if rt == "enchant":
+        return f"{ico} камни"
+    if rt == "items":
+        return f"{ico} снаряжение"
+    if rt == "mixed":
+        return f"{ico} добыча"
+    return ico
+
+
 @router.get("/expeditions/catalog", tags=["expeditions"])
 async def expeditions_catalog(session: AsyncSession = Depends(get_db)):
-    """v1.3: базовые локации + аффиксы из БД + допустимые длительности (без дневных слотов)."""
+    """v2: типы награды, тиры глубины, аффиксы; legacy durations для совместимости."""
     from waifu_bot.game.constants import EXPEDITION_MAX_CONCURRENT, EXPEDITION_V13_DURATIONS
+    from waifu_bot.game.expedition_difficulty_tags import sorted_tag_list, tags_for_db_affix_row
+    from waifu_bot.game.expedition_narrative_catalog import EXPEDITION_LOCATION_ARCHETYPES, EXPEDITION_MODES
+    from waifu_bot.game.expedition_overhaul import depth_tier_catalog, reward_type_catalog
     from waifu_bot.game.expedition_redesign import affix_display_icon
-    from waifu_bot.services.expedition import BASE_LOCATIONS
 
     stmt = select(m.ExpeditionAffix).order_by(m.ExpeditionAffix.id)
     rows = list((await session.execute(stmt)).scalars().all())
     return {
-        "locations": [{"name": n, "biome_tag": b, "weight": w} for n, b, w in BASE_LOCATIONS],
+        "reward_types": reward_type_catalog(),
+        "depth_tiers": depth_tier_catalog(),
+        "location_archetypes": [
+            {
+                "id": a.id,
+                "name": a.name_ru,
+                "biome_tag": a.biome_tag,
+                "weight": a.weight,
+                "narrative_hints": list(a.narrative_hints),
+            }
+            for a in EXPEDITION_LOCATION_ARCHETYPES
+        ],
+        "expedition_modes": [
+            {
+                "id": m.id,
+                "name": m.name_ru,
+                "weight": m.weight,
+                "narrative_focus": m.narrative_focus,
+            }
+            for m in EXPEDITION_MODES
+        ],
+        "locations": [
+            {"name": a.name_ru, "biome_tag": a.biome_tag, "weight": a.weight, "id": a.id}
+            for a in EXPEDITION_LOCATION_ARCHETYPES
+        ],
         "affixes": [
             {
                 "id": a.id,
@@ -1870,6 +2183,7 @@ async def expeditions_catalog(session: AsyncSession = Depends(get_db)):
                 "category": a.category,
                 "icon": affix_display_icon(a),
                 "description_hint": getattr(a, "description_hint", None),
+                "difficulty_tags": sorted_tag_list(tags_for_db_affix_row(a)),
             }
             for a in rows
         ],
@@ -1884,18 +2198,23 @@ async def expeditions_roster(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Все наёмницы пула для выбора в экспедиции; занятые помечены expedition_id (блокировка в UI)."""
-    from waifu_bot.game.constants import EXPEDITION_HP_MIN_PCT_TO_START
+    """Все наёмницы пула для выбора в экспедиции; HP/лечение через effective helpers."""
+    from datetime import datetime, timezone
 
+    from waifu_bot.game.expedition_difficulty_tags import unit_coverage_detail
+    from waifu_bot.services.hired_waifu_state import hired_roster_payload
+
+    now = datetime.now(tz=timezone.utc)
     stmt = select(m.HiredWaifu).where(m.HiredWaifu.player_id == player_id)
     rows = list((await session.execute(stmt)).scalars().all())
     out = []
     for w in rows:
-        max_hp = max(1, int(w.max_hp or 1))
-        cur = int(getattr(w, "current_hp", max_hp) or 0)
-        ratio = cur / max_hp
+        hp_data = hired_roster_payload(w, now)
         cid = int(w.class_ or 1)
         pl = getattr(w, "perk_levels", None) or {}
+        image_url = hired_waifu_portrait_url(w)
+        coverage = unit_coverage_detail(w)
+        status = "expedition" if w.expedition_id else ("healing" if hp_data["healing"] else "ready")
         out.append({
             "id": w.id,
             "name": w.name,
@@ -1904,13 +2223,22 @@ async def expeditions_roster(
             "level": w.level,
             "perks": w.perks,
             "perk_levels": dict(pl) if isinstance(pl, dict) else {},
-            "current_hp": cur,
-            "max_hp": max_hp,
-            "hp_current": cur,
-            "hp_max": max_hp,
+            "current_hp": hp_data["current_hp"],
+            "max_hp": hp_data["max_hp"],
+            "hp_current": hp_data["hp_current"],
+            "hp_max": hp_data["hp_max"],
+            "power": hp_data["power"],
+            "healing": hp_data["healing"],
+            "heal_complete_at": hp_data["heal_complete_at"],
+            "eligible": hp_data["eligible"],
+            "status": status,
+            "image_url": image_url,
             "icon": _EXPEDITION_CLASS_ICONS.get(cid, "⚔️"),
             "expedition_id": w.expedition_id,
-            "eligible": ratio >= EXPEDITION_HP_MIN_PCT_TO_START,
+            "covered_tags": coverage["covered_tags"],
+            "race_tags": coverage["race_tags"],
+            "class_tags": coverage["class_tags"],
+            "perk_tags": coverage["perk_tags"],
         })
     return {"waifus": out}
 
@@ -1920,88 +2248,8 @@ async def expeditions_slots(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    slots = await expedition_service.get_slots(session)
-    await session.commit()
-    used_slot_ids = await expedition_service.get_used_slot_ids(session, player_id)
-    day_str = slots[0].day.isoformat() if slots else ""
-    player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
-    player_level = (
-        int(player.main_waifu.level or 1) if (player and player.main_waifu) else 1
-    )
-    from waifu_bot.game.expedition_perk_resolve import normalize_expedition_paired_perk_ids
-    from waifu_bot.game.expedition_redesign import affix_display_icon, biome_emoji_for_tag, union_challenge_categories_from_db_affix_rows
-    from waifu_bot.services.expedition import _slot_required_perks
-    # Сложность: из slot.difficulty (аффиксы) или по номеру слота (старые слоты)
-    def _diff_label(d: int | None, sn: int) -> tuple[int, str]:
-        if d is not None:
-            if d <= 1:
-                return (1, "Лёгкая")
-            if d <= 3:
-                return (3, "Средняя")
-            return (5, "Тяжёлая")
-        return {1: (1, "Лёгкая"), 2: (3, "Средняя"), 3: (5, "Тяжёлая")}.get(sn, (3, "Средняя"))
-    # Загружаем аффиксы для слотов с affix_ids
-    affix_ids_flat = []
-    for s in slots:
-        aids = getattr(s, "affix_ids", None) or []
-        affix_ids_flat.extend(aids)
-    affix_map = {}
-    if affix_ids_flat:
-        affix_stmt = select(m.ExpeditionAffix).where(m.ExpeditionAffix.id.in_(set(affix_ids_flat)))
-        affix_rows = (await session.execute(affix_stmt)).scalars().all()
-        affix_map = {a.id: a for a in affix_rows}
-    out_slots = []
-    for s in slots:
-        sn = int(s.slot or 1)
-        slot_difficulty = getattr(s, "difficulty", None)
-        effective_level = (
-            max(1, player_level - 5 + (slot_difficulty - 1) * 2)
-            if slot_difficulty is not None
-            else max(1, player_level - 3 + (sn - 1) * 3)
-        )
-        diff_val, label = _diff_label(slot_difficulty, sn)
-        required_perks = sorted(_slot_required_perks(s))
-        affix_rows_for_slot = [affix_map[aid] for aid in (getattr(s, "affix_ids", None) or []) if aid in affix_map]
-        ch_cats = sorted(union_challenge_categories_from_db_affix_rows(affix_rows_for_slot)) if affix_rows_for_slot else []
-        affix_out = []
-        for aid in (getattr(s, "affix_ids", None) or []):
-            aff = affix_map.get(aid)
-            if aff:
-                affix_out.append(schemas.ExpeditionAffixOut(
-                    id=aff.id,
-                    name=aff.name,
-                    type=aff.type,
-                    category=aff.category,
-                    description_hint=getattr(aff, "description_hint", None),
-                    icon=affix_display_icon(aff),
-                    paired_perks=normalize_expedition_paired_perk_ids(getattr(aff, "paired_perks", None) or []),
-                ))
-        bt = getattr(s, "biome_tag", None)
-        out_slots.append(
-            schemas.ExpeditionSlotOut(
-                id=s.id,
-                slot=sn,
-                name=s.name,
-                base_level=effective_level,
-                base_difficulty=int(s.base_difficulty),
-                difficulty=diff_val,
-                label=label,
-                required_perks=required_perks,
-                challenge_categories=ch_cats,
-                affixes=affix_out,
-                base_location=getattr(s, "base_location", None),
-                biome_tag=bt,
-                biome_emoji=biome_emoji_for_tag(bt),
-                paired_perks=required_perks,
-                base_gold=int(s.base_gold),
-                base_experience=int(s.base_experience),
-                trial=getattr(s, "trial", False),
-                is_used=(s.id in used_slot_ids),
-            )
-        )
-    return schemas.ExpeditionSlotsResponse(
-        slots=out_slots, day=day_str, refresh_at=_msk_next_midnight_utc_iso()
-    )
+    """Deprecated: ежедневные слоты заменены моделью reward_type + depth_tier."""
+    return schemas.ExpeditionSlotsResponse(slots=[], day="", refresh_at=None)
 
 
 @router.get("/expeditions/daily-slots", response_model=schemas.ExpeditionSlotsResponse, tags=["expeditions"])
@@ -2009,7 +2257,7 @@ async def expeditions_daily_slots(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Те же ежедневные слоты, что и /expeditions/slots (+ refresh_at); для UI по плану."""
+    """Deprecated: см. /expeditions/catalog (reward_types + depth_tiers)."""
     return await expeditions_slots(player_id=player_id, session=session)
 
 
@@ -2021,6 +2269,8 @@ async def expeditions_active(
     from datetime import datetime, timezone
 
     from waifu_bot.game.expedition_redesign import biome_emoji_for_tag
+    from waifu_bot.game.expedition_narrative_catalog import archetype_for_id, mode_for_id
+    from waifu_bot.game.expedition_overhaul import depth_tier_by_id
 
     active_list = await expedition_service.get_active(session, player_id)
     out = []
@@ -2035,6 +2285,16 @@ async def expeditions_active(
         affixes = await _expedition_active_affixes(session, a)
         squad_snap = await _expedition_squad_snapshot(session, player_id, list(a.squad_waifu_ids or []))
         prog = _expedition_active_progress_pct(a, now)
+        arch = archetype_for_id(getattr(a, "location_archetype_id", None))
+        mode = mode_for_id(getattr(a, "expedition_mode_id", None))
+        brief = getattr(a, "narrative_brief", None) or {}
+        narrative_title = None
+        if isinstance(brief, dict) and brief.get("title"):
+            narrative_title = str(brief["title"])
+        depth_tier_val = getattr(a, "depth_tier", None)
+        depth = depth_tier_by_id(int(depth_tier_val)) if depth_tier_val is not None else None
+        reward_type_val = getattr(a, "reward_type", None)
+        squad_power_val = sum(int(getattr(u, "power", 0) or 0) for u in squad_snap) if squad_snap else None
         out.append(
             schemas.ExpeditionActiveOut(
                 id=a.id,
@@ -2060,6 +2320,22 @@ async def expeditions_active(
                 events_total=int(getattr(a, "events_total", None) or 0),
                 progress_pct=prog,
                 squad_snapshot=squad_snap,
+                location_archetype_id=getattr(a, "location_archetype_id", None),
+                location_archetype_name=arch.name_ru if arch else None,
+                expedition_mode_id=getattr(a, "expedition_mode_id", None),
+                expedition_mode_name=mode.name_ru if mode else None,
+                narrative_title=narrative_title,
+                depth_tier=depth.tier if depth else None,
+                depth_name=depth.name_ru if depth else None,
+                reward_type=reward_type_val,
+                reward_preview=_expedition_reward_preview(reward_type_val, a.reward_gold, a.reward_experience),
+                squad_power=squad_power_val,
+                recommended_power=depth.min_squad_power if depth else None,
+                squad_hp_pct=_expedition_squad_hp_pct(squad_snap),
+                result_ready=bool(
+                    getattr(a, "outcome", None)
+                    and (getattr(a, "event_text", None) or "").strip()
+                ),
             )
         )
     return schemas.ExpeditionActiveResponse(active=out)
@@ -2071,10 +2347,50 @@ async def expeditions_preview(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Превью шанса успеха с учётом длительности (ТЗ v1.1). Единственный источник истины для шанса."""
+    """Превью v2 (reward_type + depth_tier) или legacy слот."""
+    unit_ids = payload.unit_ids if payload.unit_ids is not None else payload.squad_waifu_ids
+    if payload.reward_type is not None and payload.depth_tier is not None:
+        from waifu_bot.services.expedition_v2_preview import preview_expedition_v2
+
+        data = await preview_expedition_v2(
+            session,
+            player_id,
+            unit_ids or [],
+            payload.reward_type,
+            int(payload.depth_tier),
+        )
+        if data.get("error"):
+            raise HTTPException(status_code=400, detail=data["error"])
+        tag_pct = float(data.get("tag_effectiveness_pct", 100.0))
+        label = "Высокий" if tag_pct >= 70 else ("Средний" if tag_pct >= 45 else "Низкий")
+        return schemas.ExpeditionPreviewOut(
+            chance=tag_pct / 100.0,
+            chance_pct=tag_pct,
+            label=label,
+            squad_size=int(data.get("squad_size") or 0),
+            units=[],
+            events_count=data.get("events_count"),
+            duration_minutes=data.get("duration_minutes"),
+            active_tags=data.get("active_tags") or [],
+            covered_tags=data.get("covered_tags") or [],
+            tag_effectiveness_pct=tag_pct,
+            tag_effectiveness_mult=float(data.get("tag_effectiveness_mult") or 1.0),
+            reward_type=data.get("reward_type"),
+            depth_tier=data.get("depth_tier"),
+            depth_name=data.get("depth_name"),
+            squad_power=data.get("squad_power"),
+            min_squad_power=data.get("min_squad_power"),
+            power_ok=data.get("power_ok"),
+            damage_per_event_pct=data.get("damage_per_event_pct"),
+            hp_forecast_pct=data.get("hp_forecast_pct"),
+        )
+
     slot_id = payload.slot_id if payload.slot_id is not None else payload.expedition_slot_id
     unit_ids = payload.unit_ids if payload.unit_ids is not None else payload.squad_waifu_ids
     duration_minutes = payload.duration_minutes if getattr(payload, "duration_minutes", None) is not None else 60
+    affix_level = payload.difficulty_level if getattr(payload, "difficulty_level", None) is not None else 1
+    if affix_level is not None:
+        affix_level = max(1, min(5, int(affix_level)))
     slot = await session.get(m.ExpeditionSlot, slot_id)
     if not slot:
         raise HTTPException(status_code=404, detail="Слот не найден")
@@ -2085,7 +2401,12 @@ async def expeditions_preview(
         w = await session.get(m.HiredWaifu, wid)
         if w and w.player_id == player_id:
             squad.append(w)
-    from waifu_bot.services.expedition import calculate_squad_chance, get_duration_multipliers, slot_challenge_categories_union
+    from waifu_bot.services.expedition import (
+        calculate_squad_chance,
+        enrich_chance_with_tags,
+        get_duration_multipliers,
+        slot_challenge_categories_union,
+    )
     affix_by_id = {}
     if getattr(slot, "affix_ids", None):
         affix_stmt = select(m.ExpeditionAffix).where(m.ExpeditionAffix.id.in_(set(slot.affix_ids)))
@@ -2099,6 +2420,7 @@ async def expeditions_preview(
         duration_minutes=duration_minutes,
         challenge_union=ch_union,
     )
+    enrich_chance_with_tags(data, squad, slot, affix_by_id, affix_level=affix_level or 1)
     units_out = [
         schemas.ExpeditionPreviewUnitOut(
             unit_id=u["unit_id"],
@@ -2126,6 +2448,12 @@ async def expeditions_preview(
         success_chance=data["chance"],
         success_label=data["label"],
         matched_perks=[pid for u in data.get("units", []) for pid in u.get("matched_perks", [])],
+        active_tags=data.get("active_tags", []),
+        covered_tags=data.get("covered_tags", []),
+        tag_effectiveness_pct=float(data.get("tag_effectiveness_pct", 100.0)),
+        tag_effectiveness_mult=float(data.get("tag_effectiveness_mult", 1.0)),
+        perk_effectiveness_pct=data.get("perk_effectiveness_pct"),
+        affix_level=data.get("affix_level"),
     )
 
 
@@ -2141,6 +2469,8 @@ async def expeditions_start(
         payload.expedition_slot_id,
         payload.squad_waifu_ids,
         payload.duration_minutes,
+        reward_type=payload.reward_type,
+        depth_tier=payload.depth_tier,
         affix_template_id=payload.affix_template_id,
         affix_level=payload.affix_level,
         display_base_location=payload.display_base_location,
@@ -2149,6 +2479,19 @@ async def expeditions_start(
     )
     err = result.get("error")
     if err:
+        if err == "player_not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Игрок не найден")
+        if err == "invalid_reward_type":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Недопустимый тип награды")
+        if err == "invalid_depth_tier":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Недопустимый тир глубины")
+        if err == "insufficient_power":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Недостаточно мощи отряда: нужно {result.get('required', '?')}, есть {result.get('have', '?')}",
+            )
+        if err == "waifu_healing":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Наёмница на лечении")
         if err == "invalid_duration":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Недопустимая длительность")
         if err == "squad_size":
@@ -2169,6 +2512,16 @@ async def expeditions_start(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Вайфу должна быть в отряде таверны")
         if err == "already_started":
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Экспедиция в этот слот уже запущена")
+        if err == "daily_limit_reached":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Лимит экспедиций на сегодня: {result.get('max', 3)}",
+            )
+        if err == "constructor_disabled":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Прямой запуск без дневного слота недоступен",
+            )
         if err == "missing_expedition_config":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Укажите слот или параметры похода (локация, аффикс, уровень)")
         if err == "too_many_expeditions":
@@ -2188,34 +2541,54 @@ async def expeditions_start(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Аффиксы слота не найдены")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
     if result.get("success") and result.get("active_id"):
-        try:
-            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-            from waifu_bot.services.webhook import get_bot
-            bot = get_bot()
-            name = result.get("expedition_name", "Экспедиция")
-            gold = result.get("reward_gold", 0)
-            exp = result.get("reward_experience", 0)
-            g_half = max(0, gold // 2)
-            e_half = max(0, exp // 2)
-            chip = ""
-            if result.get("affix_icon") and result.get("affix_level_roman"):
-                chip = f"{result.get('affix_icon')} Уровень {result.get('affix_level_roman')}\n"
-            text = (
-                f"🗺 «{name}» начата.\n{chip}\n"
-                f"🪙 Награда: {gold} золота · ✨ {exp} опыта\n\n"
-                "События каждые 15 мин — отчёт придёт в ЛС. "
-                "Досрочное завершение — около 50% награды."
-            )
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text=f"🏳 Завершить досрочно (~{g_half}🪙, ~{e_half}✨)",
-                    callback_data=f"expedition_abort_{result['active_id']}",
-                )]
-            ])
-            await bot.send_message(chat_id=player_id, text=text, reply_markup=keyboard)
-        except Exception:
-            logger.exception("Expedition start DM to player_id=%s failed", player_id)
-    return schemas.ExpeditionStartResponse(**result)
+        from waifu_bot.services.player_notification_prefs import should_send_dm
+
+        if await should_send_dm(session, player_id, "expedition_result"):
+            try:
+                from waifu_bot.services.webhook import get_bot
+                bot = get_bot()
+                name = result.get("expedition_name", "Экспедиция")
+                gold = result.get("reward_gold", 0)
+                exp = result.get("reward_experience", 0)
+                duration_min = int(result.get("duration_minutes") or 0)
+                events_total = int(result.get("events_total") or 0)
+                from waifu_bot.game.expedition_redesign import expedition_event_interval_minutes
+
+                tick_interval = expedition_event_interval_minutes(duration_min, events_total)
+                chip = ""
+                if result.get("affix_icon") and result.get("affix_level_roman"):
+                    chip = f"{result.get('affix_icon')} Уровень {result.get('affix_level_roman')}\n"
+                text = (
+                    f"🗺 «{name}» начата.\n{chip}\n"
+                    f"🪙 Награда: {gold} золота · ✨ {exp} опыта\n\n"
+                    f"События каждые ~{tick_interval} мин — отчёт придёт в ЛС. "
+                    "Забрать награду можно после завершения."
+                )
+                await bot.send_message(chat_id=player_id, text=text)
+                intro = result.get("start_intro_narrative")
+                if intro:
+                    await bot.send_message(chat_id=player_id, text=intro)
+            except Exception:
+                logger.exception("Expedition start DM to player_id=%s failed", player_id)
+    return schemas.ExpeditionStartResponse(
+        success=bool(result.get("success")),
+        active_id=int(result.get("active_id") or 0),
+        expedition_name=str(result.get("expedition_name") or ""),
+        chance=float(result.get("chance") or 0),
+        success_result=bool(result.get("success_result", result.get("success"))),
+        reward_gold=int(result.get("reward_gold") or 0),
+        reward_experience=int(result.get("reward_experience") or 0),
+        reward_type=result.get("reward_type"),
+        depth_tier=result.get("depth_tier"),
+        squad_power=result.get("squad_power"),
+        ends_at=str(result.get("ends_at") or ""),
+        duration_minutes=int(result.get("duration_minutes") or 0),
+        affix_icon=result.get("affix_icon"),
+        affix_level_roman=result.get("affix_level_roman"),
+        events_total=result.get("events_total"),
+        start_intro_narrative=result.get("start_intro_narrative"),
+        error=result.get("error"),
+    )
 
 
 @router.post("/expeditions/claim", tags=["expeditions"])
@@ -2273,53 +2646,37 @@ async def expeditions_claim_by_id(
         w = await session.get(m.HiredWaifu, wid)
         if not w or w.player_id != player_id:
             continue
-        hp_max = 50 + max(0, int(w.level or 1)) * 15
+        hp_max = max(1, int(getattr(w, "max_hp", 1) or 1))
+        hp_current = max(0, int(getattr(w, "current_hp", hp_max) or 0))
+        lost_pct = (hp_max - hp_current) / hp_max if hp_max > 0 else 0.0
+        heal_mins = 0
+        if hp_current < hp_max:
+            # 0.8 мин за 1% потерянного HP; ×1.5 если HP=0
+            heal_mins = round(lost_pct * 100.0 * 0.8 * (1.5 if hp_current <= 0 else 1.0))
         squad_state.append({
+            "hired_waifu_id": int(w.id),
             "name": w.name or "Вайфу",
-            "hp_current": hp_max,
+            "hp_current": hp_current,
             "hp_max": hp_max,
             "leveled_up": wid in leveled_up_ids,
             "class_icon": _EXPEDITION_CLASS_ICONS.get(int(w.class_ or 1), "⚔️"),
+            "needs_heal": hp_current < hp_max,
+            "heal_forecast_minutes": heal_mins,
         })
 
     return {
         "expedition_name": expedition_name,
         "outcome": result.get("outcome") or "failure",
         "ai_narrative": result.get("event_text") or "Отряд вернулся из экспедиции.",
+        "gate_log": result.get("gate_log") or [],
+        "reward_type": result.get("reward_type"),
         "gold_earned": result.get("gold_gained", 0),
         "exp_earned": result.get("experience_gained", 0),
+        "waifu_exp_gained": result.get("waifu_exp_gained", 0),
+        "enchant_stones": result.get("enchant_stones", 0),
         "squad_state": squad_state,
-        "items_earned": [],
+        "items_earned": result.get("items_earned") or [],
     }
-
-
-@router.post("/expeditions/cancel", tags=["expeditions"])
-async def expeditions_cancel(
-    active_id: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    result = await expedition_service.cancel(session, player_id, active_id)
-    if result.get("error"):
-        err = result["error"]
-        if err == "not_found":
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Экспедиция не найдена")
-        if err == "already_claimed":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Уже обработано")
-        if err == "already_cancelled":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Уже отменена")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
-    return schemas.ExpeditionCancelResponse(**result)
-
-
-@router.post("/expeditions/{expedition_id}/abort", response_model=schemas.ExpeditionCancelResponse, tags=["expeditions"])
-async def expeditions_abort_by_id(
-    expedition_id: int,
-    player_id: int = Depends(get_player_id),
-    session: AsyncSession = Depends(get_db),
-):
-    """Досрочное завершение из WebApp (те же 50% награды, что и /expeditions/cancel)."""
-    return await expeditions_cancel(active_id=expedition_id, player_id=player_id, session=session)
 
 
 @router.get("/expeditions/perks", tags=["expeditions"])

@@ -129,8 +129,16 @@ class MainWaifu(Base):
     paperdoll_generated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    paperdoll_bonus_generations: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+    portrait_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    paperdoll_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     bio: Mapped[str | None] = mapped_column(Text(), nullable=True)
+
+    # True after last solo dungeon run ended with status failed (SURVIVOR_SPIRIT)
+    last_dungeon_failed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     __table_args__ = (
         CheckConstraint("level >= 1 AND level <= 60", name="check_level_range"),
@@ -229,6 +237,13 @@ class HiredWaifu(Base):
     hp_updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    heal_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    heal_complete_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    heal_start_hp: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Expedition-focused attributes
     power: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

@@ -12,14 +12,17 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db.models import (
-    GDCycle,
-    GDRegistration,
     HiredWaifu,
     HiddenSkillDefinition,
     Player,
-    PlayerGameAction,
     PlayerHiddenSkill,
 )
+from waifu_bot.game.hidden_effect_labels import (
+    bonus_summary_from_dict,
+    hidden_skill_image_url,
+    labeled_effects_from_dict,
+)
+from waifu_bot.services.player_chats import forget_player_chat_seen, resolve_player_group_chats
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +30,8 @@ logger = logging.getLogger(__name__)
 COUNTER_EVENTS: dict[str, list[str]] = {
     "story_boss_total_kills": ["echo_atlas"],
     "story_boss_unique_kills": ["echo_catalog"],
-    "dungeon_message": ["chatterbox", "marathon"],
-    "group_message": ["team_player", "chatterbox", "marathon"],
+    "dungeon_message": ["chatterbox"],
+    "group_message": ["team_player", "chatterbox"],
     "dungeon_kill": ["executioner"],
     "boss_kill": ["boss_slayer"],
     "elite_kill": ["elite_hunter"],
@@ -49,6 +52,7 @@ COUNTER_EVENTS: dict[str, list[str]] = {
     "loyal_expedition": ["loyal_commander"],
     "saving_period": ["hoarder"],
     "enchant_5plus": ["enchanter_soul"],
+    "marathon_complete": ["marathon"],
 }
 
 
@@ -63,7 +67,7 @@ def _level_from_counter(thresholds: list, counter: int) -> int:
     return min(5, lvl)
 
 
-def _effects_for_level(defn: HiddenSkillDefinition, level: int) -> dict[str, float]:
+def effects_for_level(defn: HiddenSkillDefinition, level: int) -> dict[str, float]:
     if level <= 0:
         return {}
     idx = level - 1
@@ -118,32 +122,6 @@ async def _group_announce_mention_html(bot: Any, player_id: int, player: Player 
     return _player_mention_html(int(player_id), player)
 
 
-async def _active_group_chat_ids(session: AsyncSession, player_id: int) -> list[int]:
-    """Групповые чаты с активным или открытым к регистрации GD v1, где записан игрок."""
-    q = (
-        select(GDCycle.chat_id)
-        .join(GDRegistration, GDRegistration.cycle_id == GDCycle.id)
-        .where(
-            GDRegistration.user_id == int(player_id),
-            GDCycle.status.in_(("registration", "active")),
-        )
-        .distinct()
-    )
-    rows = (await session.execute(q)).all()
-    return [int(r[0]) for r in rows]
-
-
-async def _fallback_group_chat_id(session: AsyncSession, player_id: int) -> int | None:
-    """Последний известный групповой чат (отрицательный chat_id) по действиям в игре."""
-    cid = await session.scalar(
-        select(PlayerGameAction.chat_id)
-        .where(PlayerGameAction.player_id == int(player_id), PlayerGameAction.chat_id < 0)
-        .order_by(PlayerGameAction.created_at.desc())
-        .limit(1)
-    )
-    return int(cid) if cid is not None else None
-
-
 async def _notify_group_hidden_skill_unlock(
     session: AsyncSession,
     player_id: int,
@@ -151,11 +129,7 @@ async def _notify_group_hidden_skill_unlock(
     _new_level: int,
 ) -> None:
     """Сообщение в группу(ы) при первом открытии навыка (флаг announce_in_group)."""
-    chat_ids = await _active_group_chat_ids(session, player_id)
-    if not chat_ids:
-        fb = await _fallback_group_chat_id(session, player_id)
-        if fb is not None:
-            chat_ids = [fb]
+    chat_ids = await resolve_player_group_chats(session, player_id)
     if not chat_ids:
         return
 
@@ -163,6 +137,8 @@ async def _notify_group_hidden_skill_unlock(
     skill_name = html.escape(defn.name or defn.id)
 
     try:
+        from aiogram.exceptions import TelegramForbiddenError
+
         from waifu_bot.services.webhook import get_bot
 
         bot = get_bot()
@@ -171,6 +147,17 @@ async def _notify_group_hidden_skill_unlock(
         for cid in chat_ids:
             try:
                 await bot.send_message(chat_id=cid, text=text)
+            except TelegramForbiddenError:
+                logger.warning(
+                    "hidden skill group announce forbidden chat_id=%s player_id=%s",
+                    cid,
+                    player_id,
+                )
+                try:
+                    await forget_player_chat_seen(session, int(player_id), int(cid))
+                    await session.commit()
+                except Exception:
+                    logger.debug("forget_player_chat_seen failed", exc_info=True)
             except Exception:
                 logger.exception("hidden skill group announce failed chat_id=%s player_id=%s", cid, player_id)
     except Exception:
@@ -277,6 +264,32 @@ async def _apply_level_for_skill(session: AsyncSession, player_id: int, skill_id
         if row.unlocked_at is None:
             row.unlocked_at = now
         await _maybe_announce_group_skill_unlock(session, int(player_id), defn, old_level, nl)
+        if old_level == 0 and nl >= 1:
+            try:
+                from waifu_bot.services.guild_activity import log_hidden_skill_unlock
+
+                await log_hidden_skill_unlock(session, int(player_id), defn.name or skill_id)
+            except Exception:
+                pass
+        try:
+            from waifu_bot.services.event_log import log_event
+
+            if old_level == 0 and nl >= 1:
+                await log_event(
+                    session,
+                    int(player_id),
+                    "hidden_skill_unlock",
+                    {"skill_id": skill_id, "name": defn.name or skill_id, "level": nl},
+                )
+            elif old_level >= 1:
+                await log_event(
+                    session,
+                    int(player_id),
+                    "hidden_skill_level_up",
+                    {"skill_id": skill_id, "name": defn.name or skill_id, "level": nl},
+                )
+        except Exception:
+            pass
 
 
 async def check_level_up(session: AsyncSession, player_id: int, skill_id: str) -> None:
@@ -351,7 +364,7 @@ async def get_hidden_skill_bonuses(session: AsyncSession, player_id: int) -> dic
     rows = (await session.execute(q)).all()
     bonuses: dict[str, float] = {}
     for phs, defn in rows:
-        eff = _effects_for_level(defn, int(phs.level or 0))
+        eff = effects_for_level(defn, int(phs.level or 0))
         for k, v in eff.items():
             bonuses[k] = bonuses.get(k, 0.0) + float(v)
     return bonuses
@@ -376,6 +389,9 @@ async def list_hidden_skills_payload(session: AsyncSession, player_id: int) -> l
             next_th = int(th[lvl])
         elif th:
             next_th = int(th[-1])
+        cur_eff = effects_for_level(d, lvl) if lvl > 0 else {}
+        next_eff = effects_for_level(d, lvl + 1) if lvl < 5 else {}
+        next_eff_out = next_eff if next_eff else None
         out.append(
             {
                 "id": d.id,
@@ -390,9 +406,140 @@ async def list_hidden_skills_payload(session: AsyncSession, player_id: int) -> l
                 "next_threshold": next_th,
                 "max_level": 5,
                 "revealed": lvl > 0,
+                "effect_types": list(d.effect_types or []),
+                "effect_values": d.effect_values if d.effect_values is not None else [],
+                "current_effects": cur_eff,
+                "next_effects": next_eff_out,
+                "image_url": hidden_skill_image_url(d.id),
+                "current_effects_labeled": labeled_effects_from_dict(cur_eff),
+                "next_effects_labeled": labeled_effects_from_dict(next_eff_out) if next_eff_out else [],
+                "bonus_summary": bonus_summary_from_dict(cur_eff),
+                "next_bonus_summary": bonus_summary_from_dict(next_eff_out) if next_eff_out else None,
             }
         )
     return out
+
+
+def _redis_optional(redis: Any | None = None) -> Any | None:
+    if redis is not None:
+        return redis
+    try:
+        from waifu_bot.core import redis as redis_core
+
+        return redis_core.get_redis()
+    except Exception:
+        return None
+
+
+async def record_hidden_gold_spend(player_id: int, redis: Any | None = None) -> None:
+    """Отметить трату золота (для навыка «Скряга»)."""
+    redis = _redis_optional(redis)
+    if not redis:
+        return
+    try:
+        await redis.set(f"hidden:hoarder:last_spend:{int(player_id)}", "1", ex=86400 * 14)
+    except Exception:
+        logger.debug("hoarder last_spend redis skip", exc_info=True)
+
+
+async def try_hoarder_saving_streak(
+    session: AsyncSession, player_id: int, current_gold: int, redis: Any | None = None
+) -> None:
+    """Один раз в сутки: если не было трат — +1 к серии «Скряги»."""
+    redis = _redis_optional(redis)
+    if not redis:
+        return
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("Europe/Moscow")
+    now = datetime.now(timezone.utc).astimezone(tz)
+    day_key = f"hidden:hoarder:day:{player_id}:{now.year}{now.month:02d}{now.day:02d}"
+    try:
+        if not await redis.set(day_key, "1", nx=True, ex=86400):
+            return
+        spent = await redis.get(f"hidden:hoarder:last_spend:{int(player_id)}")
+        if spent:
+            return
+        peak_key = f"hidden:hoarder:peak:{int(player_id)}"
+        prev = await redis.get(peak_key)
+        prev_g = int(prev) if prev else 0
+        if int(current_gold) <= prev_g:
+            return
+        await redis.set(peak_key, str(int(current_gold)), ex=86400 * 60)
+        await increment_skill_counter(session, int(player_id), "saving_period", 1)
+    except Exception:
+        logger.debug("hoarder streak skip", exc_info=True)
+
+
+async def try_track_marathon_session(
+    session: AsyncSession, player_id: int, redis: Any | None = None
+) -> None:
+    """Сессия активности: ≥6 ч без перерыва >30 мин → +1 к «Марафонец»."""
+    redis = _redis_optional(redis)
+    if not redis:
+        return
+    pid = int(player_id)
+    last_key = f"hidden:marathon:last_msg:{pid}"
+    start_key = f"hidden:marathon:start:{pid}"
+    try:
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        last_raw = await redis.get(last_key)
+        start_raw = await redis.get(start_key)
+        if last_raw and start_raw:
+            last_ts = int(last_raw)
+            start_ts = int(start_raw)
+            if now_ts - last_ts > 30 * 60:
+                if last_ts - start_ts >= 6 * 3600:
+                    await increment_skill_counter(session, pid, "marathon_complete", 1)
+                await redis.delete(start_key)
+                start_raw = None
+        if not start_raw:
+            await redis.set(start_key, str(now_ts), ex=86400)
+        await redis.set(last_key, str(now_ts), ex=86400)
+    except Exception:
+        logger.debug("marathon track skip", exc_info=True)
+
+
+async def try_track_consistent_day(
+    session: AsyncSession, player_id: int, redis: Any | None = None
+) -> None:
+    """Один раз в сутки (МСК): активность в подземелье → streak «Постоянство»."""
+    redis = _redis_optional(redis)
+    if not redis:
+        return
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("Europe/Moscow")
+    now = datetime.now(timezone.utc).astimezone(tz)
+    day = f"{now.year}{now.month:02d}{now.day:02d}"
+    pid = int(player_id)
+    try:
+        if not await redis.set(f"hidden:consistent:day:{pid}:{day}", "1", nx=True, ex=86400):
+            return
+        last_key = f"hidden:consistent:last:{pid}"
+        streak_key = f"hidden:consistent:streak:{pid}"
+        last_raw = await redis.get(last_key)
+        streak_raw = await redis.get(streak_key)
+        streak = int(streak_raw or 0)
+        if last_raw:
+            from datetime import date
+
+            last_d = str(last_raw)
+            y, m, d = int(last_d[:4]), int(last_d[4:6]), int(last_d[6:8])
+            last_date = date(y, m, d)
+            today = now.date()
+            delta = (today - last_date).days
+            if delta == 1:
+                streak += 1
+            elif delta > 1:
+                streak = 1
+        else:
+            streak = 1
+        await redis.set(last_key, day, ex=86400 * 400)
+        await redis.set(streak_key, str(streak), ex=86400 * 400)
+        await set_skill_counter(session, pid, "consistent", streak)
+    except Exception:
+        logger.debug("consistent track skip", exc_info=True)
 
 
 def moscow_hour(ts: datetime | None = None) -> int:

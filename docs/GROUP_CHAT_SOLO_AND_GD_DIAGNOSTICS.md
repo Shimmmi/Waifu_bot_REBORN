@@ -26,6 +26,7 @@ flowchart TD
 
 - **Соло-урон в группе:** `group_message_damage` → при отсутствии активного GD v1 — `CombatService.process_message_damage` ([`combat.py`](../src/waifu_bot/services/combat.py)).
 - **GD v1:** отдельные хендлеры команд (`/gd_join`, `gd_v1_test_*`, …) в том же [`bot_handlers.py`](../src/waifu_bot/services/bot_handlers.py).
+- **Награды за чат (независимо):** в начале `group_message_damage` вызывается `chat_rewards.try_award_chat_message` — золото/опыт/сундуки копятся параллельно GD, рейду и соло-бою. См. [`docs/CHAT_ACTIVITY_REWARDS.md`](CHAT_ACTIVITY_REWARDS.md).
 
 ## Логи сервера (после доработки диагностики)
 
@@ -57,13 +58,15 @@ flowchart TD
 
 **Справочно для других инстансов / форков:** при **включённом** Group Privacy бот в группе не получает обычные сообщения; тогда симптом «есть `/help`, нет текста» совпадает с privacy — проверка BotFather → Group Privacy → Turn off.
 
-### 1B. Активен цикл GD v1 в этом чате (частая причина отсутствия соло-урона по тексту)
+### 1B. Активен цикл GD v1 в этом чате (урон идёт И в ГД, И в соло по умолчанию)
 
-Если для `chat_id` есть цикл со статусом `active`, ветка с [`get_active_v1_cycle`](../src/waifu_bot/services/gd_cycle_service.py) **только** пишет действие в Redis-буфер раунда ([`record_round_action`](../src/waifu_bot/services/gd_cycle_service.py)) и **не** вызывает [`CombatService.process_message_damage`](../src/waifu_bot/services/combat.py). В логах появится строка **`group gd_v1 round buffer`**.
+Если для `chat_id` есть цикл со статусом `active`, ветка с [`get_active_v1_cycle`](../src/waifu_bot/services/gd_cycle_service.py) (с Redis-кэшем `gd_v1_active:{chat_id}`) пишет действие в буфер раунда ([`record_round_action`](../src/waifu_bot/services/gd_cycle_service.py)) и **без раннего `break`** выполнение продолжается до [`CombatService.process_message_damage`](../src/waifu_bot/services/combat.py) и [`handle_abyss_attack`](../src/waifu_bot/services/abyss_combat.py), если не сработал гильдейский рейд. В логах могут быть обе строки: **`group gd_v1 round buffer`** и **`group combat hit`** / **`group combat result: error=...`**.
 
-Пока цикл `active`, ожидать соло-урон по сообщению в этом чате **нельзя** — даже если Redis недоступен (буфер пустой, в логах предупреждение или `Redis error`). Завершите или сбросьте цикл ([`reset_v1_cycles_for_chat`](../src/waifu_bot/services/gd_cycle_service.py) / тестовая команда), либо проверьте Redis.
+Участник ГД одновременно бьёт босса ГД и свой одиночный данж; не-участники бьют только свои данжи. `process_message_damage` даёт `no_active_battle`, если у игрока нет активного боя.
 
-**Проверка состояния:** таблица `gd_cycle` (модель [`GDCycle`](../src/waifu_bot/db/models/gd_cycle.py)): `status = 'active'` и `chat_id` = id группы.
+**Опционально отключить соло+бездну при активном GD** (рейд по-прежнему обрабатывается): в `game_config` ключ **`gd_v1_skip_group_solo_while_active`** = `1` (по умолчанию `0` — поведение как выше). При `1` после буфера GD хендлер выходит до combat/abyss; в логах останется **`group gd_v1 round buffer`**, но не будет **`group combat hit`**.
+
+**Проверка состояния:** таблица `gd_cycles`: `status = 'active'` и `chat_id` = id группы.
 
 ### 1C. Нет активного боя у игрока (вторичная гипотеза при описанных симптомах)
 
@@ -108,7 +111,7 @@ flowchart TD
 
 Команды `/...` **не** попадают в `group_message_damage` (текст начинается с `/`). Регистрация: сначала `Command("start")`/`("help")`, затем общий групповой хендлер, затем `Command("gd_join")` и остальные — конфликта с «перехватом» текста команд этим хендлером нет.
 
-Неизвестные `/` в группе обрабатывает [`cmd_group_unknown_slash`](../src/waifu_bot/services/bot_handlers.py) — если до неё дошли и ответ не ушёл, снова смотреть права бота.
+В группе бот реагирует только на команды вида `/command@username_этого_бота`; bare `/command` игнорируется (без ответа). Неизвестные `/...@бот` обрабатывает [`cmd_group_unknown_slash`](../src/waifu_bot/services/bot_handlers.py) — если до неё дошли и ответ не ушёл, снова смотреть права бота.
 
 ---
 
@@ -122,7 +125,7 @@ flowchart TD
 
 4. **Соло (урон по тексту):** при активном подземелье (как в веб/debug) на сообщение игрока в группе — в логах есть ли `group combat hit` или `group combat result: error=...`? Нет ни того ни другого → смотреть `group gd_v1 round buffer`, `group guild raid hit`, или сообщение не дошло (п. 1).
 
-5. **GD v1 и текст:** если для `chat_id` группы есть цикл `active`, обычный текст **не** идёт в `process_message_damage`, а только в буфер раунда — ожидается лог **`group gd_v1 round buffer`**; для проверки соло-урона тестировать в чате **без** активного GD или после сброса тестового цикла.
+5. **GD v1 и текст:** при `active` текст идёт в буфер раунда (**`group gd_v1 round buffer`**) и **также** в соло/бездну, если `gd_v1_skip_group_solo_while_active` = `0`. Для изолированной проверки только соло — чат без активного GD, флаг skip = `1`, или сброс тестового цикла.
 
 6. **GD (команды):** для `/gd_join` ответ обязан быть почти всегда; для команд `gd_v1_test_*` при чужом user id — текст отказа. Полная тишина → п. 1–3; при своём user id и тишине — смотреть исключения в логах Aiogram.
 

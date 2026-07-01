@@ -223,16 +223,20 @@ def build_incoming_damage_breakdown_ru(
     *,
     raw_monster_damage: int,
     armor_total: int,
-    damage_after_armor: int,
+    armor_dr: float,
+    waifu_level: int,
     total_reduce: float,
     damage_after_mitigation: int,
     final_armor_pct: float,
     damage_after_final_armor: int,
+    low_hp_reduce_pct: float = 0.0,
+    damage_after_low_hp_reduce: int | None = None,
     secondary_evade_triggered: bool,
     full_evade_triggered: bool,
     final_damage_taken: int,
     dmg_reduce_contribs: list[dict[str, Any]] | None = None,
     armor_slot_contribs: list[dict[str, Any]] | None = None,
+    passive_armor_flat_contribs: list[dict[str, Any]] | None = None,
     passive_armor_pct_contribs: list[dict[str, Any]] | None = None,
     evade_contribs: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
@@ -240,17 +244,20 @@ def build_incoming_damage_breakdown_ru(
     steps: list[dict[str, Any]] = []
     raw = int(raw_monster_damage)
     arm = int(armor_total)
-    daa = int(damage_after_armor)
+    adr = float(armor_dr or 0.0)
+    lvl = int(waifu_level or 1)
     dam = int(damage_after_mitigation)
     daf = int(damage_after_final_armor)
+    dalhr = int(damage_after_low_hp_reduce if damage_after_low_hp_reduce is not None else daf)
     tr = float(total_reduce)
     fap = float(final_armor_pct or 0.0)
+    lhrp = float(low_hp_reduce_pct or 0.0)
 
     steps.append(
         {
             "kind": "base",
             "source": "monster_retaliation",
-            "label_ru": "Урон монстра (до брони)",
+            "label_ru": "Урон монстра (до снижения)",
             "value_before": 0,
             "value_after": raw,
         }
@@ -259,44 +266,48 @@ def build_incoming_damage_breakdown_ru(
         for c in armor_slot_contribs:
             if c.get("kind") == "contrib":
                 steps.append(dict(c))
+    if passive_armor_flat_contribs:
+        for c in passive_armor_flat_contribs:
+            if c.get("kind") == "contrib":
+                steps.append(dict(c))
     if passive_armor_pct_contribs:
         for c in passive_armor_pct_contribs:
             if c.get("kind") == "contrib":
                 steps.append(dict(c))
-    steps.append(
-        {
-            "kind": "add",
-            "source": "armor_subtract",
-            "label_ru": f"Броня вайфу (итого): −{arm}",
-            "value_before": raw,
-            "value_after": daa,
-            "delta": daa - raw,
-        }
-    )
+    if arm > 0 or adr > 0:
+        steps.append(
+            {
+                "kind": "contrib",
+                "source": "armor_dr",
+                "label_ru": f"Броня вайфу {arm} при ур.{lvl}: −{adr * 100:.1f}% (A/(A+K))",
+                "pct_add": adr,
+            }
+        )
+    dr_steps: list[dict[str, Any]] = []
     if dmg_reduce_contribs:
         dr_steps = [dict(c) for c in dmg_reduce_contribs if c.get("kind") == "contrib"]
         steps.extend(dr_steps)
-        raw_sum = sum(float(c.get("pct_add") or 0) for c in dr_steps)
-        if raw_sum > tr + 1e-9:
-            steps.append(
-                {
-                    "kind": "cap",
-                    "source": "cap:total_reduce_90",
-                    "label_ru": (
-                        f"Потолок снижения {TOTAL_REDUCE_CAP * 100:.0f}%: "
-                        f"сумма источников {raw_sum * 100:.1f}%, учтено {tr * 100:.1f}%, "
-                        f"отброшено {(raw_sum - tr) * 100:.1f}%"
-                    ),
-                    "meta": {"raw_sum": raw_sum, "applied": tr},
-                }
-            )
+    raw_sum = adr + sum(float(c.get("pct_add") or 0) for c in dr_steps)
+    if raw_sum > tr + 1e-9:
+        steps.append(
+            {
+                "kind": "cap",
+                "source": "cap:total_reduce_90",
+                "label_ru": (
+                    f"Потолок снижения {TOTAL_REDUCE_CAP * 100:.0f}%: "
+                    f"сумма источников {raw_sum * 100:.1f}%, учтено {tr * 100:.1f}%, "
+                    f"отброшено {(raw_sum - tr) * 100:.1f}%"
+                ),
+                "meta": {"raw_sum": raw_sum, "applied": tr},
+            }
+        )
     fac_mit = max(0.0, min(1.0, 1.0 - tr))
     steps.append(
         {
             "kind": "mult",
             "source": "mitigation_apply",
             "label_ru": f"Применение пула снижения: −{tr * 100:.1f}% урона",
-            "value_before": daa,
+            "value_before": raw,
             "value_after": dam,
             "factor": round(fac_mit, 6),
         }
@@ -314,6 +325,21 @@ def build_incoming_damage_breakdown_ru(
             }
         )
     before_ev = daf
+    if lhrp > 0 and dalhr != daf:
+        fac_lhr = max(0.0, min(1.0, 1.0 - lhrp / 100.0))
+        steps.append(
+            {
+                "kind": "mult",
+                "source": "hidden_low_hp_reduce",
+                "label_ru": f"Скрытый «Выживший»: снижение урона при низком HP −{lhrp:.0f}%",
+                "value_before": daf,
+                "value_after": dalhr,
+                "factor": round(fac_lhr, 6),
+            }
+        )
+        before_ev = dalhr
+    elif lhrp > 0 and dalhr == daf and daf != dam:
+        before_ev = dalhr
     if evade_contribs and (secondary_evade_triggered or full_evade_triggered):
         for c in evade_contribs:
             if c.get("kind") == "contrib":

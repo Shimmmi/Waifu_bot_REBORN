@@ -28,12 +28,18 @@ async def _loop(
     fn: Any,
     *,
     skip_in_dev: bool = False,
+    lock_ttl_sec: int | None = None,
 ) -> None:
     """Generic poll loop: sleep → call fn → repeat."""
+    from waifu_bot.services.background_lock import try_acquire_background_tick
+
     while True:
         await asyncio.sleep(interval)
         if skip_in_dev and settings.environment in ("dev", "testing"):
             continue
+        if lock_ttl_sec is not None:
+            if not await try_acquire_background_tick(name, lock_ttl_sec):
+                continue
         try:
             await fn()
         except Exception:
@@ -87,7 +93,7 @@ async def _expedition_notify_tick() -> None:
             taken = await svc.take_for_notification(session, active.id)
             if not taken:
                 continue
-            await svc.ensure_outcome_and_rewards(session, active)
+            await svc.finalize_completed_expedition(session, active)
             await session.commit()
             await session.refresh(active)
             name = (
@@ -106,6 +112,10 @@ async def _expedition_notify_tick() -> None:
                 "Заберите награду: Подземелья → Экспедиции."
             )
             try:
+                from waifu_bot.services.player_notification_prefs import should_send_dm
+
+                if not await should_send_dm(session, int(active.player_id), "expedition_result"):
+                    continue
                 redis_client = redis_core.get_redis()
                 dedup_key = f"exp_notified:{active.id}:final"
                 if redis_client:
@@ -134,12 +144,29 @@ async def _expedition_tick_loop_fn() -> None:
         pending = await svc.process_due_ticks(session)
         for chat_id, narr_text, status_text in pending:
             try:
+                from waifu_bot.services.player_notification_prefs import should_send_dm
+
+                if not await should_send_dm(session, int(chat_id), "expedition_result"):
+                    continue
                 if narr_text:
                     await bot.send_message(chat_id=chat_id, text=narr_text)
                 if status_text:
                     await bot.send_message(chat_id=chat_id, text=status_text)
             except Exception:
                 logger.exception("Expedition tick DM failed player_id=%s", chat_id)
+        break
+
+
+async def _chat_rewards_flush_fn() -> None:
+    from waifu_bot.db.session import get_session, init_engine
+    from waifu_bot.core import redis as redis_core
+    from waifu_bot.services import chat_rewards as chat_rewards_svc
+
+    init_engine()
+    redis_client = redis_core.get_redis()
+    async for session in get_session():
+        await chat_rewards_svc.flush_buffer_to_db(session, redis_client)
+        await session.commit()
         break
 
 
@@ -157,11 +184,15 @@ async def _guild_war_hourly_fn() -> None:
 async def _guild_tick_fn() -> None:
     from waifu_bot.db.session import get_session, init_engine
     from waifu_bot.services.guild_raid_service import tick_raid_stage_timeouts
+    from waifu_bot.services.guild_raid_v2_service import tick_muster_deadlines, tick_raid_4h_summaries, tick_raid_daily_msk
     from waifu_bot.services.guild_war_service import tick_war_phases
 
     init_engine()
     async for session in get_session():
+        await tick_muster_deadlines(session)
         await tick_raid_stage_timeouts(session)
+        await tick_raid_4h_summaries(session)
+        await tick_raid_daily_msk(session)
         await tick_war_phases(session)
         break
 
@@ -185,55 +216,231 @@ async def _guild_war_narrative_fn() -> None:
         break
 
 
+# Track last observed MSK day/week so resets fire on the transition, not on a
+# fixed interval (and never on a fresh restart mid-day/mid-week).
+_last_abyss_daily_reset = None
+_last_abyss_weekly_reset = None
+_last_guild_quest_daily_reset = None
+_last_guild_quest_weekly_reset = None
+_last_chat_rewards_daily_claim = None
+
+
+async def _abyss_daily_reset_fn() -> None:
+    """Reset the per-player daily checkpoint counter at MSK midnight."""
+    global _last_abyss_daily_reset
+    from waifu_bot.services.abyss_service import msk_today
+
+    today = msk_today()
+    if _last_abyss_daily_reset is None:
+        _last_abyss_daily_reset = today
+        return
+    if _last_abyss_daily_reset == today:
+        return
+
+    from sqlalchemy import update
+
+    from waifu_bot.db.models import AbyssProgress
+    from waifu_bot.db.session import get_session, init_engine
+
+    init_engine()
+    async for session in get_session():
+        await session.execute(
+            update(AbyssProgress)
+            .where(AbyssProgress.checkpoints_today != 0)
+            .values(checkpoints_today=0, last_checkpoint_date=today)
+        )
+        await session.commit()
+        break
+    _last_abyss_daily_reset = today
+    logger.info("abyss daily checkpoint reset applied for %s (MSK)", today)
+
+
+async def _abyss_weekly_reset_fn() -> None:
+    """On MSK week rollover, rank the finished week and award the top 3."""
+    global _last_abyss_weekly_reset
+    from waifu_bot.services.abyss_service import week_start_msk
+
+    cur_week = week_start_msk()
+    if _last_abyss_weekly_reset is None:
+        _last_abyss_weekly_reset = cur_week
+        return
+    if _last_abyss_weekly_reset == cur_week:
+        return
+
+    ended_week = _last_abyss_weekly_reset
+    _last_abyss_weekly_reset = cur_week
+
+    from sqlalchemy import select
+
+    from waifu_bot.db.models import AbyssProgress, AbyssWeeklyLeaderboard
+    from waifu_bot.db.session import get_session, init_engine
+    from waifu_bot.services.game_config_service import cfg_int, get_game_config_map
+    from waifu_bot.services.webhook import get_bot
+
+    init_engine()
+    bot = get_bot()
+    async for session in get_session():
+        cfg = await get_game_config_map(session)
+        reward_by_rank = {
+            1: cfg_int(cfg, "abyss_weekly_reward_rank1", 500),
+            2: cfg_int(cfg, "abyss_weekly_reward_rank2", 250),
+            3: cfg_int(cfg, "abyss_weekly_reward_rank3", 100),
+        }
+        rows = (
+            await session.execute(
+                select(AbyssWeeklyLeaderboard)
+                .where(AbyssWeeklyLeaderboard.week_start == ended_week)
+                .order_by(AbyssWeeklyLeaderboard.max_floor.desc())
+            )
+        ).scalars().all()
+        for idx, row in enumerate(rows, start=1):
+            row.rank = idx
+            if idx <= 3 and not row.reward_claimed:
+                shards = reward_by_rank.get(idx, 0)
+                progress = await session.scalar(
+                    select(AbyssProgress).where(AbyssProgress.player_id == row.player_id)
+                )
+                if progress is not None and shards > 0:
+                    progress.abyss_shards = int(progress.abyss_shards or 0) + shards
+                row.reward_claimed = True
+                try:
+                    await bot.send_message(
+                        chat_id=int(row.player_id),
+                        text=(
+                            f"🏆 Бездна: вы заняли {idx}-е место в недельном лидерборде!\n"
+                            f"🕳️ Лучший этаж: {int(row.max_floor or 0)}\n"
+                            f"🔮 Награда: +{shards} Осколков Бездны."
+                        ),
+                    )
+                except Exception:
+                    logger.exception("abyss weekly DM failed player_id=%s", row.player_id)
+        await session.commit()
+        break
+    logger.info("abyss weekly reset processed week=%s (%d players)", ended_week, len(rows))
+
+
+async def _guild_quest_daily_reset_fn() -> None:
+    global _last_guild_quest_daily_reset
+    from waifu_bot.services.abyss_service import msk_today
+
+    today = msk_today()
+    from waifu_bot.db.session import get_session, init_engine
+    from waifu_bot.services.guild_quest_service import (
+        process_weekly_ballot_autopick,
+        rotate_daily_quests,
+    )
+
+    init_engine()
+    async for session in get_session():
+        if _last_guild_quest_daily_reset is None:
+            _last_guild_quest_daily_reset = today
+        elif _last_guild_quest_daily_reset != today:
+            await rotate_daily_quests(session)
+            _last_guild_quest_daily_reset = today
+            logger.info("guild quest daily reset applied for %s (MSK)", today)
+        await process_weekly_ballot_autopick(session)
+        await session.commit()
+        break
+
+
+async def _guild_quest_weekly_reset_fn() -> None:
+    global _last_guild_quest_weekly_reset
+    from waifu_bot.services.abyss_service import week_start_msk
+
+    cur_week = week_start_msk()
+    if _last_guild_quest_weekly_reset is None:
+        _last_guild_quest_weekly_reset = cur_week
+        return
+    if _last_guild_quest_weekly_reset == cur_week:
+        return
+
+    from waifu_bot.db.session import get_session, init_engine
+    from waifu_bot.services.guild_quest_service import rotate_weekly_quests
+
+    init_engine()
+    async for session in get_session():
+        await rotate_weekly_quests(session)
+        await session.commit()
+        break
+    _last_guild_quest_weekly_reset = cur_week
+    logger.info("guild quest weekly reset applied for week=%s (MSK)", cur_week)
+
+
+async def _chat_rewards_daily_claim_fn() -> None:
+    """Auto-claim accumulated chat rewards at MSK midnight."""
+    global _last_chat_rewards_daily_claim
+    from waifu_bot.services.abyss_service import msk_today
+
+    today = msk_today()
+    if _last_chat_rewards_daily_claim is None:
+        _last_chat_rewards_daily_claim = today
+        return
+    if _last_chat_rewards_daily_claim == today:
+        return
+
+    from waifu_bot.core import redis as redis_core
+    from waifu_bot.db.session import get_session, init_engine
+    from waifu_bot.services import chat_rewards as chat_rewards_svc
+
+    init_engine()
+    redis_client = redis_core.get_redis()
+    claimed: list[tuple[int, chat_rewards_svc.ClaimResult]] = []
+    async for session in get_session():
+        claimed = await chat_rewards_svc.auto_claim_all_wallets(session, redis_client)
+        await session.commit()
+        break
+    _last_chat_rewards_daily_claim = today
+    logger.info(
+        "chat rewards daily auto-claim applied for %s (MSK), players=%d",
+        today,
+        len(claimed),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-GD_V1_REG_POLL_SECONDS = 60
+CHAT_REWARDS_FLUSH_INTERVAL = 30
+GD_V1_REG_POLL_SECONDS = 30
 GD_V1_ROUND_POLL_SECONDS = 20
 EXPEDITION_NOTIFY_INTERVAL = 30
 EXPEDITION_TICK_INTERVAL = 30
 GUILD_WAR_HOUR = 3600
 GUILD_TICK_INTERVAL = 60
 GUILD_NARRATIVE_INTERVAL = 900
+ABYSS_RESET_POLL_INTERVAL = 300
 
 
 def start_all_background_tasks() -> None:
     """Launch all background polling loops. Call once from FastAPI startup."""
-    _schedule(
-        _loop("gd_v1_registration", GD_V1_REG_POLL_SECONDS, _gd_v1_registration_tick),
-        name="bg:gd_v1_reg",
-    )
-    _schedule(
-        _loop("gd_v1_round", GD_V1_ROUND_POLL_SECONDS, _gd_v1_round_tick),
-        name="bg:gd_v1_round",
-    )
-    _schedule(
-        _loop("expedition_notify", EXPEDITION_NOTIFY_INTERVAL, _expedition_notify_tick),
-        name="bg:expedition_notify",
-    )
-    _schedule(
-        _loop("expedition_tick", EXPEDITION_TICK_INTERVAL, _expedition_tick_loop_fn),
-        name="bg:expedition_tick",
-    )
-    _schedule(
-        _loop("guild_war_hourly", GUILD_WAR_HOUR, _guild_war_hourly_fn),
-        name="bg:guild_war_hourly",
-    )
-    _schedule(
-        _loop("guild_tick", GUILD_TICK_INTERVAL, _guild_tick_fn),
-        name="bg:guild_tick",
-    )
-    _schedule(
-        _loop(
-            "guild_war_narrative",
-            GUILD_NARRATIVE_INTERVAL,
-            _guild_war_narrative_fn,
-            skip_in_dev=True,
-        ),
-        name="bg:guild_war_narrative",
-    )
+    from waifu_bot.services.background_ticks import get_background_tick_registry
+
+    for spec in get_background_tick_registry():
+        _schedule(
+            _loop(
+                spec.name,
+                spec.interval_sec,
+                spec.fn,
+                skip_in_dev=spec.skip_in_dev,
+                lock_ttl_sec=spec.lock_ttl_sec,
+            ),
+            name=f"bg:{spec.name}",
+        )
+    _schedule(_perf_metrics_summary_loop(), name="bg:perf_metrics_summary")
     logger.info("Started %d background task loops", len(_tasks))
+
+
+async def _perf_metrics_summary_loop() -> None:
+    """Log P50/P95 samples when PERF_METRICS_ENABLED=true (Stage 1 baseline)."""
+    from waifu_bot.services.perf_metrics import enabled, log_summary
+
+    if not enabled():
+        return
+    interval = 300
+    while True:
+        await asyncio.sleep(interval)
+        log_summary()
 
 
 async def cancel_all_background_tasks() -> None:
