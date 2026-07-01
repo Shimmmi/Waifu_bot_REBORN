@@ -133,17 +133,43 @@ if (-not $composeOk) {
     Write-Check "Docker Compose v2" $true $composeDetail
 }
 
-# WSL2
+# Docker engine running (checked here so WSL2 check below can use it as a fallback signal)
+$engineOk = $false
+if (Test-Command docker) {
+    try {
+        docker info 2>&1 | Out-Null
+        $engineOk = ($LASTEXITCODE -eq 0)
+    } catch {
+        $engineOk = $false
+    }
+}
+
+# WSL2 - `wsl --status` text is localized (e.g. Russian Windows), so prefer the
+# language-independent `wsl -l -v` distro/version table (docker-desktop distro
+# names never get translated). Fall back to a loose multi-language regex on
+# `wsl --status`, then to "Docker engine already runs" as a last resort.
 $wslOk = $false
 $wslDetail = ""
 if (Test-Command wsl) {
     try {
-        $wslOut = wsl --status 2>&1 | Out-String
-        if ($wslOut -match "Default Version:\s*2") {
+        $wslListOut = wsl --list --verbose 2>&1 | Out-String
+        if ($wslListOut -match "(?im)^\s*\*?\s*docker-desktop\S*\s+\S+\s+2\s*$") {
             $wslOk = $true
-            $wslDetail = "Default Version: 2"
+            $wslDetail = "docker-desktop WSL distro is version 2 (wsl -l -v)"
         } else {
-            $wslDetail = "WSL installed but default version may not be 2 - run: wsl --set-default-version 2"
+            # `wsl --status` text is localized (non-English Windows won't say
+            # "Default Version"), so this only catches the English case;
+            # non-English systems fall through to the $engineOk check below.
+            $statusOut = wsl --status 2>&1 | Out-String
+            if ($statusOut -match "(?im)^default version\s*:\s*2\s*$") {
+                $wslOk = $true
+                $wslDetail = "default version 2 (wsl --status)"
+            } elseif ($engineOk) {
+                $wslOk = $true
+                $wslDetail = "Docker engine is running, so WSL2 backend is functional (wsl --status output was inconclusive/localized)"
+            } else {
+                $wslDetail = "WSL installed but default version may not be 2 - run: wsl --set-default-version 2"
+            }
         }
     } catch {
         $wslDetail = $_.Exception.Message
@@ -172,19 +198,12 @@ if (Test-Path $vsWhere) {
 Write-Check "MSVC Build Tools (node-gyp)" $msvcOk $msvcDetail
 if (-not $msvcOk) { $failed++ }
 
-# Docker engine running (optional but useful)
+# Docker engine running (uses $engineOk computed above, before the WSL2 check)
 if (Test-Command docker) {
-    try {
-        docker info 2>&1 | Out-Null
-        $engineOk = ($LASTEXITCODE -eq 0)
-        if ($engineOk) {
-            Write-Check "Docker engine running" $true ""
-        } else {
-            Write-Check "Docker engine running" $false "start Docker Desktop and wait for Engine running"
-            $failed++
-        }
-    } catch {
-        Write-Check "Docker engine running" $false $_.Exception.Message
+    if ($engineOk) {
+        Write-Check "Docker engine running" $true ""
+    } else {
+        Write-Check "Docker engine running" $false "start Docker Desktop and wait for Engine running"
         $failed++
     }
 }
