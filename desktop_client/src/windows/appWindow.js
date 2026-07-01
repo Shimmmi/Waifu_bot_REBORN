@@ -24,6 +24,7 @@ function createMainWindow() {
       preload: path.join(__dirname, "..", "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: false,
     },
   });
 
@@ -47,6 +48,7 @@ function openTabWindow(parentWindow, page) {
       preload: path.join(__dirname, "..", "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: false,
     },
   });
 
