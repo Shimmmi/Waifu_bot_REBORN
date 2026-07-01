@@ -18,6 +18,26 @@
 })();
 const tg = window.Telegram?.WebApp;
 const API_BASE = "/api";
+
+/**
+ * Steam desktop client (Electron, desktop_client/) detection.
+ *
+ * The Electron preload script exposes `window.waifuDesktop` via contextBridge
+ * (see desktop_client/preload.js). `?desktopClient=1` is a manual override for
+ * testing the desktop branch in a plain browser (dev/stage only server-side,
+ * see api/deps.py X-Steam-Ticket-Dev gating).
+ *
+ * Everything below is purely additive: when neither is present (the existing
+ * Telegram WebApp / browser-with-devPlayerId flows), behavior is unchanged.
+ */
+function isDesktopClient() {
+  try {
+    if (window.waifuDesktop) return true;
+    return new URLSearchParams(window.location.search).get("desktopClient") === "1";
+  } catch {
+    return false;
+  }
+}
 /** Синхронно с waifu_bot.game.constants (EXP_BASE, MAX_LEVEL). */
 const PLAYER_EXP_BASE = 16;
 const PLAYER_MAX_LEVEL = 60;
@@ -47,6 +67,22 @@ if (typeof window !== "undefined") {
   window.WAIFU_WEBAPP_VERSION = WAIFU_WEBAPP_VERSION;
   window.monsterArtVersion = window.monsterArtVersion || {};
 }
+
+(function applyDesktopClientTheme() {
+  if (typeof document === "undefined" || !isDesktopClient()) return;
+  document.documentElement.classList.add("desktop-client");
+  try {
+    if (!document.querySelector("link[data-desktop-theme]")) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = `./desktop-theme.css?v=${WAIFU_WEBAPP_VERSION}`;
+      link.setAttribute("data-desktop-theme", "1");
+      document.head.appendChild(link);
+    }
+  } catch {
+    /* ignore */
+  }
+})();
 const CARAVAN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/caravan`;
 const DUNGEONS_STATIC_BASE = `${GAME_STATIC_BASE}/dungeons`;
 const SHOP_STATIC_BASE = `${GAME_STATIC_BASE}/ui/shop`;
@@ -117,6 +153,27 @@ function getDevPlayerIdFromQuery() {
   }
 }
 
+/**
+ * Steam ticket for the current request, if running inside the Electron
+ * desktop client. `window.waifuDesktop.getSteamTicket()` (real Steamworks
+ * ticket, once Этап 6 wires up the Steamworks SDK) takes priority; falls
+ * back to a dev-only stub SteamID64 (see api/deps.py X-Steam-Ticket-Dev,
+ * only accepted server-side when APP_ENV is dev/stage/testing).
+ */
+function getDesktopSteamAuthHeader() {
+  if (!isDesktopClient()) return null;
+  try {
+    const real = window.waifuDesktop?.getSteamTicket?.();
+    if (real) return { name: "X-Steam-Ticket", value: String(real) };
+    const devStub = window.waifuDesktop?.steamTicketDev
+      || new URLSearchParams(window.location.search).get("steamTicketDev");
+    if (devStub) return { name: "X-Steam-Ticket-Dev", value: String(devStub) };
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 function authHeaders() {
   const initData = getInitData();
   const headers = {};
@@ -124,7 +181,12 @@ function authHeaders() {
     headers["X-Telegram-Init-Data"] = initData;
   } else {
     const devPid = getDevPlayerIdFromQuery();
-    if (devPid != null) headers["X-Player-Id"] = String(devPid);
+    if (devPid != null) {
+      headers["X-Player-Id"] = String(devPid);
+    } else {
+      const steamAuth = getDesktopSteamAuthHeader();
+      if (steamAuth) headers[steamAuth.name] = steamAuth.value;
+    }
   }
   return headers;
 }
@@ -569,6 +631,13 @@ function isWebAppUnauthorizedError(err) {
 
 /** Сообщение при открытии WebApp вне Telegram или без валидного initData. */
 function webAppAuthNoticeHtml() {
+  if (isDesktopClient()) {
+    return `<div class="webapp-auth-notice" role="alert">
+      <h3 class="webapp-auth-notice-title">Не удалось войти через Steam</h3>
+      <p>Не получили действительный Steam-билет от клиента. Перезапустите приложение или переустановите его через Steam.</p>
+      <p class="muted">Если проблема повторяется, обратитесь в поддержку и укажите, что ошибка возникла в Steam-версии.</p>
+    </div>`;
+  }
   const devBlock = `<details class="webapp-auth-details"><summary>Для разработчиков</summary>
     <p>При <code>APP_ENV=dev</code> на сервере можно открыть страницу с параметром <code>?devPlayerId=</code><em>id</em> (id игрока в БД) — тогда запросы пойдут с заголовком <code>X-Player-Id</code>. В production это отключено.</p>
   </details>`;

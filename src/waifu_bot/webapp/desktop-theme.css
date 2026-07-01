@@ -1,0 +1,61 @@
+/*
+ * Steam desktop client (Electron) theming overrides.
+ *
+ * Loaded ONLY when app.js detects window.waifuDesktop / ?desktopClient=1
+ * (see applyDesktopClientTheme() in app.js), which adds the `desktop-client`
+ * class to <html>. Every rule below is scoped under that class, so this file
+ * has zero effect on the Telegram WebApp / browser flows — no HTML pages are
+ * duplicated for the Steam client, only this stylesheet differs (see plan
+ * §2.4: shared HTML+JS, CSS theming only).
+ *
+ * Two window "modes" are distinguished via a second class the Electron shell
+ * sets on <html> (desktop_client/renderer/overlay-bootstrap.js):
+ *   - `desktop-client desktop-window`  -> normal draggable/tabbed windows
+ *     (shop, tavern, guild hall, ...), opaque background, regular chrome.
+ *   - `desktop-client desktop-overlay` -> the always-on-top corner overlay
+ *     showing the main waifu (Bongo-Cat-style); fully transparent background
+ *     so only the waifu sprite + minimal HUD is visible over the desktop.
+ */
+
+html.desktop-client.desktop-overlay,
+html.desktop-client.desktop-overlay body {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+html.desktop-client.desktop-overlay body > header:not(.attic),
+html.desktop-client.desktop-overlay .nav,
+html.desktop-client.desktop-overlay .nav.basement {
+  display: none !important;
+}
+
+/* Everything not explicitly part of the waifu stage/HUD stays hidden in overlay mode. */
+html.desktop-client.desktop-overlay body > *:not(.desktop-overlay-stage) {
+  display: none !important;
+}
+
+html.desktop-client.desktop-overlay .desktop-overlay-stage {
+  display: block;
+  position: fixed;
+  inset: 0;
+  background: transparent;
+}
+
+/* Regular (non-overlay) desktop windows: same UI as the WebApp, just without
+   Telegram-specific chrome and with window-drag affordances for the
+   frameless Electron BrowserWindow. */
+html.desktop-client.desktop-window {
+  -webkit-app-region: no-drag;
+}
+
+html.desktop-client.desktop-window .desktop-drag-region {
+  -webkit-app-region: drag;
+  height: 28px;
+}
+
+/* Auth notice: identical layout to the Telegram one, just themed to match
+   the frameless dark window instead of assuming a Telegram in-app browser. */
+html.desktop-client .webapp-auth-notice {
+  margin: 48px auto;
+  max-width: 420px;
+}
