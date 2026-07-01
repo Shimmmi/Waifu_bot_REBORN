@@ -167,9 +167,11 @@ docker compose -f docker-compose.staging.yml --env-file .env.staging \
   exec api python -m waifu_bot.cli migrate
 ```
 
-Проверка, что бэкенд жив: откройте в браузере `http://127.0.0.1:18000/healthz`
-или в терминале `curl http://127.0.0.1:18000/healthz` (PowerShell:
-`Invoke-WebRequest http://127.0.0.1:18000/healthz`).
+Проверка, что бэкенд жив: откройте в браузере `http://127.0.0.1:18000/health`
+или в терминале `curl http://127.0.0.1:18000/health` (PowerShell:
+`Invoke-WebRequest http://127.0.0.1:18000/health`). Эндпоинт называется
+`/health` (см. [`src/waifu_bot/main.py`](../src/waifu_bot/main.py)), **не**
+`/healthz` — на `/healthz` сервер вернёт 404.
 
 ### Вариант B — обычный локальный uvicorn (без Docker)
 
