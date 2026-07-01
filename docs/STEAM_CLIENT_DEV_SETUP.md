@@ -242,6 +242,17 @@ npm run dev
 Если что-то не так — не переходите к сборке, сначала разберитесь здесь
 (проще отлаживать в dev-режиме, чем в собранном инсталляторе).
 
+Desktop-клиент создаёт **отдельного Steam-native игрока** (синтетический
+отрицательный `player_id` по `steamTicketDev`), а не ваш Telegram-аккаунт.
+Для первого входа на title screen нажмите «Новая игра» и создайте персонажа —
+не ожидайте автоматического входа в существующий Telegram-прогресс.
+
+После `git pull` на ветке `feature/steam-client` перезапустите контейнер
+`api`, чтобы подхватить обновлённый webapp с сервера:
+```powershell
+docker compose -f docker-compose.staging.yml --env-file .env.staging restart api
+```
+
 ## Шаг 5 — сборка в exe
 
 ```bash
@@ -323,6 +334,33 @@ development with C++** и убедитесь, что `python` (3.x) доступ
 Включите виртуализацию в BIOS/UEFI (Intel VT-x / AMD-V). Убедитесь, что
 WSL2 установлен (`wsl --status`) **до** Docker Desktop. После `wsl --install`
 нужна перезагрузка.
+
+**`Unable to load preload script` / `module not found: ./config` в Console**
+Preload не может `require("./config")` в sandboxed-режиме Electron 20+.
+Убедитесь, что в `desktop_client/src/windows/appWindow.js` и
+`overlayWindow.js` в `webPreferences` стоит `sandbox: false` (уже в ветке
+`feature/steam-client`). Перезапустите `npm run dev` после `git pull`.
+
+**`/api/profile` → 401 на profile/shop/tavern, но index.html работает**
+Страницы вроде `profile.html` грузят `bundle/app.min.js`. Если бандл
+устарел и не содержит desktop-auth (`isDesktopClient`, `X-Steam-Ticket-Dev`),
+запросы идут без заголовка и сервер отвечает 401. На dev-машине с Node:
+```bash
+cd webapp_frontend && npm ci && npx vite build --config vite.app.config.js
+```
+(или `./scripts/build_webapp.sh` для всех бандлов). Закоммить/подтянуть
+обновлённый `src/waifu_bot/webapp/bundle/app.min.js`, перезапустить `api`.
+
+**Оверлей застревает на «ВАША ВАЙФУ: Загрузка…»**
+`battle.html` вызывает `WaifuApp.loadBattle()` из `pages/dungeons.js`
+(или `bundle/dungeons.min.js`). Если подключён только `app.js`, функция
+не определена и HTML остаётся с placeholder-текстом. Проверьте, что в
+`battle.html` есть второй `<script>` для dungeons (см. актуальный файл
+в репозитории).
+
+**404 на `static/game/ui/nav/*.webp` и похожие ассеты**
+На чистом staging без prod-дампа часть UI-картинок отсутствует — это
+косметика, на auth и создание персонажа не влияет.
 
 **Оверлей не появляется / окно сразу закрывается**
 Проверьте консоль (`npm run dev` печатает в терминал), обычно это ошибка
