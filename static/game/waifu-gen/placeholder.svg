@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Placeholder">
+  <rect width="128" height="128" rx="12" fill="#1a1410"/>
+  <rect x="4" y="4" width="120" height="120" rx="10" fill="none" stroke="#c8922a" stroke-width="2" stroke-dasharray="6 4" opacity="0.55"/>
+  <text x="64" y="58" text-anchor="middle" fill="#c8922a" font-family="Inter,sans-serif" font-size="14" font-weight="700">webp</text>
+  <text x="64" y="78" text-anchor="middle" fill="#8a7355" font-family="Inter,sans-serif" font-size="10">placeholder</text>
+</svg>

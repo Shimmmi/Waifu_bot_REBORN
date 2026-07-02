@@ -24,6 +24,10 @@
 
 `python3 scripts/generate_image_placeholders.py`
 
+Чтобы не трогать картинки монстров: `--skip-monsters` (см. `static/game/monsters/README.md`).
+
+Скрипт **не перезаписывает** уже загруженные base-арты (`category/slug/t*.webp` больше 1 KB). Создаёт отсутствующие файлы и обновляет `legendary/...` заглушки. Принудительная пересборка всех base-заглушек: `--force-items`.
+
 - **Плоские** ключи (`armor`, `weapon_bow`, …) — всегда.
 - **По шаблонам** (`item_templates` + `items`) — если заданы `DATABASE_URL` или `POSTGRES_DSN` (поддерживаются `postgresql://` и `postgresql+asyncpg://`).
 
