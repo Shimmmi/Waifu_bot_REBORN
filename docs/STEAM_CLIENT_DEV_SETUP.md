@@ -247,10 +247,14 @@ Desktop-клиент создаёт **отдельного Steam-native игро
 Для первого входа на title screen нажмите «Новая игра» и создайте персонажа —
 не ожидайте автоматического входа в существующий Telegram-прогресс.
 
-После `git pull` на ветке `feature/steam-client` перезапустите контейнер
-`api`, чтобы подхватить обновлённый webapp с сервера:
+После `git pull` на ветке `feature/steam-client` **пересоберите** (не просто
+`restart`!) контейнер `api`, чтобы подхватить обновлённый webapp с сервера:
+у `api` в `docker-compose.staging.yml` нет volume-монтирования `src/` внутрь
+контейнера — файлы (в т.ч. `app.min.js`, `battle.html`) копируются в образ
+только на этапе `docker build`, поэтому `restart` продолжит работать со
+старым образом:
 ```powershell
-docker compose -f docker-compose.staging.yml --env-file .env.staging restart api
+docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build
 ```
 
 ## Шаг 5 — сборка в exe
@@ -349,7 +353,8 @@ Preload не может `require("./config")` в sandboxed-режиме Electron
 cd webapp_frontend && npm ci && npx vite build --config vite.app.config.js
 ```
 (или `./scripts/build_webapp.sh` для всех бандлов). Закоммить/подтянуть
-обновлённый `src/waifu_bot/webapp/bundle/app.min.js`, перезапустить `api`.
+обновлённый `src/waifu_bot/webapp/bundle/app.min.js`, затем **пересобрать**
+образ (`docker compose ... up -d --build`, не просто `restart` — см. Шаг 4).
 
 **Оверлей застревает на «ВАША ВАЙФУ: Загрузка…»**
 `battle.html` вызывает `WaifuApp.loadBattle()` из `pages/dungeons.js`
@@ -357,6 +362,19 @@ cd webapp_frontend && npm ci && npx vite build --config vite.app.config.js
 не определена и HTML остаётся с placeholder-текстом. Проверьте, что в
 `battle.html` есть второй `<script>` для dungeons (см. актуальный файл
 в репозитории).
+
+**`[input-tracker] hit batch rejected: 500 null`**
+`POST /api/pc/hits/batch` и `GET /api/profile` оба вызывают
+`resolve_or_create_player_for_steam()` на **первом** запуске (создание
+Steam-native игрока по `steamTicketDev`). Оверлей и основное окно стартуют
+почти одновременно, поэтому оба запроса могут попытаться создать одну и ту
+же запись `PlayerIdentityLink` параллельно — до фикса второй запрос падал
+с `IntegrityError` (нарушение `UniqueConstraint`) вместо аккуратной отдачи
+уже созданного `player_id` (см. `src/waifu_bot/services/auth_steam.py`,
+уже исправлено в `feature/steam-client`). Если ошибка повторяется после
+`git pull` — убедитесь, что `api` **пересобран** (`up -d --build`), а не
+просто перезапущен: как и `app.min.js`, код бэкенда копируется в образ
+только на этапе `build`.
 
 **404 на `static/game/ui/nav/*.webp` и похожие ассеты**
 На чистом staging без prod-дампа часть UI-картинок отсутствует — это

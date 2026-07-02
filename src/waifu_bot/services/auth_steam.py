@@ -14,6 +14,7 @@ import logging
 import httpx
 from fastapi import HTTPException, status
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.core.config import settings
@@ -88,6 +89,14 @@ async def resolve_or_create_player_for_steam(
 
     Idempotent: calling this repeatedly for the same steamid64 always returns
     the same player_id.
+
+    Concurrency note: the desktop client fires several authenticated requests
+    in quick succession on first launch (e.g. /api/profile and the input
+    tracker's /api/pc/hits/batch flush both within the first few seconds),
+    so two requests can race to create the *same* steamid64's row before
+    either commits. The UniqueConstraint on (provider, external_id) is the
+    source of truth for "first one wins"; the loser rolls back and re-reads
+    the winner's row instead of surfacing a 500.
     """
     link = await session.scalar(
         select(PlayerIdentityLink).where(
@@ -111,7 +120,19 @@ async def resolve_or_create_player_for_steam(
             display_name=persona_name,
         )
     )
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        link = await session.scalar(
+            select(PlayerIdentityLink).where(
+                PlayerIdentityLink.provider == STEAM_PROVIDER,
+                PlayerIdentityLink.external_id == steamid64,
+            )
+        )
+        if link is not None:
+            return link.player_id
+        raise
     logger.info("Created Steam-native player id=%s for steamid64=%s", new_id, steamid64)
     return new_id
 
