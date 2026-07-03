@@ -117,7 +117,13 @@ function Test-HttpWithRetry {
         [string]$Path,
         [string]$Label,
         [string]$BodyMustContain = "",
-        [int]$Retries = 5,
+        # Generous budget: the container healthcheck above only proves Uvicorn
+        # is listening *inside* the container (curl against its own
+        # localhost) - on Docker Desktop for Windows the separate host-side
+        # port-forward (vpnkit/WinNAT actually making 127.0.0.1:18000
+        # reachable) can lag behind that by well more than a few seconds
+        # after a rebuild, even once `docker compose ps` says "healthy".
+        [int]$Retries = 20,
         [int]$DelaySeconds = 2
     )
     $url = "$BackendUrl$Path"
@@ -146,7 +152,7 @@ function Test-HttpWithRetry {
                 continue
             }
             $detail = if ($isTransient) {
-                "no response after $Retries attempts - backend down, or (on Windows) Docker Desktop's port-proxy warm-up took longer than expected"
+                "no response after $Retries attempts ($($Retries * $DelaySeconds)s) - backend down, or (on Windows) the Docker Desktop host port-forward is stuck; try 'wsl --shutdown' then restart Docker Desktop"
             } else {
                 $msg
             }

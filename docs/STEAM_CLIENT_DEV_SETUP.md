@@ -450,54 +450,77 @@ Steam-native игрока по `steamTicketDev`). Оверлей и основн
 подключения к `backendUrl` (бэкенд не запущен/не тот порт) — оверлей грузит
 `overlay.html`, который делает fetch-запросы к API при старте.
 
-**`ERR_EMPTY_RESPONSE` / `fetch failed` при `npm run dev`**
-Чаще всего это не «бэкенд сломан», а гонка: `npm run dev` был запущен до
-того, как `api`-контейнер реально начал принимать HTTP (Uvicorn ещё
-импортирует модули и поднимает 14 фоновых циклов — несколько секунд после
-`up -d --build`), либо `waifu_staging_api` вообще не запущен/упал.
+**`ERR_EMPTY_RESPONSE` / `fetch failed` при `npm run dev` (даже когда `api` уже `healthy`)**
+Есть два разных источника этой ошибки — важно не путать их:
 
-С версии, где `docker-compose.staging.yml` включает `healthcheck` для
-`api`, сам desktop-клиент **автоматически переживает** эту гонку: каждое
-окно (`overlayWindow.js`/`appWindow.js`, см. `loadWithRetry.js`) при
+1. **Обычная гонка запуска**: `npm run dev` был запущен до того, как
+   `api`-контейнер реально начал принимать HTTP (Uvicorn ещё импортирует
+   модули и поднимает 14 фоновых циклов). Решается `up -d --build --wait`
+   (см. выше) — команда не вернёт управление, пока `docker compose ps` не
+   покажет `api` как `healthy`.
+2. **Windows-специфичная гонка порта, отдельная от (1)** — воспроизводится
+   даже когда `docker compose ps`/`--wait` уже подтвердили `api Healthy`.
+   Причина: `healthcheck` в `docker-compose.staging.yml` — это `curl
+   localhost:8000/health` **внутри контейнера**, он проверяет только что
+   Uvicorn слушает свой собственный loopback. А `127.0.0.1:18000` снаружи
+   контейнера — это отдельный проброс порта на стороне Windows (vpnkit/
+   WinNAT в Docker Desktop), который может донастраиваться ещё несколько
+   секунд **после** того, как контейнер уже готов и здоров изнутри — две
+   независимые части инфраструктуры. Мы проверили на Linux/чистом Docker:
+   после `Healthy` `overlay.html` отдаётся идеально стабильно 20/20
+   запросов подряд — то есть сама страница/бэкенд ни при чём, дело именно
+   в Windows-специфичном пробросе порта.
+
+Desktop-клиент **автоматически переживает оба случая**: каждое окно
+(`overlayWindow.js`/`appWindow.js`, см. `loadWithRetry.js`) при
 `ERR_EMPTY_RESPONSE`/`ERR_CONNECTION_REFUSED`/`ERR_CONNECTION_RESET` и
-похожих сетевых ошибках само перезагружает страницу раз в секунду до 30
-попыток — обычно окно просто на пару секунд остаётся пустым/чёрным, а
-затем подгружается без вмешательства. В терминале это видно как
-`[overlay] backend not reachable yet (...), retrying...`. Если через ~30
-секунд ошибка не проходит — значит, контейнер реально не поднят:
+похожих сетевых ошибках само перезагружает страницу (растущая пауза между
+попытками, до ~60 попыток / ~2 минут суммарно) — обычно окно просто на
+несколько секунд остаётся пустым/прозрачным, а затем подгружается без
+вмешательства. В терминале это видно как `[overlay] backend not reachable
+yet (...), retrying... (attempt N/60)`. **Подождите** хотя бы 30-60 секунд
+после первого такого сообщения, прежде чем считать, что что-то сломано.
 
-1. Запустите Docker Desktop (дождитесь Running).
-2. Из **корня репозитория** (не из `desktop_client/` — иначе
-   `couldn't find env file: ...\desktop_client\.env.staging`), **обязательно
-   с `--wait`** — тогда команда сама не вернёт управление, пока `api` не
-   станет `healthy`, и незачем гадать, готов бэкенд или нет:
+Если через ~2 минуты ретраи так и не увенчались успехом:
+
+1. Убедитесь, что `api` реально `healthy`, а не просто `Up`:
+   ```powershell
+   docker compose -f docker-compose.staging.yml --env-file .env.staging ps
+   ```
+2. Если `api` `healthy`, но `Invoke-WebRequest http://127.0.0.1:18000/health`
+   из **новой** PowerShell-сессии (не той, где крутится `npm run dev`) тоже
+   виснет/рвётся — это Windows-специфичная гонка порта (случай 2 выше), не
+   баг приложения. Известное решение — перезапустить сетевой стек WSL2,
+   на котором держится Docker Desktop:
+   ```powershell
+   wsl --shutdown
+   # подождите ~10 секунд, затем откройте Docker Desktop заново и дождитесь Running
+   ```
+   После этого `docker compose ... up -d --build --wait` снова (контейнеры
+   не пересоздаются, просто поднимаются заново) и `npm run dev`.
+3. Если `api` не `healthy`/в статусе Exited: `docker compose ... logs api
+   --tail 80` — часто неверный `BOT_TOKEN` в `.env.staging` (нужен формат
+   `123456:stub`). В этом случае дело не в порте, и `wsl --shutdown` не
+   поможет — сначала почините сам контейнер.
+4. Общее: из **корня репозитория** (не из `desktop_client/` — иначе
+   `couldn't find env file: ...\desktop_client\.env.staging`):
    ```powershell
    git pull origin feature/steam-client
    docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build --wait
    docker compose -f docker-compose.staging.yml --env-file .env.staging exec api alembic upgrade head
    powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
    ```
-3. Только когда скрипт показывает все `[OK]`, снова `cd desktop_client; npm run dev`.
-4. Если `api` в статусе Exited (или `--wait` сам упал с ошибкой): `docker
-   compose ... logs api --tail 80` — часто неверный `BOT_TOKEN` в
-   `.env.staging` (нужен формат `123456:stub`).
+   Скрипт теперь тоже даёт каждому HTTP-эндпоинту до ~40 секунд повторных
+   попыток именно из-за случая 2 выше — не отменяйте его раньше времени.
 
 **`Invoke-WebRequest`: «Базовое соединение закрыто: Соединение было
 неожиданно закрыто» сразу после `docker compose ... ps` показал `Up N
 seconds`**
-Это не то же самое, что «порт не слушает» — контейнер уже поднялся, но
-Uvicorn ещё не готов принимать запросы, и Docker Desktop для Windows в
-первые секунды после (пере)создания контейнера может ненадолго сбрасывать
-соединения на проброшенном порту — это нормальный прогрев, а не поломка.
-Используйте `up -d --build --wait` (см. выше) вместо голого `up -d
---build`, чтобы команда сама дождалась `healthy` и не возвращала управление
-слишком рано; вручную статус можно посмотреть так:
-```powershell
-docker compose -f docker-compose.staging.yml --env-file .env.staging ps
-```
-(колонка `STATUS`: `starting` → `healthy`, обычно 5-20 секунд), либо просто
-запустите `scripts/check_staging_backend.ps1` — он сам дожидается `healthy`
-и переживает кратковременный сброс соединения повторными попытками.
+См. пункт выше — если это происходит **до** того, как `api` стал `healthy`,
+это обычный прогрев Uvicorn; используйте `up -d --build --wait` вместо
+голого `up -d --build`, чтобы команда сама дождалась `healthy`. Если это
+происходит **после** `healthy` и не проходит за 30-60 секунд — см. случай 2
+(Windows-гонка порта) и `wsl --shutdown` выше.
 
 **Оверлей показывает «Загрузка…» / эмодзи вместо портрета**
 Оверлей берёт портрет из `GET /api/profile?lite=1` (`main_waifu.portrait_url`).

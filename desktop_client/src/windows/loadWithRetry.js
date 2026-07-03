@@ -29,14 +29,23 @@ const RETRYABLE_ERROR_CODES = new Set([
  * Loads `url` into `win`, auto-retrying on transient connection failures
  * instead of leaving the window stuck on Chromium's default error page.
  *
+ * The retry budget is intentionally generous (~2 minutes total by default):
+ * on Docker Desktop for Windows, the container's own healthcheck (curl
+ * against localhost *inside* the container) can report "healthy" seconds
+ * before the separate host-side port-forward (vpnkit/WinNAT, the thing that
+ * actually makes 127.0.0.1:18000 reachable from the Windows side) finishes
+ * (re)binding after a container rebuild — those are two independent moving
+ * parts. A short retry budget can still run out before that catches up.
+ *
  * @param {import("electron").BrowserWindow} win
  * @param {string} url
  * @param {object} [opts]
  * @param {number} [opts.maxAttempts]
- * @param {number} [opts.intervalMs]
+ * @param {number} [opts.intervalMs] base delay; grows slightly with each
+ *   attempt (capped at 3s) so a long-stuck backend isn't hammered forever.
  * @param {string} [opts.label] short tag for console messages, e.g. "overlay"
  */
-function loadUrlWithRetry(win, url, { maxAttempts = 30, intervalMs = 1000, label = "" } = {}) {
+function loadUrlWithRetry(win, url, { maxAttempts = 60, intervalMs = 1000, label = "" } = {}) {
   let attempt = 0;
   const tag = label ? `[${label}] ` : "";
 
@@ -60,13 +69,17 @@ function loadUrlWithRetry(win, url, { maxAttempts = 30, intervalMs = 1000, label
       if (attempt > maxAttempts) {
         console.error(
           `${tag}backend still unreachable after ${maxAttempts} attempts - giving up. ` +
-            "Run scripts/check_staging_backend.ps1 from the repo root (see docs/STEAM_CLIENT_DEV_SETUP.md), then press Ctrl+R in this window."
+            "This usually means the api container itself is down (check `docker compose ... logs api`), " +
+            "not just slow to warm up. On Windows, if `docker compose ... ps` shows api as healthy but this " +
+            "keeps failing, the host-side port-forward may be stuck — try `wsl --shutdown` then restart Docker " +
+            "Desktop (see docs/STEAM_CLIENT_DEV_SETUP.md 'ERR_EMPTY_RESPONSE'), then press Ctrl+R in this window."
         );
         return;
       }
+      const delay = Math.min(intervalMs + attempt * 200, 3000);
       setTimeout(() => {
         if (!win.isDestroyed()) win.loadURL(url);
-      }, intervalMs);
+      }, delay);
     }
   );
 
