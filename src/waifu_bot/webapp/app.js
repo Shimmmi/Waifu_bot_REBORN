@@ -197,6 +197,14 @@ function authHeaders() {
   return headers;
 }
 
+function isFetchNetworkError(err) {
+  if (!err) return false;
+  if (err.name === "TypeError" && /fetch|network|failed/i.test(String(err.message || ""))) {
+    return true;
+  }
+  return err.name === "AbortError";
+}
+
 async function apiFetch(path, options = {}) {
   const opts = { ...options };
   opts.headers = { ...(options.headers || {}), ...authHeaders() };
@@ -208,21 +216,38 @@ async function apiFetch(path, options = {}) {
   ) {
     opts.headers["Content-Type"] = "application/json";
   }
-  const res = await fetch(`${API_BASE}${path}`, opts);
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text || "failed"}`);
+
+  const maxAttempts = isDesktopClient() ? 5 : 1;
+  let lastErr;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, opts);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text || "failed"}`);
+      }
+      if (res.status === 204) return null;
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+      if (ct.includes("application/json")) return res.json();
+      const text = await res.text();
+      if (!text) return null;
+      try {
+        return JSON.parse(text);
+      } catch (_) {
+        return text;
+      }
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts && isFetchNetworkError(err)) {
+        await new Promise((r) => setTimeout(r, 400 + attempt * 300));
+        continue;
+      }
+      throw err;
+    }
   }
-  if (res.status === 204) return null;
-  const ct = (res.headers.get("content-type") || "").toLowerCase();
-  if (ct.includes("application/json")) return res.json();
-  const text = await res.text();
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch (_) {
-    return text;
-  }
+
+  throw lastErr;
 }
 
 function showToast(message, type = "success") {

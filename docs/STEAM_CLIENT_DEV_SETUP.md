@@ -246,34 +246,72 @@ Copy-Item config.example.json config.local.json
 
 ## Шаг 4 — запуск в dev-режиме (проверка до сборки)
 
-Перед `npm run dev` убедитесь, что staging API отвечает (иначе Electron
-покажет `ERR_EMPTY_RESPONSE` и `[input-tracker] failed to flush hit batch:
-fetch failed`):
+### Обязательно после `git pull` + `docker compose up -d --build`
+
+**Не запускайте `npm run dev`, пока бэкенд не отвечает с вашей машины (Windows),
+а не только «healthy» внутри контейнера.** После пересборки образа Docker Desktop
+for Windows часто ещё несколько секунд (иногда минуту) не пробрасывает
+`127.0.0.1:18000` — в Electron это выглядит как `ERR_EMPTY_RESPONSE` и
+`Failed to fetch`, хотя Phase 2 UI/API ни при чём.
+
+Из **корня репозитория**:
+
+```powershell
+git pull origin feature/steam-client
+docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build --wait
+docker compose -f docker-compose.staging.yml --env-file .env.staging exec api alembic upgrade head
+powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
+```
+
+Все пункты скрипта должны быть `[OK]`. Только после этого:
+
+```powershell
+cd desktop_client
+npm run dev
+```
+
+Рекомендуемый альтернативный вход (дополнительный poll из main process Electron):
+
+```powershell
+cd desktop_client
+npm run dev:wait
+```
+
+`dev:wait` сначала ждёт `/health` + `/webapp/overlay.html` с хоста, затем
+открывает Electron. Обычный `npm run dev` тоже ждёт бэкенд (см.
+`desktop_client/src/backend/waitForBackend.js`), но check-скрипт даёт более
+раннюю диагностику и подсказки (`wsl --shutdown`, логи api).
+
+Если `check_staging_backend.ps1` **FAIL** на HTTP, но `docker ps` показывает
+`api healthy` — Windows port-forward застрял:
+
+```powershell
+wsl --shutdown
+# ~10 секунд, открыть Docker Desktop, дождаться Running
+docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --wait
+powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
+```
+
+Если `api` **не healthy** / Exited: `docker compose ... logs api --tail 80`
+(часто `.env.staging` / `BOT_TOKEN`).
+
+### Быстрая проверка вручную
+
+Перед `npm run dev` можно также открыть в браузере
+`http://127.0.0.1:18000/health` или выполнить:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
 ```
 
 Скрипт можно запускать из любой директории (сам находит корень репозитория).
-Он ждёт, пока контейнер `waifu_staging_api` станет `healthy` (до 60 секунд —
-после `up -d --build` Uvicorn ещё импортирует модули и поднимает 14 фоновых
-циклов, это нормально), затем проверяет `GET /health`, `/webapp/overlay.html`
-и nav webp с несколькими повторами. Все пункты должны быть `[OK]`.
-
-Сразу после `up -d --build`, пока контейнер ещё не `healthy`, Windows/Docker
-Desktop иногда на пару секунд отвечает «Базовое соединение закрыто» вместо
-нормального ответа — это не поломка, а обычный прогрев порта; скрипт это
-переживает сам, вручную повторять `Invoke-WebRequest` сразу после `up`
-не нужно.
-
-Этот шаг — просто быстрая диагностика перед стартом; сам desktop-клиент
-теперь тоже переживает эту гонку самостоятельно (см. `ERR_EMPTY_RESPONSE`
-в Troubleshooting ниже), так что если вы всё же запустили `npm run dev`
-слишком рано — обычно достаточно просто подождать несколько секунд, окна
-подгрузятся сами.
+Он ждёт, пока контейнер `waifu_staging_api` станет `healthy` (до 60 секунд),
+затем проверяет `GET /health`, `/webapp/overlay.html` и nav webp с несколькими
+повторами с **хоста Windows** (до ~40 секунд на endpoint).
 
 ```bash
 npm run dev
+# или: npm run dev:wait
 ```
 
 Ожидаемый результат:
@@ -471,15 +509,19 @@ Steam-native игрока по `steamTicketDev`). Оверлей и основн
    запросов подряд — то есть сама страница/бэкенд ни при чём, дело именно
    в Windows-специфичном пробросе порта.
 
-Desktop-клиент **автоматически переживает оба случая**: каждое окно
-(`overlayWindow.js`/`appWindow.js`, см. `loadWithRetry.js`) при
-`ERR_EMPTY_RESPONSE`/`ERR_CONNECTION_REFUSED`/`ERR_CONNECTION_RESET` и
-похожих сетевых ошибках само перезагружает страницу (растущая пауза между
-попытками, до ~60 попыток / ~2 минут суммарно) — обычно окно просто на
-несколько секунд остаётся пустым/прозрачным, а затем подгружается без
-вмешательства. В терминале это видно как `[overlay] backend not reachable
-yet (...), retrying... (attempt N/60)`. **Подождите** хотя бы 30-60 секунд
-после первого такого сообщения, прежде чем считать, что что-то сломано.
+Desktop-клиент **автоматически переживает оба случая**:
+
+1. **Main process:** перед открытием окон [`waitForBackend.js`](../desktop_client/src/backend/waitForBackend.js)
+   опрашивает `/health` и `/webapp/overlay.html` с хоста (до ~60 попыток).
+   В терминале: `[waifu-desktop] waiting for backend... (attempt N/60)`.
+2. **Renderer:** [`loadWithRetry.js`](../desktop_client/src/windows/loadWithRetry.js) при
+   `ERR_EMPTY_RESPONSE`/`ERR_CONNECTION_*` перезагружает страницу; `apiFetch` в
+   desktop-режиме повторяет сетевые `Failed to fetch` (до 5 раз).
+
+Рекомендуемый порядок после `git pull` + `--build`: сначала
+`scripts/check_staging_backend.ps1` (все `[OK]`), затем `npm run dev` или
+`npm run dev:wait`. Не пропускайте check-скрипт — он ловит застрявший
+Windows port-forward раньше, чем Electron.
 
 Отдельно замечено: основное окно (`index.html`) в некоторых случаях
 загружается с первой попытки, а оверлей (`overlay.html`) при этом упорно

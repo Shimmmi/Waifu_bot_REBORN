@@ -2,6 +2,7 @@
 
 const { app, ipcMain, BrowserWindow } = require("electron");
 const config = require("./config");
+const { waitForBackend } = require("./backend/waitForBackend");
 const { createOverlayWindow } = require("./windows/overlayWindow");
 const { createMainWindow, openTabWindow } = require("./windows/appWindow");
 const inputTracker = require("./input/inputTracker");
@@ -38,29 +39,49 @@ ipcMain.handle("close-window", (event) => {
 // manual Steamworks account setup is done — see steamworksClient.js.
 ipcMain.handle("get-steam-ticket", () => steamworksClient.getAuthTicket());
 
-app.whenReady().then(() => {
-  console.log(`[waifu-desktop] backend: ${config.backendUrl}`);
-  steamworksClient.init();
-  createWindows();
-
+function startInputTracker() {
+  if (inputTrackerHandle) return;
   inputTrackerHandle = inputTracker.start({
     onFlush: (payload) => {
       for (const win of BrowserWindow.getAllWindows()) {
         win.webContents.send("hit-batch-sent", payload);
       }
     },
-    // Instant (throttled ~100ms) global click/keypress signal for the overlay
-    // animation state machine (hit lunge / AFK detection) — carries no data,
-    // just "the player did something" (see inputTracker.js noteActivity()).
     onActivity: () => {
       for (const win of BrowserWindow.getAllWindows()) {
         win.webContents.send("input-activity");
       }
     },
   });
+}
+
+async function bootDesktopClient() {
+  console.log(`[waifu-desktop] backend: ${config.backendUrl}`);
+  steamworksClient.init();
+
+  const ready = await waitForBackend(config.backendUrl);
+  if (!ready) {
+    console.error(
+      "[waifu-desktop] backend unreachable — opening windows anyway; " +
+        "pages may stay blank until you reload (see docs/STEAM_CLIENT_DEV_SETUP.md)."
+    );
+  }
+
+  createWindows();
+  startInputTracker();
+}
+
+app.whenReady().then(() => {
+  bootDesktopClient().catch((err) => {
+    console.error("[waifu-desktop] boot failed:", err.message);
+  });
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindows();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      bootDesktopClient().catch((err) => {
+        console.error("[waifu-desktop] boot failed:", err.message);
+      });
+    }
   });
 });
 

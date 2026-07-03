@@ -48,10 +48,29 @@
     return headers;
   }
 
+  function isFetchNetworkError(err) {
+    if (!err) return false;
+    return err.name === "TypeError" && /fetch|network|failed/i.test(String(err.message || ""));
+  }
+
   async function apiFetch(path) {
-    const res = await fetch(`/api${path}`, { headers: authHeaders() });
-    if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
-    return res.json();
+    const headers = authHeaders();
+    let lastErr;
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      try {
+        const res = await fetch(`/api${path}`, { headers });
+        if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
+        return res.json();
+      } catch (err) {
+        lastErr = err;
+        if (attempt < 5 && isFetchNetworkError(err)) {
+          await new Promise((r) => setTimeout(r, 400 + attempt * 300));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastErr;
   }
 
   const $ = (id) => document.getElementById(id);

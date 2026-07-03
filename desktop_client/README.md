@@ -37,33 +37,23 @@ git checkout feature/steam-client
 # the process forks (which races npm run dev and can look like a broken
 # backend for a few seconds)
 docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build --wait
+powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1   # all [OK] before dev
 cd desktop_client
 npm install
 cp config.example.json config.local.json   # Windows: Copy-Item config.example.json config.local.json
 npm run dev
+# or: npm run dev:wait  — extra preflight poll before Electron starts
 ```
 
-Before `npm run dev`, verify the backend (Windows). Run all
-`docker compose -f docker-compose.staging.yml ...` commands (and this
-script) from the **repo root**, not from `desktop_client/`, or relative
-paths like `--env-file .env.staging` won't resolve:
+Before `npm run dev`, verify the backend from the **Windows host** (not only
+`docker ps` showing `healthy`). After `git pull` + `--build`, run
+`check_staging_backend.ps1` from repo root — skipping this step is the most
+common cause of `ERR_EMPTY_RESPONSE`. See `docs/STEAM_CLIENT_DEV_SETUP.md`.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
-```
-
-The script waits (up to 60s) for the `waifu_staging_api` container to
-become `healthy` — right after `up -d --build` Uvicorn still needs a few
-seconds to import and start its background task loops, and Docker Desktop
-for Windows can transiently reset the port during that window ("Base
-connection closed unexpectedly" if you probe too early with
-`Invoke-WebRequest`). This is expected warm-up, not a broken build.
-
-As defense in depth, the desktop client itself also auto-retries on
-transient connection failures (`ERR_EMPTY_RESPONSE`/`ERR_CONNECTION_*`,
-see `src/windows/loadWithRetry.js`) — if `npm run dev` is started slightly
-too early anyway, windows just retry loading for a few seconds instead of
-getting stuck on Chromium's error page.
+`npm run dev` waits for `/health` via [`src/backend/waitForBackend.js`](src/backend/waitForBackend.js)
+before opening windows. As defense in depth, renderer pages also retry transient
+`Failed to fetch` (desktop `apiFetch`) and auto-reload on `ERR_EMPTY_RESPONSE`
+([`src/windows/loadWithRetry.js`](src/windows/loadWithRetry.js)).
 
 By default `config.json` points at the isolated staging stack
 (`docker-compose.staging.yml`, `http://127.0.0.1:18000`) so you never point
