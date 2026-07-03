@@ -3,6 +3,7 @@
 const { BrowserWindow } = require("electron");
 const path = require("path");
 const config = require("../config");
+const { loadUrlWithRetry } = require("./loadWithRetry");
 
 /**
  * Main application window (shop/tavern/guild hall/... — same pages as the
@@ -28,7 +29,9 @@ function createMainWindow() {
     },
   });
 
-  win.loadURL(`${config.backendUrl}/webapp/${page}?desktopClient=1&desktopMode=window`);
+  loadUrlWithRetry(win, `${config.backendUrl}/webapp/${page}?desktopClient=1&desktopMode=window`, {
+    label: "main-window",
+  });
   return win;
 }
 
@@ -52,7 +55,9 @@ function openTabWindow(parentWindow, page) {
     },
   });
 
-  win.loadURL(`${config.backendUrl}/webapp/${page}?desktopClient=1&desktopMode=window`);
+  loadUrlWithRetry(win, `${config.backendUrl}/webapp/${page}?desktopClient=1&desktopMode=window`, {
+    label: "tab",
+  });
   return win;
 }
 

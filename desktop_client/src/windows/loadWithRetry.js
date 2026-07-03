@@ -1,0 +1,76 @@
+"use strict";
+
+/**
+ * Chromium net error codes worth retrying automatically — all "backend not
+ * reachable yet" conditions rather than real page errors (a 404/500 loads
+ * fine as far as Chromium is concerned; those aren't retried here).
+ *
+ * This exists because `docker compose up -d` returns as soon as the api
+ * container process forks, well before Uvicorn (imports + 14 background
+ * task loops) actually accepts HTTP connections, and Docker Desktop for
+ * Windows can also transiently reset the port for a few seconds right
+ * after a (re)start. Racing `npm run dev` against that produces
+ * ERR_EMPTY_RESPONSE even on an otherwise-healthy setup — see
+ * docs/STEAM_CLIENT_DEV_SETUP.md "ERR_EMPTY_RESPONSE". Retrying the load a
+ * few times makes the client self-heal instead of requiring the user to
+ * manually reload once the backend catches up.
+ */
+const RETRYABLE_ERROR_CODES = new Set([
+  -100, // ERR_CONNECTION_CLOSED
+  -101, // ERR_CONNECTION_RESET
+  -102, // ERR_CONNECTION_REFUSED
+  -105, // ERR_NAME_NOT_RESOLVED
+  -109, // ERR_ADDRESS_UNREACHABLE
+  -118, // ERR_CONNECTION_TIMED_OUT
+  -324, // ERR_EMPTY_RESPONSE
+]);
+
+/**
+ * Loads `url` into `win`, auto-retrying on transient connection failures
+ * instead of leaving the window stuck on Chromium's default error page.
+ *
+ * @param {import("electron").BrowserWindow} win
+ * @param {string} url
+ * @param {object} [opts]
+ * @param {number} [opts.maxAttempts]
+ * @param {number} [opts.intervalMs]
+ * @param {string} [opts.label] short tag for console messages, e.g. "overlay"
+ */
+function loadUrlWithRetry(win, url, { maxAttempts = 30, intervalMs = 1000, label = "" } = {}) {
+  let attempt = 0;
+  const tag = label ? `[${label}] ` : "";
+
+  win.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+      if (!isMainFrame || win.isDestroyed()) return;
+      if (errorCode === -3) return; // ERR_ABORTED - superseded by our own retry loadURL()
+
+      if (!RETRYABLE_ERROR_CODES.has(errorCode)) {
+        console.warn(`${tag}failed to load ${url}: ${errorDescription} (${errorCode})`);
+        return;
+      }
+
+      attempt += 1;
+      if (attempt === 1 || attempt % 5 === 0) {
+        console.warn(
+          `${tag}backend not reachable yet (${errorDescription}), retrying... (attempt ${attempt}/${maxAttempts})`
+        );
+      }
+      if (attempt > maxAttempts) {
+        console.error(
+          `${tag}backend still unreachable after ${maxAttempts} attempts - giving up. ` +
+            "Run scripts/check_staging_backend.ps1 from the repo root (see docs/STEAM_CLIENT_DEV_SETUP.md), then press Ctrl+R in this window."
+        );
+        return;
+      }
+      setTimeout(() => {
+        if (!win.isDestroyed()) win.loadURL(url);
+      }, intervalMs);
+    }
+  );
+
+  win.loadURL(url);
+}
+
+module.exports = { loadUrlWithRetry };

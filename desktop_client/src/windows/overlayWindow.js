@@ -3,6 +3,7 @@
 const { BrowserWindow, screen } = require("electron");
 const path = require("path");
 const config = require("../config");
+const { loadUrlWithRetry } = require("./loadWithRetry");
 
 /**
  * Always-on-top, fully transparent corner overlay showing the main waifu
@@ -41,8 +42,10 @@ function createOverlayWindow() {
   win.setAlwaysOnTop(true, "screen-saver");
   // Whole overlay window is draggable via -webkit-app-region: drag set on
   // `.desktop-overlay body` in desktop-theme.css (with buttons/links excluded).
-  win.loadURL(
-    `${config.backendUrl}/webapp/${config.overlay.page}?desktopClient=1&desktopMode=overlay`
+  loadUrlWithRetry(
+    win,
+    `${config.backendUrl}/webapp/${config.overlay.page}?desktopClient=1&desktopMode=overlay`,
+    { label: "overlay" }
   );
 
   return win;

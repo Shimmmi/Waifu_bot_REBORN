@@ -32,8 +32,11 @@ Quick start:
 ```bash
 git clone git@github.com:Shimmmi/Waifu_bot_REBORN.git && cd Waifu_bot_REBORN
 git checkout feature/steam-client
-# start staging (see docs/STEAM_CLIENT_DEV_SETUP.md)
-docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build
+# start staging (see docs/STEAM_CLIENT_DEV_SETUP.md); --wait blocks until
+# the api container's healthcheck passes, instead of returning as soon as
+# the process forks (which races npm run dev and can look like a broken
+# backend for a few seconds)
+docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build --wait
 cd desktop_client
 npm install
 cp config.example.json config.local.json   # Windows: Copy-Item config.example.json config.local.json
@@ -55,6 +58,12 @@ seconds to import and start its background task loops, and Docker Desktop
 for Windows can transiently reset the port during that window ("Base
 connection closed unexpectedly" if you probe too early with
 `Invoke-WebRequest`). This is expected warm-up, not a broken build.
+
+As defense in depth, the desktop client itself also auto-retries on
+transient connection failures (`ERR_EMPTY_RESPONSE`/`ERR_CONNECTION_*`,
+see `src/windows/loadWithRetry.js`) — if `npm run dev` is started slightly
+too early anyway, windows just retry loading for a few seconds instead of
+getting stuck on Chromium's error page.
 
 By default `config.json` points at the isolated staging stack
 (`docker-compose.staging.yml`, `http://127.0.0.1:18000`) so you never point
@@ -81,6 +90,7 @@ desktop_client/
     windows/
       overlayWindow.js     Transparent always-on-top corner window (webapp/overlay.html companion HUD)
       appWindow.js         Main window + openTabWindow() for shop/tavern/... "tabs"
+      loadWithRetry.js      Auto-retries window loadURL() on transient backend-not-ready errors
     input/                 Этап 5: global click/keypress tracker + batch sender
   config.json               Committed defaults (points at staging)
   config.local.json          Your personal overrides (gitignored)
