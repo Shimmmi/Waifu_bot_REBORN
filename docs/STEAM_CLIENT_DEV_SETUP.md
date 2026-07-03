@@ -154,6 +154,12 @@ notepad .env.staging
 docker compose -f docker-compose.staging.yml --env-file .env.staging up -d
 ```
 
+**Важно:** все команды `docker compose -f docker-compose.staging.yml ...`
+(включая `logs`, `exec`, `ps`) выполняйте из **корня репозитория**
+(`C:\Users\user\Waifu_bot_REBORN`), а не из `desktop_client/` — иначе
+относительные пути `-f`/`--env-file` не найдутся:
+`couldn't find env file: ...\desktop_client\.env.staging`.
+
 Поднимутся `waifu_staging_postgres` (порт 15432), `waifu_staging_redis`
 (16379) и `waifu_staging_api` (**18000** — этот порт и нужен клиенту). Схема
 БД в контейнере пустая — либо накатите миграции вручную (см. ниже), либо
@@ -240,8 +246,17 @@ fetch failed`):
 powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
 ```
 
-Скрипт проверяет Docker, контейнер `waifu_staging_api`, `GET /health`,
-`/webapp/overlay.html` и nav webp. Все пункты должны быть `[OK]`.
+Скрипт можно запускать из любой директории (сам находит корень репозитория).
+Он ждёт, пока контейнер `waifu_staging_api` станет `healthy` (до 60 секунд —
+после `up -d --build` Uvicorn ещё импортирует модули и поднимает 14 фоновых
+циклов, это нормально), затем проверяет `GET /health`, `/webapp/overlay.html`
+и nav webp с несколькими повторами. Все пункты должны быть `[OK]`.
+
+Сразу после `up -d --build`, пока контейнер ещё не `healthy`, Windows/Docker
+Desktop иногда на пару секунд отвечает «Базовое соединение закрыто» вместо
+нормального ответа — это не поломка, а обычный прогрев порта; скрипт это
+переживает сам, вручную повторять `Invoke-WebRequest` сразу после `up`
+не нужно.
 
 ```bash
 npm run dev
@@ -427,7 +442,8 @@ Steam-native игрока по `steamTicketDev`). Оверлей и основн
 `overlay.html` в git — страница уже в репозитории, но API недоступен.
 
 1. Запустите Docker Desktop (дождитесь Running).
-2. Из корня репозитория:
+2. Из **корня репозитория** (не из `desktop_client/` — иначе
+   `couldn't find env file: ...\desktop_client\.env.staging`):
    ```powershell
    git pull origin feature/steam-client
    docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build
@@ -437,6 +453,24 @@ Steam-native игрока по `steamTicketDev`). Оверлей и основн
 3. Только когда скрипт показывает все `[OK]`, снова `cd desktop_client; npm run dev`.
 4. Если `api` в статусе Exited: `docker compose ... logs api --tail 80` —
    часто неверный `BOT_TOKEN` в `.env.staging` (нужен формат `123456:stub`).
+
+**`Invoke-WebRequest`: «Базовое соединение закрыто: Соединение было
+неожиданно закрыто» сразу после `docker compose ... ps` показал `Up N
+seconds`**
+Это не то же самое, что «порт не слушает» — контейнер уже поднялся, но
+Uvicorn ещё не готов принимать запросы (импорт модулей + 14 фоновых циклов,
+см. `start_all_background_tasks()`), и Docker Desktop для Windows в первые
+секунды после (пере)создания контейнера может ненадолго сбрасывать
+соединения на проброшенном порту — это нормальный прогрев, а не поломка.
+`docker-compose.staging.yml` теперь включает `healthcheck` для `api`, так
+что вместо ручных `Invoke-WebRequest` сразу после `up -d --build` подождите
+`healthy`:
+```powershell
+docker compose -f docker-compose.staging.yml --env-file .env.staging ps
+```
+(колонка `STATUS`: `starting` → `healthy`, обычно 5-20 секунд), либо просто
+запустите `scripts/check_staging_backend.ps1` — он сам дожидается `healthy`
+и переживает кратковременный сброс соединения повторными попытками.
 
 **Оверлей показывает «Загрузка…» / эмодзи вместо портрета**
 Оверлей берёт портрет из `GET /api/profile?lite=1` (`main_waifu.portrait_url`).

@@ -40,11 +40,21 @@ cp config.example.json config.local.json   # Windows: Copy-Item config.example.j
 npm run dev
 ```
 
-Before `npm run dev`, verify the backend (Windows):
+Before `npm run dev`, verify the backend (Windows). Run all
+`docker compose -f docker-compose.staging.yml ...` commands (and this
+script) from the **repo root**, not from `desktop_client/`, or relative
+paths like `--env-file .env.staging` won't resolve:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
 ```
+
+The script waits (up to 60s) for the `waifu_staging_api` container to
+become `healthy` — right after `up -d --build` Uvicorn still needs a few
+seconds to import and start its background task loops, and Docker Desktop
+for Windows can transiently reset the port during that window ("Base
+connection closed unexpectedly" if you probe too early with
+`Invoke-WebRequest`). This is expected warm-up, not a broken build.
 
 By default `config.json` points at the isolated staging stack
 (`docker-compose.staging.yml`, `http://127.0.0.1:18000`) so you never point

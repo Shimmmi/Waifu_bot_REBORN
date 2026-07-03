@@ -63,6 +63,19 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      # Uvicorn import + start_all_background_tasks() (14 loops) take a few
+      # seconds; without this, `docker compose up -d` reports the container
+      # "Up" the instant the process forks, well before it accepts HTTP —
+      # combined with Docker Desktop for Windows' post-start port-proxy
+      # warm-up, this looks like the API is down ("connection closed
+      # unexpectedly" / ERR_EMPTY_RESPONSE in Electron) when it's just not
+      # ready yet. `docker compose ps` now shows starting -> healthy.
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      start_period: 15s
+      retries: 6
 
 volumes:
   staging_pgdata:
