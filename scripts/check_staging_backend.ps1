@@ -192,6 +192,26 @@ function Test-HttpWithRetry {
     return $false
 }
 
+function Test-ApiInsideContainer {
+    param([string]$Label = "GET /health (inside container via docker exec)")
+    try {
+        $out = docker exec $ContainerName curl -sf http://localhost:8000/health 2>&1 | Out-String
+        $out = $out.Trim()
+        if ($LASTEXITCODE -eq 0 -and $out -match "ok|healthy|status") {
+            Write-Check $Label $true "curl OK — Uvicorn listens inside container"
+            return $true
+        }
+        if ($LASTEXITCODE -eq 0 -and $out.Length -gt 0) {
+            Write-Check $Label $true "HTTP body received inside container"
+            return $true
+        }
+    } catch {
+        # fall through
+    }
+    Write-Check $Label $false "curl inside container failed (api may be crashed)"
+    return $false
+}
+
 if (-not (Test-HttpWithRetry -Path "/health" -Label "GET /health")) { $failed++ }
 if (-not (Test-HttpWithRetry -Path "/webapp/overlay.html" -Label "GET /webapp/overlay.html" -BodyMustContain "ov-menu-btn")) { $failed++ }
 if (-not (Test-HttpWithRetry -Path "/static/game/ui/nav/profile.webp" -Label "GET nav profile.webp")) { $failed++ }
@@ -207,7 +227,18 @@ if ($failed -eq 0) {
 
 Write-Host "$failed check(s) failed. Do NOT run npm run dev until /health returns 200." -ForegroundColor Red
 Write-Host ""
-Write-Host "If api is healthy but HTTP checks fail from Windows (connection closed):" -ForegroundColor Yellow
+
+if ($failed -gt 0 -and $health -eq "healthy") {
+    Write-Host "Diagnosis (container reports healthy but host HTTP failed):" -ForegroundColor Cyan
+    $null = Test-ApiInsideContainer
+    Write-Host ""
+    Write-Host "If 'inside container' is [OK]: Uvicorn is fine — Docker Desktop host port-forward" -ForegroundColor Yellow
+    Write-Host "to 127.0.0.1:18000 is stuck (common on Windows after rebuild). Telegram webhook" -ForegroundColor Yellow
+    Write-Host "errors in 'docker logs api' do NOT block /health or the Steam desktop client." -ForegroundColor Gray
+    Write-Host ""
+}
+
+Write-Host "Fix host port-forward (most common on Windows):" -ForegroundColor Yellow
 Write-Host "  wsl --shutdown" -ForegroundColor Gray
 Write-Host "  # wait ~10s, restart Docker Desktop, then:" -ForegroundColor Gray
 Write-Host "  docker compose -f $ComposeFile --env-file $EnvFile up -d --wait" -ForegroundColor Gray
