@@ -146,8 +146,37 @@ function Test-HttpWithRetry {
             return $false
         } catch {
             $msg = $_.Exception.Message
-            $isTransient = $msg -match "closed|reset|empty|refused|connect"
+            # Locale-independent: Russian Windows reports "Соединение было неожиданно
+            # закрыто" — the old English-only regex never matched, so we failed on
+            # the first attempt instead of retrying for ~40s.
+            $isTransient = $false
+            $ex = $_.Exception
+            while ($ex) {
+                if ($ex -is [System.Net.WebException]) {
+                    $status = $ex.Status
+                    if ($status -in @(
+                        [System.Net.WebExceptionStatus]::ConnectionClosed,
+                        [System.Net.WebExceptionStatus]::ConnectFailure,
+                        [System.Net.WebExceptionStatus]::ReceiveFailure,
+                        [System.Net.WebExceptionStatus]::SendFailure,
+                        [System.Net.WebExceptionStatus]::Timeout,
+                        [System.Net.WebExceptionStatus]::PipelineFailure,
+                        [System.Net.WebExceptionStatus]::KeepAliveFailure,
+                        [System.Net.WebExceptionStatus]::NameResolutionFailure
+                    )) {
+                        $isTransient = $true
+                        break
+                    }
+                }
+                $ex = $ex.InnerException
+            }
+            if (-not $isTransient) {
+                $isTransient = $msg -match "closed|reset|empty|refused|connect|timeout|закрыт|сброс|отказ|соедин|недоступ|неожидан"
+            }
             if ($isTransient -and $i -lt $Retries) {
+                if ($i -eq 1 -or $i % 5 -eq 0) {
+                    Write-Host "  retry $Label ($i/$Retries)..." -ForegroundColor DarkYellow
+                }
                 Start-Sleep -Seconds $DelaySeconds
                 continue
             }
@@ -178,7 +207,13 @@ if ($failed -eq 0) {
 
 Write-Host "$failed check(s) failed. Do NOT run npm run dev until /health returns 200." -ForegroundColor Red
 Write-Host ""
-Write-Host "Typical fix (run from repo root, not desktop_client/):" -ForegroundColor Yellow
+Write-Host "If api is healthy but HTTP checks fail from Windows (connection closed):" -ForegroundColor Yellow
+Write-Host "  wsl --shutdown" -ForegroundColor Gray
+Write-Host "  # wait ~10s, restart Docker Desktop, then:" -ForegroundColor Gray
+Write-Host "  docker compose -f $ComposeFile --env-file $EnvFile up -d --wait" -ForegroundColor Gray
+Write-Host "  powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1" -ForegroundColor Gray
+Write-Host ""
+Write-Host "Otherwise (run from repo root, not desktop_client/):" -ForegroundColor Yellow
 Write-Host "  git pull origin feature/steam-client" -ForegroundColor Gray
 Write-Host "  docker compose -f $ComposeFile --env-file $EnvFile up -d --build" -ForegroundColor Gray
 Write-Host "  docker compose -f $ComposeFile --env-file $EnvFile exec api alembic upgrade head" -ForegroundColor Gray
