@@ -5,11 +5,12 @@ const path = require("path");
 const config = require("../config");
 
 /**
- * Always-on-top, click-through-capable, fully transparent corner overlay
- * showing the main waifu (Bongo-Cat-style). Loads the *existing* battle
- * page over HTTP with ?desktopClient=1 so webapp/app.js picks up the
- * desktop-theme.css `.desktop-overlay` styling (transparent background,
- * chrome hidden) — no new page/markup was created for this.
+ * Always-on-top, fully transparent corner overlay showing the main waifu
+ * (Bongo-Cat-style). Loads the dedicated companion HUD page
+ * (webapp/overlay.html + pages/overlay.js): waifu portrait with CSS
+ * animation states (sleep/idle/battle), HP + resources, monster strip
+ * while a dungeon is active, and a menu that opens other webapp pages as
+ * draggable windows via window.waifuDesktop.openTab().
  */
 function createOverlayWindow() {
   const display = screen.getPrimaryDisplay();

@@ -2,9 +2,9 @@
   "backendUrl": "http://127.0.0.1:18000",
   "steamTicketDev": null,
   "overlay": {
-    "width": 260,
-    "height": 340,
-    "page": "battle.html"
+    "width": 300,
+    "height": 420,
+    "page": "overlay.html"
   },
   "mainWindow": {
     "width": 480,

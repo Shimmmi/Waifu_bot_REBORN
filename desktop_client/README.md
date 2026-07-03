@@ -61,7 +61,7 @@ desktop_client/
     preload.js            contextBridge -> window.waifuDesktop (read by webapp/app.js)
     config.js              Resolves backendUrl / steamTicketDev / window sizes
     windows/
-      overlayWindow.js     Transparent always-on-top corner window (battle.html)
+      overlayWindow.js     Transparent always-on-top corner window (webapp/overlay.html companion HUD)
       appWindow.js         Main window + openTabWindow() for shop/tavern/... "tabs"
     input/                 Этап 5: global click/keypress tracker + batch sender
   config.json               Committed defaults (points at staging)

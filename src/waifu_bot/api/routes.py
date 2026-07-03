@@ -903,6 +903,21 @@ async def get_profile(
                 logger.exception("apply_regen failed in /profile (player_id=%s)", player_id)
 
             if lite:
+                # Portrait URL is needed even in lite mode: the desktop overlay
+                # (overlay.html) shows the waifu persistently and only ever
+                # fetches the lite profile. Resolving it is a file-exists check
+                # (+ one-time sync from the DB blob on first request).
+                lite_portrait_url = main_waifu_profile_portrait_url(main_waifu, player_id)
+                if lite_portrait_url is None and getattr(main_waifu, "image_data", None):
+                    lite_portrait_url = sync_main_waifu_portrait_to_static(main_waifu)
+                    if lite_portrait_url:
+                        try:
+                            await session.commit()
+                        except Exception:
+                            logger.exception(
+                                "Failed to commit waifu media sync (lite) player_id=%s", player_id
+                            )
+
                 main_payload = schemas.MainWaifuProfile(
                     id=main_waifu.id,
                     name=main_waifu.name,
@@ -919,6 +934,7 @@ async def get_profile(
                     stat_points=int(getattr(main_waifu, "stat_points", 0) or 0),
                     current_hp=main_waifu.current_hp,
                     max_hp=main_waifu.max_hp,
+                    portrait_url=lite_portrait_url,
                     bio=getattr(main_waifu, "bio", None),
                 )
             else:

@@ -44,6 +44,14 @@ app.whenReady().then(() => {
         win.webContents.send("hit-batch-sent", payload);
       }
     },
+    // Instant (throttled ~100ms) global click/keypress signal for the overlay
+    // animation state machine (hit lunge / AFK detection) — carries no data,
+    // just "the player did something" (see inputTracker.js noteActivity()).
+    onActivity: () => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send("input-activity");
+      }
+    },
   });
 
   app.on("activate", () => {

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ru" class="desktop-client desktop-overlay">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Waifu Overlay</title>
+    <!--
+      Steam desktop client companion overlay (always-on-top transparent window,
+      see desktop_client/src/windows/overlayWindow.js). Intentionally does NOT
+      load app.js / the webapp bundle: this page is a small self-contained HUD
+      (pages/overlay.js + overlay.css) so the overlay stays light and cannot be
+      broken by unrelated webapp bundle changes.
+    -->
+    <link rel="stylesheet" href="./overlay.css?v=waifu-webapp-v50" />
+  </head>
+  <body>
+    <div id="ov-root" class="state-loading">
+      <!-- Top bar: resources + menu (no-drag interactive zone) -->
+      <div class="ov-topbar">
+        <div class="ov-resources">
+          <span class="ov-res" id="ov-gold" title="Золото">💰 —</span>
+          <span class="ov-res" id="ov-dust" title="Пыль зачарования">✨ —</span>
+          <span class="ov-res" id="ov-stones" title="Камни защиты">🪨 —</span>
+        </div>
+        <button type="button" id="ov-menu-btn" title="Меню" aria-label="Меню">☰</button>
+      </div>
+
+      <!-- Dropdown menu: each item opens a draggable desktop window -->
+      <nav id="ov-menu" class="hidden" aria-hidden="true">
+        <button type="button" data-page="profile.html">👤 Профиль / Инвентарь</button>
+        <button type="button" data-page="dungeons.html">🗺️ Подземелья</button>
+        <button type="button" data-page="shop.html">🛒 Магазин</button>
+        <button type="button" data-page="tavern.html">🍺 Таверна</button>
+        <button type="button" data-page="guild_hall.html">🏰 Гильдия</button>
+        <button type="button" data-page="caravan.html">🐫 Караван</button>
+        <button type="button" data-page="training_hall.html">🎯 Тренировка</button>
+      </nav>
+
+      <!-- Monster strip: visible only with an active dungeon -->
+      <div class="ov-monster hidden" id="ov-monster">
+        <div class="ov-monster-visual">
+          <img id="ov-monster-img" alt="" draggable="false" />
+          <span class="ov-monster-zzz" aria-hidden="true">💤</span>
+          <div class="ov-monster-hitfx" id="ov-monster-hitfx"></div>
+        </div>
+        <div class="ov-monster-info">
+          <div class="ov-monster-name" id="ov-monster-name">—</div>
+          <div class="ov-bar ov-bar-enemy">
+            <div class="ov-bar-fill" id="ov-monster-hp-fill"></div>
+            <span class="ov-bar-text" id="ov-monster-hp-text">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Waifu scene: portrait + state animations + floating FX -->
+      <div class="ov-scene" id="ov-scene">
+        <div class="ov-zzz" aria-hidden="true"><span>💤</span><span>💤</span><span>💤</span></div>
+        <div class="ov-halo" aria-hidden="true">😇</div>
+        <div class="ov-idle-emote" id="ov-idle-emote" aria-hidden="true"></div>
+        <div class="ov-portrait-wrap" id="ov-portrait-wrap">
+          <img id="ov-portrait" alt="Ваша вайфу" draggable="false" />
+          <div class="ov-portrait-fallback" id="ov-portrait-fallback">👤</div>
+        </div>
+        <div class="ov-fx" id="ov-fx"></div>
+      </div>
+
+      <!-- Waifu HUD: name + HP -->
+      <div class="ov-waifu-hud">
+        <div class="ov-waifu-name" id="ov-waifu-name">Загрузка…</div>
+        <div class="ov-bar ov-bar-waifu">
+          <div class="ov-bar-fill" id="ov-waifu-hp-fill"></div>
+          <span class="ov-bar-text" id="ov-waifu-hp-text">—</span>
+        </div>
+        <div class="ov-status" id="ov-status"></div>
+      </div>
+    </div>
+
+    <script defer src="./pages/overlay.js?v=waifu-webapp-v50"></script>
+  </body>
+</html>

@@ -22,10 +22,17 @@ const config = require("../config");
  */
 const FLUSH_INTERVAL_MS = 3000;
 
+// Throttle for the onActivity callback (drives instant overlay animations):
+// key-mashing fires uiohook events every few ms, but the overlay only needs
+// one "player is active, play a hit" signal per animation frame or so.
+const ACTIVITY_THROTTLE_MS = 100;
+
 let flushTimer = null;
 let hookHandle = null;
 let pendingHits = 0;
 let onFlushCallback = null;
+let onActivityCallback = null;
+let lastActivityEmit = 0;
 
 function buildAuthHeaders() {
   const headers = { "Content-Type": "application/json" };
@@ -67,15 +74,33 @@ async function flush() {
   }
 }
 
+function noteActivity() {
+  pendingHits += 1;
+  if (!onActivityCallback) return;
+  const now = Date.now();
+  if (now - lastActivityEmit < ACTIVITY_THROTTLE_MS) return;
+  lastActivityEmit = now;
+  try {
+    onActivityCallback();
+  } catch {
+    /* ignore renderer notification errors */
+  }
+}
+
 /**
  * @param {object} opts
  * @param {(payload: {hitCount: number, result: any}) => void} [opts.onFlush]
  *   Called after every flush attempt (even if it failed/was a no-op),
  *   e.g. to forward "hit-batch-sent" over IPC for an optional debug HUD.
+ * @param {() => void} [opts.onActivity]
+ *   Called on every raw click/keypress, throttled to ACTIVITY_THROTTLE_MS.
+ *   Drives the overlay's instant animations (hit lunge, AFK reset) without
+ *   waiting for the 3s server batch — see webapp/pages/overlay.js.
  * @returns {{ stop(): void }}
  */
 function start(opts = {}) {
   onFlushCallback = opts.onFlush || null;
+  onActivityCallback = opts.onActivity || null;
 
   // Lazy require: uiohook-napi ships a native module per platform/arch.
   // Keep the rest of the app usable (windows still open) even if it's
@@ -92,12 +117,8 @@ function start(opts = {}) {
   }
 
   hookHandle = uIOhook;
-  hookHandle.on("click", () => {
-    pendingHits += 1;
-  });
-  hookHandle.on("keydown", () => {
-    pendingHits += 1;
-  });
+  hookHandle.on("click", noteActivity);
+  hookHandle.on("keydown", noteActivity);
   hookHandle.start();
 
   flushTimer = setInterval(flush, FLUSH_INTERVAL_MS);

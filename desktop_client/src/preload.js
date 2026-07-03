@@ -35,4 +35,12 @@ contextBridge.exposeInMainWorld("waifuDesktop", {
   onHitBatchSent: (callback) => {
     ipcRenderer.on("hit-batch-sent", (_event, payload) => callback(payload));
   },
+
+  // Instant global input signal (throttled ~100ms in inputTracker.js): the
+  // companion overlay (webapp/overlay.html) uses it for the hit-lunge
+  // animation and AFK detection. Carries no data about WHICH key/where —
+  // same privacy posture as the hit counter.
+  onInputActivity: (callback) => {
+    ipcRenderer.on("input-activity", () => callback());
+  },
 });

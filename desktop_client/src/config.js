@@ -29,6 +29,20 @@ function loadFileConfig() {
 
 const fileConfig = loadFileConfig();
 
+// Legacy migration: early setup docs suggested `cp config.json config.local.json`,
+// which froze the old overlay page/size in developers' local configs. The
+// battle.html overlay was replaced by the dedicated companion HUD
+// (webapp/overlay.html), so treat an explicit "battle.html" as "use the new
+// default" instead of silently loading the deprecated stub.
+if (fileConfig.overlay?.page === "battle.html") {
+  console.warn(
+    "[config] overlay.page=battle.html is deprecated (replaced by overlay.html) — ignoring; remove the overlay key from config.local.json to silence this warning"
+  );
+  delete fileConfig.overlay.page;
+  if (fileConfig.overlay.width === 260) delete fileConfig.overlay.width;
+  if (fileConfig.overlay.height === 340) delete fileConfig.overlay.height;
+}
+
 const config = {
   // Backend base URL serving both the FastAPI JSON API and the /webapp/*.html
   // pages (same origin — see main.py static mount). Point this at your
@@ -44,9 +58,9 @@ const config = {
 
   // Overlay window geometry (bottom-right corner, Bongo-Cat-style).
   overlay: {
-    width: Number(process.env.WAIFU_OVERLAY_WIDTH) || fileConfig.overlay?.width || 260,
-    height: Number(process.env.WAIFU_OVERLAY_HEIGHT) || fileConfig.overlay?.height || 340,
-    page: fileConfig.overlay?.page || "battle.html",
+    width: Number(process.env.WAIFU_OVERLAY_WIDTH) || fileConfig.overlay?.width || 300,
+    height: Number(process.env.WAIFU_OVERLAY_HEIGHT) || fileConfig.overlay?.height || 420,
+    page: fileConfig.overlay?.page || "overlay.html",
   },
 
   mainWindow: {
