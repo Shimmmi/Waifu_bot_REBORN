@@ -32,10 +32,18 @@ Quick start:
 ```bash
 git clone git@github.com:Shimmmi/Waifu_bot_REBORN.git && cd Waifu_bot_REBORN
 git checkout feature/steam-client
+# start staging (see docs/STEAM_CLIENT_DEV_SETUP.md)
+docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build
 cd desktop_client
 npm install
-cp config.json config.local.json   # Windows: Copy-Item config.json config.local.json
+cp config.example.json config.local.json   # Windows: Copy-Item config.example.json config.local.json
 npm run dev
+```
+
+Before `npm run dev`, verify the backend (Windows):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
 ```
 
 By default `config.json` points at the isolated staging stack

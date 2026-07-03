@@ -194,11 +194,17 @@ uvicorn waifu_bot.main:app --reload   # слушает http://127.0.0.1:8000
 ```bash
 cd desktop_client
 npm install
-cp config.json config.local.json   # Windows PowerShell: Copy-Item config.json config.local.json
 ```
 
-Отредактируйте `config.local.json` (файл в `.gitignore`, безопасно хранить
-локальные настройки):
+Создайте `config.local.json` **только с двумя полями** (не копируйте весь
+`config.json` через `Copy-Item` — иначе в локальном конфиге застрянет
+устаревший `overlay.page: battle.html` и появится предупреждение при старте):
+
+```powershell
+Copy-Item config.example.json config.local.json
+```
+
+Или вручную:
 
 ```json
 {
@@ -206,6 +212,9 @@ cp config.json config.local.json   # Windows PowerShell: Copy-Item config.json c
   "steamTicketDev": "dev-player-1"
 }
 ```
+
+Размер оверлея и страница (`overlay.html`, 300x420) берутся из
+[`desktop_client/config.json`](../desktop_client/config.json) автоматически.
 
 - `backendUrl` — куда стучаться: `18000` для варианта A (staging в Docker),
   `8000` для варианта B (локальный uvicorn).
@@ -222,6 +231,17 @@ cp config.json config.local.json   # Windows PowerShell: Copy-Item config.json c
 `WAIFU_OVERLAY_HEIGHT`.
 
 ## Шаг 4 — запуск в dev-режиме (проверка до сборки)
+
+Перед `npm run dev` убедитесь, что staging API отвечает (иначе Electron
+покажет `ERR_EMPTY_RESPONSE` и `[input-tracker] failed to flush hit batch:
+fetch failed`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
+```
+
+Скрипт проверяет Docker, контейнер `waifu_staging_api`, `GET /health`,
+`/webapp/overlay.html` и nav webp. Все пункты должны быть `[OK]`.
 
 ```bash
 npm run dev
@@ -400,6 +420,23 @@ Steam-native игрока по `steamTicketDev`). Оверлей и основн
 Проверьте консоль (`npm run dev` печатает в терминал), обычно это ошибка
 подключения к `backendUrl` (бэкенд не запущен/не тот порт) — оверлей грузит
 `overlay.html`, который делает fetch-запросы к API при старте.
+
+**`ERR_EMPTY_RESPONSE` / `fetch failed` при `npm run dev`**
+На порту `18000` никто не отдаёт HTTP (Docker Desktop выключен, контейнер
+`waifu_staging_api` не запущен или упал). Это **не** отсутствие
+`overlay.html` в git — страница уже в репозитории, но API недоступен.
+
+1. Запустите Docker Desktop (дождитесь Running).
+2. Из корня репозитория:
+   ```powershell
+   git pull origin feature/steam-client
+   docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build
+   docker compose -f docker-compose.staging.yml --env-file .env.staging exec api alembic upgrade head
+   powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
+   ```
+3. Только когда скрипт показывает все `[OK]`, снова `cd desktop_client; npm run dev`.
+4. Если `api` в статусе Exited: `docker compose ... logs api --tail 80` —
+   часто неверный `BOT_TOKEN` в `.env.staging` (нужен формат `123456:stub`).
 
 **Оверлей показывает «Загрузка…» / эмодзи вместо портрета**
 Оверлей берёт портрет из `GET /api/profile?lite=1` (`main_waifu.portrait_url`).
