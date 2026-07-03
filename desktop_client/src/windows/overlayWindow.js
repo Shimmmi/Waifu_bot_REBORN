@@ -42,10 +42,13 @@ function createOverlayWindow() {
   win.setAlwaysOnTop(true, "screen-saver");
   // Whole overlay window is draggable via -webkit-app-region: drag set on
   // `.desktop-overlay body` in desktop-theme.css (with buttons/links excluded).
+  // initialDelayMs: staggers this window's first request slightly after the
+  // main window's (see loadWithRetry.js) to avoid two "first ever"
+  // connections hitting a freshly-started backend at the exact same instant.
   loadUrlWithRetry(
     win,
     `${config.backendUrl}/webapp/${config.overlay.page}?desktopClient=1&desktopMode=overlay`,
-    { label: "overlay" }
+    { label: "overlay", initialDelayMs: 500 }
   );
 
   return win;

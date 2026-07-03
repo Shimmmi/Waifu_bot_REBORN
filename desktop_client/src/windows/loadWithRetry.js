@@ -44,8 +44,20 @@ const RETRYABLE_ERROR_CODES = new Set([
  * @param {number} [opts.intervalMs] base delay; grows slightly with each
  *   attempt (capped at 3s) so a long-stuck backend isn't hammered forever.
  * @param {string} [opts.label] short tag for console messages, e.g. "overlay"
+ * @param {number} [opts.initialDelayMs] delay before the *first* loadURL
+ *   call. Windows only creates all BrowserWindows back-to-back in the same
+ *   tick, so their first navigation requests land on the backend within
+ *   milliseconds of each other; on Docker Desktop for Windows this has been
+ *   observed to make one window's very first connection fail with
+ *   ERR_EMPTY_RESPONSE (and then keep failing) while a window created a
+ *   moment earlier succeeds outright — staggering avoids two "first ever"
+ *   connections hitting the host port-forward at the same instant.
  */
-function loadUrlWithRetry(win, url, { maxAttempts = 60, intervalMs = 1000, label = "" } = {}) {
+function loadUrlWithRetry(
+  win,
+  url,
+  { maxAttempts = 60, intervalMs = 1000, label = "", initialDelayMs = 0 } = {}
+) {
   let attempt = 0;
   const tag = label ? `[${label}] ` : "";
 
@@ -83,7 +95,13 @@ function loadUrlWithRetry(win, url, { maxAttempts = 60, intervalMs = 1000, label
     }
   );
 
-  win.loadURL(url);
+  if (initialDelayMs > 0) {
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.loadURL(url);
+    }, initialDelayMs);
+  } else {
+    win.loadURL(url);
+  }
 }
 
 module.exports = { loadUrlWithRetry };
