@@ -542,10 +542,57 @@ seconds`**
 1. Убедитесь, что `steamTicketDev` задан и бэкенд запущен с `APP_ENV` в
    `dev|stage|testing` — иначе `X-Steam-Ticket-Dev` отклоняется (401).
 2. Батчинг не мгновенный — подождите несколько секунд (см.
-   `desktop_client/src/input/inputTracker.js`, `FLUSH_INTERVAL_MS`).
-3. Если `uiohook-napi` не установился (см. первый пункт) — трекер
+   `desktop_client/src/input/inputTracker.js`, `FLUSH_INTERVAL_MS`, по умолчанию 3s).
+   Анимация удара на оверлее опережает сервер и зависит от `attack_speed` оружия
+   (`main_weapon_attack_speed` в lite-профиле), а не от интервала flush.
+3. Оверлей показывает краткий статус при отклонении батча (`spam_detected`,
+   `no_active_battle` и т.д.) в строке под HP вайфу.
+4. Трекер считает только **количество** кликов/нажатий глобально — не записывает,
+   какие клавиши или координаты (см. комментарий в `inputTracker.js`).
+5. Если `uiohook-napi` не установился (см. первый пункт) — трекер
    деградирует безопасно, но кликов вообще не будет; смотрите лог на
    предупреждение об этом при старте.
+
+## Shop / Dungeons: диагностика (Steam tab-окна)
+
+Перед отладкой кода прогоните чеклист:
+
+1. `desktop_client/config.local.json`: задан `steamTicketDev`; в `.env.staging` —
+   `APP_ENV=stage` или `dev`.
+2. `GET /api/profile?lite=1` с заголовком `X-Steam-Ticket-Dev` → **200** (не 401).
+3. `GET /api/shop/inventory?act=1` → **200**.
+4. `GET /api/dungeons/active` → `{ "active": false }` или объект боя.
+5. DevTools tab-окна (Ctrl+Shift+I): Network — какой запрос падает; Console —
+   ошибка bootstrap (`WaifuApp` / bundle).
+
+| Симптом | Вероятная причина | Fix |
+|---------|-------------------|-----|
+| Пустой экран + 401 | нет `steamTicketDev` или неверный `APP_ENV` | `config.local.json`, `.env.staging` |
+| «Сначала создайте вайфу» | отдельный Steam-native player без персонажа | «Новая игра» в `index.html` |
+| Контент есть, но не виден | scroll + attic/basement занимают место | tab-окна: `desktop-theme.css` + `steam/*.html` |
+| Старый bundle / API | образ без свежего webapp | `docker compose ... up -d --build --wait` |
+| Admin UI не виден | аккаунт не в `ADMIN_IDS` | см. ниже |
+
+Tab-окна shop/dungeons/profile открываются из оверлея как `steam/shop.html` и т.д.
+(компактный layout 420×700). Пересборка после правок родительских HTML:
+`bash scripts/build_steam_pages.sh`.
+
+## Admin для dev Steam-аккаунта
+
+Бэкенд отдаёт `is_admin: true` в `GET /api/profile`, если `player_id` есть в
+`ADMIN_IDS` (`.env.staging`). Steam-native игроки имеют **отрицательный**
+`player_id`.
+
+После первого входа с `steamTicketDev`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/grant_staging_admin.ps1
+```
+
+Скрипт печатает строку `ADMIN_IDS=<player_id>` для `.env.staging`, затем
+пересоберите API: `docker compose -f docker-compose.staging.yml up -d --build api`.
+
+Фронт: `isAdminUser()` учитывает `profile.is_admin` (не только Telegram ID).
 
 **CORS/сетевые ошибки, если бэкенд на другой машине/в другой сети**
 `backendUrl` должен быть доступен именно с машины, где запущен

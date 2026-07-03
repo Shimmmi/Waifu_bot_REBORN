@@ -1561,6 +1561,7 @@ function populateFromProfile(profile, opts = {}) {
   }
 
   if (document.getElementById("shop-gamble-cost")) updateShopGambleCost();
+  syncAdminUiVisibility();
 }
 
 function getTelegramUser() {
@@ -2765,6 +2766,7 @@ const ADMIN_USER_ID = 305174198;
 
 function isAdminUser() {
   try {
+    if (profileState?.currentProfile?.is_admin) return true;
     const u = tg?.initDataUnsafe?.user;
     return u && Number(u.id) === ADMIN_USER_ID;
   } catch {
@@ -11940,6 +11942,42 @@ async function populateGuildHall(profile, opts = {}) {
   }
 }
 
+function initDesktopWindowShell() {
+  try {
+    const mode = new URLSearchParams(window.location.search).get("desktopMode");
+    if (mode !== "window") return;
+    if (document.getElementById("desktop-titlebar")) return;
+
+    if (!document.getElementById("steam-viewport")) {
+      const vp = document.createElement("div");
+      vp.id = "steam-viewport";
+      const nodes = [...document.body.childNodes];
+      for (const node of nodes) {
+        vp.appendChild(node);
+      }
+      document.body.appendChild(vp);
+    }
+
+    const bar = document.createElement("div");
+    bar.id = "desktop-titlebar";
+    bar.className = "desktop-titlebar";
+    bar.setAttribute("aria-hidden", "true");
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "desktop-close-btn";
+    closeBtn.setAttribute("aria-label", "Закрыть");
+    closeBtn.textContent = "×";
+    closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.waifuDesktop?.closeWindow?.();
+    });
+    bar.appendChild(closeBtn);
+    document.body.appendChild(bar);
+  } catch (err) {
+    console.warn("initDesktopWindowShell:", err);
+  }
+}
+
 async function initPage(page) {
   applyTheme();
   initNavIcons();
@@ -11951,12 +11989,16 @@ async function initPage(page) {
       console.warn("Telegram WebApp init:", err);
     }
   }
-  setActiveNav(page);
+  if (isDesktopClient()) {
+    initDesktopWindowShell();
+  } else {
+    setActiveNav(page);
+    initAtticChipClicks();
+    initAtticMenu();
+  }
   if (page !== "index") {
     connectSSE();
   }
-  initAtticChipClicks();
-  initAtticMenu();
   initItemArtGenerateDelegated();
 
   registerWaifuServiceWorker();

@@ -1,0 +1,75 @@
+/*
+ * Steam desktop tab windows (420×700): compact layouts for shop/dungeons/profile.
+ * Loaded only from webapp/steam/*.html (page-steam-shell).
+ */
+
+html.desktop-client.desktop-window body.page-steam-shell {
+  overflow: hidden !important;
+  padding-bottom: 0 !important;
+  max-height: 100vh;
+}
+
+html.desktop-client.desktop-window body.page-steam-shell #steam-viewport,
+html.desktop-client.desktop-window body.page-steam-shell .screen,
+html.desktop-client.desktop-window body.page-steam-shell .shop-stage,
+html.desktop-client.desktop-window body.page-steam-shell main.profile-layout {
+  max-height: calc(100vh - 28px);
+  overflow: hidden;
+}
+
+/* Shop: smaller hero, tighter tabs */
+body.page-steam-shell.page-shop .shop-hero {
+  max-height: 22vh;
+}
+
+body.page-steam-shell.page-shop .shop-btabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+body.page-steam-shell.page-shop .shop-tab-panel {
+  padding-bottom: 12px;
+}
+
+/* Dungeons: solo-first; hide non-solo tabs in compact shell */
+body.page-steam-shell.page-dungeons .dungeon-tabs-bar .tab:not([data-tab="solo"]) {
+  display: none;
+}
+
+body.page-steam-shell.page-dungeons .tab-panel:not(#tab-solo) {
+  display: none !important;
+}
+
+body.page-steam-shell.page-dungeons #tab-solo.tab-panel {
+  display: flex !important;
+  overflow: hidden;
+}
+
+body.page-steam-shell.page-dungeons .page-dungeons .screen {
+  height: 100%;
+}
+
+/* Profile: no bottom nav gap, compact tabs */
+body.page-steam-shell.page-profile {
+  padding-bottom: 0 !important;
+}
+
+body.page-steam-shell.page-profile .layout.profile-layout {
+  padding-bottom: 8px;
+  overflow: hidden;
+}
+
+body.page-steam-shell.page-profile .tab-panel.active {
+  overflow: hidden;
+  max-height: calc(100vh - 160px);
+}
+
+body.page-steam-shell.page-profile #tab-inventory.tab-panel.active {
+  max-height: calc(100vh - 140px);
+}
+
+body.page-steam-shell.page-profile .profile-inv-grid-wrap {
+  max-height: calc(100vh - 220px);
+  overflow: hidden;
+}

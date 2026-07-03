@@ -28,6 +28,11 @@ ipcMain.handle("open-tab", (event, page) => {
   openTabWindow(parent, String(page || "index.html"));
 });
 
+ipcMain.handle("close-window", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) win.close();
+});
+
 // Real Steam ticket for preload.js's window.waifuDesktop.getSteamTicket().
 // Returns null (falls back to the X-Steam-Ticket-Dev stub) until Этап 6's
 // manual Steamworks account setup is done — see steamworksClient.js.

@@ -40,6 +40,7 @@ button {
 }
 
 #ov-root {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -47,12 +48,13 @@ button {
   gap: 4px;
 }
 
-/* ── Top bar: resources + menu ─────────────────────────────────────────── */
-.ov-topbar {
+/* ── Bottom bar: resources + menu ──────────────────────────────────────── */
+.ov-bottombar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .ov-resources {
@@ -91,7 +93,7 @@ button {
 /* ── Dropdown menu ─────────────────────────────────────────────────────── */
 #ov-menu {
   position: absolute;
-  top: 36px;
+  bottom: 38px;
   right: 6px;
   z-index: 30;
   display: flex;
@@ -378,6 +380,15 @@ button {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 
+.ov-waifu-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 3px;
+  min-width: 0;
+}
+
 .ov-waifu-name {
   color: #e8e8f0;
   font-size: 12.5px;
@@ -385,7 +396,70 @@ button {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-bottom: 3px;
+  min-width: 0;
+}
+
+.ov-waifu-level {
+  color: #9aa0b8;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ov-waifu-level:empty {
+  display: none;
+}
+
+/* Attack charge bar (clicks toward next strike, driven by weapon attack_speed) */
+.ov-attack-charge {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.45);
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.ov-attack-charge[aria-hidden="true"] {
+  display: none;
+}
+
+.ov-attack-charge-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #ffd76a, #ff9f43);
+  transition: width 0.08s linear;
+}
+
+.state-battle .ov-attack-charge {
+  display: block;
+}
+
+.state-battle .ov-portrait-wrap.charging {
+  filter: brightness(1.08);
+}
+
+/* Monster counter-attack placeholder FX on waifu portrait */
+.ov-monster-attack-fx {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  border-radius: 14px;
+  background: radial-gradient(circle at 50% 20%, rgba(255, 70, 70, 0.55) 0%, transparent 65%);
+  opacity: 0;
+}
+
+.ov-monster-attack-fx.play {
+  display: block;
+  animation: ovMonsterAttack 0.35s ease-out forwards;
+}
+
+@keyframes ovMonsterAttack {
+  0% { opacity: 0.85; transform: scale(0.95); }
+  100% { opacity: 0; transform: scale(1.05); }
 }
 
 .ov-status {

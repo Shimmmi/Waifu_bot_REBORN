@@ -1,0 +1,1691 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Магазин</title>
+  <link rel="stylesheet" href="./steam-pages.css?v=waifu-webapp-v45" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v50" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
+  <style>
+    :root {
+      --ink: #0d0a08; /* основной фон */
+      --surface: #1a1410; /* фон карточек */
+      --surface2: #221c16; /* фон карточек товаров */
+      --amber: #c8922a;
+      --amber-glow: #e8b84b;
+      --ash: #8a7a6a;
+      --muted: #6a5a4a;
+      --cream: #e8dcc8;
+    }
+
+    /* --- Base unification (shop-only) --- */
+    body.page-shop {
+      background: var(--ink);
+      color: var(--cream);
+      overflow: hidden;
+      padding-bottom: 0 !important; /* убираем зазор из общего body padding-bottom */
+    }
+    /* Stage background to match the unified palette. */
+    body.page-shop .shop-stage {
+      background: var(--ink);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
+    }
+    body.page-shop .shop-content {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    body.page-shop .shop-tab-panel {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      display: none;
+      flex-direction: column;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    }
+    body.page-shop .shop-tab-panel.active {
+      display: flex;
+    }
+    body.page-shop #tab-buy .shop-refresh-foot,
+    body.page-shop .shop-buy-grid {
+      flex-shrink: 0;
+    }
+    @media (max-height: 640px) {
+      body.page-shop .shop-hero {
+        max-height: 24vh;
+      }
+    }
+
+    /* Hero banner */
+    body.page-shop .shop-hero-layer {
+      flex-shrink: 0;
+      position: relative;
+      width: 100%;
+    }
+    body.page-shop .shop-hero {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 3 / 2;
+      max-height: 32vh;
+      border: none;
+      border-radius: 0 0 18px 18px;
+      overflow: hidden;
+      cursor: pointer;
+      background: linear-gradient(180deg, #15100a 0%, #0d0908 100%);
+      display: none;
+      padding: 0;
+    }
+    body.page-shop .shop-hero.active {
+      display: block;
+    }
+    body.page-shop .shop-hero-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      pointer-events: none;
+    }
+    body.page-shop .shop-hero-fallback {
+      position: absolute;
+      right: 16px;
+      bottom: 12px;
+      font-size: 56px;
+      line-height: 1;
+      pointer-events: none;
+      z-index: 1;
+    }
+    body.page-shop .shop-hero-hint {
+      position: absolute;
+      left: 12px;
+      bottom: 10px;
+      font-size: 11px;
+      color: rgba(232, 184, 75, 0.85);
+      font-style: italic;
+      pointer-events: none;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+      z-index: 2;
+    }
+
+    /* ============================================================
+       Карточки товаров — компактный вид
+       ============================================================ */
+    body.page-shop .shop-buy-grid,
+    body.page-shop .shop-sell-grid,
+    body.page-shop .shop-gamble-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      padding: 8px;
+    }
+    body.page-shop .shop-gamble-card {
+      cursor: pointer;
+      min-height: 72px;
+    }
+    body.page-shop .shop-gamble-card.shop-item-card {
+      padding: 0;
+      gap: 0;
+      aspect-ratio: 1;
+    }
+    body.page-shop .shop-gamble-card.purchased {
+      opacity: 0.55;
+      cursor: default;
+    }
+    body.page-shop .shop-gamble-card .item-name {
+      position: absolute;
+      top: 4px;
+      left: 50%;
+      right: auto;
+      bottom: auto;
+      transform: translateX(-50%);
+      max-width: calc(100% - 8px);
+      height: auto;
+      max-height: none;
+      box-sizing: border-box;
+      z-index: 3;
+      font-size: 8.5px;
+      font-weight: 700;
+      color: #e8e0d4;
+      text-align: center;
+      line-height: 1.25;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+      width: max-content;
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: rgba(20, 16, 12, 0.72);
+      border: 1px solid rgba(200, 146, 42, 0.28);
+      -webkit-line-clamp: unset;
+      -webkit-box-orient: unset;
+      pointer-events: none;
+    }
+    body.page-shop .shop-gamble-card .item-icon {
+      position: absolute;
+      inset: 0;
+      padding: 0;
+      flex: none;
+      min-height: 0;
+      width: auto;
+      z-index: 1;
+      display: block;
+      background: var(--surface2);
+    }
+    body.page-shop .shop-gamble-card .item-icon img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      max-height: none;
+      object-fit: cover;
+      object-position: center;
+      display: block;
+    }
+    body.page-shop .shop-gamble-card .item-icon:not(:has(img)) {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.75rem;
+    }
+    body.page-shop .shop-gamble-card .item-price {
+      z-index: 3;
+    }
+
+    body.page-shop .shop-item-card,
+    body.page-shop .shop-sell-card {
+      background: var(--surface2);
+      border: 1px solid rgba(200, 146, 42, .18);
+      border-radius: 8px;
+      padding: 6px 5px 5px;
+      cursor: pointer;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 4px;
+      justify-content: flex-start;
+      transition: border-color .15s;
+      overflow: hidden;
+    }
+    /* Remove the global flex-fill on icon, so cards become shorter. */
+    body.page-shop .shop-item-card:not(.shop-gamble-card) .item-icon,
+    body.page-shop .shop-sell-card .item-icon {
+      position: relative;
+      width: 100%;
+      flex: 1 1 auto;
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1;
+    }
+    body.page-shop .shop-item-card:not(.shop-gamble-card) .item-icon img,
+    body.page-shop .shop-sell-card .item-icon img {
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+    /* Редкость: 2px линия сверху */
+    body.page-shop .shop-item-card::before,
+    body.page-shop .shop-sell-card::before {
+      content: '';
+      position: absolute;
+      top: -1px; left: 0; right: 0;
+      height: 2px;
+      border-radius: 8px 8px 0 0;
+      background: transparent;
+      z-index: 2;
+      pointer-events: none;
+    }
+    body.page-shop .shop-item-card.rarity-uncommon::before,
+    body.page-shop .shop-sell-card.rarity-uncommon::before { background: rgba(74, 222, 128, .5); }
+    body.page-shop .shop-item-card.rarity-rare::before,
+    body.page-shop .shop-sell-card.rarity-rare::before { background: rgba(96, 165, 250, .5); }
+    body.page-shop .shop-item-card.rarity-epic::before,
+    body.page-shop .shop-sell-card.rarity-epic::before { background: rgba(192, 132, 252, .55); }
+    body.page-shop .shop-item-card.rarity-legendary::before,
+    body.page-shop .shop-sell-card.rarity-legendary::before { background: rgba(251, 191, 36, .65); }
+
+    /* Уровень — левый верхний (справа — админ-кнопка генерации иконки) */
+    body.page-shop .shop-item-card .item-level,
+    body.page-shop .shop-sell-card .item-level {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      right: auto;
+      background: #14100c;
+      color: #c4b8a8;
+      font-size: 8.5px;
+      font-weight: 700;
+      padding: 2px 5px;
+      border-radius: 4px;
+      line-height: 1.25;
+      z-index: 2;
+      border: 1px solid rgba(200, 146, 42, 0.22);
+    }
+    body.page-shop .shop-item-card.rarity-uncommon .item-level,
+    body.page-shop .shop-sell-card.rarity-uncommon .item-level { color: #7fe09a; }
+    body.page-shop .shop-item-card.rarity-rare .item-level,
+    body.page-shop .shop-sell-card.rarity-rare .item-level { color: #9ec8ff; }
+    body.page-shop .shop-item-card.rarity-epic .item-level,
+    body.page-shop .shop-sell-card.rarity-epic .item-level { color: #d9b0ff; }
+    body.page-shop .shop-item-card.rarity-legendary .item-level,
+    body.page-shop .shop-sell-card.rarity-legendary .item-level { color: #ffe08a; }
+
+    /* Цена — правый нижний угол */
+    body.page-shop .shop-item-card:not(.shop-gamble-card) .item-price,
+    body.page-shop .shop-sell-card .item-price,
+    body.page-shop .shop-gamble-card .item-price {
+      position: absolute;
+      top: auto;
+      bottom: 4px;
+      right: 4px;
+      left: auto;
+      background: #14100c;
+      color: #e8b84b;
+      font-size: 8.5px;
+      font-weight: 800;
+      padding: 2px 5px;
+      border-radius: 4px;
+      line-height: 1.25;
+      z-index: 2;
+      border: 1px solid rgba(200, 146, 42, 0.28);
+      white-space: nowrap;
+    }
+
+    /* Подсветка ячейки, на которую ссылается совет торговца */
+    body.page-shop .shop-item-card.shop-merchant-pick,
+    body.page-shop .shop-sell-card.shop-merchant-pick {
+      box-shadow:
+        0 0 0 2px rgba(255, 220, 140, 0.95),
+        0 0 18px rgba(255, 200, 80, 0.4);
+    }
+
+    /* Название под иконкой (не gamble — там тип сверху) */
+    body.page-shop .shop-item-card:not(.shop-gamble-card) .item-name,
+    body.page-shop .shop-sell-card .item-name {
+      font-size: 9.5px;
+      color: var(--amber-glow);
+      text-align: center;
+      line-height: 1.2;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      width: 100%;
+      z-index: 1;
+      font-weight: 800;
+    }
+
+    /* Make rarity frame consistent with unified palette. */
+    body.page-shop .shop-item-card.rarity-common,
+    body.page-shop .shop-sell-card.rarity-common { border-width: 1px; border-color: rgba(255, 255, 255, 0.20); }
+    body.page-shop .shop-item-card.rarity-uncommon,
+    body.page-shop .shop-sell-card.rarity-uncommon { border-width: 1px; border-color: rgba(74, 222, 128, .45); }
+    body.page-shop .shop-item-card.rarity-rare,
+    body.page-shop .shop-sell-card.rarity-rare { border-width: 1px; border-color: rgba(96, 165, 250, .45); }
+    body.page-shop .shop-item-card.rarity-epic,
+    body.page-shop .shop-sell-card.rarity-epic { border-width: 1px; border-color: rgba(192, 132, 252, .55); }
+    body.page-shop .shop-item-card.rarity-legendary,
+    body.page-shop .shop-sell-card.rarity-legendary { border-width: 1px; border-color: rgba(251, 191, 36, .60); }
+
+    /* ============================================================
+       btabs — унифицировать с nav
+       ============================================================ */
+    body.page-shop .shop-btabs-wrap {
+      flex-shrink: 0;
+      margin: 0;
+      background: rgba(13, 10, 8, .97);
+      border-top: 1px solid rgba(200, 146, 42, .15);
+      border-bottom: 1px solid rgba(200, 146, 42, .12);
+      padding: 5px 10px;
+      position: relative;
+      z-index: 120;
+      height: auto;
+    }
+    body.page-shop .shop-btabs {
+      display: flex;
+      gap: 4px;
+      background: rgba(26, 20, 14, .9);
+      border: 1px solid rgba(200, 146, 42, .2);
+      border-radius: 12px;
+      padding: 4px;
+    }
+    body.page-shop .shop-btab {
+      flex: 1;
+      padding: 6px 3px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .18s;
+      text-align: center;
+    }
+    body.page-shop .shop-btab.active {
+      background: rgba(200, 146, 42, .15);
+      border-color: rgba(200, 146, 42, .35);
+      color: var(--amber-glow);
+    }
+    body.page-shop .shop-btab-sm {
+      flex: 0 0 32px;
+      background: transparent;
+      border: 1px solid rgba(200, 146, 42, .18);
+      border-radius: 9px;
+      color: var(--muted);
+    }
+    body.page-shop .shop-sell-toolbar-end {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+    body.page-shop .shop-sell-toolbar-btn {
+      flex-shrink: 0;
+      min-width: 32px;
+      padding: 5px 8px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      border-radius: 8px;
+      cursor: pointer;
+      line-height: 1;
+    }
+    body.page-shop .shop-sell-toolbar-btn:active:not(:disabled) {
+      transform: scale(0.96);
+    }
+    body.page-shop .shop-sell-toolbar-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    body.page-shop .shop-sell-trash-btn {
+      border: 1px solid rgba(220, 100, 100, .4);
+      background: rgba(120, 40, 40, .15);
+      color: #f0a8a8;
+    }
+    body.page-shop .shop-sell-submit-btn {
+      border: 1px solid rgba(232, 184, 75, .45);
+      background: rgba(200, 146, 42, .12);
+      color: var(--amber-glow);
+    }
+    body.page-shop.shop-sell-busy {
+      overflow: hidden;
+    }
+    body.page-shop .shop-sell-busy-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 2147482000;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      box-sizing: border-box;
+      background: rgba(8, 6, 12, 0.72);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    body.page-shop .shop-sell-busy-modal.shop-sell-busy--open {
+      display: flex;
+    }
+    body.page-shop .shop-sell-busy-sheet {
+      max-width: 280px;
+      text-align: center;
+      padding: 28px 24px;
+      border-radius: 16px;
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      background: rgba(22, 18, 28, 0.96);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+    }
+    body.page-shop .shop-sell-coin-spin {
+      font-size: 2.25rem;
+      line-height: 1;
+      margin-bottom: 14px;
+      display: inline-block;
+      animation: shop-sell-coin-rotate 0.9s linear infinite;
+    }
+    @keyframes shop-sell-coin-rotate {
+      to { transform: rotate(360deg); }
+    }
+    body.page-shop .shop-sell-busy-label {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--cream);
+    }
+
+    /* ============================================================
+       nav.basement — цвета как в unified-палитре
+       ============================================================ */
+    body.page-shop .nav.basement {
+      background: rgba(13, 10, 8, .99);
+      border-top: 1px solid rgba(200, 146, 42, .12);
+    }
+    body.page-shop .nav.basement a {
+      color: var(--muted);
+    }
+    body.page-shop .nav.basement a[data-page="shop"],
+    body.page-shop .nav.basement a:hover,
+    body.page-shop .nav.basement a.active {
+      color: var(--amber-glow);
+      background: rgba(200, 146, 42, .08);
+      border-color: rgba(200, 146, 42, .22);
+    }
+
+    /* ============================================================
+       Dialog bubble — левая часть hero banner
+       ============================================================ */
+    body.page-shop .shop-dialog {
+      position: absolute;
+      top: 10px;
+      left: 12px;
+      right: auto;
+      max-width: 58%;
+      background: rgba(255, 248, 215, .97);
+      border: 2px solid #c8922a;
+      border-radius: 14px;
+      padding: 10px 12px 9px;
+      z-index: 3;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(-6px) scale(.97);
+      transition: opacity .22s ease, transform .22s ease;
+    }
+    body.page-shop .shop-dialog.show {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    body.page-shop .shop-dialog-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #8a5a1a;
+      font-weight: 700;
+      margin-bottom: 3px;
+    }
+    body.page-shop .shop-dialog-text {
+      color: #3a2010;
+      font-size: 12px;
+      line-height: 1.35;
+      font-style: italic;
+    }
+    body.page-shop .shop-dialog-text b {
+      color: #8a3010;
+      font-style: normal;
+    }
+    body.page-shop .shop-dialog-timer {
+      height: 2px;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 7px;
+      background: rgba(200, 146, 42, 0.2);
+    }
+    body.page-shop .shop-dialog-timer-fill {
+      width: 100%;
+      height: 100%;
+      background: #c8922a;
+    }
+    /* Хвостик — вниз-вправо к NPC на composite hero */
+    body.page-shop .shop-dialog::before {
+      content: '';
+      position: absolute;
+      bottom: -11px;
+      left: auto;
+      right: 24px;
+      border: 6px solid transparent;
+      border-top-color: rgba(255, 248, 215, .97);
+    }
+    body.page-shop .shop-dialog::after {
+      content: '';
+      position: absolute;
+      bottom: -15px;
+      left: auto;
+      right: 22px;
+      border: 7px solid transparent;
+      border-top-color: #c8922a;
+    }
+
+    /* --- Modal stacking: keep above everything --- */
+    body.page-shop .modal { z-index: 1050 !important; }
+    body.page-shop .modal-content,
+    body.page-shop .modal-sheet { z-index: 1051 !important; }
+
+    /* ============================================================
+       Гемба — панель справа, в стилистике вкладок / янтарь
+       ============================================================ */
+    body.page-shop #tab-gamble.shop-gamble-wrap {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-content: flex-start;
+      padding: 10px 6px 8px 8px;
+      overflow: hidden;
+    }
+    body.page-shop .shop-gamble-panel {
+      width: 100%;
+      max-width: min(248px, 52vw);
+      margin-top: 4vh;
+      margin-right: 2px;
+      padding: 14px 14px 16px;
+      border-radius: 14px;
+      background: rgba(26, 20, 16, 0.92);
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      box-shadow: 0 10px 36px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+    body.page-shop .shop-gamble-sigil {
+      align-self: center;
+      width: 56px;
+      height: 56px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      line-height: 1;
+      background: rgba(200, 146, 42, 0.1);
+      border: 1px solid rgba(200, 146, 42, 0.45);
+      color: var(--amber-glow);
+      box-shadow: inset 0 0 20px rgba(200, 146, 42, 0.08);
+    }
+    body.page-shop .shop-gamble-title {
+      font-family: var(--font-title, Georgia, serif);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: var(--amber-glow);
+      text-align: center;
+      text-transform: uppercase;
+    }
+    body.page-shop .shop-gamble-desc {
+      font-size: 10.5px;
+      color: var(--ash);
+      text-align: center;
+      line-height: 1.4;
+    }
+    body.page-shop .shop-gamble-btn {
+      width: 100%;
+      padding: 11px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(200, 146, 42, 0.42);
+      background: rgba(200, 146, 42, 0.14);
+      color: var(--amber-glow);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    }
+    body.page-shop .shop-gamble-btn:hover:not(:disabled) {
+      background: rgba(200, 146, 42, 0.22);
+      border-color: rgba(232, 184, 75, 0.55);
+    }
+    body.page-shop .shop-gamble-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    body.page-shop .shop-gamble-cost {
+      font-size: 10px;
+      color: var(--amber);
+      text-align: center;
+      font-weight: 700;
+    }
+    /* Модалка добычи с гембы */
+    body.page-shop #shop-gamble-result-modal .shop-gamble-result-content {
+      max-width: 340px;
+      width: 92vw;
+      border-radius: 14px;
+      border: 2px solid rgba(200, 146, 42, 0.35);
+      background: var(--surface2, #221c16);
+      overflow: hidden;
+    }
+    body.page-shop #shop-gamble-result-modal .shop-gamble-result-content.rarity-uncommon { border-color: rgba(74, 222, 128, 0.5); }
+    body.page-shop #shop-gamble-result-modal .shop-gamble-result-content.rarity-rare { border-color: rgba(96, 165, 250, 0.55); }
+    body.page-shop #shop-gamble-result-modal .shop-gamble-result-content.rarity-epic { border-color: rgba(192, 132, 252, 0.55); }
+    body.page-shop #shop-gamble-result-modal .shop-gamble-result-content.rarity-legendary { border-color: rgba(251, 191, 36, 0.6); }
+    body.page-shop .shop-gamble-result-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 12px 0;
+    }
+    body.page-shop .shop-gamble-result-art {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 72px;
+      padding: 8px 12px 4px;
+      filter: brightness(0.95);
+    }
+    body.page-shop .shop-gamble-result-art img { max-height: 64px; width: auto; }
+    body.page-shop .shop-gamble-result-body {
+      padding: 0 14px 12px;
+      font-size: 12px;
+      color: var(--cream);
+    }
+    body.page-shop .shop-gamble-result-foot {
+      padding: 10px 14px 14px;
+      border-top: 1px solid rgba(200, 146, 42, 0.15);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    body.page-shop .shop-gamble-result-foot .primary {
+      width: 100%;
+    }
+
+    body.page-shop .shop-smith-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      padding: 16px 12px 80px;
+      flex: 1 1 auto;
+    }
+    body.page-shop .shop-smith-work-row {
+      display: flex;
+      gap: 12px;
+      align-items: stretch;
+      width: 100%;
+    }
+    body.page-shop .shop-smith-info-panel {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+    }
+    body.page-shop .shop-smith-anvil {
+      flex-shrink: 0;
+      position: relative;
+      width: 140px;
+      height: 140px;
+      border-radius: 16px;
+      background: radial-gradient(circle, rgba(200, 146, 42, 0.18), rgba(13, 10, 8, 0.92));
+      border: 1px solid rgba(200, 146, 42, 0.4);
+      cursor: pointer;
+      padding: 0;
+      overflow: hidden;
+      font-size: 56px;
+      color: var(--cream);
+    }
+    body.page-shop .shop-smith-anvil-art {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    body.page-shop .shop-smith-anvil-art img {
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      max-height: none;
+      object-fit: contain;
+    }
+    body.page-shop .shop-smith-enchant-badge {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      z-index: 2;
+      padding: 2px 7px;
+      border-radius: 8px;
+      background: rgba(13, 10, 8, 0.88);
+      border: 1px solid rgba(251, 191, 36, 0.55);
+      color: #fbbf24;
+      font-weight: 800;
+      font-size: 14px;
+      line-height: 1.2;
+      pointer-events: none;
+    }
+    body.page-shop .shop-smith-toolbar {
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    body.page-shop .shop-smith-resources {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+      padding: 8px 12px;
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      border-radius: 10px;
+      background: rgba(13, 10, 8, 0.55);
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    body.page-shop .shop-smith-res-item {
+      white-space: nowrap;
+    }
+    body.page-shop .shop-smith-res-sep {
+      width: 1px;
+      align-self: stretch;
+      background: rgba(200, 146, 42, 0.25);
+      flex-shrink: 0;
+    }
+    body.page-shop .shop-smith-subtabs {
+      flex: 1;
+      display: flex;
+      gap: 6px;
+      min-width: 0;
+    }
+    body.page-shop .shop-smith-subtabs .shop-btab {
+      flex: 1;
+      min-width: 0;
+      padding: 8px 6px;
+      font-size: 11px;
+    }
+    body.page-shop .shop-smith-help-btn {
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      align-self: center;
+      border-radius: 50%;
+      border: 1px solid rgba(200, 146, 42, 0.45);
+      background: rgba(26, 20, 16, 0.9);
+      color: var(--cream);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0;
+    }
+    body.page-shop .shop-smith-controls-row {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 6px;
+      align-items: center;
+      width: 100%;
+    }
+    @media (max-width: 359px) {
+      body.page-shop .shop-smith-controls-row {
+        flex-wrap: wrap;
+      }
+    }
+    body.page-shop .shop-smith-ctrl-btn {
+      flex: 1;
+      min-width: 0;
+      min-height: 36px;
+      font-size: 11px;
+      line-height: 1.2;
+      padding: 6px 8px;
+      border-radius: 10px;
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      background: rgba(26, 20, 16, 0.9);
+      color: var(--cream);
+      cursor: pointer;
+      font-weight: 600;
+    }
+    body.page-shop .shop-smith-ctrl-btn--primary {
+      background: linear-gradient(180deg, rgba(200, 146, 42, 0.55), rgba(160, 110, 30, 0.65));
+      color: #fff8ee;
+      border-color: rgba(232, 184, 75, 0.6);
+      font-weight: 700;
+    }
+    body.page-shop .shop-smith-ctrl-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    body.page-shop .shop-smith-stone-check[hidden] {
+      display: none !important;
+    }
+    body.page-shop .shop-smith-stone-check {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      line-height: 1.2;
+      margin: 0;
+      cursor: pointer;
+      flex: 0 1 auto;
+      white-space: nowrap;
+      color: var(--cream);
+    }
+    body.page-shop .shop-smith-stone-check input {
+      flex-shrink: 0;
+      margin: 0;
+    }
+    body.page-shop .shop-smith-craft-btn-cost {
+      display: block;
+      font-size: 10px;
+      opacity: 0.85;
+      margin-top: 2px;
+      font-weight: 400;
+    }
+    body.page-shop #smith-help-modal .modal-content {
+      max-width: 420px;
+      max-height: min(80vh, 520px);
+      overflow: auto;
+      background: rgba(26, 20, 16, 0.97);
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      color: var(--cream);
+      padding: 14px 16px;
+    }
+    body.page-shop #smith-help-body {
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    body.page-shop #smith-help-body h4 {
+      margin: 12px 0 6px;
+      font-size: 13px;
+      color: #fbbf24;
+    }
+    body.page-shop #smith-help-body h4:first-child {
+      margin-top: 0;
+    }
+    body.page-shop .shop-smith-card {
+      flex: 1;
+      width: 100%;
+      height: 140px;
+      min-height: 140px;
+      max-height: 140px;
+      overflow-y: auto;
+      box-sizing: border-box;
+      background: rgba(26, 20, 16, 0.92);
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    body.page-shop #shop-smith-pick-modal .modal-content {
+      background: rgba(26, 20, 16, 0.97);
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      color: var(--cream);
+    }
+    body.page-shop #shop-smith-pick-modal .modal-head {
+      border-bottom: 1px solid rgba(200, 146, 42, 0.15);
+      padding-bottom: 10px;
+      margin-bottom: 4px;
+    }
+    body.page-shop #shop-smith-pick-modal .modal-title {
+      color: var(--cream);
+    }
+    body.page-shop .shop-smith-pick-loading {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 4px 0 8px;
+    }
+    body.page-shop .shop-smith-pick-loading-card {
+      aspect-ratio: 1;
+      border-radius: 10px;
+      background: linear-gradient(
+        90deg,
+        rgba(200, 146, 42, 0.08) 0%,
+        rgba(200, 146, 42, 0.22) 50%,
+        rgba(200, 146, 42, 0.08) 100%
+      );
+      background-size: 200% 100%;
+      animation: shop-smith-pick-shimmer 1.2s ease-in-out infinite;
+    }
+    @keyframes shop-smith-pick-shimmer {
+      0% { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
+    body.page-shop .shop-smith-pick-content {
+      width: min(420px, 94vw);
+      max-height: 88vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 0;
+      overflow: hidden;
+    }
+    body.page-shop #shop-smith-pick-grid.shop-smith-pick-page {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 4px 0 8px;
+      overflow: hidden;
+      min-height: 0;
+      align-content: start;
+    }
+    body.page-shop .shop-smith-pick-nav {
+      flex-shrink: 0;
+      padding: 8px 0 0;
+      border-top: 1px solid rgba(200, 146, 42, 0.15);
+      min-height: 44px;
+    }
+    body.page-shop .shop-smith-pick-nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+    body.page-shop .shop-smith-pick-nav-btn {
+      min-width: 44px;
+      padding: 6px 12px;
+      font-size: 16px;
+      line-height: 1;
+    }
+    body.page-shop .shop-smith-pick-nav-label {
+      min-width: 52px;
+      text-align: center;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+    }
+    body.page-shop .shop-smith-pick-card {
+      position: relative;
+      aspect-ratio: 1;
+      padding: 0;
+      border-radius: 10px;
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      background: rgba(0, 0, 0, 0.28);
+      color: var(--cream);
+      cursor: pointer;
+      overflow: hidden;
+      min-height: 0;
+      font: inherit;
+    }
+    body.page-shop .shop-smith-pick-card--selected {
+      border-color: rgba(232, 184, 75, 0.85);
+      box-shadow: 0 0 0 1px rgba(232, 184, 75, 0.35);
+    }
+    body.page-shop .shop-smith-pick-card.rarity-common { border-width: 2px; border-color: rgba(255, 255, 255, 0.20); }
+    body.page-shop .shop-smith-pick-card.rarity-uncommon { border-width: 2px; border-color: rgba(74, 222, 128, .45); }
+    body.page-shop .shop-smith-pick-card.rarity-rare { border-width: 2px; border-color: rgba(96, 165, 250, .45); }
+    body.page-shop .shop-smith-pick-card.rarity-epic { border-width: 2px; border-color: rgba(192, 132, 252, .55); }
+    body.page-shop .shop-smith-pick-card.rarity-legendary { border-width: 2px; border-color: rgba(251, 191, 36, .60); }
+    body.page-shop .shop-smith-pick-equipped {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      font-size: 12px;
+      line-height: 1;
+      z-index: 3;
+      filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8));
+    }
+    body.page-shop .shop-smith-pick-art {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.35);
+    }
+    body.page-shop .shop-smith-pick-art img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      display: block;
+    }
+    body.page-shop .shop-smith-pick-lv {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      z-index: 2;
+      font-size: 10px;
+      padding: 2px 5px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.72);
+      color: var(--amber-glow, #e8b84b);
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      line-height: 1.2;
+      pointer-events: none;
+    }
+    body.page-shop .shop-smith-preview {
+      min-height: 72px;
+      padding: 8px 0;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    body.page-shop .shop-smith-risk { color: #fbbf24; font-size: 11px; margin-top: 4px; }
+    body.page-shop .shop-smith-stone-label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 11px; }
+    body.page-shop .shop-smith-buy-stone {
+      width: 100%;
+      margin-top: 4px;
+      font-size: 11px;
+      padding: 8px 12px;
+    }
+
+    /* Вкладка «Продать»: панель как в инвентаре + подпись справа */
+    body.page-shop .shop-sell-toolbar {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 4px 2px 6px;
+    }
+    body.page-shop .shop-sell-toolbar.shop-sell-toolbar--row {
+      flex-direction: row;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 5px;
+      overflow-x: auto;
+    }
+    body.page-shop .shop-sell-toolbar.shop-sell-toolbar--row .shop-sell-mode-label {
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+    body.page-shop .shop-sell-toolbar.shop-sell-toolbar--row .shop-inv-sort-select {
+      flex: 0 0 auto;
+      width: 80px;
+      min-width: 80px;
+    }
+    body.page-shop .shop-sell-mode-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--cream);
+      cursor: pointer;
+      user-select: none;
+    }
+    body.page-shop .shop-sell-mode-label input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--amber);
+    }
+    body.page-shop .shop-sell-filters-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 5px;
+    }
+    body.page-shop .shop-inv-filter-btn {
+      padding: 5px 8px;
+      font-size: 9px;
+      font-weight: 700;
+      border-radius: 8px;
+      border: 1px solid rgba(200, 146, 42, 0.2);
+      background: rgba(26, 20, 16, 0.75);
+      color: rgba(232, 220, 200, 0.75);
+      cursor: pointer;
+    }
+    body.page-shop .shop-inv-filter-btn.active {
+      background: rgba(200, 146, 42, 0.14);
+      border-color: rgba(200, 146, 42, 0.45);
+      color: var(--amber-glow);
+    }
+    body.page-shop .shop-sell-sort-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: auto;
+    }
+    body.page-shop .shop-inv-sort-select,
+    body.page-shop .shop-inv-sort-dir {
+      padding: 5px 7px;
+      font-size: 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(200, 146, 42, 0.22);
+      background: rgba(26, 20, 16, 0.85);
+      color: var(--cream);
+      cursor: pointer;
+    }
+    body.page-shop .shop-inv-sort-dir {
+      min-width: 32px;
+      color: var(--amber-glow);
+      font-weight: 800;
+    }
+    body.page-shop .shop-sell-actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      padding: 6px 4px 4px;
+      min-height: 26px;
+    }
+    body.page-shop #sell-result.shop-sell-result-hint {
+      margin-left: auto;
+      text-align: right;
+      color: var(--cream);
+      font-size: 11px;
+      font-weight: 600;
+    }
+  </style>
+  <link rel="stylesheet" href="./assets/tutorial.css" />
+  <script defer src="./vendor/telegram-web-app.js"></script>
+  <script defer src="./assets/tutorial.js"></script>
+  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v50" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
+</head>
+<body class="page-shop page-steam-shell">
+  <header class="attic" style="display:none !important" aria-hidden="true">
+    <div class="attic-row" aria-label="Основной чердак">
+      <button type="button" class="attic-player-avatar" id="attic-player-avatar" aria-label="Профиль игрока" title="Профиль игрока">
+        <img id="attic-player-avatar-img" alt="" hidden />
+        <span class="attic-player-avatar-fallback" id="attic-player-avatar-fallback"></span>
+        <span class="attic-player-mail-badge" id="attic-player-mail-badge" hidden aria-hidden="true"></span>
+      </button>
+      <div class="attic-level-circle" id="attic-level-circle" title="Уровень основной вайфу / опыт">
+          <svg class="attic-level-ring" viewBox="0 0 36 36" aria-hidden="true">
+            <circle class="attic-level-ring-bg" cx="18" cy="18" r="16" />
+            <circle class="attic-level-ring-fg" id="attic-level-ring-fg" cx="18" cy="18" r="16" />
+          </svg>
+          <strong id="badge-level">—</strong>
+        </div>
+        <div class="chip chip-ghost" id="attic-dungeon-chip" title="Активное подземелье (нажми — одиночные)">
+          <span id="attic-dungeon-label">Нет боя</span>
+          <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden></div>
+        </div>
+        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Экспедиции">
+          <span class="attic-exp-ico" aria-hidden="true">🗺</span>
+          <div class="attic-exp-cells" id="attic-exp-cells" aria-label="Статус экспедиций"></div>
+        </div>
+        <div class="chip attic-gold-chip" id="attic-gold-chip" title="Золото">
+          <span class="attic-gold-ico" aria-hidden="true">🪙</span><strong id="badge-gold">—</strong>
+        </div>
+        <button type="button" class="attic-menu-btn" id="attic-menu-btn" aria-label="Меню разделов" aria-haspopup="true" aria-expanded="false">☰</button>
+    </div>
+      <div class="attic-menu" id="attic-menu" hidden role="menu" aria-label="Дополнительные разделы">
+        <a class="attic-menu-item" href="./profile.html?tab=inventory" role="menuitem">🎒 Инвентарь</a>
+        <a class="attic-menu-item" href="./profile.html?tab=info&info=statistics" role="menuitem">📊 Статистика</a>
+        <a class="attic-menu-item" href="./dungeons.html?tab=expedition" role="menuitem">🗺 Экспедиции</a>
+        <a class="attic-menu-item" href="./dungeons.html?tab=abyss" role="menuitem">🕳 Бездна</a>
+        <a class="attic-menu-item" href="./shop.html?tab=gamble" role="menuitem">🎲 Gamble</a>
+        <a class="attic-menu-item" href="./shop.html?tab=smith" role="menuitem">🔨 Кузнец</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=heal" role="menuitem">💊 Лечение</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=upgrade" role="menuitem">⬆ Прокачка наёмниц</a>
+        <a class="attic-menu-item" href="./player.html#settings" role="menuitem">⚙ Настройки</a>
+      </div>
+  </header>
+
+  <main class="shop-stage" id="shop-stage">
+    <div id="shop-profile-error" class="banner banner-danger" style="display: none; position: relative; z-index: 20; margin: 8px 12px 0"></div>
+
+    <div class="shop-hero-layer" id="shop-hero-layer">
+      <button type="button" class="shop-hero active" id="shop-hero-buy" data-tab-hero="buy" data-tutorial="shop-merchant" aria-label="Совет торговца">
+        <img class="shop-hero-img" id="shop-hero-img-buy" alt="" />
+        <span class="shop-hero-fallback" id="shop-hero-fb-buy" style="display:none;">🧙</span>
+        <span class="shop-hero-hint">Нажми — совет</span>
+        <div class="shop-dialog" id="shop-dialog-buy" role="status" aria-live="polite">
+          <div class="shop-dialog-label" id="shop-dialog-label-buy">Торговец говорит</div>
+          <div class="shop-dialog-text" id="shop-dialog-text-buy"></div>
+          <div class="shop-dialog-timer"><div class="shop-dialog-timer-fill" id="shop-dialog-timer-fill-buy"></div></div>
+        </div>
+      </button>
+      <button type="button" class="shop-hero" id="shop-hero-sell" data-tab-hero="sell" aria-label="Совет торговца">
+        <img class="shop-hero-img" id="shop-hero-img-sell" alt="" />
+        <span class="shop-hero-fallback" id="shop-hero-fb-sell" style="display:none;">🧙</span>
+        <span class="shop-hero-hint">Нажми — совет</span>
+        <div class="shop-dialog" id="shop-dialog-sell" role="status" aria-live="polite">
+          <div class="shop-dialog-label" id="shop-dialog-label-sell">Торговец говорит</div>
+          <div class="shop-dialog-text" id="shop-dialog-text-sell"></div>
+          <div class="shop-dialog-timer"><div class="shop-dialog-timer-fill" id="shop-dialog-timer-fill-sell"></div></div>
+        </div>
+      </button>
+      <button type="button" class="shop-hero" id="shop-hero-gamble" data-tab-hero="gamble" aria-label="Совет барыги">
+        <img class="shop-hero-img" id="shop-hero-img-gamble" alt="" />
+        <span class="shop-hero-fallback" id="shop-hero-fb-gamble" style="display:none;">🎲</span>
+        <span class="shop-hero-hint">Нажми — совет</span>
+        <div class="shop-dialog" id="shop-dialog-gamble" role="status" aria-live="polite">
+          <div class="shop-dialog-label" id="shop-dialog-label-gamble">Барыга шепчет</div>
+          <div class="shop-dialog-text" id="shop-dialog-text-gamble"></div>
+          <div class="shop-dialog-timer"><div class="shop-dialog-timer-fill" id="shop-dialog-timer-fill-gamble"></div></div>
+        </div>
+      </button>
+      <button type="button" class="shop-hero" id="shop-hero-smith" data-tab-hero="smith" aria-label="Совет кузнеца">
+        <img class="shop-hero-img" id="shop-hero-img-smith" alt="" />
+        <span class="shop-hero-fallback" id="shop-hero-fb-smith" style="display:none;">⚒</span>
+        <span class="shop-hero-hint">Нажми — совет</span>
+        <div class="shop-dialog" id="shop-dialog-smith" role="status" aria-live="polite">
+          <div class="shop-dialog-label" id="shop-dialog-label-smith">Кузнец говорит</div>
+          <div class="shop-dialog-text" id="shop-dialog-text-smith"></div>
+          <div class="shop-dialog-timer"><div class="shop-dialog-timer-fill" id="shop-dialog-timer-fill-smith"></div></div>
+        </div>
+      </button>
+    </div>
+
+    <div class="shop-btabs-wrap" data-tutorial="shop-tabs">
+      <div class="shop-btabs">
+        <button class="shop-btab active" id="shop-btab-buy" data-tab="buy" onclick="ShopPage.switchTab('buy')">Покупка</button>
+        <button class="shop-btab" id="shop-btab-sell" data-tab="sell" onclick="ShopPage.switchTab('sell')">Продажа</button>
+        <button class="shop-btab" id="shop-btab-gamble" data-tab="gamble" onclick="ShopPage.switchTab('gamble')">Gamble</button>
+        <button class="shop-btab" id="shop-btab-smith" data-tab="smith" onclick="ShopPage.switchTab('smith')">Кузнец</button>
+        <button class="shop-btab-sm admin-only" id="shop-admin-refresh" style="display:none;" onclick="WaifuApp.refreshShopDebug()" title="Обновить витрину">🔄</button>
+        <button class="shop-btab-sm admin-only" id="shop-admin-add-gold" style="display:none;" onclick="WaifuApp.adminAddGold()" title="+10000 золота">💰</button>
+      </div>
+    </div>
+
+    <section class="shop-content">
+      <div class="shop-tab-panel active" id="tab-buy">
+        <p class="muted tiny shop-refresh-foot" id="shop-buy-refresh-label">Обновляется в 00:00 МСК</p>
+        <div class="shop-buy-grid" id="shop-buy-grid">
+          <div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0;">Загрузка ассортимента...</div>
+        </div>
+      </div>
+
+      <div class="shop-tab-panel" id="tab-sell" style="display:none;">
+        <div class="shop-sell-toolbar shop-sell-toolbar--row">
+          <button type="button" class="shop-inv-filter-btn active" id="shop-sell-filter-weapon" onclick="WaifuApp.toggleShopSellFilter('weapon')">⚔</button>
+          <button type="button" class="shop-inv-filter-btn active" id="shop-sell-filter-armor" onclick="WaifuApp.toggleShopSellFilter('armor')">🛡</button>
+          <button type="button" class="shop-inv-filter-btn active" id="shop-sell-filter-accessory" onclick="WaifuApp.toggleShopSellFilter('accessory')">💍</button>
+          <select id="shop-sell-sort-select" class="shop-inv-sort-select" onchange="WaifuApp.setShopSellSort(this.value)">
+            <option value="equipability">Экип.</option>
+            <option value="level">Уровень</option>
+            <option value="rarity">Редкость</option>
+            <option value="price">Цена</option>
+          </select>
+          <button type="button" id="shop-sell-sort-dir" class="shop-inv-sort-dir" onclick="WaifuApp.toggleShopSellSortDir()">▼</button>
+          <div class="shop-sell-toolbar-end">
+            <button type="button" class="shop-sell-toolbar-btn shop-sell-trash-btn" id="shop-sell-trash-btn" style="display:none;" onclick="WaifuApp.sellAllCommonItems()" title="Продать все обычные" aria-label="Продать все обычные">🗑</button>
+            <button type="button" class="shop-sell-toolbar-btn shop-sell-submit-btn" id="shop-sell-submit" style="display:none;" onclick="WaifuApp.sellSelected()" title="Продать выбранное" aria-label="Продать выбранное">🪙</button>
+            <label class="shop-sell-mode-label">
+              <input type="checkbox" id="shop-sell-select-mode" />
+              <span>множ.</span>
+            </label>
+          </div>
+        </div>
+        <div class="shop-sell-grid" id="shop-sell-grid">
+          <div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0;">Инвентарь загружается...</div>
+        </div>
+        <div class="shop-sell-pagination" id="shop-sell-pagination"></div>
+        <div class="shop-sell-actions">
+          <div class="shop-sell-result-hint" id="sell-result">Выбрано: 0</div>
+        </div>
+      </div>
+
+      <div class="shop-tab-panel" id="tab-gamble" style="display:none;">
+        <div class="shop-gamble-grid" id="shop-gamble-grid">
+          <div class="placeholder muted tiny" style="grid-column:1/-1;text-align:center;padding:24px 0;">Загрузка...</div>
+        </div>
+      </div>
+
+      <div class="shop-tab-panel" id="tab-smith" style="display:none;">
+        <div class="shop-smith-toolbar">
+          <div class="shop-smith-resources muted tiny" aria-label="Ресурсы кузницы">
+            <span class="shop-smith-res-item">✨ <strong id="shop-smith-dust-hint">—</strong> пыли</span>
+            <span class="shop-smith-res-sep" aria-hidden="true"></span>
+            <span class="shop-smith-res-item">🛡 <strong id="shop-smith-stones">0</strong> камней</span>
+          </div>
+          <div class="shop-smith-subtabs">
+            <button type="button" class="shop-btab active" id="shop-smith-subtab-sharpen" onclick="ShopPage.switchSmithSubTab('sharpen')">Заточка</button>
+            <button type="button" class="shop-btab" id="shop-smith-subtab-craft" onclick="ShopPage.switchSmithSubTab('craft')">Зачарование</button>
+          </div>
+          <button type="button" class="shop-smith-help-btn" id="shop-smith-help-btn" onclick="WaifuApp.openSmithHelpModal()" title="Как работает кузница" aria-label="Справка о кузнице">?</button>
+        </div>
+        <div class="shop-smith-stage">
+          <div class="shop-smith-work-row">
+            <button type="button" class="shop-smith-anvil" id="shop-smith-slot-btn" onclick="WaifuApp.openSmithPickModal()">
+              <div id="shop-smith-icon-wrap" class="shop-smith-anvil-art">⚒</div>
+              <span id="shop-smith-enchant-badge" class="shop-smith-enchant-badge" hidden>+0</span>
+            </button>
+            <div id="shop-smith-panel-sharpen" class="shop-smith-info-panel">
+              <div id="shop-smith-preview" class="shop-smith-card muted tiny">Выберите предмет из инвентаря.</div>
+            </div>
+            <div id="shop-smith-panel-craft" class="shop-smith-info-panel" style="display:none;">
+              <div id="shop-smith-craft-preview" class="shop-smith-card muted tiny">Выберите предмет для зачарования пылью.</div>
+            </div>
+          </div>
+          <div id="shop-smith-controls-sharpen" class="shop-smith-controls-row">
+            <button type="button" class="shop-smith-ctrl-btn shop-smith-ctrl-btn--primary" id="shop-smith-enchant-btn" onclick="WaifuApp.smithTryEnchant()" disabled>Заточить</button>
+            <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-auto-btn" onclick="WaifuApp.smithAutoSafeEnchant()" disabled>До +7</button>
+            <label class="shop-smith-stone-check" id="shop-smith-stone-check-wrap" hidden>
+              <input type="checkbox" id="shop-smith-use-stone" />
+              <span>Камень</span>
+            </label>
+            <button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.buyProtectionStoneShop()">Купить камень</button>
+          </div>
+          <div id="shop-smith-controls-craft" class="shop-smith-controls-row" style="display:none;">
+            <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-craft-add" onclick="WaifuApp.smithTryCraftEnchant('add')" disabled title="Случайная вторичка, если её ещё нет">Выдать бонус</button>
+            <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-craft-reroll" onclick="WaifuApp.smithTryCraftEnchant('reroll')" disabled title="Другой тип и сила вторички">Сменить бонус</button>
+            <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-craft-upgrade" onclick="WaifuApp.smithTryCraftEnchant('upgrade')" disabled title="+шаг к текущей вторичке">Усилить бонус</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="shop-smith-pick-modal" class="modal" style="display:none;" onclick="if (event.target === this) WaifuApp.closeSmithPickModal()">
+    <div class="modal-content shop-smith-pick-content" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div class="modal-title" style="font-size:16px;">Выберите предмет</div>
+        <button type="button" class="secondary" onclick="WaifuApp.closeSmithPickModal()">✖</button>
+      </div>
+      <div id="shop-smith-pick-grid" class="shop-smith-pick-page"></div>
+      <div id="shop-smith-pick-nav" class="shop-smith-pick-nav"></div>
+    </div>
+  </div>
+
+  <div id="shop-gamble-result-modal" class="modal" style="display:none;" onclick="if (event.target === this) WaifuApp.closeShopGambleResultModal()">
+    <div id="shop-gamble-result-content" class="modal-content shop-gamble-result-content" onclick="event.stopPropagation()">
+      <div class="shop-gamble-result-head">
+        <div>
+          <div class="muted tiny" id="shop-gamble-result-rarity">—</div>
+          <div class="modal-title" id="shop-gamble-result-name">—</div>
+          <div class="muted tiny" id="shop-gamble-result-level">—</div>
+        </div>
+        <button type="button" class="secondary" onclick="WaifuApp.closeShopGambleResultModal()">✖</button>
+      </div>
+      <div class="shop-gamble-result-art" id="shop-gamble-result-art" aria-hidden="true"></div>
+      <div class="modal-body shop-gamble-result-body" id="shop-gamble-result-body"></div>
+      <div class="shop-gamble-result-foot">
+        <div class="muted tiny">Оплачено: <strong id="shop-gamble-result-paid">—</strong> · Остаток: <strong id="shop-gamble-result-gold">—</strong> 🪙</div>
+        <button type="button" class="primary" onclick="WaifuApp.closeShopGambleResultModal()">Забрать</button>
+      </div>
+    </div>
+  </div>
+
+  <div
+    id="shop-modal"
+    class="modal item-modal-root item-modal-v2-wrap item-modal-v2-host"
+    style="display:none;"
+    onclick="if (event.target === this) WaifuApp.closeShopModal()"
+  >
+    <div class="item-modal-v2-shell">
+      <div
+        id="shop-offer-modal-content"
+        class="item-modal-v2-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="shop-offer-modal-name"
+        onclick="event.stopPropagation()"
+      >
+        <header class="item-modal-v2-hdr">
+          <div class="item-modal-v2-hdr-l">
+            <button type="button" class="item-modal-v2-hdr-x" aria-label="Закрыть" onclick="WaifuApp.closeShopModal()">✕</button>
+            <span class="item-modal-v2-hdr-t">Товар в магазине</span>
+          </div>
+        </header>
+        <div class="item-modal-v2-scroll">
+          <div class="item-modal-v2-title-block">
+            <div class="item-modal-v2-title" id="shop-offer-modal-name">—</div>
+            <div class="item-modal-v2-sub">
+              <div class="item-modal-v2-sub-spacer" aria-hidden="true"></div>
+              <div class="item-modal-v2-sub-main">
+                <span class="item-modal-v2-sub-lbl" id="shop-offer-modal-subline"></span>
+                <span class="item-modal-v2-dot" aria-hidden="true"></span>
+                <span class="item-modal-v2-rpill" id="shop-offer-modal-rpill">—</span>
+              </div>
+              <div class="item-modal-v2-sub-tail">
+                <span
+                  class="item-modal-v2-upgrade"
+                  id="shop-offer-modal-upgrade-hint"
+                  style="display: none"
+                  aria-hidden="true"
+                ></span>
+              </div>
+            </div>
+          </div>
+          <div class="item-modal-v2-art-wrap">
+            <div class="item-modal-v2-art" aria-hidden="true">
+              <div class="item-modal-v2-ring item-modal-v2-ring--outer"></div>
+              <div class="item-modal-v2-ring item-modal-v2-ring--inner"></div>
+              <div class="item-modal-v2-glow"></div>
+              <div class="item-modal-v2-frame" id="shop-offer-modal-art-frame">
+                <div class="item-modal-v2-art-inner" id="shop-offer-modal-art">📦</div>
+              </div>
+            </div>
+          </div>
+          <div class="item-modal-v2-spanel shop-offer-modal-spanel">
+            <div class="item-modal-v2-spanel-hd"><span aria-hidden="true">✦</span> Характеристики</div>
+            <div id="shop-offer-modal-body"></div>
+          </div>
+          <div class="item-modal-v2-req" id="shop-offer-modal-req-section" style="display:none;">
+            <div class="item-modal-v2-req-hd">Требования</div>
+            <div class="item-modal-v2-req-pills" id="shop-offer-modal-requirements" aria-live="polite"></div>
+          </div>
+          <div class="shop-offer-modal-cta">
+            <div class="item-modal-v2-actions shop-offer-modal-actions" data-cols="2">
+              <button
+                class="item-modal-v2-btn item-modal-v2-btn--neutral"
+                id="shop-modal-offer-cancel"
+                type="button"
+                onclick="WaifuApp.closeShopModal()"
+              >
+                Отмена
+              </button>
+              <button
+                class="item-modal-v2-btn item-modal-v2-btn--equip"
+                id="shop-modal-buy"
+                type="button"
+                onclick="WaifuApp.confirmBuy()"
+              >
+                Купить
+              </button>
+            </div>
+          </div>
+          <div class="item-modal-v2-desc" id="shop-offer-modal-desc" style="display:none;"></div>
+          <div class="item-modal-v2-scroll-pad shop-offer-modal-scroll-pad" aria-hidden="true"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="item-modal" class="modal item-modal-root item-modal-v2-wrap item-modal-v2-host" style="display:none;" onclick="if (event.target === this) WaifuApp.closeItemModal()">
+    <div class="item-modal-v2-shell">
+      <div id="item-modal-content" class="item-modal-v2-card" role="dialog" aria-modal="true" aria-labelledby="item-modal-name" onclick="event.stopPropagation()">
+        <header class="item-modal-v2-hdr">
+          <div class="item-modal-v2-hdr-l">
+            <button type="button" class="item-modal-v2-hdr-x" aria-label="Закрыть" onclick="WaifuApp.closeItemModal()">✕</button>
+            <span class="item-modal-v2-hdr-t">Детали предмета</span>
+          </div>
+        </header>
+        <div class="item-modal-v2-scroll">
+          <div class="item-modal-v2-title-block">
+            <div class="item-modal-v2-title" id="item-modal-name">—</div>
+            <div class="item-modal-v2-sub">
+              <div class="item-modal-v2-sub-spacer" aria-hidden="true"></div>
+              <div class="item-modal-v2-sub-main">
+                <span class="item-modal-v2-sub-lbl" id="item-modal-subline"></span>
+                <span class="item-modal-v2-dot" aria-hidden="true"></span>
+                <span class="item-modal-v2-rpill" id="item-modal-rpill">—</span>
+              </div>
+              <div class="item-modal-v2-sub-tail">
+                <span class="item-modal-v2-upgrade" id="item-modal-upgrade-hint" style="display: none" aria-hidden="true"></span>
+              </div>
+            </div>
+          </div>
+          <div class="item-modal-v2-art-wrap">
+            <div class="item-modal-v2-art" aria-hidden="true">
+              <div class="item-modal-v2-ring item-modal-v2-ring--outer"></div>
+              <div class="item-modal-v2-ring item-modal-v2-ring--inner"></div>
+              <div class="item-modal-v2-glow"></div>
+              <div class="item-modal-v2-frame" id="item-modal-art-frame">
+                <div class="item-modal-v2-art-inner" id="item-modal-art">📦</div>
+              </div>
+            </div>
+          </div>
+          <div class="item-modal-v2-ench" id="item-modal-ench"></div>
+          <div class="item-modal-v2-spanel">
+            <div class="item-modal-v2-spanel-hd"><span aria-hidden="true">✦</span> Характеристики</div>
+            <div id="item-modal-body"></div>
+          </div>
+          <div class="item-modal-v2-req" id="item-modal-req-section" style="display:none;">
+            <div class="item-modal-v2-req-hd">Требования</div>
+            <div class="item-modal-v2-req-pills" id="item-modal-requirements" aria-live="polite"></div>
+          </div>
+          <div class="item-modal-v2-desc" id="item-modal-desc" style="display:none;"></div>
+          <div class="item-modal-v2-cta">
+            <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
+              <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip" type="button" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Надеть</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--ench item-modal-v2-btn--icon" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;" aria-label="Заточить" title="Заточить">⚒</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--neutral item-modal-v2-btn--icon" id="item-modal-dismantle" type="button" onclick="WaifuApp.openItemDismantleConfirmOverlay()" style="display:none;" aria-label="Распылить" title="Распылить">✨</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
+            </div>
+          </div>
+          <div class="item-modal-v2-scroll-pad shop-offer-modal-scroll-pad" aria-hidden="true"></div>
+        </div>
+      </div>
+    </div>
+    <div
+      id="item-modal-sell-overlay"
+      class="item-modal-sell-overlay"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+      aria-labelledby="item-modal-sell-title"
+      onclick="if (event.target === this) WaifuApp.closeItemSellConfirmOverlay()"
+    >
+      <div class="item-modal-sell-panel" onclick="event.stopPropagation()">
+        <div class="item-modal-sell-title" id="item-modal-sell-title">Продать предмет?</div>
+        <div class="item-modal-sell-name muted tiny" id="item-modal-sell-item-name">—</div>
+        <div class="item-modal-sell-price-line">Вы получите <strong>🪙 <span id="item-modal-sell-gold">—</span></strong></div>
+        <div class="item-modal-sell-actions">
+          <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemSellConfirmOverlay()">Отмена</button>
+          <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" onclick="WaifuApp.confirmSellSelectedItem()">Продать</button>
+        </div>
+      </div>
+    </div>
+    <div
+      id="item-modal-dismantle-overlay"
+      class="item-modal-sell-overlay"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+      aria-labelledby="item-modal-dismantle-title"
+      onclick="if (event.target === this) WaifuApp.closeItemDismantleConfirmOverlay()"
+    >
+      <div class="item-modal-sell-panel" onclick="event.stopPropagation()">
+        <div class="item-modal-sell-title" id="item-modal-dismantle-title">Распылить предмет?</div>
+        <div class="item-modal-sell-name muted tiny" id="item-modal-dismantle-item-name">—</div>
+        <div class="item-modal-sell-price-line">Вы получите <strong>✨ <span id="item-modal-dismantle-dust">—</span></strong> пыли (без золота)</div>
+        <div class="item-modal-sell-actions">
+          <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemDismantleConfirmOverlay()">Отмена</button>
+          <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" onclick="WaifuApp.confirmDismantleSelectedItem()">Распылить</button>
+        </div>
+      </div>
+    </div>
+    <div
+      id="item-modal-equip-ring-overlay"
+      class="item-modal-sell-overlay"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+      aria-labelledby="item-modal-equip-ring-title"
+      onclick="if (event.target === this) WaifuApp.closeItemEquipRingOverlay()"
+    >
+      <div class="item-modal-sell-panel" onclick="event.stopPropagation()">
+        <div class="item-modal-sell-title" id="item-modal-equip-ring-title">Куда надеть кольцо?</div>
+        <div class="item-modal-sell-name muted tiny" id="item-modal-equip-ring-hint">Выберите слот</div>
+        <div class="item-modal-equip-ring-btns" style="display: grid; gap: 8px; margin-bottom: 10px">
+          <button type="button" class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip-ring-btn-4" onclick="WaifuApp.confirmEquipToRingSlot(4)">Кольцо 1</button>
+          <button type="button" class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip-ring-btn-5" onclick="WaifuApp.confirmEquipToRingSlot(5)">Кольцо 2</button>
+        </div>
+        <div class="item-modal-sell-actions">
+          <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemEquipRingOverlay()">Отмена</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <nav class="nav basement" style="display:none !important" aria-hidden="true">
+    <a href="./profile.html" data-page="profile" title="Профиль"></a>
+    <a href="./dungeons.html" data-page="dungeons" title="Подземелья"></a>
+    <a href="./shop.html" data-page="shop" title="Магазин"></a>
+    <a href="./tavern.html" data-page="tavern" title="Таверна"></a>
+    <a href="./caravan.html" data-page="caravan" title="Караван"></a>
+    <a href="./guild_hall.html" data-page="guild" title="Гильдия"></a>
+    <a href="./training_hall.html" data-page="training" title="Тренировочный зал"></a>
+    <a href="./index.html" data-page="menu" title="Главное меню"></a>
+  </nav>
+
+  <script>
+    const ShopPage = (() => {
+      function switchTab(tab) { WaifuApp.switchShopTab(tab); }
+
+      async function onHeroTap(tab) {
+        if (typeof WaifuApp?.onShopHeroAdvice === "function") {
+          await WaifuApp.onShopHeroAdvice(tab);
+        }
+      }
+
+      function switchSmithSubTab(name) {
+        const fn = window.WaifuApp && window.WaifuApp.switchSmithSubTab;
+        if (typeof fn === "function" && fn !== switchSmithSubTab) {
+          fn(name);
+          return;
+        }
+        const tab = name === "craft" ? "craft" : "sharpen";
+        ["sharpen", "craft"].forEach((t) => {
+          const btn = document.getElementById(`shop-smith-subtab-${t}`);
+          if (btn) btn.classList.toggle("active", t === tab);
+          const panel = document.getElementById(`shop-smith-panel-${t}`);
+          if (panel) panel.style.display = t === tab ? "" : "none";
+          const controls = document.getElementById(`shop-smith-controls-${t}`);
+          if (controls) controls.style.display = t === tab ? "" : "none";
+        });
+        const refresh =
+          tab === "craft"
+            ? window.WaifuApp && window.WaifuApp.refreshSmithCraftPreview
+            : window.WaifuApp && window.WaifuApp.refreshSmithPreview;
+        if (typeof refresh === "function") {
+          refresh().catch(console.error);
+        }
+      }
+
+      window.addEventListener("DOMContentLoaded", () => {
+        document.querySelectorAll(".shop-hero[data-tab-hero]").forEach((btn) => {
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const tab = btn.getAttribute("data-tab-hero") || "buy";
+            onHeroTap(tab).catch(() => {});
+          });
+        });
+        const stage = document.getElementById("shop-stage");
+        if (stage) {
+          stage.addEventListener("click", (e) => {
+            if (
+              !e.target.closest(".shop-hero") &&
+              document.querySelector("body.page-shop .shop-dialog.show")
+            ) {
+              WaifuApp.hideShopHeroDialogs?.();
+            }
+          });
+        }
+        if (window.WaifuApp && typeof WaifuApp.bootstrapShopPage === "function") {
+          WaifuApp.bootstrapShopPage();
+        }
+      });
+      return { switchTab, onHeroTap, switchSmithSubTab };
+    })();
+  </script>
+
+  <div id="smith-help-modal" class="modal" style="display:none;" onclick="if (event.target === this) WaifuApp.closeSmithHelpModal()" aria-hidden="true">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div class="modal-title" id="smith-help-title">Кузница: заточка и зачарование</div>
+        <button type="button" class="secondary" onclick="WaifuApp.closeSmithHelpModal()">✖</button>
+      </div>
+      <div id="smith-help-body"></div>
+    </div>
+  </div>
+
+  <div id="shop-sell-busy-modal" class="shop-sell-busy-modal" hidden aria-hidden="true" aria-live="polite" role="status">
+    <div class="shop-sell-busy-sheet">
+      <div class="shop-sell-coin-spin" aria-hidden="true">🪙</div>
+      <p class="shop-sell-busy-label">Продаём предметы…</p>
+    </div>
+  </div>
+
+  <div class="item-art-gen-busy-overlay" aria-hidden="true" aria-live="polite">
+    <div class="item-art-gen-busy-panel">
+      <div class="item-art-gen-busy-spinner" aria-hidden="true"></div>
+      <p>Генерация иконки…</p>
+      <p class="item-art-gen-busy-hint muted tiny">OpenRouter может отвечать до 2 минут</p>
+    </div>
+  </div>
+</body>
+</html>
+

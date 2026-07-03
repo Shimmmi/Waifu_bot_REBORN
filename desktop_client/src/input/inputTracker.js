@@ -19,6 +19,11 @@ const config = require("../config");
  * SPAM_WINDOW_SECONDS (game/constants.py) — the actual damage-rate cap is
  * still enforced server-side by CombatService's Redis spam gate, this
  * interval just avoids flushing faster than the server would ever accept.
+ *
+ * Calibration (staging): FLUSH_INTERVAL_MS (3s) should stay in the same ballpark
+ * as SPAM_WINDOW_SECONDS on the server. Lower to 1–2s only after measuring real
+ * click cadence; overlay attack animation uses weapon attack_speed locally and
+ * does not depend on this interval.
  */
 const FLUSH_INTERVAL_MS = 3000;
 

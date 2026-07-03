@@ -43,4 +43,6 @@ contextBridge.exposeInMainWorld("waifuDesktop", {
   onInputActivity: (callback) => {
     ipcRenderer.on("input-activity", () => callback());
   },
+
+  closeWindow: () => ipcRenderer.invoke("close-window"),
 });

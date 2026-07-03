@@ -68,7 +68,12 @@ from waifu_bot.game.constants import (
     WAIFU_CLASS_LABEL_RU,
     WAIFU_RACE_LABEL_RU,
 )
-from waifu_bot.game.effective_stats import resolve_equipped_weapon_for_profile, resolve_solo_combat_primary_four
+from waifu_bot.game.effective_stats import (
+    fetch_equipped_inventory_items,
+    resolve_equipped_weapon_for_profile,
+    resolve_main_weapon_attack_speed,
+    resolve_solo_combat_primary_four,
+)
 from waifu_bot.game.main_waifu_base_stats import (
     class_flat_bonuses_for,
     compute_main_waifu_base_stats,
@@ -866,6 +871,7 @@ async def get_profile(
         main_payload = None
         main_details = None
         equipment_payload: list[schemas.GearItemOut] = []
+        main_weapon_attack_speed = 1
 
         if main_waifu:
             # Пересчёт max_hp (пассивы вроде hp_max_pct) и реген. Раньше max жил только в merge для UI — без sync в БД реген/данж видели старый потолок.
@@ -937,6 +943,13 @@ async def get_profile(
                     portrait_url=lite_portrait_url,
                     bio=getattr(main_waifu, "bio", None),
                 )
+                try:
+                    equipped_lite = await fetch_equipped_inventory_items(session, player_id)
+                    main_weapon_attack_speed = resolve_main_weapon_attack_speed(equipped_lite)
+                except Exception:
+                    logger.exception(
+                        "main_weapon_attack_speed in lite /profile failed player_id=%s", player_id
+                    )
             else:
                 equipped_items = []
                 try:
@@ -947,6 +960,7 @@ async def get_profile(
                     )
                     equipped_items = inv_items.scalars().all()
                     await _enrich_items_with_template_stats(session, equipped_items)
+                    main_weapon_attack_speed = resolve_main_weapon_attack_speed(equipped_items)
                 except Exception:
                     equipped_items = []
 
@@ -1153,6 +1167,8 @@ async def get_profile(
             protection_stones=int(getattr(player, "protection_stones", 0) or 0),
             enchant_dust=int(getattr(player, "enchant_dust", 0) or 0),
             caravan_travel_costs=list(CARAVAN_TRAVEL_GOLD_TO_ACT),
+            is_admin=settings.is_admin(player_id),
+            main_weapon_attack_speed=main_weapon_attack_speed,
             main_waifu=main_payload,
             main_waifu_details=main_details,
             equipment=equipment_payload,
@@ -1174,6 +1190,8 @@ async def get_profile(
             protection_stones=0,
             enchant_dust=0,
             caravan_travel_costs=list(CARAVAN_TRAVEL_GOLD_TO_ACT),
+            is_admin=settings.is_admin(player_id),
+            main_weapon_attack_speed=1,
             main_waifu=None,
             main_waifu_details=None,
             equipment=[],

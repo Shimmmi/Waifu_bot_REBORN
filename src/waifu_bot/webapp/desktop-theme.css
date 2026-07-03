@@ -72,6 +72,56 @@ html.desktop-client.desktop-overlay [role="button"] {
    elements excluded so clicks/scrolling still work everywhere. */
 html.desktop-client.desktop-window body {
   -webkit-app-region: drag;
+  padding-bottom: 0 !important;
+  overflow: hidden;
+}
+
+html.desktop-client.desktop-window header.attic,
+html.desktop-client.desktop-window nav.basement {
+  display: none !important;
+}
+
+html.desktop-client.desktop-window #steam-viewport {
+  width: 420px;
+  min-height: calc(100vh - 28px);
+  max-height: calc(100vh - 28px);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+html.desktop-client.desktop-window .desktop-titlebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 28px;
+  z-index: 100000;
+  pointer-events: none;
+  -webkit-app-region: drag;
+}
+
+html.desktop-client.desktop-window .desktop-close-btn {
+  position: fixed;
+  top: 4px;
+  right: 8px;
+  z-index: 100001;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  width: 28px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(30, 32, 48, 0.92);
+  color: #e8e8f0;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+html.desktop-client.desktop-window .desktop-close-btn:hover {
+  background: rgba(180, 60, 60, 0.92);
+  color: #fff;
 }
 
 html.desktop-client.desktop-window button,
