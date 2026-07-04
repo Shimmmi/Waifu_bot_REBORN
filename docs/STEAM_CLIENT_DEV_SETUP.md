@@ -246,34 +246,79 @@ Copy-Item config.example.json config.local.json
 
 ## Шаг 4 — запуск в dev-режиме (проверка до сборки)
 
-### Обязательно после `git pull` + `docker compose up -d --build`
+### Post-push checklist (Windows)
 
-**Webapp (CSS/JS для tab-окон и overlay) живёт в Docker-образе `api`.**
-`npm run dev` обновляет только Electron локально. Если после pull
-видны старые кнопки закрытия / drag / overlay-status — образ не пересобран
-или `docker compose restart` вместо `--build`.
+После **push/pull** на `feature/steam-client` нужны **оба** слоя:
 
-**Не запускайте `npm run dev`, пока бэкенд не отвечает с вашей машины (Windows),
-а не только «healthy» внутри контейнера.** После пересборки образа Docker Desktop
-for Windows часто ещё несколько секунд (иногда минуту) не пробрасывает
-`127.0.0.1:18000` — в Electron это выглядит как `ERR_EMPTY_RESPONSE` и
-`Failed to fetch`, хотя Phase 2 UI/API ни при чём.
+- **Webapp** (`desktop-theme.css`, `app.min.js`, `overlay.js`) — в Docker-образе `api`
+- **Electron** (`desktop_client/src/*.js`) — локально при `npm run dev`
 
-Из **корня репозитория**:
+`docker compose restart` **не** подхватывает новый webapp — нужен `--build`.
+Только `npm run dev` после pull обновит Electron, но не CSS/JS из api.
 
-```powershell
+**Не запускайте `npm run dev`, пока бэкенд не отвечает с Windows** (не только
+«healthy» внутри контейнера). См. `check_staging_backend.ps1`.
+
+#### A. Git Bash (рекомендуется для `*.sh`)
+
+```bash
+cd /c/Users/user/Waifu_bot_REBORN
+
+# 0. Если "set: pipefail: invalid option" — CRLF (один раз):
+sed -i 's/\r$//' scripts/*.sh
+
 git pull origin feature/steam-client
-./scripts/build_webapp.sh
+bash ./scripts/build_webapp.sh
 bash scripts/build_steam_pages.sh
 docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build --wait
 docker compose -f docker-compose.staging.yml --env-file .env.staging exec api alembic upgrade head
 powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
 bash scripts/verify_steam_webapp_deploy.sh
+cd desktop_client && npm run dev
 ```
 
-`docker compose restart` **не** подхватывает новый webapp — нужен `--build`.
+#### B. PowerShell (bash-скрипты через `bash`)
 
-Все пункты check-скрипта и verify должны быть `[OK]`. Только после этого:
+```powershell
+cd C:\Users\user\Waifu_bot_REBORN
+git pull origin feature/steam-client
+
+bash ./scripts/build_webapp.sh
+bash scripts/build_steam_pages.sh
+
+docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build --wait
+docker compose -f docker-compose.staging.yml --env-file .env.staging exec api alembic upgrade head
+powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
+bash scripts/verify_steam_webapp_deploy.sh
+
+cd desktop_client
+npm run dev
+```
+
+#### C. Одной командой (шаги 2–5 без Electron)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/deploy_steam_client.ps1
+cd desktop_client; npm run dev
+```
+
+#### D. Port-forward застрял (container OK, host HTTP FAIL)
+
+```powershell
+wsl --shutdown
+# перезапустить Docker Desktop, затем снова deploy или docker compose up -d --build --wait
+```
+
+#### E. Чего не делать
+
+- Открывать `.sh` в VS Code двойным кликом — только **терминал** + `bash script.sh`
+- `docker compose restart` без `--build`
+- `npm run dev` до `[OK]` от check + verify
+
+**CRLF:** `.gitattributes` держит `*.sh` в LF. При `core.autocrlf=true`:
+`git config core.autocrlf input` и `git checkout -- scripts/*.sh`.
+
+Все пункты check + verify — `[OK]`. Затем Electron:
 
 ```powershell
 cd desktop_client

@@ -15,7 +15,6 @@ html.desktop-client.desktop-window body.page-steam-shell .shop-stage,
 html.desktop-client.desktop-window body.page-steam-shell main.profile-layout {
   max-height: calc(700px - 28px);
   overflow: hidden;
-  -webkit-app-region: drag;
 }
 
 /* Shop: smaller hero, tighter tabs */

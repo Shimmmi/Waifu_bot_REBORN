@@ -137,15 +137,6 @@ html.desktop-client.desktop-window #steam-viewport {
   margin-top: 28px;
   overflow: hidden;
   box-sizing: border-box;
-  -webkit-app-region: drag;
-}
-
-html.desktop-client.desktop-window #steam-viewport .screen,
-html.desktop-client.desktop-window #steam-viewport .shop-stage,
-html.desktop-client.desktop-window #steam-viewport main,
-html.desktop-client.desktop-window #steam-viewport .layout,
-html.desktop-client.desktop-window #steam-viewport .title-screen-main {
-  -webkit-app-region: drag;
 }
 
 html.desktop-client.desktop-window #steam-viewport .shop-stage-bg,
@@ -159,7 +150,10 @@ html.desktop-client.desktop-window input,
 html.desktop-client.desktop-window textarea,
 html.desktop-client.desktop-window select,
 html.desktop-client.desktop-window [role="button"],
-html.desktop-client.desktop-window [contenteditable] {
+html.desktop-client.desktop-window [contenteditable],
+html.desktop-client.desktop-window [onclick],
+html.desktop-client.desktop-window .dungeon-tile,
+html.desktop-client.desktop-window .shop-item-card {
   -webkit-app-region: no-drag;
 }
 
