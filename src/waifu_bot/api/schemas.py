@@ -532,6 +532,8 @@ class ProfileResponse(BaseModel):
     caravan_travel_costs: List[int] = []  # длина 5: стоимость переезда в акт 1..5
     is_admin: bool = False
     main_weapon_attack_speed: int = 1
+    main_weapon_type: Optional[str] = None
+    main_weapon_attack_type: Optional[str] = None
     main_waifu: Optional[MainWaifuProfile] = None
     main_waifu_details: Optional[MainWaifuDetails] = None
     equipment: List[GearItemOut] = []

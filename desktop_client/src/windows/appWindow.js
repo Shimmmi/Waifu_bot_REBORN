@@ -6,7 +6,7 @@ const config = require("../config");
 const { loadUrlWithRetry } = require("./loadWithRetry");
 
 const TAB_W = 420;
-const TAB_H = 700;
+const TAB_H = 420;
 const TAB_OFFSET_GAP = 16;
 
 /**

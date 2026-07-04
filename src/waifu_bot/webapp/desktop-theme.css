@@ -65,15 +65,15 @@ html.desktop-client.desktop-overlay [role="button"] {
   -webkit-app-region: no-drag;
 }
 
-/* Tab windows (420×700, frameless): fixed viewport + top drag strip + close ×. */
+/* Tab windows (420×420, frameless): fixed viewport + top drag strip + close ×. */
 html.desktop-client.desktop-window,
 html.desktop-client.desktop-window body {
   width: 420px !important;
-  height: 700px !important;
+  height: 420px !important;
   min-width: 420px !important;
   max-width: 420px !important;
-  min-height: 700px !important;
-  max-height: 700px !important;
+  min-height: 420px !important;
+  max-height: 420px !important;
   overflow: hidden;
   margin: 0;
   box-sizing: border-box;
@@ -85,9 +85,9 @@ html.desktop-client.desktop-window body {
 }
 
 html.desktop-client.desktop-window body[class*="page-"] {
-  min-height: 700px !important;
-  max-height: 700px !important;
-  height: 700px !important;
+  min-height: 420px !important;
+  max-height: 420px !important;
+  height: 420px !important;
 }
 
 html.desktop-client.desktop-window header.attic,
@@ -133,7 +133,7 @@ html.desktop-client.desktop-window .desktop-close-btn:hover {
 
 html.desktop-client.desktop-window #steam-viewport {
   width: 100%;
-  height: calc(700px - 28px);
+  height: calc(420px - 28px);
   margin-top: 28px;
   overflow: hidden;
   box-sizing: border-box;

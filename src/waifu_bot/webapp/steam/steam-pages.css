@@ -1,19 +1,19 @@
 /*
- * Steam desktop tab windows (420×700): compact layouts for shop/dungeons/profile.
+ * Steam desktop tab windows (420×420): compact layouts for shop/dungeons/profile.
  * Loaded only from webapp/steam/*.html (page-steam-shell).
  */
 
 html.desktop-client.desktop-window body.page-steam-shell {
   overflow: hidden !important;
   padding-bottom: 0 !important;
-  max-height: 700px;
+  max-height: 420px;
 }
 
 html.desktop-client.desktop-window body.page-steam-shell #steam-viewport,
 html.desktop-client.desktop-window body.page-steam-shell .screen,
 html.desktop-client.desktop-window body.page-steam-shell .shop-stage,
 html.desktop-client.desktop-window body.page-steam-shell main.profile-layout {
-  max-height: calc(700px - 28px);
+  max-height: calc(420px - 28px);
   overflow: hidden;
 }
 

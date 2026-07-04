@@ -72,6 +72,7 @@ from waifu_bot.game.effective_stats import (
     fetch_equipped_inventory_items,
     resolve_equipped_weapon_for_profile,
     resolve_main_weapon_attack_speed,
+    resolve_main_weapon_overlay_meta,
     resolve_solo_combat_primary_four,
 )
 from waifu_bot.game.main_waifu_base_stats import (
@@ -872,6 +873,8 @@ async def get_profile(
         main_details = None
         equipment_payload: list[schemas.GearItemOut] = []
         main_weapon_attack_speed = 1
+        main_weapon_type: str | None = None
+        main_weapon_attack_type: str | None = None
 
         if main_waifu:
             # Пересчёт max_hp (пассивы вроде hp_max_pct) и реген. Раньше max жил только в merge для UI — без sync в БД реген/данж видели старый потолок.
@@ -946,6 +949,9 @@ async def get_profile(
                 try:
                     equipped_lite = await fetch_equipped_inventory_items(session, player_id)
                     main_weapon_attack_speed = resolve_main_weapon_attack_speed(equipped_lite)
+                    main_weapon_type, main_weapon_attack_type = resolve_main_weapon_overlay_meta(
+                        equipped_lite
+                    )
                 except Exception:
                     logger.exception(
                         "main_weapon_attack_speed in lite /profile failed player_id=%s", player_id
@@ -961,6 +967,9 @@ async def get_profile(
                     equipped_items = inv_items.scalars().all()
                     await _enrich_items_with_template_stats(session, equipped_items)
                     main_weapon_attack_speed = resolve_main_weapon_attack_speed(equipped_items)
+                    main_weapon_type, main_weapon_attack_type = resolve_main_weapon_overlay_meta(
+                        equipped_items
+                    )
                 except Exception:
                     equipped_items = []
 
@@ -1169,6 +1178,8 @@ async def get_profile(
             caravan_travel_costs=list(CARAVAN_TRAVEL_GOLD_TO_ACT),
             is_admin=settings.is_admin(player_id),
             main_weapon_attack_speed=main_weapon_attack_speed,
+            main_weapon_type=main_weapon_type,
+            main_weapon_attack_type=main_weapon_attack_type,
             main_waifu=main_payload,
             main_waifu_details=main_details,
             equipment=equipment_payload,

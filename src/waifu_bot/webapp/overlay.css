@@ -240,14 +240,62 @@ button {
   justify-content: center;
 }
 
+.ov-stage {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
 .ov-portrait-wrap {
   position: relative;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 100%;
   display: flex;
   align-items: flex-end;
   justify-content: center;
   transform-origin: 50% 90%;
+}
+
+.ov-monster-target {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.ov-monster-target.hidden {
+  display: none;
+}
+
+#ov-monster-target-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.55));
+}
+
+.ov-monster-target .ov-monster-hitfx {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.ov-monster-target .ov-monster-hitfx.flash {
+  animation: ovHitFlash 0.22s ease-out;
+}
+
+#ov-root.has-combat-target .ov-monster-visual {
+  display: none;
 }
 
 .ov-status-toast {
@@ -512,7 +560,8 @@ button {
 }
 
 /* AFK in dungeon: the monster naps too */
-.state-sleep-dungeon #ov-monster-img {
+.state-sleep-dungeon #ov-monster-img,
+.state-sleep-dungeon #ov-monster-target-img {
   filter: brightness(0.55) saturate(0.7);
 }
 
@@ -522,14 +571,36 @@ button {
 }
 
 /* ══ STATE: battle (active + dungeon) ══════════════════════════════════ */
-.state-battle .ov-portrait-wrap.lunge {
+.state-battle .ov-portrait-wrap.lunge,
+.state-battle .ov-portrait-wrap.attack-play {
   animation: ovLunge 0.16s ease-out;
 }
 
 @keyframes ovLunge {
   0% { transform: translate(0, 0) rotate(0deg); }
-  40% { transform: translate(7px, -5px) rotate(2.5deg) scale(1.03); }
+  40% { transform: translate(14px, -5px) rotate(2.5deg) scale(1.03); }
   100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+.state-battle .ov-portrait-wrap[data-attack-type="ranged"].attack-play {
+  animation: ovRangedAttack 0.2s ease-out;
+}
+
+@keyframes ovRangedAttack {
+  0% { transform: translate(-4px, 0) scale(0.98); }
+  35% { transform: translate(12px, -4px) scale(1.02); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+.state-battle .ov-portrait-wrap[data-attack-type="magic"].attack-play {
+  animation: ovMagicAttack 0.24s ease-out;
+  filter: brightness(1.15) drop-shadow(0 0 8px rgba(160, 120, 255, 0.65));
+}
+
+@keyframes ovMagicAttack {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.04) translate(6px, -2px); }
+  100% { transform: scale(1); }
 }
 
 /* ══ STATE: idle (active, no dungeon) ══════════════════════════════════ */
@@ -544,6 +615,55 @@ button {
 
 .state-idle .ov-portrait-wrap.hop {
   animation: ovHop 0.5s ease-out;
+}
+
+.state-idle .ov-portrait-wrap[data-idle-action="stretch"] {
+  animation: ovIdleStretch 1.4s ease-in-out;
+}
+
+.state-idle .ov-portrait-wrap[data-idle-action="yawn"] {
+  animation: ovIdleYawn 1.6s ease-in-out;
+}
+
+.state-idle .ov-portrait-wrap[data-idle-action="wave"] {
+  animation: ovIdleWave 1.2s ease-in-out;
+}
+
+.state-idle .ov-portrait-wrap[data-idle-action="read"] {
+  animation: ovIdleRead 2s ease-in-out;
+}
+
+.state-idle .ov-portrait-wrap[data-idle-action="tea"] {
+  animation: ovIdleTea 1.8s ease-in-out;
+}
+
+@keyframes ovIdleStretch {
+  0%, 100% { transform: scale(1) translateY(0); }
+  40% { transform: scale(1.03) translateY(-6px); }
+}
+
+@keyframes ovIdleYawn {
+  0%, 100% { transform: rotate(0deg); }
+  30% { transform: rotate(-3deg) scale(1.02); }
+  60% { transform: rotate(2deg); }
+}
+
+@keyframes ovIdleWave {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-8deg); }
+  50% { transform: rotate(8deg); }
+  75% { transform: rotate(-4deg); }
+}
+
+@keyframes ovIdleRead {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px) rotate(-1deg); }
+}
+
+@keyframes ovIdleTea {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-2px) rotate(2deg); }
+  70% { transform: translateY(-1px); }
 }
 
 @keyframes ovHop {

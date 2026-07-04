@@ -671,8 +671,32 @@ seconds`**
 | Admin UI не виден | аккаунт не в `ADMIN_IDS` | см. ниже |
 
 Tab-окна shop/dungeons/profile открываются из оверлея как `steam/shop.html` и т.д.
-(компактный layout 420×700). Пересборка после правок родительских HTML:
+(компактный layout 420×420). Пересборка после правок родительских HTML:
 `bash scripts/build_steam_pages.sh`.
+
+### Магазин: пустой экран vs битые картинки
+
+Две разные проблемы; обе могут быть одновременно.
+
+**A. Пустой магазин** (нет товаров, баннер «Войдите через Steam», зависшее «Загрузка…»):
+
+| Причина | Проверка | Решение |
+|---------|----------|---------|
+| Нет auth | DevTools → `GET /api/shop/inventory?act=1` → **401** | `steamTicketDev` в `config.local.json`, `APP_ENV=dev\|stage\|testing` |
+| Нет вайфу | Баннер «Сначала создайте вайфу» | Создайте персонажа (профиль / подземелья) |
+| Stale bundle | Нет desktop auth headers в запросах | `./scripts/build_webapp.sh` + `docker compose ... --build --wait` |
+| Bootstrap 401 | Console: shop bootstrap error | Тот же `steamTicketDev`; см. чеклист выше |
+
+**B. Магазин загрузился, но art не виден** (эмодзи/SVG вместо WebP):
+
+| Слой | Причина | Решение |
+|------|---------|---------|
+| Hero-баннеры | В репо нет `static/game/ui/shop/**/*.webp` (только README) | Добавить `act-{N}/merchant.webp` и т.д. по [shop README](../static/game/ui/shop/README.md), либо эмодзи-fallback |
+| Иконки предметов | `static/game/items/webp/` пуст | Сгенерировать/sync art; `itemArtHtml` падает на SVG → emoji |
+| 404 vendor/assets | Старые `steam/*.html` с `./vendor/` | Перегенерировать: `bash scripts/build_steam_pages.sh` |
+| Квадрат 420×420 | Hero `aspect-ratio: 3/2` обрезается | Follow-up: уменьшить `.shop-hero` в `steam-pages.css` |
+
+**Диагностика в DevTools tab-окна магазина:** Network → `/api/shop/inventory`; Console → bootstrap errors.
 
 ## Admin для dev Steam-аккаунта
 

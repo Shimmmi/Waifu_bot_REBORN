@@ -34,6 +34,11 @@ for page in shop dungeons profile; do
   # Hidden attic stubs: keep badge IDs for loadProfile/initPage but remove visible chrome
   sed -i 's/<header class="attic"/<header class="attic" style="display:none !important" aria-hidden="true"/' "$dst"
   sed -i 's/<nav class="nav basement"/<nav class="nav basement" style="display:none !important" aria-hidden="true"/' "$dst"
+  # Absolute webapp paths: steam/*.html lives under /webapp/steam/ — relative ./vendor breaks.
+  sed -i 's|href="./vendor/|href="/webapp/vendor/|g' "$dst"
+  sed -i 's|src="./vendor/|src="/webapp/vendor/|g' "$dst"
+  sed -i 's|href="./assets/|href="/webapp/assets/|g' "$dst"
+  sed -i 's|src="./assets/|src="/webapp/assets/|g' "$dst"
   echo "  steam/${page}.html"
 done
 

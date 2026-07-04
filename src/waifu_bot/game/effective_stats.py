@@ -262,6 +262,28 @@ def resolve_main_weapon_attack_speed(equipped: list[InventoryItem]) -> int:
         return 1
 
 
+def resolve_main_weapon_overlay_meta(equipped: list[InventoryItem]) -> tuple[str, str]:
+    """
+    Weapon type + attack type for overlay animation selection.
+    Same main-hand priority as resolve_main_weapon_attack_speed.
+    """
+    mainhand = None
+    offhand = None
+    for inv in equipped:
+        slot = int(getattr(inv, "equipment_slot", 0) or 0)
+        if slot == 1:
+            mainhand = inv
+        elif slot == 2:
+            offhand = inv
+    weapon = mainhand if mainhand is not None else offhand
+    if weapon is None:
+        return "unarmed", "melee"
+    wt = (getattr(weapon, "weapon_type", None) or "").lower().strip()
+    if not wt or wt == "none":
+        wt = "unarmed"
+    return wt, infer_weapon_attack_type(weapon)
+
+
 async def resolve_solo_combat_primary_four(
     session: AsyncSession,
     player_id: int,

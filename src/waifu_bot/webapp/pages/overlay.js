@@ -26,9 +26,17 @@
     batch_capped: "Лимит пакета",
   };
 
-  const IDLE_EMOTES = ["💖", "🎵", "✨", "🌸", "☕", "📖", "🧶", "🍰"];
+
+  const IDLE_ACTIONS = [
+    { id: "stretch", emoji: "🙆" },
+    { id: "yawn", emoji: "🥱" },
+    { id: "wave", emoji: "👋" },
+    { id: "read", emoji: "📖" },
+    { id: "tea", emoji: "☕" },
+  ];
 
   const MONSTER_STATIC_BASE = "/static/game/monsters";
+  const MONSTER_PLACEHOLDER = "/static/game/overlay/placeholder/monster.webp";
 
   // Steam tab windows use dedicated layouts under webapp/steam/.
   const STEAM_PAGE_MAP = {
@@ -97,6 +105,9 @@
     monsterHpFill: $("ov-monster-hp-fill"),
     monsterHpText: $("ov-monster-hp-text"),
     monsterHitFx: $("ov-monster-hitfx"),
+    monsterTarget: $("ov-monster-target"),
+    monsterTargetImg: $("ov-monster-target-img"),
+    monsterTargetHitFx: $("ov-monster-target-hitfx"),
     monsterAttackFx: $("ov-monster-attack-fx"),
     scene: $("ov-scene"),
     portraitWrap: $("ov-portrait-wrap"),
@@ -116,6 +127,11 @@
   const state = {
     lastInputAt: Date.now(),
     dungeon: null,
+    abyss: null,
+    combatMode: "none",
+    weaponType: "unarmed",
+    attackType: "melee",
+    attackVariant: 0,
     waifu: { name: null, hp: null, maxHp: null, level: null },
     attackSpeed: 1,
     pendingClicks: 0,
@@ -128,12 +144,55 @@
     pendingStatusReason: null,
   };
 
+  function retriggerClass(node, className) {
+    if (!node) return;
+    node.classList.remove(className);
+    void node.offsetWidth;
+    node.classList.add(className);
+  }
+
+  function syncPortraitCombatMeta() {
+    if (!el.portraitWrap) return;
+    el.portraitWrap.dataset.weaponType = state.weaponType || "unarmed";
+    el.portraitWrap.dataset.attackType = state.attackType || "melee";
+    el.portraitWrap.dataset.combatMode = state.combatMode || "none";
+  }
+
+  function soloCombatActive() {
+    return Boolean(state.dungeon && state.dungeon.active);
+  }
+
+  function abyssCombatActive() {
+    return Boolean(
+      state.abyss &&
+        state.abyss.session_active &&
+        state.abyss.current_monster
+    );
+  }
+
+  function combatActive() {
+    return soloCombatActive() || abyssCombatActive();
+  }
+
+  function dungeonActive() {
+    return combatActive();
+  }
+
+  function syncCombatTargetUi() {
+    const show = combatActive();
+    root.classList.toggle("has-combat-target", show);
+    if (el.monsterTarget) el.monsterTarget.classList.toggle("hidden", !show);
+    if (el.monster) el.monster.classList.toggle("hidden", !show);
+  }
+
   function isAfk() {
     return Date.now() - state.lastInputAt > AFK_AFTER_MS;
   }
 
-  function dungeonActive() {
-    return Boolean(state.dungeon && state.dungeon.active);
+  function resolveCombatMode() {
+    if (soloCombatActive()) return "solo";
+    if (abyssCombatActive()) return "abyss";
+    return "none";
   }
 
   function effectiveAttackSpeed() {
@@ -232,6 +291,9 @@
   function applyState() {
     const next = computeStateClass();
     if (next === state.currentClass) {
+      state.combatMode = resolveCombatMode();
+      syncPortraitCombatMeta();
+      syncCombatTargetUi();
       updateAttackChargeUi();
       return;
     }
@@ -249,6 +311,9 @@
     else stopIdleEmotes();
     if (next === "state-battle" || next === "state-sleep-dungeon") startMonsterAttackLoop();
     else stopMonsterAttackLoop();
+    state.combatMode = resolveCombatMode();
+    syncPortraitCombatMeta();
+    syncCombatTargetUi();
     updateAttackChargeUi();
   }
 
@@ -263,31 +328,39 @@
       IDLE_EMOTE_MIN_MS + Math.random() * (IDLE_EMOTE_MAX_MS - IDLE_EMOTE_MIN_MS);
     state.idleEmoteTimer = setTimeout(() => {
       if (state.currentClass === "state-idle") {
-        el.idleEmote.textContent =
-          IDLE_EMOTES[Math.floor(Math.random() * IDLE_EMOTES.length)];
+        const action = IDLE_ACTIONS[Math.floor(Math.random() * IDLE_ACTIONS.length)];
+        el.portraitWrap.dataset.idleAction = action.id;
+        retriggerClass(el.portraitWrap, "idle-action-play");
+        el.idleEmote.textContent = action.emoji;
         el.idleEmote.classList.remove("play");
         void el.idleEmote.offsetWidth;
         el.idleEmote.classList.add("play");
-        if (Math.random() < 0.5) {
-          el.portraitWrap.classList.remove("hop");
-          void el.portraitWrap.offsetWidth;
-          el.portraitWrap.classList.add("hop");
-        }
       }
       scheduleIdleEmote();
     }, delay);
   }
 
-  function playHitAnimation() {
-    el.portraitWrap.classList.remove("lunge", "charging");
+  function flashMonsterTarget() {
+    if (!combatActive() || !el.monsterTargetHitFx) return;
+    el.monsterTargetHitFx.classList.remove("flash");
+    void el.monsterTargetHitFx.offsetWidth;
+    el.monsterTargetHitFx.classList.add("flash");
+  }
+
+  function playAttackAnimation() {
+    const variant = state.attackVariant % 2;
+    state.attackVariant += 1;
+    const key = `${state.combatMode}-${state.attackType}-${state.weaponType}-${variant}`;
+    el.portraitWrap.dataset.attackAnim = key;
+    el.portraitWrap.classList.remove("lunge", "attack-play", "charging");
     void el.portraitWrap.offsetWidth;
-    el.portraitWrap.classList.add("lunge");
-    if (dungeonActive()) {
-      el.monsterHitFx.classList.remove("flash");
-      void el.monsterHitFx.offsetWidth;
-      el.monsterHitFx.classList.add("flash");
-    }
+    el.portraitWrap.classList.add("attack-play", "lunge");
+    flashMonsterTarget();
     updateAttackChargeUi();
+  }
+
+  function playHitAnimation() {
+    playAttackAnimation();
   }
 
   function playMonsterAttackFx() {
@@ -368,6 +441,9 @@
       el.dust.textContent = `✨ ${profile.enchant_dust ?? 0}`;
       el.stones.textContent = `🪨 ${profile.protection_stones ?? 0}`;
       state.attackSpeed = profile.main_weapon_attack_speed ?? 1;
+      state.weaponType = profile.main_weapon_type || "unarmed";
+      state.attackType = profile.main_weapon_attack_type || "melee";
+      syncPortraitCombatMeta();
       const mw = profile.main_waifu;
       if (mw) {
         state.waifu.name = mw.name || "Вайфу";
@@ -387,47 +463,81 @@
   }
 
   function monsterImageUrls(d) {
-    const family = d.monster_family || "unknown";
-    const slug = d.monster_slug || "unknown";
-    const tier = d.monster_tier || 1;
+    const family = d.monster_family || d.family || "unknown";
+    const slug = d.monster_slug || d.slug || "unknown";
+    const tier = d.monster_tier || d.level || 1;
     return [
       `${MONSTER_STATIC_BASE}/${family}/${slug}.webp`,
       `${MONSTER_STATIC_BASE}/${family}/_family_t${tier}.webp`,
       `${MONSTER_STATIC_BASE}/${family}/_family.webp`,
+      MONSTER_PLACEHOLDER,
       `${MONSTER_STATIC_BASE}/_unknown.webp`,
     ];
   }
 
-  function setMonsterImage(d) {
+  function setMonsterImageOn(imgEl, d) {
+    if (!imgEl) return;
     const urls = monsterImageUrls(d);
     let i = 0;
-    el.monsterImg.onerror = () => {
+    imgEl.onerror = () => {
       i += 1;
-      if (i < urls.length) el.monsterImg.src = urls[i];
-      else el.monsterImg.onerror = null;
+      if (i < urls.length) imgEl.src = urls[i];
+      else imgEl.onerror = null;
     };
-    if (el.monsterImg.getAttribute("src") !== urls[0]) el.monsterImg.src = urls[0];
+    if (imgEl.getAttribute("src") !== urls[0]) imgEl.src = urls[0];
+  }
+
+  function setMonsterImage(d) {
+    setMonsterImageOn(el.monsterImg, d);
+    setMonsterImageOn(el.monsterTargetImg, d);
   }
 
   async function loadDungeon() {
     try {
       const d = await apiFetch("/dungeons/active");
-      const wasActive = dungeonActive();
+      const wasActive = soloCombatActive();
       state.dungeon = d;
       if (d && d.active) {
-        el.monster.classList.remove("hidden");
         el.monsterName.textContent = d.monster_name || "Монстр";
         setMonsterHp(d.monster_current_hp, d.monster_max_hp);
         setMonsterImage(d);
         if (d.waifu_current_hp != null) setWaifuHp(d.waifu_current_hp, d.waifu_max_hp);
-      } else {
-        el.monster.classList.add("hidden");
+      } else if (!abyssCombatActive()) {
         state.pendingClicks = 0;
         if (wasActive) loadProfile();
       }
+      state.combatMode = resolveCombatMode();
+      syncPortraitCombatMeta();
+      syncCombatTargetUi();
       applyState();
     } catch (err) {
       console.warn("[overlay] dungeon load failed:", err.message);
+    }
+  }
+
+  async function loadAbyss() {
+    try {
+      const a = await apiFetch("/abyss/status");
+      state.abyss = a;
+      if (!soloCombatActive() && a && a.session_active && a.current_monster) {
+        const m = a.current_monster;
+        el.monsterName.textContent = m.name || "Монстр";
+        setMonsterHp(m.hp_current, m.hp_max);
+        setMonsterImage({
+          family: m.family,
+          slug: m.slug,
+          level: m.level,
+        });
+        if (a.waifu_hp != null && a.waifu_max_hp != null) {
+          setWaifuHp(a.waifu_hp, a.waifu_max_hp);
+        }
+      }
+      state.combatMode = resolveCombatMode();
+      syncPortraitCombatMeta();
+      syncCombatTargetUi();
+      applyState();
+    } catch (err) {
+      console.warn("[overlay] abyss load failed:", err.message);
     }
   }
 
@@ -486,8 +596,9 @@
       if (inner.monster_defeated || inner.dungeon_completed) {
         setTimeout(loadDungeon, 500);
       }
-      if (inner.error === "no_active_battle" && dungeonActive()) {
+      if (inner.error === "no_active_battle" && combatActive()) {
         loadDungeon();
+        loadAbyss();
       }
     });
   }
@@ -500,6 +611,7 @@
     const interval = isAfk() ? POLL_DUNGEON_AFK_MS : POLL_DUNGEON_ACTIVE_MS;
     setTimeout(async () => {
       await loadDungeon();
+      await loadAbyss();
       scheduleDungeonPoll();
     }, interval);
   }
@@ -508,8 +620,13 @@
   setInterval(applyState, 5_000);
 
   (async function boot() {
+    if (el.monsterTargetImg && !el.monsterTargetImg.getAttribute("src")) {
+      el.monsterTargetImg.src = MONSTER_PLACEHOLDER;
+    }
     await loadProfile();
     await loadDungeon();
+    await loadAbyss();
+    syncCombatTargetUi();
     applyState();
     scheduleDungeonPoll();
   })();
