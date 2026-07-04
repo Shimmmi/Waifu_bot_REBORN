@@ -15,6 +15,16 @@
   const IDLE_EMOTE_MAX_MS = 16_000;
   const LOW_HP_FRACTION = 0.25;
   const MONSTER_ATTACK_INTERVAL_MS = 8_000;
+  const STATUS_TOAST_DELAY_MS = 30_000;
+  const STATUS_TOAST_VISIBLE_MS = 3_000;
+
+  const STATUS_REASON_LABELS = {
+    spam_detected: "Слишком быстро",
+    no_active_battle: "Нет активного боя",
+    no_waifu: "Нет вайфу",
+    no_monster: "Нет монстра",
+    batch_capped: "Лимит пакета",
+  };
 
   const IDLE_EMOTES = ["💖", "🎵", "✨", "🌸", "☕", "📖", "🧶", "🍰"];
 
@@ -100,6 +110,7 @@
     waifuHpText: $("ov-waifu-hp-text"),
     attackCharge: $("ov-attack-charge"),
     attackChargeFill: $("ov-attack-charge-fill"),
+    statusToast: $("ov-status-toast"),
   };
 
   const state = {
@@ -112,6 +123,9 @@
     currentClass: "state-loading",
     idleEmoteTimer: null,
     monsterAttackTimer: null,
+    statusToastTimer: null,
+    statusToastHideTimer: null,
+    pendingStatusReason: null,
   };
 
   function isAfk() {
@@ -165,6 +179,48 @@
     const pct = Math.min(100, (state.pendingClicks / speed) * 100);
     el.attackChargeFill.style.width = `${pct}%`;
     el.portraitWrap.classList.toggle("charging", state.pendingClicks > 0 && state.pendingClicks < speed);
+  }
+
+  function hideStatusToast() {
+    if (state.statusToastHideTimer) {
+      clearTimeout(state.statusToastHideTimer);
+      state.statusToastHideTimer = null;
+    }
+    if (!el.statusToast) return;
+    el.statusToast.textContent = "";
+    el.statusToast.classList.remove("visible");
+  }
+
+  function cancelStatusToast() {
+    if (state.statusToastTimer) {
+      clearTimeout(state.statusToastTimer);
+      state.statusToastTimer = null;
+    }
+    state.pendingStatusReason = null;
+    hideStatusToast();
+  }
+
+  function showStatusToast(msg) {
+    if (!el.statusToast || !msg) return;
+    el.statusToast.textContent = msg;
+    el.statusToast.classList.add("visible");
+    if (state.statusToastHideTimer) clearTimeout(state.statusToastHideTimer);
+    state.statusToastHideTimer = setTimeout(() => {
+      hideStatusToast();
+    }, STATUS_TOAST_VISIBLE_MS);
+  }
+
+  function scheduleStatusToast(reason) {
+    if (!reason) return;
+    state.pendingStatusReason = reason;
+    if (state.statusToastTimer) clearTimeout(state.statusToastTimer);
+    state.statusToastTimer = setTimeout(() => {
+      state.statusToastTimer = null;
+      if (state.pendingStatusReason !== reason) return;
+      const label = STATUS_REASON_LABELS[reason] || reason;
+      showStatusToast(label);
+      state.pendingStatusReason = null;
+    }, STATUS_TOAST_DELAY_MS);
   }
 
   function computeStateClass() {
@@ -410,6 +466,7 @@
       const rejected = api?.rejected_reason;
       if (batch.hitCount != null && batch.hitCount > 0 && rejected) {
         console.warn("[overlay] hit batch rejected:", rejected);
+        scheduleStatusToast(rejected);
       }
       const inner = api?.result && typeof api.result === "object" ? api.result : api;
       if (!inner || typeof inner !== "object") return;
@@ -420,6 +477,7 @@
         setWaifuHp(inner.waifu_current_hp, inner.waifu_max_hp);
       }
       if (inner.damage != null && Number(inner.damage) > 0) {
+        cancelStatusToast();
         showDamageNumber(inner.damage, Boolean(inner.is_crit));
       }
       if (inner.waifu_damage != null && Number(inner.waifu_damage) > 0) {

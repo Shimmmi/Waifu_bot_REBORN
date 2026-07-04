@@ -250,6 +250,32 @@ button {
   transform-origin: 50% 90%;
 }
 
+.ov-status-toast {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 92%;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(20, 22, 36, 0.88);
+  color: #b8bdd4;
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 5;
+}
+
+.ov-status-toast.visible {
+  opacity: 1;
+}
+
 #ov-portrait {
   max-width: 100%;
   max-height: 100%;

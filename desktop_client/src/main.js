@@ -4,29 +4,26 @@ const { app, ipcMain, BrowserWindow } = require("electron");
 const config = require("./config");
 const { waitForBackend } = require("./backend/waitForBackend");
 const { createOverlayWindow } = require("./windows/overlayWindow");
-const { createMainWindow, openTabWindow } = require("./windows/appWindow");
+const { openTabWindow } = require("./windows/appWindow");
 const inputTracker = require("./input/inputTracker");
 const steamworksClient = require("./steam/steamworksClient");
 
-let mainWindow = null;
 let overlayWindow = null;
 let inputTrackerHandle = null;
 
 function createWindows() {
-  mainWindow = createMainWindow();
   overlayWindow = createOverlayWindow();
 
-  mainWindow.on("closed", () => {
-    mainWindow = null;
-  });
   overlayWindow.on("closed", () => {
     overlayWindow = null;
   });
 }
 
 ipcMain.handle("open-tab", (event, page) => {
-  const parent = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-  openTabWindow(parent, String(page || "index.html"));
+  const sender = BrowserWindow.fromWebContents(event.sender);
+  const anchor =
+    overlayWindow && !overlayWindow.isDestroyed() ? overlayWindow : sender;
+  openTabWindow(anchor, String(page || "index.html"));
 });
 
 ipcMain.handle("close-window", (event) => {

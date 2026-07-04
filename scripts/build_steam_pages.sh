@@ -20,6 +20,9 @@ for page in shop dungeons profile; do
   # Steam shell class + compact CSS
   sed -i "s/<body class=\"page-${page}\"/<body class=\"page-${page} page-steam-shell\"/" "$dst"
   sed -i "s/<body class=\"page-${page} page-steam-shell\" onload/<body class=\"page-${page} page-steam-shell\" onload/" "$dst" 2>/dev/null || true
+  if ! grep -q 'desktop-theme.css' "$dst"; then
+    sed -i "0,/<link rel=\"stylesheet\"/s//<link rel=\"stylesheet\" href=\"\/webapp\/desktop-theme.css?v=${VERSION}\" \/>\n    <link rel=\"stylesheet\"/" "$dst"
+  fi
   if ! grep -q 'steam-pages.css' "$dst"; then
     sed -i "0,/<link rel=\"stylesheet\"/s//<link rel=\"stylesheet\" href=\".\/steam-pages.css?v=${VERSION}\" \/>\n    <link rel=\"stylesheet\"/" "$dst"
   fi

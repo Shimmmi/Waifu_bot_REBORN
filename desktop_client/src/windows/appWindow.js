@@ -7,6 +7,7 @@ const { loadUrlWithRetry } = require("./loadWithRetry");
 
 const TAB_W = 420;
 const TAB_H = 700;
+const TAB_OFFSET_GAP = 16;
 
 /**
  * Main application window (shop/tavern/guild hall/... — same pages as the
@@ -46,16 +47,25 @@ function createMainWindow() {
  * main window (e.g. shop.html, tavern.html, guild_hall.html), instead of
  * navigating the main window away from the current page.
  */
-function openTabWindow(parentWindow, page) {
+function openTabWindow(anchorWindow, page) {
+  let x;
+  let y;
+  if (anchorWindow && !anchorWindow.isDestroyed()) {
+    const bounds = anchorWindow.getBounds();
+    x = Math.max(0, bounds.x - TAB_W - TAB_OFFSET_GAP);
+    y = bounds.y;
+  }
+
   const win = new BrowserWindow({
     width: TAB_W,
     height: TAB_H,
+    x,
+    y,
     minWidth: TAB_W,
     maxWidth: TAB_W,
     minHeight: TAB_H,
     maxHeight: TAB_H,
     resizable: false,
-    parent: parentWindow || undefined,
     frame: false,
     backgroundColor: "#0f172a",
     webPreferences: {

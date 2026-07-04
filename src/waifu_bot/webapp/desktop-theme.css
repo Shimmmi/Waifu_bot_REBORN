@@ -96,6 +96,19 @@ html.desktop-client.desktop-window #steam-viewport {
   -webkit-app-region: drag;
 }
 
+html.desktop-client.desktop-window #steam-viewport .screen,
+html.desktop-client.desktop-window #steam-viewport .shop-stage,
+html.desktop-client.desktop-window #steam-viewport main,
+html.desktop-client.desktop-window #steam-viewport .layout,
+html.desktop-client.desktop-window #steam-viewport .title-screen-main {
+  -webkit-app-region: drag;
+}
+
+html.desktop-client.desktop-window #steam-viewport .shop-stage-bg,
+html.desktop-client.desktop-window #steam-viewport .title-screen-bg {
+  pointer-events: none;
+}
+
 html.desktop-client.desktop-window .desktop-titlebar {
   position: fixed;
   top: 0;

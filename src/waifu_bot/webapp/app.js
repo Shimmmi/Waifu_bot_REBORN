@@ -81,7 +81,7 @@ if (typeof window !== "undefined") {
     if (!document.querySelector("link[data-desktop-theme]")) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = `./desktop-theme.css?v=${WAIFU_WEBAPP_VERSION}`;
+      link.href = `/webapp/desktop-theme.css?v=${WAIFU_WEBAPP_VERSION}`;
       link.setAttribute("data-desktop-theme", "1");
       document.head.appendChild(link);
     }
@@ -3242,6 +3242,8 @@ async function applyShopSmithNavigationIntent(intent) {
 async function bootstrapShopPage() {
   await initPage("shop");
   let profile = null;
+  let shopAuthRequired = false;
+  let shopLoadFailed = false;
   const actHint = safeInt(profileState.currentProfile?.act ?? shopState.act, 1);
   const shopSmithNavIntent = consumeShopSmithIntent();
   const profilePromise = loadProfile({ lite: true, skipAtticRefresh: true })
@@ -3259,9 +3261,46 @@ async function bootstrapShopPage() {
       return null;
     });
 
-  await Promise.all([profilePromise, loadShop(actHint)]);
+  const shopPromise = loadShop(actHint).catch((err) => {
+    if (isWebAppUnauthorizedError(err)) {
+      shopAuthRequired = true;
+      return null;
+    }
+    console.error("Failed to load shop:", err);
+    shopLoadFailed = true;
+    return null;
+  });
+
+  await Promise.all([profilePromise, shopPromise]);
 
   const p = profile || profileState.currentProfile;
+  if (p?.__authRequired || shopAuthRequired) {
+    const errBox = document.getElementById("shop-profile-error");
+    if (errBox) {
+      errBox.style.display = "";
+      errBox.innerHTML = webAppAuthNoticeHtml();
+    }
+    const grid = document.getElementById("shop-buy-grid");
+    if (grid) {
+      grid.innerHTML = "";
+      grid.classList.add("placeholder");
+    }
+    return;
+  }
+  if (shopLoadFailed) {
+    const errBox = document.getElementById("shop-profile-error");
+    if (errBox) {
+      errBox.style.display = "";
+      errBox.textContent = "Не удалось загрузить магазин.";
+    }
+    const grid = document.getElementById("shop-buy-grid");
+    if (grid) {
+      grid.innerHTML = "";
+      grid.classList.add("placeholder");
+    }
+    return;
+  }
+
   const act = safeInt(p?.act ?? actHint, 1);
   applyShopHeroImages(act);
   updateShopProfileError(p);
