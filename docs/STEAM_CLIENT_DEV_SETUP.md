@@ -696,7 +696,23 @@ Tab-окна shop/dungeons/profile открываются из оверлея к
 | 404 vendor/assets | Старые `steam/*.html` с `./vendor/` | Перегенерировать: `bash scripts/build_steam_pages.sh` |
 | Квадрат 420×420 | Hero `aspect-ratio: 3/2` обрезается | Follow-up: уменьшить `.shop-hero` в `steam-pages.css` |
 
-**Диагностика в DevTools tab-окна магазина:** Network → `/api/shop/inventory`; Console → bootstrap errors.
+**Диагностика в DevTools tab-окна магазина:** Network → `/api/shop/inventory`; Console → `Failed to load shop:` (полный текст ошибки).
+
+Если баннер «Не удалось загрузить магазин» с **detail** (не Steam-auth notice):
+
+1. DevTools → **Network** → запрос `/api/shop/inventory?act=1` — статус (401 / 500 / 502).
+2. DevTools → **Console** → строка `Failed to load shop:` с HTTP status и телом ответа.
+3. **401/403** → `steamTicketDev` + `APP_ENV`; перезапуск Electron.
+4. **500** → `docker compose logs api` на машине с backend.
+5. **502 / network** → backend недоступен или неверный `backendUrl` в `config.local.json`.
+6. После правок `app.js` обязателен `./scripts/build_webapp.sh` + docker `--build` (tab грузит `app.min.js`).
+
+Локальная проверка API после deploy:
+
+```bash
+export WAIFU_STEAM_TICKET_DEV="<ваш SteamID64 из config.local.json>"
+bash scripts/verify_steam_webapp_deploy.sh
+```
 
 ## Admin для dev Steam-аккаунта
 

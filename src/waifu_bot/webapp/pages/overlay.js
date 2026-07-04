@@ -470,26 +470,33 @@
       `${MONSTER_STATIC_BASE}/${family}/${slug}.webp`,
       `${MONSTER_STATIC_BASE}/${family}/_family_t${tier}.webp`,
       `${MONSTER_STATIC_BASE}/${family}/_family.webp`,
-      MONSTER_PLACEHOLDER,
       `${MONSTER_STATIC_BASE}/_unknown.webp`,
     ];
   }
 
-  function setMonsterImageOn(imgEl, d) {
-    if (!imgEl) return;
+  function setMonsterTargetImage() {
+    if (!el.monsterTargetImg) return;
+    el.monsterTargetImg.onerror = null;
+    if (el.monsterTargetImg.getAttribute("src") !== MONSTER_PLACEHOLDER) {
+      el.monsterTargetImg.src = MONSTER_PLACEHOLDER;
+    }
+  }
+
+  function setMonsterStripImage(d) {
+    if (!el.monsterImg) return;
     const urls = monsterImageUrls(d);
     let i = 0;
-    imgEl.onerror = () => {
+    el.monsterImg.onerror = () => {
       i += 1;
-      if (i < urls.length) imgEl.src = urls[i];
-      else imgEl.onerror = null;
+      if (i < urls.length) el.monsterImg.src = urls[i];
+      else el.monsterImg.onerror = null;
     };
-    if (imgEl.getAttribute("src") !== urls[0]) imgEl.src = urls[0];
+    if (el.monsterImg.getAttribute("src") !== urls[0]) el.monsterImg.src = urls[0];
   }
 
   function setMonsterImage(d) {
-    setMonsterImageOn(el.monsterImg, d);
-    setMonsterImageOn(el.monsterTargetImg, d);
+    setMonsterStripImage(d);
+    setMonsterTargetImage();
   }
 
   async function loadDungeon() {

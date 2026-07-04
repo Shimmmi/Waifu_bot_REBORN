@@ -660,12 +660,43 @@ function isWebAppUnauthorizedError(err) {
   );
 }
 
+/** Steam desktop: any 401/403 from API is treated as auth failure. */
+function isDesktopAuthError(err) {
+  if (!isDesktopClient()) return false;
+  const msg = String(err?.message || "");
+  return /\bHTTP 401\b/.test(msg) || /\bHTTP 403\b/.test(msg);
+}
+
+function isApiAuthError(err) {
+  return isWebAppUnauthorizedError(err) || isDesktopAuthError(err);
+}
+
+function isServerUnavailableError(err) {
+  const msg = String(err?.message || "");
+  return /\bHTTP 50[023]\b/.test(msg) || isFetchNetworkError(err);
+}
+
+function formatShopLoadErrorHtml(err) {
+  if (isServerUnavailableError(err)) return serverUnavailableNoticeHtml();
+  const { raw, detail } = parseHttpErrorDetail(err);
+  const detailText = detail || raw || String(err?.message || "unknown error");
+  const devHint = isDesktopClient()
+    ? `<p class="muted">DevTools → Network: <code>/api/shop/inventory</code>; Console: <code>Failed to load shop</code>.</p>`
+    : "";
+  return `<div class="webapp-auth-notice" role="alert">
+    <h3 class="webapp-auth-notice-title">Не удалось загрузить магазин</h3>
+    <p>${escapeHtml(detailText)}</p>
+    ${devHint}
+  </div>`;
+}
+
 /** Сообщение при открытии WebApp вне Telegram или без валидного initData. */
 function webAppAuthNoticeHtml() {
   if (isDesktopClient()) {
     return `<div class="webapp-auth-notice" role="alert">
       <h3 class="webapp-auth-notice-title">Не удалось войти через Steam</h3>
       <p>Не получили действительный Steam-билет от клиента. Перезапустите приложение или переустановите его через Steam.</p>
+      <p class="muted">Dev/stage: задайте <code>steamTicketDev</code> в <code>desktop_client/config.local.json</code> и убедитесь, что на сервере <code>APP_ENV=stage</code>, <code>dev</code> или <code>testing</code>.</p>
       <p class="muted">Если проблема повторяется, обратитесь в поддержку и укажите, что ошибка возникла в Steam-версии.</p>
     </div>`;
   }
@@ -3255,6 +3286,7 @@ async function bootstrapShopPage() {
   let profile = null;
   let shopAuthRequired = false;
   let shopLoadFailed = false;
+  let shopLoadError = null;
   const actHint = safeInt(profileState.currentProfile?.act ?? shopState.act, 1);
   const shopSmithNavIntent = consumeShopSmithIntent();
   const profilePromise = loadProfile({ lite: true, skipAtticRefresh: true })
@@ -3263,8 +3295,8 @@ async function bootstrapShopPage() {
       return p;
     })
     .catch((err) => {
-      if (isWebAppUnauthorizedError(err)) {
-        console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
+      if (isApiAuthError(err)) {
+        console.warn("Профиль недоступен: проверьте Steam auth или ?devPlayerId= при APP_ENV=dev.");
         profile = { __authRequired: true };
         return profile;
       }
@@ -3273,12 +3305,13 @@ async function bootstrapShopPage() {
     });
 
   const shopPromise = loadShop(actHint).catch((err) => {
-    if (isWebAppUnauthorizedError(err)) {
+    if (isApiAuthError(err)) {
       shopAuthRequired = true;
       return null;
     }
     console.error("Failed to load shop:", err);
     shopLoadFailed = true;
+    shopLoadError = err;
     return null;
   });
 
@@ -3302,7 +3335,11 @@ async function bootstrapShopPage() {
     const errBox = document.getElementById("shop-profile-error");
     if (errBox) {
       errBox.style.display = "";
-      errBox.textContent = "Не удалось загрузить магазин.";
+      if (shopLoadError) {
+        errBox.innerHTML = formatShopLoadErrorHtml(shopLoadError);
+      } else {
+        errBox.textContent = "Не удалось загрузить магазин.";
+      }
     }
     const grid = document.getElementById("shop-buy-grid");
     if (grid) {

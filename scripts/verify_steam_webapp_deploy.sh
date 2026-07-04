@@ -34,6 +34,20 @@ check "app.min.js uses /webapp/desktop-theme.css" \
 check "desktop-theme.css has titlebar drag strip" \
   bash -c 'curl -sf "$BASE/webapp/desktop-theme.css" | grep -q "desktop-titlebar"'
 
+check "overlay.js uses setMonsterTargetImage placeholder" \
+  bash -c 'curl -sf "$BASE/webapp/pages/overlay.js" | grep -q "setMonsterTargetImage"'
+
+STEAM_DEV="${WAIFU_STEAM_TICKET_DEV:-}"
+if [[ -n "$STEAM_DEV" ]]; then
+  export STEAM_DEV
+  check "GET /api/profile?lite=1 (Steam dev ticket)" \
+    bash -c 'curl -sf -H "X-Steam-Ticket-Dev: ${STEAM_DEV}" "${BASE}/api/profile?lite=1" >/dev/null'
+  check "GET /api/shop/inventory?act=1 (Steam dev ticket)" \
+    bash -c 'curl -sf -H "X-Steam-Ticket-Dev: ${STEAM_DEV}" "${BASE}/api/shop/inventory?act=1" >/dev/null'
+else
+  echo "[SKIP] Steam API auth checks (set WAIFU_STEAM_TICKET_DEV to enable)"
+fi
+
 if [[ "$FAIL" -ne 0 ]]; then
   echo >&2
   echo "Deploy verification failed. Rebuild api image:" >&2

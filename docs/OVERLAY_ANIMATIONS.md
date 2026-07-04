@@ -122,7 +122,7 @@ Emoji bubble still shown as fallback label until WebP exists.
 | Slot | Path | Fallback |
 |------|------|----------|
 | Sleep overlay | `base/sleep.webp` | CSS `ovBreath` |
-| Monster placeholder | `placeholder/monster.webp` | SVG / emoji 👾 |
+| Monster placeholder | `placeholder/monster.webp` | Always used for **combat target** (`#ov-monster-target-img`) until overlay-specific monster art exists. HUD strip may still use dungeon art (hidden in battle). |
 
 ## API (lite profile)
 
