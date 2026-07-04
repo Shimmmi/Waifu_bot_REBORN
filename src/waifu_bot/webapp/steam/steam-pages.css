@@ -13,7 +13,7 @@ html.desktop-client.desktop-window body.page-steam-shell #steam-viewport,
 html.desktop-client.desktop-window body.page-steam-shell .screen,
 html.desktop-client.desktop-window body.page-steam-shell .shop-stage,
 html.desktop-client.desktop-window body.page-steam-shell main.profile-layout {
-  max-height: 700px;
+  max-height: calc(700px - 28px);
   overflow: hidden;
   -webkit-app-region: drag;
 }
@@ -63,14 +63,14 @@ body.page-steam-shell.page-profile .layout.profile-layout {
 
 body.page-steam-shell.page-profile .tab-panel.active {
   overflow: hidden;
-  max-height: 540px;
+  max-height: calc(672px - 160px);
 }
 
 body.page-steam-shell.page-profile #tab-inventory.tab-panel.active {
-  max-height: 560px;
+  max-height: calc(672px - 140px);
 }
 
 body.page-steam-shell.page-profile .profile-inv-grid-wrap {
-  max-height: 480px;
+  max-height: calc(672px - 220px);
   overflow: hidden;
 }

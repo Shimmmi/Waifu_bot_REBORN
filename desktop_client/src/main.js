@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, ipcMain, BrowserWindow } = require("electron");
+const { app, ipcMain, BrowserWindow, session } = require("electron");
 const config = require("./config");
 const { waitForBackend } = require("./backend/waitForBackend");
 const { createOverlayWindow } = require("./windows/overlayWindow");
@@ -69,6 +69,9 @@ async function bootDesktopClient() {
 }
 
 app.whenReady().then(() => {
+  if (process.env.WAIFU_APP_ENV === "dev") {
+    session.defaultSession.clearCache().catch(() => {});
+  }
   bootDesktopClient().catch((err) => {
     console.error("[waifu-desktop] boot failed:", err.message);
   });

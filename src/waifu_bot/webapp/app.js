@@ -3101,6 +3101,17 @@ function initAtticMenu() {
 }
 
 function registerWaifuServiceWorker() {
+  if (isDesktopClient()) {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) => {
+          for (const reg of regs) reg.unregister();
+        })
+        .catch(() => {});
+    }
+    return;
+  }
   if (!("serviceWorker" in navigator)) return;
   if (!window.__waifuSwControllerBound) {
     window.__waifuSwControllerBound = true;

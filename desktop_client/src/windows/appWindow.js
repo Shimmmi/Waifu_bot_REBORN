@@ -53,7 +53,7 @@ function openTabWindow(anchorWindow, page) {
   if (anchorWindow && !anchorWindow.isDestroyed()) {
     const bounds = anchorWindow.getBounds();
     x = Math.max(0, bounds.x - TAB_W - TAB_OFFSET_GAP);
-    y = bounds.y;
+    y = bounds.y + bounds.height - TAB_H;
   }
 
   const win = new BrowserWindow({

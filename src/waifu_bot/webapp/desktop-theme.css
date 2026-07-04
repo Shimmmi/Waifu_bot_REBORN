@@ -65,22 +65,29 @@ html.desktop-client.desktop-overlay [role="button"] {
   -webkit-app-region: no-drag;
 }
 
-/* Regular (non-overlay) desktop windows: same UI as the WebApp, just without
-   Telegram-specific chrome. These windows are frameless (see
-   desktop_client/src/windows/appWindow.js), so the whole background is a
-   drag region — same pattern as the overlay — with normal interactive
-   elements excluded so clicks/scrolling still work everywhere. */
+/* Tab windows (420×700, frameless): fixed viewport + top drag strip + close ×. */
 html.desktop-client.desktop-window,
 html.desktop-client.desktop-window body {
-  width: 100%;
-  height: 100%;
+  width: 420px !important;
+  height: 700px !important;
+  min-width: 420px !important;
+  max-width: 420px !important;
+  min-height: 700px !important;
+  max-height: 700px !important;
   overflow: hidden;
   margin: 0;
+  box-sizing: border-box;
 }
 
 html.desktop-client.desktop-window body {
-  -webkit-app-region: drag;
   padding-bottom: 0 !important;
+  position: relative;
+}
+
+html.desktop-client.desktop-window body[class*="page-"] {
+  min-height: 700px !important;
+  max-height: 700px !important;
+  height: 700px !important;
 }
 
 html.desktop-client.desktop-window header.attic,
@@ -88,42 +95,23 @@ html.desktop-client.desktop-window nav.basement {
   display: none !important;
 }
 
-html.desktop-client.desktop-window #steam-viewport {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  box-sizing: border-box;
-  -webkit-app-region: drag;
-}
-
-html.desktop-client.desktop-window #steam-viewport .screen,
-html.desktop-client.desktop-window #steam-viewport .shop-stage,
-html.desktop-client.desktop-window #steam-viewport main,
-html.desktop-client.desktop-window #steam-viewport .layout,
-html.desktop-client.desktop-window #steam-viewport .title-screen-main {
-  -webkit-app-region: drag;
-}
-
-html.desktop-client.desktop-window #steam-viewport .shop-stage-bg,
-html.desktop-client.desktop-window #steam-viewport .title-screen-bg {
-  pointer-events: none;
-}
-
 html.desktop-client.desktop-window .desktop-titlebar {
   position: fixed;
   top: 0;
+  left: 0;
   right: 0;
-  left: auto;
-  width: auto;
-  height: auto;
-  padding: 4px 6px 0 0;
-  pointer-events: none;
-  -webkit-app-region: no-drag;
+  width: 100%;
+  height: 28px;
   z-index: 100001;
+  pointer-events: auto;
+  -webkit-app-region: drag;
+  box-sizing: border-box;
 }
 
 html.desktop-client.desktop-window .desktop-close-btn {
-  position: static;
+  position: absolute;
+  top: 4px;
+  right: 8px;
   pointer-events: auto;
   -webkit-app-region: no-drag;
   width: 28px;
@@ -141,6 +129,28 @@ html.desktop-client.desktop-window .desktop-close-btn {
 html.desktop-client.desktop-window .desktop-close-btn:hover {
   background: rgba(180, 60, 60, 0.92);
   color: #fff;
+}
+
+html.desktop-client.desktop-window #steam-viewport {
+  width: 100%;
+  height: calc(700px - 28px);
+  margin-top: 28px;
+  overflow: hidden;
+  box-sizing: border-box;
+  -webkit-app-region: drag;
+}
+
+html.desktop-client.desktop-window #steam-viewport .screen,
+html.desktop-client.desktop-window #steam-viewport .shop-stage,
+html.desktop-client.desktop-window #steam-viewport main,
+html.desktop-client.desktop-window #steam-viewport .layout,
+html.desktop-client.desktop-window #steam-viewport .title-screen-main {
+  -webkit-app-region: drag;
+}
+
+html.desktop-client.desktop-window #steam-viewport .shop-stage-bg,
+html.desktop-client.desktop-window #steam-viewport .title-screen-bg {
+  pointer-events: none;
 }
 
 html.desktop-client.desktop-window button,

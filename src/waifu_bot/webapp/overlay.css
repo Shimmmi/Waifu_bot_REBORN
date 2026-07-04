@@ -252,8 +252,8 @@ button {
 
 .ov-status-toast {
   position: absolute;
-  bottom: calc(100% + 4px);
   left: 50%;
+  bottom: 38%;
   transform: translateX(-50%);
   max-width: 92%;
   padding: 3px 8px;
@@ -269,7 +269,7 @@ button {
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.2s ease;
-  z-index: 5;
+  z-index: 20;
 }
 
 .ov-status-toast.visible {

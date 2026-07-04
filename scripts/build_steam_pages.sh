@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WEBAPP="$ROOT/src/waifu_bot/webapp"
 STEAM="$WEBAPP/steam"
-VERSION="$(grep -oE 'waifu-webapp-v[0-9]+' "$WEBAPP/app.js" | head -1 || echo waifu-webapp-v51)"
+VERSION="$(grep -oE 'waifu-webapp-v[0-9]+' "$WEBAPP/sw.js" | head -1 || echo waifu-webapp-v51)"
 
 mkdir -p "$STEAM"
 
@@ -22,9 +22,14 @@ for page in shop dungeons profile; do
   sed -i "s/<body class=\"page-${page} page-steam-shell\" onload/<body class=\"page-${page} page-steam-shell\" onload/" "$dst" 2>/dev/null || true
   if ! grep -q 'desktop-theme.css' "$dst"; then
     sed -i "0,/<link rel=\"stylesheet\"/s//<link rel=\"stylesheet\" href=\"\/webapp\/desktop-theme.css?v=${VERSION}\" \/>\n    <link rel=\"stylesheet\"/" "$dst"
+  else
+    sed -i "s|/webapp/desktop-theme.css?v=waifu-webapp-v[0-9]*|/webapp/desktop-theme.css?v=${VERSION}|g" "$dst"
+    sed -i "s|\./desktop-theme.css?v=waifu-webapp-v[0-9]*|/webapp/desktop-theme.css?v=${VERSION}|g" "$dst"
   fi
   if ! grep -q 'steam-pages.css' "$dst"; then
     sed -i "0,/<link rel=\"stylesheet\"/s//<link rel=\"stylesheet\" href=\".\/steam-pages.css?v=${VERSION}\" \/>\n    <link rel=\"stylesheet\"/" "$dst"
+  else
+    sed -i "s|steam-pages.css?v=waifu-webapp-v[0-9]*|steam-pages.css?v=${VERSION}|g" "$dst"
   fi
   # Hidden attic stubs: keep badge IDs for loadProfile/initPage but remove visible chrome
   sed -i 's/<header class="attic"/<header class="attic" style="display:none !important" aria-hidden="true"/' "$dst"

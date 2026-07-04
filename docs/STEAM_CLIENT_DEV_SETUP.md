@@ -248,6 +248,11 @@ Copy-Item config.example.json config.local.json
 
 ### Обязательно после `git pull` + `docker compose up -d --build`
 
+**Webapp (CSS/JS для tab-окон и overlay) живёт в Docker-образе `api`.**
+`npm run dev` обновляет только Electron локально. Если после pull
+видны старые кнопки закрытия / drag / overlay-status — образ не пересобран
+или `docker compose restart` вместо `--build`.
+
 **Не запускайте `npm run dev`, пока бэкенд не отвечает с вашей машины (Windows),
 а не только «healthy» внутри контейнера.** После пересборки образа Docker Desktop
 for Windows часто ещё несколько секунд (иногда минуту) не пробрасывает
@@ -258,12 +263,17 @@ for Windows часто ещё несколько секунд (иногда ми
 
 ```powershell
 git pull origin feature/steam-client
+./scripts/build_webapp.sh
+bash scripts/build_steam_pages.sh
 docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build --wait
 docker compose -f docker-compose.staging.yml --env-file .env.staging exec api alembic upgrade head
 powershell -ExecutionPolicy Bypass -File scripts/check_staging_backend.ps1
+bash scripts/verify_steam_webapp_deploy.sh
 ```
 
-Все пункты скрипта должны быть `[OK]`. Только после этого:
+`docker compose restart` **не** подхватывает новый webapp — нужен `--build`.
+
+Все пункты check-скрипта и verify должны быть `[OK]`. Только после этого:
 
 ```powershell
 cd desktop_client
