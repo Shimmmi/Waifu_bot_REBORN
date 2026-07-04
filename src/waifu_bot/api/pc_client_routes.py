@@ -6,10 +6,9 @@ making one HTTP request per click (see input_tracker.js). This route does
 NOT introduce a new damage/balance path: each unit of the batch is applied
 by calling the *existing* CombatService.process_message_damage() exactly the
 way the WebApp "continue" button already does (see /dungeons/continue in
-dungeon_routes.py), and is subject to the *same* Redis-backed per-player
-spam gate (MAX_MESSAGES_PER_WINDOW / SPAM_WINDOW_SECONDS) as Telegram
-messages and WebApp clicks — a player linked to the same player_id via
-Steam cannot out-pace the existing rate limit by batching more clicks.
+dungeon_routes.py), with skip_spam_check=True so Steam desktop clicks are
+not gated by the Telegram/WebApp Redis spam window. MAX_HITS_PER_REQUEST
+still caps work per HTTP request.
 """
 from __future__ import annotations
 
@@ -29,11 +28,8 @@ router = APIRouter(prefix="/pc", tags=["pc_client"])
 
 combat_service = CombatService(redis_client=get_redis())
 
-# Upper bound on how many hits a single HTTP request will ever try to apply,
-# regardless of what the client reports. The real pacing is enforced by
-# CombatService's existing spam gate (shared with Telegram/WebApp); this is
-# just a sane ceiling on per-request DB work. Calibrate on staging (Этап 2
-# follow-up) once real click cadence from the Electron tracker is measured.
+# CombatService's spam gate still applies to Telegram/WebApp; PC batch passes
+# skip_spam_check=True. This value caps per-request DB work only.
 MAX_HITS_PER_REQUEST = 10
 
 
@@ -69,6 +65,7 @@ async def submit_pc_hit_batch(
             MediaType.STICKER,
             message_text=None,
             message_length=0,
+            skip_spam_check=True,
         )
         if last_result.get("error"):
             # spam_detected / no_active_battle / no_waifu / no_monster / abyss_session_active etc. —

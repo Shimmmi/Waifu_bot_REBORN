@@ -22,25 +22,30 @@ async def test_batch_applies_all_hits_when_under_cap(monkeypatch):
     assert out.applied == 3
     assert out.rejected_reason is None
     assert mock_hit.await_count == 3
+    for call in mock_hit.await_args_list:
+        assert call.kwargs.get("skip_spam_check") is True
 
 
 @pytest.mark.asyncio
-async def test_batch_stops_early_on_spam_detected(monkeypatch):
+async def test_batch_skips_spam_gate_for_pc_hits(monkeypatch):
     mock_hit = AsyncMock(
         side_effect=[
             {"damage_done": 5},
-            {"error": "spam_detected", "message": "Too many messages"},
+            {"damage_done": 5},
+            {"damage_done": 5},
         ]
     )
     monkeypatch.setattr(pc_client_routes.combat_service, "process_message_damage", mock_hit)
 
     out = await submit_pc_hit_batch(
-        PcHitBatchIn(hit_count=10), player_id=123, session=AsyncMock()
+        PcHitBatchIn(hit_count=3), player_id=123, session=AsyncMock()
     )
 
-    assert out.applied == 1
-    assert out.rejected_reason == "spam_detected"
-    assert mock_hit.await_count == 2
+    assert out.applied == 3
+    assert out.rejected_reason is None
+    assert mock_hit.await_count == 3
+    for call in mock_hit.await_args_list:
+        assert call.kwargs.get("skip_spam_check") is True
 
 
 @pytest.mark.asyncio
@@ -55,6 +60,7 @@ async def test_batch_stops_early_on_no_active_battle(monkeypatch):
     assert out.applied == 0
     assert out.rejected_reason == "no_active_battle"
     assert mock_hit.await_count == 1
+    assert mock_hit.await_args.kwargs.get("skip_spam_check") is True
 
 
 @pytest.mark.asyncio

@@ -70,10 +70,17 @@ html.desktop-client.desktop-overlay [role="button"] {
    desktop_client/src/windows/appWindow.js), so the whole background is a
    drag region — same pattern as the overlay — with normal interactive
    elements excluded so clicks/scrolling still work everywhere. */
+html.desktop-client.desktop-window,
+html.desktop-client.desktop-window body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  margin: 0;
+}
+
 html.desktop-client.desktop-window body {
   -webkit-app-region: drag;
   padding-bottom: 0 !important;
-  overflow: hidden;
 }
 
 html.desktop-client.desktop-window header.attic,
@@ -82,29 +89,28 @@ html.desktop-client.desktop-window nav.basement {
 }
 
 html.desktop-client.desktop-window #steam-viewport {
-  width: 420px;
-  min-height: calc(100vh - 28px);
-  max-height: calc(100vh - 28px);
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   box-sizing: border-box;
+  -webkit-app-region: drag;
 }
 
 html.desktop-client.desktop-window .desktop-titlebar {
   position: fixed;
   top: 0;
   right: 0;
-  left: 0;
-  height: 28px;
-  z-index: 100000;
+  left: auto;
+  width: auto;
+  height: auto;
+  padding: 4px 6px 0 0;
   pointer-events: none;
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag;
+  z-index: 100001;
 }
 
 html.desktop-client.desktop-window .desktop-close-btn {
-  position: fixed;
-  top: 4px;
-  right: 8px;
-  z-index: 100001;
+  position: static;
   pointer-events: auto;
   -webkit-app-region: no-drag;
   width: 28px;

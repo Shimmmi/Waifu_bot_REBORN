@@ -6,20 +6,20 @@
 html.desktop-client.desktop-window body.page-steam-shell {
   overflow: hidden !important;
   padding-bottom: 0 !important;
-  max-height: 100vh;
+  max-height: 700px;
 }
 
 html.desktop-client.desktop-window body.page-steam-shell #steam-viewport,
 html.desktop-client.desktop-window body.page-steam-shell .screen,
 html.desktop-client.desktop-window body.page-steam-shell .shop-stage,
 html.desktop-client.desktop-window body.page-steam-shell main.profile-layout {
-  max-height: calc(100vh - 28px);
+  max-height: 700px;
   overflow: hidden;
 }
 
 /* Shop: smaller hero, tighter tabs */
 body.page-steam-shell.page-shop .shop-hero {
-  max-height: 22vh;
+  max-height: 154px;
 }
 
 body.page-steam-shell.page-shop .shop-btabs {
@@ -62,14 +62,14 @@ body.page-steam-shell.page-profile .layout.profile-layout {
 
 body.page-steam-shell.page-profile .tab-panel.active {
   overflow: hidden;
-  max-height: calc(100vh - 160px);
+  max-height: 540px;
 }
 
 body.page-steam-shell.page-profile #tab-inventory.tab-panel.active {
-  max-height: calc(100vh - 140px);
+  max-height: 560px;
 }
 
 body.page-steam-shell.page-profile .profile-inv-grid-wrap {
-  max-height: calc(100vh - 220px);
+  max-height: 480px;
   overflow: hidden;
 }

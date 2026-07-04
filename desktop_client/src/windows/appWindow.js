@@ -5,6 +5,9 @@ const path = require("path");
 const config = require("../config");
 const { loadUrlWithRetry } = require("./loadWithRetry");
 
+const TAB_W = 420;
+const TAB_H = 700;
+
 /**
  * Main application window (shop/tavern/guild hall/... — same pages as the
  * Telegram WebApp, loaded over HTTP with ?desktopClient=1). Normal window
@@ -18,8 +21,11 @@ function createMainWindow() {
   const win = new BrowserWindow({
     width,
     height,
-    minWidth: 360,
-    minHeight: 480,
+    minWidth: width,
+    maxWidth: width,
+    minHeight: height,
+    maxHeight: height,
+    resizable: false,
     backgroundColor: "#0f172a",
     webPreferences: {
       preload: path.join(__dirname, "..", "preload.js"),
@@ -42,8 +48,13 @@ function createMainWindow() {
  */
 function openTabWindow(parentWindow, page) {
   const win = new BrowserWindow({
-    width: 420,
-    height: 700,
+    width: TAB_W,
+    height: TAB_H,
+    minWidth: TAB_W,
+    maxWidth: TAB_W,
+    minHeight: TAB_H,
+    maxHeight: TAB_H,
+    resizable: false,
     parent: parentWindow || undefined,
     frame: false,
     backgroundColor: "#0f172a",

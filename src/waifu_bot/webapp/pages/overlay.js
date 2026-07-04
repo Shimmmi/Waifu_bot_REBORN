@@ -100,7 +100,6 @@
     waifuHpText: $("ov-waifu-hp-text"),
     attackCharge: $("ov-attack-charge"),
     attackChargeFill: $("ov-attack-charge-fill"),
-    status: $("ov-status"),
   };
 
   const state = {
@@ -113,7 +112,6 @@
     currentClass: "state-loading",
     idleEmoteTimer: null,
     monsterAttackTimer: null,
-    statusClearTimer: null,
   };
 
   function isAfk() {
@@ -167,15 +165,6 @@
     const pct = Math.min(100, (state.pendingClicks / speed) * 100);
     el.attackChargeFill.style.width = `${pct}%`;
     el.portraitWrap.classList.toggle("charging", state.pendingClicks > 0 && state.pendingClicks < speed);
-  }
-
-  function flashStatus(msg, ms = 2500) {
-    if (!el.status) return;
-    el.status.textContent = msg;
-    if (state.statusClearTimer) clearTimeout(state.statusClearTimer);
-    state.statusClearTimer = setTimeout(() => {
-      if (el.status.textContent === msg) el.status.textContent = "";
-    }, ms);
   }
 
   function computeStateClass() {
@@ -330,18 +319,13 @@
         setWaifuLevel(mw.level);
         setPortrait(mw.portrait_url || null);
         setWaifuHp(mw.current_hp, mw.max_hp);
-        if (!el.status.textContent || el.status.textContent === "Нет связи с сервером") {
-          el.status.textContent = "";
-        }
       } else {
         el.waifuName.textContent = "Нет вайфу";
         el.waifuLevel.textContent = "";
-        el.status.textContent = "Создайте персонажа в основном окне";
         setPortrait(null);
       }
       applyState();
     } catch (err) {
-      el.status.textContent = "Нет связи с сервером";
       console.warn("[overlay] profile load failed:", err.message);
     }
   }
@@ -425,14 +409,7 @@
       const api = batch.result && typeof batch.result === "object" ? batch.result : null;
       const rejected = api?.rejected_reason;
       if (batch.hitCount != null && batch.hitCount > 0 && rejected) {
-        const reasonLabels = {
-          spam_detected: "Слишком быстро",
-          no_active_battle: "Нет активного боя",
-          no_waifu: "Нет вайфу",
-          no_monster: "Нет монстра",
-          batch_capped: "Лимит пакета",
-        };
-        flashStatus(reasonLabels[rejected] || rejected, 2000);
+        console.warn("[overlay] hit batch rejected:", rejected);
       }
       const inner = api?.result && typeof api.result === "object" ? api.result : api;
       if (!inner || typeof inner !== "object") return;

@@ -11997,7 +11997,12 @@ function initDesktopWindowShell() {
       window.waifuDesktop?.closeWindow?.();
     });
     bar.appendChild(closeBtn);
-    document.body.appendChild(bar);
+    const vp = document.getElementById("steam-viewport");
+    if (vp) {
+      document.body.insertBefore(bar, vp);
+    } else {
+      document.body.appendChild(bar);
+    }
   } catch (err) {
     console.warn("initDesktopWindowShell:", err);
   }
