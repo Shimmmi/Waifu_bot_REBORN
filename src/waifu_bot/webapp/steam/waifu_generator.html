@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ru" class="desktop-client desktop-window">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Создание вайфу (Steam)</title>
+    <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v60" />
+    <link rel="stylesheet" href="/webapp/styles.css?v=waifu-webapp-v60" />
+    <link rel="stylesheet" href="./steam-waifu-gen.css?v=waifu-webapp-v60" />
+    <script defer src="/webapp/vendor/telegram-web-app.js"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v60" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v60'"></script>
+    <script defer src="/webapp/pages/steam-waifu-paperdoll.js?v=waifu-webapp-v60"></script>
+  </head>
+  <body
+    class="page-waifu-gen page-steam-waifu-gen page-steam-shell"
+    onload="WaifuApp.bootstrapPage('waifu_generator', WaifuApp.initSteamWaifuGenerator);"
+  >
+    <header class="desktop-titlebar">
+      <span class="desktop-titlebar-title">Создание вайфу</span>
+      <button type="button" class="desktop-titlebar-close" onclick="window.waifuDesktop?.closeWindow?.()" aria-label="Закрыть">×</button>
+    </header>
+    <div id="steam-viewport" class="screen">
+      <div id="waifu-gen-load-error" class="waifu-gen-load-error-root" hidden></div>
+      <main class="layout waifu-gen-layout">
+        <section id="waifu-step-1" class="section waifu-gen-panel">
+          <label class="form-field">
+            <div class="muted tiny">Имя</div>
+            <input id="waifu-name-input" type="text" maxlength="30" placeholder="Имя вайфу" />
+          </label>
+          <div class="waifu-gen-raceclass-row">
+            <button type="button" id="waifu-open-race" class="waifu-gen-trigger-btn">
+              <span class="waifu-gen-trigger-ico" id="waifu-trigger-race-ico" aria-hidden="true">
+                <img class="waifu-gen-trigger-img" id="waifu-trigger-race-img" alt="" hidden decoding="async" />
+                <span class="waifu-gen-trigger-emoji" id="waifu-trigger-race-emoji">•</span>
+              </span>
+              <span class="waifu-gen-trigger-body">
+                <span class="waifu-gen-trigger-tag">Раса</span>
+                <span class="waifu-gen-trigger-name" id="waifu-trigger-race-name">—</span>
+              </span>
+              <span class="waifu-gen-trigger-chevron" aria-hidden="true">›</span>
+            </button>
+            <button type="button" id="waifu-open-class" class="waifu-gen-trigger-btn">
+              <span class="waifu-gen-trigger-ico" id="waifu-trigger-class-ico" aria-hidden="true">
+                <img class="waifu-gen-trigger-img" id="waifu-trigger-class-img" alt="" hidden decoding="async" />
+                <span class="waifu-gen-trigger-emoji" id="waifu-trigger-class-emoji">•</span>
+              </span>
+              <span class="waifu-gen-trigger-body">
+                <span class="waifu-gen-trigger-tag">Класс</span>
+                <span class="waifu-gen-trigger-name" id="waifu-trigger-class-name">—</span>
+              </span>
+              <span class="waifu-gen-trigger-chevron" aria-hidden="true">›</span>
+            </button>
+          </div>
+          <select id="waifu-race-select" hidden aria-hidden="true" tabindex="-1"></select>
+          <select id="waifu-class-select" hidden aria-hidden="true" tabindex="-1"></select>
+          <div id="waifu-stats" class="waifu-gen-stats-radar"></div>
+          <section class="section waifu-gen-passive-block" aria-label="Пассивные навыки">
+            <h3 class="waifu-gen-passive-heading">Пассивные навыки</h3>
+            <div id="waifu-gen-passive-list" class="waifu-gen-passive-list"></div>
+          </section>
+        </section>
+
+        <section id="waifu-step-2" class="section waifu-gen-panel steam-step2-ro" hidden>
+          <h3>Внешность</h3>
+          <p class="muted tiny" style="margin: 0 0 8px">Настройте paperdoll стрелками, затем сгенерируйте портрет (до 3 вариантов).</p>
+          <div class="steam-paperdoll-wrap">
+            <div id="steam-paperdoll-stage" aria-label="Paperdoll preview"></div>
+            <div id="steam-paperdoll-rows"></div>
+          </div>
+          <div class="steam-portrait-block">
+            <div class="waifu-gen-portrait-row">
+              <div class="waifu-gen-portrait-center">
+                <div class="waifu-gen-portrait-frame" id="waifu-portrait-frame">
+                  <span class="waifu-gen-portrait-placeholder" id="waifu-portrait-placeholder">Портрет</span>
+                  <img id="waifu-portrait-preview" class="waifu-gen-portrait-img" alt="" hidden decoding="async" />
+                </div>
+                <div id="waifu-gen-variants" class="waifu-gen-variants" aria-label="Варианты портрета"></div>
+              </div>
+            </div>
+          </div>
+          <div id="waifu-gen-portrait-err" class="muted tiny waifu-gen-portrait-err"></div>
+          <div class="muted tiny" id="waifu-gen-gen-hint"></div>
+        </section>
+      </main>
+
+      <div id="waifu-modal-race" class="waifu-gen-modal" role="dialog" aria-modal="true" hidden>
+        <div class="waifu-gen-modal-panel" data-stop-close="">
+          <h2 class="waifu-gen-modal-title">Раса</h2>
+          <div id="waifu-modal-race-grid" class="waifu-gen-pick-grid waifu-gen-pick-grid--cards"></div>
+        </div>
+      </div>
+      <div id="waifu-modal-class" class="waifu-gen-modal" role="dialog" aria-modal="true" hidden>
+        <div class="waifu-gen-modal-panel" data-stop-close="">
+          <h2 class="waifu-gen-modal-title">Класс</h2>
+          <div id="waifu-modal-class-grid" class="waifu-gen-pick-grid waifu-gen-pick-grid--cards"></div>
+        </div>
+      </div>
+      <div id="waifu-modal-passive" class="waifu-gen-modal" role="dialog" aria-modal="true" hidden>
+        <div class="waifu-gen-modal-panel" data-stop-close="">
+          <h2 class="waifu-gen-modal-title">Пассивный навык</h2>
+          <div id="waifu-passive-modal-body" class="waifu-gen-passive-body"></div>
+          <div class="waifu-gen-modal-actions">
+            <button type="button" class="waifu-gen-back-btn" data-waifu-close-modal="waifu-modal-passive">Готово</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sticky-action waifu-gen-sticky waifu-gen-sticky-step1" id="waifu-gen-sticky-step1">
+        <div class="waifu-gen-step1-actions">
+          <button type="button" class="waifu-gen-back-btn" onclick="window.waifuDesktop?.closeWindow?.()">Закрыть</button>
+          <button type="button" id="waifu-next-btn" class="primary" disabled onclick="WaifuApp.waifuGenGoStep2()">Далее</button>
+        </div>
+        <div id="waifu-step1-error" class="muted tiny"></div>
+      </div>
+
+      <div class="sticky-action waifu-gen-sticky waifu-gen-sticky-step2" id="waifu-gen-sticky-step2" hidden>
+        <div class="waifu-gen-step2-actions">
+          <button type="button" class="waifu-gen-back-btn waifu-gen-cell-back" onclick="WaifuApp.waifuGenGoStep1()">Назад</button>
+          <button type="button" id="waifu-generate-btn" class="primary waifu-gen-cell-gen" onclick="WaifuApp.waifuGenPreviewPortrait()">Сгенерировать</button>
+          <button type="button" id="waifu-create-btn" class="primary waifu-gen-confirm-btn waifu-gen-cell-go" onclick="WaifuApp.submitWaifuCreation()">В игру</button>
+        </div>
+        <div id="waifu-create-error" class="muted tiny"></div>
+      </div>
+
+      <div id="waifu-gen-magic-modal" class="waifu-gen-magic-modal" hidden role="dialog" aria-modal="true" aria-busy="true" aria-label="Генерация портрета">
+        <div class="waifu-gen-magic-panel">
+          <div class="waifu-gen-magic-visual" aria-hidden="true">
+            <div class="waifu-gen-magic-orbit"></div>
+            <span class="waifu-gen-magic-spark">✨</span>
+          </div>
+          <p class="waifu-gen-magic-title">Происходит магия</p>
+          <p class="waifu-gen-magic-hint muted tiny">Создаём портрет…</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

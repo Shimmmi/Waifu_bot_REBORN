@@ -38,6 +38,16 @@ function isDesktopClient() {
     return false;
   }
 }
+
+/** Desktop tab pages live under webapp/steam/ unless already on a steam layout. */
+function steamRelativePage(page) {
+  const inSteamDir =
+    document.body?.classList?.contains("page-steam-shell") ||
+    document.body?.classList?.contains("page-steam-waifu-gen");
+  if (isDesktopClient() && !inSteamDir) return `./steam/${page}`;
+  return `./${page}`;
+}
+
 /** Синхронно с waifu_bot.game.constants (EXP_BASE, MAX_LEVEL). */
 const PLAYER_EXP_BASE = 16;
 const PLAYER_MAX_LEVEL = 60;
@@ -1962,7 +1972,25 @@ const waifuGeneratorState = {
     eye_shape: "cute",
     outfit: "robes",
     accessories: [],
+    race_feature: "default",
   },
+};
+
+const WAIFU_GEN_RACE_FEATURES = {
+  1: [["default", "—"]],
+  2: [["default", "Уши эльфа"]],
+  3: [
+    ["wolf", "Волк"],
+    ["cat", "Кошка"],
+    ["fox", "Лис"],
+  ],
+  4: [["default", "Крылья"]],
+  5: [["default", "—"]],
+  6: [
+    ["default", "Рога"],
+    ["horns_curved", "Изогнутые рога"],
+  ],
+  7: [["default", "Крылья феи"]],
 };
 
 const WAIFU_GEN_COSMETIC = {
@@ -2249,6 +2277,9 @@ function waifuGenRenderRaceClassGrid(containerId, entries, selectedId, kind) {
       waifuGenSyncHiddenSelects();
       waifuGenBuildRaceClassPickers();
       waifuGenSyncTriggers();
+      if (kind === "race" && window.SteamWaifuPaperdoll?.onRaceChanged) {
+        window.SteamWaifuPaperdoll.onRaceChanged();
+      }
       if (typeof window.__waifuGenRecalc === "function") window.__waifuGenRecalc();
       waifuGenCloseModal(kind === "race" ? "waifu-modal-race" : "waifu-modal-class");
     });
@@ -2474,6 +2505,7 @@ function waifuGenPortraitRequestBody() {
     eye_shape: String(c.eye_shape ?? "cute"),
     outfit: String(c.outfit ?? "robes"),
     accessories: acc.length ? acc : [],
+    race_feature: String(c.race_feature ?? "default") || "default",
   };
 }
 
@@ -2850,11 +2882,22 @@ function setAdminUiEnabled(on) {
   syncAdminUiVisibility();
 }
 
+function syncSteamDevUiVisibility() {
+  const profile = profileState?.currentProfile;
+  const show =
+    isDesktopClient() &&
+    Boolean(profile?.is_admin || profile?.allow_waifu_recreate);
+  document.querySelectorAll(".steam-dev-only").forEach((el) => {
+    el.style.display = show ? "" : "none";
+  });
+}
+
 function syncAdminUiVisibility() {
   const show = isAdminUiEnabled();
   document.querySelectorAll(".admin-only").forEach((el) => {
     el.style.display = show ? "" : "none";
   });
+  syncSteamDevUiVisibility();
 }
 
 const settingsState = {
@@ -7389,6 +7432,23 @@ async function confirmEquipToRingSlot(slot) {
   await refreshAfterInventoryModalAction();
 }
 
+async function resetSteamMainWaifu() {
+  if (
+    !confirm(
+      "Удалить основную вайфу и начать создание заново? Инвентарь и прогресс сохранятся."
+    )
+  ) {
+    return;
+  }
+  try {
+    await apiFetch("/profile/main-waifu", { method: "DELETE" });
+    window.location.href = steamRelativePage("waifu_generator.html");
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || String(e?.message || e), "error");
+  }
+}
+
 async function resetMainWaifu() {
   if (
     !confirm(
@@ -7456,7 +7516,7 @@ function initTitleScreen(profile) {
     btn.textContent = "Продолжить";
     btn.disabled = false;
     btn.onclick = () => {
-      window.location.href = "./profile.html";
+      window.location.href = steamRelativePage("profile.html");
     };
     return;
   }
@@ -7464,7 +7524,7 @@ function initTitleScreen(profile) {
   btn.textContent = "Новая игра";
   btn.disabled = false;
   btn.onclick = () => {
-    window.location.href = "./waifu_generator.html";
+    window.location.href = steamRelativePage("waifu_generator.html");
   };
 }
 
@@ -8054,10 +8114,19 @@ async function adminSpawnSubmit() {
   }
 }
 
+async function initSteamWaifuGenerator(profile) {
+  await initWaifuGenerator(profile);
+}
+
 async function initWaifuGenerator(profile) {
+  if (isDesktopClient() && !document.body.classList.contains("page-steam-waifu-gen")) {
+    window.location.href = steamRelativePage("waifu_generator.html");
+    return;
+  }
+
   const mw = profile?.main_waifu;
   if (mw && (mw.id != null || mw.level != null)) {
-    window.location.href = "./profile.html";
+    window.location.href = steamRelativePage("profile.html");
     return;
   }
 
@@ -8152,6 +8221,10 @@ function waifuGenGoStep2() {
 
   waifuGenRefreshHint();
   waifuGenRefreshGenerateButton();
+
+  if (document.getElementById("page-steam-waifu-gen") && window.SteamWaifuPaperdoll?.init) {
+    window.SteamWaifuPaperdoll.init();
+  }
 }
 
 function waifuGenGoStep1() {
@@ -8251,7 +8324,7 @@ async function submitWaifuCreation() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    window.location.href = "./profile.html";
+    window.location.href = steamRelativePage("profile.html");
   } catch (e) {
     if (errBox) errBox.textContent = String(e?.message || e);
     if (btn) btn.disabled = false;
@@ -14719,6 +14792,12 @@ function exportWebAppShellGlobals() {
     PERK_EXPEDITION_COUNTER_HINT,
     WAIFU_RACES,
     WAIFU_CLASSES,
+    WAIFU_GEN_COSMETIC,
+    WAIFU_GEN_EYE_SHAPES,
+    WAIFU_GEN_OUTFITS,
+    WAIFU_GEN_ACCS_MULTI,
+    WAIFU_GEN_RACE_FEATURES,
+    waifuGeneratorState,
     apiFetch,
     loadProfile,
     safeNumber,
@@ -14841,6 +14920,8 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   goShopSmithEnchant,
   goShopSmithEnchantFromModal,
   resetMainWaifu,
+  resetSteamMainWaifu,
+  syncSteamDevUiVisibility,
   adminLevelUpWaifu,
   adminAddMainWaifuStat,
   adminAddStatPoints,
@@ -14857,6 +14938,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   adminSpawnSubmit,
   showToast,
   initWaifuGenerator,
+  initSteamWaifuGenerator,
   initTitleScreen,
   initSettingsPage,
   openSettingsNotifyModal,

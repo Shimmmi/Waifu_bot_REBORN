@@ -1320,6 +1320,15 @@ async def _extract_openrouter_image_b64(
     return None
 
 
+_MAIN_WAIFU_RACE_FEATURE_EN: dict[str, str] = {
+    "default": "",
+    "wolf": "wolf ears and fluffy tail",
+    "cat": "cat ears and tail",
+    "fox": "fox ears and bushy tail",
+    "horns_curved": "prominent curved demon horns",
+}
+
+
 async def generate_main_waifu_portrait(
     race_id: int,
     class_id: int,
@@ -1329,6 +1338,7 @@ async def generate_main_waifu_portrait(
     eye_shape: str,
     outfit: str,
     accessories: list[str],
+    race_feature: Optional[str] = None,
 ) -> Optional[str]:
     """
     Портрет основной вайфу (превью при создании): OpenRouter image API, anime 2:3.
@@ -1369,8 +1379,12 @@ async def generate_main_waifu_portrait(
                 acc_parts.append(frag)
     acc_joined = ", ".join(acc_parts)
 
+    rf_key = str(race_feature or "").strip()
+    rf_frag = _MAIN_WAIFU_RACE_FEATURE_EN.get(rf_key, "") if rf_key and rf_key != "default" else ""
+
     prompt = (
         f"anime style portrait, {race_en}, {class_en}, {hair}, {eyes}, {eye_sh}, {hstyle}, {outf}"
+        + (f", {rf_frag}" if rf_frag else "")
         + (f", {acc_joined}" if acc_joined else "")
         + ", fantasy RPG heroine, upper body, detailed face, soft lighting, "
         "high quality illustration, 1girl, safe for work"

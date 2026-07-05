@@ -1177,6 +1177,7 @@ async def get_profile(
             enchant_dust=int(getattr(player, "enchant_dust", 0) or 0),
             caravan_travel_costs=list(CARAVAN_TRAVEL_GOLD_TO_ACT),
             is_admin=settings.is_admin(player_id),
+            allow_waifu_recreate=settings.environment in ("dev", "stage", "testing"),
             main_weapon_attack_speed=main_weapon_attack_speed,
             main_weapon_type=main_weapon_type,
             main_weapon_attack_type=main_weapon_attack_type,
@@ -1467,6 +1468,7 @@ async def preview_main_waifu_portrait(
         payload.eye_shape,
         payload.outfit,
         list(payload.accessories or []),
+        payload.race_feature,
     )
     if not b64:
         raise HTTPException(
@@ -1887,11 +1889,19 @@ async def delete_main_waifu(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Удалить только ОВ (legacy). Каскада в БД для waifu_skills нет — чистим явно."""
+    """Удалить только ОВ и черновики портретов. В prod — только admin."""
+    if settings.environment == "prod" and not settings.is_admin(player_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+
+    await session.execute(
+        delete(m.MainWaifuPortraitDraft).where(m.MainWaifuPortraitDraft.player_id == player_id)
+    )
     main = await session.scalar(select(m.MainWaifu).where(m.MainWaifu.player_id == player_id))
     if main:
         await session.execute(delete(m.WaifuSkill).where(m.WaifuSkill.waifu_id == main.id))
         await session.delete(main)
+        await session.commit()
+    else:
         await session.commit()
     return None
 

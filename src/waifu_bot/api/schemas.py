@@ -531,6 +531,7 @@ class ProfileResponse(BaseModel):
     enchant_dust: int = 0
     caravan_travel_costs: List[int] = []  # длина 5: стоимость переезда в акт 1..5
     is_admin: bool = False
+    allow_waifu_recreate: bool = False
     main_weapon_attack_speed: int = 1
     main_weapon_type: Optional[str] = None
     main_weapon_attack_type: Optional[str] = None
@@ -692,6 +693,7 @@ class MainWaifuPortraitPreviewRequest(BaseModel):
     eye_shape: MainWaifuEyeShape
     outfit: MainWaifuOutfit
     accessories: List[str] = Field(default_factory=list)
+    race_feature: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 

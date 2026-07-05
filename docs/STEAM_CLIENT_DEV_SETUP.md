@@ -731,6 +731,25 @@ powershell -ExecutionPolicy Bypass -File scripts/grant_staging_admin.ps1
 
 Фронт: `isAdminUser()` учитывает `profile.is_admin` (не только Telegram ID).
 
+## Создание персонажа (Steam) и dev-сброс ОВ
+
+Steam-клиент использует отдельный генератор с RO-style paperdoll:
+
+| Шаг | Страница | Поведение |
+|-----|----------|-----------|
+| 1 | `webapp/steam/waifu_generator.html` | Имя, раса, класс, пассивы — как в Telegram |
+| 2 | там же | Paperdoll: стрелки по категориям → «Сгенерировать» (до 3 превью) → «В игру» |
+
+**Чеклист после `git pull`:**
+
+1. Заглушки ассетов: `bash scripts/scaffold_waifu_gen_assets.sh` (если `static/game/waifu-gen/paperdoll/` пуст).
+2. Фронт: `./scripts/build_webapp.sh` — обновляет `app.min.js`.
+3. Бэкенд: `APP_ENV=dev|stage|testing` — в профиле `allow_waifu_recreate: true`.
+4. Title screen «Новая игра» или профиль «Создать персонажа» → `steam/waifu_generator.html`.
+5. **Dev-сброс ОВ** (без полного wipe): на `steam/profile.html` кнопка 🔄 (`steam-dev-only`) → `DELETE /api/profile/main-waifu` + черновики портретов → снова генератор. Видна при `is_admin` или `allow_waifu_recreate`.
+
+Overlay: `waifu_generator.html` в `STEAM_PAGE_MAP` (`pages/overlay.js`) — tab-окно 420×420.
+
 **CORS/сетевые ошибки, если бэкенд на другой машине/в другой сети**
 `backendUrl` должен быть доступен именно с машины, где запущен
 desktop-клиент (не `localhost`, если бэкенд удалённый) — например, IP

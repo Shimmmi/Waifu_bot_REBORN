@@ -43,6 +43,7 @@
     "profile.html": "steam/profile.html",
     "dungeons.html": "steam/dungeons.html",
     "shop.html": "steam/shop.html",
+    "waifu_generator.html": "steam/waifu_generator.html",
   };
 
   function resolveSteamPage(page) {

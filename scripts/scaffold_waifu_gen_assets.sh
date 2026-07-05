@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# Generate waifu-gen cosmetic + paperdoll placeholder WebPs (see static/game/waifu-gen/README.md).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BASE="$ROOT/static/game/waifu-gen"
+
+python3 <<'PY'
+from pathlib import Path
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
+ROOT = Path("/opt/waifu-bot-steam-client/static/game/waifu-gen")
+
+RACES = ["human", "elf", "beastman", "angel", "vampire", "demon", "fey"]
+CLASSES = ["knight", "warrior", "archer", "mage", "assassin", "healer", "merchant"]
+HAIR_COLORS = ["blonde", "black", "brown", "red", "white", "silver", "blue", "pink", "green"]
+HAIRSTYLES = [
+    "short_bob", "spiky_short", "pixie", "shaggy", "medium_straight", "medium_wavy",
+    "medium_straight_bangs", "medium_wavy_2", "messy_medium", "side_pony", "twin_tails",
+    "long_pony", "long_straight", "long_curls", "twin_tails_alt", "side_braid", "space_buns", "hime_cut",
+]
+EYE_COLORS = [
+    "red", "burgundy", "pink", "sky_blue", "blue", "turquoise", "aquamarine", "green",
+    "emerald", "lime", "yellow", "amber", "gold", "orange", "violet", "gray",
+]
+EYE_SHAPES = [
+    "bright", "tsundere", "cute", "melancholy", "serious", "energetic", "mystic", "gentle",
+    "dormant_sleepy", "shocked", "playful", "cold", "confused", "determination", "yandere",
+    "shyness", "confidence", "tearful", "joyful", "anger", "sleepy", "annoyed", "pouty", "seductive",
+]
+OUTFITS = [
+    "plate_armor", "leather_armor", "chainmail", "dress", "robes", "casual",
+    "swimsuit", "bikini", "uniform", "kimono", "cloak",
+]
+ACCESSORIES = [
+    "none", "necklace", "earrings", "makeup_light", "makeup_bold", "scars", "freckles",
+    "glasses", "eyepatch", "face_paint", "choker", "gloves", "hat", "hood", "circlet", "hair_ribbon",
+]
+RACE_FEATURES = {
+    "human": ["default"],
+    "elf": ["default"],
+    "beastman": ["wolf", "cat", "fox"],
+    "angel": ["default"],
+    "vampire": ["default"],
+    "demon": ["default", "horns_curved"],
+    "fey": ["default"],
+}
+
+COLORS = {
+    "blonde": (230, 200, 120), "black": (40, 40, 48), "brown": (120, 80, 50),
+    "red": (180, 60, 40), "white": (240, 240, 245), "silver": (180, 190, 200),
+    "blue": (80, 120, 200), "pink": (220, 120, 160), "green": (80, 160, 100),
+    "amber": (220, 160, 60),
+}
+
+
+def stub_webp(path: Path, size: int, rgb: tuple, label: str = "") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not HAS_PIL:
+        if not path.exists():
+            path.write_bytes(b"")
+        return
+    img = Image.new("RGBA", (size, size), (*rgb, 255))
+    d = ImageDraw.Draw(img)
+    d.rectangle([4, 4, size - 5, size - 5], outline=(255, 255, 255, 120), width=2)
+    if label:
+        short = label[:12]
+        d.text((8, size // 2 - 6), short, fill=(255, 255, 255, 200))
+    img.save(path, "WEBP")
+
+
+def main():
+    for slug in RACES:
+        stub_webp(ROOT / "races" / f"{slug}.webp", 256, (90, 70, 110), slug)
+    for slug in CLASSES:
+        stub_webp(ROOT / "classes" / f"{slug}.webp", 256, (70, 90, 110), slug)
+    for slug in HAIR_COLORS:
+        stub_webp(ROOT / "cosmetic" / "hair-colors" / f"{slug}.webp", 256, COLORS.get(slug, (128, 128, 128)), slug)
+    for slug in HAIRSTYLES:
+        stub_webp(ROOT / "cosmetic" / "hair-styles" / f"{slug}.webp", 256, (140, 100, 80), slug)
+    for slug in EYE_COLORS:
+        stub_webp(ROOT / "cosmetic" / "eye-colors" / f"{slug}.webp", 256, COLORS.get(slug, (100, 140, 180)), slug)
+    for slug in EYE_SHAPES:
+        stub_webp(ROOT / "cosmetic" / "eye-shapes" / f"{slug}.webp", 256, (100, 120, 160), slug)
+    for slug in OUTFITS:
+        stub_webp(ROOT / "cosmetic" / "outfits" / f"{slug}.webp", 256, (100, 90, 120), slug)
+    for slug in ACCESSORIES:
+        stub_webp(ROOT / "cosmetic" / "accessories" / f"{slug}.webp", 256, (110, 100, 130), slug)
+
+    for race in RACES:
+        stub_webp(ROOT / "paperdoll" / "base" / race / "body.webp", 512, (180, 150, 170), race)
+    for style in HAIRSTYLES:
+        stub_webp(ROOT / "paperdoll" / "hair" / f"{style}.webp", 256, (130, 90, 70), style)
+    for shape in EYE_SHAPES:
+        for ec in ["amber", "blue", "green"]:
+            stub_webp(ROOT / "paperdoll" / "eyes" / f"{shape}_{ec}.webp", 256, COLORS.get(ec, (120, 140, 180)), f"{shape}")
+    for outfit in OUTFITS:
+        stub_webp(ROOT / "paperdoll" / "outfit" / f"{outfit}.webp", 256, (90, 80, 110), outfit)
+    for race, variants in RACE_FEATURES.items():
+        for v in variants:
+            stub_webp(ROOT / "paperdoll" / "race-feature" / race / f"{v}.webp", 256, (160, 120, 180), v)
+    for acc in ACCESSORIES:
+        stub_webp(ROOT / "paperdoll" / "accessory" / f"{acc}.webp", 256, (120, 110, 140), acc)
+
+    pd_readme = ROOT / "paperdoll" / "README.md"
+    pd_readme.parent.mkdir(parents=True, exist_ok=True)
+    pd_readme.write_text("""# Paperdoll layers (Steam character creation)
+
+2D layered sprites for RO-style character customization in `steam/waifu_generator.html`.
+
+## Layer order (bottom to top)
+
+1. `base/{race_slug}/body.webp` — body silhouette (512×512)
+2. `race-feature/{race_slug}/{variant}.webp` — race-specific trait
+3. `outfit/{outfit}.webp`
+4. `hair/{hairstyle}.webp`
+5. `eyes/{eye_shape}_{eye_color}.webp`
+6. `accessory/{accessory}.webp` — hidden when `none`
+
+## Regenerate stubs
+
+```bash
+bash scripts/scaffold_waifu_gen_assets.sh
+```
+
+See also [../README.md](../README.md) and `docs/OVERLAY_ANIMATIONS.md` (unrelated overlay combat art).
+""", encoding="utf-8")
+    print(f"Scaffolded waifu-gen assets under {ROOT}")
+
+
+main()
+PY
+
+echo "Done."
