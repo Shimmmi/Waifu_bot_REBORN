@@ -23,6 +23,10 @@ _EFFECT_STAT_DESCRIPTION_RU: dict[str, str] = {
     "endurance": "Бонус к выносливости",
     "charm": "Бонус к обаянию",
     "luck": "Бонус к удаче",
+    # Короткие алиасы (legacy affix keys)
+    "hp": "HP",
+    "defense": "Защита",
+    "def": "Защита",
     # Урон / защита
     "damage_flat": "Доп. урон к оружию",
     "damage_percent": "Доп. урон к оружию %",
@@ -63,6 +67,14 @@ def effect_stat_description_ru(effect_key: str) -> str:
     """Краткая подпись строки характеристики (без сырого ключа)."""
     raw = str(effect_key or "").strip()
     low = raw.lower().replace("audioo", "audio").replace("magii", "magic")
+    if low in _EFFECT_STAT_DESCRIPTION_RU:
+        return _EFFECT_STAT_DESCRIPTION_RU[low]
+    alias = {
+        "hp": "hp_flat",
+        "defense": "defense_flat",
+        "def": "defense_flat",
+    }
+    low = alias.get(low, low)
     if low in _EFFECT_STAT_DESCRIPTION_RU:
         return _EFFECT_STAT_DESCRIPTION_RU[low]
     if low.startswith("damage_vs_monster_type_flat:"):

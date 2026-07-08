@@ -595,6 +595,12 @@ def check_item_requirements(inv: m.InventoryItem, waifu: m.MainWaifu) -> tuple[b
     if req.get("endurance", 0) > waifu.endurance:
         errors.append(f"Требуется ВЫН {req['endurance']}, у вас {waifu.endurance}")
 
+    if req.get("charm", 0) > waifu.charm:
+        errors.append(f"Требуется ХАР {req['charm']}, у вас {waifu.charm}")
+
+    if req.get("luck", 0) > waifu.luck:
+        errors.append(f"Требуется УДЧ {req['luck']}, у вас {waifu.luck}")
+
     wr = req.get("waifu_race")
     if wr is not None and int(waifu.race or 0) != int(wr):
         rn = _REQ_RACE_RU.get(int(wr), str(wr))

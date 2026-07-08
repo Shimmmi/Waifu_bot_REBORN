@@ -90,6 +90,10 @@ def _check_requirements(inv: m.InventoryItem, waifu: m.MainWaifu) -> bool:
         return False
     if int(req.get("endurance") or 0) > int(waifu.endurance or 0):
         return False
+    if int(req.get("charm") or 0) > int(waifu.charm or 0):
+        return False
+    if int(req.get("luck") or 0) > int(waifu.luck or 0):
+        return False
     wr = req.get("waifu_race")
     if wr is not None and int(waifu.race or 0) != int(wr):
         return False

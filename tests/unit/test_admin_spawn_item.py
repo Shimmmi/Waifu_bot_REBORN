@@ -175,11 +175,14 @@ def test_build_admin_template_entry_includes_legendary_name_ru() -> None:
             "legendary_bonus_ids": [139],
             "legendary_name_ru": "Осадный молот титанов",
             "base_grade": 0,
-        }
+        },
+        legendary_bonus_pool=[{"id": 139, "bonus_key": "EXAMPLE", "name": "Пример"}],
     )
     assert entry["name"] == "Ручной топор"
     assert entry["legendary_name_ru"] == "Осадный молот титанов"
-    assert entry["has_curated_legendary"] is True
+    assert entry["has_curated_legendary"] is False
+    assert entry["legendary_bonus_roll_on_drop"] is True
+    assert entry["legendary_pool_size"] == 1
     assert entry["art_key"] == "weapon_axe_1h/ruchnoy_topor"
     assert entry["legendary_art_key"] == "legendary/weapon_axe_1h/ruchnoy_topor"
 
@@ -323,9 +326,7 @@ def test_generate_admin_legendary_seventh_legion_mace() -> None:
             assert inv.is_legendary is True
             assert inv.item.name == "Бич седьмого легиона"
             assert getattr(inv, "_display_name", None) == "Бич седьмого легиона"
-            assert len(inv.legendary_bonus_ids or []) >= 1
-            if tpl_bonus_ids:
-                assert int(inv.legendary_bonus_ids[0]) == int(tpl_bonus_ids[0])
+            assert len(inv.legendary_bonus_ids or []) == 1
             await session.rollback()
 
     asyncio.run(_run())

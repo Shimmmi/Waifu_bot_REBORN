@@ -335,6 +335,9 @@ const STAT_META = {
   magic_damage_flat: { icon: "🪄", short: "Урон магией" },
   damage_flat: { icon: "⚔️", short: "Доп. урон к оружию" },
   damage_percent: { icon: "⚔️", short: "Доп. урон к оружию %" },
+  hp: { icon: "❤️", short: "HP" },
+  defense: { icon: "🛡️", short: "Защита" },
+  def: { icon: "🛡️", short: "Защита" },
 };
 
 // Описания перков экспедиций (id из expedition_data.PERKS). Кратко — что даёт в экспедиции.
@@ -5626,11 +5629,26 @@ function renderItemModalV2CharacteristicsHtml(item) {
   }
 
   const aff = Array.isArray(item.affixes) ? item.affixes : [];
+  const PRIMARY_STAT_KEYS = new Set([
+    "strength",
+    "agility",
+    "intelligence",
+    "endurance",
+    "charm",
+    "luck",
+  ]);
   aff.forEach((a) => {
     const sk = String(a.stat || "").trim();
     const skl = sk.toLowerCase();
     const m = statMeta(sk);
-    const label = String(a.description || "").trim() || m.short;
+    let label;
+    if (PRIMARY_STAT_KEYS.has(skl)) {
+      label = m.short;
+    } else if (a.name && !String(a.name).startsWith("Базовый:")) {
+      label = String(a.name).trim();
+    } else {
+      label = m.short !== sk ? m.short : String(a.description || "").trim() || sk;
+    }
     let v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
     if (
       skl.startsWith("passive_node_level_add:") ||
@@ -6924,6 +6942,8 @@ function buildItemModalRequirementsPillsHtml(item, waifu) {
     ["agility", "ЛОВ", "agility"],
     ["intelligence", "ИНТ", "intelligence"],
     ["endurance", "ВЫН", "endurance"],
+    ["charm", "ОБА", "charm"],
+    ["luck", "УДЧ", "luck"],
   ];
   statBits.forEach(([rk, abbrev, wk]) => {
     const need = safeNumber(req[rk], 0);

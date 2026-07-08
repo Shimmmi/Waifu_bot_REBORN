@@ -32,6 +32,14 @@ def test_magic_find_description():
     assert effect_stat_description_ru("magic_find_pct") == "Поиск магических предметов"
 
 
+def test_hp_defense_aliases():
+    from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
+
+    assert effect_stat_description_ru("hp") == "HP"
+    assert effect_stat_description_ru("defense") == "Защита"
+    assert effect_stat_description_ru("def") == "Защита"
+
+
 def test_effect_bonus_category_skills():
     assert effect_bonus_category("passive_all_nodes_level_add")[0] == "skills"
     assert effect_bonus_category("passive_branch_level_add:warrior")[0] == "skills"

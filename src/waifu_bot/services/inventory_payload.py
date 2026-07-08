@@ -95,7 +95,8 @@ async def enrich_inventory_items_with_template_stats(
         tid = _direct_base_template_id(inv)
         if tid is not None:
             template_ids.add(tid)
-        item_name = str(getattr(getattr(inv, "item", None), "name", "") or "").strip()
+        base_name, _full = compose_item_display_name_ru(inv)
+        item_name = str(base_name or getattr(getattr(inv, "item", None), "name", "") or "").strip()
         tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 0)
         if item_name and tier > 0:
             name_tier_keys.add((item_name, tier))
