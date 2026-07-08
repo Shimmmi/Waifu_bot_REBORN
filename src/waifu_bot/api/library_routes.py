@@ -20,6 +20,7 @@ from waifu_bot.game.affix_display_names import (
     resolve_suffix_name_ru,
 )
 from waifu_bot.game.affix_effect_ui import effect_bonus_category, effect_stat_description_ru
+from waifu_bot.game.legendary_bonuses.eligibility import bonus_fits_drop
 from waifu_bot.services.item_art import derive_item_art_key, with_legendary_art_prefix
 from waifu_bot.services.item_codex import CATALOG_DIABLO, CATALOG_LEGACY
 
@@ -458,22 +459,86 @@ async def build_affix_catalog_entries(
     return entries
 
 
-def build_admin_template_entry(row: object) -> dict:
+def _slot_type_from_template_row(item_type: str | None, subtype: str | None) -> str:
+    it = (item_type or "").lower()
+    st = (subtype or "").lower()
+    if it == "weapon":
+        if st == "one_hand":
+            return "weapon_1h"
+        if st in {"two_hand", "bow", "staff"}:
+            return "weapon_2h"
+        if st in {"offhand", "orb"}:
+            return "offhand"
+        return "weapon_1h"
+    if it == "armor":
+        return "costume"
+    if it == "ring":
+        return "ring"
+    if it == "amulet":
+        return "amulet"
+    return "other"
+
+
+async def legendary_bonus_pool_for_template(
+    session: AsyncSession,
+    *,
+    tier: int,
+    slot_type: str,
+) -> list[dict]:
+    """Eligible legendary bonuses for random roll on this template tier/slot."""
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT id, bonus_key, name, description_tpl, trigger_group,
+                       min_item_tier, max_item_tier, allowed_slot_types, is_drop_enabled
+                FROM legendary_bonuses
+                WHERE is_active = TRUE
+                  AND is_drop_enabled = TRUE
+                  AND min_item_tier <= :tier
+                  AND max_item_tier >= :tier
+                ORDER BY bonus_key
+                """
+            ),
+            {"tier": int(tier)},
+        )
+    ).mappings().all()
+    out: list[dict] = []
+    for row in rows:
+        bonus = dict(row)
+        if bonus_fits_drop(bonus, tier=tier, slot_type=slot_type):
+            out.append(
+                {
+                    "id": int(bonus["id"]),
+                    "bonus_key": bonus["bonus_key"],
+                    "name": bonus["name"],
+                    "description_tpl": bonus.get("description_tpl"),
+                }
+            )
+    return out
+
+
+def build_admin_template_entry(row: object, *, legendary_bonus_pool: list[dict] | None = None) -> dict:
     """Full template row for admin spawn UI (no codex redaction)."""
     entry = _build_item_entry(row, seen=True)
-    raw_leg = _row_get(row, "legendary_bonus_ids", None) or []
-    try:
-        leg_ids = [int(x) for x in raw_leg if x is not None]
-    except (TypeError, ValueError):
-        leg_ids = []
-    entry["legendary_bonus_ids"] = leg_ids
+    tier = int(_row_get(row, "tier", 1) or 1)
+    slot_type = _slot_type_from_template_row(
+        _row_get(row, "item_type", None),
+        _row_get(row, "subtype", None),
+    )
+    pool = list(legendary_bonus_pool or [])
+    entry["legendary_bonus_ids"] = [int(b["id"]) for b in pool]
+    entry["legendary_bonus_pool"] = pool
+    entry["legendary_bonus_roll_on_drop"] = True
     entry["base_grade"] = int(_row_get(row, "base_grade", 0) or 0)
-    entry["has_curated_legendary"] = len(leg_ids) > 0
+    entry["has_curated_legendary"] = False
+    entry["legendary_pool_size"] = len(pool)
     leg_name = str(_row_get(row, "legendary_name_ru", "") or "").strip()
     entry["legendary_name_ru"] = leg_name or None
     base_art = str(entry.get("art_key") or "").strip()
-    if base_art and (leg_ids or leg_name):
+    if base_art and (leg_name or tier >= 1):
         entry["legendary_art_key"] = with_legendary_art_prefix(base_art)
+    entry["slot_type"] = slot_type
     return entry
 
 

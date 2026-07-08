@@ -1,5 +1,7 @@
 """Slug and composite art_key for tiered item icons."""
 
+from types import SimpleNamespace
+
 from waifu_bot.services.item_art import (
     derive_item_art_key,
     slugify_item_base_name,
@@ -49,6 +51,20 @@ def test_derive_item_art_key_pike_two_hand_from_display_name() -> None:
         display_name="Пика легиона",
     )
     assert k == "weapon_sword_2h/pika_legiona"
+
+
+def test_resolve_inventory_art_key_uses_canonical_base_name() -> None:
+    from waifu_bot.services.item_art import resolve_inventory_item_art_key
+
+    inv = SimpleNamespace(
+        slot_type="weapon_1h",
+        weapon_type="one_hand",
+        is_legendary=False,
+        rarity=1,
+    )
+    inv._canonical_base_name = "Катана"
+    key = resolve_inventory_item_art_key(inv, display_base_name="Случайное имя")
+    assert key == "weapon_sword_1h/katana"
 
 
 def test_resolve_item_art_slug_fallback() -> None:

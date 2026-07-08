@@ -350,12 +350,17 @@ class ShopService:
                 level=preview["level"],
                 is_shop=True,
             )
+            await session.flush()
+            item_row = inv_item.item
+            if item_row is None and inv_item.item_id is not None:
+                item_row = await session.get(Item, int(inv_item.item_id))
+            price_base = max(1, int(getattr(item_row, "base_value", None) or 1))
             offer = ShopOffer(
                 player_id=player_id,
                 act=act,
                 slot=slot,
                 inventory_item_id=inv_item.id,
-                price_base=max(1, int(20 * int(getattr(inv_item, "total_level", None) or getattr(inv_item, "level", None) or preview["level"]) * int(preview["rarity"]))),
+                price_base=price_base,
                 purchased=False,
                 expires_at=None,
                 refreshed_at=now,
@@ -526,7 +531,7 @@ class ShopService:
             "is_broken": bool(getattr(inv, "is_broken", False)),
             "slot_type": inv.slot_type,  # Добавляем slot_type для фронтенда
             "affixes": affixes_out,
-            "base_value": offer.price_base,
+            "base_value": int(getattr(getattr(inv, "item", None), "base_value", None) or offer.price_base or 1),
             "price": price,
             "sold": False,  # Будет переопределено в get_shop_inventory
             "requirements": requirements_out,

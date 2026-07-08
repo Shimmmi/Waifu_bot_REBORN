@@ -21,7 +21,12 @@ from waifu_bot.services.player_new_game_reset import clear_player_redis_keys, re
 from waifu_bot.services.tavern import TavernService
 from waifu_bot.services.waifu_hp import sync_waifu_max_hp as _sync_waifu_max_hp
 from waifu_bot.services.item_service import ItemService
-from waifu_bot.api.library_routes import build_admin_template_entry, build_affix_catalog_entries
+from waifu_bot.api.library_routes import (
+    build_admin_template_entry,
+    build_affix_catalog_entries,
+    legendary_bonus_pool_for_template,
+    _slot_type_from_template_row,
+)
 from waifu_bot.services.item_codex import CATALOG_LEGACY
 from waifu_bot.game.item_display_name import compose_item_display_name_ru
 logger = logging.getLogger(__name__)
@@ -305,7 +310,12 @@ async def admin_spawn_item_catalog(
         .mappings()
         .all()
     )
-    items = [build_admin_template_entry(t) for t in templates]
+    items = []
+    for t in templates:
+        tier = int(t.get("tier") or 1)
+        slot_type = _slot_type_from_template_row(t.get("item_type"), t.get("subtype"))
+        pool = await legendary_bonus_pool_for_template(session, tier=tier, slot_type=slot_type)
+        items.append(build_admin_template_entry(t, legendary_bonus_pool=pool))
     seen_legacy = {int(x) for x in (await session.scalars(select(m.Affix.id))).all()}
     seen_diablo = {int(x) for x in (await session.scalars(select(m.AffixFamily.id))).all()}
     affix_entries = [

@@ -14,7 +14,9 @@ from waifu_bot.db import models as m
 from waifu_bot.game.affix_display_names import resolve_prefix_name_ru, resolve_suffix_name_ru
 from waifu_bot.game.passive_affix_ilvl import passive_node_level_add_allowed
 from waifu_bot.game.item_secondary import snapshot_secondaries_from_template, template_row_from_mapping
+from waifu_bot.game.item_requirements import compute_item_requirements
 from waifu_bot.game.item_template_names import template_item_name
+from waifu_bot.game.legendary_bonuses.drop_roll import roll_legendary_bonus_ids
 from waifu_bot.services.enchanting import apply_enchant_steps_to_inventory_item
 from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
 
@@ -94,6 +96,45 @@ _STAT_CODE_TO_NAME: dict[str, str] = {
 }
 
 
+def _requirements_from_base_template(
+    base: dict[str, Any],
+    *,
+    slot_type: str,
+    base_tier: int,
+    level_min: int,
+) -> dict:
+    base_stat_code = str(base.get("stat1_type") or "").upper()
+    base_stat = _STAT_CODE_TO_NAME.get(base_stat_code)
+
+    rr = base.get("required_race")
+    rc = base.get("required_class")
+    has_race = rr is not None and str(rr).strip() != ""
+    has_class = rc is not None and str(rc).strip() != ""
+    required_race: int | None = None
+    required_class: int | None = None
+    if has_race:
+        try:
+            required_race = int(rr)
+        except (TypeError, ValueError):
+            has_race = False
+    if has_class:
+        try:
+            required_class = int(rc)
+        except (TypeError, ValueError):
+            has_class = False
+
+    return compute_item_requirements(
+        tier=int(base_tier),
+        slot_type=str(slot_type),
+        level_min=int(level_min),
+        primary_stat=base_stat,
+        has_race_lock=has_race,
+        has_class_lock=has_class,
+        required_race=required_race,
+        required_class=required_class,
+    )
+
+
 class ItemService:
     """Service for item generation and management (templates + affixes)."""
 
@@ -133,6 +174,83 @@ class ItemService:
             "magic_find_pct",
         }
     )
+
+    _STAT_NAME_TO_CODE: dict[str, str] = {v: k for k, v in _STAT_CODE_TO_NAME.items()}
+
+    def _base_mapping_for_finalize(self, base: dict[str, Any] | Any) -> dict[str, Any]:
+        """Normalize template row (dict) or ItemBase ORM into finalize inputs."""
+        if isinstance(base, dict):
+            return dict(base)
+        reqs = getattr(base, "requirements", None) or {}
+        tags = getattr(base, "tags", None) or {}
+        try:
+            tier = int((tags or {}).get("tier"))
+        except (TypeError, ValueError):
+            tier = _tier_from_level(int(getattr(base, "base_level_min", None) or 1))
+        base_stat = getattr(base, "implicit_effects", None) or {}
+        if isinstance(base_stat, dict):
+            stat_name = str(base_stat.get("base_stat") or "").lower()
+        else:
+            stat_name = ""
+        stat1_type = self._STAT_NAME_TO_CODE.get(stat_name) if stat_name else None
+        return {
+            "id": getattr(base, "id", None),
+            "name": getattr(base, "name_ru", None) or getattr(base, "name", None),
+            "tier": tier,
+            "level_min": int((reqs or {}).get("level") or getattr(base, "base_level_min", None) or 1),
+            "stat1_type": stat1_type,
+            "item_type": None,
+            "subtype": getattr(base, "weapon_type", None),
+            "required_race": None,
+            "required_class": None,
+            "base_grade": 0,
+        }
+
+    def _finalize_generated_item(
+        self,
+        inv: m.InventoryItem,
+        item: m.Item,
+        base: dict[str, Any] | Any,
+        *,
+        rarity: int,
+    ) -> None:
+        """Sync requirements, tier, pricing, and art metadata after affix/tpl ilvl inflation."""
+        base_map = self._base_mapping_for_finalize(base)
+        slot_type = str(
+            inv.slot_type
+            or self._slot_type_from_template_row(base_map.get("item_type"), base_map.get("subtype"))
+            or "other"
+        )
+        effective_tier = max(int(inv.tier or 1), _tier_from_level(int(inv.total_level or 1)))
+        inv.tier = int(effective_tier)
+        item.tier = int(effective_tier)
+
+        template_level_min = int(
+            base_map.get("level_min") or max(1, (effective_tier - 1) * 5 + 1)
+        )
+        level_min = max(template_level_min, (effective_tier - 1) * 5 + 1)
+        req = _requirements_from_base_template(
+            base_map,
+            slot_type=slot_type,
+            base_tier=effective_tier,
+            level_min=level_min,
+        )
+        inv.requirements = req
+        item.required_level = req.get("level")
+        item.required_strength = req.get("strength")
+        item.required_agility = req.get("agility")
+        item.required_intelligence = req.get("intelligence")
+
+        item.base_value = max(1, int(20 * int(inv.total_level) * int(rarity)))
+        inv.level = int(inv.total_level)
+        item.level = int(inv.total_level)
+
+        if base_map.get("id") is not None:
+            inv._base_template_id = int(base_map["id"])  # type: ignore[attr-defined]
+        inv._base_grade = int(base_map.get("base_grade") or 0)  # type: ignore[attr-defined]
+        canon = str(base_map.get("name") or "").strip()
+        if canon:
+            inv._canonical_base_name = canon  # type: ignore[attr-defined]
 
     def _roll_weapon_damage_for_level(self, base_min: int, base_max: int, level: int) -> tuple[int, int]:
         """
@@ -232,9 +350,6 @@ class ItemService:
                 " AND COALESCE(secondary_bonus_type, '') NOT ILIKE 'passive_branch_level_add:%' "
                 " AND COALESCE(secondary_bonus_type, '') <> 'passive_all_nodes_level_add' "
             )
-        legend_order = ""
-        if int(item_rarity) >= 5:
-            legend_order = "(CASE WHEN cardinality(COALESCE(legendary_bonus_ids, '{}')) > 0 THEN 0 ELSE 1 END), "
 
         async def _one(where_sql: str, params: dict[str, Any]) -> Optional[dict[str, Any]]:
             row = (
@@ -246,7 +361,7 @@ class ItemService:
                         WHERE COALESCE(base_grade, 0) = :bg
                           AND ({where_sql})
                           {legend_excl}
-                        ORDER BY {legend_order} random() * GREATEST(weight, 1) DESC
+                        ORDER BY random() * GREATEST(weight, 1) DESC
                         LIMIT 1
                         """
                     ),
@@ -380,29 +495,12 @@ class ItemService:
         base_stat = _STAT_CODE_TO_NAME.get(base_stat_code)
         base_stat_value = int(base.get("stat1_value") or 0) or None
         req_level = int(base.get("level_min") or max(1, target_total_level - 2))
-        req_stat_val = max(0, int(base.get("stat1_value") or 0))
-        req = {"level": req_level}
-        if base_stat == "strength":
-            req["strength"] = req_stat_val
-        elif base_stat == "agility":
-            req["agility"] = req_stat_val
-        elif base_stat == "intelligence":
-            req["intelligence"] = req_stat_val
-        elif base_stat == "endurance":
-            req["endurance"] = req_stat_val
-
-        rr = base.get("required_race")
-        if rr is not None and str(rr).strip() != "":
-            try:
-                req["waifu_race"] = int(rr)
-            except (TypeError, ValueError):
-                pass
-        rc = base.get("required_class")
-        if rc is not None and str(rc).strip() != "":
-            try:
-                req["waifu_class"] = int(rc)
-            except (TypeError, ValueError):
-                pass
+        req = _requirements_from_base_template(
+            base,
+            slot_type=slot_type,
+            base_tier=base_tier,
+            level_min=req_level,
+        )
 
         weapon_type = str(base.get("subtype") or "") or None
         attack_type = str(base.get("attack_type") or "") or None
@@ -570,20 +668,11 @@ class ItemService:
         if tpl_ilvl:
             inv.total_level = int(inv.total_level) + int(tpl_ilvl)
 
-        inv.level = int(inv.total_level)
-        item.level = int(inv.total_level)
-        item.base_value = max(1, int(20 * int(inv.total_level) * int(rarity)))
-
         await self._apply_legendary_item_finalization(session, item, inv, base, int(rarity))
+        self._finalize_generated_item(inv, item, base, rarity=int(rarity))
 
         await session.flush()
         inv._display_name = item.name  # type: ignore[attr-defined]
-        if base.get("id") is not None:
-            inv._base_template_id = int(base["id"])  # type: ignore[attr-defined]
-            inv._base_grade = int(base.get("base_grade") or 0)  # type: ignore[attr-defined]
-        canon = str(base.get("name") or "").strip()
-        if canon:
-            inv._canonical_base_name = canon  # type: ignore[attr-defined]
         await apply_enchant_steps_to_inventory_item(session, inv)
         await self._register_inventory_codex(session, player_id, inv)
         return inv
@@ -642,29 +731,12 @@ class ItemService:
         base_stat = _STAT_CODE_TO_NAME.get(base_stat_code)
         base_stat_value = int(base.get("stat1_value") or 0) or None
         req_level = int(base.get("level_min") or max(1, target_total_level - 2))
-        req_stat_val = max(0, int(base.get("stat1_value") or 0))
-        req = {"level": req_level}
-        if base_stat == "strength":
-            req["strength"] = req_stat_val
-        elif base_stat == "agility":
-            req["agility"] = req_stat_val
-        elif base_stat == "intelligence":
-            req["intelligence"] = req_stat_val
-        elif base_stat == "endurance":
-            req["endurance"] = req_stat_val
-
-        rr = base.get("required_race")
-        if rr is not None and str(rr).strip() != "":
-            try:
-                req["waifu_race"] = int(rr)
-            except (TypeError, ValueError):
-                pass
-        rc = base.get("required_class")
-        if rc is not None and str(rc).strip() != "":
-            try:
-                req["waifu_class"] = int(rc)
-            except (TypeError, ValueError):
-                pass
+        req = _requirements_from_base_template(
+            base,
+            slot_type=slot_type,
+            base_tier=base_tier,
+            level_min=req_level,
+        )
 
         weapon_type = str(base.get("subtype") or "") or None
         attack_type = str(base.get("attack_type") or "") or None
@@ -742,11 +814,8 @@ class ItemService:
 
         self._apply_template_fixed_bonus(inv, base, tier=base_tier)
 
-        inv.level = int(inv.total_level)
-        item.level = int(inv.total_level)
-        item.base_value = max(1, int(20 * int(inv.total_level) * int(rarity)))
-
         await self._apply_legendary_item_finalization(session, item, inv, base, int(rarity))
+        self._finalize_generated_item(inv, item, base, rarity=int(rarity))
 
         await session.flush()
         inv._display_name = item.name  # type: ignore[attr-defined]
@@ -961,12 +1030,12 @@ class ItemService:
                 )
         tpl_row = template_row_from_mapping(base)
         snapshot_secondaries_from_template(inv, tpl_row)
-        raw_ids = base.get("legendary_bonus_ids") or []
-        try:
-            ids = [int(x) for x in raw_ids if x is not None]
-        except (TypeError, ValueError):
-            ids = []
-        inv.legendary_bonus_ids = ids if ids else []
+        inv.legendary_bonus_ids = await roll_legendary_bonus_ids(
+            session,
+            tier=int(inv.tier or base.get("tier") or 1),
+            slot_type=str(inv.slot_type or ""),
+            item_level=int(inv.level or inv.total_level or 1),
+        )
         item.is_legendary = True
         inv.is_legendary = True
         item.rarity = 5
@@ -1253,20 +1322,10 @@ class ItemService:
 
             inv.total_level = int(inv.total_level) + int(level_delta)
 
-        # Finalize coherence: ilvl follows total_level; tier remains base-tier
-        inv.level = int(inv.total_level)
-        item.level = int(inv.total_level)
-        item.base_value = max(1, int(20 * int(inv.total_level) * int(rarity)))
+        self._finalize_generated_item(inv, item, base, rarity=int(rarity))
 
         await session.flush()
-        # Attach display name so callers don't need to lazy-load inv.item in async context
         inv._display_name = item.name  # type: ignore[attr-defined]
-        if base.get("id") is not None:
-            inv._base_template_id = int(base["id"])  # type: ignore[attr-defined]
-            inv._base_grade = int(base.get("base_grade") or 0)  # type: ignore[attr-defined]
-        canon = str(base.get("name") or "").strip()
-        if canon:
-            inv._canonical_base_name = canon  # type: ignore[attr-defined]
         await apply_enchant_steps_to_inventory_item(session, inv)
         return inv
 
@@ -1451,7 +1510,6 @@ class ItemService:
                       AND subtype = :subtype
                       AND COALESCE(stat1_type, '') = COALESCE(:stat1, '')
                       AND COALESCE(base_grade, 0) = 0
-                      AND cardinality(COALESCE(legendary_bonus_ids, '{}')) > 0
                     ORDER BY id
                     LIMIT 1
                     """
@@ -1829,29 +1887,12 @@ class ItemService:
         base_stat = _STAT_CODE_TO_NAME.get(base_stat_code)
         base_stat_value = int(base.get("stat1_value") or 0) or None
         req_level = int(base.get("level_min") or max(1, base_level - 2))
-        req_stat_val = max(0, int(base.get("stat1_value") or 0))
-        req = {"level": req_level}
-        if base_stat == "strength":
-            req["strength"] = req_stat_val
-        elif base_stat == "agility":
-            req["agility"] = req_stat_val
-        elif base_stat == "intelligence":
-            req["intelligence"] = req_stat_val
-        elif base_stat == "endurance":
-            req["endurance"] = req_stat_val
-
-        rr = base.get("required_race")
-        if rr is not None and str(rr).strip() != "":
-            try:
-                req["waifu_race"] = int(rr)
-            except (TypeError, ValueError):
-                pass
-        rc = base.get("required_class")
-        if rc is not None and str(rc).strip() != "":
-            try:
-                req["waifu_class"] = int(rc)
-            except (TypeError, ValueError):
-                pass
+        req = _requirements_from_base_template(
+            base,
+            slot_type=slot_type,
+            base_tier=base_tier,
+            level_min=req_level,
+        )
 
         weapon_type = str(base.get("subtype") or "") or None
         attack_type = str(base.get("attack_type") or "") or None
@@ -1981,22 +2022,13 @@ class ItemService:
             except Exception:
                 pass
 
-        inv.level = int(inv.total_level)
-        item.level = int(inv.total_level)
-        item.base_value = max(1, int(20 * int(inv.total_level) * int(eff_rarity)))
-
         self._apply_template_fixed_bonus(inv, base, tier=base_tier)
 
         await self._apply_legendary_item_finalization(session, item, inv, base, int(eff_rarity))
+        self._finalize_generated_item(inv, item, base, rarity=int(eff_rarity))
 
         await session.flush()
         inv._display_name = item.name  # type: ignore[attr-defined]
-        if base.get("id") is not None:
-            inv._base_template_id = int(base["id"])  # type: ignore[attr-defined]
-            inv._base_grade = int(base.get("base_grade") or 0)  # type: ignore[attr-defined]
-        canon = str(base.get("name") or "").strip()
-        if canon:
-            inv._canonical_base_name = canon  # type: ignore[attr-defined]
         await apply_enchant_steps_to_inventory_item(session, inv)
         if player_id is not None:
             await self._register_inventory_codex(session, int(player_id), inv)
