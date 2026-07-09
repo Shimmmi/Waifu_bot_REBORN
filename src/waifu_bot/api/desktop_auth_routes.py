@@ -91,6 +91,25 @@ async def _issue_session(
     )
 
 
+def _integrity_constraint_name(exc: IntegrityError) -> str:
+    orig = getattr(exc, "orig", None)
+    diag = getattr(orig, "diag", None)
+    name = getattr(diag, "constraint_name", None) if diag is not None else None
+    if name:
+        return str(name)
+    text_orig = str(orig or exc)
+    for marker in (
+        "players_pkey",
+        "uq_email_credentials_email",
+        "email_credentials_pkey",
+        "uq_player_identity_provider_external",
+        "player_identity_links_pkey",
+    ):
+        if marker in text_orig:
+            return marker
+    return "unknown"
+
+
 async def _ensure_synthetic_seq_ahead(session: AsyncSession) -> None:
     """Keep player_synthetic_id_seq below existing negative Player.id values.
 
@@ -120,10 +139,41 @@ async def _ensure_synthetic_seq_ahead(session: AsyncSession) -> None:
         )
 
 
+async def _ensure_identity_link_seq_ahead(session: AsyncSession) -> None:
+    """Repair player_identity_links.id sequence if it lags behind MAX(id)."""
+    try:
+        await session.execute(
+            text(
+                """
+                SELECT setval(
+                    pg_get_serial_sequence('player_identity_links', 'id'),
+                    GREATEST(COALESCE((SELECT MAX(id) FROM player_identity_links), 1), 1)
+                )
+                """
+            )
+        )
+    except Exception:
+        logger.exception("Failed to sync player_identity_links id sequence")
+
+
 async def _allocate_synthetic_player_id(session: AsyncSession) -> int:
     await _ensure_synthetic_seq_ahead(session)
-    row = await session.execute(text("SELECT nextval('player_synthetic_id_seq')"))
-    return int(row.scalar_one())
+    for _ in range(32):
+        row = await session.execute(text("SELECT nextval('player_synthetic_id_seq')"))
+        new_id = int(row.scalar_one())
+        exists = await session.get(m.Player, new_id)
+        if exists is None:
+            return new_id
+        logger.warning("Synthetic player id %s already taken; advancing sequence", new_id)
+    min_row = await session.execute(text("SELECT COALESCE(MIN(id), 0) FROM players WHERE id < 0"))
+    fallback = int(min_row.scalar_one()) - 1
+    if fallback >= 0:
+        fallback = -1
+    await session.execute(
+        text("SELECT setval('player_synthetic_id_seq', :v, true)"),
+        {"v": fallback},
+    )
+    return fallback
 
 
 async def _email_identity_taken(session: AsyncSession, email: str) -> bool:
@@ -141,15 +191,26 @@ async def _email_identity_taken(session: AsyncSession, email: str) -> bool:
     return link is not None
 
 
-@router.get("/login-url")
-async def desktop_login_url():
-    """OIDC config for Electron steam/login.html Telegram popup."""
+def _require_telegram_client_id() -> str:
     client_id = _bot_id_from_token()
-    if not client_id:
+    if not client_id or not client_id.isdigit() or len(client_id) < 5:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="telegram_bot_not_configured",
         )
+    # Common local stub from docker-compose smoke tests — Telegram rejects it.
+    if client_id in {"123456", "000000", "111111"}:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="telegram_bot_not_configured",
+        )
+    return client_id
+
+
+@router.get("/login-url")
+async def desktop_login_url():
+    """OIDC config for Electron steam/login.html Telegram popup."""
+    client_id = _require_telegram_client_id()
     origin = _public_origin()
     suggested = f"{origin}/webapp/steam/login.html"
     override = (settings.desktop_oidc_redirect_uri or "").strip() or None
@@ -177,12 +238,14 @@ async def desktop_register(
     if await _email_identity_taken(session, email):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="email_taken")
 
+    await _ensure_identity_link_seq_ahead(session)
     password_hash = hash_password(password)
     username = email.split("@", 1)[0][:255]
     new_id: int | None = None
     last_integrity: IntegrityError | None = None
+    last_constraint = "unknown"
 
-    for attempt in range(5):
+    for attempt in range(8):
         if await _email_identity_taken(session, email):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="email_taken")
 
@@ -213,28 +276,43 @@ async def desktop_register(
             break
         except IntegrityError as exc:
             last_integrity = exc
+            last_constraint = _integrity_constraint_name(exc)
             await session.rollback()
             logger.warning(
-                "Desktop email register IntegrityError attempt=%s email=%s player_id=%s orig=%s",
+                "Desktop email register IntegrityError attempt=%s email=%s player_id=%s constraint=%s orig=%s",
                 attempt + 1,
                 email,
                 new_id,
+                last_constraint,
                 getattr(exc, "orig", None),
             )
             if await _email_identity_taken(session, email):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT, detail="email_taken"
                 ) from None
-            # Likely players_pkey / sequence race — retry with a fresh synthetic id.
-            continue
+            if last_constraint in {
+                "player_identity_links_pkey",
+                "players_pkey",
+                "email_credentials_pkey",
+            }:
+                await _ensure_identity_link_seq_ahead(session)
+                await _ensure_synthetic_seq_ahead(session)
+                continue
+            # Non-retryable unique/check failure — surface constraint for debugging.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"register_conflict:{last_constraint}",
+            ) from None
     else:
         logger.exception(
-            "Desktop email register exhausted retries email=%s last=%s",
+            "Desktop email register exhausted retries email=%s constraint=%s last=%s",
             email,
+            last_constraint,
             last_integrity,
         )
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="register_conflict"
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"register_conflict:{last_constraint}",
         ) from None
 
     assert new_id is not None
@@ -271,12 +349,7 @@ async def desktop_telegram(
     redis=Depends(get_redis),
 ):
     await rate_limit_by_ip(redis, request, "desktop_telegram", 10)
-    client_id = _bot_id_from_token()
-    if not client_id:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="telegram_bot_not_configured",
-        )
+    client_id = _require_telegram_client_id()
     validated = validate_telegram_id_token(body.id_token, client_id)
     replay_key = hashlib.sha256(body.id_token.encode()).hexdigest()
     if await mark_telegram_login_hash_used(redis, f"desktop:{replay_key}"):

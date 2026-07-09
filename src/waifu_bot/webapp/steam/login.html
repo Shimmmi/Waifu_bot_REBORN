@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Вход — Waifu Desktop</title>
-    <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v61" />
+    <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v62" />
     <link rel="stylesheet" href="./steam-login.css?v=waifu-webapp-v61" />
     <script defer src="/webapp/pages/desktop-telegram-login.js?v=waifu-webapp-v61"></script>
   </head>
@@ -121,8 +121,12 @@
           } catch (e) {
             const msg = String(e?.message || e);
             if (msg === "email_taken") setStatus("Этот email уже зарегистрирован");
-            else if (msg === "register_conflict") {
-              setStatus("Не удалось создать аккаунт (конфликт id). Попробуйте ещё раз.");
+            else if (msg.startsWith("register_conflict")) {
+              setStatus(
+                "Не удалось создать аккаунт (" +
+                  msg +
+                  "). Пересоберите API и попробуйте снова; если повторится — пришлите этот текст."
+              );
             } else if (msg === "password_too_short") setStatus("Пароль: минимум 8 символов");
             else if (msg === "invalid_email") setStatus("Некорректный email");
             else setStatus(msg);
@@ -175,10 +179,13 @@
             if (msg === "popup_closed") setStatus("Окно Telegram закрыто");
             else if (msg === "popup_blocked") setStatus("Разрешите всплывающие окна");
             else if (msg === "telegram_bot_not_configured") {
-              setStatus("Telegram-бот не настроен (пустой client_id / BOT_TOKEN)");
+              setStatus(
+                "Telegram OIDC недоступен: нужен реальный BOT_TOKEN (не stub) и Web Login в BotFather. Trusted Origin = " +
+                  window.location.origin
+              );
             } else if (/bot_id required/i.test(msg)) {
               setStatus(
-                "bot_id required: в BotFather Trusted Origin должен совпадать с origin этого окна (" +
+                "bot_id required: проверьте BOT_TOKEN / TELEGRAM_OIDC_CLIENT_ID и Trusted Origin в BotFather (" +
                   window.location.origin +
                   ")"
               );

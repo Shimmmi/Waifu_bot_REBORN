@@ -753,18 +753,25 @@ powershell -ExecutionPolicy Bypass -File scripts/grant_staging_admin.ps1
      - Локально: `http://127.0.0.1:<port>` (тот же host/port, что `backendUrl` в `config.local.json`).
      - Staging/prod: origin публичного бэкенда.
    - Redirect URI: `http(s)://<тот-же-host>/webapp/steam/login.html` (или значение `DESKTOP_OIDC_REDIRECT_URI`).
-   - `client_id` берётся из `TELEGRAM_OIDC_CLIENT_ID` или числовой части `BOT_TOKEN` до `:`. Пустой `BOT_TOKEN` → `telegram_bot_not_configured`.
+   - `client_id` берётся из `TELEGRAM_OIDC_CLIENT_ID` или числовой части `BOT_TOKEN` до `:`. Пустой / stub `BOT_TOKEN` (например `123456:dev-stub…`) → `telegram_bot_not_configured`.
+   - Нужен **реальный** токен бота с включённым **BotFather → Bot Settings → Web Login** (Trusted Origin + Redirect URI). Без этого Telegram popup отвечает `bot_id required`.
 5. Без `steamTicketDev` клиент открывает login window при старте; после входа — overlay.
 6. С `steamTicketDev` в `config.local.json` экран входа пропускается (dev automation).
 7. `GET /api/auth/desktop/me` с заголовком `X-Desktop-Session` — проверка сессии.
 
-Если Telegram popup пишет `bot_id required`: проверьте Trusted Origin = `window.location.origin` страницы логина и что `GET /api/auth/desktop/login-url` отдаёт непустой строковый `client_id` (не `NaN`).
+Если Telegram popup пишет `bot_id required`:
+1. `GET /api/auth/desktop/login-url` должен вернуть числовой `client_id` (id бота), не stub.
+2. В OAuth URL должны быть и `client_id`, и `bot_id` (desktop popup шлёт оба).
+3. Trusted Origin = `window.location.origin` страницы логина (для Electron — origin `backendUrl`).
 
-Если email-регистрация на свободный адрес даёт `email_taken` / `register_conflict`: обычно sequence `player_synthetic_id_seq` отстаёт от уже созданных отрицательных `players.id` (после `steamTicketDev`). API сам подтягивает sequence; при упорных ошибках:
+Если email-регистрация на свободный адрес даёт `email_taken` / `register_conflict:…`: обычно sequence `player_synthetic_id_seq` или `player_identity_links_id_seq` отстаёт от уже созданных строк (после `steamTicketDev`). API сам подтягивает sequences; в тексте ошибки после `:` — имя constraint. Диагностика:
 
 ```sql
 SELECT last_value FROM player_synthetic_id_seq;
 SELECT MIN(id) FROM players WHERE id < 0;
+SELECT last_value FROM player_identity_links_id_seq;
+SELECT MAX(id) FROM player_identity_links;
+SELECT email FROM email_credentials ORDER BY created_at DESC LIMIT 20;
 ```
 
 ## Создание персонажа (Steam) и dev-сброс ОВ

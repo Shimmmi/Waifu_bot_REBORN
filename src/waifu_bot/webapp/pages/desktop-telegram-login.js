@@ -48,9 +48,13 @@
 
   function buildAuthUrl(options) {
     const scope = ["openid", "profile", "telegram:bot_access"];
+    const botId = String(options.clientId);
+    // Telegram's oauth.telegram.org/auth historically keys off bot_id; send both
+    // bot_id and client_id (OIDC) so neither legacy nor OIDC path rejects us.
     const params = new URLSearchParams({
       response_type: "post_message",
-      client_id: String(options.clientId),
+      client_id: botId,
+      bot_id: botId,
       redirect_uri: options.redirectUri,
       origin: options.origin,
       scope: scope.join(" "),
@@ -62,6 +66,10 @@
   function openPopup(options) {
     const clientId = String(options.clientId || "").trim();
     if (!clientId || clientId === "NaN") {
+      return Promise.reject(new Error("telegram_bot_not_configured"));
+    }
+    // Real Telegram bot ids are numeric; stub tokens like "123456:dev-stub" fail OAuth.
+    if (!/^\d{5,}$/.test(clientId)) {
       return Promise.reject(new Error("telegram_bot_not_configured"));
     }
     const redirectUri = String(options.redirectUri || "").trim();
