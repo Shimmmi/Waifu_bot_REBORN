@@ -2254,6 +2254,20 @@ function waifuGenPassiveTitle(lines, fallback) {
   return m ? m[1] : fallback;
 }
 
+function waifuGenRenderStatsText(el, stats) {
+  if (!el) return;
+  el.innerHTML = WAIFU_GEN_STAT_ORDER.map((k) => {
+    const label = WAIFU_GEN_STAT_LABELS[k] || k;
+    const v = Number(stats[k] ?? 0);
+    return (
+      `<div class="waifu-gen-stat-cell">` +
+      `<span class="stat-label">${escapeHtml(label)}</span>` +
+      `<span class="stat-value">${escapeHtml(String(v))}</span>` +
+      `</div>`
+    );
+  }).join("");
+}
+
 function waifuGenRenderRadar(el, stats) {
   if (!el) return;
   const size = 240;
@@ -8233,6 +8247,17 @@ async function initSteamWaifuGenerator(profile) {
   await initWaifuGenerator(profile);
 }
 
+function waifuGenResetToStep1() {
+  const s1 = document.getElementById("waifu-step-1");
+  const s2 = document.getElementById("waifu-step-2");
+  const st1 = document.getElementById("waifu-gen-sticky-step1");
+  const st2 = document.getElementById("waifu-gen-sticky-step2");
+  waifuGenTogglePanelHidden(s1, false);
+  waifuGenTogglePanelHidden(s2, true);
+  waifuGenTogglePanelHidden(st1, false);
+  waifuGenTogglePanelHidden(st2, true);
+}
+
 async function initWaifuGenerator(profile) {
   if (isDesktopClient() && !document.body.classList.contains("page-steam-waifu-gen")) {
     window.location.href = steamRelativePage("waifu_generator.html");
@@ -8258,6 +8283,9 @@ async function initWaifuGenerator(profile) {
 
   if (!nameInput || !classSel || !raceSel || !statsBox || !nextBtn) return;
 
+  const isSteamGen = document.body.classList.contains("page-steam-waifu-gen");
+  if (isSteamGen) waifuGenResetToStep1();
+
   classSel.innerHTML = WAIFU_CLASSES.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
   raceSel.innerHTML = WAIFU_RACES.map((r) => `<option value="${r.id}">${r.name}</option>`).join("");
 
@@ -8280,7 +8308,8 @@ async function initWaifuGenerator(profile) {
     Object.entries(rb).forEach(([k, v]) => (cur[k] = (cur[k] || 0) + v));
     Object.entries(cb).forEach(([k, v]) => (cur[k] = (cur[k] || 0) + v));
 
-    waifuGenRenderRadar(statsBox, cur);
+    if (isSteamGen) waifuGenRenderStatsText(statsBox, cur);
+    else waifuGenRenderRadar(statsBox, cur);
     waifuGenSyncTriggers();
     waifuGenRenderPassiveList();
 
