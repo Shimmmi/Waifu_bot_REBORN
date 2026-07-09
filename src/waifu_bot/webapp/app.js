@@ -6813,9 +6813,16 @@ async function populateProfile(profile) {
   const missEl = document.getElementById("profile-missing-waifu");
   const hasMw = Boolean(w && (w.id != null || w.level != null));
 
+  // Keep profile (incl. allow_waifu_recreate) even when ОВ missing, so Steam
+  // recreate controls can still appear after a reset.
+  if (p && !p.__authRequired) {
+    profileState.currentProfile = p;
+  }
+
   if (!hasMw) {
     mainEl?.classList.add("profile-layout--no-mw");
     if (missEl) missEl.hidden = false;
+    syncSteamDevUiVisibility();
     return;
   }
 
@@ -6886,6 +6893,10 @@ async function populateProfile(profile) {
   } catch {
     // ignore
   }
+
+  // Steam recreate button (.steam-dev-only) starts as display:none in HTML;
+  // ensure it is shown after full profile load (not only via populateFromProfile).
+  syncSteamDevUiVisibility();
 }
 
 const SLOT_MAIN_STAT_KEYS = new Set([

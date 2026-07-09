@@ -42,6 +42,9 @@ for page in shop dungeons profile; do
 
   # Steam profile: light main-waifu recreate (survives rebuild; hidden on Telegram via steam-dev-only).
   if [[ "$page" == "profile" ]]; then
+    if ! grep -q 'profile-steam-recreate-bar' "$dst"; then
+      sed -i 's|<div class="tabs profile-tabs">|<div class="steam-dev-only profile-steam-recreate-bar" style="display:none;margin:0 0 10px;">\n        <button\n          type="button"\n          class="primary"\n          style="width:100%;padding:8px 10px;font-size:13px;"\n          onclick="WaifuApp.resetSteamMainWaifu()"\n        >Сбросить ОВ и создать заново</button>\n      </div>\n      <div class="tabs profile-tabs">|' "$dst"
+    fi
     if ! grep -q 'tab-steam-recreate' "$dst"; then
       sed -i 's|onclick="WaifuApp.resetMainWaifu()" style="display:none">♻️</button>|onclick="WaifuApp.resetMainWaifu()" style="display:none">♻️</button>\n        <button class="tab tab-steam-recreate steam-dev-only" type="button" title="Пересоздать вайфу (dev)" aria-label="Пересоздать основную вайфу" onclick="WaifuApp.resetSteamMainWaifu()" style="display:none">🔄</button>|' "$dst"
     fi
