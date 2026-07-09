@@ -93,10 +93,13 @@ async def _issue_session(
 
 def _integrity_constraint_name(exc: IntegrityError) -> str:
     orig = getattr(exc, "orig", None)
-    diag = getattr(orig, "diag", None)
-    name = getattr(diag, "constraint_name", None) if diag is not None else None
-    if name:
-        return str(name)
+    # asyncpg exposes constraint_name on the exception; psycopg2 uses .diag.
+    for candidate in (
+        getattr(orig, "constraint_name", None),
+        getattr(getattr(orig, "diag", None), "constraint_name", None),
+    ):
+        if candidate:
+            return str(candidate)
     text_orig = str(orig or exc)
     for marker in (
         "players_pkey",
@@ -104,9 +107,14 @@ def _integrity_constraint_name(exc: IntegrityError) -> str:
         "email_credentials_pkey",
         "uq_player_identity_provider_external",
         "player_identity_links_pkey",
+        "email_credentials_email_key",
     ):
         if marker in text_orig:
             return marker
+    # Keep a short fingerprint so UI/logs show the real DB error.
+    compact = " ".join(text_orig.split())
+    if compact:
+        return compact[:120]
     return "unknown"
 
 
@@ -146,7 +154,10 @@ async def _ensure_identity_link_seq_ahead(session: AsyncSession) -> None:
             text(
                 """
                 SELECT setval(
-                    pg_get_serial_sequence('player_identity_links', 'id'),
+                    COALESCE(
+                        pg_get_serial_sequence('player_identity_links', 'id'),
+                        'player_identity_links_id_seq'
+                    ),
                     GREATEST(COALESCE((SELECT MAX(id) FROM player_identity_links), 1), 1)
                 )
                 """
@@ -251,27 +262,44 @@ async def desktop_register(
 
         new_id = await _allocate_synthetic_player_id(session)
         now = datetime.now(timezone.utc)
-        session.add(m.Player(id=new_id, username=username, first_name="Desktop"))
-        session.add(
-            m.EmailCredential(
-                player_id=new_id,
-                email=email,
-                password_hash=password_hash,
-                created_at=now,
-                updated_at=now,
-            )
-        )
-        session.add(
-            m.PlayerIdentityLink(
-                player_id=new_id,
-                provider=EMAIL_PROVIDER,
-                external_id=email,
-                display_name=email,
-                created_at=now,
-                updated_at=now,
-            )
-        )
         try:
+            session.add(m.Player(id=new_id, username=username, first_name="Desktop"))
+            await session.flush()
+
+            link_id_row = await session.execute(
+                text(
+                    """
+                    SELECT nextval(
+                        COALESCE(
+                            pg_get_serial_sequence('player_identity_links', 'id'),
+                            'player_identity_links_id_seq'
+                        )
+                    )
+                    """
+                )
+            )
+            link_id = int(link_id_row.scalar_one())
+
+            session.add(
+                m.EmailCredential(
+                    player_id=new_id,
+                    email=email,
+                    password_hash=password_hash,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            session.add(
+                m.PlayerIdentityLink(
+                    id=link_id,
+                    player_id=new_id,
+                    provider=EMAIL_PROVIDER,
+                    external_id=email,
+                    display_name=email,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
             await session.commit()
             break
         except IntegrityError as exc:
@@ -290,19 +318,11 @@ async def desktop_register(
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT, detail="email_taken"
                 ) from None
-            if last_constraint in {
-                "player_identity_links_pkey",
-                "players_pkey",
-                "email_credentials_pkey",
-            }:
-                await _ensure_identity_link_seq_ahead(session)
-                await _ensure_synthetic_seq_ahead(session)
-                continue
-            # Non-retryable unique/check failure — surface constraint for debugging.
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"register_conflict:{last_constraint}",
-            ) from None
+            # Retry id/sequence collisions; other unique failures still retry a few times
+            # in case of races, then surface the DB fingerprint.
+            await _ensure_identity_link_seq_ahead(session)
+            await _ensure_synthetic_seq_ahead(session)
+            continue
     else:
         logger.exception(
             "Desktop email register exhausted retries email=%s constraint=%s last=%s",

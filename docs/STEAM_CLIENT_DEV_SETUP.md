@@ -755,14 +755,16 @@ powershell -ExecutionPolicy Bypass -File scripts/grant_staging_admin.ps1
    - Redirect URI: `http(s)://<тот-же-host>/webapp/steam/login.html` (или значение `DESKTOP_OIDC_REDIRECT_URI`).
    - `client_id` берётся из `TELEGRAM_OIDC_CLIENT_ID` или числовой части `BOT_TOKEN` до `:`. Пустой / stub `BOT_TOKEN` (например `123456:dev-stub…`) → `telegram_bot_not_configured`.
    - Нужен **реальный** токен бота с включённым **BotFather → Bot Settings → Web Login** (Trusted Origin + Redirect URI). Без этого Telegram popup отвечает `bot_id required`.
+   - Redirect URI в BotFather должен совпадать **точно** с URL страницы логина **без query** (например `http://127.0.0.1:18000/webapp/steam/login.html`). Менять на другой path не нужно, если Electron ходит на тот же host/port.
+   - Trusted Origin: `http://127.0.0.1:18000` (origin без path). Не путать с Redirect URI.
 5. Без `steamTicketDev` клиент открывает login window при старте; после входа — overlay.
 6. С `steamTicketDev` в `config.local.json` экран входа пропускается (dev automation).
 7. `GET /api/auth/desktop/me` с заголовком `X-Desktop-Session` — проверка сессии.
 
-Если Telegram popup пишет `bot_id required`:
+Если Telegram popup пишет `bot_id required` / `redirect_uri required`:
 1. `GET /api/auth/desktop/login-url` должен вернуть числовой `client_id` (id бота), не stub.
-2. В OAuth URL должны быть и `client_id`, и `bot_id` (desktop popup шлёт оба).
-3. Trusted Origin = `window.location.origin` страницы логина (для Electron — origin `backendUrl`).
+2. OAuth URL должен содержать `client_id` + `redirect_uri` + `origin` (без legacy `bot_id` — он ломает OIDC).
+3. Trusted Origin = `http://127.0.0.1:18000`, Redirect URI = `http://127.0.0.1:18000/webapp/steam/login.html` (как в BotFather).
 
 Если email-регистрация на свободный адрес даёт `email_taken` / `register_conflict:…`: обычно sequence `player_synthetic_id_seq` или `player_identity_links_id_seq` отстаёт от уже созданных строк (после `steamTicketDev`). API сам подтягивает sequences; в тексте ошибки после `:` — имя constraint. Диагностика:
 

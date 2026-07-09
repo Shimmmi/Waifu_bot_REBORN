@@ -48,15 +48,14 @@
 
   function buildAuthUrl(options) {
     const scope = ["openid", "profile", "telegram:bot_access"];
-    const botId = String(options.clientId);
-    // Telegram's oauth.telegram.org/auth historically keys off bot_id; send both
-    // bot_id and client_id (OIDC) so neither legacy nor OIDC path rejects us.
+    // Match Armory OIDC popup: client_id + redirect_uri + origin.
+    // Do NOT send bot_id here — it switches Telegram onto the legacy Login Widget
+    // path, which then answers "redirect_uri required" / ignores OIDC params.
     const params = new URLSearchParams({
       response_type: "post_message",
-      client_id: botId,
-      bot_id: botId,
-      redirect_uri: options.redirectUri,
-      origin: options.origin,
+      client_id: String(options.clientId),
+      redirect_uri: String(options.redirectUri || "").trim(),
+      origin: String(options.origin || "").replace(/\/$/, ""),
       scope: scope.join(" "),
     });
     if (options.lang) params.set("lang", options.lang);

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Вход — Waifu Desktop</title>
-    <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v62" />
+    <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v63" />
     <link rel="stylesheet" href="./steam-login.css?v=waifu-webapp-v61" />
     <script defer src="/webapp/pages/desktop-telegram-login.js?v=waifu-webapp-v61"></script>
   </head>
@@ -161,11 +161,13 @@
             if (!clientId || clientId === "NaN") {
               throw new Error("telegram_bot_not_configured");
             }
-            // Prefer BotFather-registered override; otherwise use the actual page URL
-            // (Electron backendUrl origin), not PUBLIC_BASE_URL from the server.
+            // Prefer BotFather-registered override; else page URL without query;
+            // else server suggested_redirect_uri. Must match BotFather Redirect URI exactly.
             const redirectUri =
               (cfg.redirect_uri_override || "").trim() ||
-              window.DesktopTelegramOidc.resolvePageRedirectUri();
+              (window.DesktopTelegramOidc?.resolvePageRedirectUri?.() || "").trim() ||
+              (cfg.suggested_redirect_uri || "").trim();
+            if (!redirectUri) throw new Error("missing redirect_uri");
             const origin = window.location.origin.replace(/\/$/, "");
             const result = await window.DesktopTelegramOidc.openPopup({
               clientId,
@@ -186,6 +188,15 @@
             } else if (/bot_id required/i.test(msg)) {
               setStatus(
                 "bot_id required: проверьте BOT_TOKEN / TELEGRAM_OIDC_CLIENT_ID и Trusted Origin в BotFather (" +
+                  window.location.origin +
+                  ")"
+              );
+            } else if (/redirect_uri/i.test(msg)) {
+              setStatus(
+                "Telegram отклонил redirect_uri. В BotFather Redirect URI должно быть ровно: " +
+                  window.location.origin +
+                  window.location.pathname +
+                  " (Trusted Origin: " +
                   window.location.origin +
                   ")"
               );
