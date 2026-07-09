@@ -67,8 +67,11 @@ class DesktopMeOut(BaseModel):
 
 def _bot_id_from_token() -> str:
     if settings.telegram_oidc_client_id:
-        return str(settings.telegram_oidc_client_id)
-    return settings.bot_token.split(":", 1)[0]
+        return str(settings.telegram_oidc_client_id).strip()
+    token = (settings.bot_token or "").strip()
+    if not token or ":" not in token:
+        return ""
+    return token.split(":", 1)[0].strip()
 
 
 def _public_origin() -> str:
@@ -88,19 +91,70 @@ async def _issue_session(
     )
 
 
+async def _ensure_synthetic_seq_ahead(session: AsyncSession) -> None:
+    """Keep player_synthetic_id_seq below existing negative Player.id values.
+
+    Steam stub / manual inserts can create negative ids without advancing the
+    sequence; the next nextval then collides on players_pkey and used to be
+    misreported as email_taken.
+    """
+    min_row = await session.execute(text("SELECT MIN(id) FROM players WHERE id < 0"))
+    min_id = min_row.scalar()
+    if min_id is None:
+        return
+    seq_row = await session.execute(
+        text("SELECT last_value, is_called FROM player_synthetic_id_seq")
+    )
+    last_value, is_called = seq_row.one()
+    next_candidate = int(last_value) - 1 if is_called else int(last_value)
+    # Both negative: next_candidate >= min_id means collision or already used.
+    if next_candidate >= int(min_id):
+        await session.execute(
+            text("SELECT setval('player_synthetic_id_seq', :v, true)"),
+            {"v": int(min_id)},
+        )
+        logger.warning(
+            "Synced player_synthetic_id_seq to min_player_id=%s (was next=%s)",
+            min_id,
+            next_candidate,
+        )
+
+
 async def _allocate_synthetic_player_id(session: AsyncSession) -> int:
+    await _ensure_synthetic_seq_ahead(session)
     row = await session.execute(text("SELECT nextval('player_synthetic_id_seq')"))
     return int(row.scalar_one())
+
+
+async def _email_identity_taken(session: AsyncSession, email: str) -> bool:
+    cred = await session.scalar(
+        select(m.EmailCredential).where(m.EmailCredential.email == email)
+    )
+    if cred is not None:
+        return True
+    link = await session.scalar(
+        select(m.PlayerIdentityLink).where(
+            m.PlayerIdentityLink.provider == EMAIL_PROVIDER,
+            m.PlayerIdentityLink.external_id == email,
+        )
+    )
+    return link is not None
 
 
 @router.get("/login-url")
 async def desktop_login_url():
     """OIDC config for Electron steam/login.html Telegram popup."""
+    client_id = _bot_id_from_token()
+    if not client_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="telegram_bot_not_configured",
+        )
     origin = _public_origin()
     suggested = f"{origin}/webapp/steam/login.html"
     override = (settings.desktop_oidc_redirect_uri or "").strip() or None
     payload: dict[str, str] = {
-        "client_id": _bot_id_from_token(),
+        "client_id": client_id,
         "origin": origin,
         "suggested_redirect_uri": suggested,
     }
@@ -120,41 +174,70 @@ async def desktop_register(
     email = normalize_email(body.email)
     password = validate_password(body.password)
 
-    existing = await session.scalar(
-        select(m.EmailCredential).where(m.EmailCredential.email == email)
-    )
-    if existing is not None:
+    if await _email_identity_taken(session, email):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="email_taken")
 
-    new_id = await _allocate_synthetic_player_id(session)
-    now = datetime.now(timezone.utc)
-    player = m.Player(id=new_id, username=email.split("@", 1)[0][:255], first_name="Desktop")
-    session.add(player)
-    session.add(
-        m.EmailCredential(
-            player_id=new_id,
-            email=email,
-            password_hash=hash_password(password),
-            created_at=now,
-            updated_at=now,
-        )
-    )
-    session.add(
-        m.PlayerIdentityLink(
-            player_id=new_id,
-            provider=EMAIL_PROVIDER,
-            external_id=email,
-            display_name=email,
-            created_at=now,
-            updated_at=now,
-        )
-    )
-    try:
-        await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="email_taken") from None
+    password_hash = hash_password(password)
+    username = email.split("@", 1)[0][:255]
+    new_id: int | None = None
+    last_integrity: IntegrityError | None = None
 
+    for attempt in range(5):
+        if await _email_identity_taken(session, email):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="email_taken")
+
+        new_id = await _allocate_synthetic_player_id(session)
+        now = datetime.now(timezone.utc)
+        session.add(m.Player(id=new_id, username=username, first_name="Desktop"))
+        session.add(
+            m.EmailCredential(
+                player_id=new_id,
+                email=email,
+                password_hash=password_hash,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            m.PlayerIdentityLink(
+                player_id=new_id,
+                provider=EMAIL_PROVIDER,
+                external_id=email,
+                display_name=email,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        try:
+            await session.commit()
+            break
+        except IntegrityError as exc:
+            last_integrity = exc
+            await session.rollback()
+            logger.warning(
+                "Desktop email register IntegrityError attempt=%s email=%s player_id=%s orig=%s",
+                attempt + 1,
+                email,
+                new_id,
+                getattr(exc, "orig", None),
+            )
+            if await _email_identity_taken(session, email):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="email_taken"
+                ) from None
+            # Likely players_pkey / sequence race — retry with a fresh synthetic id.
+            continue
+    else:
+        logger.exception(
+            "Desktop email register exhausted retries email=%s last=%s",
+            email,
+            last_integrity,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="register_conflict"
+        ) from None
+
+    assert new_id is not None
     logger.info("Desktop email register player_id=%s email=%s", new_id, email)
     return await _issue_session(redis, new_id, auth_provider=EMAIL_PROVIDER)
 
@@ -189,6 +272,11 @@ async def desktop_telegram(
 ):
     await rate_limit_by_ip(redis, request, "desktop_telegram", 10)
     client_id = _bot_id_from_token()
+    if not client_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="telegram_bot_not_configured",
+        )
     validated = validate_telegram_id_token(body.id_token, client_id)
     replay_key = hashlib.sha256(body.id_token.encode()).hexdigest()
     if await mark_telegram_login_hash_used(redis, f"desktop:{replay_key}"):

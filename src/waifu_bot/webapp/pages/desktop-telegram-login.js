@@ -60,11 +60,15 @@
   }
 
   function openPopup(options) {
+    const clientId = String(options.clientId || "").trim();
+    if (!clientId || clientId === "NaN") {
+      return Promise.reject(new Error("telegram_bot_not_configured"));
+    }
     const redirectUri = String(options.redirectUri || "").trim();
     if (!redirectUri) return Promise.reject(new Error("missing redirect_uri"));
 
     return new Promise((resolve, reject) => {
-      const authUrl = buildAuthUrl({ ...options, redirectUri });
+      const authUrl = buildAuthUrl({ ...options, clientId, redirectUri });
       const width = 550;
       const height = 650;
       const left =

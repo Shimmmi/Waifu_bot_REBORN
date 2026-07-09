@@ -749,11 +749,23 @@ powershell -ExecutionPolicy Bypass -File scripts/grant_staging_admin.ps1
 2. Env: `DESKTOP_SESSION_SECRET` (в prod обязателен; в dev/stage fallback на `ARMORY_SESSION_SECRET` / `WEBHOOK_SECRET`).
 3. Опционально: `DESKTOP_OIDC_REDIRECT_URI` — точный URL страницы логина для BotFather.
 4. **BotFather → Bot Settings → Domain / Login:**
-   - Trusted Origin: origin бэкенда (как `PUBLIC_BASE_URL`)
-   - Redirect URI: `https://<host>/webapp/steam/login.html` (и staging-аналог)
+   - Trusted Origin должен совпадать с **origin окна логина в Electron**, не обязательно с `PUBLIC_BASE_URL`.
+     - Локально: `http://127.0.0.1:<port>` (тот же host/port, что `backendUrl` в `config.local.json`).
+     - Staging/prod: origin публичного бэкенда.
+   - Redirect URI: `http(s)://<тот-же-host>/webapp/steam/login.html` (или значение `DESKTOP_OIDC_REDIRECT_URI`).
+   - `client_id` берётся из `TELEGRAM_OIDC_CLIENT_ID` или числовой части `BOT_TOKEN` до `:`. Пустой `BOT_TOKEN` → `telegram_bot_not_configured`.
 5. Без `steamTicketDev` клиент открывает login window при старте; после входа — overlay.
 6. С `steamTicketDev` в `config.local.json` экран входа пропускается (dev automation).
 7. `GET /api/auth/desktop/me` с заголовком `X-Desktop-Session` — проверка сессии.
+
+Если Telegram popup пишет `bot_id required`: проверьте Trusted Origin = `window.location.origin` страницы логина и что `GET /api/auth/desktop/login-url` отдаёт непустой строковый `client_id` (не `NaN`).
+
+Если email-регистрация на свободный адрес даёт `email_taken` / `register_conflict`: обычно sequence `player_synthetic_id_seq` отстаёт от уже созданных отрицательных `players.id` (после `steamTicketDev`). API сам подтягивает sequence; при упорных ошибках:
+
+```sql
+SELECT last_value FROM player_synthetic_id_seq;
+SELECT MIN(id) FROM players WHERE id < 0;
+```
 
 ## Создание персонажа (Steam) и dev-сброс ОВ
 

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Вход — Waifu Desktop</title>
-    <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v60" />
+    <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v61" />
     <link rel="stylesheet" href="./steam-login.css?v=waifu-webapp-v61" />
     <script defer src="/webapp/pages/desktop-telegram-login.js?v=waifu-webapp-v61"></script>
   </head>
@@ -119,7 +119,13 @@
             const data = await apiPost(path, { email, password });
             await finishSession(data);
           } catch (e) {
-            setStatus(String(e?.message || e));
+            const msg = String(e?.message || e);
+            if (msg === "email_taken") setStatus("Этот email уже зарегистрирован");
+            else if (msg === "register_conflict") {
+              setStatus("Не удалось создать аккаунт (конфликт id). Попробуйте ещё раз.");
+            } else if (msg === "password_too_short") setStatus("Пароль: минимум 8 символов");
+            else if (msg === "invalid_email") setStatus("Некорректный email");
+            else setStatus(msg);
           } finally {
             setBusy(false);
           }
@@ -136,14 +142,29 @@
           setStatus("");
           try {
             const cfgRes = await fetch("/api/auth/desktop/login-url");
-            if (!cfgRes.ok) throw new Error("login_url_failed");
-            const cfg = await cfgRes.json();
+            let cfg = null;
+            try {
+              cfg = await cfgRes.json();
+            } catch {
+              cfg = null;
+            }
+            if (!cfgRes.ok) {
+              const detail =
+                typeof cfg?.detail === "string" ? cfg.detail : "login_url_failed";
+              throw new Error(detail);
+            }
+            const clientId = String(cfg.client_id || "").trim();
+            if (!clientId || clientId === "NaN") {
+              throw new Error("telegram_bot_not_configured");
+            }
+            // Prefer BotFather-registered override; otherwise use the actual page URL
+            // (Electron backendUrl origin), not PUBLIC_BASE_URL from the server.
             const redirectUri =
               (cfg.redirect_uri_override || "").trim() ||
               window.DesktopTelegramOidc.resolvePageRedirectUri();
-            const origin = (cfg.origin || window.location.origin).replace(/\/$/, "");
+            const origin = window.location.origin.replace(/\/$/, "");
             const result = await window.DesktopTelegramOidc.openPopup({
-              clientId: Number(cfg.client_id),
+              clientId,
               redirectUri,
               origin,
             });
@@ -153,7 +174,15 @@
             const msg = String(e?.message || e);
             if (msg === "popup_closed") setStatus("Окно Telegram закрыто");
             else if (msg === "popup_blocked") setStatus("Разрешите всплывающие окна");
-            else setStatus(msg);
+            else if (msg === "telegram_bot_not_configured") {
+              setStatus("Telegram-бот не настроен (пустой client_id / BOT_TOKEN)");
+            } else if (/bot_id required/i.test(msg)) {
+              setStatus(
+                "bot_id required: в BotFather Trusted Origin должен совпадать с origin этого окна (" +
+                  window.location.origin +
+                  ")"
+              );
+            } else setStatus(msg);
           } finally {
             setBusy(false);
           }
