@@ -3,13 +3,15 @@
 2D layered sprites for RO-style character customization in `steam/waifu_generator.html`
 and the Steam overlay (`overlay.html` via `ro-paperdoll-compositor.js`).
 
+Artist fill guide: [`docs/WAIFU_GEN_PAPERDOLL_ART_GUIDE.md`](../../../../docs/WAIFU_GEN_PAPERDOLL_ART_GUIDE.md).
+
 ## Cosmetic layer order (bottom to top)
 
 1. `base/{race_slug}/body.webp` — body silhouette (512×512), pivot center-bottom
 2. `race-feature/{race_slug}/{variant}.webp` — race-specific trait
 3. `outfit/{outfit}.webp` — creator outfit (under equip costume when both present)
-4. `hair/{hairstyle}.webp`
-5. `eyes/{eye_shape}_{eye_color}.webp`
+4. `hair/{hairstyle}_{hair_color}.webp` — preferred; fallback `hair/{hairstyle}.webp`
+5. `eyes/{eye_shape}_{eye_color}.webp` — full shape×color matrix
 6. `accessory/{accessory}.webp` — hidden when `none`
 
 ## Equip layers (overlay only; rings/amulets ignored)

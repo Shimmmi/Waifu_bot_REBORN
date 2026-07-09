@@ -70,8 +70,11 @@
         return `${BASE}/paperdoll/race-feature/${rs}/${c.race_feature || "default"}.webp`;
       case "outfit":
         return `${BASE}/paperdoll/outfit/${c.outfit || "robes"}.webp`;
-      case "hair":
-        return `${BASE}/paperdoll/hair/${c.hairstyle || "long_straight"}.webp`;
+      case "hair": {
+        const style = c.hairstyle || "long_straight";
+        const color = c.hair_color || "blonde";
+        return `${BASE}/paperdoll/hair/${style}_${color}.webp`;
+      }
       case "eyes": {
         const shape = c.eye_shape || "cute";
         const ec = (c.eye_colors && c.eye_colors[0]) || "amber";
@@ -87,6 +90,19 @@
     }
   }
 
+  /** Primary URL + optional legacy fallback (e.g. hair without color). */
+  function cosmeticLayerUrls(layerId, cosmetics, raceId) {
+    const primary = cosmeticLayerUrl(layerId, cosmetics, raceId);
+    if (!primary) return [];
+    if (layerId === "hair") {
+      const c = normalizeCosmetics(cosmetics, raceId);
+      const style = c.hairstyle || "long_straight";
+      const legacy = `${BASE}/paperdoll/hair/${style}.webp`;
+      if (legacy !== primary) return [primary, legacy];
+    }
+    return [primary];
+  }
+
   /** @deprecated use cosmeticLayerUrl — kept for generator compatibility */
   function layerUrl(layerId, state) {
     return cosmeticLayerUrl(layerId, state?.cosmetics, state?.selectedRaceId);
@@ -100,18 +116,34 @@
     return "";
   }
 
-  function setImgSrc(img, url) {
+  function setImgSrc(img, url, fallbackUrls) {
     if (!url) {
       img.style.display = "none";
       img.removeAttribute("src");
       return;
     }
     img.style.display = "";
+    const chain = Array.isArray(fallbackUrls) ? fallbackUrls.filter(Boolean) : [];
+    let idx = 0;
     img.onerror = () => {
+      if (idx < chain.length) {
+        const next = chain[idx++];
+        if (img.getAttribute("src") !== next) img.src = next;
+        return;
+      }
       img.onerror = null;
       img.src = PLACEHOLDER;
     };
     if (img.getAttribute("src") !== url) img.src = url;
+  }
+
+  function applyCosmeticLayer(img, layerId, cosmetics, raceId) {
+    const urls = cosmeticLayerUrls(layerId, cosmetics, raceId);
+    if (!urls.length) {
+      setImgSrc(img, "");
+      return;
+    }
+    setImgSrc(img, urls[0], urls.slice(1));
   }
 
   /**
@@ -137,13 +169,12 @@
         img.draggable = false;
         stageEl.appendChild(img);
       }
-      let url = "";
       if (lid.startsWith("equip_")) {
-        url = includeEquip ? equipLayerUrl(lid, equipped) : "";
+        const url = includeEquip ? equipLayerUrl(lid, equipped) : "";
+        setImgSrc(img, url);
       } else {
-        url = layerUrl(lid, state);
+        applyCosmeticLayer(img, lid, state?.cosmetics, state?.selectedRaceId);
       }
-      setImgSrc(img, url);
     });
   }
 
@@ -256,15 +287,13 @@
         img.draggable = false;
         parent.appendChild(img);
       }
-      let url = "";
       if (lid === "equip_weapon") {
-        url = showWeapon ? equipLayerUrl(lid, equipped) : "";
+        setImgSrc(img, showWeapon ? equipLayerUrl(lid, equipped) : "");
       } else if (lid.startsWith("equip_")) {
-        url = equipLayerUrl(lid, equipped);
+        setImgSrc(img, equipLayerUrl(lid, equipped));
       } else {
-        url = cosmeticLayerUrl(lid, cosmetics, options.raceId);
+        applyCosmeticLayer(img, lid, cosmetics, options.raceId);
       }
-      setImgSrc(img, url);
     });
 
     rootEl.classList.add("ov-paperdoll--active");
@@ -291,8 +320,11 @@
     raceSlug,
     normalizeCosmetics,
     cosmeticLayerUrl,
+    cosmeticLayerUrls,
     layerUrl,
     equipLayerUrl,
+    setImgSrc,
+    applyCosmeticLayer,
     renderFlatStage,
     ensureSkeleton,
     renderOverlayPaperdoll,

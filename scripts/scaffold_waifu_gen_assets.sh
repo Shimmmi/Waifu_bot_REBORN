@@ -55,7 +55,10 @@ COLORS = {
     "blonde": (230, 200, 120), "black": (40, 40, 48), "brown": (120, 80, 50),
     "red": (180, 60, 40), "white": (240, 240, 245), "silver": (180, 190, 200),
     "blue": (80, 120, 200), "pink": (220, 120, 160), "green": (80, 160, 100),
-    "amber": (220, 160, 60),
+    "amber": (220, 160, 60), "burgundy": (120, 30, 50), "sky_blue": (120, 180, 230),
+    "turquoise": (60, 180, 180), "aquamarine": (100, 200, 180), "emerald": (40, 140, 90),
+    "lime": (140, 200, 60), "yellow": (230, 210, 60), "gold": (210, 170, 50),
+    "orange": (220, 120, 40), "violet": (140, 80, 200), "gray": (140, 140, 150),
 }
 
 
@@ -94,18 +97,31 @@ def main():
 
     for race in RACES:
         stub_webp(ROOT / "paperdoll" / "base" / race / "body.webp", 512, (180, 150, 170), race)
+    # Legacy single-file hair (compositor fallback) + full style×color matrix
     for style in HAIRSTYLES:
-        stub_webp(ROOT / "paperdoll" / "hair" / f"{style}.webp", 256, (130, 90, 70), style)
+        stub_webp(ROOT / "paperdoll" / "hair" / f"{style}.webp", 512, (130, 90, 70), style)
+        for hc in HAIR_COLORS:
+            stub_webp(
+                ROOT / "paperdoll" / "hair" / f"{style}_{hc}.webp",
+                512,
+                COLORS.get(hc, (130, 90, 70)),
+                f"{style[:6]}_{hc[:4]}",
+            )
     for shape in EYE_SHAPES:
-        for ec in ["amber", "blue", "green"]:
-            stub_webp(ROOT / "paperdoll" / "eyes" / f"{shape}_{ec}.webp", 256, COLORS.get(ec, (120, 140, 180)), f"{shape}")
+        for ec in EYE_COLORS:
+            stub_webp(
+                ROOT / "paperdoll" / "eyes" / f"{shape}_{ec}.webp",
+                512,
+                COLORS.get(ec, (120, 140, 180)),
+                f"{shape[:6]}_{ec[:4]}",
+            )
     for outfit in OUTFITS:
-        stub_webp(ROOT / "paperdoll" / "outfit" / f"{outfit}.webp", 256, (90, 80, 110), outfit)
+        stub_webp(ROOT / "paperdoll" / "outfit" / f"{outfit}.webp", 512, (90, 80, 110), outfit)
     for race, variants in RACE_FEATURES.items():
         for v in variants:
-            stub_webp(ROOT / "paperdoll" / "race-feature" / race / f"{v}.webp", 256, (160, 120, 180), v)
+            stub_webp(ROOT / "paperdoll" / "race-feature" / race / f"{v}.webp", 512, (160, 120, 180), v)
     for acc in ACCESSORIES:
-        stub_webp(ROOT / "paperdoll" / "accessory" / f"{acc}.webp", 256, (120, 110, 140), acc)
+        stub_webp(ROOT / "paperdoll" / "accessory" / f"{acc}.webp", 512, (120, 110, 140), acc)
 
     WEAPON_TYPES = ["sword", "dagger", "axe", "mace", "hammer", "bow", "crossbow", "staff", "wand", "orb", "unarmed"]
     COSTUME_SLUGS = ["plate_armor", "leather_armor", "chainmail", "robes", "dress", "cloak", "default"]
@@ -127,13 +143,15 @@ def main():
 2D layered sprites for RO-style character customization in `steam/waifu_generator.html`
 and the Steam overlay (`overlay.html` via `ro-paperdoll-compositor.js`).
 
+Artist fill guide: [`docs/WAIFU_GEN_PAPERDOLL_ART_GUIDE.md`](../../../../docs/WAIFU_GEN_PAPERDOLL_ART_GUIDE.md).
+
 ## Cosmetic layer order (bottom to top)
 
 1. `base/{race_slug}/body.webp` — body silhouette (512×512), pivot center-bottom
 2. `race-feature/{race_slug}/{variant}.webp` — race-specific trait
 3. `outfit/{outfit}.webp` — creator outfit (under equip costume when both present)
-4. `hair/{hairstyle}.webp`
-5. `eyes/{eye_shape}_{eye_color}.webp`
+4. `hair/{hairstyle}_{hair_color}.webp` — preferred; fallback `hair/{hairstyle}.webp`
+5. `eyes/{eye_shape}_{eye_color}.webp` — full shape×color matrix
 6. `accessory/{accessory}.webp` — hidden when `none`
 
 ## Equip layers (overlay only; rings/amulets ignored)
@@ -161,7 +179,10 @@ bash scripts/scaffold_waifu_gen_assets.sh
 
 See also [../README.md](../README.md), `docs/OVERLAY_ANIMATIONS.md`, `docs/OVERLAY_RO_SKELETON.md`.
 """, encoding="utf-8")
+    hair_n = len(HAIRSTYLES) * len(HAIR_COLORS)
+    eyes_n = len(EYE_SHAPES) * len(EYE_COLORS)
     print(f"Scaffolded waifu-gen assets under {ROOT}")
+    print(f"  hair matrix: {hair_n}  eyes matrix: {eyes_n}")
 
 
 main()
