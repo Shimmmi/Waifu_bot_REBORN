@@ -708,9 +708,15 @@ Tab-окна shop/dungeons/profile открываются из оверлея к
 1. DevTools → **Network** → `GET /api/shop/inventory?act=1` — реальный статус.
 2. DevTools → **Console** → `Failed to load shop:` с телом ответа (`shop_generation_failed:…` / `shop_inventory_failed:…`).
 3. **401/403** → нет desktop JWT / `steamTicketDev`; перелогин или `requireAuth`.
-4. **500** `shop_generation_failed:No item templates…` → в staging БД нет каталога предметов. Засейте шаблоны (как в Telegram-стеке), например:
-   `docker compose -f docker-compose.staging.yml --env-file .env.staging exec api python -m scripts.import_item_base_templates`
-   или полный seed из прод-дампа (`scripts/staging_seed_from_prod_dump.sh`).
+4. **500** `shop_generation_failed:No item templates…` → в staging БД нет каталога предметов. Засейте шаблоны:
+   ```bash
+   # нужен образ с COPY info (после git pull + rebuild api)
+   docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build api
+   docker compose -f docker-compose.staging.yml --env-file .env.staging exec api \
+     python -m scripts.import_item_base_templates
+   ```
+   Если `FileNotFoundError: /app/info/item_base_templates_import.sql` — образ старый, без `info/` в Dockerfile; сделайте `--build api` ещё раз.
+   Альтернатива: полный seed из прод-дампа (`scripts/staging_seed_from_prod_dump.sh`).
 5. **502 / network** → backend недоступен или неверный `backendUrl` в `config.local.json`.
 6. После правок `app.js` обязателен `./scripts/build_webapp.sh` + docker `--build` (tab грузит `app.min.js`).
 
