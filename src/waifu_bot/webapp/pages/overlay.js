@@ -77,14 +77,18 @@
     return err.name === "TypeError" && /fetch|network|failed/i.test(String(err.message || ""));
   }
 
-  async function apiFetch(path) {
+  async function apiFetch(path, options = {}) {
+    const method = String(options.method || "GET").toUpperCase();
     const headers = authHeaders();
     let lastErr;
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       try {
-        const res = await fetch(`/api${path}`, { headers });
-        if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
-        return res.json();
+        const res = await fetch(`/api${path}`, { method, headers });
+        if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}`);
+        if (res.status === 204) return null;
+        const text = await res.text();
+        if (!text) return null;
+        return JSON.parse(text);
       } catch (err) {
         lastErr = err;
         if (attempt < 5 && isFetchNetworkError(err)) {
@@ -95,6 +99,40 @@
       }
     }
     throw lastErr;
+  }
+
+  function openSteamPage(page) {
+    const resolved = resolveSteamPage(page);
+    if (window.waifuDesktop?.openTab) {
+      window.waifuDesktop.openTab(resolved);
+    } else {
+      window.open(`./${resolved}${window.location.search}`, "_blank");
+    }
+  }
+
+  function setResetWaifuVisible(show) {
+    const btn = $("ov-reset-waifu");
+    if (!btn) return;
+    btn.hidden = !show;
+    btn.classList.toggle("hidden", !show);
+  }
+
+  async function resetMainWaifuFromOverlay() {
+    if (
+      !confirm(
+        "Удалить основную вайфу и начать создание заново? Инвентарь и прогресс сохранятся."
+      )
+    ) {
+      return;
+    }
+    try {
+      await apiFetch("/profile/main-waifu", { method: "DELETE" });
+      openSteamPage("waifu_generator.html");
+      await loadProfile();
+    } catch (err) {
+      console.warn("[overlay] reset waifu failed:", err.message);
+      alert(err?.message || "Не удалось сбросить вайфу");
+    }
   }
 
   const $ = (id) => document.getElementById(id);
@@ -462,6 +500,9 @@
         el.waifuLevel.textContent = "";
         setPortrait(null);
       }
+      setResetWaifuVisible(
+        Boolean(profile?.is_admin || profile?.allow_waifu_recreate)
+      );
       applyState();
     } catch (err) {
       console.warn("[overlay] profile load failed:", err.message);
@@ -566,15 +607,19 @@
   });
   document.addEventListener("click", () => toggleMenu(false));
   el.menu.addEventListener("click", (e) => {
+    const actionBtn = e.target.closest("button[data-action]");
+    if (actionBtn) {
+      e.stopPropagation();
+      toggleMenu(false);
+      if (actionBtn.dataset.action === "reset-waifu") {
+        resetMainWaifuFromOverlay();
+      }
+      return;
+    }
     const btn = e.target.closest("button[data-page]");
     if (!btn) return;
     e.stopPropagation();
-    const page = resolveSteamPage(btn.dataset.page);
-    if (window.waifuDesktop?.openTab) {
-      window.waifuDesktop.openTab(page);
-    } else {
-      window.open(`./${page}${window.location.search}`, "_blank");
-    }
+    openSteamPage(btn.dataset.page);
     toggleMenu(false);
   });
 

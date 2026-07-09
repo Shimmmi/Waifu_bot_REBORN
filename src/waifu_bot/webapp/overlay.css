@@ -124,6 +124,21 @@ button {
   background: rgba(90, 100, 160, 0.35);
 }
 
+#ov-menu button.ov-menu-danger {
+  color: #f0c0a8;
+  border-top: 1px solid rgba(120, 130, 180, 0.25);
+}
+
+#ov-menu button.ov-menu-danger:hover {
+  background: rgba(140, 60, 50, 0.45);
+  color: #ffe8dc;
+}
+
+#ov-menu button.hidden,
+#ov-menu button[hidden] {
+  display: none;
+}
+
 /* ── Monster strip ─────────────────────────────────────────────────────── */
 .ov-monster {
   display: flex;
