@@ -11,6 +11,7 @@
   const POLL_DUNGEON_ACTIVE_MS = 10_000;
   const POLL_DUNGEON_AFK_MS = 60_000;
   const POLL_PROFILE_MS = 60_000;
+  const POLL_EQUIPPED_VISUALS_MS = 12_000;
   const IDLE_EMOTE_MIN_MS = 6_000;
   const IDLE_EMOTE_MAX_MS = 16_000;
   const LOW_HP_FRACTION = 0.25;
@@ -155,6 +156,7 @@
     monsterAttackFx: $("ov-monster-attack-fx"),
     scene: $("ov-scene"),
     portraitWrap: $("ov-portrait-wrap"),
+    paperdoll: $("ov-paperdoll"),
     portrait: $("ov-portrait"),
     portraitFallback: $("ov-portrait-fallback"),
     idleEmote: $("ov-idle-emote"),
@@ -186,6 +188,10 @@
     statusToastTimer: null,
     statusToastHideTimer: null,
     pendingStatusReason: null,
+    paperdollCosmetics: null,
+    equippedVisuals: null,
+    usePaperdoll: false,
+    skeletonRuntime: null,
   };
 
   function retriggerClass(node, className) {
@@ -200,6 +206,53 @@
     el.portraitWrap.dataset.weaponType = state.weaponType || "unarmed";
     el.portraitWrap.dataset.attackType = state.attackType || "melee";
     el.portraitWrap.dataset.combatMode = state.combatMode || "none";
+    if (el.paperdoll) {
+      el.paperdoll.dataset.weaponType = state.weaponType || "unarmed";
+      el.paperdoll.dataset.attackType = state.attackType || "melee";
+      el.paperdoll.dataset.combatMode = state.combatMode || "none";
+    }
+  }
+
+  function ensureSkeletonRuntime() {
+    if (!el.paperdoll || !window.RoPaperdollSkeleton) return null;
+    if (!state.skeletonRuntime) {
+      state.skeletonRuntime = window.RoPaperdollSkeleton.createRuntime(el.paperdoll);
+    }
+    return state.skeletonRuntime;
+  }
+
+  function refreshPaperdollLayers() {
+    const Comp = window.RoPaperdollCompositor;
+    if (!el.paperdoll || !Comp || !state.usePaperdoll || !state.paperdollCosmetics) {
+      return false;
+    }
+    const ok = Comp.renderOverlayPaperdoll(el.paperdoll, {
+      cosmetics: state.paperdollCosmetics,
+      raceId: state.paperdollCosmetics.race,
+      equippedVisuals: state.equippedVisuals,
+      showWeapon: combatActive(),
+    });
+    if (ok) {
+      el.paperdoll.hidden = false;
+      if (el.portrait) el.portrait.style.display = "none";
+      if (el.portraitFallback) el.portraitFallback.style.display = "none";
+      const rt = ensureSkeletonRuntime();
+      if (rt) {
+        rt.start();
+        const mode =
+          state.currentClass === "state-dead"
+            ? "dead"
+            : state.currentClass === "state-sleep"
+              ? "sleep"
+              : state.currentClass === "state-sleep-dungeon"
+                ? "sleep_dungeon"
+                : state.currentClass === "state-battle"
+                  ? "battle"
+                  : "idle";
+        rt.setMode(mode);
+      }
+    }
+    return ok;
   }
 
   function soloCombatActive() {
@@ -339,6 +392,7 @@
       syncPortraitCombatMeta();
       syncCombatTargetUi();
       updateAttackChargeUi();
+      if (state.usePaperdoll) refreshPaperdollLayers();
       return;
     }
     root.classList.remove(
@@ -359,6 +413,7 @@
     syncPortraitCombatMeta();
     syncCombatTargetUi();
     updateAttackChargeUi();
+    if (state.usePaperdoll) refreshPaperdollLayers();
   }
 
   function stopIdleEmotes() {
@@ -399,6 +454,9 @@
     el.portraitWrap.classList.remove("lunge", "attack-play", "charging");
     void el.portraitWrap.offsetWidth;
     el.portraitWrap.classList.add("attack-play", "lunge");
+    if (state.usePaperdoll && state.skeletonRuntime) {
+      state.skeletonRuntime.playAttack(state.attackType, state.weaponType);
+    }
     flashMonsterTarget();
     updateAttackChargeUi();
   }
@@ -452,12 +510,28 @@
   }
 
   function setPortrait(url) {
+    if (state.usePaperdoll && refreshPaperdollLayers()) {
+      return;
+    }
+    if (el.paperdoll) {
+      el.paperdoll.hidden = true;
+      if (window.RoPaperdollCompositor) {
+        window.RoPaperdollCompositor.clearOverlayPaperdoll(el.paperdoll);
+      }
+    }
+    if (state.skeletonRuntime) {
+      state.skeletonRuntime.stop();
+    }
     if (!url) {
       el.portrait.style.display = "none";
       el.portraitFallback.style.display = "";
       return;
     }
-    if (el.portrait.getAttribute("src") === url) return;
+    if (el.portrait.getAttribute("src") === url) {
+      el.portrait.style.display = "";
+      el.portraitFallback.style.display = "none";
+      return;
+    }
     el.portrait.onload = () => {
       el.portrait.style.display = "";
       el.portraitFallback.style.display = "none";
@@ -478,6 +552,11 @@
     el.waifuLevel.textContent = `Lv.${state.waifu.level}`;
   }
 
+  function applyEquippedVisuals(ev) {
+    state.equippedVisuals = ev && typeof ev === "object" ? ev : null;
+    if (state.usePaperdoll) refreshPaperdollLayers();
+  }
+
   async function loadProfile() {
     try {
       const profile = await apiFetch("/profile?lite=1");
@@ -487,17 +566,27 @@
       state.attackSpeed = profile.main_weapon_attack_speed ?? 1;
       state.weaponType = profile.main_weapon_type || "unarmed";
       state.attackType = profile.main_weapon_attack_type || "melee";
+      applyEquippedVisuals(profile.equipped_visuals || null);
       syncPortraitCombatMeta();
       const mw = profile.main_waifu;
       if (mw) {
         state.waifu.name = mw.name || "Вайфу";
         el.waifuName.textContent = state.waifu.name;
         setWaifuLevel(mw.level);
+        const cosmetics =
+          mw.paperdoll_cosmetics && typeof mw.paperdoll_cosmetics === "object"
+            ? mw.paperdoll_cosmetics
+            : null;
+        state.paperdollCosmetics = cosmetics;
+        state.usePaperdoll = Boolean(mw.has_paperdoll_layers && cosmetics);
         setPortrait(mw.portrait_url || null);
         setWaifuHp(mw.current_hp, mw.max_hp);
       } else {
         el.waifuName.textContent = "Нет вайфу";
         el.waifuLevel.textContent = "";
+        state.paperdollCosmetics = null;
+        state.usePaperdoll = false;
+        state.equippedVisuals = null;
         setPortrait(null);
       }
       setResetWaifuVisible(
@@ -675,6 +764,12 @@
   }
 
   setInterval(loadProfile, POLL_PROFILE_MS);
+  setInterval(() => {
+    if (document.visibilityState === "visible") loadProfile();
+  }, POLL_EQUIPPED_VISUALS_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") loadProfile();
+  });
   setInterval(applyState, 5_000);
 
   (async function boot() {

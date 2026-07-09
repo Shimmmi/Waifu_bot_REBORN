@@ -70,6 +70,7 @@ from waifu_bot.game.constants import (
 )
 from waifu_bot.game.effective_stats import (
     fetch_equipped_inventory_items,
+    resolve_equipped_visuals_for_overlay,
     resolve_equipped_weapon_for_profile,
     resolve_main_weapon_attack_speed,
     resolve_main_weapon_overlay_meta,
@@ -877,6 +878,7 @@ async def get_profile(
         main_weapon_attack_speed = 1
         main_weapon_type: str | None = None
         main_weapon_attack_type: str | None = None
+        equipped_visuals_payload: schemas.EquippedVisualsOut | None = None
 
         if main_waifu:
             # Пересчёт max_hp (пассивы вроде hp_max_pct) и реген. Раньше max жил только в merge для UI — без sync в БД реген/данж видели старый потолок.
@@ -929,6 +931,9 @@ async def get_profile(
                                 "Failed to commit waifu media sync (lite) player_id=%s", player_id
                             )
 
+                lite_cosmetics = getattr(main_waifu, "paperdoll_cosmetics", None)
+                if lite_cosmetics is not None and not isinstance(lite_cosmetics, dict):
+                    lite_cosmetics = None
                 main_payload = schemas.MainWaifuProfile(
                     id=main_waifu.id,
                     name=main_waifu.name,
@@ -946,6 +951,8 @@ async def get_profile(
                     current_hp=main_waifu.current_hp,
                     max_hp=main_waifu.max_hp,
                     portrait_url=lite_portrait_url,
+                    paperdoll_cosmetics=lite_cosmetics,
+                    has_paperdoll_layers=bool(lite_cosmetics),
                     bio=getattr(main_waifu, "bio", None),
                 )
                 try:
@@ -953,6 +960,9 @@ async def get_profile(
                     main_weapon_attack_speed = resolve_main_weapon_attack_speed(equipped_lite)
                     main_weapon_type, main_weapon_attack_type = resolve_main_weapon_overlay_meta(
                         equipped_lite
+                    )
+                    equipped_visuals_payload = schemas.EquippedVisualsOut.model_validate(
+                        resolve_equipped_visuals_for_overlay(equipped_lite)
                     )
                 except Exception:
                     logger.exception(
@@ -972,6 +982,14 @@ async def get_profile(
                     main_weapon_type, main_weapon_attack_type = resolve_main_weapon_overlay_meta(
                         equipped_items
                     )
+                    try:
+                        equipped_visuals_payload = schemas.EquippedVisualsOut.model_validate(
+                            resolve_equipped_visuals_for_overlay(equipped_items)
+                        )
+                    except Exception:
+                        logger.exception(
+                            "equipped_visuals in /profile failed player_id=%s", player_id
+                        )
                 except Exception:
                     equipped_items = []
 
@@ -1154,6 +1172,15 @@ async def get_profile(
                     portrait_url=portrait_url,
                     paperdoll_url=paperdoll_url,
                     paperdoll_generations_remaining=paperdoll_generations_remaining(main_waifu),
+                    paperdoll_cosmetics=(
+                        getattr(main_waifu, "paperdoll_cosmetics", None)
+                        if isinstance(getattr(main_waifu, "paperdoll_cosmetics", None), dict)
+                        else None
+                    ),
+                    has_paperdoll_layers=bool(
+                        isinstance(getattr(main_waifu, "paperdoll_cosmetics", None), dict)
+                        and getattr(main_waifu, "paperdoll_cosmetics", None)
+                    ),
                     bio=getattr(main_waifu, "bio", None),
                 )
 
@@ -1183,6 +1210,7 @@ async def get_profile(
             main_weapon_attack_speed=main_weapon_attack_speed,
             main_weapon_type=main_weapon_type,
             main_weapon_attack_type=main_weapon_attack_type,
+            equipped_visuals=equipped_visuals_payload,
             main_waifu=main_payload,
             main_waifu_details=main_details,
             equipment=equipment_payload,
@@ -1783,6 +1811,7 @@ async def create_main_waifu(
         name=payload.name,
         race=payload.race,
         class_=payload.class_,
+        paperdoll_cosmetics=payload.paperdoll_cosmetics,
     )
     stats = compute_main_waifu_base_stats(race_enum, class_enum)
     main.strength = stats["strength"]
@@ -1881,6 +1910,13 @@ async def create_main_waifu(
             race_flat_bonuses=race_flat_bonuses_for(main.race),
             class_flat_bonuses=class_flat_bonuses_for(main.class_),
             portrait_url=portrait_url,
+            paperdoll_cosmetics=getattr(main, "paperdoll_cosmetics", None)
+            if isinstance(getattr(main, "paperdoll_cosmetics", None), dict)
+            else None,
+            has_paperdoll_layers=bool(
+                isinstance(getattr(main, "paperdoll_cosmetics", None), dict)
+                and getattr(main, "paperdoll_cosmetics", None)
+            ),
             bio=getattr(main, "bio", None),
         )
     )

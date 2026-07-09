@@ -40,10 +40,24 @@ for page in shop dungeons profile; do
   sed -i 's|href="./assets/|href="/webapp/assets/|g' "$dst"
   sed -i 's|src="./assets/|src="/webapp/assets/|g' "$dst"
 
-  # Steam profile: light main-waifu recreate (survives rebuild; hidden on Telegram via steam-dev-only).
+  # Steam profile: compact recreate tab only (survives rebuild; hidden on Telegram via steam-dev-only).
   if [[ "$page" == "profile" ]]; then
-    if ! grep -q 'profile-steam-recreate-bar' "$dst"; then
-      sed -i 's|<div class="tabs profile-tabs">|<div class="steam-dev-only profile-steam-recreate-bar" style="display:none;margin:0 0 10px;">\n        <button\n          type="button"\n          class="primary"\n          style="width:100%;padding:8px 10px;font-size:13px;"\n          onclick="WaifuApp.resetSteamMainWaifu()"\n        >Сбросить ОВ и создать заново</button>\n      </div>\n      <div class="tabs profile-tabs">|' "$dst"
+    # Drop legacy full-width recreate bar if present from older builds.
+    if grep -q 'profile-steam-recreate-bar' "$dst"; then
+      python3 - "$dst" <<'PY'
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1])
+text = p.read_text(encoding="utf-8")
+text2 = re.sub(
+    r'\s*<div class="steam-dev-only profile-steam-recreate-bar"[^>]*>.*?</div>\n?',
+    "\n",
+    text,
+    count=1,
+    flags=re.S,
+)
+if text2 != text:
+    p.write_text(text2, encoding="utf-8")
+PY
     fi
     if ! grep -q 'tab-steam-recreate' "$dst"; then
       sed -i 's|onclick="WaifuApp.resetMainWaifu()" style="display:none">♻️</button>|onclick="WaifuApp.resetMainWaifu()" style="display:none">♻️</button>\n        <button class="tab tab-steam-recreate steam-dev-only" type="button" title="Пересоздать вайфу (dev)" aria-label="Пересоздать основную вайфу" onclick="WaifuApp.resetSteamMainWaifu()" style="display:none">🔄</button>|' "$dst"

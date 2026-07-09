@@ -276,6 +276,110 @@ button {
   transform-origin: 50% 90%;
 }
 
+.ov-paperdoll {
+  position: relative;
+  width: min(100%, 160px);
+  height: min(100%, 160px);
+  aspect-ratio: 1;
+  transform-origin: 50% 90%;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+}
+
+.ov-paperdoll[hidden] {
+  display: none !important;
+}
+
+.ov-paperdoll.ov-paperdoll--active ~ #ov-portrait,
+.ov-paperdoll.ov-paperdoll--active ~ .ov-portrait-fallback {
+  display: none !important;
+}
+
+.ov-bone,
+.ov-attach {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 70%;
+  pointer-events: none;
+}
+
+.ov-bone[data-bone="root"] {
+  inset: 0;
+}
+
+.ov-bone[data-bone="hip"] {
+  transform-origin: 50% 78%;
+}
+
+.ov-bone[data-bone="torso"] {
+  transform-origin: 50% 55%;
+}
+
+.ov-bone[data-bone="head"] {
+  transform-origin: 50% 28%;
+}
+
+.ov-bone[data-bone="arm_r"] {
+  transform-origin: 62% 42%;
+}
+
+.ov-bone[data-bone="arm_l"] {
+  transform-origin: 38% 42%;
+}
+
+.ov-attach[data-attach="hand_r"] {
+  transform-origin: 72% 58%;
+}
+
+.ov-attach[data-attach="hand_l"] {
+  transform-origin: 28% 58%;
+}
+
+.ov-paperdoll-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.ov-paperdoll-layer[data-layer="equip_weapon"],
+.ov-paperdoll-layer[data-layer="equip_offhand"] {
+  z-index: 8;
+}
+
+.ov-paperdoll-layer[data-layer="hair"],
+.ov-paperdoll-layer[data-layer="eyes"],
+.ov-paperdoll-layer[data-layer="accessory"] {
+  z-index: 6;
+}
+
+.ov-paperdoll-layer[data-layer="equip_costume"] {
+  z-index: 4;
+}
+
+.ov-paperdoll-layer[data-layer="outfit"] {
+  z-index: 3;
+}
+
+.ov-paperdoll-layer[data-layer="race_feature"] {
+  z-index: 2;
+}
+
+.ov-paperdoll-layer[data-layer="base"] {
+  z-index: 1;
+}
+
+/* When RO paperdoll is active, bone runtime owns idle motion — dampen wrap sway */
+.ov-portrait-wrap:has(.ov-paperdoll--active) {
+  animation: none !important;
+}
+
+.state-idle .ov-portrait-wrap:has(.ov-paperdoll--active) {
+  animation: none !important;
+}
+
 .ov-monster-target {
   position: relative;
   width: 56px;
@@ -554,8 +658,10 @@ button {
 /* ══ STATE: sleep (AFK) ════════════════════════════════════════════════ */
 .state-sleep #ov-portrait,
 .state-sleep .ov-portrait-fallback,
+.state-sleep .ov-paperdoll,
 .state-sleep-dungeon #ov-portrait,
-.state-sleep-dungeon .ov-portrait-fallback {
+.state-sleep-dungeon .ov-portrait-fallback,
+.state-sleep-dungeon .ov-paperdoll {
   filter: brightness(0.55) saturate(0.7) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
 }
 
@@ -690,7 +796,8 @@ button {
 
 /* ══ STATE: dead (HP = 0) ══════════════════════════════════════════════ */
 .state-dead #ov-portrait,
-.state-dead .ov-portrait-fallback {
+.state-dead .ov-portrait-fallback,
+.state-dead .ov-paperdoll {
   filter: grayscale(1) brightness(0.7) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
 }
 

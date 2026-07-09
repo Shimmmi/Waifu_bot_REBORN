@@ -8424,6 +8424,13 @@ async function submitWaifuCreation() {
     race: waifuGeneratorState.selectedRaceId,
     class: waifuGeneratorState.selectedClassId,
   };
+  if (waifuGeneratorState.cosmetics && typeof waifuGeneratorState.cosmetics === "object") {
+    payload.paperdoll_cosmetics = {
+      ...waifuGeneratorState.cosmetics,
+      race: waifuGeneratorState.selectedRaceId,
+      class: waifuGeneratorState.selectedClassId,
+    };
+  }
   const sel = waifuGeneratorState.variants[waifuGeneratorState.selectedIdx];
   if (sel && Number.isFinite(Number(sel.slot_index)) && sel.slot_index >= 0 && sel.slot_index <= 2) {
     payload.selected_slot = Number(sel.slot_index);

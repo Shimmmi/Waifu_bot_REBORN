@@ -97,10 +97,6 @@ body.page-steam-shell.page-profile .profile-tabs .tab-steam-recreate {
   line-height: 1;
 }
 
-body.page-steam-shell.page-profile .profile-steam-recreate-bar {
-  flex-shrink: 0;
-}
-
 body.page-steam-shell.page-profile .tab-panel.active {
   overflow-x: hidden;
   overflow-y: auto;

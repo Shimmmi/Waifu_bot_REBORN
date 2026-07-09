@@ -1,14 +1,20 @@
 "use strict";
 
 /**
- * RO-style 2D paperdoll compositor for Steam waifu generator (steam/waifu_generator.html).
+ * RO-style 2D paperdoll UI for Steam waifu generator (steam/waifu_generator.html).
+ * Layer URLs come from RoPaperdollCompositor; this file owns the picker rows.
  * Depends on WaifuApp globals: waifuGeneratorState, WAIFU_RACES, WAIFU_GEN_* catalogs.
  */
 (function () {
-  const BASE = "/static/game/waifu-gen";
-  const PLACEHOLDER = `${BASE}/placeholder.svg`;
-
-  const LAYER_IDS = ["base", "race_feature", "outfit", "hair", "eyes", "accessory"];
+  const C = () => window.RoPaperdollCompositor;
+  const LAYER_IDS = () => (C() && C().COSMETIC_LAYER_IDS) || [
+    "base",
+    "race_feature",
+    "outfit",
+    "hair",
+    "eyes",
+    "accessory",
+  ];
 
   const ROWS = [
     { id: "hairColor", label: "Цвет волос", key: "hair_color", catalog: "hair" },
@@ -21,16 +27,17 @@
   ];
 
   function raceSlug(raceId) {
+    if (C()) return C().raceSlug(raceId, window.WAIFU_RACES);
     const list = window.WAIFU_RACES || [];
     const r = list.find((x) => x.id === Number(raceId));
     return r?.slug || "human";
   }
 
   function catalogPairs(catalogKey, raceId) {
-    const C = window.WAIFU_GEN_COSMETIC || {};
-    if (catalogKey === "hair") return C.hair || [];
-    if (catalogKey === "eyes") return C.eyes || [];
-    if (catalogKey === "hairstyle") return C.hairstyle || [];
+    const Cos = window.WAIFU_GEN_COSMETIC || {};
+    if (catalogKey === "hair") return Cos.hair || [];
+    if (catalogKey === "eyes") return Cos.eyes || [];
+    if (catalogKey === "hairstyle") return Cos.hairstyle || [];
     if (catalogKey === "eyeShape") return window.WAIFU_GEN_EYE_SHAPES || [];
     if (catalogKey === "outfit") return window.WAIFU_GEN_OUTFITS || [];
     if (catalogKey === "accessory") return window.WAIFU_GEN_ACCS_MULTI || [];
@@ -58,30 +65,8 @@
   }
 
   function layerUrl(layerId, state) {
-    const c = state.cosmetics;
-    const rs = raceSlug(state.selectedRaceId);
-    switch (layerId) {
-      case "base":
-        return `${BASE}/paperdoll/base/${rs}/body.webp`;
-      case "race_feature":
-        return `${BASE}/paperdoll/race-feature/${rs}/${c.race_feature || "default"}.webp`;
-      case "outfit":
-        return `${BASE}/paperdoll/outfit/${c.outfit || "robes"}.webp`;
-      case "hair":
-        return `${BASE}/paperdoll/hair/${c.hairstyle || "long_straight"}.webp`;
-      case "eyes": {
-        const shape = c.eye_shape || "cute";
-        const ec = (c.eye_colors && c.eye_colors[0]) || "amber";
-        return `${BASE}/paperdoll/eyes/${shape}_${ec}.webp`;
-      }
-      case "accessory": {
-        const acc = (c.accessories || [])[0] || "none";
-        if (acc === "none") return "";
-        return `${BASE}/paperdoll/accessory/${acc}.webp`;
-      }
-      default:
-        return "";
-    }
+    if (C()) return C().layerUrl(layerId, state);
+    return "";
   }
 
   function cycleRow(rowId, delta) {
@@ -129,7 +114,11 @@
   function renderStage(state) {
     const stage = document.getElementById("steam-paperdoll-stage");
     if (!stage) return;
-    LAYER_IDS.forEach((lid) => {
+    if (C() && C().renderFlatStage) {
+      C().renderFlatStage(stage, state, { layerClass: "steam-paperdoll-layer" });
+      return;
+    }
+    LAYER_IDS().forEach((lid) => {
       let img = stage.querySelector(`[data-layer="${lid}"]`);
       if (!img) {
         img = document.createElement("img");
@@ -148,7 +137,7 @@
       img.style.display = "";
       img.onerror = () => {
         img.onerror = null;
-        img.src = PLACEHOLDER;
+        img.src = (C() && C().PLACEHOLDER) || "/static/game/waifu-gen/placeholder.svg";
       };
       if (img.getAttribute("src") !== url) img.src = url;
     });

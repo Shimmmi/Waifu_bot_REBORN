@@ -401,10 +401,25 @@ class MainWaifuProfile(BaseModel):
     portrait_url: Optional[str] = None
     paperdoll_url: Optional[str] = None
     paperdoll_generations_remaining: int = 0
+    paperdoll_cosmetics: Optional[dict] = None
+    has_paperdoll_layers: bool = False
     bio: Optional[str] = None
 
     class Config:
         populate_by_name = True
+
+
+class EquippedVisualSprite(BaseModel):
+    sprite: str
+    art_key: Optional[str] = None
+    weapon_type: Optional[str] = None
+    attack_type: Optional[str] = None
+
+
+class EquippedVisualsOut(BaseModel):
+    costume: Optional[EquippedVisualSprite] = None
+    weapon: Optional[EquippedVisualSprite] = None
+    offhand: Optional[EquippedVisualSprite] = None
 
 
 class MainWaifuPaperdollResponse(BaseModel):
@@ -535,6 +550,7 @@ class ProfileResponse(BaseModel):
     main_weapon_attack_speed: int = 1
     main_weapon_type: Optional[str] = None
     main_weapon_attack_type: Optional[str] = None
+    equipped_visuals: Optional[EquippedVisualsOut] = None
     main_waifu: Optional[MainWaifuProfile] = None
     main_waifu_details: Optional[MainWaifuDetails] = None
     equipment: List[GearItemOut] = []
@@ -732,6 +748,7 @@ class MainWaifuCreateRequest(BaseModel):
     class_: int = Field(alias="class")
     portrait_base64: Optional[str] = None
     selected_slot: Optional[int] = Field(None, ge=0, le=2)
+    paperdoll_cosmetics: Optional[dict] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -748,6 +765,50 @@ class MainWaifuCreateRequest(BaseModel):
             raise ValueError("portrait_base64_invalid")
         if len(dec) > 4 * 1024 * 1024:
             raise ValueError("portrait_too_large")
+        return self
+
+    @model_validator(mode="after")
+    def _sanitize_paperdoll_cosmetics(self):
+        raw = self.paperdoll_cosmetics
+        if raw is None:
+            return self
+        if not isinstance(raw, dict):
+            raise ValueError("paperdoll_cosmetics_invalid")
+        allowed = {
+            "hair_color",
+            "hairstyle",
+            "eye_shape",
+            "eye_colors",
+            "outfit",
+            "accessories",
+            "race_feature",
+            "race",
+            "class",
+        }
+        cleaned: dict = {}
+        for key, val in raw.items():
+            if key not in allowed:
+                continue
+            if key == "eye_colors":
+                if isinstance(val, list):
+                    cleaned[key] = [str(x)[:64] for x in val[:4]]
+                elif val is not None:
+                    cleaned[key] = [str(val)[:64]]
+            elif key == "accessories":
+                if isinstance(val, list):
+                    cleaned[key] = [str(x)[:64] for x in val[:4]]
+                elif val is not None:
+                    cleaned[key] = [str(val)[:64]]
+            elif key in ("race", "class"):
+                try:
+                    cleaned[key] = int(val)
+                except Exception:
+                    continue
+            elif val is None:
+                continue
+            else:
+                cleaned[key] = str(val)[:64]
+        self.paperdoll_cosmetics = cleaned or None
         return self
 
 

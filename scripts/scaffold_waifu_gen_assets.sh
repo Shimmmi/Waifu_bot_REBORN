@@ -107,20 +107,51 @@ def main():
     for acc in ACCESSORIES:
         stub_webp(ROOT / "paperdoll" / "accessory" / f"{acc}.webp", 256, (120, 110, 140), acc)
 
+    WEAPON_TYPES = ["sword", "dagger", "axe", "mace", "hammer", "bow", "crossbow", "staff", "wand", "orb", "unarmed"]
+    COSTUME_SLUGS = ["plate_armor", "leather_armor", "chainmail", "robes", "dress", "cloak", "default"]
+    OFFHAND_SLUGS = ["shield", "buckler", "tome", "default"]
+    WEAPON_SLUGS = ["default", "iron_sword", "wood_bow", "oak_staff", "steel_dagger"]
+
+    for costume in COSTUME_SLUGS:
+        stub_webp(ROOT / "paperdoll" / "equip" / "costume" / f"{costume}.webp", 512, (70, 90, 120), costume)
+    for wt in WEAPON_TYPES:
+        for slug in WEAPON_SLUGS:
+            stub_webp(ROOT / "paperdoll" / "equip" / "weapon" / wt / f"{slug}.webp", 512, (140, 100, 60), f"{wt}")
+    for oh in OFFHAND_SLUGS:
+        stub_webp(ROOT / "paperdoll" / "equip" / "offhand" / f"{oh}.webp", 512, (90, 110, 130), oh)
+
     pd_readme = ROOT / "paperdoll" / "README.md"
     pd_readme.parent.mkdir(parents=True, exist_ok=True)
-    pd_readme.write_text("""# Paperdoll layers (Steam character creation)
+    pd_readme.write_text("""# Paperdoll layers (Steam character creation + overlay)
 
-2D layered sprites for RO-style character customization in `steam/waifu_generator.html`.
+2D layered sprites for RO-style character customization in `steam/waifu_generator.html`
+and the Steam overlay (`overlay.html` via `ro-paperdoll-compositor.js`).
 
-## Layer order (bottom to top)
+## Cosmetic layer order (bottom to top)
 
-1. `base/{race_slug}/body.webp` — body silhouette (512×512)
+1. `base/{race_slug}/body.webp` — body silhouette (512×512), pivot center-bottom
 2. `race-feature/{race_slug}/{variant}.webp` — race-specific trait
-3. `outfit/{outfit}.webp`
+3. `outfit/{outfit}.webp` — creator outfit (under equip costume when both present)
 4. `hair/{hairstyle}.webp`
 5. `eyes/{eye_shape}_{eye_color}.webp`
 6. `accessory/{accessory}.webp` — hidden when `none`
+
+## Equip layers (overlay only; rings/amulets ignored)
+
+```
+equip/costume/{art_slug}.webp
+equip/weapon/{weapon_type}/{art_slug}.webp
+equip/offhand/{art_slug}.webp
+```
+
+Paint order with equip: base → race_feature → outfit → equip_costume → hair → eyes → accessory → offhand → weapon.
+
+Weapon layer is hidden outside combat (idle). See `docs/OVERLAY_RO_SKELETON.md`.
+
+## Canvas / pivot
+
+- Authoring size: **512×512**
+- Character feet near bottom center; overlay scales the stage to ~160px
 
 ## Regenerate stubs
 
@@ -128,7 +159,7 @@ def main():
 bash scripts/scaffold_waifu_gen_assets.sh
 ```
 
-See also [../README.md](../README.md) and `docs/OVERLAY_ANIMATIONS.md` (unrelated overlay combat art).
+See also [../README.md](../README.md), `docs/OVERLAY_ANIMATIONS.md`, `docs/OVERLAY_RO_SKELETON.md`.
 """, encoding="utf-8")
     print(f"Scaffolded waifu-gen assets under {ROOT}")
 

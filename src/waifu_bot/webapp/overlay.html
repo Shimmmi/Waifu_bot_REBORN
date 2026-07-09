@@ -11,11 +11,11 @@
       (pages/overlay.js + overlay.css) so the overlay stays light and cannot be
       broken by unrelated webapp bundle changes.
     -->
-    <link rel="stylesheet" href="./overlay.css?v=waifu-webapp-v65" />
+    <link rel="stylesheet" href="./overlay.css?v=waifu-webapp-v66" />
   </head>
   <body>
     <div id="ov-root" class="state-loading">
-      <!-- Waifu scene: portrait + state animations + floating FX -->
+      <!-- Waifu scene: RO paperdoll (or portrait fallback) + state animations + floating FX -->
       <div class="ov-scene" id="ov-scene">
         <div class="ov-monster-attack-fx" id="ov-monster-attack-fx" aria-hidden="true"></div>
         <div class="ov-zzz" aria-hidden="true"><span>💤</span><span>💤</span><span>💤</span></div>
@@ -29,6 +29,7 @@
             data-attack-type=""
             data-combat-mode=""
           >
+            <div class="ov-paperdoll" id="ov-paperdoll" data-has-layers="0" hidden></div>
             <img id="ov-portrait" alt="Ваша вайфу" draggable="false" />
             <div class="ov-portrait-fallback" id="ov-portrait-fallback">👤</div>
           </div>
@@ -102,6 +103,8 @@
       </nav>
     </div>
 
-    <script defer src="./pages/overlay.js?v=waifu-webapp-v65"></script>
+    <script defer src="./pages/ro-paperdoll-compositor.js?v=waifu-webapp-v66"></script>
+    <script defer src="./pages/ro-paperdoll-skeleton.js?v=waifu-webapp-v66"></script>
+    <script defer src="./pages/overlay.js?v=waifu-webapp-v66"></script>
   </body>
 </html>

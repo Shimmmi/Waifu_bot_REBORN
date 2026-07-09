@@ -47,17 +47,26 @@ Solo takes precedence when both are active (should not happen in normal play).
 .ov-scene
   .ov-stage                    flex row, align bottom
     .ov-portrait-wrap          waifu (left)
+      .ov-paperdoll            RO layered doll when cosmetics exist
+      #ov-portrait             AI portrait fallback (legacy accounts)
     .ov-monster-target         monster sprite (right, 56×56)
   .ov-monster                  HUD strip: name + HP only (visual hidden when target shown)
 ```
 
-Portrait `data-*` attributes (set from lite profile + combat poll):
+When `has_paperdoll_layers` is true, the overlay uses the RO compositor + bone runtime
+instead of the portrait image. See [OVERLAY_RO_SKELETON.md](OVERLAY_RO_SKELETON.md).
+
+Portrait / paperdoll wrap `data-*` attributes (set from lite profile + combat poll):
 
 - `data-weapon-type` — e.g. `sword`, `unarmed`
 - `data-attack-type` — `melee` | `ranged` | `magic`
 - `data-combat-mode` — `none` | `solo` | `abyss`
 - `data-attack-anim` — runtime key `{mode}-{attackType}-{weaponType}-{variant}`
 - `data-idle-action` — `stretch` | `yawn` | `wave` | `read` | `tea`
+
+Lite profile also returns `equipped_visuals` (costume / weapon / offhand sprite paths).
+Weapon sprite is shown only while `combatActive()`; idle hides `hand_r`.
+Equipped visuals are refreshed about every 12s (and on `visibilitychange`).
 
 ## Attack animation matrix
 
