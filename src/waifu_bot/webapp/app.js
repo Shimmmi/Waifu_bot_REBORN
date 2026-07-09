@@ -771,18 +771,25 @@ function isApiAuthError(err) {
 
 function isServerUnavailableError(err) {
   const msg = String(err?.message || "");
-  return /\bHTTP 50[023]\b/.test(msg) || isFetchNetworkError(err);
+  // Only true gateway/upstream outages — NOT HTTP 500 (app bugs / empty seed).
+  return /\bHTTP 502\b/.test(msg) || /\bHTTP 503\b/.test(msg) || isFetchNetworkError(err);
 }
 
 function formatShopLoadErrorHtml(err) {
   if (isServerUnavailableError(err)) return serverUnavailableNoticeHtml();
   const { raw, detail } = parseHttpErrorDetail(err);
   const detailText = detail || raw || String(err?.message || "unknown error");
+  const statusMatch = String(err?.message || "").match(/\bHTTP\s+(\d+)\b/);
+  const status = statusMatch ? statusMatch[1] : "";
+  const statusLine = status
+    ? `<p class="muted">HTTP ${escapeHtml(status)}</p>`
+    : "";
   const devHint = isDesktopClient()
     ? `<p class="muted">DevTools → Network: <code>/api/shop/inventory</code>; Console: <code>Failed to load shop</code>.</p>`
     : "";
   return `<div class="webapp-auth-notice" role="alert">
     <h3 class="webapp-auth-notice-title">Не удалось загрузить магазин</h3>
+    ${statusLine}
     <p>${escapeHtml(detailText)}</p>
     ${devHint}
   </div>`;

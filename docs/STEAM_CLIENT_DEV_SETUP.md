@@ -703,12 +703,14 @@ Tab-окна shop/dungeons/profile открываются из оверлея к
 
 **Диагностика в DevTools tab-окна магазина:** Network → `/api/shop/inventory`; Console → `Failed to load shop:` (полный текст ошибки).
 
-Если баннер «Не удалось загрузить магазин» с **detail** (не Steam-auth notice):
+Если баннер «Сервер временно недоступен (502)» — это **не всегда** настоящий 502: раньше UI так же показывал **HTTP 500**. Смотрите DevTools:
 
-1. DevTools → **Network** → запрос `/api/shop/inventory?act=1` — статус (401 / 500 / 502).
-2. DevTools → **Console** → строка `Failed to load shop:` с HTTP status и телом ответа.
-3. **401/403** → `steamTicketDev` + `APP_ENV`; перезапуск Electron.
-4. **500** → `docker compose logs api` на машине с backend.
+1. DevTools → **Network** → `GET /api/shop/inventory?act=1` — реальный статус.
+2. DevTools → **Console** → `Failed to load shop:` с телом ответа (`shop_generation_failed:…` / `shop_inventory_failed:…`).
+3. **401/403** → нет desktop JWT / `steamTicketDev`; перелогин или `requireAuth`.
+4. **500** `shop_generation_failed:No item templates…` → в staging БД нет каталога предметов. Засейте шаблоны (как в Telegram-стеке), например:
+   `docker compose -f docker-compose.staging.yml --env-file .env.staging exec api python -m scripts.import_item_base_templates`
+   или полный seed из прод-дампа (`scripts/staging_seed_from_prod_dump.sh`).
 5. **502 / network** → backend недоступен или неверный `backendUrl` в `config.local.json`.
 6. После правок `app.js` обязателен `./scripts/build_webapp.sh` + docker `--build` (tab грузит `app.min.js`).
 
