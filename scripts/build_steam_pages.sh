@@ -39,6 +39,14 @@ for page in shop dungeons profile; do
   sed -i 's|src="./vendor/|src="/webapp/vendor/|g' "$dst"
   sed -i 's|href="./assets/|href="/webapp/assets/|g' "$dst"
   sed -i 's|src="./assets/|src="/webapp/assets/|g' "$dst"
+
+  # Steam profile: light main-waifu recreate (survives rebuild; hidden on Telegram via steam-dev-only).
+  if [[ "$page" == "profile" ]]; then
+    if ! grep -q 'tab-steam-recreate' "$dst"; then
+      sed -i 's|onclick="WaifuApp.resetMainWaifu()" style="display:none">♻️</button>|onclick="WaifuApp.resetMainWaifu()" style="display:none">♻️</button>\n        <button class="tab tab-steam-recreate steam-dev-only" type="button" title="Пересоздать вайфу (dev)" aria-label="Пересоздать основную вайфу" onclick="WaifuApp.resetSteamMainWaifu()" style="display:none">🔄</button>|' "$dst"
+    fi
+  fi
+
   echo "  steam/${page}.html"
 done
 

@@ -1,6 +1,8 @@
 /*
  * Steam desktop tab windows (420×420): compact layouts for shop/dungeons/profile.
  * Loaded only from webapp/steam/*.html (page-steam-shell).
+ *
+ * Titlebar ~28px; usable content ≈ 392px.
  */
 
 html.desktop-client.desktop-window body.page-steam-shell {
@@ -14,22 +16,28 @@ html.desktop-client.desktop-window body.page-steam-shell .screen,
 html.desktop-client.desktop-window body.page-steam-shell .shop-stage,
 html.desktop-client.desktop-window body.page-steam-shell main.profile-layout {
   max-height: calc(420px - 28px);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Shop: smaller hero, tighter tabs */
 body.page-steam-shell.page-shop .shop-hero {
-  max-height: 154px;
+  max-height: 120px;
 }
 
 body.page-steam-shell.page-shop .shop-btabs {
   flex-wrap: nowrap;
   overflow-x: auto;
   scrollbar-width: none;
+  flex-shrink: 0;
 }
 
 body.page-steam-shell.page-shop .shop-tab-panel {
   padding-bottom: 12px;
+  max-height: calc(420px - 28px - 120px - 44px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Dungeons: solo-first; hide non-solo tabs in compact shell */
@@ -43,11 +51,17 @@ body.page-steam-shell.page-dungeons .tab-panel:not(#tab-solo) {
 
 body.page-steam-shell.page-dungeons #tab-solo.tab-panel {
   display: flex !important;
-  overflow: hidden;
+  flex-direction: column;
+  max-height: calc(420px - 28px - 40px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 body.page-steam-shell.page-dungeons .page-dungeons .screen {
   height: 100%;
+  max-height: calc(420px - 28px);
+  overflow-y: auto;
 }
 
 /* Profile: no bottom nav gap, compact tabs */
@@ -57,19 +71,45 @@ body.page-steam-shell.page-profile {
 
 body.page-steam-shell.page-profile .layout.profile-layout {
   padding-bottom: 8px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: calc(420px - 28px);
+  -webkit-overflow-scrolling: touch;
+}
+
+body.page-steam-shell.page-profile .profile-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgba(15, 23, 42, 0.96);
+}
+
+body.page-steam-shell.page-profile .profile-tabs .tab-steam-recreate {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  min-width: 32px;
+  font-size: 14px;
+  line-height: 1;
 }
 
 body.page-steam-shell.page-profile .tab-panel.active {
-  overflow: hidden;
-  max-height: calc(672px - 160px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: calc(420px - 28px - 52px);
+  -webkit-overflow-scrolling: touch;
 }
 
 body.page-steam-shell.page-profile #tab-inventory.tab-panel.active {
-  max-height: calc(672px - 140px);
+  max-height: calc(420px - 28px - 48px);
 }
 
 body.page-steam-shell.page-profile .profile-inv-grid-wrap {
-  max-height: calc(672px - 220px);
-  overflow: hidden;
+  max-height: calc(420px - 28px - 120px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }

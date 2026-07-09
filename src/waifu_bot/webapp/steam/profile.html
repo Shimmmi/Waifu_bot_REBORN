@@ -101,6 +101,7 @@
         white-space: nowrap;
       }
       body.page-profile .profile-tabs .tab-reset,
+      body.page-profile .profile-tabs .tab-steam-recreate,
       body.page-profile .profile-tabs .tab-levelup,
       body.page-profile .profile-tabs .tab-statspend-reset,
       body.page-profile .profile-tabs .tab-clearitems {
@@ -1357,7 +1358,7 @@
         <button class="tab" data-tab="inventory" data-tutorial="profile-inventory-tab" onclick="WaifuApp.switchProfileTab('inventory')">Инвентарь</button>
         <button class="tab" data-tab="info" onclick="WaifuApp.switchProfileTab('info')">Подробно</button>
         <button class="tab tab-reset admin-only" title="Сбросить вайфу" aria-label="Сбросить вайфу" onclick="WaifuApp.resetMainWaifu()" style="display:none">♻️</button>
-        <button class="tab tab-steam-recreate steam-dev-only" title="Пересоздать вайфу (dev)" aria-label="Пересоздать основную вайфу" onclick="WaifuApp.resetSteamMainWaifu()" style="display:none">🔄</button>
+        <button class="tab tab-steam-recreate steam-dev-only" type="button" title="Пересоздать вайфу (dev)" aria-label="Пересоздать основную вайфу" onclick="WaifuApp.resetSteamMainWaifu()" style="display:none">🔄</button>
         <button class="tab tab-levelup admin-only" title="Повысить уровень +1" aria-label="Повысить уровень ОВ на 1" onclick="WaifuApp.adminLevelUpWaifu()" style="display:none">⬆️</button>
         <button class="tab tab-statspend-reset admin-only" title="Сбросить потраченные ОХ (статы к базе)" aria-label="Сбросить потраченные очки характеристик" onclick="WaifuApp.adminResetMainWaifuStatSpend()" style="display:none">⟲</button>
         <button class="tab tab-clearitems admin-only" title="Удалить все предметы" aria-label="Удалить все предметы" onclick="WaifuApp.adminClearAllItems()" style="display:none">🗑️</button>
