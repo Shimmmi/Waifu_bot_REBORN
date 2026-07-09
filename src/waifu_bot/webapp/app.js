@@ -179,6 +179,10 @@ function getDevPlayerIdFromQuery() {
 function getDesktopSteamAuthHeader() {
   if (!isDesktopClient()) return null;
   try {
+    const session =
+      window.waifuDesktop?.getDesktopSessionToken?.() ||
+      (typeof localStorage !== "undefined" ? localStorage.getItem("waifuDesktopSession") : null);
+    if (session) return { name: "X-Desktop-Session", value: String(session) };
     const real = window.waifuDesktop?.getSteamTicket?.();
     if (real) return { name: "X-Steam-Ticket", value: String(real) };
     const devStub = window.waifuDesktop?.steamTicketDev
@@ -235,6 +239,18 @@ async function apiFetch(path, options = {}) {
       const res = await fetch(`${API_BASE}${path}`, opts);
       if (!res.ok) {
         const text = await res.text();
+        if (
+          res.status === 401 &&
+          isDesktopClient() &&
+          typeof window.waifuDesktop?.requireAuth === "function" &&
+          !String(path).includes("/auth/desktop/")
+        ) {
+          try {
+            window.waifuDesktop.requireAuth();
+          } catch {
+            /* ignore */
+          }
+        }
         throw new Error(`HTTP ${res.status}: ${text || "failed"}`);
       }
       if (res.status === 204) return null;
@@ -256,7 +272,6 @@ async function apiFetch(path, options = {}) {
       throw err;
     }
   }
-
   throw lastErr;
 }
 
@@ -704,10 +719,10 @@ function formatShopLoadErrorHtml(err) {
 function webAppAuthNoticeHtml() {
   if (isDesktopClient()) {
     return `<div class="webapp-auth-notice" role="alert">
-      <h3 class="webapp-auth-notice-title">Не удалось войти через Steam</h3>
-      <p>Не получили действительный Steam-билет от клиента. Перезапустите приложение или переустановите его через Steam.</p>
-      <p class="muted">Dev/stage: задайте <code>steamTicketDev</code> в <code>desktop_client/config.local.json</code> и убедитесь, что на сервере <code>APP_ENV=stage</code>, <code>dev</code> или <code>testing</code>.</p>
-      <p class="muted">Если проблема повторяется, обратитесь в поддержку и укажите, что ошибка возникла в Steam-версии.</p>
+      <h3 class="webapp-auth-notice-title">Нужен вход</h3>
+      <p>Войдите по email или через Telegram (экран входа при старте клиента). Steamworks-билет пока не подключён.</p>
+      <p class="muted"><button type="button" class="primary" onclick="window.waifuDesktop?.requireAuth?.()">Открыть вход</button></p>
+      <p class="muted">Dev/stage: можно задать <code>steamTicketDev</code> в <code>desktop_client/config.local.json</code> (сервер <code>APP_ENV=dev|stage|testing</code>) — тогда экран входа пропускается.</p>
     </div>`;
   }
   const devBlock = `<details class="webapp-auth-details"><summary>Для разработчиков</summary>
@@ -7503,9 +7518,14 @@ function initTitleScreen(profile) {
       authEl.style.display = "block";
       authEl.innerHTML = webAppAuthNoticeHtml();
     }
-    btn.textContent = "Вход недоступен";
-    btn.disabled = true;
-    btn.onclick = null;
+    btn.textContent = isDesktopClient() ? "Войти" : "Вход недоступен";
+    btn.disabled = !isDesktopClient();
+    btn.onclick = isDesktopClient()
+      ? () => {
+          if (window.waifuDesktop?.requireAuth) window.waifuDesktop.requireAuth();
+          else window.location.href = steamRelativePage("login.html");
+        }
+      : null;
     return;
   }
 

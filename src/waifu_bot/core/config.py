@@ -148,6 +148,11 @@ class Settings(BaseSettings):
     bot_username: str | None = Field(None, alias="BOT_USERNAME")
     telegram_oidc_client_id: str | None = Field(None, alias="TELEGRAM_OIDC_CLIENT_ID")
 
+    # Desktop Electron interim auth (email/Telegram JWT via X-Desktop-Session)
+    desktop_session_secret: str | None = Field(None, alias="DESKTOP_SESSION_SECRET")
+    desktop_oidc_redirect_uri: str | None = Field(None, alias="DESKTOP_OIDC_REDIRECT_URI")
+    desktop_session_ttl_days: int = Field(30, alias="DESKTOP_SESSION_TTL_DAYS")
+
     @field_validator("admin_ids", mode="before")
     @classmethod
     def _split_admin_ids(cls, v: str | list[int]) -> list[int]:
@@ -223,6 +228,17 @@ class Settings(BaseSettings):
         if self.environment in ("dev", "testing"):
             return self.webhook_secret
         raise ValueError("ARMORY_SESSION_SECRET is required in production")
+
+    @property
+    def desktop_session_key(self) -> str:
+        """Secret for desktop Electron JWT sessions (X-Desktop-Session)."""
+        if self.desktop_session_secret:
+            return self.desktop_session_secret
+        if self.armory_session_secret:
+            return self.armory_session_secret
+        if self.environment in ("dev", "testing", "stage"):
+            return self.webhook_secret
+        raise ValueError("DESKTOP_SESSION_SECRET is required in production")
 
 settings = Settings()
 

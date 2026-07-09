@@ -6,6 +6,7 @@ from waifu_bot.db.models.chat_reward import (
 )
 from waifu_bot.db.models.player import Player
 from waifu_bot.db.models.player_identity_link import PlayerIdentityLink
+from waifu_bot.db.models.email_credential import EmailCredential
 from waifu_bot.db.models.player_mail import PlayerMail, PlayerMailStatus
 from waifu_bot.db.models.hidden_skill import HiddenSkillDefinition, PlayerHiddenSkill
 from waifu_bot.db.models.passive_skill import PassiveSkillNode, PlayerPassiveSkill
@@ -128,6 +129,7 @@ __all__ = [
     "PlayerBan",
     "Player",
     "PlayerIdentityLink",
+    "EmailCredential",
     "PlayerChatRewardWallet",
     "PlayerChatActivityDaily",
     "PlayerChatActivityTotal",

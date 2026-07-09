@@ -44,6 +44,7 @@
     "dungeons.html": "steam/dungeons.html",
     "shop.html": "steam/shop.html",
     "waifu_generator.html": "steam/waifu_generator.html",
+    "login.html": "steam/login.html",
   };
 
   function resolveSteamPage(page) {
@@ -54,11 +55,15 @@
     const headers = {};
     try {
       const params = new URLSearchParams(window.location.search);
+      const session =
+        window.waifuDesktop?.getDesktopSessionToken?.() ||
+        (typeof localStorage !== "undefined" ? localStorage.getItem("waifuDesktopSession") : null);
       const devPid = params.get("devPlayerId");
       const real = window.waifuDesktop?.getSteamTicket?.();
       const devStub =
         window.waifuDesktop?.steamTicketDev || params.get("steamTicketDev");
-      if (real) headers["X-Steam-Ticket"] = String(real);
+      if (session) headers["X-Desktop-Session"] = String(session);
+      else if (real) headers["X-Steam-Ticket"] = String(real);
       else if (devPid) headers["X-Player-Id"] = String(devPid);
       else if (devStub) headers["X-Steam-Ticket-Dev"] = String(devStub);
     } catch {

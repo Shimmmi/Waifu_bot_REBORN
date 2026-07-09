@@ -16,6 +16,7 @@ from waifu_bot.core.config import settings
 from waifu_bot.db.session import get_session
 from waifu_bot.services.auth import validate_init_data
 from waifu_bot.services.auth_steam import resolve_or_create_player_for_steam, validate_steam_ticket
+from waifu_bot.services.desktop_session import resolve_player_id_from_desktop_session
 from waifu_bot.services.player_ban import is_player_banned
 
 logger = logging.getLogger(__name__)
@@ -78,16 +79,21 @@ async def get_player_id(
     init_data_query: str | None = Query(None, alias="initData"),
     x_player_id: int | None = Header(None, alias="X-Player-Id"),
     x_dev_token: str | None = Header(None, alias="X-Dev-Token"),
+    x_desktop_session: str | None = Header(None, alias="X-Desktop-Session"),
     x_steam_ticket: str | None = Header(None, alias="X-Steam-Ticket"),
     x_steam_ticket_dev: str | None = Header(None, alias="X-Steam-Ticket-Dev"),
     session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
 ) -> int:
     """
-    Extract player id using Telegram WebApp initData (or Steam client auth).
+    Extract player id using Telegram WebApp initData (or Steam / desktop session).
 
     Dev browser bypass: if DEV_BROWSER_TOKEN is configured, requests that supply
     X-Dev-Token matching that secret and X-Player-Id are accepted regardless of APP_ENV.
     For APP_ENV=dev only: X-Player-Id alone (without token) is also accepted.
+
+    Desktop Electron interim auth: X-Desktop-Session carries a JWT issued by
+    /api/auth/desktop/* (email or Telegram OIDC) until Steamworks tickets work.
 
     Steam client (desktop_client/): X-Steam-Ticket carries a real Steamworks
     session ticket, validated via validate_steam_ticket() (needs
@@ -119,6 +125,12 @@ async def get_player_id(
             if await is_player_banned(session, x_player_id):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account banned")
             return x_player_id
+
+    if x_desktop_session and x_desktop_session.strip():
+        player_id = await resolve_player_id_from_desktop_session(redis, x_desktop_session.strip())
+        if await is_player_banned(session, player_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account banned")
+        return player_id
 
     if x_steam_ticket:
         steam_data = await validate_steam_ticket(x_steam_ticket)

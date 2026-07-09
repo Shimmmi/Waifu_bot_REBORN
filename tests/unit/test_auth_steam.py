@@ -100,9 +100,11 @@ async def test_get_player_id_steam_ticket_dev_only_in_dev_envs(monkeypatch):
             init_data_query=None,
             x_player_id=None,
             x_dev_token=None,
+            x_desktop_session=None,
             x_steam_ticket=None,
             x_steam_ticket_dev="7656119...",
             session=session,
+            redis=None,
         )
     assert exc_info.value.status_code == 401
 
@@ -119,8 +121,35 @@ async def test_get_player_id_steam_ticket_dev_accepted_in_stage(monkeypatch):
         init_data_query=None,
         x_player_id=None,
         x_dev_token=None,
+        x_desktop_session=None,
         x_steam_ticket=None,
         x_steam_ticket_dev="7656119...",
         session=session,
+        redis=None,
     )
     assert player_id == -5
+
+
+def test_get_player_id_desktop_session(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(
+        deps_module, "resolve_player_id_from_desktop_session", AsyncMock(return_value=-42)
+    )
+    monkeypatch.setattr(deps_module, "is_player_banned", AsyncMock(return_value=False))
+    session = AsyncMock()
+
+    player_id = asyncio.run(
+        deps_module.get_player_id(
+            init_data=None,
+            init_data_query=None,
+            x_player_id=None,
+            x_dev_token=None,
+            x_desktop_session="fake.jwt.token",
+            x_steam_ticket=None,
+            x_steam_ticket_dev=None,
+            session=session,
+            redis=None,
+        )
+    )
+    assert player_id == -42

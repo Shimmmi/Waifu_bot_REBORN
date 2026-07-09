@@ -731,6 +731,30 @@ powershell -ExecutionPolicy Bypass -File scripts/grant_staging_admin.ps1
 
 Фронт: `isAdminUser()` учитывает `profile.is_admin` (не только Telegram ID).
 
+## Interim desktop auth (email + Telegram)
+
+Пока Steamworks-тикет не подключён, Electron показывает экран входа
+[`webapp/steam/login.html`](../src/waifu_bot/webapp/steam/login.html):
+
+| Способ | API |
+|--------|-----|
+| Email + пароль | `POST /api/auth/desktop/register` / `login` |
+| Telegram OIDC | popup как Armory → `POST /api/auth/desktop/telegram` |
+
+Сессия: JWT в `X-Desktop-Session` (файл в Electron `userData`, не cookie Armory).
+
+**Чеклист:**
+
+1. Миграция: `alembic upgrade head` (таблица `email_credentials`).
+2. Env: `DESKTOP_SESSION_SECRET` (в prod обязателен; в dev/stage fallback на `ARMORY_SESSION_SECRET` / `WEBHOOK_SECRET`).
+3. Опционально: `DESKTOP_OIDC_REDIRECT_URI` — точный URL страницы логина для BotFather.
+4. **BotFather → Bot Settings → Domain / Login:**
+   - Trusted Origin: origin бэкенда (как `PUBLIC_BASE_URL`)
+   - Redirect URI: `https://<host>/webapp/steam/login.html` (и staging-аналог)
+5. Без `steamTicketDev` клиент открывает login window при старте; после входа — overlay.
+6. С `steamTicketDev` в `config.local.json` экран входа пропускается (dev automation).
+7. `GET /api/auth/desktop/me` с заголовком `X-Desktop-Session` — проверка сессии.
+
 ## Создание персонажа (Steam) и dev-сброс ОВ
 
 Steam-клиент использует отдельный генератор с RO-style paperdoll:

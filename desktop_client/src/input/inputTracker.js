@@ -41,6 +41,12 @@ let lastActivityEmit = 0;
 
 function buildAuthHeaders() {
   const headers = { "Content-Type": "application/json" };
+  const desktopAuthStore = require("../desktopAuthStore");
+  const sessionToken = desktopAuthStore.getToken();
+  if (sessionToken) {
+    headers["X-Desktop-Session"] = String(sessionToken);
+    return headers;
+  }
   if (config.steamTicketDev) {
     headers["X-Steam-Ticket-Dev"] = String(config.steamTicketDev);
   }

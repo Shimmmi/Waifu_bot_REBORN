@@ -1,0 +1,133 @@
+/* Desktop Electron login (steam/login.html) — compact 420×420 tab */
+
+.page-steam-login {
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(160deg, #0b1220 0%, #1a2744 55%, #0f172a 100%);
+  color: #e2e8f0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.steam-login-shell {
+  box-sizing: border-box;
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 16px 14px 20px;
+}
+
+.steam-login-title {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.steam-login-sub {
+  margin: 0 0 14px;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  line-height: 1.35;
+}
+
+.steam-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.steam-login-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.steam-login-form input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #f1f5f9;
+  font-size: 0.9rem;
+}
+
+.steam-login-form input:focus {
+  outline: 1px solid #38bdf8;
+  border-color: #38bdf8;
+}
+
+.steam-login-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.steam-login-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.steam-login-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.steam-login-btn-primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.steam-login-btn-secondary {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+}
+
+.steam-login-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 10px;
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
+.steam-login-divider::before,
+.steam-login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #334155;
+}
+
+.steam-login-tg {
+  width: 100%;
+  background: #229ed9;
+  color: #fff;
+}
+
+.steam-login-error {
+  min-height: 1.2em;
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  color: #f87171;
+}
+
+.steam-login-ok {
+  color: #4ade80;
+}
+
+.steam-login-hint {
+  margin-top: 12px;
+  font-size: 0.68rem;
+  color: #64748b;
+  line-height: 1.4;
+}

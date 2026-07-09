@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru" class="desktop-client desktop-window">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Вход — Waifu Desktop</title>
+    <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v61" />
+    <link rel="stylesheet" href="./steam-login.css?v=waifu-webapp-v61" />
+    <script defer src="/webapp/pages/desktop-telegram-login.js?v=waifu-webapp-v61"></script>
+  </head>
+  <body class="page-steam-login page-steam-shell">
+    <header class="desktop-titlebar">
+      <span class="desktop-titlebar-title">Вход</span>
+      <button type="button" class="desktop-titlebar-close" onclick="window.waifuDesktop?.closeWindow?.()" aria-label="Закрыть">×</button>
+    </header>
+    <div class="steam-login-shell">
+      <h1 class="steam-login-title">Waifu Desktop</h1>
+      <p class="steam-login-sub">Войдите по email или через Telegram, пока Steamworks-авторизация не подключена.</p>
+
+      <form id="steam-login-form" class="steam-login-form" autocomplete="on">
+        <label>
+          Email
+          <input id="login-email" name="email" type="email" required maxlength="320" placeholder="you@example.com" autocomplete="username" />
+        </label>
+        <label>
+          Пароль
+          <input id="login-password" name="password" type="password" required minlength="8" maxlength="256" placeholder="минимум 8 символов" autocomplete="current-password" />
+        </label>
+        <div class="steam-login-actions">
+          <button type="submit" class="steam-login-btn steam-login-btn-primary" id="btn-login">Войти</button>
+          <button type="button" class="steam-login-btn steam-login-btn-secondary" id="btn-register">Регистрация</button>
+        </div>
+      </form>
+
+      <div class="steam-login-divider">или</div>
+      <button type="button" class="steam-login-btn steam-login-tg" id="btn-telegram">Войти через Telegram</button>
+
+      <p id="login-status" class="steam-login-error" role="status" aria-live="polite"></p>
+      <p class="steam-login-hint">После входа сессия сохраняется на этом устройстве. Dev-stub <code>steamTicketDev</code> по-прежнему работает без этого экрана.</p>
+    </div>
+
+    <script>
+      (function () {
+        const statusEl = document.getElementById("login-status");
+        const form = document.getElementById("steam-login-form");
+        const emailEl = document.getElementById("login-email");
+        const passEl = document.getElementById("login-password");
+        const btnLogin = document.getElementById("btn-login");
+        const btnRegister = document.getElementById("btn-register");
+        const btnTg = document.getElementById("btn-telegram");
+
+        function setBusy(on) {
+          [btnLogin, btnRegister, btnTg].forEach((b) => {
+            if (b) b.disabled = !!on;
+          });
+        }
+
+        function setStatus(msg, ok) {
+          statusEl.textContent = msg || "";
+          statusEl.classList.toggle("steam-login-ok", !!ok);
+        }
+
+        async function apiPost(path, body) {
+          const res = await fetch(`/api${path}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const text = await res.text();
+          let data = null;
+          try {
+            data = text ? JSON.parse(text) : null;
+          } catch {
+            data = { detail: text };
+          }
+          if (!res.ok) {
+            const detail = data?.detail;
+            const msg =
+              typeof detail === "string"
+                ? detail
+                : Array.isArray(detail)
+                  ? detail.map((d) => d.msg || d).join("; ")
+                  : `HTTP ${res.status}`;
+            throw new Error(msg);
+          }
+          return data;
+        }
+
+        async function finishSession(data) {
+          const token = data?.access_token;
+          if (!token) throw new Error("no_access_token");
+          if (window.waifuDesktop?.setDesktopSessionToken) {
+            await window.waifuDesktop.setDesktopSessionToken(token);
+          } else {
+            try {
+              localStorage.setItem("waifuDesktopSession", token);
+            } catch {
+              /* ignore */
+            }
+          }
+          setStatus("Вход выполнен", true);
+          if (window.waifuDesktop?.notifyAuthComplete) {
+            await window.waifuDesktop.notifyAuthComplete();
+          } else if (window.waifuDesktop?.openTab) {
+            window.waifuDesktop.openTab("steam/index.html");
+            window.waifuDesktop.closeWindow?.();
+          } else {
+            window.location.href = "/webapp/steam/profile.html?desktopClient=1";
+          }
+        }
+
+        async function emailAuth(mode) {
+          setBusy(true);
+          setStatus("");
+          try {
+            const email = emailEl.value.trim();
+            const password = passEl.value;
+            const path = mode === "register" ? "/auth/desktop/register" : "/auth/desktop/login";
+            const data = await apiPost(path, { email, password });
+            await finishSession(data);
+          } catch (e) {
+            setStatus(String(e?.message || e));
+          } finally {
+            setBusy(false);
+          }
+        }
+
+        form.addEventListener("submit", (e) => {
+          e.preventDefault();
+          emailAuth("login");
+        });
+        btnRegister.addEventListener("click", () => emailAuth("register"));
+
+        btnTg.addEventListener("click", async () => {
+          setBusy(true);
+          setStatus("");
+          try {
+            const cfgRes = await fetch("/api/auth/desktop/login-url");
+            if (!cfgRes.ok) throw new Error("login_url_failed");
+            const cfg = await cfgRes.json();
+            const redirectUri =
+              (cfg.redirect_uri_override || "").trim() ||
+              window.DesktopTelegramOidc.resolvePageRedirectUri();
+            const origin = (cfg.origin || window.location.origin).replace(/\/$/, "");
+            const result = await window.DesktopTelegramOidc.openPopup({
+              clientId: Number(cfg.client_id),
+              redirectUri,
+              origin,
+            });
+            const data = await apiPost("/auth/desktop/telegram", { id_token: result.id_token });
+            await finishSession(data);
+          } catch (e) {
+            const msg = String(e?.message || e);
+            if (msg === "popup_closed") setStatus("Окно Telegram закрыто");
+            else if (msg === "popup_blocked") setStatus("Разрешите всплывающие окна");
+            else setStatus(msg);
+          } finally {
+            setBusy(false);
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

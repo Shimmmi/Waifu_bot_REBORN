@@ -99,6 +99,7 @@ from waifu_bot.api.player_profile_routes import router as player_profile_router
 from waifu_bot.api.library_routes import router as library_router
 from waifu_bot.api.abyss_routes import router as abyss_router
 from waifu_bot.api.auth_routes import router as auth_router
+from waifu_bot.api.desktop_auth_routes import router as desktop_auth_router
 from waifu_bot.api.pc_client_routes import router as pc_client_router
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,7 @@ router.include_router(armory_router)
 router.include_router(library_router)
 router.include_router(abyss_router)
 router.include_router(auth_router)
+router.include_router(desktop_auth_router)
 router.include_router(pc_client_router)
 
 # Вторичные бонусы с предметов (шаблон + зачарование) и аффиксы с effect_key *_pct.
