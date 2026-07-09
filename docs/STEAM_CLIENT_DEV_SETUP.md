@@ -793,6 +793,10 @@ Steam-клиент использует отдельный генератор с
 4. Title screen «Новая игра» или профиль «Создать персонажа» → `steam/waifu_generator.html`.
 5. **Dev-сброс ОВ** (без полного wipe): на `steam/profile.html` кнопка 🔄 (`steam-dev-only`) → `DELETE /api/profile/main-waifu` + черновики портретов → снова генератор. Видна при `is_admin` или `allow_waifu_recreate`.
 
+**Генерация портрета (AI):** нужен `OPENROUTER_API_KEY` в `.env` staging/dev (и при необходимости `OPENROUTER_MODEL_IMAGE`). Без ключа `POST /api/profile/main-waifu/preview-portrait` отвечает `503 portrait_generation_failed`. Paperdoll-слои в step 2 — статика `/static/game/waifu-gen/paperdoll/` (без LLM); AI нужен только для кнопки «Сгенерировать».
+
+**Картинки после email-логина:** JWT зеркалится в `localStorage.waifuDesktopSession`; `/api/...` media URL получают `?desktopSession=` (для `<img>`). Main-waifu портреты идут через публичный `/static/game/waifus/portraits/{player_id}.webp`.
+
 Overlay: `waifu_generator.html` в `STEAM_PAGE_MAP` (`pages/overlay.js`) — tab-окно 420×420.
 
 **CORS/сетевые ошибки, если бэкенд на другой машине/в другой сети**

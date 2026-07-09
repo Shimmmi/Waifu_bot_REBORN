@@ -80,6 +80,7 @@ async def get_player_id(
     x_player_id: int | None = Header(None, alias="X-Player-Id"),
     x_dev_token: str | None = Header(None, alias="X-Dev-Token"),
     x_desktop_session: str | None = Header(None, alias="X-Desktop-Session"),
+    desktop_session_query: str | None = Query(None, alias="desktopSession"),
     x_steam_ticket: str | None = Header(None, alias="X-Steam-Ticket"),
     x_steam_ticket_dev: str | None = Header(None, alias="X-Steam-Ticket-Dev"),
     session: AsyncSession = Depends(get_db),
@@ -94,6 +95,8 @@ async def get_player_id(
 
     Desktop Electron interim auth: X-Desktop-Session carries a JWT issued by
     /api/auth/desktop/* (email or Telegram OIDC) until Steamworks tickets work.
+    For <img src="/api/..."> media GETs, the same JWT may be passed as
+    ?desktopSession= (browsers cannot set custom headers on image requests).
 
     Steam client (desktop_client/): X-Steam-Ticket carries a real Steamworks
     session ticket, validated via validate_steam_ticket() (needs
@@ -126,8 +129,9 @@ async def get_player_id(
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account banned")
             return x_player_id
 
-    if x_desktop_session and x_desktop_session.strip():
-        player_id = await resolve_player_id_from_desktop_session(redis, x_desktop_session.strip())
+    effective_desktop_session = (x_desktop_session or desktop_session_query or "").strip()
+    if effective_desktop_session:
+        player_id = await resolve_player_id_from_desktop_session(redis, effective_desktop_session)
         if await is_player_banned(session, player_id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account banned")
         return player_id

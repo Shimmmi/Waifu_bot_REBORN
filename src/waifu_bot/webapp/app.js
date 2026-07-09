@@ -176,12 +176,53 @@ function getDevPlayerIdFromQuery() {
  * back to a dev-only stub SteamID64 (see api/deps.py X-Steam-Ticket-Dev,
  * only accepted server-side when APP_ENV is dev/stage/testing).
  */
+function getDesktopSessionTokenSync() {
+  if (!isDesktopClient()) return null;
+  try {
+    const fromBridge = window.waifuDesktop?.getDesktopSessionToken?.();
+    if (fromBridge) return String(fromBridge);
+    if (typeof localStorage !== "undefined") {
+      const fromLs = localStorage.getItem("waifuDesktopSession");
+      if (fromLs) return String(fromLs);
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+let _desktopSessionReadyPromise = null;
+
+async function ensureDesktopSessionReady() {
+  if (!isDesktopClient()) return null;
+  const sync = getDesktopSessionTokenSync();
+  if (sync) return sync;
+  if (!_desktopSessionReadyPromise) {
+    _desktopSessionReadyPromise = (async () => {
+      try {
+        if (typeof window.waifuDesktop?.whenDesktopSessionReady === "function") {
+          const t = await window.waifuDesktop.whenDesktopSessionReady();
+          if (t) return String(t);
+        }
+        if (typeof window.waifuDesktop?.getDesktopSessionTokenAsync === "function") {
+          const t = await window.waifuDesktop.getDesktopSessionTokenAsync();
+          if (t) return String(t);
+        }
+      } catch {
+        /* ignore */
+      }
+      return getDesktopSessionTokenSync();
+    })().finally(() => {
+      _desktopSessionReadyPromise = null;
+    });
+  }
+  return _desktopSessionReadyPromise;
+}
+
 function getDesktopSteamAuthHeader() {
   if (!isDesktopClient()) return null;
   try {
-    const session =
-      window.waifuDesktop?.getDesktopSessionToken?.() ||
-      (typeof localStorage !== "undefined" ? localStorage.getItem("waifuDesktopSession") : null);
+    const session = getDesktopSessionTokenSync();
     if (session) return { name: "X-Desktop-Session", value: String(session) };
     const real = window.waifuDesktop?.getSteamTicket?.();
     if (real) return { name: "X-Steam-Ticket", value: String(real) };
@@ -220,25 +261,55 @@ function isFetchNetworkError(err) {
 }
 
 async function apiFetch(path, options = {}) {
-  const opts = { ...options };
-  opts.headers = { ...(options.headers || {}), ...authHeaders() };
-  if (
-    opts.body &&
-    typeof opts.body === "string" &&
-    !opts.headers["Content-Type"] &&
-    !opts.headers["content-type"]
-  ) {
-    opts.headers["Content-Type"] = "application/json";
+  if (isDesktopClient() && !String(path).includes("/auth/desktop/")) {
+    await ensureDesktopSessionReady();
   }
+
+  const buildOpts = () => {
+    const opts = { ...options };
+    opts.headers = { ...(options.headers || {}), ...authHeaders() };
+    if (
+      opts.body &&
+      typeof opts.body === "string" &&
+      !opts.headers["Content-Type"] &&
+      !opts.headers["content-type"]
+    ) {
+      opts.headers["Content-Type"] = "application/json";
+    }
+    return opts;
+  };
 
   const maxAttempts = isDesktopClient() ? 5 : 1;
   let lastErr;
+  let retriedAuth = false;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const res = await fetch(`${API_BASE}${path}`, opts);
+      const res = await fetch(`${API_BASE}${path}`, buildOpts());
       if (!res.ok) {
         const text = await res.text();
+        if (
+          res.status === 401 &&
+          isDesktopClient() &&
+          !String(path).includes("/auth/desktop/") &&
+          !retriedAuth
+        ) {
+          retriedAuth = true;
+          await ensureDesktopSessionReady();
+          const retryRes = await fetch(`${API_BASE}${path}`, buildOpts());
+          if (retryRes.ok) {
+            if (retryRes.status === 204) return null;
+            const ct = (retryRes.headers.get("content-type") || "").toLowerCase();
+            if (ct.includes("application/json")) return retryRes.json();
+            const retryText = await retryRes.text();
+            if (!retryText) return null;
+            try {
+              return JSON.parse(retryText);
+            } catch (_) {
+              return retryText;
+            }
+          }
+        }
         if (
           res.status === 401 &&
           isDesktopClient() &&
@@ -681,7 +752,9 @@ function isWebAppUnauthorizedError(err) {
     d.includes("init data") ||
     d.includes("hash missing") ||
     d.includes("invalid init") ||
-    d.includes("expired")
+    d.includes("expired") ||
+    d.includes("desktop_session") ||
+    d.includes("missing or invalid")
   );
 }
 
@@ -829,6 +902,10 @@ function resolveImageUrl(url) {
       params.set("devPlayerId", String(devId));
       const devToken = new URLSearchParams(window.location.search).get("devToken");
       if (devToken) params.set("devToken", devToken);
+    } else if (isDesktopClient()) {
+      // <img> cannot send X-Desktop-Session; pass JWT as query for media GETs.
+      const session = getDesktopSessionTokenSync();
+      if (session) params.set("desktopSession", session);
     }
   }
   const qs = params.toString();
@@ -8253,7 +8330,7 @@ function waifuGenGoStep2() {
   waifuGenRefreshHint();
   waifuGenRefreshGenerateButton();
 
-  if (document.getElementById("page-steam-waifu-gen") && window.SteamWaifuPaperdoll?.init) {
+  if (document.body?.classList?.contains("page-steam-waifu-gen") && window.SteamWaifuPaperdoll?.init) {
     window.SteamWaifuPaperdoll.init();
   }
 }

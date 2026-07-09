@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Вход — Waifu Desktop</title>
-    <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v63" />
+    <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v64" />
     <link rel="stylesheet" href="./steam-login.css?v=waifu-webapp-v61" />
     <script defer src="/webapp/pages/desktop-telegram-login.js?v=waifu-webapp-v61"></script>
   </head>
@@ -89,14 +89,15 @@
         async function finishSession(data) {
           const token = data?.access_token;
           if (!token) throw new Error("no_access_token");
+          // Always mirror into localStorage so new Electron windows can auth
+          // before preload IPC finishes (and for non-Electron fallback).
+          try {
+            localStorage.setItem("waifuDesktopSession", token);
+          } catch {
+            /* ignore */
+          }
           if (window.waifuDesktop?.setDesktopSessionToken) {
             await window.waifuDesktop.setDesktopSessionToken(token);
-          } else {
-            try {
-              localStorage.setItem("waifuDesktopSession", token);
-            } catch {
-              /* ignore */
-            }
           }
           setStatus("Вход выполнен", true);
           if (window.waifuDesktop?.notifyAuthComplete) {
