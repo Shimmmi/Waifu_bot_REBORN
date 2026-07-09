@@ -139,6 +139,11 @@ cp .env.example .env.staging
 #   BOT_TOKEN=123456:dev-stub-not-a-real-token
 #   WEBHOOK_SECRET=dev-stub-secret
 #   PUBLIC_BASE_URL=http://localhost:18000
+# Для генерации портрета скопируйте из Telegram .env:
+#   ROUTERAI_API_KEY=...
+#   ROUTERAI_BASE_URL=https://routerai.ru/api/v1
+#   ROUTERAI_MODEL_IMAGE=google/gemini-3.1-flash-lite-image
+# (корневой .env в steam-репо не используется — только .env.staging)
 docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --wait
 ```
 
@@ -793,7 +798,20 @@ Steam-клиент использует отдельный генератор с
 4. Title screen «Новая игра» или профиль «Создать персонажа» → `steam/waifu_generator.html`.
 5. **Dev-сброс ОВ** (без полного wipe): на `steam/profile.html` кнопка 🔄 (`steam-dev-only`) → `DELETE /api/profile/main-waifu` + черновики портретов → снова генератор. Видна при `is_admin` или `allow_waifu_recreate`.
 
-**Генерация портрета (AI):** нужен `OPENROUTER_API_KEY` в `.env` staging/dev (и при необходимости `OPENROUTER_MODEL_IMAGE`). Без ключа `POST /api/profile/main-waifu/preview-portrait` отвечает `503 portrait_generation_failed`. Paperdoll-слои в step 2 — статика `/static/game/waifu-gen/paperdoll/` (без LLM); AI нужен только для кнопки «Сгенерировать».
+**Генерация портрета (AI):** Steam staging **не** читает корневой `.env` Telegram-репо — только [`.env.staging`](.env.staging) (см. `docker-compose.staging.yml` → `env_file: .env.staging`). Скопируйте LLM-ключи из Telegram `.env` в `.env.staging`:
+
+```env
+# Как в Telegram-версии (основной путь для картинок):
+ROUTERAI_API_KEY=...
+ROUTERAI_BASE_URL=https://routerai.ru/api/v1
+ROUTERAI_MODEL_IMAGE=google/gemini-3.1-flash-lite-image
+
+# Опционально (OpenRouter — тоже принимается has_llm_configured):
+# OPENROUTER_API_KEY=...
+# OPENROUTER_MODEL_IMAGE=...
+```
+
+Без `ROUTERAI_API_KEY` и без `OPENROUTER_API_KEY` → `503 portrait_generation_failed`. Paperdoll-слои в step 2 — статика `/static/game/waifu-gen/paperdoll/` (без LLM); AI нужен только для кнопки «Сгенерировать». После правки `.env.staging`: `docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build api`.
 
 **Картинки после email-логина:** JWT зеркалится в `localStorage.waifuDesktopSession`; `/api/...` media URL получают `?desktopSession=` (для `<img>`). Main-waifu портреты идут через публичный `/static/game/waifus/portraits/{player_id}.webp`.
 
