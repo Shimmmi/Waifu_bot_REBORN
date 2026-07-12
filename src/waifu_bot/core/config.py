@@ -84,18 +84,22 @@ class Settings(BaseSettings):
     # Log P50/P95 for group_message_damage and LLM (Stage 1 baseline; see docs/STAGE1_INFRA.md).
     perf_metrics_enabled: bool = Field(False, alias="PERF_METRICS_ENABLED")
 
-    # --- OpenRouter: все модели задаются в .env (OPENROUTER_MODEL, OPENROUTER_MODEL_HIRE, OPENROUTER_MODEL_IMAGE) ---
+    # --- OpenRouter: текстовые модели (OPENROUTER_MODEL, OPENROUTER_MODEL_HIRE); image → ROUTERAI_MODEL_IMAGE ---
     openrouter_api_key: str | None = Field(None, alias="OPENROUTER_API_KEY")
     openrouter_base_url: str = Field("https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL")
     openrouter_model: str = Field("openrouter/healer-alpha", alias="OPENROUTER_MODEL")
     openrouter_model_hire: str | None = Field(None, alias="OPENROUTER_MODEL_HIRE")
+    # Legacy; image generation uses ROUTERAI_MODEL_IMAGE only (see get_image_model in llm_client).
     openrouter_model_image: str = Field("sourceful/riverflow-v2-fast", alias="OPENROUTER_MODEL_IMAGE")
 
     # RouterAI: primary text provider + fallback при HTTP 402 от OpenRouter (OpenAI-compatible API)
     routerai_api_key: str | None = Field(None, alias="ROUTERAI_API_KEY")
     routerai_base_url: str = Field("https://routerai.ru/api/v1", alias="ROUTERAI_BASE_URL")
     routerai_model: str | None = Field(None, alias="ROUTERAI_MODEL")
-    routerai_model_image: str | None = Field(None, alias="ROUTERAI_MODEL_IMAGE")
+    routerai_model_image: str = Field(
+        "google/gemini-3.1-flash-lite-image",
+        alias="ROUTERAI_MODEL_IMAGE",
+    )
 
     # AI presets (RouterAI fusion)
     ai_presets_path: str = Field("config/ai_presets.yaml", alias="AI_PRESETS_PATH")

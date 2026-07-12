@@ -21,11 +21,16 @@
 | `AI_PRESET_BALANCE` | Offline balance/content scripts | `expert` |
 | `AI_PRESET_ARCHITECT` | Architect CLI | `architect` |
 
-## Изображения (отдельный канал)
+## Изображения (RouterAI-only)
 
-| ai_config (legacy doc) | Переменная | По умолчанию |
-|------------------------|------------|--------------|
-| hire_image.model | `OPENROUTER_MODEL_IMAGE` / `ROUTERAI_MODEL_IMAGE` | sourceful/riverflow-v2-fast |
+| Переменная | Описание | По умолчанию |
+|------------|----------|--------------|
+| `ROUTERAI_API_KEY` | Обязателен для image API | — |
+| `ROUTERAI_MODEL_IMAGE` | Портреты, item/monster/expedition art | `google/gemini-3.1-flash-lite-image` |
+
+Код: `get_image_model()` / `has_image_llm_configured()` в [`llm_client.py`](../src/waifu_bot/services/llm_client.py).
+
+`OPENROUTER_MODEL_IMAGE` — legacy, art-сервисы не используют.
 
 ## API в коде
 

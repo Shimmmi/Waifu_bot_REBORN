@@ -1,4 +1,4 @@
-"""OpenRouter image generation for expedition location art (watercolor WebP, 3:2)."""
+"""RouterAI image generation for expedition location art (watercolor WebP, 3:2)."""
 
 from __future__ import annotations
 
@@ -14,10 +14,13 @@ import httpx
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from waifu_bot.core.config import settings
 from waifu_bot.game.expedition_narrative_catalog import archetype_for_id
 from waifu_bot.services.expedition_events_ai import _extract_openrouter_image_b64
-from waifu_bot.services.llm_client import has_llm_configured, post_chat_completions
+from waifu_bot.services.llm_client import (
+    get_image_model,
+    has_image_llm_configured,
+    post_chat_completions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +86,9 @@ async def generate_expedition_archetype_art_webp(
     archetype_id: str,
     slot_id: int | None = None,
 ) -> Optional[ExpeditionArtResult]:
-    """Call OpenRouter image model; returns WEBP bytes and path metadata or None."""
-    if not has_llm_configured():
-        logger.info("[EXPEDITION ART] Skip: no LLM API key")
+    """Call RouterAI image model; returns WEBP bytes and path metadata or None."""
+    if not has_image_llm_configured():
+        logger.info("[EXPEDITION ART] Skip: no RouterAI API key")
         return None
 
     arch = archetype_for_id(archetype_id)
@@ -102,8 +105,8 @@ async def generate_expedition_archetype_art_webp(
         narrative_hints=arch.narrative_hints,
     )
     slug = _safe_archetype_slug(arch.id)
-    model = settings.openrouter_model_image
-    logger.info("[EXPEDITION ART] model=%s archetype=%s slot_id=%s", model, arch.id, slot_id)
+    model = get_image_model()
+    logger.info("[EXPEDITION ART] model=%s provider=routerai archetype=%s slot_id=%s", model, arch.id, slot_id)
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:

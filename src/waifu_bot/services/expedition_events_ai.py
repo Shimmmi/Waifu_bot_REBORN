@@ -31,6 +31,8 @@ from waifu_bot.game.expedition_narrative_catalog import (
 from waifu_bot.services.ai_narrative_rewrite import rhythm_rewrite_narrative
 from waifu_bot.services.ai_service import generate as ai_generate
 from waifu_bot.services.llm_client import (
+    get_image_model,
+    has_image_llm_configured,
     has_llm_configured,
     has_text_llm_configured,
     openrouter_headers_for_compat as _openrouter_headers,
@@ -1331,14 +1333,14 @@ async def generate_main_waifu_portrait(
     accessories: list[str],
 ) -> Optional[str]:
     """
-    Портрет основной вайфу (превью при создании): OpenRouter image API, anime 2:3.
+    Портрет основной вайфу (превью при создании): RouterAI image API, anime 2:3.
     Возвращает только base64 без префикса data: или None.
     """
-    if not has_llm_configured():
-        logger.info("[MAIN OV IMAGE] Skip: no LLM API key")
+    if not has_image_llm_configured():
+        logger.info("[MAIN OV IMAGE] Skip: no RouterAI API key")
         return None
 
-    model = settings.openrouter_model_image
+    model = get_image_model()
     race_en = _MAIN_WAIFU_RACE_VISUAL_EN.get(int(race_id), "human girl")
     class_en = _MAIN_WAIFU_CLASS_VISUAL_EN.get(int(class_id), "female adventurer")
     hair = _MAIN_WAIFU_HAIR_EN.get(str(hair_color), "brown hair")
@@ -1376,7 +1378,7 @@ async def generate_main_waifu_portrait(
         "high quality illustration, 1girl, safe for work"
     )
     logger.info(
-        "[MAIN OV IMAGE] model=%s race=%s class=%s prompt_preview=%s",
+        "[MAIN OV IMAGE] model=%s provider=routerai race=%s class=%s prompt_preview=%s",
         model,
         race_id,
         class_id,
@@ -1537,7 +1539,21 @@ def pick_paperdoll_pose_for_equipment(equipped_slots: dict[int, dict[str, str]])
 
 # Waist-up portraits usually show hands below ~40% height; crop higher to keep arms out of the reference.
 _PAPERDOLL_IDENTITY_CROP_HEIGHT_RATIO = 0.38
-_PAPERDOLL_IDENTITY_CROP_HORIZONTAL_INSET = 0.04
+_PAPERDOLL_IDENTITY_CROP_ASPECT = 3 / 4  # portrait 3:4 (width:height)
+_PAPERDOLL_GENERATION_MAX_ATTEMPTS = 2
+
+
+def _is_portrait_image_b64(b64: str) -> bool:
+    """True when decoded image is taller than wide."""
+    try:
+        raw = base64.b64decode(str(b64 or "").strip(), validate=False)
+        if not raw:
+            return False
+        img = Image.open(BytesIO(raw))
+        w, h = img.size
+        return w < h
+    except Exception:
+        return False
 
 
 def _crop_portrait_identity_reference_for_paperdoll(raw_b64: str) -> tuple[str, str] | None:
@@ -1563,9 +1579,9 @@ def _crop_portrait_identity_reference_for_paperdoll(raw_b64: str) -> tuple[str, 
         return None
 
     crop_h = max(48, min(h, int(h * _PAPERDOLL_IDENTITY_CROP_HEIGHT_RATIO)))
-    inset_x = max(0, int(w * _PAPERDOLL_IDENTITY_CROP_HORIZONTAL_INSET))
-    left = inset_x
-    right = max(left + 16, w - inset_x)
+    crop_w = max(16, min(w, int(crop_h * _PAPERDOLL_IDENTITY_CROP_ASPECT)))
+    left = max(0, (w - crop_w) // 2)
+    right = left + crop_w
     box = (left, 0, right, crop_h)
     try:
         cropped = img.crop(box)
@@ -1590,13 +1606,14 @@ def _crop_portrait_identity_reference_for_paperdoll(raw_b64: str) -> tuple[str, 
     out = buf.getvalue()
     if not out:
         return None
+    cw, ch = cropped.size
     logger.info(
         "[MAIN OV PAPERDOLL] identity crop %dx%d -> %dx%d (ratio=%.2f)",
         w,
         h,
-        cropped.size[0],
-        cropped.size[1],
-        _PAPERDOLL_IDENTITY_CROP_HEIGHT_RATIO,
+        cw,
+        ch,
+        cw / ch if ch else 0.0,
     )
     return base64.b64encode(out).decode("ascii"), "image/png"
 
@@ -1642,11 +1659,11 @@ async def generate_main_waifu_paperdoll_from_portrait(
     pose_hint_en: str | None = None,
 ) -> Optional[str]:
     """
-    2D JRPG-style paperdoll (waist-up) from existing portrait: multimodal request to OPENROUTER_MODEL_IMAGE.
+    2D JRPG-style paperdoll (waist-up) from existing portrait: multimodal request to ROUTERAI_MODEL_IMAGE.
     Returns raw base64 or None.
     """
-    if not has_llm_configured():
-        logger.info("[MAIN OV PAPERDOLL] Skip: no LLM API key")
+    if not has_image_llm_configured():
+        logger.info("[MAIN OV PAPERDOLL] Skip: no RouterAI API key")
         return None
 
     raw_b64 = str(portrait_b64 or "").strip()
@@ -1664,7 +1681,7 @@ async def generate_main_waifu_paperdoll_from_portrait(
         identity_b64, mime = cropped
     data_url = f"data:{mime};base64,{identity_b64}"
 
-    model = settings.openrouter_model_image
+    model = get_image_model()
     race_en = _MAIN_WAIFU_RACE_VISUAL_EN.get(int(race_id), "human girl")
     class_en = _MAIN_WAIFU_CLASS_VISUAL_EN.get(int(class_id), "female adventurer")
     raw_eq = str(equipment_prompt_en or "").strip()
@@ -1702,6 +1719,7 @@ async def generate_main_waifu_paperdoll_from_portrait(
         f"{gear_ref_note}"
         "\nArt style: soft cel-shading, clean line art, not photorealistic, not 3D render, fantasy JRPG character art. "
         "Safe for work, 1girl."
+        "\nCanvas: vertical portrait orientation only — image must be taller than wide (3:4 aspect ratio)."
         f"\n{bg_en}"
     )
     logger.info(
@@ -1738,51 +1756,72 @@ async def generate_main_waifu_paperdoll_from_portrait(
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
+            modality_attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
             last_message: dict = {}
-            for modalities in attempts:
-                body = {
-                    "model": model,
-                    "messages": [{"role": "user", "content": user_content}],
-                    "modalities": list(modalities),
-                    "image_config": {
-                        "aspect_ratio": "3:4",
-                        "image_size": "1K",
-                    },
-                }
-                r = await post_chat_completions(
-                    client,
-                    body,
-                    caller="main ov paperdoll",
-                    use_image_model=True,
-                )
-                if r.status_code == 401:
-                    logger.error("[MAIN OV PAPERDOLL] LLM 401")
-                    return None
-                if not r.is_success:
-                    logger.error("[MAIN OV PAPERDOLL] HTTP %s %s", r.status_code, (r.text or "")[:400])
-                    return None
+            for gen_attempt in range(_PAPERDOLL_GENERATION_MAX_ATTEMPTS):
+                landscape_retry = False
+                for modalities in modality_attempts:
+                    body = {
+                        "model": model,
+                        "messages": [{"role": "user", "content": user_content}],
+                        "modalities": list(modalities),
+                        "image_config": {
+                            "aspect_ratio": "3:4",
+                            "image_size": "1K",
+                        },
+                    }
+                    r = await post_chat_completions(
+                        client,
+                        body,
+                        caller="main ov paperdoll",
+                        use_image_model=True,
+                    )
+                    if r.status_code == 401:
+                        logger.error("[MAIN OV PAPERDOLL] LLM 401")
+                        return None
+                    if not r.is_success:
+                        logger.error("[MAIN OV PAPERDOLL] HTTP %s %s", r.status_code, (r.text or "")[:400])
+                        return None
 
-                data = r.json()
-                choices = data.get("choices") or []
-                if not isinstance(choices, list) or not choices:
-                    logger.warning("[MAIN OV PAPERDOLL] no choices modalities=%s", modalities)
-                    continue
-                first = choices[0]
-                if not isinstance(first, dict):
-                    continue
-                message = first.get("message") or {}
-                last_message = message if isinstance(message, dict) else {}
-                b64_out = await _extract_openrouter_image_b64(last_message, client)
-                if b64_out:
-                    return b64_out
-                logger.info(
-                    "[MAIN OV PAPERDOLL] no image in message modalities=%s keys=%s",
-                    modalities,
-                    list(last_message.keys()),
-                )
+                    data = r.json()
+                    choices = data.get("choices") or []
+                    if not isinstance(choices, list) or not choices:
+                        logger.warning("[MAIN OV PAPERDOLL] no choices modalities=%s", modalities)
+                        continue
+                    first = choices[0]
+                    if not isinstance(first, dict):
+                        continue
+                    message = first.get("message") or {}
+                    last_message = message if isinstance(message, dict) else {}
+                    b64_out = await _extract_openrouter_image_b64(last_message, client)
+                    if not b64_out:
+                        logger.info(
+                            "[MAIN OV PAPERDOLL] no image in message modalities=%s keys=%s",
+                            modalities,
+                            list(last_message.keys()),
+                        )
+                        continue
+                    if _is_portrait_image_b64(b64_out):
+                        return b64_out
+                    try:
+                        raw = base64.b64decode(b64_out.strip(), validate=False)
+                        img = Image.open(BytesIO(raw))
+                        iw, ih = img.size
+                    except Exception:
+                        iw, ih = 0, 0
+                    logger.warning(
+                        "[MAIN OV PAPERDOLL] landscape output %dx%d gen_attempt=%s modalities=%s — retry",
+                        iw,
+                        ih,
+                        gen_attempt + 1,
+                        modalities,
+                    )
+                    landscape_retry = True
+                    break
+                if not landscape_retry:
+                    break
             logger.warning(
-                "[MAIN OV PAPERDOLL] no base64 after attempts; last_message=%s",
+                "[MAIN OV PAPERDOLL] no portrait base64 after attempts; last_message=%s",
                 json.dumps(last_message, ensure_ascii=False)[:700],
             )
             return None
@@ -1864,17 +1903,17 @@ async def generate_hire_waifu_image(
     perk_ids: Sequence[str] | None = None,
 ) -> Optional[str]:
     """
-    Генерирует портрет наёмницы через OpenRouter image API (cursor_plan_7).
+    Генерирует портрет наёмницы через RouterAI image API (cursor_plan_7).
     Случайный перк из perk_ids: статический EN-фрагмент + при успехе ИИ — одно RU-предложение
     момента вместо случайной позы; иначе поза из пула.
     Возвращает base64-строку изображения или None при ошибке.
     Парсинг: message.images[0].image_url.url, не content.
     """
-    if not has_llm_configured():
-        logger.info("[IMAGE GEN] Skip: no LLM API key")
+    if not has_image_llm_configured():
+        logger.info("[IMAGE GEN] Skip: no RouterAI API key")
         return None
 
-    model = settings.openrouter_model_image
+    model = get_image_model()
     race_key = (race_ru or "человек").strip().lower()
     class_key = (class_ru or "маг").strip().lower()
     race_visual = _RACE_VISUAL.get(race_key, "human girl")
@@ -1927,7 +1966,7 @@ async def generate_hire_waifu_image(
     parts.append(base_tail)
     prompt = ", ".join(parts)
 
-    logger.info("[IMAGE GEN] Starting for %s (%s), model: %s", name or "waifu", race_ru, model)
+    logger.info("[IMAGE GEN] Starting for %s (%s), model: %s provider=routerai", name or "waifu", race_ru, model)
     if chosen_perk_id:
         logger.info("[IMAGE GEN] Chosen perk for portrait: %s", chosen_perk_id)
     logger.info("[IMAGE GEN] Prompt: %s...", prompt[:100])
@@ -1984,7 +2023,7 @@ async def generate_hire_waifu_image(
             )
             return None
     except httpx.TimeoutException:
-        logger.error("[IMAGE GEN] OpenRouter image: timeout (120s)")
+        logger.error("[IMAGE GEN] RouterAI image: timeout (120s)")
         return None
     except Exception as e:
         logger.exception("[IMAGE GEN] Exception: %s", e)

@@ -14,6 +14,6 @@ Regenerate:
 python3 scripts/dump_art_prompts.py
 ```
 
-Model default: `sourceful/riverflow-v2-fast` (`OPENROUTER_MODEL_IMAGE`).
+Model default: `google/gemini-3.1-flash-lite-image` (`ROUTERAI_MODEL_IMAGE`).
 
 Last run counts: {'expeditions': 50, 'monsters': 285, 'items': 770}
