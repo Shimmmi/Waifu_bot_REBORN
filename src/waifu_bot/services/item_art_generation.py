@@ -1,4 +1,4 @@
-"""OpenRouter image generation for tiered item icons (pixel art webp)."""
+"""RouterAI image generation for tiered item icons (pixel art webp)."""
 
 from __future__ import annotations
 
@@ -12,10 +12,13 @@ from typing import Optional
 import httpx
 from PIL import Image
 
-from waifu_bot.core.config import settings
 from waifu_bot.services.expedition_events_ai import _extract_openrouter_image_b64
 from waifu_bot.services.item_art import is_legendary_art_key
-from waifu_bot.services.llm_client import has_llm_configured, post_chat_completions
+from waifu_bot.services.llm_client import (
+    get_image_model,
+    has_image_llm_configured,
+    post_chat_completions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -273,10 +276,10 @@ async def generate_item_pixel_art_webp(
     display_label: str | None = None,
 ) -> Optional[bytes]:
     """
-    Calls OpenRouter image model; returns WEBP bytes or None.
+    Calls RouterAI image model; returns WEBP bytes or None.
     """
-    if not has_llm_configured():
-        logger.info("[ITEM ART] Skip: no LLM API key")
+    if not has_image_llm_configured():
+        logger.info("[ITEM ART] Skip: no RouterAI API key")
         return None
 
     ak = normalize_art_key(art_key)
@@ -284,12 +287,12 @@ async def generate_item_pixel_art_webp(
         return None
     t = max(1, min(10, int(tier)))
 
-    model = settings.openrouter_model_image
+    model = get_image_model()
     prompt = build_item_pixel_art_prompt(
         ak, t, weapon_type=weapon_type, display_label=display_label
     )
     logger.info(
-        "[ITEM ART] model=%s art_key=%s tier=%s weapon_type=%s label=%s",
+        "[ITEM ART] model=%s provider=routerai art_key=%s tier=%s weapon_type=%s label=%s",
         model,
         ak,
         t,

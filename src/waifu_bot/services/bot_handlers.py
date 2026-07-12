@@ -1073,6 +1073,7 @@ async def handle_solo_dungeon_retry(callback: CallbackQuery) -> None:
     from aiogram.types import InlineKeyboardMarkup
 
     from waifu_bot.services.dungeon_notify import (
+        build_solo_dungeon_start_line,
         parse_solo_dungeon_retry_callback,
         start_dungeon_error_message,
     )
@@ -1099,7 +1100,7 @@ async def handle_solo_dungeon_retry(callback: CallbackQuery) -> None:
                 return
             monster_name = result.get("monster_name") or "Монстр"
             monster_hp = int(result.get("monster_hp") or 0)
-            start_line = (
+            start_line = build_solo_dungeon_start_line(result) or (
                 f"⚔️ Подземелье начато. Первый монстр: «{monster_name}» (HP {monster_hp}). "
                 "Атакуйте в групповом чате."
             )

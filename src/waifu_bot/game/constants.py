@@ -224,6 +224,13 @@ EXP_BASE = 16
 EXP_MULTIPLIER = 2  # exp_to_level = EXP_BASE * level^EXP_MULTIPLIER
 MAX_LEVEL = 60
 
+# Совершенствование (post-60): need(L) = base + linear*(L-1) + quad*(L-1)^2 + tier_bump*((L-1)//10)
+PERFECTION_EXP_BASE = 8000
+PERFECTION_EXP_LINEAR = 1800
+PERFECTION_EXP_QUAD = 55
+PERFECTION_EXP_TIER_BUMP = 4000
+PERFECTION_MILESTONE_EVERY = 10  # каждые N уровней — +1 skill point
+
 # Экспедиции: урон отряду за одно событие (каждые 15 мин), база × mult слота × сложность
 EXPEDITION_HP_DAMAGE_BASE = 10  # базовый урон за событие
 EXPEDITION_EVENT_INTERVAL_MINUTES = 15

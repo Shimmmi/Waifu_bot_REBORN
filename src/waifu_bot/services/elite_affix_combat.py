@@ -189,7 +189,8 @@ def apply_regen_after_hit(
     messages_after_hit: int,
     damage_dealt: int,
 ) -> None:
-    if damage_dealt <= 0 or int(run_monster.current_hp or 0) <= 0:
+    cur_hp = int(run_monster.current_hp or 0)
+    if damage_dealt <= 0 or cur_hp <= 0 or cur_hp <= 1:
         return
     rp, every_n = regen_amount_and_params(affix_rows)
     if rp <= 0 or every_n <= 0:

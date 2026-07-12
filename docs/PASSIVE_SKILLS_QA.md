@@ -17,7 +17,7 @@
 | w_berserk | warrior | Берсерк | 4 | hp_loss_dmg_pct | 0.15…0.78 |
 | w_fort | warrior | Крепость | 4 | armor_flat | 20, 40, 60, 80 (+20/ур.) |
 | w_last | warrior | Последний рубеж | 4 | survive_chance | шансы |
-| w_wrath | warrior | Гнев героя | 5 | crit_dmg_melee_pct | в крит-блоке |
+| w_wrath | warrior | Гнев героя | 5 | crit_dmg_melee_pct | +0.15…+0.75 к crit mult (melee) |
 | w_imm | warrior | Бессмертный | 5 | hp_on_kill_pct | после убийства |
 | s_keen | shadow | Острый глаз | 3 | crit_chance_pct | вторичка/крит |
 | s_nimble | shadow | Проворство | 3 | evade_pct | уклонение |
@@ -46,24 +46,24 @@
 
 | effect_type | Ключ `ps` | Явная строка «Пассив:» в trace | Примечание |
 |-------------|-----------|----------------------------------|------------|
-| melee_dmg_pct | melee_dmg_pct | Да (`passive_melee_pct`) | по типу атаки melee |
-| ranged_dmg_pct | ranged_dmg_pct | Да (`passive_ranged_pct`) | ranged |
-| magic_dmg_pct | magic_dmg_pct | Да (`passive_magic_pct`) | magic |
-| media_dmg_pct | media_dmg_pct | Да (`passive_media_dmg`) | не TEXT/LINK |
-| media_mult_bonus | media_mult_bonus | Да (`passive_media_mult_bonus`) | медиа |
-| active_skill_dmg_pct | active_skill_dmg_pct | Да (`passive_active_skill`) | |
-| low_hp_dmg_pct | low_hp_dmg_pct | Да (`passive_low_hp`) | HP вайфу < 50% |
-| hp_loss_dmg_pct | hp_loss_dmg_pct | Да (`passive_hp_loss`) | ступени потери HP |
-| first_hit_dmg_pct | first_hit_dmg_pct | Да (`passive_first_hit`) | первое сообщение по монстру |
-| media_after_text_pct | media_after_text_pct | Да (`passive_media_after_text`) | ≥3 текста до медиа |
-| stun_chance | stun_chance | Да (`passive_stun_proc`) | случайно ×1.2 |
-| debuff_dmg_pct | debuff_dmg_pct | Да (`passive_debuff_dmg`) | монстр с аффиксами |
+| melee_dmg_pct | melee_dmg_pct | contrib + `outgoing_bonus_pool` | по типу атаки melee |
+| ranged_dmg_pct | ranged_dmg_pct | contrib + `outgoing_bonus_pool` | ranged |
+| magic_dmg_pct | magic_dmg_pct | contrib + `outgoing_bonus_pool` | magic |
+| media_dmg_pct | media_dmg_pct | contrib + `outgoing_bonus_pool` | не TEXT/LINK |
+| media_mult_bonus | media_mult_bonus | contrib + `outgoing_bonus_pool` | медиа |
+| active_skill_dmg_pct | active_skill_dmg_pct | contrib + `outgoing_bonus_pool` | |
+| low_hp_dmg_pct | low_hp_dmg_pct | contrib + `outgoing_bonus_pool` | HP вайфу < 50% |
+| hp_loss_dmg_pct | hp_loss_dmg_pct | contrib + `outgoing_bonus_pool` | ступени потери HP (сумма в пул) |
+| first_hit_dmg_pct | first_hit_dmg_pct | contrib + `outgoing_bonus_pool` | первое сообщение по монстру |
+| media_after_text_pct | media_after_text_pct | contrib + `outgoing_bonus_pool` | ≥3 текста до медиа |
+| stun_chance | stun_chance | contrib + `outgoing_bonus_pool` | +20% при проке |
+| debuff_dmg_pct | debuff_dmg_pct | contrib + `outgoing_bonus_pool` | монстр с аффиксами |
 | crit_chance_pct | crit_chance_pct | Нет | в шансе крита |
 | evade_pct | evade_pct | Нет | вторичка уклонения |
 | armor_pct / armor_flat / hp_max_pct / int_dmg_reduce / exp_bonus_pct | те же | Нет в исходящем уроне | профиль / входящий / опыт |
 | dmg_reduce_pct | dmg_reduce_pct | Нет в исходящем | снижение урона (w_iron, m_rune) |
 | armor_and_reduce | dmg_reduce_pct + armor_pct | Нет в исходящем | legacy (до 0050) |
-| crit_mult_add / crit_dmg_melee_pct | те же | В шаге `crit` | не отдельная «Пассив:» |
+| crit_mult_add / crit_dmg_melee_pct | те же | В шаге `crit` (аддитивно к mult) | wrath: +X, не ×(1+X); cap max ур. таблицы |
 | nth_hit_crit | nth_hit_crit | В метке крита | N-й удар |
 | instakill_chance | instakill_chance | `passive_instakill` | не процент в названии |
 | all_stats_pct | all_stats_pct | Нет | множитель статов |

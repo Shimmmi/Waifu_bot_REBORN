@@ -658,7 +658,19 @@ class DungeonService:
             pre_m = int(waifu.max_hp or 0)
             await sync_waifu_max_hp(session, player_id, waifu)
             post_m = int(waifu.max_hp or 0)
-            regen_changed = apply_regen(waifu)
+            regen_extra = 0
+            try:
+                from waifu_bot.services.perfection import (
+                    hp_regen_per_min_from_totals,
+                    load_perfection_totals,
+                )
+
+                regen_extra = hp_regen_per_min_from_totals(
+                    await load_perfection_totals(session, player_id)
+                )
+            except Exception:
+                pass
+            regen_changed = apply_regen(waifu, extra_hp_per_min=regen_extra)
             # Entering a dungeon is a real gameplay action: mark online so the
             # first in-run hit counts and in-dungeon regen is allowed.
             from datetime import timezone as _tz
@@ -1345,9 +1357,20 @@ class DungeonService:
 
         if run:
             try:
-                # Award accumulated rewards (already credited incrementally)
-                exp_gained = int(run.total_exp_gained or 0)
-                gold_gained = int(run.total_gold_gained or 0)
+                from waifu_bot.services.solo_run_rewards import settle_solo_run_rewards
+
+                waifu_q = await session.execute(
+                    select(MainWaifu).where(MainWaifu.player_id == player_id)
+                )
+                waifu = waifu_q.scalar_one_or_none()
+                player = await session.get(Player, player_id)
+                exp_gained, gold_gained, _ = await settle_solo_run_rewards(
+                    session,
+                    run,
+                    waifu,
+                    player,
+                    "abandoned",
+                )
                 run.status = "abandoned"
                 run.ended_at = datetime.utcnow()
                 progress = await self._get_active_progress(session, player_id)

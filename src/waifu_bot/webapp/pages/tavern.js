@@ -2278,11 +2278,11 @@ async function hireFromTavern(slot) {
   openTavernConfirmHire(slot);
 }
 
-function hiredWaifuExpForLevel(level) {
-  if (level <= 1) return 0;
-  let total = 0;
-  for (let lvl = 2; lvl <= level; lvl++) total += 50 * (lvl * lvl);
-  return total;
+/** Опыт до следующего уровня наёмницы (порт exp_to_next_level_hired). */
+function expToNextForHiredLevel(level) {
+  const lvl = Math.max(1, Number(level) || 1);
+  const n = lvl - 1;
+  return 50 + n * 50 + n * n * 5;
 }
 
 function hideTavernPerkTip(root) {
@@ -2333,11 +2333,11 @@ function openTavernWaifuModal(w) {
     : `<div class="waifu-mtg-art-placeholder" aria-hidden="true">${waifuPortraitEmoji(w)}</div>`;
 
   const level = Number(w?.level ?? 1);
-  const exp = Number(w?.experience ?? 0);
-  const expCur = hiredWaifuExpForLevel(level);
-  const expNext = hiredWaifuExpForLevel(level + 1);
-  const expInLevel = Math.max(0, exp - expCur);
-  const expNeed = Math.max(1, expNext - expCur);
+  const expInLevel = Math.max(0, Number(w?.expCurrent ?? w?.exp_current ?? 0));
+  const expNeed = Math.max(
+    1,
+    Number(w?.expToNext ?? w?.exp_to_next ?? expToNextForHiredLevel(level))
+  );
   const expPct = Math.min(100, Math.round((expInLevel / expNeed) * 100));
   const xpBarHtml =
     level >= 1 && level < 50

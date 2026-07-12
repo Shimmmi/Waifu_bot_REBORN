@@ -910,6 +910,18 @@
       font-size: 12px;
       line-height: 1.45;
     }
+    body.page-shop .shop-smith-card.shop-smith-card--centered {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      overflow: hidden;
+    }
+    body.page-shop .shop-smith-preview-state {
+      color: var(--amber-glow, #e8b84b);
+      font-size: 12px;
+      line-height: 1.4;
+    }
     body.page-shop #shop-smith-pick-modal .modal-content {
       background: rgba(26, 20, 16, 0.97);
       border: 1px solid rgba(200, 146, 42, 0.35);
@@ -1337,7 +1349,7 @@
             <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-auto-btn" onclick="WaifuApp.smithAutoSafeEnchant()" disabled>До +7</button>
             <label class="shop-smith-stone-check" id="shop-smith-stone-check-wrap" hidden>
               <input type="checkbox" id="shop-smith-use-stone" />
-              <span>Камень</span>
+              <span>Камень (тратится только при неудачной заточке +8 и выше)</span>
             </label>
             <button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.buyProtectionStoneShop()">Купить камень</button>
           </div>
@@ -1682,7 +1694,7 @@
     <div class="item-art-gen-busy-panel">
       <div class="item-art-gen-busy-spinner" aria-hidden="true"></div>
       <p>Генерация иконки…</p>
-      <p class="item-art-gen-busy-hint muted tiny">OpenRouter может отвечать до 2 минут</p>
+      <p class="item-art-gen-busy-hint muted tiny">Генерация может занять до 2 минут</p>
     </div>
   </div>
 </body>

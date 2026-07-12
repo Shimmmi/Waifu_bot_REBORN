@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import logging
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +26,8 @@ _START_DUNGEON_ERROR_LABELS: dict[str, str] = {
     "abyss_session_active": "Сначала выйдите из Бездны.",
     "dungeon_pool_invalid": "Подземелье временно недоступно.",
     "dungeon_invalid": "Подземелье недоступно.",
+    "insufficient_caravan_gold": "Недостаточно золота для переезда караваном.",
+    "act_out_of_range": "Акт недоступен для переезда.",
 }
 
 
@@ -61,6 +64,48 @@ def start_dungeon_error_message(error: str | None) -> str:
     """Human-readable Russian message for start_dungeon error codes."""
     key = str(error or "").strip()
     return _START_DUNGEON_ERROR_LABELS.get(key, "Не удалось начать подземелье.")
+
+
+def build_solo_dungeon_start_line(start_payload: dict[str, Any] | None) -> str | None:
+    if not start_payload or start_payload.get("error"):
+        return None
+    monster_name = start_payload.get("monster_name") or "Монстр"
+    monster_hp = int(start_payload.get("monster_hp") or 0)
+    return (
+        f"⚔️ Подземелье начато. Первый монстр: «{monster_name}» (HP {monster_hp}). "
+        "Атакуйте в групповом чате."
+    )
+
+
+def build_caravan_travel_line(travel: Any | None) -> str | None:
+    if travel is None or getattr(travel, "status", None) != "ok":
+        return None
+    spent = int(getattr(travel, "gold_spent", 0) or 0)
+    if spent <= 0:
+        return None
+    act = int(getattr(travel, "act", 0) or 0)
+    return f"🐴 Переезд в акт {act} (−{spent} золота)"
+
+
+def build_auto_restart_skip_line(auto_result: Any) -> str | None:
+    status = getattr(auto_result, "status", None)
+    if status == "skipped_low_hp":
+        pct = int(getattr(auto_result, "min_hp_percent", 0) or 0)
+        return f"⏸ Автовход пропущен: HP ниже {pct}%."
+    if status == "error" and getattr(auto_result, "error", None) == "insufficient_caravan_gold":
+        travel = getattr(auto_result, "travel", None)
+        target = getattr(auto_result, "target", None)
+        act = int(getattr(target, "act", 0) or 0) if target else 0
+        need = int(getattr(travel, "required_gold", 0) or 0)
+        have = int(getattr(travel, "current_gold", 0) or 0)
+        return (
+            f"⏸ Автовход пропущен: недостаточно золота для переезда в акт {act} "
+            f"(нужно {need}, есть {have})."
+        )
+    if status == "error":
+        err = start_dungeon_error_message(getattr(auto_result, "error", None))
+        return f"⏸ Автовход пропущен: {err}"
+    return None
 
 
 def build_solo_dungeon_retry_keyboard(dungeon_id: int, plus_level: int = 0):
@@ -119,7 +164,7 @@ def build_solo_dungeon_outcome_text(
         f"💀 ПОРАЖЕНИЕ В ПОДЗЕМЕЛЬЕ «{name}»{plus}",
         "",
         f"Причина: {reason_label}.",
-        f"🪙 Золото (с учётом штрафа): {int(gold)}",
+        f"🪙 Золото (с учётом штрафа): {int(gold)} · ✨ Опыт: {int(exp)}",
     ]
     if hp_line:
         lines.append(hp_line)
@@ -144,9 +189,25 @@ async def notify_solo_dungeon_outcome(
 ) -> None:
     """Send DM to player about solo dungeon result. Never raises."""
     from waifu_bot.services.player_notification_prefs import should_send_dm
+    from waifu_bot.services.solo_dungeon_auto_restart import (
+        resolve_retry_target_for_outcome,
+        try_auto_restart_solo_dungeon,
+    )
 
-    if not await should_send_dm(session, player_id, "solo_dungeon"):
+    auto_result = await try_auto_restart_solo_dungeon(
+        session,
+        player_id,
+        completed=completed,
+        completed_dungeon_id=dungeon_id,
+        completed_plus_level=plus_level,
+        waifu_current_hp=waifu_current_hp,
+        waifu_max_hp=waifu_max_hp,
+    )
+
+    send_dm = await should_send_dm(session, player_id, "solo_dungeon")
+    if not send_dm:
         return
+
     text = build_solo_dungeon_outcome_text(
         completed=completed,
         dungeon_name=dungeon_name,
@@ -159,7 +220,39 @@ async def notify_solo_dungeon_outcome(
         waifu_current_hp=waifu_current_hp,
         waifu_max_hp=waifu_max_hp,
     )
-    keyboard = build_solo_dungeon_retry_keyboard(dungeon_id, plus_level)
+
+    extra_lines: list[str] = []
+    keyboard = None
+
+    if completed and auto_result.status == "started":
+        caravan_line = build_caravan_travel_line(auto_result.travel)
+        if caravan_line:
+            extra_lines.append(caravan_line)
+        start_line = build_solo_dungeon_start_line(auto_result.start_payload)
+        if start_line:
+            extra_lines.append(start_line)
+    elif completed and auto_result.status in ("skipped_low_hp", "error"):
+        skip_line = build_auto_restart_skip_line(auto_result)
+        if skip_line:
+            extra_lines.append(skip_line)
+        retry_id, retry_pl = dungeon_id, plus_level
+        if auto_result.target is not None:
+            retry_id = auto_result.target.dungeon_id
+            retry_pl = auto_result.target.plus_level
+        keyboard = build_solo_dungeon_retry_keyboard(retry_id, retry_pl)
+    else:
+        retry_id, retry_pl = await resolve_retry_target_for_outcome(
+            session,
+            player_id,
+            dungeon_id,
+            plus_level,
+            completed=completed,
+        )
+        keyboard = build_solo_dungeon_retry_keyboard(retry_id, retry_pl)
+
+    if extra_lines:
+        text = f"{text}\n\n" + "\n".join(extra_lines)
+
     try:
         from waifu_bot.services.webhook import get_bot
 

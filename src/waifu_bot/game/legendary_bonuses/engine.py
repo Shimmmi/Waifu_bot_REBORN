@@ -22,6 +22,18 @@ from waifu_bot.game.legendary_bonuses.state import merge_battle_state
 
 
 @dataclass
+class LegendaryBonusContrib:
+    bonus_key: str
+    inventory_item_id: int
+    label_ru: str
+    pool_pct_add: float = 0.0
+    crit_add: float = 0.0
+    flat_add: int = 0
+    extra_hits: list[float] = field(default_factory=list)
+    notification: str | None = None
+
+
+@dataclass
 class AggregatedLegendaryResult:
     damage_multiplier: float = 1.0
     damage_flat_bonus: int = 0
@@ -43,6 +55,8 @@ class AggregatedLegendaryResult:
     prevent_monster_death_spawn: bool = False
     monster_self_damage: int = 0
     detonator_pending: bool = False
+    replace_main_hit: bool = False
+    contributions: list[LegendaryBonusContrib] = field(default_factory=list)
 
 
 def media_type_to_str(media_type: MediaType | str | None) -> str:
@@ -63,11 +77,49 @@ def media_type_to_str(media_type: MediaType | str | None) -> str:
     return mapping.get(media_type, "text")
 
 
+def _contrib_from_result(row: dict[str, Any], res: BonusResult) -> LegendaryBonusContrib | None:
+    key = str(row.get("bonus_key") or "")
+    if not key:
+        return None
+    item_id = int(row.get("inventory_item_id") or 0)
+    label = str(row.get("name") or key)
+    dm = res.damage_multiplier
+    pool_pct = 0.0
+    if dm is not None and float(dm) != 1.0:
+        pool_pct = float(dm) - 1.0
+    cdm = float(res.crit_damage_multiplier or 1.0)
+    crit_add = (cdm - 1.0) if cdm > 1.0 else 0.0
+    flat = int(res.damage_flat_bonus or 0)
+    extra = [float(x) for x in (res.extra_hits or []) if float(x) > 0]
+    notify = str(res.notification) if res.notification else None
+    if (
+        abs(pool_pct) < 1e-9
+        and crit_add <= 0
+        and flat <= 0
+        and not extra
+        and not notify
+    ):
+        return None
+    return LegendaryBonusContrib(
+        bonus_key=key,
+        inventory_item_id=item_id,
+        label_ru=label,
+        pool_pct_add=pool_pct,
+        crit_add=crit_add,
+        flat_add=flat,
+        extra_hits=list(res.extra_hits or []),
+        notification=notify,
+    )
+
+
 def _aggregate(results: list[BonusResult], *, max_mult: float) -> AggregatedLegendaryResult:
     agg = AggregatedLegendaryResult()
     mult = 1.0
     for r in results:
-        mult *= float(r.damage_multiplier or 1.0)
+        dm = r.damage_multiplier
+        if dm is None:
+            dm = 1.0
+        mult *= float(dm)
         agg.damage_flat_bonus += int(r.damage_flat_bonus or 0)
         agg.force_crit = agg.force_crit or bool(r.force_crit)
         agg.crit_damage_multiplier *= float(r.crit_damage_multiplier or 1.0)
@@ -94,6 +146,7 @@ def _aggregate(results: list[BonusResult], *, max_mult: float) -> AggregatedLege
         if r.battle_state_patch.get("detonator_triggered"):
             agg.detonator_pending = True
     agg.damage_multiplier = min(mult, max_mult)
+    agg.replace_main_hit = agg.damage_multiplier <= 0 and bool(agg.extra_hits)
     return agg
 
 
@@ -107,6 +160,7 @@ def run_outgoing_handlers(
 ) -> AggregatedLegendaryResult:
     skip = skip_keys or frozenset()
     results: list[BonusResult] = []
+    contributions: list[LegendaryBonusContrib] = []
     working_state = dict(ctx_base.battle_state or {})
     for row in active_rows:
         key = str(row.get("bonus_key") or "")
@@ -159,8 +213,13 @@ def run_outgoing_handlers(
         elif phase == "post_crit":
             res.force_crit = False
         results.append(res)
+        if phase == "full":
+            lc = _contrib_from_result(row, res)
+            if lc is not None:
+                contributions.append(lc)
         working_state = merge_battle_state(working_state, res.battle_state_patch or {})
     agg = _aggregate(results, max_mult=max_mult if phase != "pre_crit" else 999.0)
+    agg.contributions = contributions
     if phase == "full":
         agg.battle_state_patch = merge_battle_state(ctx_base.battle_state, working_state)
     else:
@@ -194,14 +253,31 @@ def run_death_handlers(
 
 
 def apply_outgoing_to_damage(damage: int, agg: AggregatedLegendaryResult) -> int:
-    if agg.extra_hits and agg.damage_multiplier <= 0:
-        total = 0
-        for pct in agg.extra_hits:
-            total += int(round(damage * float(pct)))
-        return total + int(agg.damage_flat_bonus)
-    out = int(round(damage * agg.damage_multiplier)) + int(agg.damage_flat_bonus)
+    flat = int(agg.damage_flat_bonus)
+    if agg.replace_main_hit or (agg.extra_hits and agg.damage_multiplier <= 0):
+        total = sum(int(round(damage * float(pct))) for pct in agg.extra_hits if float(pct) > 0)
+        if total > 0:
+            return max(0, total + flat)
+        return max(0, int(damage) + flat)
+    out = int(round(damage * agg.damage_multiplier)) + flat
     for pct in agg.extra_hits:
-        out += int(round(damage * float(pct)))
+        if float(pct) > 0:
+            out += int(round(damage * float(pct)))
+    return max(0, out)
+
+
+def apply_outgoing_flat_only(damage: int, agg: AggregatedLegendaryResult) -> int:
+    """Apply legendary flats/extra_hits only (% mult already in unified bonus pool)."""
+    flat = int(agg.damage_flat_bonus)
+    if agg.replace_main_hit or (agg.extra_hits and agg.damage_multiplier <= 0):
+        total = sum(int(round(damage * float(pct))) for pct in agg.extra_hits if float(pct) > 0)
+        if total > 0:
+            return max(0, total + flat)
+        return max(0, int(damage) + flat)
+    out = int(damage) + flat
+    for pct in agg.extra_hits:
+        if float(pct) > 0:
+            out += int(round(damage * float(pct)))
     return max(0, out)
 
 

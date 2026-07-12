@@ -190,6 +190,50 @@ def apply_price_discount_pct(cost: int, discount_pct: float) -> int:
     return max(1, int(round(int(cost) * (1.0 - float(discount_pct)))))
 
 
+def apply_raid_gxp_guild_bonuses(base_gxp: int, gfx: dict[str, float]) -> int:
+    """Apply Нерушимые узы (×mult) and Воля к победе (+pct) to raid GXP."""
+    gxp = max(0, int(base_gxp))
+    if gxp <= 0:
+        return 0
+    mult = float(gfx.get("raid_gxp_multiplier", 0) or 0)
+    if mult > 0:
+        gxp = max(1, int(round(gxp * mult)))
+    pct = float(gfx.get("raid_completion_reward_pct", 0) or 0)
+    if pct > 0:
+        gxp = max(1, int(round(gxp * (1.0 + pct))))
+    return gxp
+
+
+async def count_guild_active_members(
+    session: AsyncSession,
+    guild_id: int,
+    *,
+    within_hours: float = 24.0,
+) -> int:
+    """Guild members with last_active within the given window (for Дух гильдии)."""
+    from datetime import datetime, timedelta, timezone
+
+    from waifu_bot.db.models import Player
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=float(within_hours))
+    pids = (
+        await session.execute(
+            select(GuildMember.player_id).where(GuildMember.guild_id == int(guild_id))
+        )
+    ).scalars().all()
+    cnt = 0
+    for pid in pids:
+        pl = await session.get(Player, int(pid))
+        if not pl or not pl.last_active:
+            continue
+        la = pl.last_active
+        la_utc = la.replace(tzinfo=timezone.utc) if la.tzinfo is None else la.astimezone(timezone.utc)
+        if la_utc >= cutoff:
+            cnt += 1
+    return cnt
+
+
 async def effect_values_for_player(session: AsyncSession, player_id: int) -> dict[str, float]:
     """effect_param -> additive contribution for stacking params (pct) or last-wins for scalars."""
     contribs = await guild_skill_contributions(session, player_id)

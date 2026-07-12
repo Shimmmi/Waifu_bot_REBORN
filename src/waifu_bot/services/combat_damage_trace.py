@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from waifu_bot.game.constants import MediaType
+from waifu_bot.game.outgoing_damage_pool import cap_bonus_pool
 
 
 MAX_STEPS = 48
@@ -171,6 +172,100 @@ def media_type_to_log_media_key(media_type: MediaType | None) -> str:
         int(MediaType.VOICE): "voice",
     }
     return m.get(int(media_type), "other")
+
+
+def append_unified_bonus_pool_trace(
+    trace: DamageTrace,
+    contribs: list[Any],
+    pool: float,
+    damage_before: int,
+    damage_after: int,
+) -> int:
+    """Emit contrib rows per source and one combined mult for the unified bonus pool."""
+    pool = cap_bonus_pool(pool)
+    for c in contribs:
+        pct = float(getattr(c, "pct_add", None) or (c.get("pct_add") if isinstance(c, dict) else 0) or 0)
+        if abs(pct) < 1e-12:
+            continue
+        source = str(getattr(c, "source", None) or (c.get("source") if isinstance(c, dict) else "") or "")
+        label = str(getattr(c, "label_ru", None) or (c.get("label_ru") if isinstance(c, dict) else "") or "")
+        meta = getattr(c, "meta", None) if not isinstance(c, dict) else c.get("meta")
+        trace.contrib(source, label, pct_add=pct, meta=meta if isinstance(meta, dict) else None)
+    if abs(pool) < 1e-12:
+        return int(damage_after)
+    fac = 1.0 + float(pool)
+    sign = "+" if pool >= 0 else ""
+    trace.mult(
+        "outgoing_bonus_pool",
+        f"Бонусный коэффициент: {sign}{pool * 100:.1f}% (×{fac:.3f})",
+        int(damage_before),
+        int(damage_after),
+        factor=fac,
+    )
+    return int(damage_after)
+
+
+def append_legendary_post_crit_trace(
+    trace: DamageTrace,
+    damage_before: int,
+    damage_after: int,
+    contributions: list[Any],
+) -> None:
+    """Post-crit legendary flat / extra_hits / notifications per equipped item."""
+    before = int(damage_before)
+    running = before
+    traced = False
+    for lc in contributions or []:
+        key = str(getattr(lc, "bonus_key", "") or "")
+        iid = int(getattr(lc, "inventory_item_id", 0) or 0)
+        lbl = str(getattr(lc, "label_ru", "") or key)
+        flat = int(getattr(lc, "flat_add", 0) or 0)
+        if flat:
+            nb = running
+            running += flat
+            trace.add(
+                f"legendary:{key}:{iid}:flat",
+                f"Легендарка «{lbl}»: +{flat} урона",
+                nb,
+                running,
+                delta=flat,
+            )
+            traced = True
+        for idx, pct in enumerate(getattr(lc, "extra_hits", None) or []):
+            p = float(pct)
+            if p <= 0:
+                continue
+            extra = int(round(before * p))
+            if extra <= 0:
+                continue
+            nb = running
+            running += extra
+            trace.add(
+                f"legendary:{key}:{iid}:flat",
+                f"Легендарка «{lbl}»: доп. удар {p * 100:.0f}% (+{extra})",
+                nb,
+                running,
+                delta=extra,
+            )
+            traced = True
+        notify = getattr(lc, "notification", None)
+        if notify and not flat and not any(float(x) > 0 for x in (getattr(lc, "extra_hits", None) or [])):
+            trace.add(
+                f"legendary:{key}:{iid}:notify",
+                str(notify),
+                running,
+                running,
+                delta=0,
+            )
+            traced = True
+    if not traced and damage_after != damage_before:
+        trace.add(
+            "legendary_post_crit",
+            "Легендарные бонусы (после крита)",
+            before,
+            int(damage_after),
+            delta=int(damage_after) - before,
+        )
 
 
 def append_passive_pool_trace(
@@ -393,6 +488,7 @@ def build_damage_summary_ru(
     monster_dodged: bool,
     monster_media_immune: bool = False,
     monster_name: str | None = None,
+    finish_blocked: bool = False,
 ) -> str:
     """Одна строка для компактного UI."""
     name = (monster_name or "").strip() or "цель"
@@ -403,5 +499,10 @@ def build_damage_summary_ru(
     if damage <= 0:
         return f"{name}: урон 0."
     crit_s = ", критический удар" if is_crit else ""
-    return f"{name}: {damage} урона{crit_s}."
+    base = f"{name}: {damage} урона{crit_s}."
+    if finish_blocked:
+        return (
+            f"{base} Добивание заблокировано: вайфу не переживёт ответный удар (монстр оставлен на 1 HP)."
+        )
+    return base
 

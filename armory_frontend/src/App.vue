@@ -26,7 +26,7 @@ onMounted(() => auth.fetchMe())
       <div class="item-art-gen-busy-panel">
         <div class="item-art-gen-busy-spinner" aria-hidden="true" />
         <p>Генерация иконки…</p>
-        <p class="item-art-gen-busy-hint">OpenRouter может отвечать до 2 минут</p>
+        <p class="item-art-gen-busy-hint">Генерация может занять до 2 минут</p>
       </div>
     </div>
   </div>

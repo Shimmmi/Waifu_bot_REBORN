@@ -820,6 +820,21 @@ async function populateDungeonsPage(profile) {
     }
     if (!evt || evt.type !== "battle") return;
     const payload = evt.payload || {};
+    if (payload.dungeon_failed || payload.waifu_died) {
+      dungeonsFinishBlockedMsg = null;
+      const penalty = payload.gold_penalty_pct ?? 50;
+      const gold = payload.gold_gained ?? payload.total_gold_gained ?? 0;
+      const exp = payload.experience_gained ?? payload.total_experience_gained ?? 0;
+      const msg =
+        payload.message ||
+        `Подземелье провалено. Штраф к золоту: −${penalty}% от накопленного. Получено: ${gold} золота, ${exp} опыта.`;
+      applySoloBattleSsePayload(payload);
+      showDungeonsError(msg, "danger");
+      setTimeout(() => {
+        window.location.href = "./dungeons.html";
+      }, 2200);
+      return;
+    }
     if (payload.finish_blocked) {
       const msg = payload.message || "Не хватает здоровья для победы.";
       dungeonsFinishBlockedMsg = msg;
@@ -1282,9 +1297,13 @@ async function continueBattle() {
     if (res?.experience_gained) appendBattleLog(`✨ +${res.experience_gained} EXP`);
     if (res?.gold_gained) appendBattleLog(`🪙 +${res.gold_gained} золото`);
     // Death: waifu left dungeon at 1 HP
-    if (res?.waifu_died) {
+    if (res?.waifu_died || res?.dungeon_failed) {
       const penalty = res.gold_penalty_pct ?? 50;
-      appendBattleLog(`💀 Вайфу погибла! Штраф к золоту: −${penalty}%. XP сохранён.`);
+      const gold = res.gold_gained ?? res.total_gold_gained ?? 0;
+      const exp = res.experience_gained ?? res.total_experience_gained ?? 0;
+      appendBattleLog(
+        `💀 Вайфу погибла! Штраф к золоту: −${penalty}% от накопленного. Получено: ${gold} 🪙, ${exp} ✨`
+      );
       setTimeout(() => { window.location.href = "./dungeons.html"; }, 1800);
       return;
     }
