@@ -731,6 +731,27 @@ function statMeta(stat) {
   return STAT_META[low] || STAT_META[key] || { icon: "✨", short: key || "—" };
 }
 
+const PRIMARY_STAT_KEYS = new Set([
+  "strength",
+  "agility",
+  "intelligence",
+  "endurance",
+  "charm",
+  "luck",
+]);
+
+/** Подпись строки аффикса в характеристиках (не путать с affix.name для названия предмета). */
+function resolveAffixCharacteristicLabel(affix) {
+  const sk = String(affix?.stat || "").trim();
+  const skl = sk.toLowerCase();
+  const m = statMeta(sk);
+  if (PRIMARY_STAT_KEYS.has(skl)) return m.short;
+  const desc = String(affix?.description || "").trim();
+  if (desc) return desc;
+  if (m.short && m.short !== sk) return m.short;
+  return sk || "—";
+}
+
 function formatBonusValue(stat, value) {
   const sk = String(stat || "").trim();
   // Вторичные аффиксы: целое значение в сотых долях процента (150 → +1.50%)
@@ -1267,14 +1288,80 @@ function renderAtticDungeon(active) {
 
 const ATTIC_LEVEL_RING_C = 2 * Math.PI * 16;
 
-function renderAtticLevelCircle(level, xpPct) {
+function bindAtticLevelCirclePerfectionNav(circle) {
+  if (!circle || circle.dataset.perfectionNavBound === "1") return;
+  circle.dataset.perfectionNavBound = "1";
+  circle.addEventListener("click", () => {
+    if (!circle.classList.contains("attic-level-circle--clickable")) return;
+    window.location.href = "./training_hall.html?tab=perfection";
+  });
+  circle.addEventListener("keydown", (ev) => {
+    if (!circle.classList.contains("attic-level-circle--clickable")) return;
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      window.location.href = "./training_hall.html?tab=perfection";
+    }
+  });
+}
+
+function renderAtticLevelCircle(level, xpPct, opts = {}) {
   const num = document.getElementById("badge-level");
   if (num && level != null) num.textContent = String(level);
   const ring = document.getElementById("attic-level-ring-fg");
+  const circle = document.getElementById("attic-level-circle") || document.querySelector(".attic-level-circle");
+  const usePerfection = Boolean(opts.perfection);
+  const pendingCount = Number(opts.pendingCount || 0);
+  if (circle) {
+    circle.classList.toggle("attic-level-circle--perfection", usePerfection);
+    circle.classList.toggle(
+      "attic-level-circle--perfection-pending",
+      usePerfection && pendingCount > 0
+    );
+    circle.classList.toggle("attic-level-circle--clickable", usePerfection);
+    if (usePerfection) {
+      circle.setAttribute("role", "link");
+      circle.setAttribute("title", "Совершенствование");
+      circle.setAttribute("tabindex", "0");
+      bindAtticLevelCirclePerfectionNav(circle);
+    } else {
+      circle.removeAttribute("role");
+      circle.removeAttribute("title");
+      circle.removeAttribute("tabindex");
+    }
+  }
+  let badge = document.getElementById("attic-perfection-pending");
+  if (circle && pendingCount > 0) {
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.id = "attic-perfection-pending";
+      badge.className = "attic-perfection-pending";
+      badge.title = "Есть невыбранные бонусы совершенствования";
+      circle.appendChild(badge);
+    }
+    badge.hidden = false;
+    badge.textContent = String(pendingCount);
+  } else if (badge) {
+    badge.hidden = true;
+  }
   if (!ring) return;
   const pct = Math.max(0, Math.min(100, Number(xpPct) || 0));
   ring.style.strokeDasharray = String(ATTIC_LEVEL_RING_C);
   ring.style.strokeDashoffset = String(ATTIC_LEVEL_RING_C * (1 - pct / 100));
+}
+
+function formatLevelWithPerfection(level, perfectionLevel) {
+  const lvl = Number(level);
+  const p = Number(perfectionLevel || 0);
+  if (Number.isFinite(lvl) && lvl >= PLAYER_MAX_LEVEL && p > 0) return `${lvl} (${p})`;
+  if (Number.isFinite(lvl)) return String(lvl);
+  return "—";
+}
+
+function perfectionXpPct(profile) {
+  const need = Number(profile?.perfection_xp_to_next || 0);
+  const xp = Number(profile?.perfection_experience || 0);
+  if (need <= 0) return 0;
+  return Math.round(clamp01(xp / need) * 100);
 }
 
 function renderAtticExpeditions(actives, maxConcurrent) {
@@ -1437,12 +1524,22 @@ function populateFromProfile(profile, opts = {}) {
 
   const w = profile.main_waifu;
   if (w) {
-    if (w.level != null) setText("badge-level", w.level);
+    const pLevel = Number(profile.perfection_level || 0);
+    const pending = Number(profile.perfection_pending_count || 0);
+    const usePerfection = Number(w.level) >= PLAYER_MAX_LEVEL && pLevel > 0;
+
+    if (usePerfection) {
+      setText("badge-level", pLevel);
+    } else if (w.level != null) {
+      setText("badge-level", w.level);
+    }
 
     // Legacy IDs kept for back-compat (silently skipped when not in DOM)
     if (w.name) setText("waifu-name", w.name);
     if (w.name) setText("profile-name", w.name);
-    if (w.level != null) setText("profile-level", w.level);
+    if (w.level != null) {
+      setText("profile-level", formatLevelWithPerfection(w.level, pLevel));
+    }
 
     const clsId = Number(w.class_ ?? w.class);
     const raceId = Number(w.race);
@@ -1458,14 +1555,27 @@ function populateFromProfile(profile, opts = {}) {
     }
 
     // XP progress — profile card + ОЧ level ring
-    if (w.level != null && w.experience != null) {
+    const fill = document.getElementById("profile-xp-fill");
+    const xpBlock = document.querySelector(".profile-mtg-xp-block");
+    if (usePerfection) {
+      const need = Number(profile.perfection_xp_to_next || 0);
+      const xp = Number(profile.perfection_experience || 0);
+      const pct = perfectionXpPct(profile);
+      setText(
+        "profile-xp-text",
+        `Совершенствование ${pLevel} · ${xp} / ${need} EXP`
+      );
+      if (fill) fill.style.width = `${pct}%`;
+      if (xpBlock) xpBlock.classList.add("profile-mtg-xp-block--perfection");
+      renderAtticLevelCircle(pLevel, pct, { perfection: true, pendingCount: pending });
+    } else if (w.level != null && w.experience != null) {
       const lvl = Number(w.level);
       const xp = Number(w.experience);
-      const fill = document.getElementById("profile-xp-fill");
+      if (xpBlock) xpBlock.classList.remove("profile-mtg-xp-block--perfection");
       if (lvl >= PLAYER_MAX_LEVEL) {
         setText("profile-xp-text", `Ур. ${lvl} · макс.`);
         if (fill) fill.style.width = "100%";
-        renderAtticLevelCircle(lvl, 100);
+        renderAtticLevelCircle(lvl, 100, { pendingCount: pending });
       } else {
         const nextTotal = totalExpForLevel(lvl + 1);
         const curTotal = totalExpForLevel(lvl);
@@ -1474,10 +1584,10 @@ function populateFromProfile(profile, opts = {}) {
         const pct = Math.round(clamp01(into / span) * 100);
         setText("profile-xp-text", `Ур. ${lvl} · ${xp} / ${nextTotal} EXP`);
         if (fill) fill.style.width = `${pct}%`;
-        renderAtticLevelCircle(lvl, pct);
+        renderAtticLevelCircle(lvl, pct, { pendingCount: pending });
       }
     } else if (w.level != null) {
-      renderAtticLevelCircle(w.level, 0);
+      renderAtticLevelCircle(w.level, 0, { pendingCount: pending });
     }
   }
 
@@ -1488,7 +1598,69 @@ function populateFromProfile(profile, opts = {}) {
     startAtticMailBadgePolling();
   }
 
+  updateTrainingNavAttention(profile);
+  ensureAtticPerfectionMenuItem(profile);
+
   if (document.getElementById("shop-gamble-cost")) updateShopGambleCost();
+}
+
+function updateTrainingNavAttention(profile) {
+  const link = document.querySelector('.nav.basement a[data-page="training"]');
+  if (!link) return;
+  const skillPoints = Number(profile?.skill_points || 0);
+  const pending = Number(profile?.perfection_pending_count || 0);
+  const showDot = skillPoints > 0 || pending > 0;
+  let dot = link.querySelector(".nav-attention-dot");
+  if (showDot) {
+    if (!dot) {
+      dot = document.createElement("span");
+      dot.className = "nav-attention-dot";
+      dot.setAttribute("aria-hidden", "true");
+      link.appendChild(dot);
+    }
+    dot.hidden = false;
+  } else if (dot) {
+    dot.hidden = true;
+  }
+  if (pending > 0) {
+    link.setAttribute("href", "./training_hall.html?tab=perfection");
+  } else {
+    link.setAttribute("href", "./training_hall.html");
+  }
+}
+
+function ensureAtticPerfectionMenuItem(profile) {
+  const menu = document.getElementById("attic-menu");
+  if (!menu) return;
+  const level = Number(profile?.main_waifu?.level || 0);
+  let item = document.getElementById("attic-menu-perfection");
+  if (level < PLAYER_MAX_LEVEL) {
+    if (item) item.hidden = true;
+    return;
+  }
+  if (!item) {
+    item = document.createElement("a");
+    item.className = "attic-menu-item";
+    item.id = "attic-menu-perfection";
+    item.href = "./training_hall.html?tab=perfection";
+    item.setAttribute("role", "menuitem");
+    item.textContent = "✨ Совершенствование";
+    const stats = Array.from(menu.querySelectorAll("a.attic-menu-item")).find((a) =>
+      String(a.getAttribute("href") || "").includes("info=statistics")
+    );
+    const expedition = Array.from(menu.querySelectorAll("a.attic-menu-item")).find((a) =>
+      String(a.getAttribute("href") || "").includes("tab=expedition")
+    );
+    if (stats && stats.nextSibling) {
+      menu.insertBefore(item, stats.nextSibling);
+    } else if (expedition) {
+      menu.insertBefore(item, expedition);
+    } else {
+      menu.appendChild(item);
+    }
+  }
+  item.hidden = false;
+  item.href = "./training_hall.html?tab=perfection";
 }
 
 function getTelegramUser() {
@@ -3089,6 +3261,15 @@ async function bootstrapTrainingHall() {
     });
   await Promise.all([profilePromise, loadPassiveSkillTree()]);
   bindHiddenSkillsListenersOnce();
+  bindPerfectionListenersOnce();
+  try {
+    const tabQ = new URLSearchParams(window.location.search).get("tab");
+    if (tabQ === "perfection") {
+      trainingHallTab = "perfection";
+      applyTrainingHallTabUI();
+      await loadPerfectionPanel();
+    }
+  } catch (_) {}
   scheduleDeferredAtticRefresh(profile);
 
   try {
@@ -3104,6 +3285,148 @@ async function bootstrapTrainingHall() {
   }
 
   return profile;
+}
+
+let perfectionStateCache = null;
+let perfectionListenersBound = false;
+
+function bindPerfectionListenersOnce() {
+  if (perfectionListenersBound) return;
+  perfectionListenersBound = true;
+  const closeBtn = document.getElementById("perfection-choose-close");
+  if (closeBtn) closeBtn.addEventListener("click", closePerfectionChooseModal);
+}
+
+function closePerfectionChooseModal() {
+  const modal = document.getElementById("perfection-choose-modal");
+  if (modal) modal.style.display = "none";
+}
+
+function openPerfectionChooseModal(state) {
+  // Single choose modal — never stack a second overlay.
+  const existing = document.getElementById("perfection-choose-modal");
+  if (!existing) return;
+  const modal = existing;
+  const body = document.getElementById("perfection-choose-body");
+  const title = document.getElementById("perfection-choose-title");
+  const pending = state?.pending;
+  if (!body || !pending) return;
+  const kind = pending.kind === "skill_point" ? "Очко навыка" : "Выбор бонуса";
+  if (title) title.textContent = `${kind} · ур. ${pending.perfection_level}`;
+  const opts = Array.isArray(pending.options) ? pending.options : [];
+  body.innerHTML = `<div class="perfection-choose-grid">${opts
+    .map((opt, idx) => {
+      const label = escapeHtml(opt.label || (opt.kind === "permanent" ? "Навсегда" : "Сразу"));
+      const name = escapeHtml(opt.title_ru || opt.bonus_id || "Бонус");
+      const val = escapeHtml(opt.display_value || "");
+      return `<button type="button" class="perfection-choose-card" data-perfection-opt="${idx}">
+        <span class="perfection-choose-badge">${label}</span>
+        <strong class="perfection-choose-name">${name}</strong>
+        <span class="perfection-choose-value">${val}</span>
+      </button>`;
+    })
+    .join("")}</div>`;
+  body.querySelectorAll("[data-perfection-opt]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.getAttribute("data-perfection-opt"));
+      await choosePerfectionOption(pending.id, idx);
+    });
+  });
+  modal.style.display = "flex";
+}
+
+async function loadPerfectionPanel() {
+  const root = document.getElementById("perfection-root");
+  if (!root) return;
+  root.classList.add("placeholder");
+  root.textContent = "Загрузка…";
+  try {
+    const state = await apiFetch("/perfection");
+    perfectionStateCache = state;
+    renderPerfectionPanel(state);
+  } catch (err) {
+    console.error(err);
+    root.textContent = "Не удалось загрузить совершенствование.";
+  }
+}
+
+function renderPerfectionPanel(state) {
+  const root = document.getElementById("perfection-root");
+  if (!root) return;
+  root.classList.remove("placeholder");
+  if (!state?.unlocked) {
+    root.innerHTML = `<div class="perfection-locked muted">Откроется на 60 уровне основной вайфу.</div>`;
+    return;
+  }
+  const lvl = Number(state.perfection_level || 0);
+  const xp = Number(state.perfection_experience || 0);
+  const need = Number(state.perfection_xp_to_next || 0);
+  const pct = need > 0 ? Math.round(clamp01(xp / need) * 100) : 0;
+  const pendingCount = Number(state.pending_count || 0);
+  const summary = Array.isArray(state.bonuses_summary) ? state.bonuses_summary : [];
+  const summaryHtml = summary.length
+    ? `<ul class="perfection-bonus-list">${summary
+        .map(
+          (b) =>
+            `<li><span>${escapeHtml(b.title_ru || b.bonus_id)}</span><strong>${escapeHtml(
+              b.display_value || ""
+            )}</strong><em class="perfection-bonus-tag">${escapeHtml(b.label || "Навсегда")}</em></li>`
+        )
+        .join("")}</ul>`
+    : `<p class="muted tiny">Постоянных бонусов пока нет — выберите первый оффер.</p>`;
+  root.innerHTML = `
+    <div class="perfection-header">
+      <div class="perfection-level-line">Совершенствование <strong>${lvl}</strong> · тир ${Number(state.tier || 1)}</div>
+      <div class="perfection-xp-text">${xp} / ${need} EXP</div>
+      <div class="perfection-xp-bar"><div class="perfection-xp-fill" style="width:${pct}%"></div></div>
+    </div>
+    <div class="perfection-actions">
+      <button type="button" class="btn" id="perfection-open-choose" ${pendingCount > 0 ? "" : "disabled"}>
+        Выбрать бонус${pendingCount > 1 ? ` (${pendingCount})` : ""}
+      </button>
+    </div>
+    <h3 class="section-head">Текущие бонусы</h3>
+    ${summaryHtml}
+  `;
+  const btn = document.getElementById("perfection-open-choose");
+  if (btn && pendingCount > 0) {
+    btn.addEventListener("click", () => openPerfectionChooseModal(state));
+  }
+  // Auto-open FIFO head when there are pending bonuses (single modal DOM).
+  if (pendingCount > 0 && state.pending) {
+    openPerfectionChooseModal(state);
+  }
+}
+
+async function choosePerfectionOption(pendingId, optionIndex) {
+  try {
+    const state = await apiFetch("/perfection/choose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pending_id: pendingId,
+        option_index: optionIndex,
+      }),
+    });
+    closePerfectionChooseModal();
+    perfectionStateCache = state;
+    const applied = state?.applied;
+    if (applied?.title_ru) {
+      showToast(`${applied.title_ru} ${applied.display_value || ""}`, "success");
+    }
+    renderPerfectionPanel(state);
+    const profile = await loadProfile({ lite: false });
+    if (profile) {
+      populateFromProfile(profile);
+      if (isProfilePage()) await populateProfile(profile);
+    }
+    if (state?.pending_count > 0 && state.pending) {
+      openPerfectionChooseModal(state);
+    }
+  } catch (err) {
+    console.error(err);
+    showToast(err?.message || "Не удалось выбрать бонус", "error");
+  }
 }
 
 function consumeShopSmithIntent() {
@@ -5154,7 +5477,7 @@ function renderItemBonusesHtml(item) {
     const sk = String(a.stat || "").trim();
     const m = statMeta(sk);
     const cls = bonusClass(a.value);
-    const lbl = String(a.description || "").trim() || m.short;
+    const lbl = resolveAffixCharacteristicLabel(a);
     const v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
     lines.push(
       `<div><span aria-hidden="true">${m.icon}</span> <span class="muted">${escapeHtml(lbl)}</span> <strong><span class="${cls}">${escapeHtml(v)}</span></strong></div>`
@@ -5629,26 +5952,10 @@ function renderItemModalV2CharacteristicsHtml(item) {
   }
 
   const aff = Array.isArray(item.affixes) ? item.affixes : [];
-  const PRIMARY_STAT_KEYS = new Set([
-    "strength",
-    "agility",
-    "intelligence",
-    "endurance",
-    "charm",
-    "luck",
-  ]);
   aff.forEach((a) => {
     const sk = String(a.stat || "").trim();
     const skl = sk.toLowerCase();
-    const m = statMeta(sk);
-    let label;
-    if (PRIMARY_STAT_KEYS.has(skl)) {
-      label = m.short;
-    } else if (a.name && !String(a.name).startsWith("Базовый:")) {
-      label = String(a.name).trim();
-    } else {
-      label = m.short !== sk ? m.short : String(a.description || "").trim() || sk;
-    }
+    const label = resolveAffixCharacteristicLabel(a);
     let v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
     if (
       skl.startsWith("passive_node_level_add:") ||
@@ -5868,8 +6175,7 @@ function getItemBonusesText(item) {
   const aff = Array.isArray(item.affixes) ? item.affixes : [];
   aff.forEach((a) => {
     const sk = String(a.stat || "").trim();
-    const m = statMeta(sk);
-    const lbl = String(a.description || "").trim() || m.short;
+    const lbl = resolveAffixCharacteristicLabel(a);
     const v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
     parts.push(`${lbl} ${v}`);
   });
@@ -5890,11 +6196,16 @@ function getItemBonusesText(item) {
   return parts.join(", ");
 }
 
-function renderProfilePortrait(waifu) {
+function renderProfilePortrait(waifu, profile = null) {
   setText("profile-portrait-name", waifu?.name || "—");
   const metaEl = document.getElementById("profile-mtg-meta");
   if (metaEl) {
-    metaEl.textContent = `${raceName(waifu?.race)} · ${className(waifu?.class ?? waifu?.class_)}`;
+    const p = profile || profileState.currentProfile;
+    const lvlLabel = formatLevelWithPerfection(
+      waifu?.level,
+      p?.perfection_level
+    );
+    metaEl.textContent = `Ур. ${lvlLabel} · ${raceName(waifu?.race)} · ${className(waifu?.class ?? waifu?.class_)}`;
   }
 
   const portraitUrl = resolveImageUrl(
@@ -5925,8 +6236,9 @@ function renderProfilePortrait(waifu) {
   }
 }
 
-function renderProfileHeroBars(waifu, details = null) {
+function renderProfileHeroBars(waifu, details = null, profile = null) {
   const d = details || profileState.currentDetails || null;
+  const p = profile || profileState.currentProfile || null;
   const hpCur = safeNumber(d?.hp_current ?? waifu?.current_hp, 0);
   const hpMax = Math.max(1, safeNumber(d?.hp_max ?? waifu?.max_hp, 1));
   setText("profile-hp-text", `${hpCur}/${hpMax}`);
@@ -5936,9 +6248,19 @@ function renderProfileHeroBars(waifu, details = null) {
   const lvl = safeNumber(waifu?.level, 1);
   const xp = safeNumber(waifu?.experience, 0);
   const xpFill = document.getElementById("profile-xp-fill");
-  if (lvl >= PLAYER_MAX_LEVEL) {
+  const xpBlock = document.querySelector(".profile-mtg-xp-block");
+  const pLevel = safeNumber(p?.perfection_level, 0);
+  if (lvl >= PLAYER_MAX_LEVEL && pLevel > 0) {
+    const need = safeNumber(p?.perfection_xp_to_next, 0);
+    const pxp = safeNumber(p?.perfection_experience, 0);
+    const pct = need > 0 ? Math.round(clamp01(pxp / need) * 100) : 0;
+    setText("profile-xp-text", `Совершенствование ${pLevel} · ${pxp} / ${need} EXP`);
+    if (xpFill) xpFill.style.width = `${pct}%`;
+    if (xpBlock) xpBlock.classList.add("profile-mtg-xp-block--perfection");
+  } else if (lvl >= PLAYER_MAX_LEVEL) {
     setText("profile-xp-text", `Ур. ${lvl} · макс.`);
     if (xpFill) xpFill.style.width = "100%";
+    if (xpBlock) xpBlock.classList.remove("profile-mtg-xp-block--perfection");
   } else {
     const curTotal = totalExpForLevel(lvl);
     const nextTotal = totalExpForLevel(lvl + 1);
@@ -5947,7 +6269,32 @@ function renderProfileHeroBars(waifu, details = null) {
       : Math.round(clamp01(xp / nextTotal) * 100);
     setText("profile-xp-text", `Ур. ${lvl} · ${xp} / ${nextTotal} EXP`);
     if (xpFill) xpFill.style.width = `${Math.max(0, xpPct)}%`;
+    if (xpBlock) xpBlock.classList.remove("profile-mtg-xp-block--perfection");
   }
+}
+
+function renderProfilePerfectionSummary(profile) {
+  const wrap = document.getElementById("profile-perfection-summary");
+  const list = document.getElementById("profile-perfection-bonus-list");
+  if (!wrap || !list) return;
+  const summary = Array.isArray(profile?.perfection_bonuses_summary)
+    ? profile.perfection_bonuses_summary
+    : [];
+  const pLevel = Number(profile?.perfection_level || 0);
+  if (!pLevel || !summary.length) {
+    wrap.hidden = true;
+    list.innerHTML = "";
+    return;
+  }
+  wrap.hidden = false;
+  list.innerHTML = summary
+    .map(
+      (b) =>
+        `<li><span>${escapeHtml(b.title_ru || b.bonus_id)}</span><strong>${escapeHtml(
+          b.display_value || ""
+        )}</strong><em class="perfection-bonus-tag">${escapeHtml(b.label || "Навсегда")}</em></li>`
+    )
+    .join("");
 }
 
 function renderProfileIndicators(waifu, details = null) {
@@ -6598,7 +6945,7 @@ async function populateProfile(profile) {
   profileState.viewMode = readProfileInventoryMode();
 
   setText("profile-name", w.name || "—");
-  setText("profile-level", w.level ?? "—");
+  setText("profile-level", formatLevelWithPerfection(w.level, p?.perfection_level));
 
   const clsId = Number(w.class_ ?? w.class);
   const raceId = Number(w.race);
@@ -6613,11 +6960,12 @@ async function populateProfile(profile) {
     raceEl.title = raceName(raceId);
   }
 
-  renderProfilePortrait(w);
-  renderProfileHeroBars(w, profileState.currentDetails);
+  renderProfilePortrait(w, p);
+  renderProfileHeroBars(w, profileState.currentDetails, p);
   renderStatsStrip("profile-stats-strip", w);
   renderStatsBreakdown("profile-stats-breakdown", w, profileState.currentDetails);
   renderProfileIndicators(w, profileState.currentDetails);
+  renderProfilePerfectionSummary(p);
   switchProfileInfoTab(profileState.infoTab);
 
   const invTabActive = document.getElementById("tab-inventory")?.classList.contains("active");
@@ -6915,7 +7263,16 @@ function estimateProfileSellPrice(item) {
   return Math.floor(baseValue * multiplier);
 }
 
-/** Требования v2: пилюли «Ур.» / «ВЫН» и т.д.; без текущих статов ОВ; fail — красная рамка. */
+/** Требования v2: пилюли «Ур.» / «ВЫН» и т.д.; fail — красная рамка. */
+function requirementPillOk(item, waifu, key, fallbackHave, need) {
+  const rs = item?.requirements_status;
+  if (rs && rs[key] && typeof rs[key] === "object" && rs[key].ok != null) {
+    return Boolean(rs[key].ok);
+  }
+  const hasWaifu = Boolean(waifu && (waifu.level != null || waifu.id != null));
+  return !hasWaifu || safeNumber(fallbackHave, 0) >= safeNumber(need, 0);
+}
+
 function buildItemModalRequirementsPillsHtml(item, waifu) {
   const req = item?.requirements && typeof item.requirements === "object" ? item.requirements : {};
   const w = waifu || {};
@@ -6933,7 +7290,7 @@ function buildItemModalRequirementsPillsHtml(item, waifu) {
   const lvlNeed = safeNumber(req.level, 0);
   if (lvlNeed > 0) {
     const have = safeNumber(w.level, 0);
-    const ok = !hasWaifu || have >= lvlNeed;
+    const ok = requirementPillOk(item, w, "level", have, lvlNeed);
     pushPill("Ур.", String(lvlNeed), ok);
   }
 
@@ -6948,22 +7305,22 @@ function buildItemModalRequirementsPillsHtml(item, waifu) {
   statBits.forEach(([rk, abbrev, wk]) => {
     const need = safeNumber(req[rk], 0);
     if (need <= 0) return;
-    const have = safeNumber(w[wk], 0);
-    const ok = !hasWaifu || have >= need;
+    const have = profileStatValue(w, wk);
+    const ok = requirementPillOk(item, w, rk, have, need);
     pushPill(abbrev, String(need), ok);
   });
 
   if (req.waifu_race != null && req.waifu_race !== "") {
     const need = Number(req.waifu_race);
     const have = w.race != null ? Number(w.race) : NaN;
-    const ok = !hasWaifu || (Number.isFinite(have) && have === need);
+    const ok = requirementPillOk(item, w, "waifu_race", have, need);
     pushPill("Раса", raceName(need), ok);
   }
   if (req.waifu_class != null && req.waifu_class !== "") {
     const need = Number(req.waifu_class);
     const wc = w.class != null ? w.class : w.class_;
     const have = wc != null ? Number(wc) : NaN;
-    const ok = !hasWaifu || (Number.isFinite(have) && have === need);
+    const ok = requirementPillOk(item, w, "waifu_class", have, need);
     pushPill("Класс", className(need), ok);
   }
 
@@ -8679,10 +9036,17 @@ function renderGuildMembersHtml(members, viewerContext) {
         m.member_power != null && m.member_power !== ""
           ? formatGuildPower(m.member_power)
           : "—";
+      const lvl =
+        m.waifu_level != null
+          ? formatLevelWithPerfection(m.waifu_level, m.perfection_level)
+          : "";
+      const lvlHtml = lvl
+        ? ` <span class="guild-member-level muted tiny">Ур. ${escapeHtml(lvl)}</span>`
+        : "";
       return `<div class="guild-members-table-row">
       <span class="gmc gmc--dot"><span class="guild-member-dot ${dotCls}" aria-hidden="true" title="${m.online ? "Онлайн" : "Оффлайн"}"></span></span>
       <span class="gmc gmc--avatar">${guildMemberAvatarHtml(m)}</span>
-      <span class="gmc gmc--name"><button type="button" class="guild-member-name-btn" onclick="WaifuApp.openPlayerProfile(${Number(m.player_id)})">${guildMemberLabel(m)}</button></span>
+      <span class="gmc gmc--name"><button type="button" class="guild-member-name-btn" onclick="WaifuApp.openPlayerProfile(${Number(m.player_id)})">${guildMemberLabel(m)}</button>${lvlHtml}</span>
       <span class="gmc gmc--rank"><span class="guild-member-rank">${escapeHtml(guildMemberRankLabel(m))}</span></span>
       <span class="gmc gmc--power"><span class="guild-member-power">${escapeHtml(String(pwr))}</span></span>
       <span class="gmc gmc--actions">${guildMemberActionMenuHtml(m, viewerContext)}</span>
@@ -9431,7 +9795,14 @@ function renderGuildMemberPreviewBody() {
     mailBtn.style.display = isSelf ? "none" : "";
   }
 
-  if (levelEl) levelEl.textContent = mw?.level != null ? String(mw.level) : "—";
+  if (levelEl) {
+    const lvl = mw?.level;
+    const pLvl = mw?.perfection_level ?? data?.perfection_level;
+    levelEl.textContent =
+      lvl != null && lvl !== ""
+        ? `Ур. ${formatLevelWithPerfection(lvl, pLvl)}`
+        : "—";
+  }
   if (powerEl) {
     const mp = data.member_power != null ? Number(data.member_power) : 0;
     powerEl.innerHTML =
@@ -9968,7 +10339,9 @@ function renderPlayerWaifuShowcase(data) {
   if (nameEl) nameEl.textContent = (mw?.name || "").trim() || "—";
   if (levelEl) {
     const lvl = mw?.level;
-    levelEl.textContent = lvl != null && lvl !== "" ? `Ур. ${lvl}` : "";
+    const pLvl = mw?.perfection_level;
+    levelEl.textContent =
+      lvl != null && lvl !== "" ? `Ур. ${formatLevelWithPerfection(lvl, pLvl)}` : "";
   }
   if (img) {
     if (url) {
@@ -11921,8 +12294,8 @@ async function initPage(page) {
         if (window.location.pathname.endsWith("/profile.html")) {
           profileState.currentProfile = { ...(profileState.currentProfile || {}), ...p };
           profileState.currentDetails = p?.main_waifu_details || profileState.currentDetails || null;
-          renderProfilePortrait(w);
-          renderProfileHeroBars(w, profileState.currentDetails);
+          renderProfilePortrait(w, profileState.currentProfile);
+          renderProfileHeroBars(w, profileState.currentDetails, profileState.currentProfile);
           renderStatsStrip("profile-stats-strip", w);
           if (document.getElementById("profile-stats-breakdown")) {
             renderStatsBreakdown("profile-stats-breakdown", w, profileState.currentDetails);
@@ -14122,16 +14495,21 @@ async function onPassiveLearnClick(ev) {
 function applyTrainingHallTabUI() {
   const passiveView = document.getElementById("training-passive-view");
   const hiddenView = document.getElementById("training-hidden-view");
+  const perfectionView = document.getElementById("training-perfection-view");
   document.querySelectorAll(".passive-tab[data-training-tab]").forEach((t) => {
     const tab = t.getAttribute("data-training-tab");
     const active = tab === trainingHallTab;
     t.classList.toggle("active", active);
     t.setAttribute("aria-selected", active ? "true" : "false");
   });
-  if (passiveView && hiddenView) {
-    const showHidden = trainingHallTab === "hidden";
-    passiveView.hidden = showHidden;
-    hiddenView.hidden = !showHidden;
+  if (passiveView) {
+    passiveView.hidden = trainingHallTab === "hidden" || trainingHallTab === "perfection";
+  }
+  if (hiddenView) {
+    hiddenView.hidden = trainingHallTab !== "hidden";
+  }
+  if (perfectionView) {
+    perfectionView.hidden = trainingHallTab !== "perfection";
   }
 }
 
@@ -14148,6 +14526,11 @@ function bindPassiveTreeListenersOnce() {
       if (key === "hidden") {
         applyTrainingHallTabUI();
         loadHiddenSkillsIfNeeded();
+        return;
+      }
+      if (key === "perfection") {
+        applyTrainingHallTabUI();
+        loadPerfectionPanel();
         return;
       }
       passiveActiveBranch = key;
@@ -14566,6 +14949,8 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   closePassiveSkillModal,
   openHiddenSkillModal,
   closeHiddenSkillModal,
+  closePerfectionChooseModal,
+  loadPerfectionPanel,
   loadProfile,
   renderAtticDungeon,
   renderAtticLevelCircle,
