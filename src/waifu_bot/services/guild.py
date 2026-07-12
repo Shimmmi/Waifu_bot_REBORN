@@ -169,6 +169,13 @@ class GuildService:
         from waifu_bot.services.guild_activity import log_member_join
 
         await log_member_join(session, guild_id, player_id)
+        waifu = (
+            await session.execute(select(MainWaifu).where(MainWaifu.player_id == player_id))
+        ).scalar_one_or_none()
+        if waifu:
+            from waifu_bot.services.waifu_hp import sync_waifu_max_hp
+
+            await sync_waifu_max_hp(session, player_id, waifu)
         await session.commit()
 
         return {"success": True, "guild_id": guild_id}

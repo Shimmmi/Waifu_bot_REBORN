@@ -167,6 +167,58 @@ def test_regen_every_n() -> None:
     assert m.current_hp == 60
 
 
+def test_regen_skipped_at_one_hp() -> None:
+    """REGEN must not heal a monster stuck at 1 HP (finish_blocked loop)."""
+    m = DungeonRunMonster(
+        run_id=1,
+        position=1,
+        name="t",
+        level=1,
+        difficulty=1,
+        max_hp=100,
+        current_hp=1,
+        damage=1,
+    )
+    rg = MonsterAffix(
+        id=40,
+        name="r",
+        affix_group="regen",
+        tier=1,
+        type="suffix",
+        category="behavior",
+        behavior_flag="REGEN",
+        behavior_params={"regen_pct": 10, "every_n": 1},
+    )
+    apply_regen_after_hit(m, [rg], messages_after_hit=1, damage_dealt=999)
+    assert m.current_hp == 1
+
+
+def test_regen_not_on_lethal_hit() -> None:
+    """After lethal damage HP is 0 — regen must not revive."""
+    m = DungeonRunMonster(
+        run_id=1,
+        position=1,
+        name="t",
+        level=1,
+        difficulty=1,
+        max_hp=100,
+        current_hp=0,
+        damage=1,
+    )
+    rg = MonsterAffix(
+        id=40,
+        name="r",
+        affix_group="regen",
+        tier=1,
+        type="suffix",
+        category="behavior",
+        behavior_flag="REGEN",
+        behavior_params={"regen_pct": 50, "every_n": 1},
+    )
+    apply_regen_after_hit(m, [rg], messages_after_hit=1, damage_dealt=100)
+    assert m.current_hp == 0
+
+
 def test_buff_next_from_earlier_elite() -> None:
     e1 = DungeonRunMonster(
         run_id=1,

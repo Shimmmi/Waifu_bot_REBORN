@@ -51,13 +51,20 @@ def resolve_avatar_url(player: Player | None) -> str | None:
     return f"/static/game/ui/player-avatars/preset-{DEFAULT_AVATAR_PRESET_ID:02d}.webp"
 
 
-def _main_waifu_media(mw: MainWaifu | None) -> dict[str, Any]:
+def _main_waifu_media(mw: MainWaifu | None, player: Player | None = None) -> dict[str, Any]:
     if not mw:
-        return {"name": None, "level": 1, "portrait_url": None, "paperdoll_url": None}
+        return {
+            "name": None,
+            "level": 1,
+            "perfection_level": 0,
+            "portrait_url": None,
+            "paperdoll_url": None,
+        }
     pid = int(mw.player_id)
     return {
         "name": mw.name,
         "level": int(mw.level or 1),
+        "perfection_level": int(getattr(player, "perfection_level", 0) or 0) if player else 0,
         "portrait_url": main_waifu_profile_portrait_url(mw, pid),
         "paperdoll_url": main_waifu_profile_paperdoll_url(mw, pid),
     }
@@ -124,7 +131,7 @@ def profile_self_dict(player: Player, *, campaign: dict, abyss: dict) -> dict[st
     showcase = (player.profile_showcase or "portrait").strip().lower()
     if showcase not in VALID_SHOWCASE:
         showcase = "portrait"
-    mw = _main_waifu_media(player.main_waifu)
+    mw = _main_waifu_media(player.main_waifu, player)
     return {
         "player_id": int(player.id),
         "is_self": True,
@@ -182,7 +189,7 @@ async def get_public_profile(
         "avatar_url": resolve_avatar_url(player),
         "profile_showcase": showcase,
         "guild_rank": await _guild_rank_for_player(session, target_player_id),
-        "main_waifu": _main_waifu_media(player.main_waifu),
+        "main_waifu": _main_waifu_media(player.main_waifu, player),
         "campaign": campaign,
         "abyss": abyss,
     }

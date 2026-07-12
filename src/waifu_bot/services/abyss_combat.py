@@ -13,17 +13,18 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db.models import MainWaifu, Player
-from waifu_bot.game.constants import DODGE_CHANCE_CAP, MediaType
+from waifu_bot.game.constants import MediaType
 from waifu_bot.game.effective_stats import (
     apply_combined_stat_mult_to_four,
     stat_multipliers_from_passive_hidden,
 )
 from waifu_bot.game.formulas import (
+    apply_equipment_damage_flats,
     calculate_damage_reduction,
-    calculate_dodge_chance,
-    calculate_message_damage,
-    calculate_crit_chance,
-    get_crit_multiplier,
+)
+from waifu_bot.game.outgoing_damage_pool import (
+    legendary_crit_add,
+    legendary_pool_add,
 )
 from waifu_bot.services import abyss_rewards as ar
 from waifu_bot.services import abyss_service as absvc
@@ -31,6 +32,11 @@ from waifu_bot.services.combat import (
     CombatService,
     apply_main_waifu_levelups,
     compute_incoming_damage_after_mitigation,
+)
+from waifu_bot.services.outgoing_message_damage import (
+    apply_outgoing_crit_bonuses,
+    apply_outgoing_flats_and_bonus_pool,
+    compute_base_message_damage,
 )
 from waifu_bot.services.game_config_service import cfg_float, cfg_int, get_game_config_map
 from waifu_bot.services.combat_regen import apply_hp_regen_for_context, is_player_online
@@ -61,6 +67,7 @@ async def _effective_stats(session: AsyncSession, player_id: int, waifu: MainWai
     s, a, i, l = apply_combined_stat_mult_to_four(
         eff["strength"], eff["agility"], eff["intelligence"], eff["luck"], stat_mult
     )
+    bonuses = eff.get("bonuses") or {}
     return {
         "strength": s,
         "agility": a,
@@ -68,7 +75,12 @@ async def _effective_stats(session: AsyncSession, player_id: int, waifu: MainWai
         "luck": l,
         "attack_type": eff.get("attack_type", "melee"),
         "weapon_damage": eff.get("weapon_damage"),
+        "weapon_damage_main": eff.get("weapon_damage_main"),
+        "weapon_damage_offhand": eff.get("weapon_damage_offhand"),
         "min_chars": int(eff.get("min_chars") or 1),
+        "bonuses": bonuses,
+        "ps": ps,
+        "hs": hs,
     }
 
 
@@ -270,8 +282,18 @@ async def handle_abyss_attack(
     combat_grace = None if "GRACE_STEAL" in behaviors else grace
 
     player = await session.get(Player, player_id)
+    ps = await get_passive_skill_bonuses(session, player_id)
     hs = await get_hidden_skill_bonuses(session, player_id)
     hr_pm = max(0, int(round(float(hs.get("hp_regen_per_active_hour", 0) or 0))))
+    try:
+        from waifu_bot.services.perfection import (
+            hp_regen_per_min_from_totals,
+            load_perfection_totals,
+        )
+
+        hr_pm += hp_regen_per_min_from_totals(await load_perfection_totals(session, player_id))
+    except Exception:
+        pass
     now = datetime.now(timezone.utc)
     online = is_player_online(player, now=now)
     apply_hp_regen_for_context(
@@ -317,7 +339,7 @@ async def handle_abyss_attack(
     leg_ctx = None
     legendary_bridge = None
     if not block_reason:
-        damage = calculate_message_damage(
+        damage = compute_base_message_damage(
             media_type,
             strength=eff["strength"],
             agility=eff["agility"],
@@ -326,9 +348,26 @@ async def handle_abyss_attack(
             message_length=msg_len,
             weapon_damage=eff["weapon_damage"],
         )
+        eff_bonuses = eff.get("bonuses") or {}
+        msg_n = int(monster.get("messages_on_monster") or 0)
+        monster_family = (monster.get("family") or "").strip().lower() or None
+        has_monster_debuff = bool(monster.get("affix_behaviors"))
+
+        damage, _ = apply_equipment_damage_flats(
+            int(damage),
+            attack_type=eff["attack_type"],
+            media_type=media_type,
+            bonuses=eff_bonuses,
+        )
         legendary_base = int(damage)
+
         legendary_bridge = LegendaryCombatBridge()
         await legendary_bridge.load(session, player_id)
+        leg_outgoing_agg = None
+        leg_force_crit = False
+        leg_crit_add = 0.0
+        leg_pool_add = 0.0
+        leg_contributions: list = []
         if legendary_bridge.active:
             if not isinstance(getattr(progress, "battle_state", None), dict):
                 progress.battle_state = initial_battle_state()
@@ -350,21 +389,69 @@ async def handle_abyss_attack(
                 monster=LegendaryMonsterView.from_abyss_monster(monster, floor),
                 extra_data=build_legendary_extra_data(media_type, message_text),
             )
-            leg_force_crit, leg_crit_mult, pre_patch = legendary_bridge.apply_pre_crit(leg_ctx)
-            legendary_state_patch.update(pre_patch or {})
-        else:
-            leg_force_crit = False
-            leg_crit_mult = 1.0
+            try:
+                leg_outgoing_agg = legendary_bridge.run_outgoing_for_pool(leg_ctx)
+                legendary_state_patch.update(leg_outgoing_agg.battle_state_patch or {})
+                leg_force_crit = bool(leg_outgoing_agg.force_crit)
+                leg_pool_add = legendary_pool_add(
+                    leg_outgoing_agg.damage_multiplier,
+                    max_total_mult=legendary_bridge._max_mult,
+                )
+                leg_crit_add = legendary_crit_add(leg_outgoing_agg.crit_damage_multiplier)
+                leg_contributions = list(leg_outgoing_agg.contributions or [])
+            except Exception:
+                logger.exception(
+                    "abyss outgoing legendary pool failed player_id=%s",
+                    player_id,
+                )
+                leg_outgoing_agg = None
+                leg_force_crit = False
+                leg_pool_add = 0.0
+                leg_crit_add = 0.0
+                leg_contributions = []
 
-        crit_chance = calculate_crit_chance(eff["agility"], eff["luck"])
-        is_crit = bool(leg_force_crit) or rng.random() < crit_chance
-        if is_crit:
-            crit_mult = get_crit_multiplier(eff["strength"]) * float(leg_crit_mult or 1.0)
-            damage = round(damage * crit_mult)
+        pool_result = await apply_outgoing_flats_and_bonus_pool(
+            session,
+            player_id=player_id,
+            damage=int(damage),
+            attack_type=eff["attack_type"],
+            media_type=media_type,
+            eff_bonuses=eff_bonuses,
+            ps=ps,
+            hs=hs,
+            waifu=waifu,
+            msg_n=msg_n,
+            monster_family=monster_family,
+            has_monster_debuff=has_monster_debuff,
+            is_group_chat=True,
+            redis_client=None,
+            leg_pool_add=leg_pool_add,
+            leg_contributions=leg_contributions,
+            log_context="abyss",
+            skip_equipment_flats=True,
+        )
+        damage = pool_result.damage
+
+        crit_result = apply_outgoing_crit_bonuses(
+            int(damage),
+            attack_type=eff["attack_type"],
+            eff_strength=int(eff["strength"]),
+            eff_agility=int(eff["agility"]),
+            eff_luck=int(eff["luck"]),
+            ps=ps,
+            hs=hs,
+            msg_n=msg_n,
+            leg_force_crit=leg_force_crit,
+            leg_crit_add=leg_crit_add,
+            leg_contributions=leg_contributions,
+            rng=rng,
+        )
+        damage = crit_result.damage
+        is_crit = crit_result.is_crit
 
         if leg_ctx is not None:
             leg_ctx.battle_state = merge_battle_state(progress.battle_state or {}, legendary_state_patch)
-            damage, leg_agg = legendary_bridge.apply_outgoing(leg_ctx, int(damage))
+            damage, leg_agg = legendary_bridge.apply_outgoing(leg_ctx, int(damage), agg=leg_outgoing_agg)
             legendary_state_patch.update(leg_agg.battle_state_patch or {})
             legendary_gold_mult *= float(leg_agg.gold_multiplier or 1.0)
             legendary_drop_mult *= float(leg_agg.drop_chance_multiplier or 1.0)
@@ -464,7 +551,7 @@ async def handle_abyss_attack(
         persist_progress_battle_state(progress, kill_patch)
 
     # Monster retaliation (only on kill, like solo dungeons).
-    took = await _monster_retaliation(session, player_id, waifu, monster, eff, combat_grace, rng)
+    took = await _monster_retaliation(session, player_id, waifu, monster, eff, combat_grace, rng, ps=ps, hs=hs)
     result["waifu_took_damage"] += took
     unconscious = int(waifu.current_hp or 0) <= 0
     result["waifu_unconscious"] = unconscious
@@ -579,20 +666,35 @@ async def _monster_retaliation(
     eff: dict,
     grace,
     rng: random.Random,
+    *,
+    ps: dict | None = None,
+    hs: dict | None = None,
 ) -> int:
     """Compute and apply monster counter-damage to the waifu. Returns dmg dealt."""
     sec = await _combat._get_waifu_armor_and_secondary(session, player_id)
 
-    # Dodge.
-    base_dodge = calculate_dodge_chance(eff["agility"], eff["luck"])
-    dodge = min(float(DODGE_CHANCE_CAP), base_dodge + float(sec.get("evade_pct", 0) or 0))
+    if ps is None:
+        ps = await get_passive_skill_bonuses(session, player_id)
+    if hs is None:
+        hs = await get_hidden_skill_bonuses(session, player_id)
+
+    dodge = await _combat._dodge_fraction_for_retaliation(
+        session,
+        player_id,
+        waifu,
+        sec,
+        cached_psb=ps,
+        cached_hs=hs,
+        monster_messages=int(monster.get("messages_on_monster") or 0),
+    )
     if grace and grace.effect_type == "DODGE_BOOST":
         dodge = min(0.95, dodge + float(grace.effect_value or 0))
     if rng.random() < dodge:
         return 0
 
     raw_in = int(monster.get("damage") or 0)
-    end_reduce = calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10))
+    msf_blk = int(ps.get("main_stats_flat", 0) or 0)
+    end_reduce = calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_blk)
     sec_reduce = float(sec.get("dmg_reduce_pct", 0) or 0)
     armor_total = float(sec.get("armor_total", 0) or 0)
     _, _, dmg_after = compute_incoming_damage_after_mitigation(

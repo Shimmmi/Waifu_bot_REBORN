@@ -2904,6 +2904,11 @@ const settingsState = {
   notifySaveTimer: null,
   notifyModalReadyAt: 0,
   notifyBackHandler: null,
+  soloAutoPrefs: null,
+  soloAutoSaveTimer: null,
+  soloAutoModalReadyAt: 0,
+  soloAutoBackHandler: null,
+  soloAutoLoadPromise: null,
 };
 
 function resetSettingsNotifyModalDom() {
@@ -2911,6 +2916,127 @@ function resetSettingsNotifyModalDom() {
   if (!modal) return;
   modal.classList.remove("settings-notify-modal--open");
   modal.style.display = "none";
+}
+
+function resetSettingsSoloAutoModalDom() {
+  const modal = document.getElementById("settings-solo-auto-modal");
+  if (!modal) return;
+  modal.classList.remove("settings-notify-modal--open");
+  modal.style.display = "none";
+}
+
+function syncSoloAutoSubpanelVisibility(enabled) {
+  const sub = document.getElementById("settings-solo-auto-subpanel");
+  if (sub) sub.hidden = !enabled;
+}
+
+function applySoloAutoPrefsToModal(prefs) {
+  if (!prefs) return;
+  const enabledInput = document.getElementById("settings-solo-auto-enabled");
+  if (enabledInput) {
+    enabledInput.checked = Boolean(prefs.enabled);
+    syncSoloAutoSubpanelVisibility(enabledInput.checked);
+  }
+  const hp = document.getElementById("settings-solo-auto-hp");
+  const hpValue = document.getElementById("settings-solo-auto-hp-value");
+  if (hp && prefs.min_hp_percent != null) {
+    hp.value = String(prefs.min_hp_percent);
+    if (hpValue) hpValue.textContent = String(prefs.min_hp_percent);
+  }
+  document.querySelectorAll("#settings-solo-auto-modal [data-solo-auto-key]").forEach((input) => {
+    const key = input.getAttribute("data-solo-auto-key");
+    if (!key || key === "enabled" || key === "min_hp_percent") return;
+    if (Object.prototype.hasOwnProperty.call(prefs, key)) {
+      input.checked = Boolean(prefs[key]);
+    }
+  });
+}
+
+async function loadSoloDungeonAutoPrefs() {
+  const data = await apiFetch("/player/solo-dungeon-auto-prefs");
+  settingsState.soloAutoPrefs = data;
+  return data;
+}
+
+function scheduleSaveSoloDungeonAutoPrefs() {
+  if (settingsState.soloAutoSaveTimer) clearTimeout(settingsState.soloAutoSaveTimer);
+  settingsState.soloAutoSaveTimer = setTimeout(() => {
+    settingsState.soloAutoSaveTimer = null;
+    saveSoloDungeonAutoPrefsFromModal();
+  }, 400);
+}
+
+async function saveSoloDungeonAutoPrefsFromModal() {
+  const patch = {};
+  const enabledInput = document.getElementById("settings-solo-auto-enabled");
+  if (enabledInput) patch.enabled = enabledInput.checked;
+  const hp = document.getElementById("settings-solo-auto-hp");
+  if (hp) patch.min_hp_percent = Number(hp.value);
+  document.querySelectorAll("#settings-solo-auto-modal [data-solo-auto-key]").forEach((input) => {
+    const key = input.getAttribute("data-solo-auto-key");
+    if (!key || key === "enabled" || key === "min_hp_percent") return;
+    patch[key] = input.checked;
+  });
+  try {
+    const data = await apiFetch("/player/solo-dungeon-auto-prefs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    settingsState.soloAutoPrefs = data;
+    applySoloAutoPrefsToModal(data);
+  } catch (e) {
+    console.warn("saveSoloDungeonAutoPrefs failed:", e);
+    showToast("Не удалось сохранить автовход", "error");
+  }
+}
+
+async function ensureSoloDungeonAutoPrefsLoaded() {
+  if (settingsState.soloAutoPrefs) return settingsState.soloAutoPrefs;
+  if (settingsState.soloAutoLoadPromise) return settingsState.soloAutoLoadPromise;
+  settingsState.soloAutoLoadPromise = loadSoloDungeonAutoPrefs()
+    .then((prefs) => {
+      settingsState.soloAutoPrefs = prefs;
+      applySoloAutoPrefsToModal(prefs);
+      return prefs;
+    })
+    .catch((e) => {
+      console.warn("loadSoloDungeonAutoPrefs failed:", e);
+      return null;
+    })
+    .finally(() => {
+      settingsState.soloAutoLoadPromise = null;
+    });
+  return settingsState.soloAutoLoadPromise;
+}
+
+function openSettingsSoloAutoModal() {
+  if (Date.now() < settingsState.soloAutoModalReadyAt) return;
+  const modal = document.getElementById("settings-solo-auto-modal");
+  if (!modal) return;
+  void ensureSoloDungeonAutoPrefsLoaded().then((prefs) => {
+    if (prefs) applySoloAutoPrefsToModal(prefs);
+    modal.style.display = "";
+    modal.classList.add("settings-notify-modal--open");
+    if (tg?.BackButton) {
+      if (!settingsState.soloAutoBackHandler) {
+        settingsState.soloAutoBackHandler = () => closeSettingsSoloAutoModal();
+      }
+      tg.BackButton.onClick(settingsState.soloAutoBackHandler);
+      tg.BackButton.show();
+    }
+  });
+}
+
+function closeSettingsSoloAutoModal() {
+  const modal = document.getElementById("settings-solo-auto-modal");
+  if (!modal) return;
+  modal.classList.remove("settings-notify-modal--open");
+  modal.style.display = "none";
+  if (tg?.BackButton && settingsState.soloAutoBackHandler) {
+    tg.BackButton.offClick(settingsState.soloAutoBackHandler);
+    tg.BackButton.hide();
+  }
 }
 
 async function loadDmNotificationPrefs() {
@@ -3006,6 +3132,8 @@ function closeSettingsNotifyModal() {
 function initSettingsPageBindings() {
   resetSettingsNotifyModalDom();
   closeSettingsNotifyModal();
+  resetSettingsSoloAutoModalDom();
+  closeSettingsSoloAutoModal();
 
   if (!window.__waifuSettingsPageshowBound) {
     window.__waifuSettingsPageshowBound = true;
@@ -3015,6 +3143,7 @@ function initSettingsPageBindings() {
         document.body.classList.contains("page-player")
       ) {
         closeSettingsNotifyModal();
+        closeSettingsSoloAutoModal();
       }
     });
   }
@@ -3023,10 +3152,16 @@ function initSettingsPageBindings() {
     window.__waifuSettingsEscapeBound = true;
     window.addEventListener("keydown", (ev) => {
       if (ev.key !== "Escape") return;
-      const modal = document.getElementById("settings-notify-modal");
-      if (modal?.classList.contains("settings-notify-modal--open")) {
+      const notifyModal = document.getElementById("settings-notify-modal");
+      if (notifyModal?.classList.contains("settings-notify-modal--open")) {
         ev.preventDefault();
         closeSettingsNotifyModal();
+        return;
+      }
+      const soloModal = document.getElementById("settings-solo-auto-modal");
+      if (soloModal?.classList.contains("settings-notify-modal--open")) {
+        ev.preventDefault();
+        closeSettingsSoloAutoModal();
       }
     });
   }
@@ -3074,7 +3209,52 @@ function initSettingsPageBindings() {
     });
   }
 
+  const openSoloBtn = document.getElementById("settings-open-solo-auto");
+  if (openSoloBtn && !openSoloBtn.__waifuBound) {
+    openSoloBtn.__waifuBound = true;
+    openSoloBtn.addEventListener("click", () => openSettingsSoloAutoModal());
+  }
+
+  const soloModal = document.getElementById("settings-solo-auto-modal");
+  if (soloModal && !soloModal.__waifuBound) {
+    soloModal.__waifuBound = true;
+    soloModal.addEventListener("click", (ev) => {
+      if (ev.target === soloModal) closeSettingsSoloAutoModal();
+    });
+    const soloPanel = soloModal.querySelector(".settings-notify-panel");
+    if (soloPanel) {
+      soloPanel.addEventListener("click", (ev) => ev.stopPropagation());
+    }
+    document.getElementById("settings-solo-auto-close")?.addEventListener("click", () => {
+      closeSettingsSoloAutoModal();
+    });
+    document.getElementById("settings-solo-auto-done")?.addEventListener("click", () => {
+      closeSettingsSoloAutoModal();
+    });
+    const enabledInput = document.getElementById("settings-solo-auto-enabled");
+    if (enabledInput) {
+      enabledInput.addEventListener("change", () => {
+        syncSoloAutoSubpanelVisibility(enabledInput.checked);
+        scheduleSaveSoloDungeonAutoPrefs();
+      });
+    }
+    const hp = document.getElementById("settings-solo-auto-hp");
+    if (hp) {
+      hp.addEventListener("input", () => {
+        const hpValue = document.getElementById("settings-solo-auto-hp-value");
+        if (hpValue) hpValue.textContent = String(hp.value);
+        scheduleSaveSoloDungeonAutoPrefs();
+      });
+    }
+    document
+      .querySelectorAll("#settings-solo-auto-modal [data-solo-auto-key='increase_plus_difficulty']")
+      .forEach((input) => {
+        input.addEventListener("change", scheduleSaveSoloDungeonAutoPrefs);
+      });
+  }
+
   settingsState.notifyModalReadyAt = Date.now() + 300;
+  settingsState.soloAutoModalReadyAt = Date.now() + 300;
 }
 
 async function initSettingsPage() {
@@ -14919,6 +15099,7 @@ function exportWebAppShellGlobals() {
     rarityClass,
     slotTypeLabel,
     itemIconForSlotType,
+    itemArtHtml,
     hiredWaifuImageUrl,
     resolveImageUrl,
     classIcon,

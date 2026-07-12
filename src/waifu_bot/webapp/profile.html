@@ -334,6 +334,9 @@
       body.page-profile .profile-mtg-bar--xp .profile-mtg-bar-fill {
         background: linear-gradient(90deg, rgba(200, 146, 42, 0.95), rgba(232, 184, 75, 0.95));
       }
+      body.page-profile .profile-mtg-xp-block--perfection .profile-mtg-bar--xp .profile-mtg-bar-fill {
+        background: linear-gradient(90deg, rgba(52, 211, 153, 0.95), rgba(74, 222, 128, 0.95));
+      }
       body.page-profile .profile-mtg-bottom {
         position: absolute;
         left: 0;
@@ -1517,6 +1520,10 @@
 
           <div id="profile-info-indicators" class="profile-info-panel active">
             <div id="profile-indicators-grid" class="details-grid profile-detail-grid"></div>
+            <div id="profile-perfection-summary" class="profile-perfection-summary" hidden>
+              <h4 class="profile-perfection-summary-title">Совершенствование</h4>
+              <ul id="profile-perfection-bonus-list" class="perfection-bonus-list"></ul>
+            </div>
           </div>
 
           <div id="profile-info-statistics" class="profile-info-panel">
@@ -1720,7 +1727,7 @@
       <div class="item-art-gen-busy-panel">
         <div class="item-art-gen-busy-spinner" aria-hidden="true"></div>
         <p>Генерация иконки…</p>
-        <p class="item-art-gen-busy-hint muted tiny">OpenRouter может отвечать до 2 минут</p>
+        <p class="item-art-gen-busy-hint muted tiny">Генерация может занять до 2 минут</p>
       </div>
     </div>
 

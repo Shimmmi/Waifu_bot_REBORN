@@ -660,8 +660,8 @@ async def quests_snapshot_for_guild(
 
     skills = await guild_skills_snapshot(session, viewer_id)
     active_buffs: list[dict] = []
-    for sk in skills.get("skills") or []:
-        lv = int(sk.get("level") or 0)
+    for sk in skills.get("definitions") or []:
+        lv = int(sk.get("current_level") or sk.get("level") or 0)
         if lv <= 0:
             continue
         param = sk.get("effect_param") or ""

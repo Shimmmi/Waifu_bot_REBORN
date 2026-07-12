@@ -260,15 +260,10 @@ async def _advance_or_complete_raid(session: AsyncSession, raid: GuildRaid, guil
     guild.raid_active_id = None
     gxp = int(raid.gxp_reward)
     try:
-        from waifu_bot.services.guild_skill_effects import effect_values_for_guild
+        from waifu_bot.services.guild_skill_effects import apply_raid_gxp_guild_bonuses, effect_values_for_guild
 
         gfx = await effect_values_for_guild(session, guild.id)
-        gxp_mult = float(gfx.get("raid_gxp_multiplier", 0) or 0)
-        if gxp_mult > 0:
-            gxp = max(1, int(round(gxp * (1.0 + gxp_mult))))
-        completion_pct = float(gfx.get("raid_completion_reward_pct", 0) or 0)
-        if completion_pct > 0:
-            gxp = max(1, int(round(gxp * (1.0 + completion_pct))))
+        gxp = apply_raid_gxp_guild_bonuses(gxp, gfx)
     except Exception:
         logger.exception("raid completion guild bonus failed guild_id=%s", guild.id)
     await add_gxp(session, guild.id, gxp, reason="raid_win")

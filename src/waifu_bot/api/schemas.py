@@ -279,6 +279,7 @@ class HiredWaifuOut(BaseModel):
     bio: Optional[str] = None
     perk_upgrade_points: int = 0
     exp_current: int = 0
+    exp_to_next: int = 0
     perk_levels: dict = Field(default_factory=dict)
     squad_position: Optional[int] = None
     expedition_id: Optional[int] = None
@@ -301,6 +302,7 @@ class HiredWaifuOut(BaseModel):
         out["inSquad"] = data.get("in_squad")
         out["perkUpgradePoints"] = data.get("perk_upgrade_points", 0)
         out["expCurrent"] = data.get("exp_current", 0)
+        out["expToNext"] = data.get("exp_to_next", 0)
         out["perkLevels"] = data.get("perk_levels") or {}
         return out
 
@@ -431,6 +433,13 @@ class MainWaifuDetails(BaseModel):
     merchant_discount: float
     magic_find_pct: float = 0.0
     magic_find_blend_pct: float = 0.0
+    # Display-only reward / mitigation indicators (see _compute_details + enrich)
+    exp_bonus: float = 0.0
+    gold_bonus: float = 0.0
+    damage_reduction: float = 0.0
+    hire_discount: float = 0.0
+    training_discount: float = 0.0
+    item_drop_bonus: float = 0.0
 
 
 class AffixOut(BaseModel):
@@ -486,6 +495,7 @@ class GearItemOut(BaseModel):
     image_url: Optional[str] = None
     can_equip: Optional[bool] = None  # Для endpoint available - можно ли экипировать
     requirement_errors: Optional[List[str]] = None  # Ошибки требований, если can_equip=False
+    requirements_status: Optional[dict] = None  # {stat: {required, current, ok}} для UI пилюль
     equipment_slot: Optional[int] = None  # Номер слота, если предмет экипирован
 
 
@@ -521,6 +531,18 @@ class DmNotificationPrefsPatch(BaseModel):
     abyss: Optional[bool] = None
 
 
+class SoloDungeonAutoPrefsOut(BaseModel):
+    enabled: bool = False
+    min_hp_percent: int = 30
+    increase_plus_difficulty: bool = False
+
+
+class SoloDungeonAutoPrefsPatch(BaseModel):
+    enabled: Optional[bool] = None
+    min_hp_percent: Optional[int] = Field(None, ge=10, le=50)
+    increase_plus_difficulty: Optional[bool] = None
+
+
 class ProfileResponse(BaseModel):
     player_id: int
     act: int        # current_act — the act the player is currently in
@@ -534,11 +556,18 @@ class ProfileResponse(BaseModel):
     main_waifu_details: Optional[MainWaifuDetails] = None
     equipment: List[GearItemOut] = []
     tutorial: TutorialStateResponse = Field(default_factory=TutorialStateResponse)
+    # Совершенствование (post-60)
+    perfection_level: int = 0
+    perfection_experience: int = 0
+    perfection_xp_to_next: int = 0
+    perfection_pending_count: int = 0
+    perfection_bonuses_summary: List[dict] = Field(default_factory=list)
 
 
 class GuildMemberMainWaifuPreviewOut(BaseModel):
     name: Optional[str] = None
     level: int = 1
+    perfection_level: int = 0
     race: int = 0
     class_: int = Field(default=0, alias="class")
     portrait_url: Optional[str] = None

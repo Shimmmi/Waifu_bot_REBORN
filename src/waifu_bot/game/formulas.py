@@ -36,6 +36,10 @@ from waifu_bot.game.constants import (
     MAX_LEVEL,
     MELEE_DAMAGE_COEFFICIENT,
     MEDIA_COEFFICIENTS,
+    PERFECTION_EXP_BASE,
+    PERFECTION_EXP_LINEAR,
+    PERFECTION_EXP_QUAD,
+    PERFECTION_EXP_TIER_BUMP,
     RANGED_DAMAGE_COEFFICIENT,
     SPELL_DAMAGE_COEFFICIENT,
     STR_HP_COEFFICIENT,
@@ -442,6 +446,30 @@ def calculate_total_experience_for_level(level: int) -> int:
     total = 0
     for lvl in range(2, level + 1):
         total += calculate_experience_for_level(lvl)
+    return total
+
+
+def calculate_perfection_experience_for_level(level: int) -> int:
+    """XP needed to reach perfection level ``level`` from ``level - 1``.
+
+    Level 1 is granted on hitting MAX_LEVEL; first grind is 1→2 (``level=2``).
+    """
+    if level <= 1:
+        return 0
+    n = int(level) - 1  # steps already completed before this transition
+    return int(
+        PERFECTION_EXP_BASE
+        + PERFECTION_EXP_LINEAR * n
+        + PERFECTION_EXP_QUAD * (n**2)
+        + PERFECTION_EXP_TIER_BUMP * (n // 10)
+    )
+
+
+def calculate_total_perfection_experience_for_level(level: int) -> int:
+    """Cumulative XP to reach perfection level from level 1 (after unlock grant)."""
+    total = 0
+    for lvl in range(2, int(level) + 1):
+        total += calculate_perfection_experience_for_level(lvl)
     return total
 
 

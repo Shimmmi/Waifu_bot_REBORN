@@ -260,6 +260,16 @@ async def resolve_solo_combat_primary_four(
     s, a, i, l, _ = accumulate_primary_four_from_gear(waifu, equipped)
     sf = int(ps.get("main_stats_flat", 0) or 0)
     s, a, i, l = apply_main_stats_flat_to_four(s, a, i, l, sf)
+    try:
+        from waifu_bot.services.perfection import (
+            apply_perfection_primary_four,
+            load_perfection_totals,
+        )
+
+        pt = await load_perfection_totals(session, player_id)
+        s, a, i, l = apply_perfection_primary_four(s, a, i, l, pt)
+    except Exception:
+        pass
     pm, hm, cm = stat_multipliers_from_passive_hidden(ps, hs)
     s, a, i, l = apply_combined_stat_mult_to_four(s, a, i, l, cm)
     return SoloCombatPrimaryFourResult(

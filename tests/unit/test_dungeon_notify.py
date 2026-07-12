@@ -6,13 +6,16 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from waifu_bot.services.dungeon_notify import (
+    build_auto_restart_skip_line,
     build_solo_dungeon_outcome_text,
     build_solo_dungeon_retry_keyboard,
+    build_solo_dungeon_start_line,
     notify_solo_dungeon_outcome,
     parse_solo_dungeon_retry_callback,
     solo_dungeon_retry_callback_data,
     start_dungeon_error_message,
 )
+from waifu_bot.services.solo_dungeon_auto_restart import AutoRestartResult, AutoRestartTarget
 
 
 def test_build_solo_dungeon_outcome_text_success_with_item_and_hp():
@@ -48,8 +51,9 @@ def test_build_solo_dungeon_outcome_text_fail_caps_and_hp():
     assert "ПОРАЖЕНИЕ В ПОДЗЕМЕЛЬЕ «Лес»" in text
     assert "урон со временем" in text
     assert "40" in text
+    assert "10" in text
+    assert "✨ Опыт: 10" in text
     assert "❤ HP вайфу: 1 / 500" in text
-    assert "проиграно" not in text
     assert "веб-приложении" not in text
 
 
@@ -73,6 +77,58 @@ def test_start_dungeon_error_message_known_and_unknown():
     assert start_dungeon_error_message("unknown_code") == "Не удалось начать подземелье."
 
 
+def test_build_solo_dungeon_start_line():
+    line = build_solo_dungeon_start_line({"monster_name": "Goblin", "monster_hp": 42})
+    assert "Goblin" in line
+    assert "42" in line
+    assert build_solo_dungeon_start_line({"error": "x"}) is None
+
+
+def test_build_auto_restart_skip_line_low_hp():
+    result = AutoRestartResult(status="skipped_low_hp", min_hp_percent=40)
+    assert "40%" in (build_auto_restart_skip_line(result) or "")
+
+
+@pytest.mark.asyncio
+async def test_notify_solo_dungeon_outcome_auto_started_no_keyboard():
+    session = AsyncMock()
+    bot = AsyncMock()
+    auto_result = AutoRestartResult(
+        status="started",
+        target=AutoRestartTarget(12, 1, 2, 3),
+        start_payload={"monster_name": "Boss", "monster_hp": 50},
+    )
+    with (
+        patch("waifu_bot.services.webhook.get_bot", return_value=bot),
+        patch(
+            "waifu_bot.services.player_notification_prefs.should_send_dm",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "waifu_bot.services.solo_dungeon_auto_restart.try_auto_restart_solo_dungeon",
+            new_callable=AsyncMock,
+            return_value=auto_result,
+        ),
+    ):
+        await notify_solo_dungeon_outcome(
+            session,
+            777,
+            completed=True,
+            dungeon_name="Test",
+            dungeon_id=12,
+            plus_level=1,
+            gold=10,
+            exp=5,
+            waifu_current_hp=100,
+            waifu_max_hp=200,
+        )
+    bot.send_message.assert_awaited_once()
+    kwargs = bot.send_message.await_args.kwargs
+    assert kwargs["reply_markup"] is None
+    assert "Подземелье начато" in kwargs["text"]
+
+
 @pytest.mark.asyncio
 async def test_notify_solo_dungeon_outcome_sends_dm_with_keyboard():
     session = AsyncMock()
@@ -83,6 +139,16 @@ async def test_notify_solo_dungeon_outcome_sends_dm_with_keyboard():
             "waifu_bot.services.player_notification_prefs.should_send_dm",
             new_callable=AsyncMock,
             return_value=True,
+        ),
+        patch(
+            "waifu_bot.services.solo_dungeon_auto_restart.try_auto_restart_solo_dungeon",
+            new_callable=AsyncMock,
+            return_value=AutoRestartResult(status="disabled"),
+        ),
+        patch(
+            "waifu_bot.services.solo_dungeon_auto_restart.resolve_retry_target_for_outcome",
+            new_callable=AsyncMock,
+            return_value=(12, 1),
         ),
     ):
         await notify_solo_dungeon_outcome(
@@ -115,6 +181,11 @@ async def test_notify_solo_dungeon_outcome_skips_when_pref_disabled():
             new_callable=AsyncMock,
             return_value=False,
         ),
+        patch(
+            "waifu_bot.services.solo_dungeon_auto_restart.try_auto_restart_solo_dungeon",
+            new_callable=AsyncMock,
+            return_value=AutoRestartResult(status="disabled"),
+        ) as auto_mock,
     ):
         await notify_solo_dungeon_outcome(
             session,
@@ -125,6 +196,7 @@ async def test_notify_solo_dungeon_outcome_skips_when_pref_disabled():
             gold=10,
             exp=5,
         )
+    auto_mock.assert_awaited_once()
     bot.send_message.assert_not_awaited()
 
 
@@ -139,6 +211,16 @@ async def test_notify_solo_dungeon_outcome_swallows_send_errors():
             "waifu_bot.services.player_notification_prefs.should_send_dm",
             new_callable=AsyncMock,
             return_value=True,
+        ),
+        patch(
+            "waifu_bot.services.solo_dungeon_auto_restart.try_auto_restart_solo_dungeon",
+            new_callable=AsyncMock,
+            return_value=AutoRestartResult(status="disabled"),
+        ),
+        patch(
+            "waifu_bot.services.solo_dungeon_auto_restart.resolve_retry_target_for_outcome",
+            new_callable=AsyncMock,
+            return_value=(5, 0),
         ),
     ):
         await notify_solo_dungeon_outcome(

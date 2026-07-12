@@ -69,6 +69,19 @@ class Player(Base):
         nullable=False,
     )
 
+    # Solo dungeon auto-restart: enabled, min_hp_percent, increase_plus_difficulty
+    solo_dungeon_auto_prefs: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+
+    # Совершенствование (post-60)
+    perfection_level: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    perfection_experience: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Кэш сумм permanent-бонусов: {bonus_id: stored_value}
+    perfection_bonus_totals: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+
     # Relationships
     main_waifu: Mapped["MainWaifu"] = relationship(
         "MainWaifu", back_populates="player", uselist=False, cascade="all, delete-orphan"

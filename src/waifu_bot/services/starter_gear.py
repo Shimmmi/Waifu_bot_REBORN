@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
+from waifu_bot.game.equip_requirements import _evaluate_requirements, resolve_effective_waifu_stats
 from waifu_bot.services.item_service import ItemService
 
 logger = logging.getLogger(__name__)
@@ -78,29 +79,17 @@ CLASS_STARTER_PIECES: dict[int, list[tuple[str, Optional[str]]]] = {
 }
 
 
-def _check_requirements(inv: m.InventoryItem, waifu: m.MainWaifu) -> bool:
-    req = inv.requirements or {}
-    if int(req.get("level") or 0) > int(waifu.level or 1):
-        return False
-    if int(req.get("strength") or 0) > int(waifu.strength or 0):
-        return False
-    if int(req.get("agility") or 0) > int(waifu.agility or 0):
-        return False
-    if int(req.get("intelligence") or 0) > int(waifu.intelligence or 0):
-        return False
-    if int(req.get("endurance") or 0) > int(waifu.endurance or 0):
-        return False
-    if int(req.get("charm") or 0) > int(waifu.charm or 0):
-        return False
-    if int(req.get("luck") or 0) > int(waifu.luck or 0):
-        return False
-    wr = req.get("waifu_race")
-    if wr is not None and int(waifu.race or 0) != int(wr):
-        return False
-    wc = req.get("waifu_class")
-    if wc is not None and int(waifu.class_ or 0) != int(wc):
-        return False
-    return True
+async def _check_requirements(
+    session: AsyncSession,
+    player_id: int,
+    inv: m.InventoryItem,
+    waifu: m.MainWaifu,
+) -> bool:
+    stats = await resolve_effective_waifu_stats(
+        session, player_id, waifu, equipped_items=[]
+    )
+    ok, _ = _evaluate_requirements(inv, stats, waifu)
+    return ok
 
 
 async def _clear_equipment_slots(session: AsyncSession, player_id: int, slots: list[int]) -> None:
@@ -143,7 +132,7 @@ async def _equip_starter_piece(
 ) -> None:
     if not inv.slot_type:
         return
-    if not _check_requirements(inv, main_waifu):
+    if not await _check_requirements(session, player_id, inv, main_waifu):
         logger.warning(
             "starter item requirements not met player=%s inv=%s", player_id, inv.id
         )

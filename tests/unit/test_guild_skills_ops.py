@@ -147,11 +147,15 @@ def test_guild_skill_upgrade_sole_member_auto_leader():
             "waifu_bot.services.guild_leader_integrity.ensure_guild_has_leader",
             new_callable=AsyncMock,
             return_value=False,
-        ):
+        ), patch(
+            "waifu_bot.services.guild_skills_ops._resync_guild_members_hp",
+            new_callable=AsyncMock,
+        ) as resync_mock:
             result = await guild_skill_upgrade(session, 123, 1)
 
         assert result.get("success") is True
         assert mem.is_leader is True
+        resync_mock.assert_awaited_once_with(session, 10)
 
     asyncio.run(_run())
 

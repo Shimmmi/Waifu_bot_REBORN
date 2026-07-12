@@ -75,6 +75,7 @@ from waifu_bot.api.hired_waifu_media import hired_waifu_portrait_url
 def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
     from datetime import datetime, timezone
 
+    from waifu_bot.services.expedition import exp_to_next_level_hired
     from waifu_bot.services.hired_waifu_state import hired_roster_payload
 
     now = datetime.now(tz=timezone.utc)
@@ -93,6 +94,7 @@ def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
         bio=getattr(w, "bio", None),
         perk_upgrade_points=getattr(w, "perk_upgrade_points", 0),
         exp_current=getattr(w, "exp_current", 0),
+        exp_to_next=exp_to_next_level_hired(max(1, int(w.level or 1))),
         perk_levels=dict(getattr(w, "perk_levels", None) or {}),
         squad_position=w.squad_position,
         expedition_id=getattr(w, "expedition_id", None),
