@@ -99,7 +99,10 @@ def build_monster_anime_prompt(
         f"Combat stats (for scale and menace only): level {level}, HP ~{max_hp}, attack power ~{damage}."
         f"{affix_line}{boss_line}{elite_line}{tags_block}{trait_block}\n"
         f"Background: flat solid color only, exactly {_MONSTER_BG_HEX} — no gradient, no floor, no scenery, no props.\n"
-        "Composition: single creature centered, full figure visible within frame, readable silhouette.\n"
+        "Composition: single creature horizontally centered in a 3:2 landscape frame; "
+        "keep the head and primary body mass fully inside the centered 1:1 safe square "
+        "(do not place the head near the left/right edges — UI crops to that center square); "
+        "full figure readable silhouette; limbs/weapons may extend slightly into side margins if needed.\n"
         "Rules: no text, no letters, no watermark, no UI frame, no health bars, SFW only.\n"
         "Output aspect: landscape 3:2."
     )

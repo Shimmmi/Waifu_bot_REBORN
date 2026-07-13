@@ -433,6 +433,9 @@ def main() -> None:
                 "| `monsters.txt` | 285 monster template prompts (anime, 3:2) |",
                 "| `items.txt` | Item prompts per `art_key` and tier (pixel art, 1:1) |",
                 "",
+                "Monster frames are generated at **3:2 landscape**, but the active dungeon UI crops to the **centered 1:1** square. "
+                "Monster prompts therefore keep the head and primary body mass inside that centered 1:1 safe zone.",
+                "",
                 "Regenerate:",
                 "",
                 "```bash",

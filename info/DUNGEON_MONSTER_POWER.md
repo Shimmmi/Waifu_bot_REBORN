@@ -18,16 +18,41 @@
 
 Отсюда обычный данж 5-1 даёт монстров **~40+** уровня при том же распределении шаблонов, что и низкоуровневые данжи, но с **более высоким** `dungeon.level`.
 
-## HP и урон (до правок и после)
+## HP и урон (Dungeon+)
 
 Базовая формула в `_roll_monster_from_template`:
 
 `hp = hp_base + hp_per_level * level`,  
 `damage = dmg_base + dmg_per_level * level`.
 
-**Раньше:** множитель `_difficulty_params(plus_level)["hp_dmg_mult"]` = `1.0 + plus_level * 0.20` использовался **только** для увеличения **бюджета** сложности (`budget`) при выборе шаблона из пула. На итоговые `max_hp` и `damage` он **не** умножался — из-за этого Dungeon+ мог ощущаться слабее сильного обычного данжа высокого акта (сильный шаблон tier + элита).
+После ролла и power-variance при `plus_level > 0` применяется **развязанное** скалирование
+(`waifu_bot.game.dungeon_plus_scaling` → `DungeonService._scale_rolled_stats_for_plus_level`):
 
-**Сейчас:** при `plus_level > 0` после `_roll_monster_from_template` те же `max_hp` и `damage` дополнительно умножаются на `hp_dmg_mult` (см. `DungeonService._scale_rolled_stats_for_plus_level` в `dungeon.py`).
+| Параметр | Формула |
+|----------|---------|
+| Якорь DPS | `REF_MSG_DAMAGE = 5000` |
+| Целевой TTK (сообщ.) | `ttk_normal(N) = 3.0 + 0.4 × N` |
+| Цель HP (обычный моб) | `REF_MSG_DAMAGE × ttk_normal(N)` |
+| `hp_mult` | `max(1, hp_target / rolled_hp)` |
+| `dmg_mult` | `1.0 + 0.08 × N` (медленнее HP) |
+| Extra монстры | `N // 4` к `obstacle_min/max` |
+| Награды | `1 + N×0.22 + ln(1+N)×0.15` |
+
+Бюджет сложности рана (`difficulty_rating`) масштабируется на `budget_mult = ttk_normal(N)` (подбор шаблонов / аналитика), не как боевой HP.
+
+### Ожидаемый TTK @5k (обычный моб)
+
+| +N | HP ≈ | TTK @5k | `dmg_mult` |
+|----|------|---------|------------|
+| +1 | ~17k | ~3.4 | 1.08 |
+| +5 | ~25k | ~5 | 1.40 |
+| +10 | ~35k | ~7 | 1.80 |
+| +20 | ~55k | ~11 | 2.60 |
+| +30 | ~75k | ~15 | 3.40 |
+
+Боссы: `boss_hp_mult = 2.5` поверх цели → TTK ≈ `2.5 × ttk_normal`.
+
+**История:** раньше общий `hp_dmg_mult = 1 + N×0.20` умножал и HP, и DMG одинаково; при эндгейм‑уроне ~5k+ монстры one-shot’ились, а retaliation рос вместе с «сложностью».
 
 ## Пул шаблонов монстров (Dungeon+)
 
@@ -49,6 +74,7 @@
 
 | Вариант | Статус |
 |--------|--------|
-| A — умножать `max_hp` и `damage` на `hp_dmg_mult` для D+ | **Реализовано** в коде |
+| A — умножать `max_hp` и `damage` на общий `hp_dmg_mult` для D+ | Заменено развязанным HP/DMG + TTK-якорем |
 | B — отдельный пул шаблонов для D+ | не делалось (при необходимости отдельно) |
 | C — ревизия SQL кривых по family | не делалось; скрипт анализа — основа для дальнейшей балансировки |
+| D — TTK-якорь `REF_MSG_DAMAGE=5000`, decoupled `dmg_mult`, extra mobs | **Реализовано** в `dungeon_plus_scaling.py` |

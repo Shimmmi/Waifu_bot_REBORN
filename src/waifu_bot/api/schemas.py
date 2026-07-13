@@ -504,6 +504,7 @@ class TutorialStateResponse(BaseModel):
     completed: dict[str, str] = Field(default_factory=dict)
     skipped: bool = False
     intro_reward_claimed: bool = False
+    shop_kit_claimed: bool = False
 
 
 class TutorialStepRequest(BaseModel):
@@ -513,6 +514,19 @@ class TutorialStepRequest(BaseModel):
 class TutorialCompleteResponse(BaseModel):
     tutorial: TutorialStateResponse
     gold_reward: Optional[int] = None
+
+
+class TutorialProvisionRequest(BaseModel):
+    kit_id: str
+
+
+class TutorialProvisionResponse(BaseModel):
+    tutorial: TutorialStateResponse
+    gold_granted: int = 0
+    dust_granted: int = 0
+    sell_item_id: Optional[int] = None
+    buy_hint: Optional[dict] = None
+    already_claimed: bool = False
 
 
 class DmNotificationPrefsOut(BaseModel):
