@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-import math
-
-
-def dungeon_plus_reward_mult(plus_level: int) -> float:
-    """Dungeon+ difficulty reward multiplier (applied after character % sum)."""
-    n = max(0, int(plus_level or 0))
-    return 1.0 + n * 0.15 + math.log1p(n) * 0.10
+from waifu_bot.game.dungeon_plus_scaling import dungeon_plus_reward_mult
 
 
 def compute_solo_reward_fractions(

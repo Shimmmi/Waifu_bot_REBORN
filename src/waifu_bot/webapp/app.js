@@ -3405,7 +3405,12 @@ async function bootstrapPage(page, afterLoad) {
       profile?.main_waifu && (profile.main_waifu.id != null || profile.main_waifu.level != null),
     );
     if (hasWaifu || page !== "profile") {
-      window.WaifuApp?.Tutorial?.maybeRun(page, profile?.tutorial, forced);
+      let opts;
+      if (page === "dungeons") {
+        const tabParam = new URLSearchParams(window.location.search).get("tab") || "solo";
+        opts = { tab: tabParam };
+      }
+      window.WaifuApp?.Tutorial?.maybeRun(page, profile?.tutorial, forced, opts);
     }
   } catch (err) {
     console.warn("Tutorial bootstrap failed:", err);
@@ -4627,6 +4632,9 @@ async function smithTryEnchant() {
       showToast(String(res.error));
       return;
     }
+    if (res?.success) {
+      window.WaifuApp?.Tutorial?.notify?.("shop:enchanted", { inventory_item_id: id, new_level: res?.new_level });
+    }
     const ok = res?.success;
     const nl = res?.new_level;
     const br = res?.broken;
@@ -4824,6 +4832,7 @@ async function smithTryCraftEnchant(operation) {
       return;
     }
     showToast("Зачарование выполнено", "success");
+    window.WaifuApp?.Tutorial?.notify?.("shop:crafted", { inventory_item_id: id, operation });
     const it = shopState.smithItems?.find((x) => x.id === id);
     if (it) {
       it.secondary_fraction_type = res.secondary_fraction_type;
@@ -5016,8 +5025,9 @@ function openShopOffer(slot) {
 async function confirmBuy() {
   if (!shopState.selectedSlot) return;
   const act = shopState.act || 1;
+  let buyRes = null;
   try {
-    await apiFetch(`/shop/buy?act=${act}&slot=${shopState.selectedSlot}`, { method: "POST" });
+    buyRes = await apiFetch(`/shop/buy?act=${act}&slot=${shopState.selectedSlot}`, { method: "POST" });
   } catch (e) {
     const body = document.getElementById("shop-offer-modal-body");
     if (body) body.innerHTML = `<div class="muted tiny" style="padding:8px 0;">Ошибка покупки: ${escapeHtml(String(e?.message || e))}</div>`;
@@ -5026,6 +5036,10 @@ async function confirmBuy() {
   await loadProfile().catch(console.error);
   await loadShop(act).catch(console.error);
   closeShopModal();
+  window.WaifuApp?.Tutorial?.notify?.("shop:bought", {
+    inventory_item_id: buyRes?.inventory_item_id ?? null,
+    slot: shopState.selectedSlot,
+  });
 }
 
 async function refreshShopDebug() {
@@ -6758,10 +6772,10 @@ function renderProfilePaperDoll(waifu) {
     bodyInner = escapeHtml(waifuPortraitEmoji(waifu) || "👤");
   }
 
-  const menuBtn = `<button type="button" class="profile-paperdoll-menu-btn" title="Действия с образом" aria-label="Меню образа" onclick="event.stopPropagation();WaifuApp.togglePaperdollMenu(event)">⋯</button>`;
+  const menuBtn = `<button type="button" class="profile-paperdoll-menu-btn" data-tutorial="profile-paperdoll-menu" title="Действия с образом" aria-label="Меню образа" onclick="event.stopPropagation();WaifuApp.togglePaperdollMenu(event)">⋯</button>`;
   const menuBlock = `
     <div id="profile-paperdoll-menu" class="profile-paperdoll-menu" style="display:none" role="menu">
-      <button type="button" class="profile-paperdoll-menu-item" role="menuitem"${canGenerate ? "" : " disabled"}
+      <button type="button" class="profile-paperdoll-menu-item" data-tutorial="profile-paperdoll-generate" role="menuitem"${canGenerate ? "" : " disabled"}
         onclick="event.stopPropagation();WaifuApp.generateMainWaifuPaperdoll()">
         <span class="profile-paperdoll-menu-title">Сгенерировать изображение</span>
         <span class="profile-paperdoll-menu-meta">Осталось генераций: ${escapeHtml(remaining)}</span>
@@ -6815,6 +6829,13 @@ async function generateMainWaifuPaperdoll() {
     }
     renderProfileEquipment();
     showToast("Образ с экипировкой сохранён");
+    try {
+      if (window.WaifuApp?.Tutorial?.notify) {
+        window.WaifuApp.Tutorial.notify("paperdoll:generated", { paperdoll_url: url || "" });
+      }
+    } catch (e) {
+      /* ignore */
+    }
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     const msg =
@@ -7699,6 +7720,7 @@ async function confirmDismantleSelectedItem() {
 async function confirmSellSelectedItem() {
   const item = profileState.selectedItem;
   if (!item?.id) return;
+  const soldId = item.id;
   closeItemSellConfirmOverlay();
   await apiFetch(`/inventory/sell`, {
     method: "POST",
@@ -7707,6 +7729,7 @@ async function confirmSellSelectedItem() {
   });
   closeItemModal();
   await refreshAfterInventoryModalAction();
+  window.WaifuApp?.Tutorial?.notify?.("shop:sold", { inventory_item_id: soldId });
 }
 
 async function unequipItemFromModal() {
@@ -7737,6 +7760,7 @@ async function equipItemFromModal() {
   }
   closeItemModal();
   await refreshAfterInventoryModalAction();
+  window.WaifuApp?.Tutorial?.notify?.("equip:done", { inventory_item_id: item.id, slot: chosen });
 }
 
 async function confirmEquipToRingSlot(slot) {
@@ -7752,6 +7776,7 @@ async function confirmEquipToRingSlot(slot) {
     closeItemEquipRingOverlay();
     return;
   }
+  window.WaifuApp?.Tutorial?.notify?.("equip:done", { inventory_item_id: item.id, slot: s });
   closeItemEquipRingOverlay();
   closeItemModal();
   await refreshAfterInventoryModalAction();
@@ -8520,6 +8545,13 @@ function waifuGenGoStep2() {
 
   waifuGenRefreshHint();
   waifuGenRefreshGenerateButton();
+
+  try {
+    const tutorial = window.profileState?.currentProfile?.tutorial || null;
+    window.WaifuApp?.Tutorial?.maybeRun?.("waifu_generator", tutorial, "waifu_gen_step2");
+  } catch (e) {
+    console.warn("waifu_gen_step2 tutorial failed:", e);
+  }
 }
 
 function waifuGenGoStep1() {
@@ -12822,8 +12854,8 @@ async function populateCaravanPage(profile) {
       </div>`;
     }).join("") +
     `
-    <div class="caravan-pin caravan-pin--library" role="group" aria-label="Библиотека">
-      <button type="button" class="caravan-pin-ico-btn" onclick="WaifuApp.openLibrary()" aria-label="Библиотека">📖</button>
+    <div class="caravan-pin caravan-pin--library" role="group" aria-label="Библиотека" data-tutorial="caravan-library">
+      <button type="button" class="caravan-pin-ico-btn" data-tutorial="caravan-library" onclick="WaifuApp.openLibrary()" aria-label="Библиотека">📖</button>
     </div>`;
 
   ACT_META.forEach(({ act }) => {
@@ -13218,9 +13250,13 @@ function libraryMechanicsShellHtml() {
     return `<button type="button" class="lib-mechanics-subtab${active}" data-mech-sub="${t.id}" onclick="WaifuApp.librarySwitchMechanicsSubtab('${t.id}')">${escapeHtml(t.label)}</button>`;
   }).join("");
   return `
-    <div class="lib-mechanics">
+    <div class="lib-body-chrome">
       <div class="lib-mechanics-subtabs" role="tablist">${subTabs}</div>
-      <div id="lib-mechanics-body" class="lib-mechanics-body">${libraryMechanicsSectionHtml(libraryMechanicsSubtab)}</div>
+    </div>
+    <div class="lib-body-scroll">
+      <div class="lib-mechanics">
+        <div id="lib-mechanics-body" class="lib-mechanics-body">${libraryMechanicsSectionHtml(libraryMechanicsSubtab)}</div>
+      </div>
     </div>`;
 }
 
@@ -13424,55 +13460,63 @@ function libraryItemsSubtabShellHtml() {
   const affActive = sub === "affixes" ? " active" : "";
   if (sub === "affixes") {
     return `
+      <div class="lib-body-chrome">
+        <div class="lib-items-subtabs">
+          <button type="button" class="lib-items-subtab${itemsActive}" onclick="WaifuApp.librarySwitchItemsSubtab('items')">Предметы</button>
+          <button type="button" class="lib-items-subtab${affActive}" onclick="WaifuApp.librarySwitchItemsSubtab('affixes')">Аффиксы</button>
+        </div>
+        <div id="lib-affix-summary" class="lib-summary"></div>
+        <div class="lib-filters">
+          <input id="lib-affix-search" type="search" placeholder="Поиск…" />
+          <select id="lib-affix-kind-filter">
+            <option value="all">Все</option>
+            <option value="prefix">Префиксы</option>
+            <option value="suffix">Суффиксы</option>
+          </select>
+          <select id="lib-affix-seen">
+            <option value="all">Все</option>
+            <option value="seen">Открытые</option>
+            <option value="unseen">Скрытые</option>
+          </select>
+        </div>
+      </div>
+      <div class="lib-body-scroll">
+        <div id="lib-affix-list" class="lib-affix-list"></div>
+      </div>`;
+  }
+  return `
+    <div class="lib-body-chrome">
       <div class="lib-items-subtabs">
         <button type="button" class="lib-items-subtab${itemsActive}" onclick="WaifuApp.librarySwitchItemsSubtab('items')">Предметы</button>
         <button type="button" class="lib-items-subtab${affActive}" onclick="WaifuApp.librarySwitchItemsSubtab('affixes')">Аффиксы</button>
       </div>
-      <div id="lib-affix-summary" class="lib-summary"></div>
+      <div id="lib-items-summary" class="lib-summary"></div>
       <div class="lib-filters">
-        <input id="lib-affix-search" type="search" placeholder="Поиск…" />
-        <select id="lib-affix-kind-filter">
-          <option value="all">Все</option>
-          <option value="prefix">Префиксы</option>
-          <option value="suffix">Суффиксы</option>
+        <input id="lib-items-search" type="search" placeholder="Поиск…" />
+        <select id="lib-items-tier">
+          <option value="all">Все тиры</option>
+          ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((t) => `<option value="${t}">T${t}</option>`).join("")}
         </select>
-        <select id="lib-affix-seen">
+        <select id="lib-items-slot">
+          <option value="all">Все слоты</option>
+          <option value="weapon_1h">Оружие 1H</option>
+          <option value="weapon_2h">Оружие 2H</option>
+          <option value="offhand">Offhand</option>
+          <option value="costume">Доспех</option>
+          <option value="ring">Кольцо</option>
+          <option value="amulet">Амулет</option>
+        </select>
+        <select id="lib-items-seen">
           <option value="all">Все</option>
           <option value="seen">Открытые</option>
           <option value="unseen">Скрытые</option>
         </select>
       </div>
-      <div id="lib-affix-list" class="lib-affix-list"></div>`;
-  }
-  return `
-    <div class="lib-items-subtabs">
-      <button type="button" class="lib-items-subtab${itemsActive}" onclick="WaifuApp.librarySwitchItemsSubtab('items')">Предметы</button>
-      <button type="button" class="lib-items-subtab${affActive}" onclick="WaifuApp.librarySwitchItemsSubtab('affixes')">Аффиксы</button>
+      <p class="lib-tier-hint muted tiny">Цветная рамка — тир предмета (T1–T10).</p>
     </div>
-    <div id="lib-items-summary" class="lib-summary"></div>
-    <div class="lib-filters">
-      <input id="lib-items-search" type="search" placeholder="Поиск…" />
-      <select id="lib-items-tier">
-        <option value="all">Все тиры</option>
-        ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((t) => `<option value="${t}">T${t}</option>`).join("")}
-      </select>
-      <select id="lib-items-slot">
-        <option value="all">Все слоты</option>
-        <option value="weapon_1h">Оружие 1H</option>
-        <option value="weapon_2h">Оружие 2H</option>
-        <option value="offhand">Offhand</option>
-        <option value="costume">Доспех</option>
-        <option value="ring">Кольцо</option>
-        <option value="amulet">Амулет</option>
-      </select>
-      <select id="lib-items-seen">
-        <option value="all">Все</option>
-        <option value="seen">Открытые</option>
-        <option value="unseen">Скрытые</option>
-      </select>
-    </div>
-    <p class="lib-tier-hint muted tiny">Цветная рамка — тир предмета (T1–T10).</p>
-    <div id="lib-items-grid" class="lib-grid lib-grid--items"></div>`;
+    <div class="lib-body-scroll">
+      <div id="lib-items-grid" class="lib-grid lib-grid--items"></div>
+    </div>`;
 }
 
 function librarySwitchItemsSubtab(subtab) {
@@ -13661,7 +13705,11 @@ function ensureLibraryStyles() {
 .lib-tab{display:inline-flex;align-items:center;justify-content:center;flex:1;min-width:0;padding:8px 6px;border:1px solid rgba(200,146,42,.25);border-radius:8px;background:rgba(0,0,0,.25);font-size:18px;line-height:1;cursor:pointer}
 .lib-tab.active{border-color:rgba(232,184,75,.7);background:rgba(200,146,42,.15)}
 .lib-tab[disabled]{opacity:.35;cursor:not-allowed}
-.lib-body{flex:1;min-height:0;overflow-y:auto;padding:10px 12px 16px;-webkit-overflow-scrolling:touch;position:relative;z-index:1}
+.lib-body{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;padding:0;position:relative;z-index:1}
+.lib-body-chrome{flex-shrink:0;padding:10px 12px 0;background:#16100b;position:relative;z-index:2}
+.lib-body-scroll{flex:1;min-height:0;overflow-y:auto;padding:8px 12px 16px;-webkit-overflow-scrolling:touch}
+#library-modal.lib-overlay.lib-overlay--tutorial-lock{pointer-events:none}
+#library-modal.lib-overlay.lib-overlay--tutorial-lock .lib-panel{pointer-events:auto}
 #library-monster-modal.lib-monster-overlay,#library-item-modal.lib-monster-overlay{position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box}
 #library-monster-modal.lib-monster-overlay.hidden,#library-item-modal.lib-monster-overlay.hidden{display:none!important}
 .lib-monster-panel{position:relative;width:min(420px,94vw);max-height:88vh;overflow-y:auto;-webkit-overflow-scrolling:touch;border-radius:12px}
@@ -13731,6 +13779,10 @@ function ensureLibraryStyles() {
 .lib-mechanics h3{font-size:13px;color:#e8b84b;margin:12px 0 6px}
 .lib-mechanics p{font-size:12px;color:rgba(201,184,168,.9);line-height:1.45;margin:0 0 8px}
 .lib-mechanics-subtabs{display:flex;gap:4px;overflow-x:auto;margin-bottom:10px;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.lib-body-chrome .lib-mechanics-subtabs{margin-bottom:8px}
+.lib-body-chrome .lib-filters{margin-bottom:8px}
+.lib-body-chrome .lib-summary{margin-bottom:8px}
+.lib-body-chrome .lib-tier-hint{margin:0 0 8px}
 .lib-mechanics-subtab{flex:0 0 auto;font-size:10px;padding:6px 8px;border-radius:8px;border:1px solid rgba(200,146,42,.25);background:rgba(0,0,0,.25);color:#c9b8a8;cursor:pointer;white-space:nowrap}
 .lib-mechanics-subtab.active{border-color:rgba(232,184,75,.7);background:rgba(200,146,42,.15);color:#e8b84b}
 .lib-mechanics-body{min-height:40px}
@@ -13897,21 +13949,25 @@ function libraryRenderGrid() {
     .join("");
 
   body.innerHTML = `
-    <div class="lib-summary">Встречено: ${summary.seen ?? 0} / ${summary.total ?? 0} · Покорено: ${summary.completed ?? 0}</div>
-    <div class="lib-filters">
-      <input id="lib-f-search" type="search" placeholder="Поиск…" value="${escapeHtml(f.search)}" />
-      <select id="lib-f-act"><option value="all">Все акты</option>${actOpts}</select>
-      <select id="lib-f-family">${famOpts}</select>
-      <select id="lib-f-tier">${tierOpts}</select>
-      <select id="lib-f-seen">${seenOpts}</select>
-      <select id="lib-f-sort">
-        <option value="act" ${librarySort === "act" ? "selected" : ""}>По акту</option>
-        <option value="name" ${librarySort === "name" ? "selected" : ""}>По имени</option>
-        <option value="kills" ${librarySort === "kills" ? "selected" : ""}>По убийствам</option>
-        <option value="tier" ${librarySort === "tier" ? "selected" : ""}>По тиру</option>
-      </select>
+    <div class="lib-body-chrome">
+      <div class="lib-summary">Встречено: ${summary.seen ?? 0} / ${summary.total ?? 0} · Покорено: ${summary.completed ?? 0}</div>
+      <div class="lib-filters">
+        <input id="lib-f-search" type="search" placeholder="Поиск…" value="${escapeHtml(f.search)}" />
+        <select id="lib-f-act"><option value="all">Все акты</option>${actOpts}</select>
+        <select id="lib-f-family">${famOpts}</select>
+        <select id="lib-f-tier">${tierOpts}</select>
+        <select id="lib-f-seen">${seenOpts}</select>
+        <select id="lib-f-sort">
+          <option value="act" ${librarySort === "act" ? "selected" : ""}>По акту</option>
+          <option value="name" ${librarySort === "name" ? "selected" : ""}>По имени</option>
+          <option value="kills" ${librarySort === "kills" ? "selected" : ""}>По убийствам</option>
+          <option value="tier" ${librarySort === "tier" ? "selected" : ""}>По тиру</option>
+        </select>
+      </div>
     </div>
-    <div class="lib-grid" id="lib-grid">${cards || '<p class="muted tiny">Ничего не найдено.</p>'}</div>`;
+    <div class="lib-body-scroll">
+      <div class="lib-grid" id="lib-grid">${cards || '<p class="muted tiny">Ничего не найдено.</p>'}</div>
+    </div>`;
 
   libraryBindFilterHandlers();
   body.querySelectorAll(".lib-card[data-template-id]").forEach((card) => {
@@ -14007,12 +14063,35 @@ async function librarySwitchTab(tabId) {
   body.innerHTML = '<div class="lib-soon">Этот раздел появится позже.</div>';
 }
 
-function closeLibrary() {
+function closeLibrary(opts) {
+  const force = Boolean(opts && opts.force);
+  try {
+    const tut = window.WaifuApp && window.WaifuApp.Tutorial;
+    if (
+      !force &&
+      tut &&
+      typeof tut.isActive === "function" &&
+      tut.isActive() &&
+      typeof tut.getFlowId === "function" &&
+      tut.getFlowId() === "caravan"
+    ) {
+      return;
+    }
+  } catch (e) {
+    /* ignore */
+  }
   libraryCloseMonster();
   const modal = document.getElementById("library-modal");
   if (modal) {
     modal.classList.add("hidden");
+    modal.classList.remove("lib-overlay--tutorial-lock");
     modal.style.display = "none";
+    if (Object.prototype.hasOwnProperty.call(modal.dataset, "tutorialPrevZ")) {
+      const prev = modal.dataset.tutorialPrevZ;
+      delete modal.dataset.tutorialPrevZ;
+      if (prev) modal.style.zIndex = prev;
+      else modal.style.removeProperty("z-index");
+    }
   }
 }
 
@@ -14062,7 +14141,7 @@ async function openLibrary(opts) {
     tabsEl.innerHTML = LIBRARY_TABS.map((t) => {
       const dis = t.enabled ? "" : " disabled";
       const click = t.enabled ? ` onclick="WaifuApp.librarySwitchTab('${t.id}')"` : "";
-      return `<button type="button" class="lib-tab${t.id === (opts.tab || "bestiary") ? " active" : ""}" data-lib-tab="${t.id}" aria-label="${escapeHtml(t.label)}" title="${escapeHtml(t.label)}"${dis}${click}>${t.icon}</button>`;
+      return `<button type="button" class="lib-tab${t.id === (opts.tab || "bestiary") ? " active" : ""}" data-lib-tab="${t.id}" data-tutorial="lib-tab-${t.id}" aria-label="${escapeHtml(t.label)}" title="${escapeHtml(t.label)}"${dis}${click}>${t.icon}</button>`;
     }).join("");
   }
 
@@ -14417,6 +14496,14 @@ function openPassiveSkillModal(nodeId) {
   }
   m.classList.toggle("passive-skill-modal--equip-bonus", eq > 0 || effLv > cur);
   m.style.display = "grid";
+  try {
+    if (window.WaifuApp?.Tutorial?.isActive?.()) {
+      m.dataset.tutorialRaisedZ = "1";
+      m.style.zIndex = "99200";
+    }
+  } catch (e) {
+    /* ignore */
+  }
 }
 
 function closePassiveSkillModal() {
@@ -14427,6 +14514,10 @@ function closePassiveSkillModal() {
     m.classList.remove("passive-skill-modal--dota");
     const panel = m.querySelector(".passive-skill-modal-panel");
     if (panel) panel.classList.remove("passive-skill-modal-panel--dota");
+    if (m.dataset.tutorialRaisedZ) {
+      delete m.dataset.tutorialRaisedZ;
+      m.style.zIndex = "";
+    }
   }
 }
 

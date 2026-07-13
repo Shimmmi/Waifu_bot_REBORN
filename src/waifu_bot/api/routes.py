@@ -1206,6 +1206,7 @@ async def get_profile(
                 completed=dict(tutorial_raw.get("completed") or {}),
                 skipped=bool(tutorial_raw.get("skipped")),
                 intro_reward_claimed=bool(tutorial_raw.get("intro_reward_claimed")),
+                shop_kit_claimed=bool(tutorial_raw.get("shop_kit_claimed")),
             ),
             perfection_level=int(perfection_state.get("perfection_level") or 0),
             perfection_experience=int(perfection_state.get("perfection_experience") or 0),
