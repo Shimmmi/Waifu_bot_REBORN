@@ -105,6 +105,7 @@ class Settings(BaseSettings):
     ai_presets_path: str = Field("config/ai_presets.yaml", alias="AI_PRESETS_PATH")
     ai_default_preset: str = Field("fast", alias="AI_DEFAULT_PRESET")
     ai_preset_narrative: str = Field("fast", alias="AI_PRESET_NARRATIVE")
+    ai_preset_gd: str = Field("gd_narrative", alias="AI_PRESET_GD")
     ai_preset_balance: str = Field("expert", alias="AI_PRESET_BALANCE")
     ai_preset_architect: str = Field("architect", alias="AI_PRESET_ARCHITECT")
 

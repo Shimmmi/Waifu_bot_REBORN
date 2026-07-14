@@ -151,9 +151,63 @@ def _gd_v1_media_and_text_len(message: Message) -> tuple[int, str | None]:
 
 @router.message(Command("start"), command_addressed_to_this_bot)
 async def cmd_start(message: Message, bot: Bot) -> None:
-    """Respond to /start in private or group."""
+    """Respond to /start in private or group; deep-link start=gd_join_<chat_id> joins GD."""
     if message.from_user and message.from_user.is_bot:
         return
+    # Deep link: /start gd_join_-100123...
+    payload = ""
+    if message.text:
+        parts = message.text.strip().split(maxsplit=1)
+        if len(parts) > 1:
+            payload = parts[1].strip()
+    if (
+        payload.startswith("gd_join_")
+        and message.from_user
+        and message.chat
+        and message.chat.type == "private"
+    ):
+        raw = payload[len("gd_join_") :]
+        try:
+            target_chat = int(raw)
+        except ValueError:
+            await _send_response_traced(
+                message, "Неверная ссылка вступления в поход.", "gd_join_start_bad"
+            )
+            return
+        user_id = message.from_user.id
+        try:
+            async for session in get_session():
+                from waifu_bot.services.gd_webapp_service import join_gd_from_webapp_or_dm
+
+                result = await join_gd_from_webapp_or_dm(
+                    session, user_id, target_chat, gd_v1_cycle_service, bot
+                )
+                await session.commit()
+                if result.get("success"):
+                    late = result.get("late_join")
+                    pct = int(round(100 * float(result.get("reward_stage_mult") or 1)))
+                    extra = (
+                        f" Поздний вход с раунда {result.get('joined_at_round')} (~{pct}% награды)."
+                        if late
+                        else ""
+                    )
+                    await _send_response_traced(
+                        message,
+                        f"✅ {result.get('name', 'Вайфу')} в походе «{result.get('dungeon_name')}».{extra}",
+                        "gd_join_start_ok",
+                    )
+                else:
+                    await _send_response_traced(
+                        message,
+                        result.get("message", "Не удалось вступить."),
+                        "gd_join_start_fail",
+                    )
+                break
+        except Exception:
+            logger.exception("gd_join start payload failed")
+            await _send_response_traced(message, "Ошибка вступления.", "gd_join_start_exc")
+        return
+
     name = (message.from_user.first_name or message.from_user.username or "Игрок") if message.from_user else "Игрок"
     group_hint = ""
     if message.chat and message.chat.type in ("group", "supergroup"):
@@ -623,24 +677,63 @@ async def _run_raid_admin_with_raid(message: Message, op) -> None:
 
 # --- Group dungeon GD v1: /gd_join, manual test commands for GD_V1_MANUAL_TEST_USER_IDS ---
 @router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_join"), command_addressed_to_this_bot)
-async def cmd_gd_join(message: Message) -> None:
-    """GD v1.0: register main waifu for the weekly group run."""
+async def cmd_gd_join(message: Message, bot: Bot) -> None:
+    """GD v1.0: register or late-join main waifu for the group run."""
     if not message.from_user or message.from_user.is_bot:
         return
     chat_id = message.chat.id
     user_id = message.from_user.id
     try:
         async for session in get_session():
-            result = await gd_v1_cycle_service.register_join(session, chat_id, user_id)
+            from waifu_bot.services.gd_webapp_service import join_gd_from_webapp_or_dm
+
+            result = await join_gd_from_webapp_or_dm(
+                session, user_id, chat_id, gd_v1_cycle_service, bot, require_membership=False
+            )
             await session.commit()
             if result.get("success"):
-                cls = result.get("class_id", "?")
-                await _send_response_traced(
-                    message,
-                    f"✅ {result.get('name', 'Вайфу')} записана в отряд (класс {cls}). "
-                    f"Ждите старта похода после закрытия регистрации.",
-                    "gd_join_ok",
-                )
+                cls_id = int(result.get("class_id") or 0)
+                cls = WAIFU_CLASS_LABEL_RU.get(cls_id, f"класс {cls_id}")
+                closes = result.get("registration_closes") or ""
+                closes_bit = ""
+                if closes and not result.get("late_join"):
+                    try:
+                        from datetime import datetime
+                        from zoneinfo import ZoneInfo
+
+                        dt = datetime.fromisoformat(closes.replace("Z", "+00:00"))
+                        closes_bit = (
+                            f" Окно до {dt.astimezone(ZoneInfo('Europe/Moscow')).strftime('%H:%M')} МСК."
+                        )
+                    except Exception:
+                        closes_bit = ""
+                dungeon = result.get("dungeon_name") or "Подземелье"
+                party_n = result.get("party_count", "?")
+                max_p = result.get("max_party", "?")
+                if result.get("late_join"):
+                    pct = int(round(100 * float(result.get("reward_stage_mult") or 1)))
+                    await _send_response_traced(
+                        message,
+                        f"✅ {result.get('name', 'Вайфу')} (ур. {result.get('level', '?')}, {cls}) "
+                        f"присоединилась к «{dungeon}» — {party_n}/{max_p}. "
+                        f"Раунд {result.get('joined_at_round')}, награда ~{pct}%.",
+                        "gd_join_late_ok",
+                    )
+                else:
+                    first_bit = (
+                        "Регистрация открыта этим сообщением. "
+                        if result.get("was_first")
+                        else ""
+                    )
+                    await _send_response_traced(
+                        message,
+                        f"✅ {result.get('name', 'Вайфу')} (ур. {result.get('level', '?')}, {cls}) "
+                        f"в отряде «{dungeon}» — {party_n}/{max_p}.{closes_bit}\n"
+                        f"{first_bit}"
+                        "Дальше просто пишите в чат после старта — отдельные команды не нужны. "
+                        "Состав: /gd_party.",
+                        "gd_join_ok",
+                    )
             else:
                 await _send_response_traced(
                     message,
@@ -651,6 +744,123 @@ async def cmd_gd_join(message: Message) -> None:
     except Exception:
         logger.exception("gd_join failed")
         await _send_response_traced(message, "Ошибка регистрации.", "gd_join_exception")
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_stop"), command_addressed_to_this_bot)
+async def cmd_gd_stop(message: Message, bot: Bot) -> None:
+    """Registered participant stops the active GD in this chat (no victory rewards)."""
+    if not message.from_user or message.from_user.is_bot:
+        return
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    try:
+        async for session in get_session():
+            from waifu_bot.services.gd_webapp_service import stop_gd_for_player
+
+            result = await stop_gd_for_player(
+                session,
+                user_id,
+                gd_v1_cycle_service,
+                bot,
+                chat_id=chat_id,
+            )
+            if result.get("success"):
+                await session.commit()
+                try:
+                    from waifu_bot.services import gd_active_cache as gd_active_cache_mod
+
+                    await gd_active_cache_mod.invalidate_active_cycle_cache(
+                        gd_v1_cycle_service.redis, chat_id
+                    )
+                except Exception:
+                    pass
+                await _send_response_traced(
+                    message,
+                    "Поход завершён. Награды за победу не выдаются.",
+                    "gd_stop_ok",
+                )
+            else:
+                await _send_response_traced(
+                    message,
+                    result.get("message") or "Не удалось завершить поход.",
+                    "gd_stop_fail",
+                )
+            break
+    except Exception:
+        logger.exception("gd_stop failed")
+        await _send_response_traced(message, "Ошибка завершения похода.", "gd_stop_exc")
+
+
+@router.message(F.chat.type == "private", Command("gd_join"), command_addressed_to_this_bot)
+async def cmd_gd_join_private(message: Message, bot: Bot) -> None:
+    """DM /gd_join [chat_id]: join the only open cycle among player's chats, or a given chat_id."""
+    if not message.from_user or message.from_user.is_bot:
+        return
+    user_id = message.from_user.id
+    arg_chat: int | None = None
+    if message.text:
+        parts = message.text.strip().split()
+        if len(parts) >= 2:
+            try:
+                arg_chat = int(parts[1].replace("@", "").split("@")[0])
+            except ValueError:
+                arg_chat = None
+    try:
+        async for session in get_session():
+            from waifu_bot.services.gd_webapp_service import (
+                join_gd_from_webapp_or_dm,
+                list_gd_joinable_dungeons,
+            )
+
+            if arg_chat is None:
+                joinable = await list_gd_joinable_dungeons(
+                    session, user_id, gd_v1_cycle_service
+                )
+                if len(joinable) == 1:
+                    arg_chat = int(joinable[0]["chat_id"])
+                elif len(joinable) == 0:
+                    await _send_response_traced(
+                        message,
+                        "Нет открытых походов в ваших чатах с ботом. "
+                        "Откройте вкладку «Групповые» в WebApp или перейдите по ссылке из сбора.",
+                        "gd_join_dm_none",
+                    )
+                    break
+                else:
+                    lines = ["Несколько походов — укажите чат: /gd_join <chat_id>"]
+                    for d in joinable[:8]:
+                        lines.append(
+                            f"• {d.get('chat_title') or d['chat_id']}: "
+                            f"{d.get('dungeon_name')} ({d.get('cycle_status')}) "
+                            f"— chat_id={d['chat_id']}"
+                        )
+                    await _send_response_traced(
+                        message, "\n".join(lines), "gd_join_dm_multi"
+                    )
+                    break
+            result = await join_gd_from_webapp_or_dm(
+                session, user_id, int(arg_chat), gd_v1_cycle_service, bot
+            )
+            await session.commit()
+            if result.get("success"):
+                pct = int(round(100 * float(result.get("reward_stage_mult") or 1)))
+                late = " (поздний вход)" if result.get("late_join") else ""
+                await _send_response_traced(
+                    message,
+                    f"✅ {result.get('name')} → «{result.get('dungeon_name')}»{late}. "
+                    f"Награда ~{pct}%.",
+                    "gd_join_dm_ok",
+                )
+            else:
+                await _send_response_traced(
+                    message,
+                    result.get("message", "Не удалось вступить."),
+                    "gd_join_dm_fail",
+                )
+            break
+    except Exception:
+        logger.exception("gd_join private failed")
+        await _send_response_traced(message, "Ошибка вступления.", "gd_join_dm_exc")
 
 
 @router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_party"), command_addressed_to_this_bot)

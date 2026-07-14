@@ -38,3 +38,10 @@ presets:
     judge:
       model: z-ai/glm-5.2
       system: "На основе мнений трёх экспертов сформируй итоговое решение."
+
+  # Group dungeon (GD v1) only — wired via AI_PRESET_GD
+  gd_narrative:
+    mode: single
+    model: google/gemini-3.1-flash-lite
+    fallback_model: google/gemini-3.1-flash-lite
+    post_process: none

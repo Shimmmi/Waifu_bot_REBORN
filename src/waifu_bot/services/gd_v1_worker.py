@@ -30,14 +30,34 @@ from waifu_bot.game.constants import (
 )
 from waifu_bot.game.formulas import calculate_total_experience_for_level
 from waifu_bot.services.combat import apply_main_waifu_levelups
-from waifu_bot.services.game_config_service import get_game_config_map, cfg_float
-from waifu_bot.services.gd_scaling import reward_level_multiplier
+from waifu_bot.services.game_config_service import get_game_config_map, cfg_float, cfg_int
+from waifu_bot.services.gd_scaling import (
+    blend_dual_reward_scores,
+    clean_run_bonus_multiplier,
+    late_join_reward_stage_mult,
+    power_score_from_contrib,
+    presence_score_for_uid,
+    reward_level_multiplier,
+    wipe_reward_multiplier,
+)
 from waifu_bot.services.gd_cycle_service import GDCycleService
 from waifu_bot.services import gd_active_cache as gd_active_cache_mod
 from waifu_bot.services.gd_narrative_ai import (
+    build_gd_folding_chronicle,
     generate_gd_finale_narrative,
     generate_gd_round_narrative,
     generate_gd_start_narrative,
+)
+from waifu_bot.services.gd_narrative_seeds import (
+    merge_used_seed_ids,
+    narrative_fingerprint,
+    pick_absurd_event_seed,
+    recent_fingerprints_from_rounds,
+)
+from waifu_bot.services.gd_battle_log import (
+    format_gd_battle_hp_system_message,
+    format_gd_group_compact_message,
+    format_gd_round_battle_log_message,
 )
 from waifu_bot.services.gd_round_engine import (
     apply_admin_force_dungeon_victory_result,
@@ -96,43 +116,64 @@ def _chunk_text(text: str, limit: int = 3900) -> list[str]:
 
 
 def format_gd_battle_hp_system_message(battle_state: dict[str, Any] | None) -> str:
-    """Текст системного сообщения: HP отряда и монстров после раунда (состояние из battle_state_json)."""
-    st = battle_state or {}
-    party: list[dict[str, Any]] = list(st.get("party") or [])
-    monsters: list[dict[str, Any]] = list(st.get("monsters") or [])
-    lines: list[str] = [
-        "📊 Система: состояние после раунда",
-        "",
-        "Отряд:",
-    ]
+    """Deprecated re-export — use gd_battle_log.format_gd_battle_hp_system_message."""
+    from waifu_bot.services.gd_battle_log import (
+        format_gd_battle_hp_system_message as _fmt,
+    )
+
+    return _fmt(battle_state)
+
+
+def format_gd_round_battle_log_message(
+    result: dict[str, Any], ctx: dict[str, Any]
+) -> str:
+    """Deprecated re-export — use gd_battle_log.format_gd_round_battle_log_message."""
+    from waifu_bot.services.gd_battle_log import (
+        format_gd_round_battle_log_message as _fmt,
+    )
+
+    return _fmt(result, ctx)
+
+
+def _round_top_contributor_name(state: dict[str, Any] | None, ctx: dict[str, Any]) -> str | None:
+    st = state or {}
+    activity = st.get("activity_totals") or {}
+    contrib = st.get("contribution") or {}
+    party = list(ctx.get("party") or st.get("party") or [])
+    name_by = {
+        int(p["user_id"]): str(p.get("name") or f"Игрок {p['user_id']}")
+        for p in party
+        if p.get("user_id") is not None
+    }
+    scores: dict[int, float] = {}
+    for uid_s in set(list(activity.keys()) + list(contrib.keys())):
+        try:
+            uid = int(uid_s)
+        except (TypeError, ValueError):
+            continue
+        scores[uid] = presence_score_for_uid(uid, activity, contrib, floor=0.0) + power_score_from_contrib(
+            contrib.get(str(uid))
+        )
+    if not scores:
+        return None
+    best = max(scores, key=lambda u: scores[u])
+    if scores[best] <= 0:
+        return None
+    return name_by.get(best)
+
+
+def _power_hint_for_narrative(state: dict[str, Any] | None) -> str | None:
+    """Short RU hint that gear/level mattered (no raw numbers)."""
+    st = state or {}
+    party = list(st.get("party") or [])
     if not party:
-        lines.append("• (пусто)")
-    else:
-        for p in party:
-            name = str(p.get("name") or f"Игрок {p.get('user_id', '?')}")
-            cur = int(p.get("current_hp") or 0)
-            mx = max(1, int(p.get("max_hp") or 1))
-            fallen = bool(p.get("fallen")) or cur <= 0
-            if fallen:
-                lines.append(f"• {name} — нокдаун, {cur} / {mx} HP")
-            else:
-                pct = int(100 * cur / mx)
-                lines.append(f"• {name} — {cur} / {mx} HP (~{pct}%)")
-    lines.extend(["", "Монстры:"])
-    if not monsters:
-        lines.append("• нет активных записей")
-    else:
-        for m in monsters:
-            name = str(m.get("name") or "Монстр")
-            boss = " (босс)" if m.get("is_boss") else ""
-            cur = int(m.get("hp") or 0)
-            mx = max(1, int(m.get("max_hp") or 1))
-            if cur <= 0:
-                lines.append(f"• {name}{boss} — повержен (было {mx} HP)")
-            else:
-                pct = int(100 * cur / mx)
-                lines.append(f"• {name}{boss} — {cur} / {mx} HP (~{pct}%)")
-    return "\n".join(lines)
+        return None
+    geared = [p for p in party if p.get("gear_aware") or p.get("weapon_damage")]
+    if not geared:
+        return None
+    top = max(geared, key=lambda p: int(p.get("level") or 1) * 100 + int(p.get("weapon_damage") or 0))
+    name = str(top.get("name") or "вайфу")
+    return f"удар {name} ощутимо сильнее за счёт прокачки и экипировки"
 
 
 def _compute_round_mvp(state: dict[str, Any] | None) -> tuple[int, str] | None:
@@ -152,35 +193,13 @@ def _compute_round_mvp(state: dict[str, Any] | None) -> tuple[int, str] | None:
             uid = int(uid_str)
         except (TypeError, ValueError):
             continue
-        sc = float(activity.get(uid_str, 0.0))
-        if sc < 1.0:
-            c = contrib.get(uid_str, {}) or {}
-            sc = (
-                float(c.get("text") or 0) * 1.0
-                + float(c.get("skill") or 0) * 1.5
-                + float(c.get("heal") or 0) * 1.2
-                + float(c.get("rounds") or 0) * 10.0
-            )
-        scores[uid] = sc
+        scores[uid] = presence_score_for_uid(uid, activity, contrib) + power_score_from_contrib(
+            contrib.get(uid_str)
+        )
     if not scores:
         return None
     mvp_uid = max(scores, key=lambda u: scores[u])
     return mvp_uid, name_by_uid.get(mvp_uid, f"Игрок {mvp_uid}")
-
-
-def format_gd_round_battle_log_message(
-    result: dict[str, Any], ctx: dict[str, Any]
-) -> str:
-    """Полный лог боя за раунд (по циклам, с цифрами) для отправки в чат."""
-    from waifu_bot.services.gd_battle_log import format_gd_round_log_lines_ru
-
-    resolved = (result.get("actions_json") or {}).get("resolved")
-    lines = format_gd_round_log_lines_ru(resolved, ctx, result.get("outcomes_json"))
-    rnd = result.get("round_number", "?")
-    header = f"🧾 Журнал боя — раунд {rnd}"
-    if not lines:
-        return header + "\n• (нет зафиксированных действий)"
-    return header + "\n" + "\n".join(lines)
 
 
 async def _refresh_party_display_from_main_waifu(
@@ -392,9 +411,89 @@ async def _gd_v1_execute_round_resolution_after_simulation(
     Общий путь после симуляции (process_gd_round) или админ-форса победы:
     коммит состояния боя, ИИ-нарратив раунда, системное HP, запись gd_rounds, награды при victory.
     """
-    tpl = await session.get(GDDungeonTemplate, cycle.dungeon_template_id)
     chat_id = int(cycle.chat_id)
     rnd = int(result.get("round_number") or 0)
+    cfg_map = await get_game_config_map(session)
+    st_check = cycle.battle_state_json or {}
+
+    cancel_reason: str | None = None
+    if result["round_outcome"] == "idle":
+        idle_lim = cfg_int(cfg_map, "gd_idle_silent_rounds_to_end", 2)
+        if int(st_check.get("idle_silent_streak") or 0) >= idle_lim:
+            cancel_reason = "idle"
+    elif result["round_outcome"] == "party_wiped":
+        wipe_lim = cfg_int(cfg_map, "gd_max_wipes_to_end", 3)
+        if int(st_check.get("wipe_count") or 0) >= wipe_lim:
+            cancel_reason = "defeat"
+
+    # Auto-cancel: idle streak or wipe ceiling (no victory rewards)
+    if cancel_reason:
+        from waifu_bot.core import redis as redis_core
+        from waifu_bot.services.gd_cycle_service import GDCycleService
+
+        cycle.round_deadline_at = None
+        await session.flush()
+        gd_svc = GDCycleService(redis_core.get_redis())
+        await gd_svc.cancel_active_cycle(session, cycle, reason=cancel_reason)
+        result = dict(result)
+        result["round_outcome"] = f"cancelled_{cancel_reason}"
+        await _persist_round(session, cycle, result, None, None)
+        await session.commit()
+        reason_ru = {
+            "idle": "тишина в чате",
+            "defeat": "слишком много нокаутов отряда",
+        }.get(cancel_reason, cancel_reason)
+        end_text = (
+            f"🏁 Поход свёрнут ({reason_ru}). Награды за победу не выдаются. "
+            f"Новый сбор — через WebApp или /gd_join."
+        )
+        if bot and chat_id is not None:
+            try:
+                await bot.send_message(chat_id=chat_id, text=end_text)
+            except Exception:
+                logger.exception("GD cancel notify failed cycle_id=%s", cycle_id)
+        return GDRoundProcessResult(
+            ok=True,
+            cycle_id=cycle_id,
+            narrative_sent=False,
+            telegram_message_id=None,
+            round_number=rnd,
+            buffer_user_count=buffer_user_count,
+        )
+
+    # Silent round without auto-end: template message, no AI
+    if result["round_outcome"] == "idle":
+        cycle.round_deadline_at = now + dur_td
+        await session.commit()
+        streak = int(st_check.get("idle_silent_streak") or 0)
+        idle_lim = cfg_int(cfg_map, "gd_idle_silent_rounds_to_end", 2)
+        chat_text = (
+            f"😴 Отряд молчит — раунд {result.get('round_number', '?')} пропущен "
+            f"(тишина {streak}/{idle_lim}). Напишите в чат, чтобы продолжить бой."
+        )
+        msg_id = None
+        narrative_sent = False
+        if bot and chat_id is not None:
+            try:
+                sent = await bot.send_message(chat_id=chat_id, text=chat_text)
+                msg_id = sent.message_id
+                narrative_sent = True
+            except Exception:
+                logger.exception("GD idle send failed cycle_id=%s", cycle_id)
+        cycle2 = await session.get(GDCycle, cycle_id)
+        if cycle2:
+            await _persist_round(session, cycle2, result, None, msg_id)
+            await session.commit()
+        return GDRoundProcessResult(
+            ok=True,
+            cycle_id=cycle_id,
+            narrative_sent=narrative_sent,
+            telegram_message_id=msg_id,
+            round_number=rnd,
+            buffer_user_count=buffer_user_count,
+        )
+
+    tpl = await session.get(GDDungeonTemplate, cycle.dungeon_template_id)
 
     if result["round_outcome"] != "victory":
         cycle.round_deadline_at = now + dur_td
@@ -405,7 +504,8 @@ async def _gd_v1_execute_round_resolution_after_simulation(
 
     ctx = dict(result["context_json"])
     ctx["dungeon_name"] = tpl.name if tpl else "Подземелье"
-    ctx["biome_tag"] = (tpl.description or "")[:40] if tpl else ""
+    biome_full = (tpl.description or "") if tpl else ""
+    ctx["biome_tag"] = biome_full[:40]
     ctx["total_est"] = max(8, (cycle.total_rounds or 12))
     ctx["outcomes_summary"] = {
         "round_outcome": result["round_outcome"],
@@ -413,10 +513,67 @@ async def _gd_v1_execute_round_resolution_after_simulation(
     }
     battle_party = list((cycle.battle_state_json or {}).get("party") or ctx.get("party") or [])
     ctx["party"] = await _refresh_party_display_from_main_waifu(session, battle_party)
+    st0 = cycle.battle_state_json or {}
     if result["round_outcome"] == "victory":
-        mvp = _compute_round_mvp(cycle.battle_state_json or {})
+        mvp = _compute_round_mvp(st0)
         if mvp:
             ctx["mvp_name"] = mvp[1]
+    # Absurd seed + anti-repeat fingerprints
+    recent_rounds = (
+        await session.execute(
+            select(GDRound)
+            .where(GDRound.cycle_id == cycle_id)
+            .order_by(GDRound.round_number.desc())
+            .limit(8)
+        )
+    ).scalars().all()
+    # Also pull last few narratives from prior finished cycles in this chat
+    prior = (
+        await session.execute(
+            select(GDRound)
+            .join(GDCycle, GDCycle.id == GDRound.cycle_id)
+            .where(
+                GDCycle.chat_id == chat_id,
+                GDRound.ai_narrative.isnot(None),
+                GDRound.cycle_id != cycle_id,
+            )
+            .order_by(GDRound.id.desc())
+            .limit(6)
+        )
+    ).scalars().all()
+    fps = recent_fingerprints_from_rounds(list(recent_rounds) + list(prior), limit=10)
+    ctx["recent_narrative_fingerprints"] = fps
+    prior_narrs = [
+        str(r.ai_narrative)
+        for r in list(recent_rounds)[:2]
+        if getattr(r, "ai_narrative", None)
+    ]
+    fallen_names = [
+        str(p.get("name") or p.get("user_id"))
+        for p in (st0.get("party") or [])
+        if p.get("fallen")
+    ]
+    ctx["folding_chronicle"] = build_gd_folding_chronicle(
+        prior_narrs,
+        wave=str(st0.get("wave") or ""),
+        round_num=int(result.get("round_number") or 0),
+        wipe_count=int(st0.get("wipe_count") or 0),
+        last_outcome=str(result.get("round_outcome") or ""),
+        fallen_names=fallen_names,
+    )
+    seed = pick_absurd_event_seed(
+        biome_tag=biome_full,
+        used_seed_ids=list(st0.get("used_narrative_seed_ids") or []),
+    )
+    if seed:
+        ctx["absurd_event_seed"] = seed
+        merge_used_seed_ids(st0, seed.get("id"))
+        cycle.battle_state_json = st0
+        await session.flush()
+    hint = _power_hint_for_narrative(st0)
+    if hint:
+        ctx["power_hint"] = hint
+
     timeout = float(
         (await get_game_config_map(session)).get("gd_ai_timeout_seconds") or "15"
     )
@@ -424,16 +581,30 @@ async def _gd_v1_execute_round_resolution_after_simulation(
     chat_text = ""
     msg_id = None
     narrative_sent = False
+    top_name = _round_top_contributor_name(cycle.battle_state_json, ctx)
     try:
-        ai_raw, chat_text = await generate_gd_round_narrative(ctx, timeout_sec=timeout)
+        ai_raw, narr_body = await generate_gd_round_narrative(ctx, timeout_sec=timeout)
         narrative_db = ai_raw
+        chat_text = format_gd_group_compact_message(
+            narr_body,
+            cycle.battle_state_json,
+            round_number=result.get("round_number", "?"),
+            round_outcome=str(result.get("round_outcome") or ""),
+            top_contributor_name=top_name,
+        )
         if bot and chat_id is not None:
             sent = await bot.send_message(chat_id=chat_id, text=chat_text)
             msg_id = sent.message_id
             narrative_sent = True
     except Exception:
         logger.exception("GD round narrative or send failed cycle_id=%s", cycle_id)
-        chat_text = f"[Раунд {result.get('round_number', '?')}] Продолжаем поход."
+        chat_text = format_gd_group_compact_message(
+            f"[Раунд {result.get('round_number', '?')}] Продолжаем поход.",
+            cycle.battle_state_json,
+            round_number=result.get("round_number", "?"),
+            round_outcome=str(result.get("round_outcome") or ""),
+            top_contributor_name=top_name,
+        )
         if bot and chat_id is not None:
             try:
                 sent = await bot.send_message(chat_id=chat_id, text=chat_text)
@@ -442,18 +613,39 @@ async def _gd_v1_execute_round_resolution_after_simulation(
             except Exception:
                 logger.exception("GD round fallback send failed cycle_id=%s", cycle_id)
 
-    if bot and chat_id is not None:
+    # Full battle log + HP → DM to registered participants only (not group spam)
+    if bot:
         try:
             battle_log_text = format_gd_round_battle_log_message(result, ctx)
-            for chunk in _chunk_text(battle_log_text, 3900):
-                await bot.send_message(chat_id=chat_id, text=chunk)
-        except Exception:
-            logger.exception("GD round battle log message failed cycle_id=%s", cycle_id)
-        try:
             hp_text = format_gd_battle_hp_system_message(cycle.battle_state_json)
-            await bot.send_message(chat_id=chat_id, text=hp_text)
+            detail = battle_log_text + "\n\n" + hp_text
+            regs = (
+                await session.execute(
+                    select(GDRegistration).where(GDRegistration.cycle_id == cycle_id)
+                )
+            ).scalars().all()
+            from waifu_bot.services.player_notification_prefs import should_send_dm
+
+            for reg in regs:
+                uid = int(reg.user_id)
+                try:
+                    if not await should_send_dm(session, uid, "group_dungeon"):
+                        continue
+                    for chunk in _chunk_text(detail, 3900):
+                        await bot.send_message(chat_id=uid, text=chunk)
+                except Exception:
+                    logger.debug(
+                        "GD round detail DM failed cycle_id=%s uid=%s",
+                        cycle_id,
+                        uid,
+                        exc_info=True,
+                    )
         except Exception:
-            logger.exception("GD round HP system message failed cycle_id=%s", cycle_id)
+            logger.exception("GD round detail DM batch failed cycle_id=%s", cycle_id)
+
+    if narrative_db:
+        # Store fingerprint on state for future cycles via GDRound.ai_narrative
+        _ = narrative_fingerprint(narrative_db)
 
     cycle2 = await session.get(GDCycle, cycle_id)
     if not cycle2:
@@ -473,8 +665,8 @@ async def _gd_v1_execute_round_resolution_after_simulation(
         try:
             from waifu_bot.core import redis as redis_core
 
-            await gd_active_cache_mod.set_active_cycle_cache(
-                redis_core.get_redis(), cycle2.chat_id, None
+            await gd_active_cache_mod.invalidate_active_cycle_cache(
+                redis_core.get_redis(), cycle2.chat_id
             )
         except Exception:
             logger.debug("gd active cache invalidate on victory failed", exc_info=True)
@@ -800,45 +992,85 @@ async def finalize_gd_v1_rewards_and_notify(session: AsyncSession, cycle: GDCycl
         return
     cycle = fresh
     cfg = await get_game_config_map(session)
-    base_exp = cfg_float(cfg, "gd_base_exp_reward", 150)
-    base_gold = cfg_float(cfg, "gd_base_gold_reward", 300)
+    base_exp = cfg_float(cfg, "gd_base_exp_reward", 900)
+    base_gold = cfg_float(cfg, "gd_base_gold_reward", 1800)
     boss_e = cfg_float(cfg, "gd_boss_exp_bonus", 1.5)
     boss_g = cfg_float(cfg, "gd_boss_gold_bonus", 1.5)
+    chest_gold = int(cfg_float(cfg, "gd_completion_chest_gold", 250))
+    chest_exp = int(cfg_float(cfg, "gd_completion_chest_exp", 120))
     total_r = max(1, int(cycle.current_round_number or 1))
 
     state = cycle.battle_state_json or {}
     contrib = state.get("contribution") or {}
     loot_awards: list[dict] = list(state.get("loot_awards") or [])
     gold_extra_pct = float((state.get("loot_modifiers") or {}).get("gold_pct") or 0)
+    wipe_count = int(state.get("wipe_count") or 0)
+    wipe_m = wipe_reward_multiplier(wipe_count, cfg)
+    clean_m = clean_run_bonus_multiplier(wipe_count, cfg)
     regs = (
         await session.execute(select(GDRegistration).where(GDRegistration.cycle_id == cycle.id))
     ).scalars().all()
     uids = [int(r.user_id) for r in regs]
+    joined_at_by_uid: dict[int, int] = {
+        int(r.user_id): max(1, int(getattr(r, "joined_at_round", None) or 1)) for r in regs
+    }
 
     activity = state.get("activity_totals") or {}
-    scores: dict[int, float] = {}
-    for uid in uids:
-        sc = float(activity.get(str(uid), 0.0))
-        if sc < 1.0:
-            c = contrib.get(str(uid), {})
-            sc = (
-                float(c.get("text") or 0) * 1.0
-                + float(c.get("skill") or 0) * 1.5
-                + float(c.get("heal") or 0) * 1.2
-                + float(c.get("rounds") or 0) * 10.0
-            )
-            if sc < 8.0:
-                sc += 8.0
-        scores[uid] = sc
-    total_score = sum(scores.values()) or 1.0
+    # Dual score: presence + power → reward shares (values already normalized shares)
+    share_map = blend_dual_reward_scores(
+        uids, activity, contrib, cfg, joined_at_round_by_uid=joined_at_by_uid
+    )
+    # Display scores for ranking / narrative
+    scores: dict[int, float] = {
+        uid: 1000.0 * float(share_map.get(uid, 0.0)) for uid in uids
+    }
+
+    # MVP power vs presence for finale
+    party = list(state.get("party") or [])
+    name_by = {
+        int(p["user_id"]): str(p.get("name") or f"Игрок {p['user_id']}")
+        for p in party
+        if p.get("user_id") is not None
+    }
+    power_scores = {uid: power_score_from_contrib(contrib.get(str(uid))) for uid in uids}
+    presence_scores = {
+        uid: presence_score_for_uid(
+            uid,
+            activity,
+            contrib,
+            apply_floor=(joined_at_by_uid.get(uid, 1) <= 1
+                         or int((contrib.get(str(uid)) or {}).get("rounds") or 0) >= 1),
+        )
+        for uid in uids
+    }
+    mvp_power_name = name_by.get(max(power_scores, key=lambda u: power_scores[u])) if power_scores else None
+    mvp_presence_name = (
+        name_by.get(max(presence_scores, key=lambda u: presence_scores[u])) if presence_scores else None
+    )
 
     tpl = await session.get(GDDungeonTemplate, cycle.dungeon_template_id)
     dungeon_name = tpl.name if tpl else "Подземелье"
 
+    # Fingerprints from this cycle's rounds
+    rnds = (
+        await session.execute(
+            select(GDRound)
+            .where(GDRound.cycle_id == cycle.id)
+            .order_by(GDRound.round_number.desc())
+            .limit(8)
+        )
+    ).scalars().all()
     finale_ctx = {
         "dungeon_name": dungeon_name,
         "contributions": scores,
-        "party": state.get("party") or [],
+        "party": party,
+        "mvp_power_name": mvp_power_name,
+        "mvp_presence_name": mvp_presence_name,
+        "recent_narrative_fingerprints": recent_fingerprints_from_rounds(list(rnds)),
+        "absurd_event_seed": pick_absurd_event_seed(
+            biome_tag=(tpl.description or "") if tpl else "",
+            used_seed_ids=list(state.get("used_narrative_seed_ids") or []),
+        ),
     }
     timeout = float(cfg.get("gd_ai_timeout_seconds") or "20")
     _, finale_chat = await generate_gd_finale_narrative(finale_ctx, timeout_sec=timeout)
@@ -853,15 +1085,32 @@ async def finalize_gd_v1_rewards_and_notify(session: AsyncSession, cycle: GDCycl
 
     dm_tasks: list[Any] = []
     for uid in uids:
-        share = scores[uid] / total_score
+        share = float(share_map.get(uid, 0.0))
         c = contrib.get(str(uid), {})
         exp_mult = 1.0 + 0.15 * float(c.get("rounds") or 0) / float(total_r)
+        assist_bonus = 1.0 + 0.03 * min(5, int(c.get("assists") or 0))
+        jr = joined_at_by_uid.get(uid, 1)
+        stage_m = late_join_reward_stage_mult(jr, total_r, cfg)
         waifu_pre = (
             await session.execute(select(MainWaifu).where(MainWaifu.player_id == uid))
         ).scalar_one_or_none()
         lvl_m = reward_level_multiplier(int(waifu_pre.level or 1) if waifu_pre else 1, cfg)
-        exp = int(base_exp * boss_e * share * exp_mult * lvl_m)
-        gold = int(base_gold * boss_g * share * (1.0 + gold_extra_pct / 100.0) * lvl_m)
+        pool_m = wipe_m * clean_m * stage_m
+        exp = int(
+            (base_exp * boss_e * share * exp_mult * lvl_m + chest_exp * stage_m)
+            * wipe_m
+            * clean_m
+            * assist_bonus
+        )
+        gold = int(
+            (
+                base_gold * boss_g * share * (1.0 + gold_extra_pct / 100.0) * lvl_m
+                + chest_gold * stage_m
+            )
+            * wipe_m
+            * clean_m
+            * assist_bonus
+        )
         my_items = [x for x in loot_awards if int(x.get("user_id") or 0) == uid]
         rew = GDRewardRow(
             cycle_id=cycle.id,
@@ -893,17 +1142,25 @@ async def finalize_gd_v1_rewards_and_notify(session: AsyncSession, cycle: GDCycl
                 thr = int(calculate_total_experience_for_level(cur_lvl + 1))
                 exp_to_next = max(0, thr - int(waifu.experience or 0))
         skill_n = max(0, int(c.get("skill") or 0) // 50)
+        assists_n = int(c.get("assists") or 0)
         item_lines = ""
         if my_items:
             item_lines = "\n" + "\n".join(
                 f"Предмет: {it.get('name', 'Предмет')} (ур. {it.get('level', '?')})" for it in my_items
             )
+        clean_bit = "Чистый проход (+бонус)!" if wipe_count == 0 else f"Нокаутов: {wipe_count} (штраф к награде)"
+        stage_bit = (
+            f"Вступление с раунда {jr} · награда ×{stage_m:.2f}\n"
+            if jr > 1
+            else ""
+        )
         text_dm = (
             f"⚔️ Поход в «{dungeon_name}» завершён!\n"
             f"Твой вклад: {rank_map.get(uid, '?')} место из {len(uids)}\n"
-            f"Активность (очки): {int(scores.get(uid, 0))}\n"
-            f"Навыков применено (усл.): {skill_n}\n\n"
-            f"Награды:\n"
+            f"Сила (бой): {int(power_scores.get(uid, 0))} · Присутствие: {int(presence_scores.get(uid, 0))}\n"
+            f"Ассисты: {assists_n} · Навыков (усл.): {skill_n}\n"
+            f"{stage_bit}{clean_bit}\n\n"
+            f"Награды (completion chest + доля):\n"
             f"+{exp} EXP ({exp_to_next} до уровня {next_level})\n"
             f"+{gold} золота\n"
             f"{item_lines}"

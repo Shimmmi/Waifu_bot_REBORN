@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Seed GD dungeon templates and event templates."""
+"""Seed GD dungeon templates and legacy event templates.
+
+GDDungeonTemplate rows are used by GD v1.
+GDEventTemplate rows are legacy (pre-v1 engage/HP events) and are NOT read by
+gd_round_engine — kept only for historical DB compatibility / possible future reuse.
+"""
 import asyncio
 import sys
 from pathlib import Path
@@ -119,6 +124,7 @@ async def seed_gd_templates(session):
 
 
 async def seed_event_templates(session):
+    """Legacy event templates — unused by GD v1 round engine (orphan content)."""
     """Insert GD event templates (skip if same trigger_type + name + dungeon_event_key exists)."""
     for data in GD_EVENT_TEMPLATES:
         key = data.get("dungeon_event_key")
