@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { apiGet } from '../api/client'
+import { apiGet, type ArmoryItem } from '../api/client'
 import ProfileTabBar from '../components/ProfileTabBar.vue'
+import ItemCard from '../components/ItemCard.vue'
+import ItemDetailModal from '../components/ItemDetailModal.vue'
 
 const props = defineProps<{ id: string }>()
 
-type GuildTab = 'members' | 'raids' | 'wars' | 'achievements'
+type GuildTab = 'members' | 'raids' | 'wars' | 'achievements' | 'bank'
 
 type GuildSummary = {
   guild_id: number
@@ -108,9 +110,18 @@ const wars = ref<{
   items: WarItem[]
 } | null>(null)
 const achievements = ref<GuildAchievement[]>([])
+const bank = ref<{
+  gold: number
+  item_count: number
+  max_items: number
+  can_view_items: boolean
+  items: ArmoryItem[]
+} | null>(null)
 const loading = ref(true)
 const error = ref('')
 const activeTab = ref<GuildTab>('members')
+const modalOpen = ref(false)
+const modalItem = ref<ArmoryItem | null>(null)
 
 const ROLE_LABELS: Record<string, string> = {
   leader: 'Лидер',
@@ -127,6 +138,11 @@ const tabs = computed(() => [
     label: 'Достижения',
     count: achievements.value.filter((a) => a.earned).length,
   },
+  {
+    id: 'bank' as const,
+    label: 'Банк',
+    count: bank.value?.item_count,
+  },
 ])
 
 async function loadAll() {
@@ -141,18 +157,25 @@ async function loadAll() {
     return
   }
 
-  const [membersRes, raidsRes, warsRes, achRes] = await Promise.allSettled([
+  const [membersRes, raidsRes, warsRes, achRes, bankRes] = await Promise.allSettled([
     apiGet<{ items: GuildMember[] }>(`/guilds/${props.id}/members`),
     apiGet<NonNullable<typeof raids.value>>(`/guilds/${props.id}/raids`),
     apiGet<NonNullable<typeof wars.value>>(`/guilds/${props.id}/wars`),
     apiGet<{ items: GuildAchievement[] }>(`/guilds/${props.id}/achievements`),
+    apiGet<NonNullable<typeof bank.value>>(`/guilds/${props.id}/bank`),
   ])
 
   members.value = membersRes.status === 'fulfilled' ? membersRes.value.items : []
   raids.value = raidsRes.status === 'fulfilled' ? raidsRes.value : null
   wars.value = warsRes.status === 'fulfilled' ? warsRes.value : null
   achievements.value = achRes.status === 'fulfilled' ? achRes.value.items : []
+  bank.value = bankRes.status === 'fulfilled' ? bankRes.value : null
   loading.value = false
+}
+
+function openBankItem(item: ArmoryItem) {
+  modalItem.value = item
+  modalOpen.value = true
 }
 
 function statusLabel(status: string): string {
@@ -379,7 +402,28 @@ onMounted(() => void loadAll())
         </div>
         <p v-else class="empty-hint">Нет достижений</p>
       </div>
+
+      <div v-show="activeTab === 'bank'">
+        <p v-if="bank" class="kpi-line">
+          Золото: {{ bank.gold.toLocaleString('ru-RU') }}
+          · Предметы: {{ bank.item_count }} / {{ bank.max_items }}
+        </p>
+        <template v-if="bank?.can_view_items">
+          <div v-if="bank.items.length" class="inventory-grid">
+            <ItemCard
+              v-for="(item, idx) in bank.items"
+              :key="item.bank_item_id ?? item.id ?? idx"
+              :item="item"
+              @click="openBankItem"
+            />
+          </div>
+          <p v-else class="empty-hint">Банк пуст</p>
+        </template>
+        <p v-else class="empty-hint">Состав банка виден только участникам гильдии</p>
+      </div>
     </div>
+
+    <ItemDetailModal v-model="modalOpen" :item="modalItem" />
   </div>
 </template>
 

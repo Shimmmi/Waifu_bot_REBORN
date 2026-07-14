@@ -32,7 +32,7 @@ _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
 # Unicode "control pictures" (U+2400–U+243F) and other format/control chars
 _CONTROL_PICTURES_RE = re.compile(r"[\u2400-\u243f]")
 
-LEADERBOARD_KINDS = frozenset({"level", "gold", "gear_score", "dungeon_plus", "guild"})
+LEADERBOARD_KINDS = frozenset({"level", "gold", "gear_score", "dungeon_plus", "guild", "abyss"})
 
 
 def sanitize_display_name(
@@ -80,6 +80,44 @@ def compute_gear_score(equipped_items: list[m.InventoryItem]) -> int:
         affixes = getattr(inv, "affixes", None) or []
         score += len(affixes) * 2
     return score
+
+
+async def recompute_and_store_gear_score(session: AsyncSession, player_id: int) -> int:
+    """Recompute equipped gear score and persist on players.gear_score."""
+    equipped_q = await session.execute(
+        select(m.InventoryItem)
+        .options(selectinload(m.InventoryItem.affixes), selectinload(m.InventoryItem.item))
+        .where(
+            m.InventoryItem.player_id == player_id,
+            m.InventoryItem.equipment_slot > 0,
+        )
+    )
+    equipped = list(equipped_q.scalars().all())
+    score = compute_gear_score(equipped)
+    player = await session.get(m.Player, player_id)
+    if player is not None:
+        player.gear_score = int(score)
+    return int(score)
+
+
+async def recompute_all_gear_scores(session: AsyncSession, *, batch_size: int = 200) -> dict[str, int]:
+    """Admin batch: recompute gear_score for all players with equipped items."""
+    updated = 0
+    offset = 0
+    while True:
+        rows = (
+            await session.execute(
+                select(m.Player.id).order_by(m.Player.id).offset(offset).limit(batch_size)
+            )
+        ).all()
+        if not rows:
+            break
+        for (pid,) in rows:
+            await recompute_and_store_gear_score(session, int(pid))
+            updated += 1
+        offset += batch_size
+        await session.flush()
+    return {"updated": updated}
 
 
 def _gear_score_subquery():
@@ -156,7 +194,9 @@ async def build_public_summary(
         )
     )
     equipped = list(equipped_q.scalars().all())
-    gear_score = compute_gear_score(equipped)
+    live_gs = compute_gear_score(equipped)
+    stored_gs = int(getattr(player, "gear_score", 0) or 0)
+    gear_score = live_gs if live_gs else stored_gs
 
     guild_info = None
     if player.guild_membership and player.guild_membership.guild:
@@ -522,24 +562,53 @@ async def build_leaderboard(session: AsyncSession, kind: str, limit: int = 50) -
         ]
 
     if kind == "gear_score":
-        gs_subq = _gear_score_subquery()
         q = (
             select(
                 m.Player.id,
                 m.Player.username,
                 m.MainWaifu.name,
                 m.MainWaifu.level,
-                gs_subq.c.gear_score,
+                m.Player.gear_score,
             )
-            .join(gs_subq, gs_subq.c.player_id == m.Player.id)
             .outerjoin(m.MainWaifu, m.MainWaifu.player_id == m.Player.id)
-            .order_by(gs_subq.c.gear_score.desc(), m.Player.id.asc())
+            .where(m.Player.gear_score > 0)
+            .order_by(m.Player.gear_score.desc(), m.Player.id.asc())
             .limit(limit)
         )
         rows = (await session.execute(q)).all()
         return [
             _player_lb_row(tid, un, name, int(gs or 0), level=lvl)
             for tid, un, name, lvl, gs in rows
+        ]
+
+    if kind == "abyss":
+        from waifu_bot.services.abyss_service import week_start_msk
+
+        ws = week_start_msk()
+        q = (
+            select(
+                m.Player.id,
+                m.Player.username,
+                m.MainWaifu.name,
+                m.MainWaifu.level,
+                m.AbyssWeeklyLeaderboard.max_floor,
+            )
+            .join(
+                m.AbyssWeeklyLeaderboard,
+                m.AbyssWeeklyLeaderboard.player_id == m.Player.id,
+            )
+            .outerjoin(m.MainWaifu, m.MainWaifu.player_id == m.Player.id)
+            .where(m.AbyssWeeklyLeaderboard.week_start == ws)
+            .order_by(
+                m.AbyssWeeklyLeaderboard.max_floor.desc(),
+                m.Player.id.asc(),
+            )
+            .limit(limit)
+        )
+        rows = (await session.execute(q)).all()
+        return [
+            _player_lb_row(tid, un, name, int(floor or 0), level=lvl)
+            for tid, un, name, lvl, floor in rows
         ]
 
     if kind == "dungeon_plus":
@@ -1022,6 +1091,92 @@ async def build_guild_achievements(session: AsyncSession, guild_id: int) -> list
     return achievements
 
 
+async def build_guild_bank(
+    session: AsyncSession,
+    guild_id: int,
+    *,
+    viewer_tg_id: int | None,
+    viewer_is_admin: bool = False,
+) -> dict[str, Any] | None:
+    guild = await session.get(m.Guild, guild_id)
+    if not guild:
+        return None
+
+    item_count = await session.scalar(
+        select(func.count()).select_from(m.GuildBank).where(m.GuildBank.guild_id == guild_id)
+    ) or 0
+
+    can_view = bool(viewer_is_admin)
+    if not can_view and viewer_tg_id is not None:
+        mem = await session.scalar(
+            select(m.GuildMember).where(
+                m.GuildMember.guild_id == guild_id,
+                m.GuildMember.player_id == viewer_tg_id,
+            )
+        )
+        can_view = mem is not None
+
+    out: dict[str, Any] = {
+        "gold": int(guild.gold or 0),
+        "item_count": int(item_count),
+        "max_items": int(guild.max_bank_items or 0),
+        "can_view_items": can_view,
+        "items": [],
+    }
+    if not can_view:
+        return out
+
+    from waifu_bot.services.inventory_payload import (
+        enrich_inventory_items_with_template_stats,
+        serialize_inventory_item,
+    )
+    from waifu_bot.services.item_art import derive_image_key, derive_item_art_key
+
+    stmt = (
+        select(m.GuildBank)
+        .where(m.GuildBank.guild_id == guild_id)
+        .options(
+            selectinload(m.GuildBank.item),
+            selectinload(m.GuildBank.inventory_item).selectinload(m.InventoryItem.item),
+            selectinload(m.GuildBank.inventory_item).selectinload(m.InventoryItem.affixes),
+        )
+        .order_by(m.GuildBank.id.desc())
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    parked = [r.inventory_item for r in rows if r.inventory_item is not None]
+    if parked:
+        await enrich_inventory_items_with_template_stats(session, parked)
+
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        if row.inventory_item is not None:
+            serialized = serialize_inventory_item(row.inventory_item)
+            serialized["bank_item_id"] = row.id
+            items.append(serialized)
+            continue
+        item = row.item
+        if not item:
+            continue
+        slot_type = getattr(item, "slot_type", None) or "costume"
+        display_name = str(item.name or "Предмет")
+        items.append(
+            {
+                "bank_item_id": row.id,
+                "id": -int(row.id),
+                "name": display_name,
+                "display_name": display_name,
+                "rarity": 1,
+                "tier": int(item.tier or 1),
+                "level": int(getattr(item, "level", None) or 1),
+                "art_key": derive_item_art_key(slot_type, item.weapon_type, display_name),
+                "image_key": derive_image_key(slot_type, item.weapon_type, display_name),
+                "equipment_slot": None,
+            }
+        )
+    out["items"] = items
+    return out
+
+
 async def admin_stats(session: AsyncSession) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     day_ago = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1043,10 +1198,75 @@ async def admin_stats(session: AsyncSession) -> dict[str, Any]:
         )
     ).all()
 
+    avg_gs = await session.scalar(select(func.avg(m.Player.gear_score))) or 0
+    median_gs = 0
+    try:
+        median_row = await session.execute(
+            select(m.Player.gear_score)
+            .where(m.Player.gear_score > 0)
+            .order_by(m.Player.gear_score)
+            .offset(
+                max(
+                    0,
+                    int(
+                        (
+                            await session.scalar(
+                                select(func.count()).select_from(m.Player).where(m.Player.gear_score > 0)
+                            )
+                            or 0
+                        )
+                        // 2
+                    ),
+                )
+            )
+            .limit(1)
+        )
+        median_gs = int(median_row.scalar_one_or_none() or 0)
+    except Exception:
+        median_gs = 0
+
+    from waifu_bot.services.abyss_service import week_start_msk
+
+    ws = week_start_msk()
+    abyss_top = (
+        await session.execute(
+            select(m.Player.id, m.Player.username, m.MainWaifu.name, m.AbyssWeeklyLeaderboard.max_floor)
+            .join(m.AbyssWeeklyLeaderboard, m.AbyssWeeklyLeaderboard.player_id == m.Player.id)
+            .outerjoin(m.MainWaifu, m.MainWaifu.player_id == m.Player.id)
+            .where(m.AbyssWeeklyLeaderboard.week_start == ws)
+            .order_by(m.AbyssWeeklyLeaderboard.max_floor.desc())
+            .limit(5)
+        )
+    ).all()
+
+    bank_heavy = await session.scalar(
+        select(func.count())
+        .select_from(m.Guild)
+        .where(
+            m.Guild.id.in_(
+                select(m.GuildBank.guild_id)
+                .group_by(m.GuildBank.guild_id)
+                .having(func.count() > 5)
+            )
+        )
+    ) or 0
+
     return {
         "total_players": total_players,
         "with_character": with_waifu,
         "dau_today": dau,
         "banned_count": banned,
         "by_act": {int(act): int(cnt) for act, cnt in act_rows},
+        "avg_gear_score": round(float(avg_gs), 1),
+        "median_gear_score": median_gs,
+        "guilds_bank_over_5": int(bank_heavy),
+        "abyss_week_start": ws.isoformat(),
+        "abyss_top": [
+            {
+                "telegram_id": tid,
+                "character_name": sanitize_display_name(name, username=un, player_id=tid),
+                "max_floor": int(floor or 0),
+            }
+            for tid, un, name, floor in abyss_top
+        ],
     }

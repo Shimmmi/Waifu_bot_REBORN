@@ -80,52 +80,57 @@ function fmt(n: number): string {
   <div class="card profile-card">
     <div class="profile-hero">
       <div class="profile-paperdoll">
-        <div class="profile-slot-col profile-slot-col--left">
-          <EquipmentSlot
-            v-for="slot in SLOT_LAYOUT.left"
-            :key="`l-${slot}`"
-            :slot="slot"
-            :item="itemForSlot(slot)"
-            :admin-mode="adminMode"
-            @click="onSlotClick"
-          />
-        </div>
+        <div class="profile-paperdoll-row">
+          <div class="profile-slot-col profile-slot-col--left">
+            <EquipmentSlot
+              v-for="slot in SLOT_LAYOUT.left"
+              :key="`l-${slot}`"
+              :slot="slot"
+              :item="itemForSlot(slot)"
+              :admin-mode="adminMode"
+              compact
+              @click="onSlotClick"
+            />
+          </div>
 
-        <div class="profile-portrait-block">
-          <div class="profile-portrait">
-            <div class="profile-portrait-media">
-              <img v-if="portraitSrc" :src="portraitSrc" :alt="character?.name || 'Портрет'" />
-              <span v-else class="profile-portrait-fallback">👤</span>
-            </div>
-            <div v-if="character" class="profile-portrait-caption">
-              <h2>{{ character.name }}</h2>
-              <div class="profile-portrait-meta">
-                {{ character.race_label }} · {{ character.class_label }}
-              </div>
-              <div class="profile-portrait-level">Уровень {{ character.level }}</div>
-              <div v-if="guild" class="profile-portrait-guild">
-                <RouterLink v-if="guild.id" :to="`/g/${guild.id}`">
-                  {{ META_ICONS.guild }} [{{ guild.tag }}] {{ guild.name }}
-                </RouterLink>
-                <span v-else>{{ META_ICONS.guild }} [{{ guild.tag }}] {{ guild.name }}</span>
-                <span class="badge">Ур. {{ guild.level }}</span>
+          <div class="profile-portrait-block">
+            <div class="profile-portrait">
+              <div class="profile-portrait-media">
+                <img v-if="portraitSrc" :src="portraitSrc" :alt="character?.name || 'Портрет'" />
+                <span v-else class="profile-portrait-fallback">👤</span>
               </div>
             </div>
-            <div v-else class="profile-portrait-caption">
-              <h2>Нет персонажа</h2>
-            </div>
+          </div>
+
+          <div class="profile-slot-col profile-slot-col--right">
+            <EquipmentSlot
+              v-for="slot in SLOT_LAYOUT.right"
+              :key="`r-${slot}`"
+              :slot="slot"
+              :item="itemForSlot(slot)"
+              :admin-mode="adminMode"
+              compact
+              @click="onSlotClick"
+            />
           </div>
         </div>
 
-        <div class="profile-slot-col profile-slot-col--right">
-          <EquipmentSlot
-            v-for="slot in SLOT_LAYOUT.right"
-            :key="`r-${slot}`"
-            :slot="slot"
-            :item="itemForSlot(slot)"
-            :admin-mode="adminMode"
-            @click="onSlotClick"
-          />
+        <div v-if="character" class="profile-portrait-caption">
+          <h2>{{ character.name }}</h2>
+          <div class="profile-portrait-meta">
+            {{ character.race_label }} · {{ character.class_label }}
+          </div>
+          <div class="profile-portrait-level">Уровень {{ character.level }}</div>
+          <div v-if="guild" class="profile-portrait-guild">
+            <RouterLink v-if="guild.id" :to="`/g/${guild.id}`">
+              {{ META_ICONS.guild }} [{{ guild.tag }}] {{ guild.name }}
+            </RouterLink>
+            <span v-else>{{ META_ICONS.guild }} [{{ guild.tag }}] {{ guild.name }}</span>
+            <span class="badge">Ур. {{ guild.level }}</span>
+          </div>
+        </div>
+        <div v-else class="profile-portrait-caption">
+          <h2>Нет персонажа</h2>
         </div>
       </div>
 

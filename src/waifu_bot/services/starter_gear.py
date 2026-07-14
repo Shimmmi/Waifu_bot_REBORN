@@ -213,3 +213,10 @@ async def grant_main_waifu_starter_gear(
                 slot_type,
                 subtype,
             )
+
+    try:
+        from waifu_bot.services.armory_service import recompute_and_store_gear_score
+
+        await recompute_and_store_gear_score(session, player_id)
+    except Exception:
+        logger.exception("starter_gear gear_score recompute failed player=%s", player_id)
