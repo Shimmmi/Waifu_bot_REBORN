@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -15,6 +17,7 @@ from waifu_bot.game.constants import WAIFU_CLASS_LABEL_RU, WAIFU_RACE_LABEL_RU
 from waifu_bot.game.effective_stats import resolve_solo_combat_primary_four
 from waifu_bot.game.main_waifu_base_stats import compute_main_waifu_base_stats
 from waifu_bot.db.models.armory import PlayerBan, PlayerEventLog
+from waifu_bot.db.models.guild_extended import GuildRaidStatus, GuildWarRowStatus
 from waifu_bot.services.armory_access import PUBLIC_EVENT_TYPES, armory_access_level
 from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
 from waifu_bot.services.passive_skills import get_passive_skill_bonuses
@@ -24,6 +27,38 @@ from waifu_bot.services.paperdoll_quota import paperdoll_generations_remaining
 
 
 from waifu_bot.services.waifu_media_service import resolve_main_waifu_portrait_url
+
+_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+# Unicode "control pictures" (U+2400–U+243F) and other format/control chars
+_CONTROL_PICTURES_RE = re.compile(r"[\u2400-\u243f]")
+
+LEADERBOARD_KINDS = frozenset({"level", "gold", "gear_score", "dungeon_plus", "guild"})
+
+
+def sanitize_display_name(
+    name: str | None,
+    *,
+    username: str | None = None,
+    player_id: int | None = None,
+) -> str:
+    """Strip control chars / control-pictures; fall back to username or player id."""
+    raw = name or ""
+    cleaned_chars: list[str] = []
+    for ch in raw:
+        cat = unicodedata.category(ch)
+        if cat in ("Cc", "Cf", "Cs", "Co"):
+            continue
+        cleaned_chars.append(ch)
+    cleaned = _CONTROL_PICTURES_RE.sub("", "".join(cleaned_chars))
+    cleaned = _CTRL_RE.sub("", cleaned).strip()
+    if cleaned:
+        return cleaned
+    un = (username or "").strip()
+    if un:
+        return un
+    if player_id is not None:
+        return f"Игрок #{player_id}"
+    return "—"
 
 
 def _waifu_portrait_url(waifu: m.MainWaifu) -> str | None:
@@ -45,6 +80,45 @@ def compute_gear_score(equipped_items: list[m.InventoryItem]) -> int:
         affixes = getattr(inv, "affixes", None) or []
         score += len(affixes) * 2
     return score
+
+
+def _gear_score_subquery():
+    """SQL aggregate matching compute_gear_score for equipped items."""
+    affix_cnt = (
+        select(
+            m.InventoryAffix.inventory_item_id.label("inv_id"),
+            func.count().label("cnt"),
+        )
+        .group_by(m.InventoryAffix.inventory_item_id)
+        .subquery()
+    )
+    item_score = (
+        func.coalesce(m.InventoryItem.tier, 1) * 10
+        + func.coalesce(m.InventoryItem.rarity, 1) * 5
+        + func.coalesce(affix_cnt.c.cnt, 0) * 2
+    )
+    return (
+        select(
+            m.InventoryItem.player_id.label("player_id"),
+            func.sum(item_score).label("gear_score"),
+        )
+        .outerjoin(affix_cnt, affix_cnt.c.inv_id == m.InventoryItem.id)
+        .where(m.InventoryItem.equipment_slot > 0)
+        .group_by(m.InventoryItem.player_id)
+        .subquery()
+    )
+
+
+def _static_url(path: str | None) -> str | None:
+    if not path:
+        return None
+    p = path.strip()
+    if not p:
+        return None
+    if p.startswith("/"):
+        return p
+    return f"/static/{p}"
+
 
 
 async def load_player_bundle(session: AsyncSession, tg_id: int) -> tuple[m.Player | None, m.MainWaifu | None]:
@@ -394,11 +468,30 @@ async def search_players(session: AsyncSession, query: str, limit: int = 20) -> 
             "telegram_id": p.id,
             "username": p.username,
             "first_name": p.first_name,
-            "character_name": w.name if w else None,
+            "character_name": sanitize_display_name(
+                w.name if w else None, username=p.username, player_id=p.id
+            ),
             "level": w.level if w else None,
         }
         for p, w in rows
     ]
+
+
+def _player_lb_row(
+    tid: int,
+    username: str | None,
+    name: str | None,
+    value: int,
+    *,
+    level: int | None = None,
+) -> dict[str, Any]:
+    return {
+        "telegram_id": tid,
+        "username": username,
+        "character_name": sanitize_display_name(name, username=username, player_id=tid),
+        "level": level,
+        "value": int(value or 0),
+    }
 
 
 async def build_leaderboard(session: AsyncSession, kind: str, limit: int = 50) -> list[dict[str, Any]]:
@@ -406,57 +499,527 @@ async def build_leaderboard(session: AsyncSession, kind: str, limit: int = 50) -
         q = (
             select(m.Player.id, m.Player.username, m.MainWaifu.name, m.MainWaifu.level)
             .join(m.MainWaifu, m.MainWaifu.player_id == m.Player.id)
-            .order_by(m.MainWaifu.level.desc(), m.MainWaifu.experience.desc())
+            .order_by(m.MainWaifu.level.desc(), m.MainWaifu.experience.desc(), m.Player.id.asc())
             .limit(limit)
         )
         rows = (await session.execute(q)).all()
         return [
-            {"telegram_id": tid, "username": un, "character_name": name, "value": lvl}
+            _player_lb_row(tid, un, name, lvl, level=lvl)
             for tid, un, name, lvl in rows
         ]
+
     if kind == "gold":
         q = (
-            select(m.Player.id, m.Player.username, m.MainWaifu.name, m.Player.gold)
+            select(m.Player.id, m.Player.username, m.MainWaifu.name, m.MainWaifu.level, m.Player.gold)
             .outerjoin(m.MainWaifu, m.MainWaifu.player_id == m.Player.id)
-            .order_by(m.Player.gold.desc())
+            .order_by(m.Player.gold.desc(), m.Player.id.asc())
             .limit(limit)
         )
         rows = (await session.execute(q)).all()
         return [
-            {"telegram_id": tid, "username": un, "character_name": name, "value": gold}
-            for tid, un, name, gold in rows
+            _player_lb_row(tid, un, name, gold, level=lvl)
+            for tid, un, name, lvl, gold in rows
         ]
-    if kind == "dungeon_plus":
+
+    if kind == "gear_score":
+        gs_subq = _gear_score_subquery()
         q = (
             select(
                 m.Player.id,
                 m.Player.username,
                 m.MainWaifu.name,
-                func.max(m.PlayerDungeonPlus.plus_level).label("max_plus"),
+                m.MainWaifu.level,
+                gs_subq.c.gear_score,
+            )
+            .join(gs_subq, gs_subq.c.player_id == m.Player.id)
+            .outerjoin(m.MainWaifu, m.MainWaifu.player_id == m.Player.id)
+            .order_by(gs_subq.c.gear_score.desc(), m.Player.id.asc())
+            .limit(limit)
+        )
+        rows = (await session.execute(q)).all()
+        return [
+            _player_lb_row(tid, un, name, int(gs or 0), level=lvl)
+            for tid, un, name, lvl, gs in rows
+        ]
+
+    if kind == "dungeon_plus":
+        max_best = func.max(m.PlayerDungeonPlus.best_completed_plus_level)
+        max_unlocked = func.max(m.PlayerDungeonPlus.unlocked_plus_level)
+        q = (
+            select(
+                m.Player.id,
+                m.Player.username,
+                m.MainWaifu.name,
+                m.MainWaifu.level,
+                max_best.label("max_plus"),
             )
             .join(m.PlayerDungeonPlus, m.PlayerDungeonPlus.player_id == m.Player.id)
             .outerjoin(m.MainWaifu, m.MainWaifu.player_id == m.Player.id)
-            .group_by(m.Player.id, m.Player.username, m.MainWaifu.name)
-            .order_by(func.max(m.PlayerDungeonPlus.plus_level).desc())
+            .group_by(m.Player.id, m.Player.username, m.MainWaifu.name, m.MainWaifu.level)
+            .order_by(max_best.desc(), max_unlocked.desc(), m.Player.id.asc())
             .limit(limit)
         )
         rows = (await session.execute(q)).all()
         return [
-            {"telegram_id": tid, "username": un, "character_name": name, "value": mp or 0}
-            for tid, un, name, mp in rows
+            _player_lb_row(tid, un, name, int(mp or 0), level=lvl)
+            for tid, un, name, lvl, mp in rows
         ]
+
     if kind == "guild":
+        member_count = (
+            select(m.GuildMember.guild_id.label("guild_id"), func.count().label("cnt"))
+            .group_by(m.GuildMember.guild_id)
+            .subquery()
+        )
         q = (
-            select(m.Guild.id, m.Guild.name, m.Guild.tag, m.Guild.level, m.Guild.experience)
-            .order_by(m.Guild.level.desc(), m.Guild.experience.desc())
+            select(
+                m.Guild.id,
+                m.Guild.name,
+                m.Guild.tag,
+                m.Guild.level,
+                m.Guild.experience,
+                m.Guild.trophies_count,
+                func.coalesce(member_count.c.cnt, 0).label("member_count"),
+            )
+            .outerjoin(member_count, member_count.c.guild_id == m.Guild.id)
+            .order_by(m.Guild.level.desc(), m.Guild.experience.desc(), m.Guild.id.asc())
             .limit(limit)
         )
         rows = (await session.execute(q)).all()
         return [
-            {"guild_id": gid, "name": name, "tag": tag, "level": lvl, "experience": xp}
-            for gid, name, tag, lvl, xp in rows
+            {
+                "guild_id": gid,
+                "name": name,
+                "tag": tag,
+                "level": lvl,
+                "experience": xp,
+                "trophies": int(trophies or 0),
+                "member_count": int(mc or 0),
+                "value": lvl,
+            }
+            for gid, name, tag, lvl, xp, trophies, mc in rows
         ]
+
     return []
+
+
+async def build_guild_summary(session: AsyncSession, guild_id: int) -> dict[str, Any] | None:
+    guild = await session.get(m.Guild, guild_id)
+    if not guild:
+        return None
+
+    member_count = await session.scalar(
+        select(func.count()).select_from(m.GuildMember).where(m.GuildMember.guild_id == guild_id)
+    ) or 0
+
+    raid_wins = await session.scalar(
+        select(func.count())
+        .select_from(m.GuildRaid)
+        .where(m.GuildRaid.guild_id == guild_id, m.GuildRaid.status == GuildRaidStatus.VICTORY.value)
+    ) or 0
+    raid_losses = await session.scalar(
+        select(func.count())
+        .select_from(m.GuildRaid)
+        .where(m.GuildRaid.guild_id == guild_id, m.GuildRaid.status == GuildRaidStatus.DEFEAT.value)
+    ) or 0
+
+    war_wins = await session.scalar(
+        select(func.count())
+        .select_from(m.GuildWar)
+        .where(
+            m.GuildWar.winner_guild_id == guild_id,
+            m.GuildWar.status == GuildWarRowStatus.ENDED.value,
+        )
+    ) or 0
+    war_losses = await session.scalar(
+        select(func.count())
+        .select_from(m.GuildWar)
+        .where(
+            or_(m.GuildWar.guild_a_id == guild_id, m.GuildWar.guild_b_id == guild_id),
+            m.GuildWar.status == GuildWarRowStatus.ENDED.value,
+            m.GuildWar.winner_guild_id.is_not(None),
+            m.GuildWar.winner_guild_id != guild_id,
+        )
+    ) or 0
+
+    active_war = None
+    if guild.active_war_id or (guild.war_status and guild.war_status != "none"):
+        opponent = None
+        if guild.war_opponent_id:
+            opp = await session.get(m.Guild, guild.war_opponent_id)
+            if opp:
+                opponent = {"guild_id": opp.id, "name": opp.name, "tag": opp.tag}
+        active_war = {
+            "status": guild.war_status,
+            "score": guild.war_score,
+            "enemy_score": guild.war_score_enemy,
+            "ends_at": guild.war_ends_at.isoformat() if guild.war_ends_at else None,
+            "opponent": opponent,
+        }
+
+    active_raid = None
+    if guild.raid_active_id:
+        raid = await session.get(m.GuildRaid, guild.raid_active_id)
+        if raid:
+            template = await session.get(m.GuildRaidTemplate, raid.template_id)
+            active_raid = {
+                "raid_id": raid.id,
+                "status": raid.status,
+                "current_stage": raid.current_stage,
+                "stages_count": template.stages_count if template else None,
+                "name": template.name if template else None,
+                "tier": template.tier if template else None,
+                "started_at": raid.started_at.isoformat() if raid.started_at else None,
+                "ends_at": raid.ends_at.isoformat() if raid.ends_at else None,
+            }
+
+    return {
+        "guild_id": guild.id,
+        "name": guild.name,
+        "tag": guild.tag,
+        "description": guild.description,
+        "level": guild.level,
+        "experience": guild.experience,
+        "trophies": int(guild.trophies_count or 0),
+        "member_count": int(member_count),
+        "is_recruiting": bool(guild.is_recruiting),
+        "min_level_requirement": guild.min_level_requirement,
+        "icon_url": _static_url(guild.icon_path),
+        "banner_url": _static_url(guild.banner_path),
+        "title_badge": guild.title_badge_text,
+        "title_badge_until": guild.title_badge_until.isoformat() if guild.title_badge_until else None,
+        "war_status": guild.war_status,
+        "active_war": active_war,
+        "active_raid": active_raid,
+        "raid_wins": int(raid_wins),
+        "raid_losses": int(raid_losses),
+        "war_wins": int(war_wins),
+        "war_losses": int(war_losses),
+    }
+
+
+async def build_guild_members(session: AsyncSession, guild_id: int) -> list[dict[str, Any]] | None:
+    guild = await session.get(m.Guild, guild_id)
+    if not guild:
+        return None
+
+    role_order = case(
+        (m.GuildMember.is_leader.is_(True), 0),
+        (m.GuildMember.is_officer.is_(True), 1),
+        else_=2,
+    )
+    q = (
+        select(m.GuildMember, m.Player, m.MainWaifu)
+        .join(m.Player, m.Player.id == m.GuildMember.player_id)
+        .outerjoin(m.MainWaifu, m.MainWaifu.player_id == m.Player.id)
+        .where(m.GuildMember.guild_id == guild_id)
+        .order_by(role_order.asc(), m.MainWaifu.level.desc().nullslast(), m.Player.id.asc())
+    )
+    rows = (await session.execute(q)).all()
+    out: list[dict[str, Any]] = []
+    for member, player, waifu in rows:
+        if member.is_leader:
+            role = "leader"
+        elif member.is_officer:
+            role = "officer"
+        else:
+            role = "member"
+        out.append(
+            {
+                "telegram_id": player.id,
+                "username": player.username,
+                "character_name": sanitize_display_name(
+                    waifu.name if waifu else None, username=player.username, player_id=player.id
+                ),
+                "level": waifu.level if waifu else None,
+                "role": role,
+                "joined_at": member.joined_at.isoformat() if member.joined_at else None,
+            }
+        )
+    return out
+
+
+async def build_guild_raids(session: AsyncSession, guild_id: int, limit: int = 30) -> dict[str, Any] | None:
+    guild = await session.get(m.Guild, guild_id)
+    if not guild:
+        return None
+
+    wins = await session.scalar(
+        select(func.count())
+        .select_from(m.GuildRaid)
+        .where(m.GuildRaid.guild_id == guild_id, m.GuildRaid.status == GuildRaidStatus.VICTORY.value)
+    ) or 0
+    losses = await session.scalar(
+        select(func.count())
+        .select_from(m.GuildRaid)
+        .where(m.GuildRaid.guild_id == guild_id, m.GuildRaid.status == GuildRaidStatus.DEFEAT.value)
+    ) or 0
+    total_decided = int(wins) + int(losses)
+    winrate = round(100.0 * int(wins) / total_decided, 1) if total_decided else 0.0
+
+    active = None
+    if guild.raid_active_id:
+        raid = await session.execute(
+            select(m.GuildRaid)
+            .options(selectinload(m.GuildRaid.template), selectinload(m.GuildRaid.participants))
+            .where(m.GuildRaid.id == guild.raid_active_id)
+        )
+        raid_row = raid.scalar_one_or_none()
+        if raid_row:
+            active = await _serialize_guild_raid(session, raid_row, include_top=False)
+
+    finished_q = (
+        select(m.GuildRaid)
+        .options(selectinload(m.GuildRaid.template), selectinload(m.GuildRaid.participants))
+        .where(
+            m.GuildRaid.guild_id == guild_id,
+            m.GuildRaid.status.in_((GuildRaidStatus.VICTORY.value, GuildRaidStatus.DEFEAT.value)),
+        )
+        .order_by(m.GuildRaid.ends_at.desc().nullslast(), m.GuildRaid.id.desc())
+        .limit(limit)
+    )
+    finished_rows = (await session.execute(finished_q)).scalars().all()
+    items = [await _serialize_guild_raid(session, r, include_top=True) for r in finished_rows]
+
+    return {
+        "wins": int(wins),
+        "losses": int(losses),
+        "winrate": winrate,
+        "active": active,
+        "items": items,
+    }
+
+
+async def _serialize_guild_raid(
+    session: AsyncSession,
+    raid: m.GuildRaid,
+    *,
+    include_top: bool,
+) -> dict[str, Any]:
+    template = raid.template
+    top: list[dict[str, Any]] = []
+    if include_top and raid.participants:
+        ranked = sorted(raid.participants, key=lambda p: int(p.damage_dealt or 0), reverse=True)[:3]
+        player_ids = [p.player_id for p in ranked]
+        if player_ids:
+            players = (
+                await session.execute(
+                    select(m.Player, m.MainWaifu)
+                    .outerjoin(m.MainWaifu, m.MainWaifu.player_id == m.Player.id)
+                    .where(m.Player.id.in_(player_ids))
+                )
+            ).all()
+            by_id = {p.id: (p, w) for p, w in players}
+            for part in ranked:
+                p, w = by_id.get(part.player_id, (None, None))
+                top.append(
+                    {
+                        "telegram_id": part.player_id,
+                        "character_name": sanitize_display_name(
+                            w.name if w else None,
+                            username=p.username if p else None,
+                            player_id=part.player_id,
+                        ),
+                        "damage_dealt": int(part.damage_dealt or 0),
+                    }
+                )
+
+    return {
+        "raid_id": raid.id,
+        "name": template.name if template else None,
+        "tier": template.tier if template else None,
+        "status": raid.status,
+        "current_stage": raid.current_stage,
+        "stages_count": template.stages_count if template else None,
+        "gxp_reward": raid.gxp_reward,
+        "started_at": raid.started_at.isoformat() if raid.started_at else None,
+        "ends_at": raid.ends_at.isoformat() if raid.ends_at else None,
+        "top_participants": top,
+    }
+
+
+async def build_guild_wars(session: AsyncSession, guild_id: int, limit: int = 30) -> dict[str, Any] | None:
+    guild = await session.get(m.Guild, guild_id)
+    if not guild:
+        return None
+
+    wins = await session.scalar(
+        select(func.count())
+        .select_from(m.GuildWar)
+        .where(
+            m.GuildWar.winner_guild_id == guild_id,
+            m.GuildWar.status == GuildWarRowStatus.ENDED.value,
+        )
+    ) or 0
+    losses = await session.scalar(
+        select(func.count())
+        .select_from(m.GuildWar)
+        .where(
+            or_(m.GuildWar.guild_a_id == guild_id, m.GuildWar.guild_b_id == guild_id),
+            m.GuildWar.status == GuildWarRowStatus.ENDED.value,
+            m.GuildWar.winner_guild_id.is_not(None),
+            m.GuildWar.winner_guild_id != guild_id,
+        )
+    ) or 0
+
+    active = None
+    if guild.active_war_id or (guild.war_status and guild.war_status != "none"):
+        opponent = None
+        if guild.war_opponent_id:
+            opp = await session.get(m.Guild, guild.war_opponent_id)
+            if opp:
+                opponent = {"guild_id": opp.id, "name": opp.name, "tag": opp.tag}
+        active = {
+            "status": guild.war_status,
+            "score": guild.war_score,
+            "enemy_score": guild.war_score_enemy,
+            "ends_at": guild.war_ends_at.isoformat() if guild.war_ends_at else None,
+            "opponent": opponent,
+        }
+
+    wars_q = (
+        select(m.GuildWar)
+        .where(or_(m.GuildWar.guild_a_id == guild_id, m.GuildWar.guild_b_id == guild_id))
+        .order_by(m.GuildWar.declared_at.desc())
+        .limit(limit)
+    )
+    wars = (await session.execute(wars_q)).scalars().all()
+    opponent_ids = set()
+    for w in wars:
+        opponent_ids.add(w.guild_a_id if w.guild_b_id == guild_id else w.guild_b_id)
+        if w.winner_guild_id:
+            opponent_ids.add(w.winner_guild_id)
+    guilds_by_id: dict[int, m.Guild] = {}
+    if opponent_ids:
+        g_rows = (
+            await session.execute(select(m.Guild).where(m.Guild.id.in_(opponent_ids)))
+        ).scalars().all()
+        guilds_by_id = {g.id: g for g in g_rows}
+
+    items: list[dict[str, Any]] = []
+    for w in wars:
+        opp_id = w.guild_b_id if w.guild_a_id == guild_id else w.guild_a_id
+        opp = guilds_by_id.get(opp_id)
+        our_score = w.guild_a_score if w.guild_a_id == guild_id else w.guild_b_score
+        their_score = w.guild_b_score if w.guild_a_id == guild_id else w.guild_a_score
+        items.append(
+            {
+                "war_id": w.id,
+                "status": w.status,
+                "our_score": our_score,
+                "their_score": their_score,
+                "stake_gold": w.stake_gold,
+                "winner_guild_id": w.winner_guild_id,
+                "we_won": w.winner_guild_id == guild_id if w.winner_guild_id else None,
+                "opponent": (
+                    {"guild_id": opp.id, "name": opp.name, "tag": opp.tag} if opp else {"guild_id": opp_id}
+                ),
+                "declared_at": w.declared_at.isoformat() if w.declared_at else None,
+                "ends_at": w.ends_at.isoformat() if w.ends_at else None,
+            }
+        )
+
+    return {
+        "wins": int(wins),
+        "losses": int(losses),
+        "trophies": int(guild.trophies_count or 0),
+        "active": active,
+        "items": items,
+    }
+
+
+async def build_guild_achievements(session: AsyncSession, guild_id: int) -> list[dict[str, Any]] | None:
+    guild = await session.get(m.Guild, guild_id)
+    if not guild:
+        return None
+
+    achievements: list[dict[str, Any]] = []
+
+    trophies = int(guild.trophies_count or 0)
+    achievements.append(
+        {
+            "id": "war_trophies",
+            "kind": "trophy",
+            "name": "Трофеи войн",
+            "value": trophies,
+            "earned": trophies > 0,
+        }
+    )
+
+    raid_wins = await session.scalar(
+        select(func.count())
+        .select_from(m.GuildRaid)
+        .where(m.GuildRaid.guild_id == guild_id, m.GuildRaid.status == GuildRaidStatus.VICTORY.value)
+    ) or 0
+    for threshold in (1, 5, 10):
+        achievements.append(
+            {
+                "id": f"raid_wins_{threshold}",
+                "kind": "raid",
+                "name": f"Побед в рейдах: {threshold}",
+                "value": int(raid_wins),
+                "threshold": threshold,
+                "earned": int(raid_wins) >= threshold,
+            }
+        )
+
+    for threshold in (5, 10, 15, 20):
+        achievements.append(
+            {
+                "id": f"guild_level_{threshold}",
+                "kind": "level",
+                "name": f"Уровень гильдии {threshold}",
+                "value": guild.level,
+                "threshold": threshold,
+                "earned": guild.level >= threshold,
+            }
+        )
+
+    now = datetime.now(timezone.utc)
+    badge_until = guild.title_badge_until
+    if badge_until is not None and badge_until.tzinfo is None:
+        badge_until = badge_until.replace(tzinfo=timezone.utc)
+    badge_active = bool(
+        guild.title_badge_text
+        and (badge_until is None or badge_until > now)
+    )
+    if guild.title_badge_text:
+        achievements.append(
+            {
+                "id": "title_badge",
+                "kind": "title",
+                "name": guild.title_badge_text,
+                "earned": badge_active,
+                "until": guild.title_badge_until.isoformat() if guild.title_badge_until else None,
+            }
+        )
+
+    skill_q = (
+        select(m.GuildSkillLevelRow, m.GuildSkillDefinition)
+        .join(
+            m.GuildSkillDefinition,
+            m.GuildSkillDefinition.id == m.GuildSkillLevelRow.skill_definition_id,
+        )
+        .where(
+            m.GuildSkillLevelRow.guild_id == guild_id,
+            m.GuildSkillLevelRow.current_level > 0,
+        )
+        .order_by(m.GuildSkillDefinition.sort_order.asc(), m.GuildSkillDefinition.id.asc())
+    )
+    skill_rows = (await session.execute(skill_q)).all()
+    for row, definition in skill_rows:
+        achievements.append(
+            {
+                "id": f"skill_{definition.id}",
+                "kind": "skill",
+                "name": definition.name,
+                "tier": definition.tier,
+                "level": row.current_level,
+                "earned": True,
+            }
+        )
+
+    return achievements
 
 
 async def admin_stats(session: AsyncSession) -> dict[str, Any]:
