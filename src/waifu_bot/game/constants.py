@@ -249,7 +249,7 @@ GD_V1_START_CHAT_MESSAGE = (
 # Дефолты (fallback к game_config) для GD v1: тайминги и мульти-цикловый раунд.
 GD_REGISTRATION_WINDOW_MINUTES_DEFAULT = 15  # окно регистрации от первого /gd_join
 GD_ROUND_DURATION_MINUTES_DEFAULT = 15       # длительность сбора одного раунда
-GD_ROUND_CYCLE_CAP_DEFAULT = 8               # макс. число циклов в одном раунде (реплей)
+GD_ROUND_CYCLE_CAP_DEFAULT = 5               # макс. число циклов в одном раунде (реплей)
 GD_MAX_ACTIONS_PER_ROUND_DEFAULT = 8         # макс. отдельных действий игрока за раунд (анти-спам)
 GD_SERIES_WINDOW_SECONDS_DEFAULT = 8         # окно склейки сообщений одного типа в «серию»
 

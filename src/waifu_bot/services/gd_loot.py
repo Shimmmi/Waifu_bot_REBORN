@@ -118,3 +118,25 @@ async def try_award_item_on_monster_kill(
     except Exception:
         logger.exception("GD loot generation failed uid=%s", recipient_user_id)
         return None
+
+
+async def distribute_loot(
+    session: AsyncSession,
+    *,
+    party: list[dict[str, Any]],
+    contrib: dict[str, Any] | None,
+    avg_level: int,
+    boss: bool = False,
+) -> dict[str, Any] | None:
+    """Pick a living party member and try to award a kill drop (public helper for package API)."""
+    alive = [p for p in party if not p.get("fallen") and int(p.get("current_hp") or 0) > 0]
+    uid = pick_loot_recipient_user_id(alive, contrib or {}, boss=boss)
+    if uid is None:
+        return None
+    return await try_award_item_on_monster_kill(
+        session,
+        recipient_user_id=uid,
+        act=None,
+        avg_level=max(1, int(avg_level)),
+        boss=boss,
+    )

@@ -107,28 +107,70 @@ def coalesce_round_action(
 
 
 async def build_waifu_snapshot(session: AsyncSession, player_id: int) -> dict[str, Any] | None:
+    """Snapshot for GD combat: effective stats (gear + passives + perfection), not raw base only."""
+    from waifu_bot.core.redis import get_redis
+    from waifu_bot.game.formulas import calculate_max_hp
+    from waifu_bot.services.combat import CombatService
+
     w = (
         await session.execute(select(MainWaifu).where(MainWaifu.player_id == player_id))
     ).scalar_one_or_none()
     if not w:
         return None
-    hp = int(w.current_hp or 0)
-    if hp <= 0:
-        hp = 1
+    combat = CombatService(get_redis())
+    try:
+        eff = await combat._get_effective_combat_profile(session, player_id, w)
+    except Exception:
+        logger.exception("GD snapshot effective profile failed player_id=%s", player_id)
+        eff = {
+            "strength": int(w.strength or 10),
+            "agility": int(w.agility or 10),
+            "intelligence": int(w.intelligence or 10),
+            "luck": int(w.luck or 10),
+            "weapon_damage": None,
+        }
+    strength = int(eff.get("strength") or w.strength or 10)
+    agility = int(eff.get("agility") or w.agility or 10)
+    intelligence = int(eff.get("intelligence") or w.intelligence or 10)
+    luck = int(eff.get("luck") or w.luck or 10)
+    endurance = int(w.endurance or 10)
+    try:
+        from waifu_bot.services.passive_skills import get_passive_skill_bonuses
+
+        psb = await get_passive_skill_bonuses(session, player_id)
+        endurance += int(psb.get("main_stats_flat", 0) or 0)
+    except Exception:
+        pass
+    level = int(w.level or 1)
+    max_hp = max(1, calculate_max_hp(level, endurance, strength))
+    # Prefer live HP ratio on new max, never start dead
+    cur_live = int(w.current_hp or 0)
+    old_max = max(1, int(w.max_hp or max_hp))
+    if cur_live <= 0:
+        current_hp = max(1, max_hp)
+    else:
+        current_hp = max(1, min(max_hp, int(max_hp * cur_live / old_max)))
+    weapon_damage = eff.get("weapon_damage")
+    if weapon_damage is None:
+        weapon_damage = max(1, 5 + level // 2)
+    else:
+        weapon_damage = max(1, int(weapon_damage))
     return {
         "user_id": player_id,
         "name": w.name,
         "class_id": int(w.class_),
         "race_id": int(w.race),
-        "level": int(w.level or 1),
-        "strength": int(w.strength or 10),
-        "agility": int(w.agility or 10),
-        "intelligence": int(w.intelligence or 10),
-        "endurance": int(w.endurance or 10),
+        "level": level,
+        "strength": strength,
+        "agility": agility,
+        "intelligence": intelligence,
+        "endurance": endurance,
         "charm": int(w.charm or 10),
-        "luck": int(w.luck or 10),
-        "current_hp": hp,
-        "max_hp": int(w.max_hp or 100),
+        "luck": luck,
+        "weapon_damage": weapon_damage,
+        "current_hp": current_hp,
+        "max_hp": max_hp,
+        "gear_aware": True,
     }
 
 
@@ -173,7 +215,8 @@ class GDCycleService:
         if cached is False:
             pass  # cache miss — query DB below
         elif cached is None:
-            return None
+            # Negative sentinel can be poisoned after rollback; always re-check DB
+            pass
         else:
             cycle = await session.get(GDCycle, int(cached))
             if cycle and cycle.status == "active" and int(cycle.chat_id) == int(chat_id):
@@ -191,7 +234,8 @@ class GDCycleService:
                 self.redis, chat_id, cycle.id
             )
         else:
-            await gd_active_cache_mod.set_active_cycle_cache(self.redis, chat_id, None)
+            # Do not write long-lived "none" — DELETE key so next caller re-queries
+            await gd_active_cache_mod.invalidate_active_cycle_cache(self.redis, chat_id)
         return cycle
 
     async def get_party_roster(
@@ -248,13 +292,38 @@ class GDCycleService:
     async def ensure_registration_cycle(
         self, session: AsyncSession, chat_id: int
     ) -> GDCycle | None:
-        """Open registration if none; pick random GD template."""
+        """Open registration if none; pick random GD template. Respects per-chat cooldown."""
         existing = await self.get_registration_cycle_any(session, chat_id)
         if existing:
             return existing
         active = await self.get_active_v1_cycle(session, chat_id)
         if active:
             return None
+        cfg = await get_game_config_map(session)
+        cooldown_h = cfg_float(cfg, "gd_cooldown_after_finish_hours", 168.0)
+        if cooldown_h > 0:
+            last = (
+                await session.execute(
+                    select(GDCycle)
+                    .where(
+                        GDCycle.chat_id == chat_id,
+                        GDCycle.status == "finished",
+                        GDCycle.finished_at.isnot(None),
+                    )
+                    .order_by(GDCycle.finished_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if last and last.finished_at:
+                fin = last.finished_at
+                if fin.tzinfo is None:
+                    fin = fin.replace(tzinfo=timezone.utc)
+                unlock = fin + timedelta(hours=float(cooldown_h))
+                now = datetime.now(timezone.utc)
+                if unlock > now:
+                    # Signal cooldown via sentinel attribute consumed by register_join
+                    self._last_cooldown_unlock_at = unlock
+                    return None
         templates = (await session.execute(select(GDDungeonTemplate))).scalars().all()
         if not templates:
             logger.warning(
@@ -263,7 +332,6 @@ class GDCycleService:
             )
             return None
         tpl = random.choice(templates)
-        cfg = await get_game_config_map(session)
         window_m = cfg_int(
             cfg, "gd_registration_window_minutes", GD_REGISTRATION_WINDOW_MINUTES_DEFAULT
         )
@@ -287,8 +355,20 @@ class GDCycleService:
             return {"error": "active", "message": "Поход уже идёт — регистрация закрыта."}
         cfg = await get_game_config_map(session)
         max_party = cfg_int(cfg, "gd_max_party_size", 10)
+        self._last_cooldown_unlock_at = None
         cycle = await self.ensure_registration_cycle(session, chat_id)
         if not cycle:
+            if getattr(self, "_last_cooldown_unlock_at", None) is not None:
+                unlock = self._last_cooldown_unlock_at
+                return {
+                    "error": "cooldown",
+                    "message": (
+                        "В этом чате поход недавно завершён. "
+                        f"Новая регистрация с {unlock.astimezone(MSK).strftime('%d.%m %H:%M')} МСК. "
+                        "Запускайте /gd_join осознанно в нужном чате."
+                    ),
+                    "unlock_at": unlock.isoformat(),
+                }
             has_templates = await session.scalar(
                 select(func.count()).select_from(GDDungeonTemplate)
             )
@@ -314,14 +394,118 @@ class GDCycleService:
         snap = await build_waifu_snapshot(session, user_id)
         if not snap:
             return {"error": "no_waifu", "message": "Сначала создайте основную вайфу."}
-        session.add(GDRegistration(cycle_id=cycle.id, user_id=user_id, waifu_snapshot=snap))
+        was_first = (count or 0) == 0
+        session.add(
+            GDRegistration(
+                cycle_id=cycle.id,
+                user_id=user_id,
+                waifu_snapshot=snap,
+                joined_at_round=1,
+            )
+        )
         await session.flush()
+        tpl = await session.get(GDDungeonTemplate, cycle.dungeon_template_id)
+        party_now = int(count or 0) + 1
         return {
             "success": True,
+            "late_join": False,
             "name": snap["name"],
             "class_id": snap["class_id"],
+            "level": snap.get("level"),
             "cycle_id": cycle.id,
+            "was_first": was_first,
+            "party_count": party_now,
+            "max_party": max_party,
+            "joined_at_round": 1,
+            "reward_stage_mult": 1.0,
+            "dungeon_name": tpl.name if tpl else "Подземелье",
+            "registration_closes": cycle.registration_closes.isoformat()
+            if cycle.registration_closes
+            else None,
         }
+
+    async def register_late_join(
+        self, session: AsyncSession, chat_id: int, user_id: int
+    ) -> dict[str, Any]:
+        """Join an already-active cycle mid-run (append to party)."""
+        cfg = await get_game_config_map(session)
+        if cfg_int(cfg, "gd_late_join_enabled", 1) != 1:
+            return {
+                "error": "late_disabled",
+                "message": "Вступление в уже идущий поход отключено.",
+            }
+        cycle = await self.get_active_v1_cycle(session, chat_id)
+        if not cycle:
+            return {"error": "no_active", "message": "Нет активного похода в этом чате."}
+        state = dict(cycle.battle_state_json or {})
+        wave = str(state.get("wave") or "")
+        if wave == "done":
+            return {
+                "error": "finished",
+                "message": "Поход уже завершается — вступление недоступно.",
+            }
+        max_party = cfg_int(cfg, "gd_max_party_size", 10)
+        party: list[dict[str, Any]] = list(state.get("party") or [])
+        if any(int(p.get("user_id") or 0) == int(user_id) for p in party):
+            return {"error": "duplicate", "message": "Вы уже в отряде этого похода."}
+        exists = await session.scalar(
+            select(GDRegistration.id).where(
+                GDRegistration.cycle_id == cycle.id, GDRegistration.user_id == user_id
+            )
+        )
+        if exists:
+            return {"error": "duplicate", "message": "Вы уже записаны в этот поход."}
+        if len(party) >= max_party:
+            return {"error": "full", "message": "Отряд полон."}
+        snap = await build_waifu_snapshot(session, user_id)
+        if not snap:
+            return {"error": "no_waifu", "message": "Сначала создайте основную вайфу."}
+        joined_round = max(1, int(state.get("collecting_for_round") or 1))
+        total_est = max(8, int(cycle.total_rounds or 12))
+        from waifu_bot.services.gd_scaling import late_join_reward_stage_mult
+
+        stage_mult = late_join_reward_stage_mult(joined_round, total_est, cfg)
+        snap["user_id"] = user_id
+        snap.setdefault("fallen", False)
+        party.append(snap)
+        state["party"] = party
+        cycle.battle_state_json = state
+        session.add(
+            GDRegistration(
+                cycle_id=cycle.id,
+                user_id=user_id,
+                waifu_snapshot=snap,
+                joined_at_round=joined_round,
+            )
+        )
+        await session.flush()
+        await gd_active_cache_mod.set_active_cycle_cache(
+            self.redis, chat_id, cycle.id
+        )
+        tpl = await session.get(GDDungeonTemplate, cycle.dungeon_template_id)
+        return {
+            "success": True,
+            "late_join": True,
+            "name": snap["name"],
+            "class_id": snap["class_id"],
+            "level": snap.get("level"),
+            "cycle_id": cycle.id,
+            "party_count": len(party),
+            "max_party": max_party,
+            "joined_at_round": joined_round,
+            "reward_stage_mult": round(stage_mult, 3),
+            "dungeon_name": tpl.name if tpl else "Подземелье",
+            "wave": wave,
+            "collecting_for_round": joined_round,
+        }
+
+    async def join_chat(
+        self, session: AsyncSession, chat_id: int, user_id: int
+    ) -> dict[str, Any]:
+        """Registration join or late join depending on cycle status."""
+        if await self.get_active_v1_cycle(session, chat_id):
+            return await self.register_late_join(session, chat_id, user_id)
+        return await self.register_join(session, chat_id, user_id)
 
     async def close_registration_and_maybe_start(
         self, session: AsyncSession, cycle: GDCycle, *, force: bool = False
@@ -349,6 +533,14 @@ class GDCycleService:
                 party.append(s)
             levels = [int(p.get("level") or 1) for p in party]
             challenge_level = compute_challenge_level(levels, cfg)
+            tpl = await session.get(GDDungeonTemplate, cycle.dungeon_template_id)
+            thematic_ids = None
+            if tpl and tpl.thematic_bonus_class_ids is not None:
+                raw = tpl.thematic_bonus_class_ids
+                if isinstance(raw, list):
+                    thematic_ids = raw
+                elif isinstance(raw, dict) and "class_ids" in raw:
+                    thematic_ids = raw.get("class_ids")
             cycle.battle_state_json = {
                 "collecting_for_round": 1,
                 "party": party,
@@ -358,6 +550,10 @@ class GDCycleService:
                 "contribution": {},
                 "challenge_level": challenge_level,
                 "activity_totals": {},
+                "wipe_count": 0,
+                "assists": {},
+                "used_narrative_seed_ids": [],
+                "thematic_bonus_class_ids": thematic_ids,
             }
         else:
             cycle.finished_at = datetime.now(timezone.utc)
@@ -368,10 +564,41 @@ class GDCycleService:
                 self.redis, cycle.chat_id, cycle.id
             )
         else:
-            await gd_active_cache_mod.set_active_cycle_cache(
-                self.redis, cycle.chat_id, None
+            await gd_active_cache_mod.invalidate_active_cycle_cache(
+                self.redis, cycle.chat_id
             )
         return {"status": cycle.status, "registrations": len(regs)}
+
+    async def cancel_active_cycle(
+        self,
+        session: AsyncSession,
+        cycle: GDCycle,
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        """End an active GD without victory rewards (idle / defeat / player_stop)."""
+        if cycle.status != "active":
+            return {"error": "not_active", "message": "Поход не активен."}
+        state = dict(cycle.battle_state_json or {})
+        state["cancel_reason"] = str(reason or "cancelled")
+        cycle.battle_state_json = state
+        cycle.status = "cancelled"
+        cycle.finished_at = datetime.now(timezone.utc)
+        cycle.round_deadline_at = None
+        await session.flush()
+        # Invalidate (delete) rather than write "none" before commit — avoids poison on rollback
+        await gd_active_cache_mod.invalidate_active_cycle_cache(self.redis, cycle.chat_id)
+        if self.redis:
+            try:
+                await self.redis.delete(_buf_key(cycle.id))
+            except Exception:
+                logger.debug("GD cancel: redis buf delete failed", exc_info=True)
+        return {
+            "success": True,
+            "cycle_id": cycle.id,
+            "chat_id": int(cycle.chat_id),
+            "reason": state["cancel_reason"],
+        }
 
     async def reset_v1_cycles_for_chat(self, session: AsyncSession, chat_id: int) -> int:
         """Delete registration/active cycles for chat; CASCADE clears related rows; Redis round buffers cleared."""
