@@ -116,6 +116,7 @@ onMounted(() => loadSummary().then(loadExtra))
       :gear-score="summary.gear_score"
       :gold="summary.gold"
       :current-act="summary.current_act"
+      :guild="summary.guild"
       :admin-mode="isAdmin"
       @item-click="openModal"
     />

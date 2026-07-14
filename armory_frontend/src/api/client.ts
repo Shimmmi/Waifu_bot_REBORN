@@ -144,7 +144,7 @@ export interface PlayerSummary {
   character?: PlayerCharacter
   equipped_items?: ArmoryItem[]
   stats_effective?: Record<string, number>
-  guild?: { name: string; tag: string; level: number }
+  guild?: { id: number; name: string; tag: string; level: number; is_leader?: boolean; is_officer?: boolean }
   recent_dungeons?: Array<{ dungeon_name: string; status: string; plus_level: number }>
 }
 
