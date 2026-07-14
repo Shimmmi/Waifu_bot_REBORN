@@ -119,6 +119,7 @@ export interface ArmoryItem {
   is_legendary?: boolean
   base_stat?: string
   base_stat_value?: number
+  bank_item_id?: number
 }
 
 export interface PlayerCharacter {

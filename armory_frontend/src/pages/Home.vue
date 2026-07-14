@@ -37,6 +37,7 @@ const boards = reactive({
   level: { items: [] as PlayerRow[], loading: true as boolean, error: '' },
   gear_score: { items: [] as PlayerRow[], loading: true as boolean, error: '' },
   dungeon_plus: { items: [] as PlayerRow[], loading: true as boolean, error: '' },
+  abyss: { items: [] as PlayerRow[], loading: true as boolean, error: '' },
   gold: { items: [] as PlayerRow[], loading: true as boolean, error: '' },
   guild: { items: [] as GuildRow[], loading: true as boolean, error: '' },
 })
@@ -45,6 +46,7 @@ const PLAYER_BOARDS = [
   { kind: 'level' as const, title: 'Уровень', metric: 'Ур.' },
   { kind: 'gear_score' as const, title: 'Снаряжение', metric: 'GS' },
   { kind: 'dungeon_plus' as const, title: 'Данж+', metric: '+' },
+  { kind: 'abyss' as const, title: 'Бездна', metric: 'Этаж' },
   { kind: 'gold' as const, title: 'Золото', metric: 'Золото' },
 ]
 
@@ -89,6 +91,7 @@ onMounted(() => {
     loadBoard('level'),
     loadBoard('gear_score'),
     loadBoard('dungeon_plus'),
+    loadBoard('abyss'),
     loadBoard('gold'),
     loadBoard('guild'),
   ])

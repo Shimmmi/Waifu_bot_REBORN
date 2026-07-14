@@ -1365,6 +1365,9 @@ async def equip_item(
     from waifu_bot.services.event_log import log_event
 
     await log_event(session, player_id, "item_equipped", {"item_name": item_name, "slot": slot})
+    from waifu_bot.services.armory_service import recompute_and_store_gear_score
+
+    await recompute_and_store_gear_score(session, player_id)
     await session.commit()
     await session.refresh(inv)
     player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
@@ -1402,6 +1405,9 @@ async def unequip_item(
     if player_pre and player_pre.main_waifu:
         await _sync_waifu_max_hp(session, player_id, player_pre.main_waifu)
 
+    from waifu_bot.services.armory_service import recompute_and_store_gear_score
+
+    await recompute_and_store_gear_score(session, player_id)
     await session.commit()
     return {"success": True}
 

@@ -82,6 +82,9 @@ class Player(Base):
         JSONB, default=dict, server_default="{}", nullable=False
     )
 
+    # Denormalized equipped gear score for Armory leaderboards
+    gear_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
     # Relationships
     main_waifu: Mapped["MainWaifu"] = relationship(
         "MainWaifu", back_populates="player", uselist=False, cascade="all, delete-orphan"

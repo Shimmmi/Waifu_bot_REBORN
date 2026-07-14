@@ -71,6 +71,7 @@ def test_leaderboard_kinds_include_gear_and_dungeon():
     assert "dungeon_plus" in LEADERBOARD_KINDS
     assert "gear_score" in LEADERBOARD_KINDS
     assert "guild" in LEADERBOARD_KINDS
+    assert "abyss" in LEADERBOARD_KINDS
 
 
 @pytest.mark.asyncio

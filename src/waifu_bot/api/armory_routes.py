@@ -33,6 +33,7 @@ from waifu_bot.services.armory_service import (
     build_dungeon_history,
     build_event_feed,
     build_guild_achievements,
+    build_guild_bank,
     build_guild_members,
     build_guild_raids,
     build_guild_summary,
@@ -42,6 +43,8 @@ from waifu_bot.services.armory_service import (
     build_public_summary,
     build_stats_detail,
     load_player_bundle,
+    recompute_all_gear_scores,
+    recompute_and_store_gear_score,
     search_players,
 )
 from waifu_bot.services.paperdoll_quota import paperdoll_generations_remaining
@@ -534,6 +537,27 @@ async def get_guild_achievements(
     return {"items": items}
 
 
+@router.get("/guilds/{guild_id}/bank")
+async def get_guild_bank(
+    guild_id: int,
+    request: Request,
+    viewer: ArmoryUserOptional,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    await rate_limit_by_ip(redis, request, "guild_bank", 60)
+    viewer_is_admin = bool(viewer and settings.is_admin(int(viewer)))
+    data = await build_guild_bank(
+        session,
+        guild_id,
+        viewer_tg_id=int(viewer) if viewer else None,
+        viewer_is_admin=viewer_is_admin,
+    )
+    if data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="guild not found")
+    return data
+
+
 # --- Admin ---
 
 
@@ -564,6 +588,20 @@ async def admin_get_stats(
 ):
     await rate_limit_by_user(redis, admin_id, "admin_stats", 60)
     return await admin_stats(session)
+
+
+@router.post("/admin/gear-score/recompute", dependencies=[Depends(verify_csrf)])
+async def admin_recompute_gear_scores(
+    request: Request,
+    admin_id: ArmoryAdmin,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    await rate_limit_by_user(redis, admin_id, "admin_gs_recompute", 2)
+    result = await recompute_all_gear_scores(session)
+    await _admin_audit(session, request, admin_id, "recompute_gear_scores", payload=result)
+    await session.commit()
+    return {"success": True, **result}
 
 
 @router.get("/admin/players")
