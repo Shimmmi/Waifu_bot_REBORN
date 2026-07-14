@@ -148,15 +148,19 @@ function fmt(n: number): string {
       <div class="profile-stats-strip">
         <div class="profile-stats-grid">
           <div v-for="row in statRows" :key="row.key" class="profile-strip-cell">
-            <span class="profile-side-icon">{{ row.icon }}</span>
-            <span class="profile-side-value">{{ row.value }}</span>
+            <div class="profile-strip-top">
+              <span class="profile-side-icon">{{ row.icon }}</span>
+              <span class="profile-side-value">{{ row.value }}</span>
+            </div>
             <span class="profile-side-cell-label">{{ row.label }}</span>
           </div>
         </div>
         <div class="profile-meta-grid-strip">
           <div v-for="row in metaRows" :key="row.key" class="profile-strip-cell">
-            <span class="profile-side-icon">{{ row.icon }}</span>
-            <span class="profile-side-value">{{ row.value }}</span>
+            <div class="profile-strip-top">
+              <span class="profile-side-icon">{{ row.icon }}</span>
+              <span class="profile-side-value">{{ row.value }}</span>
+            </div>
             <span class="profile-side-cell-label">{{ row.label }}</span>
           </div>
         </div>

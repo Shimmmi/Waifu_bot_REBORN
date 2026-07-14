@@ -186,7 +186,7 @@ th { color: var(--muted); font-weight: 500; }
 /* Profile hero */
 .profile-card {
   padding: 1.25rem;
-  --slot-size: clamp(64px, 9vw, 96px);
+  --slot-size: clamp(56px, 18vw, 72px);
 }
 .profile-hero {
   display: flex;
@@ -201,30 +201,42 @@ th { color: var(--muted); font-weight: 500; }
   align-items: stretch;
 }
 .profile-paperdoll-row {
+  --portrait-w: clamp(200px, 28vw, 320px);
+  --portrait-h: calc(var(--portrait-w) * 3 / 2); /* 2:3 */
+  --slot-gap: 0.5rem;
+  --slot-size: calc((var(--portrait-h) - 2 * var(--slot-gap)) / 3);
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: stretch;
+  grid-template-columns: var(--slot-size) minmax(0, var(--portrait-w)) var(--slot-size);
+  justify-content: center;
+  align-items: start;
   gap: 0.65rem;
+  column-gap: 0.65rem;
 }
 .profile-slot-col {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  align-items: stretch;
-  align-self: stretch;
+  width: var(--slot-size);
+  gap: var(--slot-gap);
+  align-items: center;
+  align-self: start;
+  height: var(--portrait-h);
   min-height: 0;
 }
 .profile-slot-col .profile-slot-card {
-  flex: 1 1 0;
+  flex: 0 0 var(--slot-size);
   width: var(--slot-size);
-  height: auto;
-  min-height: 64px;
+  height: var(--slot-size);
+  max-width: none;
+  min-height: 0;
   aspect-ratio: 1;
   align-self: center;
 }
 .profile-portrait-block {
+  width: 100%;
+  max-width: var(--portrait-w);
   min-width: 0;
   display: flex;
+  overflow: hidden;
 }
 .profile-portrait {
   position: relative;
@@ -236,23 +248,21 @@ th { color: var(--muted); font-weight: 500; }
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  flex: 1;
 }
 .profile-portrait-media {
   display: grid;
   place-items: center;
   width: 100%;
-  min-height: clamp(240px, 46vw, 520px);
-  height: 100%;
-  padding: 0.5rem;
+  aspect-ratio: 2 / 3;
+  padding: 0;
   overflow: hidden;
 }
 .profile-portrait-media img {
   width: 100%;
-  height: auto;
-  max-height: clamp(240px, 46vw, 520px);
-  object-fit: contain;
-  object-position: center bottom;
+  height: 100%;
+  max-width: 100%;
+  object-fit: cover;
+  object-position: center;
 }
 .profile-portrait-fallback {
   font-size: clamp(3rem, 15vw, 5rem);
@@ -320,9 +330,17 @@ th { color: var(--muted); font-weight: 500; }
   border-radius: 8px;
   background: var(--bg);
   padding: 0.4rem 0.25rem;
-  gap: 0.15rem;
+  gap: 0.2rem;
   min-height: 44px;
   text-align: center;
+}
+.profile-strip-top {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-width: 0;
 }
 
 /* Legacy sidebar cells (kept for admin/other) */
@@ -833,13 +851,28 @@ body.item-art-gen-busy .item-art-gen-busy-overlay {
   }
   .profile-hero { gap: 0.5rem; }
   .profile-paperdoll-row {
-    grid-template-columns: 1fr;
+    --portrait-w: min(100%, clamp(220px, 70vw, 360px));
+    --portrait-h: calc(var(--portrait-w) * 3 / 2);
+    --slot-size: clamp(56px, 18vw, 72px);
+    grid-template-columns: minmax(0, var(--portrait-w));
+    justify-content: center;
+  }
+  .profile-portrait-block {
+    width: 100%;
+    max-width: var(--portrait-w);
+    margin-inline: auto;
   }
   .profile-slot-col {
     display: none;
   }
   .profile-gear-row--mobile {
     display: flex;
+  }
+  .profile-gear-row--mobile .profile-slot-card {
+    flex: 0 0 var(--slot-size);
+    width: var(--slot-size);
+    height: var(--slot-size);
+    aspect-ratio: 1;
   }
   .profile-stats-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
