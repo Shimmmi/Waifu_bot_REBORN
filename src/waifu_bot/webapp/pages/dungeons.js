@@ -902,17 +902,17 @@ function initPlusSelect(globalUnlocked, statusById) {
 function getDifficultyDescription(n) {
   const lvl = Number(n || 0);
   if (lvl === 0) return "Базовая сложность.";
-  // Mirrors waifu_bot.game.dungeon_plus_scaling (REF=5000, ttk=3+0.4N, dmg=1+0.08N).
-  const ttk = 3.0 + 0.4 * lvl;
-  const hpTarget = Math.round(5000 * ttk);
+  // Mirrors waifu_bot.game.dungeon_plus_scaling: HP=2300+100*n^2.15, dmg=1+0.08N.
+  const hpTarget = Math.round(2300 + 100 * Math.pow(lvl, 2.15));
+  const ttkAt1k = hpTarget / 1000;
   const dmgPct = Math.round(lvl * 8);
   const reward = (1 + lvl * 0.22 + Math.log1p(lvl) * 0.15).toFixed(2);
   const rarityLabels = ["обычная", "необычная", "редкая", "эпическая", "легендарная"];
   const rarity = rarityLabels[Math.min(Math.floor(lvl / 2), 4)];
   const elite = Math.min(40, lvl * 2);
-  const extra = Math.floor(lvl / 4);
+  const extra = Math.max(0, Math.floor((lvl - 4) / 4));
   const extraTxt = extra > 0 ? ` +${extra} монстр.` : "";
-  return `HP ≈${hpTarget} (~${ttk.toFixed(1)} сообщ. при 5k). Урон монстров +${dmgPct}%. Награды x${reward}. Предмет +${lvl} ур. Редкость: ${rarity}. Элиты +${elite}%.${extraTxt}`;
+  return `HP ≈${hpTarget} (~${ttkAt1k.toFixed(1)} сообщ. при 1k). Урон монстров +${dmgPct}%. Награды x${reward}. Предмет +${lvl} ур. Редкость: ${rarity}. Элиты +${elite}%.${extraTxt}`;
 }
 
 window.WaifuApp.openPlusBottomSheet = (dungeonId) => {

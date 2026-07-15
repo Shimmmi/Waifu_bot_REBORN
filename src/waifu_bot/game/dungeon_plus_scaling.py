@@ -1,20 +1,23 @@
-"""Dungeon+ combat/reward scaling — TTK-anchored HP, decoupled monster damage."""
+"""Dungeon+ combat/reward scaling — nonlinear HP curve, decoupled monster damage."""
 
 from __future__ import annotations
 
 import math
 
-# Typical endgame message damage used to size monster HP (balance anchor).
-REF_MSG_DAMAGE = 5000
+# Soft early (+1 ≈ 2.4k HP for campaign graduates ~1k text dmg), steep late (+30 ≈ 152k).
+# hp_target(N) = HP_FLAT + HP_SCALE * N ** HP_EXP
+HP_FLAT = 2300.0
+HP_SCALE = 100.0
+HP_EXP = 2.15
 
-# ttk_normal(N) = TTK_BASE + TTK_PER_PLUS * N  → +1≈3.4 … +30≈15 messages @ REF
-TTK_BASE = 3.0
-TTK_PER_PLUS = 0.4
+# Orientative TTK helper: messages at ~1k text damage (campaign graduate).
+ENTRY_REF_MSG_DAMAGE = 1000
 
 # Monster outgoing damage grows slower than HP.
 DMG_MULT_PER_PLUS = 0.08
 
-# Extra monsters in the run: +1 every EXTRA_MOBS_EVERY plus levels.
+# Extra monsters: none before +8; then +1 every 4 plus levels past +4.
+EXTRA_MOBS_OFFSET = 4
 EXTRA_MOBS_EVERY = 4
 
 # Reward curve (applied after character % sum on kills).
@@ -24,24 +27,24 @@ REWARD_LOG_COEFF = 0.15
 RARITY_TIERS = ("common", "uncommon", "rare", "epic", "legendary")
 
 
-def dungeon_plus_ttk_normal(plus_level: int) -> float:
-    """Target messages-to-kill for a normal (non-boss) mob at plus_level."""
-    n = max(0, int(plus_level or 0))
-    if n <= 0:
-        return 1.0
-    return float(TTK_BASE) + float(TTK_PER_PLUS) * float(n)
-
-
 def dungeon_plus_hp_target(plus_level: int) -> float:
     """Absolute HP target for a normal mob before boss/elite multipliers."""
     n = max(0, int(plus_level or 0))
     if n <= 0:
         return 0.0
-    return float(REF_MSG_DAMAGE) * dungeon_plus_ttk_normal(n)
+    return float(HP_FLAT) + float(HP_SCALE) * (float(n) ** float(HP_EXP))
+
+
+def dungeon_plus_ttk_normal(plus_level: int) -> float:
+    """Derived TTK (messages) at ENTRY_REF_MSG_DAMAGE ≈ 1k for docs/UI."""
+    n = max(0, int(plus_level or 0))
+    if n <= 0:
+        return 1.0
+    return float(dungeon_plus_hp_target(n)) / float(ENTRY_REF_MSG_DAMAGE)
 
 
 def dungeon_plus_hp_mult_for_rolled(plus_level: int, rolled_hp: int) -> float:
-    """Scale factor so rolled HP lands near the TTK anchor target."""
+    """Scale factor so rolled HP lands near the nonlinear HP target."""
     n = max(0, int(plus_level or 0))
     if n <= 0:
         return 1.0
@@ -65,11 +68,14 @@ def dungeon_plus_reward_mult(plus_level: int) -> float:
 
 
 def dungeon_plus_extra_monsters(plus_level: int) -> int:
-    """Extra monsters added to obstacle_min/max for Dungeon+."""
+    """Extra monsters added to obstacle_min/max for Dungeon+.
+
+    +1..+7 → 0; +8..+11 → 1; …; +30 → 6.
+    """
     n = max(0, int(plus_level or 0))
     if n <= 0:
         return 0
-    return int(n) // int(EXTRA_MOBS_EVERY)
+    return max(0, (int(n) - int(EXTRA_MOBS_OFFSET)) // int(EXTRA_MOBS_EVERY))
 
 
 def dungeon_plus_budget_mult(plus_level: int) -> float:
@@ -77,7 +83,10 @@ def dungeon_plus_budget_mult(plus_level: int) -> float:
     n = max(0, int(plus_level or 0))
     if n <= 0:
         return 1.0
-    return max(1.0, dungeon_plus_ttk_normal(n))
+    base = dungeon_plus_hp_target(1)
+    if base <= 0:
+        return 1.0
+    return max(1.0, (dungeon_plus_hp_target(n) / base) ** 0.5)
 
 
 def dungeon_plus_difficulty_params(plus_level: int) -> dict:
