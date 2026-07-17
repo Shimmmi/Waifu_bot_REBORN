@@ -2919,13 +2919,41 @@ function renderExpTierSelect() {
   }
 }
 
+function expeditionMaxUnlockedTier(sqPower) {
+  const tiers = expeditionState.catalog?.depth_tiers || [];
+  let best = null;
+  for (const dt of tiers) {
+    if (sqPower >= (dt.min_squad_power || 0)) best = dt;
+  }
+  return best;
+}
+
 function updateExpeditionSquadPowerLabel() {
-  const el = expG("esm-squad-power");
-  if (!el) return;
   const sq = expeditionSquadPowerTotal();
-  const tier = (expeditionState.catalog?.depth_tiers || []).find((t) => t.tier === expeditionSend.depthTier);
-  const need = tier ? tier.min_squad_power || 0 : 0;
-  el.textContent = `Мощь отряда: ${sq}${need ? ` / нужно ${need}` : ""}`;
+  const tiers = expeditionState.catalog?.depth_tiers || [];
+  const selected = tiers.find((t) => t.tier === expeditionSend.depthTier);
+  const needSelected = selected ? selected.min_squad_power || 0 : 0;
+  const nextLocked = tiers.find((t) => sq < (t.min_squad_power || 0));
+  const colorNeed = needSelected > sq ? needSelected : nextLocked ? nextLocked.min_squad_power || 0 : needSelected;
+  const powerCls = powerThresholdClass(sq, colorNeed);
+
+  const el = expG("esm-squad-power");
+  if (el) {
+    el.innerHTML = `Мощь отряда: <span class="${powerCls}">${sq}</span>${needSelected ? ` / нужно ${needSelected}` : ""}`;
+  }
+
+  const rosterEl = expG("esm-roster-power");
+  if (rosterEl) {
+    const unlocked = expeditionMaxUnlockedTier(sq);
+    const roman = unlocked ? TIER_ROMAN[(unlocked.tier || 1) - 1] || String(unlocked.tier) : "I";
+    const name = unlocked
+      ? TIER_SHORT_NAMES[unlocked.tier] || unlocked.name_ru || unlocked.name || `Тир ${unlocked.tier}`
+      : TIER_SHORT_NAMES[1] || "Разведка";
+    rosterEl.innerHTML =
+      `<span>⚔ Мощь отряда: <span class="${powerCls}">${sq}</span></span>` +
+      `<span class="exp-roster-power-tier">доступно: ${escapeHtml(roman)} ${escapeHtml(name)}</span>`;
+  }
+
   renderExpTierSelect();
 }
 
@@ -3180,9 +3208,16 @@ function openSendExpModal() {
 
 function openExpRosterModal() {
   expOpenOverlay("exp-roster-modal");
+  updateExpeditionSquadPowerLabel();
   ensureExpeditionRoster()
-    .then(() => renderExpRosterPicker())
-    .catch(() => renderExpRosterPicker());
+    .then(() => {
+      renderExpRosterPicker();
+      updateExpeditionSquadPowerLabel();
+    })
+    .catch(() => {
+      renderExpRosterPicker();
+      updateExpeditionSquadPowerLabel();
+    });
 }
 
 function closeExpRosterModal() {
@@ -3645,13 +3680,13 @@ async function healExpeditionSquad(squadState) {
     return;
   }
 
-  const modal = document.getElementById("expedition-result-modal");
   const btn = document.getElementById("exp-result-heal-btn");
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Лечение...";
   }
   const errors = [];
+  let healed = 0;
   for (const u of wounded) {
     try {
       const res = await apiFetch(`/tavern/heal?hired_waifu_id=${u.hired_waifu_id}`, { method: "POST" });
@@ -3660,6 +3695,7 @@ async function healExpeditionSquad(squadState) {
       } else {
         u.healing = true;
         u.heal_minutes = res?.heal_minutes ?? u.heal_forecast_minutes;
+        healed += 1;
       }
     } catch (e) {
       const { detail } = parseHttpErrorDetail(e);
@@ -3667,15 +3703,23 @@ async function healExpeditionSquad(squadState) {
     }
   }
   expResultSquadState = squadState;
-  renderExpResultSquad(expResultSquadState);
-  if (modal) modal.style.display = "flex";
 
-  if (errors.length) {
-    showToast?.(`Часть не вылечена: ${errors.join("; ")}`, "danger");
-  }
-  await loadExpeditionTab({ force: true }).catch(() => {});
   if (typeof loadProfile === "function") await loadProfile().catch(() => {});
-  if (modal) modal.style.display = "flex";
+
+  if (healed > 0) {
+    if (errors.length) {
+      showToast?.(`Часть не вылечена: ${errors.join("; ")}`, "danger");
+    }
+    closeExpeditionResult();
+    return;
+  }
+
+  renderExpResultSquad(expResultSquadState);
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = "💊 Отправить на лечение";
+  }
+  showToast?.(`Не удалось отправить на лечение: ${errors.join("; ")}`, "danger");
 }
 
 function closeExpeditionResult() {
