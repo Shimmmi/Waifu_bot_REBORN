@@ -1053,7 +1053,14 @@ async function startDungeon(dungeonId, plusLevel = 0) {
   let res;
   try {
     const pl = Math.max(0, Number(plusLevel || 0));
-    res = await apiFetch(`/dungeons/${dungeonId}/start?plus_level=${encodeURIComponent(pl)}`, { method: "POST" });
+    const eco =
+      (typeof getClientEconomy === "function" && getClientEconomy()) ||
+      (window.WaifuApp && typeof window.WaifuApp.getClientEconomy === "function" && window.WaifuApp.getClientEconomy()) ||
+      "telegram";
+    res = await apiFetch(
+      `/dungeons/${dungeonId}/start?plus_level=${encodeURIComponent(pl)}&economy=${encodeURIComponent(eco)}`,
+      { method: "POST" }
+    );
   } catch (e) {
     const { detail, raw } = parseHttpErrorDetail(e);
     // If already active: show progress card instead of throwing unhandled promise

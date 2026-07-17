@@ -1,0 +1,20 @@
+{
+  "name": "waifu-mobile-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Android Capacitor shell for Waifu Bot activity economy (steps = chars)",
+  "scripts": {
+    "build:web": "node scripts/sync-web-placeholder.js",
+    "cap:sync": "npx cap sync android",
+    "cap:open": "npx cap open android",
+    "dev:serve": "echo Open backend webapp with ?mobileClient=1 — see README.md"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/core": "^6.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0"
+  }
+}

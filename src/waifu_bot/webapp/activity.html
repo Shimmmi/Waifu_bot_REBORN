@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Activity — шаги</title>
+  <link rel="stylesheet" href="/webapp/styles.css" />
+  <script src="/webapp/vendor/telegram-web-app.js"></script>
+</head>
+<body class="page-activity">
+  <div class="activity-banner">Режим Activity (Steam / Mobile): урон от шагов и кликов. Инвентарь и походы отделены от Telegram.</div>
+  <div class="activity-steps-card" id="activity-card">
+    <h2>Шаги → удар</h2>
+    <p class="muted" id="activity-hint">Каждый шаг = 1 символ. Для кинжала со скоростью 3 нужно ≥3 шага.</p>
+    <div class="activity-meter">
+      <span>Буфер: <strong id="act-buffer">0</strong></span>
+      <span>До удара: <strong id="act-need">—</strong></span>
+    </div>
+    <div class="activity-meter">
+      <span>Мин. символов: <strong id="act-min">3</strong></span>
+      <span>Сегодня: <strong id="act-today">0</strong></span>
+    </div>
+    <p class="muted" id="act-perm">Разрешение на активность: проверка…</p>
+    <button type="button" id="act-claim">Забрать урон за шаги</button>
+    <button type="button" id="act-perm-btn" style="margin-top:8px;background:#3a4558;color:#f5f0e6;">Запросить доступ к шагомеру</button>
+  </div>
+  <nav class="nav basement" aria-label="Навигация">
+    <a href="./index.html?mobileClient=1&economy=activity" data-page="home" title="Хаб">Хабы</a>
+    <a href="./dungeons.html?mobileClient=1&economy=activity" data-page="dungeons" title="Данжи">Данжи</a>
+    <a href="./activity.html?mobileClient=1&economy=activity" data-page="activity" class="active" title="Шаги">Шаги</a>
+    <a href="./profile.html?mobileClient=1&economy=activity" data-page="profile" title="Профиль">Профиль</a>
+  </nav>
+  <script src="/webapp/app.js"></script>
+  <script>
+    (function () {
+      const $ = (id) => document.getElementById(id);
+      async function refreshStatus() {
+        try {
+          const st = await WaifuApp.apiFetch("/activity/status");
+          $("act-buffer").textContent = st.buffer_units ?? 0;
+          $("act-min").textContent = st.min_chars ?? 3;
+          $("act-need").textContent = st.units_to_next_hit ?? 0;
+          $("act-today").textContent = st.units_accepted_today ?? 0;
+        } catch (e) {
+          console.warn("activity status", e);
+        }
+      }
+
+      async function readStepsDelta() {
+        if (window.waifuMobile?.getStepSnapshot) {
+          const snap = await window.waifuMobile.getStepSnapshot();
+          return {
+            units: Number(snap?.deltaSinceLastClaim || snap?.pendingDelta || 0) || 0,
+            total: snap?.total != null ? Number(snap.total) : null,
+            permission: snap?.permission,
+          };
+        }
+        // Browser / desktop fallback: no pedometer
+        return { units: 0, total: null, permission: "unavailable" };
+      }
+
+      async function updatePermLabel() {
+        const snap = await readStepsDelta();
+        const el = $("act-perm");
+        if (snap.permission === "granted") el.textContent = "Шагомер: доступ разрешён";
+        else if (snap.permission === "denied") el.textContent = "Шагомер: отказано — урон от шагов недоступен";
+        else if (snap.permission === "unavailable") el.textContent = "Шагомер недоступен в этом окружении (нужен APK)";
+        else el.textContent = "Шагомер: требуется разрешение";
+      }
+
+      $("act-claim").addEventListener("click", async () => {
+        const btn = $("act-claim");
+        btn.disabled = true;
+        try {
+          const snap = await readStepsDelta();
+          const body = {
+            source: "mobile_steps",
+            units: Math.max(0, snap.units),
+            client_counter_total: snap.total,
+          };
+          // If bridge tracks claim baseline, also allow claiming buffered server-side only
+          if (body.units <= 0 && window.waifuMobile?.consumePendingSteps) {
+            const consumed = await window.waifuMobile.consumePendingSteps();
+            body.units = Number(consumed?.units || 0);
+            body.client_counter_total = consumed?.total ?? body.client_counter_total;
+          }
+          const out = await WaifuApp.apiFetch("/activity/input/claim", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (out.hits_applied > 0) {
+            $("activity-hint").textContent = `Нанесено ударов: ${out.hits_applied}. Буфер: ${out.buffer_left}`;
+          } else if (out.rejected_reason) {
+            $("activity-hint").textContent = `Нет удара: ${out.rejected_reason}. Буфер: ${out.buffer_left}`;
+          } else {
+            $("activity-hint").textContent = `Шаги приняты (${out.accepted_units}). До удара: ${out.units_to_next_hit}`;
+          }
+          await refreshStatus();
+        } catch (e) {
+          $("activity-hint").textContent = String(e?.message || e);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      $("act-perm-btn").addEventListener("click", async () => {
+        if (window.waifuMobile?.requestActivityPermission) {
+          await window.waifuMobile.requestActivityPermission();
+        }
+        await updatePermLabel();
+      });
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+          refreshStatus();
+          updatePermLabel();
+        }
+      });
+
+      window.WaifuApp = window.WaifuApp || {};
+      refreshStatus();
+      updatePermLabel();
+    })();
+  </script>
+</body>
+</html>

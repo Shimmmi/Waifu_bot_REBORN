@@ -119,13 +119,25 @@ def apply_main_stats_flat_to_four(
     )
 
 
-async def fetch_equipped_inventory_items(session: AsyncSession, player_id: int) -> list[InventoryItem]:
+async def fetch_equipped_inventory_items(
+    session: AsyncSession,
+    player_id: int,
+    *,
+    economy: str = "telegram",
+) -> list[InventoryItem]:
     """Экипированные предметы с affixes (для согласованного расчёта с боем)."""
+    from waifu_bot.game.economy import normalize_economy
+
+    eco = normalize_economy(economy)
     try:
         q = await session.execute(
             select(InventoryItem)
             .options(selectinload(InventoryItem.affixes))
-            .where(InventoryItem.player_id == player_id, InventoryItem.equipment_slot.isnot(None))
+            .where(
+                InventoryItem.player_id == player_id,
+                InventoryItem.equipment_slot.isnot(None),
+                InventoryItem.economy == eco,
+            )
         )
         return list(q.scalars().all())
     except Exception:

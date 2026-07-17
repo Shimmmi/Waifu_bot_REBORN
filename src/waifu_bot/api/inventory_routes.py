@@ -52,12 +52,17 @@ async def list_inventory(
     session: AsyncSession = Depends(get_db),
     rarity: Optional[int] = Query(None, ge=1, le=5),
     equipped: Optional[bool] = None,
+    economy: Optional[str] = Query(None, description="telegram | activity"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
+    from waifu_bot.game.economy import normalize_economy
+
     query = select(m.InventoryItem).options(*inventory_item_load_options()).where(
         m.InventoryItem.player_id == player_id
     )
+    if economy:
+        query = query.where(m.InventoryItem.economy == normalize_economy(economy))
     if rarity:
         query = query.where(m.InventoryItem.rarity == rarity)
     if equipped is True:

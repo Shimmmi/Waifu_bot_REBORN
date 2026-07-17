@@ -31,7 +31,7 @@ Quick start:
 
 ```bash
 git clone git@github.com:Shimmmi/Waifu_bot_REBORN.git && cd Waifu_bot_REBORN
-git checkout feature/steam-client
+git checkout feature/mobile-android   # or feature/steam-client; activity combat lives on mobile-android
 # start staging (see docs/STEAM_CLIENT_DEV_SETUP.md); --wait blocks until
 # the api container's healthcheck passes, instead of returning as soon as
 # the process forks (which races npm run dev and can look like a broken

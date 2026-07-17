@@ -738,17 +738,25 @@ class CombatService:
         source_message_id: int | None = None,
         *,
         skip_spam_check: bool = False,
+        economy: str = "telegram",
     ) -> dict:
         """Process message damage in active battle.
 
         Returns:
             dict with battle state and result
         """
+        from waifu_bot.game.economy import ECONOMY_ACTIVITY, normalize_economy
+
+        economy = normalize_economy(economy)
+        # Activity clients never use media types — force TEXT-equivalent path.
+        if economy == ECONOMY_ACTIVITY:
+            media_type = MediaType.TEXT
+
         # Check anti-spam
         if not skip_spam_check and not await self._check_spam(player_id):
             return {"error": "spam_detected", "message": "Too many messages"}
 
-        run = await self._get_active_run(session, player_id)
+        run = await self._get_active_run(session, player_id, economy=economy)
         progress = None
         if run:
             try:
@@ -758,6 +766,9 @@ class CombatService:
             except Exception:
                 pass
         if not run:
+            # Legacy DungeonProgress is telegram-only; activity never falls back to it.
+            if economy == ECONOMY_ACTIVITY:
+                return {"error": "no_active_battle"}
             progress = await self._get_active_progress(session, player_id)
             if progress:
                 import logging as _clog
@@ -815,7 +826,9 @@ class CombatService:
             )
 
         # Compute effective stats (base + equipped bonuses) and pick attack type from weapon.
-        eff = await self._get_effective_combat_profile(session, player_id, waifu, cached_psb=ps)
+        eff = await self._get_effective_combat_profile(
+            session, player_id, waifu, cached_psb=ps, economy=economy
+        )
         attack_type = eff["attack_type"]
         eff_strength = eff["strength"]
         eff_agility = eff["agility"]
@@ -1790,12 +1803,15 @@ class CombatService:
         waifu: MainWaifu,
         *,
         cached_psb: dict | None = None,
+        economy: str = "telegram",
     ) -> dict:
         """
         Compute effective combat stats based on equipped items (до all_stats_pct; см. process_message).
         """
         try:
-            equipped = await fetch_equipped_inventory_items(session, player_id)
+            equipped = await fetch_equipped_inventory_items(
+                session, player_id, economy=economy
+            )
         except Exception:
             equipped = []
         weapon = roll_weapon_damage_and_meta(equipped)
@@ -2101,11 +2117,24 @@ class CombatService:
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def _get_active_run(self, session: AsyncSession, player_id: int) -> DungeonRun | None:
+    async def _get_active_run(
+        self,
+        session: AsyncSession,
+        player_id: int,
+        *,
+        economy: str = "telegram",
+    ) -> DungeonRun | None:
         """Latest active run when duplicates exist (legacy rows not closed)."""
+        from waifu_bot.game.economy import normalize_economy
+
+        eco = normalize_economy(economy)
         stmt = (
             select(DungeonRun)
-            .where(DungeonRun.player_id == player_id, DungeonRun.status == "active")
+            .where(
+                DungeonRun.player_id == player_id,
+                DungeonRun.status == "active",
+                DungeonRun.economy == eco,
+            )
             .order_by(DungeonRun.started_at.desc(), DungeonRun.id.desc())
             .limit(1)
         )
@@ -3135,6 +3164,7 @@ class CombatService:
                         is_shop=False,
                         plus_level=pl,
                     )
+                    inv.economy = getattr(run, "economy", None) or "telegram"
                     from waifu_bot.services.item_codex import encounter_item_codex
 
                     await encounter_item_codex(session, int(run.player_id), inv)

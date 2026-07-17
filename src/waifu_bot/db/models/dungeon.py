@@ -246,6 +246,8 @@ class DungeonRun(Base):
     drop_power_rank: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active/completed/failed/abandoned
+    # telegram | activity — run can only be progressed by matching economy combat
+    economy: Mapped[str] = mapped_column(String(16), default="telegram", nullable=False)
     seed: Mapped[int] = mapped_column(Integer, nullable=False)
 
     current_position: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

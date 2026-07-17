@@ -99,13 +99,20 @@ def _check_requirements(inv: m.InventoryItem, waifu: m.MainWaifu) -> bool:
     return True
 
 
-async def _clear_equipment_slots(session: AsyncSession, player_id: int, slots: list[int]) -> None:
+async def _clear_equipment_slots(
+    session: AsyncSession,
+    player_id: int,
+    slots: list[int],
+    *,
+    economy: str = "telegram",
+) -> None:
     if not slots:
         return
     res = await session.execute(
         select(m.InventoryItem).where(
             m.InventoryItem.player_id == player_id,
             m.InventoryItem.equipment_slot.in_(slots),
+            m.InventoryItem.economy == economy,
         )
     )
     for it in res.scalars().all():
@@ -123,6 +130,7 @@ async def _assign_to_first_free_slot(
             select(m.InventoryItem).where(
                 m.InventoryItem.player_id == player_id,
                 m.InventoryItem.equipment_slot == slot,
+                m.InventoryItem.economy == "telegram",
             )
         )
         if res.scalar_one_or_none() is None:

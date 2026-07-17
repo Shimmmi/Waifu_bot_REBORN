@@ -153,6 +153,9 @@ class Settings(BaseSettings):
     desktop_oidc_redirect_uri: str | None = Field(None, alias="DESKTOP_OIDC_REDIRECT_URI")
     desktop_session_ttl_days: int = Field(30, alias="DESKTOP_SESSION_TTL_DAYS")
 
+    # Mobile Google Sign-In (activity client)
+    google_client_id: str | None = Field(None, alias="GOOGLE_CLIENT_ID")
+
     @field_validator("admin_ids", mode="before")
     @classmethod
     def _split_admin_ids(cls, v: str | list[int]) -> list[int]:

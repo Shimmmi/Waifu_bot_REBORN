@@ -4,7 +4,7 @@ const config = require("../config");
 
 /**
  * Global mouse-click / key-press counter -> batched POST to
- * /api/pc/hits/batch (see src/waifu_bot/api/pc_client_routes.py).
+ * /api/pc/hits/batch → activity claim (1 click = 1 TEXT char; shared with mobile steps).
  *
  * Privacy: only *counts* are tracked, globally (works even when the app
  * isn't focused, like Bongo Cat) — never which key was pressed or where the

@@ -39,6 +39,27 @@ function isDesktopClient() {
   }
 }
 
+function isMobileClient() {
+  try {
+    if (window.waifuMobile) return true;
+    const q = new URLSearchParams(window.location.search);
+    return q.get("mobileClient") === "1" || q.get("economy") === "activity";
+  } catch {
+    return false;
+  }
+}
+
+function getClientEconomy() {
+  if (isMobileClient() || isDesktopClient()) return "activity";
+  try {
+    const eco = new URLSearchParams(window.location.search).get("economy");
+    if (eco === "activity") return "activity";
+  } catch {
+    /* ignore */
+  }
+  return "telegram";
+}
+
 /** Desktop tab pages live under webapp/steam/ unless already on a steam layout. */
 function steamRelativePage(page) {
   const inSteamDir =
@@ -93,6 +114,23 @@ if (typeof window !== "undefined") {
       link.rel = "stylesheet";
       link.href = `/webapp/desktop-theme.css?v=${WAIFU_WEBAPP_VERSION}`;
       link.setAttribute("data-desktop-theme", "1");
+      document.head.appendChild(link);
+    }
+  } catch {
+    /* ignore */
+  }
+})();
+
+(function applyMobileClientTheme() {
+  if (typeof document === "undefined" || !isMobileClient()) return;
+  document.documentElement.classList.add("mobile-client");
+  document.documentElement.classList.add("economy-activity");
+  try {
+    if (!document.querySelector("link[data-mobile-theme]")) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = `/webapp/mobile-theme.css?v=${WAIFU_WEBAPP_VERSION}`;
+      link.setAttribute("data-mobile-theme", "1");
       document.head.appendChild(link);
     }
   } catch {
@@ -177,8 +215,10 @@ function getDevPlayerIdFromQuery() {
  * only accepted server-side when APP_ENV is dev/stage/testing).
  */
 function getDesktopSessionTokenSync() {
-  if (!isDesktopClient()) return null;
+  if (!isDesktopClient() && !isMobileClient()) return null;
   try {
+    const fromMobile = window.waifuMobile?.getDesktopSessionToken?.();
+    if (fromMobile) return String(fromMobile);
     const fromBridge = window.waifuDesktop?.getDesktopSessionToken?.();
     if (fromBridge) return String(fromBridge);
     if (typeof localStorage !== "undefined") {
@@ -194,12 +234,16 @@ function getDesktopSessionTokenSync() {
 let _desktopSessionReadyPromise = null;
 
 async function ensureDesktopSessionReady() {
-  if (!isDesktopClient()) return null;
+  if (!isDesktopClient() && !isMobileClient()) return null;
   const sync = getDesktopSessionTokenSync();
   if (sync) return sync;
   if (!_desktopSessionReadyPromise) {
     _desktopSessionReadyPromise = (async () => {
       try {
+        if (typeof window.waifuMobile?.whenDesktopSessionReady === "function") {
+          const t = await window.waifuMobile.whenDesktopSessionReady();
+          if (t) return String(t);
+        }
         if (typeof window.waifuDesktop?.whenDesktopSessionReady === "function") {
           const t = await window.waifuDesktop.whenDesktopSessionReady();
           if (t) return String(t);
@@ -220,7 +264,7 @@ async function ensureDesktopSessionReady() {
 }
 
 function getDesktopSteamAuthHeader() {
-  if (!isDesktopClient()) return null;
+  if (!isDesktopClient() && !isMobileClient()) return null;
   try {
     const session = getDesktopSessionTokenSync();
     if (session) return { name: "X-Desktop-Session", value: String(session) };
@@ -1870,9 +1914,13 @@ function setPlusLevelForDungeon(dungeonId, pl) {
 window.WaifuApp = window.WaifuApp || {};
 function connectSSE() {
   const initData = getInitData();
-  if (!initData) return;
+  const desktopSession = getDesktopSessionTokenSync();
+  if (!initData && !desktopSession) return;
   if (sse) sse.close();
-  const url = `${API_BASE}/sse/stream?initData=${encodeURIComponent(initData)}`;
+  const params = new URLSearchParams();
+  if (initData) params.set("initData", initData);
+  if (desktopSession) params.set("desktopSession", desktopSession);
+  const url = `${API_BASE}/sse/stream?${params.toString()}`;
   sse = new EventSource(url);
   sse.onmessage = (ev) => {
     const data = ev?.data;
@@ -15223,6 +15271,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   respondGuildWar,
   apiFetch,
   getInitData,
+  getClientEconomy,
+  isMobileClient,
+  isDesktopClient,
   spendStatPoint,
   populateCaravanPage,
   travelToAct,

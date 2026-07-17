@@ -341,9 +341,13 @@ async def dungeon_plus_status(
 async def start_dungeon(
     dungeon_id: int,
     plus_level: int = Query(0, ge=0),
+    economy: str = Query("telegram", description="telegram | activity"),
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
+    from waifu_bot.game.economy import normalize_economy
+
+    economy = normalize_economy(economy)
     dungeon = await session.get(m.Dungeon, dungeon_id)
     if not dungeon:
         raise HTTPException(status_code=404, detail="Dungeon not found")
@@ -359,7 +363,9 @@ async def start_dungeon(
             detail=f"Level requirement not met. Required: {dungeon.level}, current: {waifu.level}"
         )
 
-    result = await dungeon_service.start_dungeon(session, player_id, dungeon_id, plus_level=plus_level)
+    result = await dungeon_service.start_dungeon(
+        session, player_id, dungeon_id, plus_level=plus_level, economy=economy
+    )
     if "error" in result:
         if result["error"] == "dungeon_locked_act":
             raise HTTPException(status_code=400, detail="dungeon_locked_act")

@@ -121,6 +121,7 @@ from waifu_bot.db.models.abyss import (
     AbyssWeeklyLeaderboard,
     AbyssShardsShopItem,
 )
+from waifu_bot.db.models.activity import ActivityInputState, ActivityItemTemplate
 
 __all__ = [
     "PlayerEventLog",
@@ -239,4 +240,6 @@ __all__ = [
     "AbyssGrace",
     "AbyssWeeklyLeaderboard",
     "AbyssShardsShopItem",
+    "ActivityInputState",
+    "ActivityItemTemplate",
 ]

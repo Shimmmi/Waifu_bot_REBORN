@@ -268,11 +268,24 @@ class DungeonService:
             await session.rollback()
             return False
 
-    async def _get_active_run(self, session: AsyncSession, player_id: int) -> DungeonRun | None:
+    async def _get_active_run(
+        self,
+        session: AsyncSession,
+        player_id: int,
+        *,
+        economy: str = "telegram",
+    ) -> DungeonRun | None:
+        from waifu_bot.game.economy import normalize_economy
+
+        eco = normalize_economy(economy)
         try:
             stmt = (
                 select(DungeonRun)
-                .where(DungeonRun.player_id == player_id, DungeonRun.status == "active")
+                .where(
+                    DungeonRun.player_id == player_id,
+                    DungeonRun.status == "active",
+                    DungeonRun.economy == eco,
+                )
                 .order_by(DungeonRun.started_at.desc(), DungeonRun.id.desc())
                 .limit(1)
             )
@@ -625,9 +638,18 @@ class DungeonService:
         return list(result.scalars().all())
 
     async def start_dungeon(
-        self, session: AsyncSession, player_id: int, dungeon_id: int, plus_level: int = 0
+        self,
+        session: AsyncSession,
+        player_id: int,
+        dungeon_id: int,
+        plus_level: int = 0,
+        *,
+        economy: str = "telegram",
     ) -> dict:
         """Start a dungeon."""
+        from waifu_bot.game.economy import ECONOMY_ACTIVITY, normalize_economy
+
+        economy = normalize_economy(economy)
         # Get player and dungeon
         player = await session.get(Player, player_id)
         dungeon = await session.get(Dungeon, dungeon_id)
@@ -700,13 +722,14 @@ class DungeonService:
             if not row or pl > int(row.unlocked_plus_level or 0):
                 return {"error": "dungeon_plus_level_locked"}
 
-        # Check if already has active dungeon (new runs + legacy progress)
-        active_run = await self._get_active_run(session, player_id)
+        # Check if already has active dungeon for this economy (legacy progress = telegram only)
+        active_run = await self._get_active_run(session, player_id, economy=economy)
         if active_run:
             return {"error": "dungeon_already_active"}
-        active = await self._get_active_progress(session, player_id)
-        if active:
-            return {"error": "dungeon_already_active"}
+        if economy != ECONOMY_ACTIVITY:
+            active = await self._get_active_progress(session, player_id)
+            if active:
+                return {"error": "dungeon_already_active"}
 
         from waifu_bot.services.abyss_service import has_active_abyss_session
 
@@ -743,6 +766,7 @@ class DungeonService:
                     dungeon_id=dungeon_id,
                     plus_level=pl,
                     status="active",
+                    economy=economy,
                     seed=seed,
                     current_position=1,
                     total_monsters=total,

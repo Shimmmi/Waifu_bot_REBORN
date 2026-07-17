@@ -126,6 +126,9 @@ class InventoryItem(Base):
     # 0 = not equipped, 1-6 = equipment slot
     equipment_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # telegram = chat/media economy; activity = Steam clicks / mobile steps (shared bag)
+    economy: Mapped[str] = mapped_column(String(16), default="telegram", nullable=False)
+
     # Enchanting (+1..+10): steps computed once at creation; level changes on enchant attempts
     enchant_level: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     enchant_dmg_step: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

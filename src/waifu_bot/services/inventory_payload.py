@@ -237,6 +237,7 @@ def serialize_inventory_item(
         "requirements": inv.requirements,
         "affixes": affixes,
         "slot_type": inv.slot_type,
+        "economy": getattr(inv, "economy", None) or "telegram",
         "image_key": image_key,
         "art_key": art_key,
         "image_url": None,

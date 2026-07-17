@@ -1,0 +1,67 @@
+/* Activity mobile client (Capacitor / ?mobileClient=1) */
+html.mobile-client,
+html.mobile-client body {
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  -webkit-tap-highlight-color: transparent;
+}
+
+html.mobile-client .nav.basement a {
+  min-height: 48px;
+  min-width: 48px;
+}
+
+html.mobile-client .activity-steps-card {
+  margin: 12px 16px;
+  padding: 16px;
+  border-radius: 12px;
+  background: linear-gradient(160deg, rgba(40, 48, 64, 0.95), rgba(20, 24, 32, 0.98));
+  border: 1px solid rgba(240, 197, 101, 0.35);
+  color: #f5f0e6;
+}
+
+html.mobile-client .activity-steps-card h2 {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f0c565;
+}
+
+html.mobile-client .activity-steps-card .muted {
+  opacity: 0.75;
+  font-size: 0.9rem;
+  margin: 0 0 12px;
+}
+
+html.mobile-client .activity-meter {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+html.mobile-client .activity-steps-card button {
+  width: 100%;
+  margin-top: 10px;
+  min-height: 48px;
+  border: none;
+  border-radius: 10px;
+  background: #c8922a;
+  color: #1a1208;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+html.mobile-client .activity-steps-card button:disabled {
+  opacity: 0.45;
+}
+
+html.mobile-client .activity-banner {
+  margin: 8px 16px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(240, 197, 101, 0.12);
+  color: #f0c565;
+  font-size: 0.85rem;
+}
