@@ -1,4 +1,22 @@
-<!DOCTYPE html>
+#!/usr/bin/env node
+/**
+ * Ensure www/ ships bridge.js and a bootstrap index that defines window.waifuMobile
+ * before any remote/local app scripts. Used for bundled builds; remote server.url
+ * loads still need the Android WebView to inject the bridge (see setup_android_project).
+ */
+const fs = require("fs");
+const path = require("path");
+
+const root = path.join(__dirname, "..");
+const www = path.join(root, "www");
+const bridgeSrc = path.join(root, "src", "bridge.js");
+const bridgeDst = path.join(www, "bridge.js");
+
+if (!fs.existsSync(www)) fs.mkdirSync(www, { recursive: true });
+fs.copyFileSync(bridgeSrc, bridgeDst);
+
+const indexPath = path.join(www, "index.html");
+const html = `<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
@@ -18,7 +36,7 @@
   <p><a id="go" href="#">Open activity UI</a></p>
   <script>
     (function () {
-      var base = (window.WAIFU_MOBILE_BACKEND_URL || "").replace(/\/$/, "");
+      var base = (window.WAIFU_MOBILE_BACKEND_URL || "").replace(/\\/$/, "");
       var a = document.getElementById("go");
       if (base) {
         a.href = base + "/webapp/activity.html?mobileClient=1&economy=activity";
@@ -30,3 +48,6 @@
   </script>
 </body>
 </html>
+`;
+fs.writeFileSync(indexPath, html);
+console.log("Injected bridge into www/ (" + bridgeDst + ")");
