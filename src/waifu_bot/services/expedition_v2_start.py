@@ -17,6 +17,7 @@ from waifu_bot.game.expedition_overhaul import (
     depth_tier_by_id,
     pick_procedural_affixes,
     squad_power_total,
+    tick_affix_count,
     validate_reward_type,
 )
 from waifu_bot.game.expedition_redesign import (
@@ -86,7 +87,8 @@ async def start_expedition_v2(
     affix_rows: list[ExpeditionAffix] = list(
         (await session.execute(select(ExpeditionAffix).order_by(ExpeditionAffix.id))).scalars().all()
     )
-    chosen_affixes = pick_procedural_affixes(affix_rows, rng, count=min(3, 1 + depth.tier // 2))
+    # Flavor-only: intro narrative / card icon. Combat tags re-roll each tick in run_one_tick.
+    chosen_affixes = pick_procedural_affixes(affix_rows, rng, count=tick_affix_count(depth.tier))
     affix_row = chosen_affixes[0] if chosen_affixes else None
     tag_snap = tags_snapshot_for_affix_rows(chosen_affixes) if chosen_affixes else []
 

@@ -3463,11 +3463,17 @@ function expGateLogEntryHtml(g) {
   const mathHtml = mathParts.length ? `<div class="exp-gate-log-math">${mathParts.join("")}</div>` : "";
   const tagsArr = Array.isArray(g.active_tags) ? g.active_tags : [];
   const covArr = Array.isArray(g.covered_tags) ? g.covered_tags : [];
+  const affixNames = Array.isArray(g.affix_names) ? g.affix_names.filter(Boolean) : [];
   let tagsHtml = "";
+  if (affixNames.length) {
+    tagsHtml += `<div class="exp-gate-log-tags">Препятствия: ${affixNames.map((n) => escapeHtml(String(n))).join(" · ")}</div>`;
+  }
   if (tagsArr.length) {
     const covSet = new Set(covArr.map((t) => String(t)));
     const TAG_LABEL_RU = {
-      cursed: "Проклятия", undead: "Нежить", beasts: "Звери", constructs: "Конструкты",
+      monsters: "Монстры", undead: "Нежить", dark_magic: "Тёмная магия", elements: "Стихии",
+      traps: "Ловушки", curses: "Проклятия", knowledge: "Знания", social: "Социум",
+      cursed: "Проклятия", beasts: "Звери", constructs: "Конструкты",
       hazard: "Опасности", arcane: "Магия", poison: "Яды", terrain: "Местность",
     };
     const chips = tagsArr.map((t) => {
@@ -3475,7 +3481,7 @@ function expGateLogEntryHtml(g) {
       const ok = covSet.has(String(t));
       return `<span style="color:${ok ? "#4ade80" : "#f87171"}">${ok ? "✓" : "✗"}${label}</span>`;
     });
-    tagsHtml = `<div class="exp-gate-log-tags">Сложности: ${chips.join(" · ")}</div>`;
+    tagsHtml += `<div class="exp-gate-log-tags">Сложности: ${chips.join(" · ")}</div>`;
   }
   return `<li>${head}${tagsHtml}${mathHtml}</li>`;
 }
