@@ -10,6 +10,7 @@ from waifu_bot.db.models import (
     GuildMember,
     GuildSkillDefinition,
     GuildSkillLevelRow,
+    MainWaifu,
     Player,
 )
 from waifu_bot.services.game_config_service import cfg_int, get_game_config_map
@@ -65,6 +66,30 @@ async def _ensure_guild_leader(session: AsyncSession, mem: GuildMember) -> bool:
         await session.flush()
         return True
     return False
+
+
+async def resync_guild_members_hp(session: AsyncSession, guild_id: int) -> int:
+    """Recalc max_hp for all guild members. Returns count of waifus updated."""
+    from waifu_bot.services.waifu_hp import sync_waifu_max_hp
+
+    pids = (
+        await session.execute(
+            select(GuildMember.player_id).where(GuildMember.guild_id == int(guild_id))
+        )
+    ).scalars().all()
+    updated = 0
+    for pid in pids:
+        waifu = (
+            await session.execute(select(MainWaifu).where(MainWaifu.player_id == int(pid)))
+        ).scalar_one_or_none()
+        if waifu:
+            await sync_waifu_max_hp(session, int(pid), waifu)
+            updated += 1
+    return updated
+
+
+async def _resync_guild_members_hp(session: AsyncSession, guild_id: int) -> None:
+    await resync_guild_members_hp(session, guild_id)
 
 
 async def guild_skills_snapshot(session: AsyncSession, player_id: int) -> dict:
@@ -181,6 +206,7 @@ async def guild_skill_upgrade(session: AsyncSession, player_id: int, skill_defin
     from waifu_bot.services.guild_activity import log_skill_upgrade
 
     await log_skill_upgrade(session, guild.id, player_id, dfn.name)
+    await _resync_guild_members_hp(session, int(guild.id))
     await session.commit()
     return {"success": True, "new_level": row.current_level, "spent": guild.skill_points_spent}
 
@@ -201,5 +227,6 @@ async def guild_skill_reset(session: AsyncSession, player_id: int) -> dict:
     player.gold -= cost
     await session.execute(delete(GuildSkillLevelRow).where(GuildSkillLevelRow.guild_id == guild.id))
     guild.skill_points_spent = 0
+    await _resync_guild_members_hp(session, int(guild.id))
     await session.commit()
     return {"success": True, "gold_spent": cost}

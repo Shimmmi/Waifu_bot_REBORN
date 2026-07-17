@@ -1,4 +1,4 @@
-"""OpenRouter image generation for monster portraits (anime WebP, 3:2)."""
+"""RouterAI image generation for monster portraits (anime WebP, 3:2)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from waifu_bot.core.config import settings
 from waifu_bot.db.models.dungeon import DungeonRun, DungeonRunMonster, MonsterAffix, MonsterTemplate
 from waifu_bot.db.models.story_boss import StoryBossDefinition
 from waifu_bot.services.dungeon import _monster_slug_for_webp
@@ -23,7 +22,11 @@ from waifu_bot.services.expedition_events_ai import (
     _extract_openrouter_image_b64,
     monster_template_dominant_trait_ru,
 )
-from waifu_bot.services.llm_client import has_llm_configured, post_chat_completions
+from waifu_bot.services.llm_client import (
+    get_image_model,
+    has_image_llm_configured,
+    post_chat_completions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +99,10 @@ def build_monster_anime_prompt(
         f"Combat stats (for scale and menace only): level {level}, HP ~{max_hp}, attack power ~{damage}."
         f"{affix_line}{boss_line}{elite_line}{tags_block}{trait_block}\n"
         f"Background: flat solid color only, exactly {_MONSTER_BG_HEX} — no gradient, no floor, no scenery, no props.\n"
-        "Composition: single creature centered, full figure visible within frame, readable silhouette.\n"
+        "Composition: single creature horizontally centered in a 3:2 landscape frame; "
+        "keep the head and primary body mass fully inside the centered 1:1 safe square "
+        "(do not place the head near the left/right edges — UI crops to that center square); "
+        "full figure readable silhouette; limbs/weapons may extend slightly into side margins if needed.\n"
         "Rules: no text, no letters, no watermark, no UI frame, no health bars, SFW only.\n"
         "Output aspect: landscape 3:2."
     )
@@ -187,9 +193,9 @@ async def generate_monster_art_webp(
     *,
     admin_player_id: int | None = None,
 ) -> Optional[MonsterArtGenerationResult]:
-    """Call OpenRouter image model; returns WEBP bytes and path metadata or None."""
-    if not has_llm_configured():
-        logger.info("[MONSTER ART] Skip: no LLM API key")
+    """Call RouterAI image model; returns WEBP bytes and path metadata or None."""
+    if not has_image_llm_configured():
+        logger.info("[MONSTER ART] Skip: no RouterAI API key")
         return None
 
     tmpl = await session.get(MonsterTemplate, int(template_id))
@@ -243,9 +249,9 @@ async def generate_monster_art_webp(
     if len(slug) > 128:
         slug = slug[:128].rstrip("_")
 
-    model = settings.openrouter_model_image
+    model = get_image_model()
     logger.info(
-        "[MONSTER ART] model=%s template_id=%s slug=%s family=%s",
+        "[MONSTER ART] model=%s provider=routerai template_id=%s slug=%s family=%s",
         model,
         template_id,
         slug,
@@ -321,12 +327,12 @@ async def generate_monster_art_webp(
 
 
 async def _openrouter_generate_webp(prompt: str, *, log_tag: str) -> Optional[bytes]:
-    """Shared OpenRouter image call → WEBP bytes."""
-    if not has_llm_configured():
-        logger.info("[%s] Skip: no LLM API key", log_tag)
+    """Shared RouterAI image call → WEBP bytes."""
+    if not has_image_llm_configured():
+        logger.info("[%s] Skip: no RouterAI API key", log_tag)
         return None
 
-    model = settings.openrouter_model_image
+    model = get_image_model()
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))

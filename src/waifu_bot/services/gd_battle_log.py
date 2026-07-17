@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from typing import Any
 
+# Compact group post: narrative + short status (Telegram-friendly).
+GD_COMPACT_GROUP_MSG_LIMIT = 900
+
 
 def _party_map(ctx: dict[str, Any] | None) -> dict[int, dict[str, Any]]:
     out: dict[int, dict[str, Any]] = {}
@@ -221,3 +224,145 @@ def format_gd_round_log_lines_ru(
             lines.extend(legacy)
 
     return lines
+
+
+def _wave_label_ru(wave: Any) -> str:
+    return {
+        "pending_init": "старт",
+        "trash": "обычные враги",
+        "boss": "босс",
+        "done": "завершено",
+    }.get(str(wave or ""), str(wave) if wave is not None else "—")
+
+
+def format_gd_compact_round_status(
+    battle_state: dict[str, Any] | None,
+    *,
+    round_number: int | str = "?",
+    round_outcome: str | None = None,
+    top_contributor_name: str | None = None,
+) -> str:
+    """3–5 строк статуса для группового чата (без полного roster)."""
+    st = battle_state or {}
+    monsters: list[dict[str, Any]] = list(st.get("monsters") or [])
+    alive = [m for m in monsters if int(m.get("hp") or 0) > 0]
+    lines: list[str] = [f"📊 Раунд {round_number} · {_wave_label_ru(st.get('wave'))}"]
+    if round_outcome:
+        outcome_ru = {
+            "ongoing": "бой продолжается",
+            "idle": "отряд молчит — раунд пропущен",
+            "victory": "победа",
+            "party_wiped": "отряд нокаутирован (продолжаем)",
+            "cancelled_idle": "поход свёрнут (тишина)",
+            "cancelled_defeat": "поход свёрнут (нокауты)",
+            "cancelled_player_stop": "поход завершён игроком",
+        }.get(str(round_outcome), str(round_outcome))
+        lines.append(f"Итог: {outcome_ru}")
+    if alive:
+        m = max(alive, key=lambda x: int(x.get("hp") or 0))
+        mx = max(1, int(m.get("max_hp") or 1))
+        cur = int(m.get("hp") or 0)
+        pct = int(100 * cur / mx)
+        boss = " (босс)" if m.get("is_boss") else ""
+        lines.append(f"Цель: {m.get('name', 'Монстр')}{boss} — {pct}% HP")
+    elif monsters:
+        lines.append("Цель: волна зачищена")
+    else:
+        lines.append("Цель: —")
+    party = list(st.get("party") or [])
+    up = sum(
+        1
+        for p in party
+        if not p.get("fallen") and int(p.get("current_hp") or 0) > 0
+    )
+    lines.append(f"Отряд: {up}/{len(party)} в строю")
+    if top_contributor_name:
+        lines.append(f"Топ раунда: {top_contributor_name}")
+    wipe_n = int(st.get("wipe_count") or 0)
+    if wipe_n > 0:
+        lines.append(f"Нокаутов за поход: {wipe_n}")
+    return "\n".join(lines)
+
+
+def format_gd_group_compact_message(
+    narrative: str,
+    battle_state: dict[str, Any] | None,
+    *,
+    round_number: int | str = "?",
+    round_outcome: str | None = None,
+    top_contributor_name: str | None = None,
+    limit: int = GD_COMPACT_GROUP_MSG_LIMIT,
+) -> str:
+    """Один пост в группу: нарратив + compact status, усечённый до limit."""
+    status = format_gd_compact_round_status(
+        battle_state,
+        round_number=round_number,
+        round_outcome=round_outcome,
+        top_contributor_name=top_contributor_name,
+    )
+    narr = (narrative or "").strip()
+    sep = "\n\n"
+    budget = max(80, int(limit) - len(status) - len(sep))
+    if len(narr) > budget:
+        cut = narr[: max(0, budget - 1)].rstrip()
+        # Prefer cutting on sentence/word boundary
+        for sep_ch in (". ", "! ", "? ", "\n"):
+            idx = cut.rfind(sep_ch)
+            if idx >= budget // 3:
+                cut = cut[: idx + 1].rstrip()
+                break
+        narr = cut + "…"
+    return f"{narr}{sep}{status}" if narr else status
+
+
+def format_gd_battle_hp_system_message(battle_state: dict[str, Any] | None) -> str:
+    """Текст системного сообщения: HP отряда и монстров после раунда."""
+    st = battle_state or {}
+    party: list[dict[str, Any]] = list(st.get("party") or [])
+    monsters: list[dict[str, Any]] = list(st.get("monsters") or [])
+    lines: list[str] = [
+        "📊 Система: состояние после раунда",
+        "",
+        "Отряд:",
+    ]
+    if not party:
+        lines.append("• (пусто)")
+    else:
+        for p in party:
+            name = str(p.get("name") or f"Игрок {p.get('user_id', '?')}")
+            cur = int(p.get("current_hp") or 0)
+            mx = max(1, int(p.get("max_hp") or 1))
+            fallen = bool(p.get("fallen")) or cur <= 0
+            if fallen:
+                lines.append(f"• {name} — нокдаун, {cur} / {mx} HP")
+            else:
+                pct = int(100 * cur / mx)
+                lines.append(f"• {name} — {cur} / {mx} HP (~{pct}%)")
+    lines.extend(["", "Монстры:"])
+    if not monsters:
+        lines.append("• нет активных записей")
+    else:
+        for m in monsters:
+            name = str(m.get("name") or "Монстр")
+            boss = " (босс)" if m.get("is_boss") else ""
+            cur = int(m.get("hp") or 0)
+            mx = max(1, int(m.get("max_hp") or 1))
+            if cur <= 0:
+                lines.append(f"• {name}{boss} — повержен (было {mx} HP)")
+            else:
+                pct = int(100 * cur / mx)
+                lines.append(f"• {name}{boss} — {cur} / {mx} HP (~{pct}%)")
+    return "\n".join(lines)
+
+
+def format_gd_round_battle_log_message(
+    result: dict[str, Any], ctx: dict[str, Any]
+) -> str:
+    """Полный лог боя за раунд (по циклам, с цифрами)."""
+    resolved = (result.get("actions_json") or {}).get("resolved")
+    lines = format_gd_round_log_lines_ru(resolved, ctx, result.get("outcomes_json"))
+    rnd = result.get("round_number", "?")
+    header = f"🧾 Журнал боя — раунд {rnd}"
+    if not lines:
+        return header + "\n• (нет зафиксированных действий)"
+    return header + "\n" + "\n".join(lines)

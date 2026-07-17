@@ -19,7 +19,7 @@ def test_dungeon_plus_reward_mult_zero():
 
 
 def test_dungeon_plus_reward_mult_level_3():
-    expected = 1.0 + 3 * 0.15 + math.log1p(3) * 0.10
+    expected = 1.0 + 3 * 0.22 + math.log1p(3) * 0.15
     assert dungeon_plus_reward_mult(3) == pytest.approx(expected)
 
 

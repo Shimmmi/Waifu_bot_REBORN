@@ -122,6 +122,23 @@
 { "level": 30, "race": [2], "class": [4], "intelligence": 18 }
 ```
 
+### 5.0. Формулы stat-требований (v2, runtime)
+
+При генерации инстанса требования считаются в `item_requirements.compute_item_requirements` (не из `stat1_value` шаблона):
+
+| slot_type | stat req | формула |
+|---|---|---|
+| weapon_1h, weapon_2h | primary (stat1) | `8 + tier * 3` |
+| offhand | primary или END | `6 + tier * 2` |
+| costume | END | `6 + tier * 3` |
+| ring | LUK или stat1 | `5 + tier * 2` |
+| amulet | INT/CHA или stat1 | `5 + tier * 2` |
+
+Скидки: race lock −3, class lock −3 (оба −5), минимум stat req = 8.  
+Пример T9 weapon: `{ "level": 41, "strength": 35 }`. Race-lock T9: strength 32.
+
+Проверка при экипировке использует **итоговые** статы ОВ (база + экипировка + пассивы `main_stats_flat` и `all_stats_pct` по той же формуле, что `/profile`), включая `charm` и `luck`. При надевании в конкретный слот симулируется замена предмета в этом слоте (бонусы снимаемой вещи не учитываются). Превью в инвентаре/магазине — по текущей экипировке без кандидата. Реализация: `game/equip_requirements.py`.
+
 ### 5.1. Баланс “расовые / классовые / расо‑классовые”
 
 Эти предметы должны быть **сильнее**, чем обычные аналоги того же `total_level`, но ограничены доступностью:

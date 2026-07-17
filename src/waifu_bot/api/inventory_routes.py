@@ -186,8 +186,6 @@ async def get_inventory_enchant_preview(
     data = await build_enchant_preview(session, inventory_item_id=item_id, player_id=player_id)
     if data.get("error") == "not_found":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item_not_found")
-    if data.get("error") == "enchant_max_reached":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="enchant_max_reached")
     return data
 
 

@@ -95,7 +95,12 @@ async def reset_player_to_new_game(session: AsyncSession, player_id: int) -> Non
             "completed": {},
             "skipped": False,
             "intro_reward_claimed": False,
+            "shop_kit_claimed": False,
         }
+        try:
+            player.gear_score = 0
+        except Exception:
+            pass
 
     from waifu_bot.services.event_log import log_event
 

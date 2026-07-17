@@ -35,6 +35,11 @@ from waifu_bot.game.constants import (
     STORY_PLUS_TIERS,
     elite_spawn_bonus_for_plus_level,
 )
+from waifu_bot.game.dungeon_plus_scaling import (
+    dungeon_plus_difficulty_params,
+    dungeon_plus_dmg_mult,
+    dungeon_plus_hp_mult_for_rolled,
+)
 from waifu_bot.game.monster_power import vary_hp_dmg_for_power_budget
 from waifu_bot.services.combat_damage_trace import log_media_label_ru, media_type_to_log_media_key
 from waifu_bot.services.energy import apply_regen
@@ -43,7 +48,6 @@ from waifu_bot.services.combat import roll_monster_elite
 from waifu_bot.services.elite_affix_combat import buff_next_multipliers_for_new_monster
 from waifu_bot.services.narrative import build_story_modal_on_dungeon_start
 from waifu_bot.game.legendary_bonuses.state import initial_battle_state
-import math
 
 
 SOLO_BATTLE_LOG_LIMIT = 40
@@ -620,11 +624,15 @@ class DungeonService:
         return prof
 
     @staticmethod
-    def _scale_rolled_stats_for_plus_level(rolled: dict, hp_dmg_mult: float) -> None:
-        """Apply Dungeon+ hp_dmg_mult to rolled combat stats (same factor as cursor_plan_9 HP/DMG scaling)."""
-        m = max(1.0, float(hp_dmg_mult))
-        rolled["max_hp"] = max(1, int(round(int(rolled["max_hp"]) * m)))
-        rolled["damage"] = max(1, int(round(int(rolled["damage"]) * m)))
+    def _scale_rolled_stats_for_plus_level(rolled: dict, plus_level: int) -> None:
+        """Apply decoupled Dungeon+ HP (TTK-anchored) and damage multipliers."""
+        n = max(0, int(plus_level or 0))
+        if n <= 0:
+            return
+        hp_m = dungeon_plus_hp_mult_for_rolled(n, int(rolled["max_hp"]))
+        dmg_m = dungeon_plus_dmg_mult(n)
+        rolled["max_hp"] = max(1, int(round(int(rolled["max_hp"]) * hp_m)))
+        rolled["damage"] = max(1, int(round(int(rolled["damage"]) * dmg_m)))
 
     async def get_dungeons_for_act(
         self, session: AsyncSession, act: int, type: Optional[int] = None
@@ -659,28 +667,25 @@ class DungeonService:
 
         pl = max(0, int(plus_level or 0))
 
-        def _difficulty_params(n: int) -> dict:
-            """Difficulty scaling for Dungeon+ (cursor_plan_9)."""
-            n = max(0, int(n or 0))
-            hp_dmg_mult = 1.0 + n * 0.20
-            reward_mult = 1.0 + n * 0.15 + math.log1p(n) * 0.10
-            rarity_tiers = ["common", "uncommon", "rare", "epic", "legendary"]
-            rarity = rarity_tiers[min(n // 2, 4)]
-            return {
-                "hp_dmg_mult": hp_dmg_mult,
-                "reward_mult": reward_mult,
-                "item_level_bonus": n,
-                "rarity_floor": rarity,
-                "elite_chance_bonus": min(0.40, n * 0.02),
-            }
-
         # Реген «в городе» до входа: max_hp с пассивами, затем 5 HP/мин + END
         waifu = (await session.execute(select(MainWaifu).where(MainWaifu.player_id == player_id))).scalar_one_or_none()
         if waifu:
             pre_m = int(waifu.max_hp or 0)
             await sync_waifu_max_hp(session, player_id, waifu)
             post_m = int(waifu.max_hp or 0)
-            regen_changed = apply_regen(waifu)
+            regen_extra = 0
+            try:
+                from waifu_bot.services.perfection import (
+                    hp_regen_per_min_from_totals,
+                    load_perfection_totals,
+                )
+
+                regen_extra = hp_regen_per_min_from_totals(
+                    await load_perfection_totals(session, player_id)
+                )
+            except Exception:
+                pass
+            regen_changed = apply_regen(waifu, extra_hp_per_min=regen_extra)
             # Entering a dungeon is a real gameplay action: mark online so the
             # first in-run hit counts and in-dungeon regen is allowed.
             from datetime import timezone as _tz
@@ -759,6 +764,12 @@ class DungeonService:
                 rng = random.Random(seed)
                 n_min = max(1, int(getattr(dungeon, "obstacle_min", 1) or 1))
                 n_max = max(n_min, int(getattr(dungeon, "obstacle_max", n_min) or n_min))
+                params: dict | None = None
+                if pl > 0:
+                    params = dungeon_plus_difficulty_params(pl)
+                    extra = int(params.get("extra_monsters") or 0)
+                    n_min += extra
+                    n_max += extra
                 total = int(rng.randint(n_min, n_max))
                 first_daily = await self._player_first_dungeon_today(session, player_id)
                 run = DungeonRun(
@@ -777,14 +788,12 @@ class DungeonService:
                 await session.flush()
 
                 # Split budget; last one is boss.
-                params: dict | None = None
-                if pl > 0:
-                    params = _difficulty_params(pl)
+                if pl > 0 and params is not None:
                     # Normalize difficulty across all dungeons for the same +level.
                     # Theme differs by pool/location; power differs by plus level only.
                     base_budget = max(1, int(getattr(dungeon, "difficulty", 100) or 100))
-                    hp_mult = max(1.0, float(params["hp_dmg_mult"]))
-                    budget = max(1, int(base_budget * hp_mult))
+                    budget_mult = max(1.0, float(params["budget_mult"]))
+                    budget = max(1, int(base_budget * budget_mult))
                     run.difficulty_rating = int(budget)
                     run.drop_power_rank = int(50 + params["item_level_bonus"] * 10)
                 else:
@@ -821,7 +830,7 @@ class DungeonService:
                         rolled["name"] = story_def.name
                         stat_profile = self._apply_monster_power_variance(rolled, rng)
                         if pl > 0 and params is not None:
-                            self._scale_rolled_stats_for_plus_level(rolled, float(params["hp_dmg_mult"]))
+                            self._scale_rolled_stats_for_plus_level(rolled, pl)
                         m = DungeonRunMonster(
                             run_id=run.id,
                             position=pos,
@@ -926,7 +935,7 @@ class DungeonService:
                     )
                     stat_profile = self._apply_monster_power_variance(rolled, rng)
                     if pl > 0 and params is not None:
-                        self._scale_rolled_stats_for_plus_level(rolled, float(params["hp_dmg_mult"]))
+                        self._scale_rolled_stats_for_plus_level(rolled, pl)
                     m = DungeonRunMonster(
                         run_id=run.id,
                         position=pos,
@@ -1369,9 +1378,20 @@ class DungeonService:
 
         if run:
             try:
-                # Award accumulated rewards (already credited incrementally)
-                exp_gained = int(run.total_exp_gained or 0)
-                gold_gained = int(run.total_gold_gained or 0)
+                from waifu_bot.services.solo_run_rewards import settle_solo_run_rewards
+
+                waifu_q = await session.execute(
+                    select(MainWaifu).where(MainWaifu.player_id == player_id)
+                )
+                waifu = waifu_q.scalar_one_or_none()
+                player = await session.get(Player, player_id)
+                exp_gained, gold_gained, _ = await settle_solo_run_rewards(
+                    session,
+                    run,
+                    waifu,
+                    player,
+                    "abandoned",
+                )
                 run.status = "abandoned"
                 run.ended_at = datetime.utcnow()
                 progress = await self._get_active_progress(session, player_id)

@@ -311,6 +311,8 @@ async def guilds_me(
                 "last_active": last_active_iso,
                 "online": online,
                 "member_power": member_power(waifu_by_player.get(int(gm.player_id))),
+                "waifu_level": int(mw.level or 1) if mw else None,
+                "perfection_level": int(getattr(pl, "perfection_level", 0) or 0) if pl else 0,
             }
         )
     members_out.sort(
@@ -458,6 +460,7 @@ async def guild_member_preview(
         main_out = schemas.GuildMemberMainWaifuPreviewOut(
             name=mw.name,
             level=int(mw.level or 1),
+            perfection_level=int(getattr(tpl, "perfection_level", 0) or 0),
             race=int(mw.race or 0),
             class_=int(mw.class_ or 0),
             portrait_url=portrait_url,

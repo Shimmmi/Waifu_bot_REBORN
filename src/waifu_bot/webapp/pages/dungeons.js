@@ -820,6 +820,21 @@ async function populateDungeonsPage(profile) {
     }
     if (!evt || evt.type !== "battle") return;
     const payload = evt.payload || {};
+    if (payload.dungeon_failed || payload.waifu_died) {
+      dungeonsFinishBlockedMsg = null;
+      const penalty = payload.gold_penalty_pct ?? 50;
+      const gold = payload.gold_gained ?? payload.total_gold_gained ?? 0;
+      const exp = payload.experience_gained ?? payload.total_experience_gained ?? 0;
+      const msg =
+        payload.message ||
+        `Подземелье провалено. Штраф к золоту: −${penalty}% от накопленного. Получено: ${gold} золота, ${exp} опыта.`;
+      applySoloBattleSsePayload(payload);
+      showDungeonsError(msg, "danger");
+      setTimeout(() => {
+        window.location.href = "./dungeons.html";
+      }, 2200);
+      return;
+    }
     if (payload.finish_blocked) {
       const msg = payload.message || "Не хватает здоровья для победы.";
       dungeonsFinishBlockedMsg = msg;
@@ -887,12 +902,17 @@ function initPlusSelect(globalUnlocked, statusById) {
 function getDifficultyDescription(n) {
   const lvl = Number(n || 0);
   if (lvl === 0) return "Базовая сложность.";
-  const hpDmg = Math.round(lvl * 20);
-  const reward = (1 + lvl * 0.15 + Math.log1p(lvl) * 0.10).toFixed(2);
+  // Mirrors waifu_bot.game.dungeon_plus_scaling: HP=2300+100*n^2.15, dmg=1+0.08N.
+  const hpTarget = Math.round(2300 + 100 * Math.pow(lvl, 2.15));
+  const ttkAt1k = hpTarget / 1000;
+  const dmgPct = Math.round(lvl * 8);
+  const reward = (1 + lvl * 0.22 + Math.log1p(lvl) * 0.15).toFixed(2);
   const rarityLabels = ["обычная", "необычная", "редкая", "эпическая", "легендарная"];
   const rarity = rarityLabels[Math.min(Math.floor(lvl / 2), 4)];
   const elite = Math.min(40, lvl * 2);
-  return `+${hpDmg}% HP/урон. Награды x${reward}. Предмет +${lvl} ур. Редкость: ${rarity}. Элиты +${elite}%.`;
+  const extra = Math.max(0, Math.floor((lvl - 4) / 4));
+  const extraTxt = extra > 0 ? ` +${extra} монстр.` : "";
+  return `HP ≈${hpTarget} (~${ttkAt1k.toFixed(1)} сообщ. при 1k). Урон монстров +${dmgPct}%. Награды x${reward}. Предмет +${lvl} ур. Редкость: ${rarity}. Элиты +${elite}%.${extraTxt}`;
 }
 
 window.WaifuApp.openPlusBottomSheet = (dungeonId) => {
@@ -1289,9 +1309,13 @@ async function continueBattle() {
     if (res?.experience_gained) appendBattleLog(`✨ +${res.experience_gained} EXP`);
     if (res?.gold_gained) appendBattleLog(`🪙 +${res.gold_gained} золото`);
     // Death: waifu left dungeon at 1 HP
-    if (res?.waifu_died) {
+    if (res?.waifu_died || res?.dungeon_failed) {
       const penalty = res.gold_penalty_pct ?? 50;
-      appendBattleLog(`💀 Вайфу погибла! Штраф к золоту: −${penalty}%. XP сохранён.`);
+      const gold = res.gold_gained ?? res.total_gold_gained ?? 0;
+      const exp = res.experience_gained ?? res.total_experience_gained ?? 0;
+      appendBattleLog(
+        `💀 Вайфу погибла! Штраф к золоту: −${penalty}% от накопленного. Получено: ${gold} 🪙, ${exp} ✨`
+      );
       setTimeout(() => { window.location.href = "./dungeons.html"; }, 1800);
       return;
     }
@@ -1333,13 +1357,16 @@ function formatDuration(seconds) {
 
 async function loadActiveGdDungeons() {
   const container = document.getElementById("gd-dungeons-list");
+  const mySection = document.getElementById("gd-my-section");
   if (!container) return;
   try {
     const data = await apiFetch("/gd/dungeons/active");
     const dungeons = data?.dungeons || [];
     renderGdDungeonsList(container, dungeons);
+    if (mySection) mySection.style.display = dungeons.length ? "" : "none";
   } catch (e) {
     console.error("loadActiveGdDungeons:", e);
+    if (mySection) mySection.style.display = "";
     container.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">🏰</div>
@@ -1347,20 +1374,125 @@ async function loadActiveGdDungeons() {
         <p>Не удалось загрузить список подземелий.</p>
       </div>`;
   }
+  loadJoinableGdDungeons().catch(() => {});
+}
+
+async function loadJoinableGdDungeons() {
+  const container = document.getElementById("gd-joinable-list");
+  const section = document.getElementById("gd-joinable-section");
+  if (!container) return;
+  try {
+    const data = await apiFetch("/gd/dungeons/joinable");
+    const dungeons = data?.dungeons || [];
+    renderGdJoinableList(container, dungeons);
+  } catch (e) {
+    console.error("loadJoinableGdDungeons:", e);
+    if (section) section.style.display = "none";
+    container.innerHTML = "";
+  }
+}
+
+function renderGdJoinableList(container, dungeons) {
+  container.innerHTML = "";
+  const section = document.getElementById("gd-joinable-section");
+  if (!dungeons.length) {
+    if (section) section.style.display = "none";
+    return;
+  }
+  if (section) section.style.display = "";
+  dungeons.forEach((d) => {
+    const card = document.createElement("div");
+    card.className = "gd-dungeon-card dungeon-card";
+    const pct = Number(d.reward_stage_pct != null ? d.reward_stage_pct : 100);
+    const status =
+      d.cycle_status === "registration"
+        ? "регистрация"
+        : `раунд ${d.collecting_for_round || "?"} · ${gdV1WaveLabelRu(d.wave)}`;
+    card.innerHTML = `
+      <div class="dungeon-name">${escapeHtml(d.dungeon_name || "Подземелье")}</div>
+      <div class="dungeon-stage">${escapeHtml(String(d.chat_title || d.chat_id))} · ${escapeHtml(status)}</div>
+      <div class="dungeon-stats">Награда при вступлении сейчас: ~${pct}% от полного похода</div>
+      <button type="button" class="btn primary gd-join-btn" style="margin-top:8px;">Вступить</button>
+    `;
+    card.querySelector(".gd-join-btn")?.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      joinGdFromWebapp(Number(d.chat_id));
+    });
+    container.appendChild(card);
+  });
+}
+
+async function joinGdFromWebapp(chatId) {
+  try {
+    const res = await apiFetch("/gd/join", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId }),
+    });
+    const pct = Math.round(100 * Number(res?.reward_stage_mult || 1));
+    const late = res?.late_join ? ` (с раунда ${res.joined_at_round}, ~${pct}%)` : "";
+    showToast?.(`Вступили в «${res?.dungeon_name || "поход"}»${late}`) ||
+      alert(`Вступили в «${res?.dungeon_name || "поход"}»${late}`);
+    await loadActiveGdDungeons();
+  } catch (e) {
+    const detail = e?.detail || e?.message || "Не удалось вступить";
+    const msg = typeof detail === "object" ? detail.message || JSON.stringify(detail) : String(detail);
+    showToast?.(msg, "error") || alert(msg);
+  }
+}
+
+async function startGdMusterDefault() {
+  try {
+    const data = await apiFetch("/gd/available-chats");
+    const chats = data?.chats || [];
+    const candidate = chats.find((ch) => {
+      const flag = ch.flag || "none";
+      return flag === "none" || flag === "registration";
+    });
+    if (!candidate) {
+      const msg = chats.length
+        ? "Нет свободного чата для сбора (кулдаун или поход уже идёт)."
+        : "Нет общих чатов с ботом. Напишите любое сообщение в группе с ботом.";
+      showToast?.(msg, "error") || alert(msg);
+      return;
+    }
+    await startGdMuster(Number(candidate.chat_id));
+  } catch (e) {
+    const detail = e?.detail || e?.message || "Не удалось начать сбор";
+    const msg = typeof detail === "object" ? detail.message || JSON.stringify(detail) : String(detail);
+    showToast?.(msg, "error") || alert(msg);
+  }
+}
+
+async function startGdMuster(chatId) {
+  try {
+    const res = await apiFetch("/gd/muster", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId }),
+    });
+    const posted = res?.invite_posted
+      ? "Призыв отправлен в чат."
+      : res?.invite_skipped_rate_limit
+        ? "Регистрация уже открыта (повторный пост пропущен)."
+        : "Регистрация открыта.";
+    showToast?.(`${posted} «${res?.dungeon_name || ""}»`) || alert(posted);
+    await loadActiveGdDungeons();
+  } catch (e) {
+    const detail = e?.detail || e?.message || "Ошибка сбора";
+    const msg = typeof detail === "object" ? detail.message || JSON.stringify(detail) : String(detail);
+    showToast?.(msg, "error") || alert(msg);
+  }
 }
 
 function renderGdDungeonsList(container, dungeons) {
   container.innerHTML = "";
+  const mySection = document.getElementById("gd-my-section");
   if (dungeons.length === 0) {
-    container.innerHTML = `
-      <div class="empty-state gd-empty-state">
-        <button type="button" class="gd-help-btn exp-help-btn" onclick="WaifuApp.openGdHelp()" aria-label="Справка" title="Справка">?</button>
-        <div class="empty-icon">🏰</div>
-        <h3>Нет активных подземелий</h3>
-        <p>Присоединяйтесь к групповому чату и запишитесь в поход командой /gd_join</p>
-      </div>`;
+    if (mySection) mySection.style.display = "none";
     return;
   }
+  if (mySection) mySection.style.display = "";
   dungeons.forEach((dungeon) => {
     const card = createGdDungeonCard(dungeon);
     container.appendChild(card);
@@ -1370,15 +1502,17 @@ function renderGdDungeonsList(container, dungeons) {
 function gdHelpHtml() {
   return `
     <p>
-      <strong>GD v1</strong> — общий поход для чата: сначала волна обычных врагов, затем босс. Название и антураж подземелья задаются шаблоном из игры (список в БД может меняться).
+      <strong>GD v1</strong> — общий поход для чата. Сбор можно начать из WebApp или командой <code>/gd_join</code> в группе.
     </p>
     <ul class="gd-info-list">
-      <li>Сообщения и медиа в группе в ходе раунда попадают в <strong>буфер</strong>; урон и навыки считаются при <strong>закрытии раунда</strong> (таймер ~30 мин или обработка в боте), а не «каждое сообщение = удар», как в соло.</li>
-      <li>При «вайпе» отряда раунд может завершиться с ослаблением стороны игроков и продолжением похода — жёсткого геймовера нет.</li>
-      <li>Награды (опыт, золото, дроп) в конце похода — в личку бота, пропорционально вкладу.</li>
+      <li><strong>Начать сбор группы</strong> — открывает регистрацию в первом свободном чате с ботом и шлёт призыв.</li>
+      <li>Вступить: кнопка во вкладке, deep-link из призыва или <code>/gd_join</code> в ЛС боту.</li>
+      <li>Можно вступить <strong>на любом этапе</strong> до финала; награда меньше, если вошли позже.</li>
+      <li>В раундах пишите в группу как обычно — урон и навыки считаются при закрытии раунда.</li>
+      <li><strong>Тихий раунд</strong> (никто не писал) — бой пропускается. Два тихих подряд — автозавершение без наград.</li>
+      <li><strong>Нокаут отряда</strong> снижает финальную награду; три нокаута — поход свёрнут.</li>
+      <li><strong>Завершить поход</strong> (WebApp или <code>/gd_stop</code>) — только участник, без наград за победу.</li>
     </ul>
-    <p class="gd-info-how"><strong>Как играть:</strong> в группе — <code>/gd_join</code> на время регистрации. Вне активного GD v1 сообщения в группе могут давать соло-урон. Чтобы видеть статус этого чата здесь, откройте страницу с <code>?chat_id=ID_ЧАТА</code> (числовой id супергруппы Telegram).</p>
-    <p class="gd-info-note muted">Запись в поход и бой — в Telegram; веб-приложение показывает список ваших циклов и опционально снимок по <code>chat_id</code>.</p>
   `;
 }
 
@@ -1424,6 +1558,21 @@ function createGdDungeonCard(dungeon) {
   const roundsStat = dungeon.v1
     ? `🎯 раундов с вкладом: ${Number(dungeon.contrib_rounds || 0).toLocaleString()}`
     : `Этап ${dungeon.joined_at_stage || 1}`;
+  const stageMult =
+    dungeon.v1 && Number(dungeon.joined_at_round || 1) > 1
+      ? `<span class="stat">📉 награда ~${Number(dungeon.reward_stage_pct || 100)}%</span>`
+      : "";
+  const wipeN = Number(dungeon.wipe_count || 0);
+  const idleN = Number(dungeon.idle_silent_streak || 0);
+  const wipeStat =
+    dungeon.v1 && dungeon.cycle_status === "active"
+      ? `<span class="stat">💥 нокауты отряда: ${wipeN}/3 · награда ~${Number(dungeon.wipe_reward_pct != null ? dungeon.wipe_reward_pct : 100)}%</span>
+      <span class="stat">😴 тишина: ${idleN}/2</span>`
+      : "";
+  const stopBtn =
+    dungeon.v1 && dungeon.can_stop && dungeon.cycle_status === "active"
+      ? `<button type="button" class="btn gd-stop-btn" style="margin-top:8px;">Завершить поход</button>`
+      : "";
   card.innerHTML = `
     <div class="dungeon-header">
       <span class="dungeon-name">${escapeHtml(dungeon.dungeon_name || "—")}</span>
@@ -1439,9 +1588,39 @@ function createGdDungeonCard(dungeon) {
     <div class="dungeon-stats">
       <span class="stat">⚔️ ${Number(dungeon.total_damage || 0).toLocaleString()} (текст+навыки)</span>
       <span class="stat">👥 ${escapeHtml(roundsStat)}</span>
-    </div>`;
+      ${stageMult}
+      ${wipeStat}
+    </div>
+    ${stopBtn}`;
+  card.querySelector(".gd-stop-btn")?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    stopGdFromWebapp(Number(dungeon.chat_id), Number(dungeon.id));
+  });
   card.addEventListener("click", () => openDungeonDetails(dungeon));
   return card;
+}
+
+async function stopGdFromWebapp(chatId, cycleId) {
+  try {
+    const body = {};
+    if (Number.isFinite(Number(cycleId)) && Number(cycleId) > 0) {
+      body.cycle_id = Number(cycleId);
+    }
+    if (Number.isFinite(Number(chatId))) {
+      body.chat_id = Number(chatId);
+    }
+    await apiFetch("/gd/stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    showToast?.("Поход завершён") || alert("Поход завершён");
+    await loadActiveGdDungeons();
+  } catch (e) {
+    const detail = e?.detail || e?.message || "Не удалось завершить";
+    const msg = typeof detail === "object" ? detail.message || JSON.stringify(detail) : String(detail);
+    showToast?.(msg, "error") || alert(msg);
+  }
 }
 
 function renderStageProgress(currentStage) {
@@ -1473,7 +1652,11 @@ function renderDungeonDetails(dungeon) {
             ? `<p class="muted tiny">Последний записанный в журнале раунд: <strong>${lastRec}</strong></p>
         <p class="muted tiny">Сбор действий в чате на раунд: <strong>${collecting}</strong></p>
         <p class="muted tiny">Волна: ${escapeHtml(gdV1WaveLabelRu(dungeon.wave))}</p>
-        <p class="muted tiny">Дедлайн сбора раунда: ${escapeHtml(deadlineStr)}</p>`
+        <p class="muted tiny">Дедлайн сбора раунда: ${escapeHtml(deadlineStr)}</p>
+        <p class="muted tiny">Нокауты отряда: <strong>${Number(dungeon.wipe_count || 0)}/3</strong>
+          · прогноз награды ~${Number(dungeon.wipe_reward_pct != null ? dungeon.wipe_reward_pct : 100)}%
+          · тишина: <strong>${Number(dungeon.idle_silent_streak || 0)}/2</strong></p>
+        <p class="muted tiny">3 нокаута отряда или 2 тихих раунда подряд — автозавершение без наград.</p>`
             : ""
         }
       </div>`
@@ -1541,6 +1724,11 @@ function renderDungeonDetails(dungeon) {
       }
       <div class="modal-actions">
         <button type="button" class="btn-primary gd-open-chat" data-chat-id="${dungeon.chat_id || ""}">Перейти в чат</button>
+        ${
+          dungeon.v1 && dungeon.can_stop && dungeon.cycle_status === "active"
+            ? `<button type="button" class="btn gd-stop-detail-btn" data-chat-id="${dungeon.chat_id || ""}">Завершить поход</button>`
+            : ""
+        }
       </div>
     </div>`;
 }
@@ -1606,6 +1794,13 @@ function openDungeonDetails(dungeon) {
       } else {
         window.open(url, "_blank");
       }
+    });
+  }
+  const stopBtn = modal.querySelector(".gd-stop-detail-btn");
+  if (stopBtn && dungeon.chat_id) {
+    stopBtn.addEventListener("click", async () => {
+      await stopGdFromWebapp(Number(dungeon.chat_id), Number(dungeon.id));
+      closeGdModal(modal);
     });
   }
 }
@@ -2517,7 +2712,7 @@ function renderExpBottomZone(activeCount, maxConcurrent) {
       const free = maxConcurrent - activeCount;
       const slots = [];
       for (let i = 0; i < free; i++) {
-        slots.push(`<div class="exp-free-slot" onclick="WaifuApp.openSendExpModal()"><span class="exp-free-slot-ico">＋</span><span>Отправить<br>экспедицию</span></div>`);
+        slots.push(`<div class="exp-free-slot" data-tutorial="exp-free-slot" onclick="WaifuApp.openSendExpModal()"><span class="exp-free-slot-ico">＋</span><span>Отправить<br>экспедицию</span></div>`);
       }
       freeWrap.innerHTML = slots.join("");
       freeWrap.style.display = "";
@@ -3976,6 +4171,18 @@ function showTab(name) {
       abyssRefreshTimer = null;
     }
   }
+
+  try {
+    const profile = window.__lastProfileForDungeons || window.profileState?.currentProfile;
+    window.WaifuApp?.Tutorial?.maybeRun?.(
+      "dungeons",
+      profile?.tutorial,
+      null,
+      { tab: name },
+    );
+  } catch (e) {
+    console.warn("dungeons tab tutorial failed:", e);
+  }
 }
 
 
@@ -4025,6 +4232,8 @@ Object.assign(window.WaifuApp, {
   closeExpeditionHelp,
   openGdHelp,
   closeGdHelp,
+  startGdMusterDefault,
+  stopGdFromWebapp,
   loadAbyssTab,
   abyssEnter,
   openAbyssExitModal,

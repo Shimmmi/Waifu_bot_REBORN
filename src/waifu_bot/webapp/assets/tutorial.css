@@ -1,10 +1,10 @@
-/* Tutorial onboarding overlay — spotlight + waifu narrator bubble */
+/* Tutorial onboarding overlay — spotlight + waifu narrator bubble + soft-lock */
 
 .tutorial-root {
   position: fixed;
   inset: 0;
   z-index: 99000;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .tutorial-root[hidden] {
@@ -15,12 +15,36 @@
   display: none;
 }
 
+.tutorial-blocker {
+  position: fixed;
+  background: transparent;
+  pointer-events: auto;
+  z-index: 99000;
+}
+
+/* Transparent hit layer over the spotlight hole — forwards clicks to the real UI. */
+.tutorial-hole-hit {
+  position: fixed;
+  display: none;
+  background: transparent;
+  pointer-events: auto;
+  z-index: 99002;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.tutorial-target-raised {
+  z-index: 99150 !important;
+  pointer-events: auto !important;
+}
+
 .tutorial-overlay-svg {
   position: fixed;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
+  z-index: 99001;
 }
 
 .tutorial-overlay-svg rect.tutorial-dim {
@@ -35,7 +59,7 @@
     0 0 0 2px rgba(200, 146, 42, 0.35),
     0 0 24px rgba(232, 184, 75, 0.45);
   pointer-events: none;
-  z-index: 99001;
+  z-index: 99002;
   animation: tutorial-spotlight-pulse 1.6s ease-in-out infinite;
 }
 
@@ -55,7 +79,7 @@
 
 .tutorial-bubble {
   position: fixed;
-  z-index: 99002;
+  z-index: 99003;
   width: min(94vw, 360px);
   max-width: min(94vw, 360px);
   min-width: 0;
@@ -66,7 +90,12 @@
   color: #e8dcc8;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
   cursor: pointer;
+  pointer-events: auto;
   transition: top 0.25s ease, left 0.25s ease, opacity 0.2s ease, border-color 0.2s ease;
+}
+
+.tutorial-root.is-action-mode .tutorial-bubble {
+  cursor: default;
 }
 
 .tutorial-bubble:hover {
@@ -176,6 +205,7 @@
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
+  pointer-events: auto;
 }
 
 .tutorial-step-close:hover {
@@ -191,6 +221,7 @@
   justify-content: center;
   padding: 16px;
   background: rgba(0, 0, 0, 0.65);
+  pointer-events: auto;
 }
 
 .tutorial-reward-modal[hidden] {

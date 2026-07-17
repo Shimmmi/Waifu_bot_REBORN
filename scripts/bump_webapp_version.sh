@@ -25,32 +25,19 @@ from pathlib import Path
 
 webapp = Path(sys.argv[1])
 ver = sys.argv[2]
-
-SHELL_ASSET = (
-    r"(?:styles\.css|app\.js|overlay\.css|desktop-theme\.css|steam-pages\.css"
-    r"|pages/[a-z_]+\.js|bundle/(?:app|dungeons|tavern)\.min\.js"
-    r"|bundle/styles\.min\.css|bundle/combat-island\.min\.js|bundle/waifu-combat-island\.css)"
-)
-
-def bump_html(path: Path) -> None:
-    text = path.read_text(encoding="utf-8")
+for html in sorted(webapp.glob("*.html")):
+    text = html.read_text(encoding="utf-8")
 
     def bump_attr(m):
         return f'{m.group(1)}="{m.group(2)}?v={ver}"'
 
     text = re.sub(
-        rf'(href|src)="((?:\./|/webapp/)?{SHELL_ASSET})(?:\?[^"]*)?"',
+        r'(href|src)="((?:\./|/webapp/)?(?:styles\.css|app\.js|pages/[a-z_]+\.js|bundle/(?:app|dungeons|tavern)\.min\.js|bundle/styles\.min\.css|bundle/combat-island\.min\.js|bundle/waifu-combat-island\.css))(?:\?[^"]*)?"',
         bump_attr,
         text,
     )
-    path.write_text(text, encoding="utf-8")
-    print(path.relative_to(webapp))
-
-for html in sorted(webapp.glob("*.html")):
-    bump_html(html)
-
-for html in sorted((webapp / "steam").glob("*.html")):
-    bump_html(html)
+    html.write_text(text, encoding="utf-8")
+    print(html.name)
 PY
 
-echo "Updated HTML shell asset URLs in ${WEBAPP}/*.html and steam/*.html"
+echo "Updated HTML shell asset URLs in ${WEBAPP}/*.html"

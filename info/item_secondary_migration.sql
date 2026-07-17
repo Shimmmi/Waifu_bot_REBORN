@@ -35,36 +35,8 @@ UPDATE item_base_templates SET secondary_bonus_type='crit_chance_pct', secondary
 UPDATE item_base_templates SET secondary_bonus_type='crit_chance_pct', secondary_bonus_value=0.04 WHERE name='Кольцо тени' AND tier=8;
 UPDATE item_base_templates SET secondary_bonus_type='crit_chance_pct', secondary_bonus_value=0.045 WHERE name='Кольцо мастера' AND tier=9;
 UPDATE item_base_templates SET secondary_bonus_type='crit_chance_pct', secondary_bonus_value=0.05 WHERE name='Кольцо судьбы' AND tier=10;
-UPDATE item_base_templates SET secondary_bonus_type='hp_max_pct', secondary_bonus_value=0.005 WHERE name='Простой амулет' AND tier=1;
-UPDATE item_base_templates SET secondary_bonus_type='hp_max_pct', secondary_bonus_value=0.01 WHERE name='Амулет стойкости' AND tier=2;
-UPDATE item_base_templates SET secondary_bonus_type='hp_max_pct', secondary_bonus_value=0.015 WHERE name='Медальон воина' AND tier=3;
-UPDATE item_base_templates SET secondary_bonus_type='hp_max_pct', secondary_bonus_value=0.02 WHERE name='Амулет защиты' AND tier=4;
-UPDATE item_base_templates SET secondary_bonus_type='hp_max_pct', secondary_bonus_value=0.025 WHERE name='Медальон стражника' AND tier=5;
-UPDATE item_base_templates SET secondary_bonus_type='hp_max_pct', secondary_bonus_value=0.03 WHERE name='Амулет паладина' AND tier=6;
-UPDATE item_base_templates SET secondary_bonus_type='hp_max_pct', secondary_bonus_value=0.035 WHERE name='Амулет хранителя' AND tier=7;
-UPDATE item_base_templates SET secondary_bonus_type='hp_max_pct', secondary_bonus_value=0.04 WHERE name='Амулет бессмертия' AND tier=8;
-UPDATE item_base_templates SET secondary_bonus_type='hp_max_pct', secondary_bonus_value=0.045 WHERE name='Амулет титана' AND tier=9;
-UPDATE item_base_templates SET secondary_bonus_type='hp_max_pct', secondary_bonus_value=0.05 WHERE name='Амулет богов' AND tier=10;
-UPDATE item_base_templates SET secondary_bonus_type='exp_bonus_pct', secondary_bonus_value=0.005 WHERE name='Магический амулет' AND tier=1;
-UPDATE item_base_templates SET secondary_bonus_type='exp_bonus_pct', secondary_bonus_value=0.01 WHERE name='Амулет мага' AND tier=2;
-UPDATE item_base_templates SET secondary_bonus_type='exp_bonus_pct', secondary_bonus_value=0.015 WHERE name='Медальон тайн' AND tier=3;
-UPDATE item_base_templates SET secondary_bonus_type='exp_bonus_pct', secondary_bonus_value=0.02 WHERE name='Амулет знаний' AND tier=4;
-UPDATE item_base_templates SET secondary_bonus_type='exp_bonus_pct', secondary_bonus_value=0.025 WHERE name='Амулет архимага' AND tier=5;
-UPDATE item_base_templates SET secondary_bonus_type='exp_bonus_pct', secondary_bonus_value=0.03 WHERE name='Амулет пророка' AND tier=6;
-UPDATE item_base_templates SET secondary_bonus_type='exp_bonus_pct', secondary_bonus_value=0.035 WHERE name='Амулет звёзд' AND tier=7;
-UPDATE item_base_templates SET secondary_bonus_type='exp_bonus_pct', secondary_bonus_value=0.04 WHERE name='Амулет вечности' AND tier=8;
-UPDATE item_base_templates SET secondary_bonus_type='exp_bonus_pct', secondary_bonus_value=0.045 WHERE name='Амулет бездны' AND tier=9;
-UPDATE item_base_templates SET secondary_bonus_type='exp_bonus_pct', secondary_bonus_value=0.05 WHERE name='Амулет Творения' AND tier=10;
-UPDATE item_base_templates SET secondary_bonus_type='gold_bonus_pct', secondary_bonus_value=0.005 WHERE name='Торговый амулет' AND tier=1;
-UPDATE item_base_templates SET secondary_bonus_type='gold_bonus_pct', secondary_bonus_value=0.01 WHERE name='Амулет купца' AND tier=2;
-UPDATE item_base_templates SET secondary_bonus_type='gold_bonus_pct', secondary_bonus_value=0.015 WHERE name='Медальон торговца' AND tier=3;
-UPDATE item_base_templates SET secondary_bonus_type='gold_bonus_pct', secondary_bonus_value=0.02 WHERE name='Амулет удачи' AND tier=4;
-UPDATE item_base_templates SET secondary_bonus_type='gold_bonus_pct', secondary_bonus_value=0.025 WHERE name='Счастливый амулет' AND tier=5;
-UPDATE item_base_templates SET secondary_bonus_type='gold_bonus_pct', secondary_bonus_value=0.03 WHERE name='Амулет фортуны' AND tier=6;
-UPDATE item_base_templates SET secondary_bonus_type='gold_bonus_pct', secondary_bonus_value=0.035 WHERE name='Амулет судьбы' AND tier=7;
-UPDATE item_base_templates SET secondary_bonus_type='gold_bonus_pct', secondary_bonus_value=0.04 WHERE name='Амулет богини удачи' AND tier=8;
-UPDATE item_base_templates SET secondary_bonus_type='gold_bonus_pct', secondary_bonus_value=0.045 WHERE name='Амулет провидца' AND tier=9;
-UPDATE item_base_templates SET secondary_bonus_type='gold_bonus_pct', secondary_bonus_value=0.05 WHERE name='Амулет Вселенной' AND tier=10;
+
+-- Amulets: unique per-tier bonuses — see info/amulet_bonus_migration.sql (alembic 0113_amulet_fixed_bonuses)
 
 -- Step 3: Verify armor values (should already be set from initial import)
 SELECT name, tier, armor_base, stat1_type, stat1_value

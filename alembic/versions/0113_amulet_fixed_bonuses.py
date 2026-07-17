@@ -7,7 +7,6 @@ Revises: 0112_legendary_milestone_session_scope
 from __future__ import annotations
 
 import json
-import logging
 import sys
 from pathlib import Path
 from typing import Sequence, Union
@@ -23,22 +22,8 @@ depends_on: Union[str, Sequence[str], None] = None
 _ROOT = Path(__file__).resolve().parents[2]
 _MATRIX_JSON = _ROOT / "info" / "amulet_bonus_matrix_draft.json"
 
-log = logging.getLogger(__name__)
 
-
-def _load_updates() -> list[dict] | None:
-    # info/amulet_bonus_matrix_draft.json is a hand-authored data file that is
-    # not always present (e.g. fresh checkouts on a dev machine) — skip the
-    # data backfill rather than failing the whole migration chain. The
-    # fixed_bonus_type/fixed_bonus_value columns are still added unconditionally.
-    if not _MATRIX_JSON.exists():
-        log.warning(
-            "0113_amulet_fixed_bonuses: %s not found, skipping amulet "
-            "fixed-bonus data backfill (schema columns are still added)",
-            _MATRIX_JSON,
-        )
-        return None
-
+def _load_updates() -> list[dict]:
     sys.path.insert(0, str(_ROOT / "scripts"))
     from lib.amulet_bonus_seed import iter_updates  # noqa: WPS433
 
@@ -55,12 +40,8 @@ def upgrade() -> None:
         sa.Column("fixed_bonus_value", sa.Float(), nullable=False, server_default="0"),
     )
 
-    updates = _load_updates()
-    if not updates:
-        return
-
     conn = op.get_bind()
-    for row in updates:
+    for row in _load_updates():
         conn.execute(
             sa.text(
                 """

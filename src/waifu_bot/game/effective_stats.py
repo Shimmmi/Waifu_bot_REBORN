@@ -252,153 +252,6 @@ def resolve_equipped_weapon_for_profile(equipped: list[InventoryItem]) -> Equipp
     return unarmed
 
 
-def resolve_main_weapon_attack_speed(equipped: list[InventoryItem]) -> int:
-    """
-    Clicks/keypresses needed for one attack animation (1–10).
-    Same weapon priority as roll_weapon_damage_and_meta / combat min_chars.
-    """
-    mainhand = None
-    offhand = None
-    for inv in equipped:
-        slot = int(getattr(inv, "equipment_slot", 0) or 0)
-        if slot == 1:
-            mainhand = inv
-        elif slot == 2:
-            offhand = inv
-    weapon = mainhand if mainhand is not None else offhand
-    if weapon is None:
-        return 1
-    try:
-        return max(1, min(10, int(getattr(weapon, "attack_speed", 1) or 1)))
-    except (TypeError, ValueError):
-        return 1
-
-
-def resolve_main_weapon_overlay_meta(equipped: list[InventoryItem]) -> tuple[str, str]:
-    """
-    Weapon type + attack type for overlay animation selection.
-    Same main-hand priority as resolve_main_weapon_attack_speed.
-    """
-    mainhand = None
-    offhand = None
-    for inv in equipped:
-        slot = int(getattr(inv, "equipment_slot", 0) or 0)
-        if slot == 1:
-            mainhand = inv
-        elif slot == 2:
-            offhand = inv
-    weapon = mainhand if mainhand is not None else offhand
-    if weapon is None:
-        return "unarmed", "melee"
-    wt = (getattr(weapon, "weapon_type", None) or "").lower().strip()
-    if not wt or wt == "none":
-        wt = "unarmed"
-    return wt, infer_weapon_attack_type(weapon)
-
-
-def _equip_sprite_slug(inv: InventoryItem) -> str:
-    """Filename slug for RO equip paperdoll sprites (from art_key or name)."""
-    from waifu_bot.services.item_art import resolve_inventory_item_art_key
-
-    try:
-        name = ""
-        item = getattr(inv, "item", None)
-        if item is not None:
-            name = str(getattr(item, "name", "") or "")
-        art_key = resolve_inventory_item_art_key(inv, display_base_name=name or "item")
-    except Exception:
-        art_key = ""
-    slug = ""
-    if art_key and "/" in art_key:
-        slug = art_key.rsplit("/", 1)[-1].strip()
-    if not slug:
-        raw = str(getattr(inv, "weapon_type", None) or getattr(inv, "slot_type", None) or "item")
-        slug = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in raw.lower()) or "item"
-    return slug[:64]
-
-
-def _equip_sprite_path(kind: str, inv: InventoryItem, *, weapon_type: str | None = None) -> tuple[str, str]:
-    """Return (sprite_url, art_key_or_slug)."""
-    from waifu_bot.services.item_art import resolve_inventory_item_art_key
-
-    name = ""
-    item = getattr(inv, "item", None)
-    if item is not None:
-        name = str(getattr(item, "name", "") or "")
-    try:
-        art_key = resolve_inventory_item_art_key(inv, display_base_name=name or "item")
-    except Exception:
-        art_key = _equip_sprite_slug(inv)
-    slug = art_key.rsplit("/", 1)[-1] if art_key and "/" in art_key else (art_key or _equip_sprite_slug(inv))
-    base = "/static/game/waifu-gen/paperdoll/equip"
-    if kind == "weapon":
-        wt = (weapon_type or getattr(inv, "weapon_type", None) or "unarmed").lower().strip() or "unarmed"
-        if wt == "none":
-            wt = "unarmed"
-        sprite = f"{base}/weapon/{wt}/{slug}.webp"
-    elif kind == "offhand":
-        sprite = f"{base}/offhand/{slug}.webp"
-    else:
-        sprite = f"{base}/costume/{slug}.webp"
-    return sprite, art_key or slug
-
-
-def resolve_equipped_visuals_for_overlay(equipped: list[InventoryItem]) -> dict[str, Any]:
-    """
-    Compact equip sprites for RO overlay paperdoll.
-    Slots: 1 weapon, 2 offhand, 3 costume. Rings/amulets (4–6) ignored.
-    """
-    by_slot: dict[int, InventoryItem] = {}
-    for inv in equipped:
-        slot = int(getattr(inv, "equipment_slot", 0) or 0)
-        if slot in (1, 2, 3):
-            by_slot[slot] = inv
-
-    out: dict[str, Any] = {"costume": None, "weapon": None, "offhand": None}
-
-    costume = by_slot.get(3)
-    if costume is not None:
-        sprite, art_key = _equip_sprite_path("costume", costume)
-        out["costume"] = {"sprite": sprite, "art_key": art_key}
-
-    weapon = by_slot.get(1)
-    if weapon is not None:
-        wt = (getattr(weapon, "weapon_type", None) or "").lower().strip() or "unarmed"
-        if wt == "none":
-            wt = "unarmed"
-        if wt != "unarmed":
-            sprite, art_key = _equip_sprite_path("weapon", weapon, weapon_type=wt)
-            out["weapon"] = {
-                "sprite": sprite,
-                "art_key": art_key,
-                "weapon_type": wt,
-                "attack_type": infer_weapon_attack_type(weapon),
-            }
-
-    offhand = by_slot.get(2)
-    if offhand is not None:
-        # Dual-wield weapon in slot 2 still counts as offhand visual when no mainhand weapon sprite.
-        st = (getattr(offhand, "slot_type", None) or "").lower()
-        if "weapon" in st and out["weapon"] is None:
-            wt = (getattr(offhand, "weapon_type", None) or "").lower().strip() or "unarmed"
-            if wt not in ("", "none", "unarmed"):
-                sprite, art_key = _equip_sprite_path("weapon", offhand, weapon_type=wt)
-                out["weapon"] = {
-                    "sprite": sprite,
-                    "art_key": art_key,
-                    "weapon_type": wt,
-                    "attack_type": infer_weapon_attack_type(offhand),
-                }
-            else:
-                sprite, art_key = _equip_sprite_path("offhand", offhand)
-                out["offhand"] = {"sprite": sprite, "art_key": art_key}
-        else:
-            sprite, art_key = _equip_sprite_path("offhand", offhand)
-            out["offhand"] = {"sprite": sprite, "art_key": art_key}
-
-    return out
-
-
 async def resolve_solo_combat_primary_four(
     session: AsyncSession,
     player_id: int,
@@ -419,6 +272,16 @@ async def resolve_solo_combat_primary_four(
     s, a, i, l, _ = accumulate_primary_four_from_gear(waifu, equipped)
     sf = int(ps.get("main_stats_flat", 0) or 0)
     s, a, i, l = apply_main_stats_flat_to_four(s, a, i, l, sf)
+    try:
+        from waifu_bot.services.perfection import (
+            apply_perfection_primary_four,
+            load_perfection_totals,
+        )
+
+        pt = await load_perfection_totals(session, player_id)
+        s, a, i, l = apply_perfection_primary_four(s, a, i, l, pt)
+    except Exception:
+        pass
     pm, hm, cm = stat_multipliers_from_passive_hidden(ps, hs)
     s, a, i, l = apply_combined_stat_mult_to_four(s, a, i, l, cm)
     return SoloCombatPrimaryFourResult(

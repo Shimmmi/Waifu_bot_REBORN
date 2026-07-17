@@ -1,4 +1,8 @@
-"""D2-style legendary bonus → item_base_template assignment (316 ↔ 316)."""
+"""D2-style legendary bonus → item_base_template assignment (316 ↔ 316).
+
+DEPRECATED: bonuses are rolled at drop time via drop_roll.py (migration 0119).
+This module remains for historical distribution audits only.
+"""
 
 from __future__ import annotations
 

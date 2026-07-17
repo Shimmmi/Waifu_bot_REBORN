@@ -30,4 +30,4 @@ export WAIFU_LINK_CODE=<code from Telegram POST /api/auth/link_code>
 cd mobile_client && npm run android:api-smoke
 ```
 
-Requires staging on `feature/mobile-android` with `alembic upgrade head` (0121).
+Requires staging on `feature/mobile-android` with `alembic upgrade head` (0129).

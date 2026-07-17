@@ -18,11 +18,13 @@ from waifu_bot.services.game_config_service import get_game_config_map, cfg_floa
 
 from waifu_bot.services.gd_scaling import (
     compute_challenge_level,
+    maybe_grant_hp_break_assist,
     merge_activity_totals_from_buffer,
     monster_template_for_state,
     normalized_damage_to_global_hp,
     ref_hp_boss,
     ref_hp_trash,
+    thematic_class_damage_mult,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,6 +58,8 @@ async def _apply_player_damage_to_monster(
     raw_damage: int,
     attacker: dict[str, Any],
     party: list[dict],
+    *,
+    state: dict[str, Any] | None = None,
 ) -> int:
     """Apply raw DPS to shared HP pool using per-attacker level normalization."""
     if raw_damage <= 0:
@@ -71,7 +75,12 @@ async def _apply_player_damage_to_monster(
     else:
         ref = ref_hp_trash(mt, L, n_players, hp_scale)
     delta = normalized_damage_to_global_hp(g, raw_damage, ref)
-    m["hp"] = max(0, int(m.get("hp") or 0) - delta)
+    hp_before = int(m.get("hp") or 0)
+    m["hp"] = max(0, hp_before - delta)
+    if state is not None:
+        uid = int(attacker.get("user_id") or 0)
+        if uid:
+            maybe_grant_hp_break_assist(state, uid, m, hp_before, int(m["hp"]))
     return delta
 
 
@@ -135,7 +144,8 @@ async def _init_trash_wave(
     challenge_level: int,
 ) -> list[dict]:
     n_players = len(party)
-    n_mons = 1 + n_players // 2
+    # 2p: single trash; larger parties keep 1 + n//2
+    n_mons = 1 if n_players <= 2 else 1 + n_players // 2
     ch = max(1, min(60, int(challenge_level)))
     templates = await _pick_monster_templates(session, ch, n_mons, boss=False)
     if not templates:
@@ -189,6 +199,8 @@ async def _init_boss(
 ) -> list[dict]:
     n_players = len(party)
     ch = max(1, min(60, int(challenge_level)))
+    cfg = await get_game_config_map(session)
+    party_hp_mult = 1.0 + cfg_float(cfg, "gd_boss_hp_party_mult", 0.08) * max(0, n_players - 2)
     tier = min(5, max(1, ch // 12 + 2))
     q = select(MonsterTemplate).where(MonsterTemplate.tier == tier, MonsterTemplate.boss_allowed == True)
     r = await session.execute(q)
@@ -198,7 +210,7 @@ async def _init_boss(
         pool = list(r2.scalars().all())
     bm = 2.5
     if not pool:
-        hp = max(1, int((40 + 10 * ch) * bm))
+        hp = max(1, int((40 + 10 * ch) * bm * party_hp_mult))
         return [
             {
                 "id": 2000,
@@ -219,7 +231,7 @@ async def _init_boss(
     mt = random.choice(pool)
     bm = float(mt.boss_hp_mult or 2.5)
     base_hp = int(mt.hp_base or 40) + int(mt.hp_per_level or 10) * ch
-    hp = max(1, int(base_hp * bm))
+    hp = max(1, int(base_hp * bm * party_hp_mult))
     return [
         {
             "id": 2000,
@@ -531,7 +543,9 @@ async def _execute_player_action(
         if text_len <= 0:
             return
         atk = _attack_type_for_class(int(p.get("class_id") or 1))
-        wd = _weapon_dmg_from_level(int(p.get("level") or 1))
+        wd = int(p.get("weapon_damage") or 0)
+        if wd <= 0:
+            wd = _weapon_dmg_from_level(int(p.get("level") or 1))
         td = calculate_message_damage(
             MediaType.TEXT,
             int(p.get("strength") or 10),
@@ -543,6 +557,13 @@ async def _execute_player_action(
         )
         crit_m = await _consume_buff_crit_next(session, fx, uid)
         td = int(td * crit_m * _party_damage_mult(fx, uid))
+        theme_mult = thematic_class_damage_mult(
+            int(p.get("class_id") or 0),
+            state.get("thematic_bonus_class_ids"),
+            {"gd_thematic_bonus_mult": str(state.get("__gd_cfg_thematic_mult") or 1.15)},
+        )
+        if theme_mult != 1.0:
+            td = max(1, int(td * theme_mult))
         guild_mult = 1.0
         guild_skill_lines: list[str] = []
         try:
@@ -564,7 +585,9 @@ async def _execute_player_action(
         if m and td > 0:
             mult = _monster_armor_debuff_mult(fx, int(m["id"]))
             td = max(1, int(td * mult))
-            delta = await _apply_player_damage_to_monster(session, m, td, p, party)
+            delta = await _apply_player_damage_to_monster(
+                session, m, td, p, party, state=state
+            )
             actions_log.append(
                 {
                     "user_id": uid,
@@ -574,9 +597,12 @@ async def _execute_player_action(
                     "damage": int(delta),
                     "guild_damage_pct": guild_mult - 1.0,
                     "guild_skill_lines": guild_skill_lines,
+                    "thematic": theme_mult > 1.0,
                 }
             )
-            c = contrib.setdefault(str(uid), {"text": 0, "skill": 0, "heal": 0, "rounds": 0})
+            c = contrib.setdefault(
+                str(uid), {"text": 0, "skill": 0, "heal": 0, "rounds": 0, "assists": 0}
+            )
             c["text"] = int(c.get("text") or 0) + int(delta)
             outcomes["hits"].append({"target": m["id"], "damage": int(delta), "from": uid})
             await _grant_loot_if_monster_died(session, state, party, m, outcomes)
@@ -642,6 +668,9 @@ async def _execute_monster_turn(
 
     tgt_lvl = max(1, min(60, int(tgt.get("level") or 1)))
     raw = _monster_damage_raw(mt, tgt_lvl, bool(m.get("is_boss")))
+    party_scale = float(state.get("__monster_dmg_party_scale") or 1.0)
+    if party_scale < 1.0:
+        raw = max(1, int(raw * party_scale))
 
     evp = _party_evasion_pct(fx)
     if evp > 0 and random.uniform(0, 100) < evp:
@@ -713,7 +742,7 @@ async def _apply_dot_phase(
                 if pl:
                     src_lvl = int(pl.get("level") or 1)
                     atk = pl
-            delta = await _apply_player_damage_to_monster(session, m, dmg_raw, atk, party)
+            delta = await _apply_player_damage_to_monster(session, m, dmg_raw, atk, party, state=state)
             outcomes["hits"].append({"dot": True, "target": tid, "damage": delta})
             actions_log.append(
                 {
@@ -724,7 +753,9 @@ async def _apply_dot_phase(
                 }
             )
             if su:
-                c = contrib.setdefault(str(int(su)), {"text": 0, "skill": 0, "heal": 0, "rounds": 0})
+                c = contrib.setdefault(
+                    str(int(su)), {"text": 0, "skill": 0, "heal": 0, "rounds": 0, "assists": 0}
+                )
                 c["skill"] = int(c.get("skill") or 0) + max(1, delta // 4)
             await _grant_loot_if_monster_died(session, state, party, m, outcomes)
 
@@ -774,6 +805,7 @@ async def process_gd_round(
     state["taunt_user_id"] = None
     contrib = state.setdefault("contribution", {})
     round_num = int(state.get("collecting_for_round") or 1)
+    state["__gd_cfg_thematic_mult"] = cfg_float(cfg, "gd_thematic_bonus_mult", 1.15)
 
     levels = [int(p.get("level") or 1) for p in party]
     ch_raw = state.get("challenge_level")
@@ -818,6 +850,48 @@ async def process_gd_round(
         seqs[uid] = seq
         if len(seq) > max_actions:
             max_actions = len(seq)
+
+    # Silent / idle round: no player actions → skip combat (no monster DPS out of thin air)
+    if max_actions <= 0:
+        for p in party:
+            uid = int(p.get("user_id") or 0)
+            actions_log.append({"user_id": uid, "kind": "silent"})
+        streak = int(state.get("idle_silent_streak") or 0) + 1
+        state["idle_silent_streak"] = streak
+        actions_log.append({"kind": "idle_round", "idle_silent_streak": streak})
+        state["collecting_for_round"] = round_num + 1
+        merge_activity_totals_from_buffer(state, buffer, cfg)
+        state.pop("__gd_cfg_thematic_mult", None)
+        state.pop("__monster_dmg_party_scale", None)
+        cycle.battle_state_json = state
+        ctx = _build_ai_context(
+            cycle,
+            round_num,
+            "idle",
+            party,
+            state.get("monsters") or [],
+            actions_log,
+            outcomes,
+            buffer,
+        )
+        return {
+            "round_number": round_num,
+            "monsters_json": copy.deepcopy(state.get("monsters") or []),
+            "actions_json": {"buffer": buffer, "resolved": actions_log},
+            "outcomes_json": outcomes,
+            "context_json": ctx,
+            "round_outcome": "idle",
+            "idle_silent_streak": streak,
+        }
+
+    state["idle_silent_streak"] = 0
+    n_party = max(1, len(party))
+    dmg_ref = cfg_float(cfg, "gd_monster_dmg_party_ref", 1.3)
+    dmg_min = cfg_float(cfg, "gd_monster_dmg_party_min", 0.55)
+    if n_party <= 4:
+        state["__monster_dmg_party_scale"] = max(dmg_min, min(1.0, dmg_ref / float(n_party)))
+    else:
+        state["__monster_dmg_party_scale"] = 1.0
 
     cap = cfg_int(cfg, "gd_round_cycle_cap", GD_ROUND_CYCLE_CAP_DEFAULT)
     n_cycles = max(1, min(max(1, cap), max_actions if max_actions > 0 else 1))
@@ -930,13 +1004,23 @@ async def process_gd_round(
 
     state["collecting_for_round"] = round_num + 1
 
-    # After wipe: recover minimal HP so cycle can continue (no hard fail)
+    # After wipe: recover minimal HP so cycle can continue (soft-fail with stake)
     if round_outcome == "party_wiped":
+        state["wipe_count"] = int(state.get("wipe_count") or 0) + 1
+        recover_pct = cfg_float(cfg, "gd_wipe_recovery_hp_pct", 0.25)
         for p in party:
             p["fallen"] = False
-            p["current_hp"] = max(1, int(int(p.get("max_hp") or 100) * 0.15))
+            p["current_hp"] = max(1, int(int(p.get("max_hp") or 100) * recover_pct))
+        actions_log.append(
+            {
+                "kind": "party_wipe_recovery",
+                "wipe_count": int(state["wipe_count"]),
+            }
+        )
 
     merge_activity_totals_from_buffer(state, buffer, cfg)
+    state.pop("__gd_cfg_thematic_mult", None)
+    state.pop("__monster_dmg_party_scale", None)
     cycle.battle_state_json = state
 
     ctx = _build_ai_context(
@@ -1029,8 +1113,19 @@ async def _apply_skill_effect(
     exp_r = round_num + max(1, dur)
 
     def add_contrib_skill(amount: int) -> None:
-        c = contrib.setdefault(str(uid), {"text": 0, "skill": 0, "heal": 0, "rounds": 0})
+        c = contrib.setdefault(
+            str(uid), {"text": 0, "skill": 0, "heal": 0, "rounds": 0, "assists": 0}
+        )
         c["skill"] = int(c.get("skill") or 0) + int(amount)
+
+    def grant_support_assist() -> None:
+        assists = state.setdefault("assists", {})
+        key = str(uid)
+        assists[key] = int(assists.get(key) or 0) + 1
+        c = contrib.setdefault(
+            key, {"text": 0, "skill": 0, "heal": 0, "rounds": 0, "assists": 0}
+        )
+        c["assists"] = int(c.get("assists") or 0) + 1
 
     pm = _party_damage_mult(fx, uid)
 
@@ -1051,7 +1146,9 @@ async def _apply_skill_effect(
                 * pm
             )
             base = max(1, int(base * _monster_armor_debuff_mult(fx, int(m["id"]))))
-            delta = await _apply_player_damage_to_monster(session, m, base, caster, party)
+            delta = await _apply_player_damage_to_monster(
+                session, m, base, caster, party, state=state
+            )
             add_contrib_skill(delta)
             actions_log.append({"user_id": uid, "skill": et, "damage": delta})
             outcomes["hits"].append({"skill": et, "damage": delta, "target": m["id"]})
@@ -1077,7 +1174,9 @@ async def _apply_skill_effect(
                 * pm
             )
             d = max(1, int(d * _monster_armor_debuff_mult(fx, int(m["id"]))))
-            delta = await _apply_player_damage_to_monster(session, m, d, caster, party)
+            delta = await _apply_player_damage_to_monster(
+                session, m, d, caster, party, state=state
+            )
             tot += delta
             await _grant_loot_if_monster_died(session, state, party, m, outcomes)
         add_contrib_skill(tot)
@@ -1100,7 +1199,9 @@ async def _apply_skill_effect(
                 * pm
             )
             d = max(1, int(d * _monster_armor_debuff_mult(fx, int(m["id"]))))
-            delta = await _apply_player_damage_to_monster(session, m, d, caster, party)
+            delta = await _apply_player_damage_to_monster(
+                session, m, d, caster, party, state=state
+            )
             cost_pct = dur
             mx = max(1, int(caster.get("max_hp") or 100))
             caster["current_hp"] = max(1, int(caster.get("current_hp") or 1) - int(mx * cost_pct / 100.0))
@@ -1129,6 +1230,7 @@ async def _apply_skill_effect(
     elif et == "TAUNT":
         state["taunt_user_id"] = uid
         outcomes.setdefault("taunt_set", uid)
+        grant_support_assist()
         actions_log.append({"user_id": uid, "skill": et})
 
     elif et in ("HEAL_SINGLE",):
@@ -1140,8 +1242,11 @@ async def _apply_skill_effect(
                 outcomes["flags"]["heal_no_target"] = True
             else:
                 t["current_hp"] = min(mx, int(t.get("current_hp") or 0) + max(1, add))
-                c = contrib.setdefault(str(uid), {"text": 0, "skill": 0, "heal": 0, "rounds": 0})
+                c = contrib.setdefault(
+                    str(uid), {"text": 0, "skill": 0, "heal": 0, "rounds": 0, "assists": 0}
+                )
                 c["heal"] = int(c.get("heal") or 0) + max(1, add)
+                grant_support_assist()
                 actions_log.append({"user_id": uid, "skill": et, "heal": max(1, add)})
         else:
             outcomes["flags"]["heal_no_target"] = True
@@ -1155,8 +1260,11 @@ async def _apply_skill_effect(
             add = int(mx * ev / 100.0)
             t["current_hp"] = min(mx, int(t.get("current_hp") or 0) + max(1, add))
             mxv += max(1, add)
-        c = contrib.setdefault(str(uid), {"text": 0, "skill": 0, "heal": 0, "rounds": 0})
+        c = contrib.setdefault(
+            str(uid), {"text": 0, "skill": 0, "heal": 0, "rounds": 0, "assists": 0}
+        )
         c["heal"] = int(c.get("heal") or 0) + mxv
+        grant_support_assist()
         actions_log.append({"user_id": uid, "skill": et, "heal": mxv})
 
     elif et == "REVIVE":
@@ -1166,6 +1274,7 @@ async def _apply_skill_effect(
             pct = ev / 100.0 if ev > 1.0 else ev
             fallen["current_hp"] = max(1, int(mx * pct))
             fallen["fallen"] = False
+            grant_support_assist()
             actions_log.append({"user_id": uid, "skill": et})
         else:
             outcomes["flags"]["revive_no_target"] = True
@@ -1184,18 +1293,21 @@ async def _apply_skill_effect(
             applied_round=round_num,
             fx_list=fx,
         )
+        grant_support_assist()
         actions_log.append({"user_id": uid, "skill": et, "absorb": ev})
 
     elif et == "DEBUFF_MONSTER_SKIP":
         m = _highest_hp_monster(monsters)
         if m:
             m["skip_next"] = True
+            grant_support_assist()
             actions_log.append({"user_id": uid, "skill": et, "target": m["id"]})
 
     elif et == "DEBUFF_MONSTER_INITIATIVE":
         m = _highest_hp_monster(monsters)
         if m:
             m["init_penalty"] = int(m.get("init_penalty") or 0) + int(ev)
+            grant_support_assist()
             actions_log.append({"user_id": uid, "skill": et})
 
     elif et == "EVASION_PARTY":
@@ -1212,6 +1324,7 @@ async def _apply_skill_effect(
             applied_round=round_num,
             fx_list=fx,
         )
+        grant_support_assist()
         actions_log.append({"user_id": uid, "skill": et})
 
     elif et == "BUFF_CRIT_NEXT":

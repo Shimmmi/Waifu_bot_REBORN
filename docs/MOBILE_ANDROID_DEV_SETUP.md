@@ -10,6 +10,25 @@
 
 **Rule:** all Android/activity commits stay on `feature/mobile-android` until an explicit merge PR. Cherry-picks into Telegram branches only when approved.
 
+### Cursor / disk layout (same pattern as Steam)
+
+| Path | Branch | Purpose |
+|------|--------|---------|
+| `/opt/waifu-bot-REBORN` | Telegram (`webapp-perf-prod` / `main`) | prod / TG |
+| `/opt/waifu-bot-steam-client` | `feature/steam-client` | Electron / Steam |
+| `/opt/waifu-bot-mobile-client` | `feature/mobile-android` | Capacitor / Android + activity API |
+
+Prefer a **git worktree** from REBORN (one `.git`, shared history):
+
+```bash
+cd /opt/waifu-bot-REBORN
+git fetch origin
+git checkout webapp-perf-prod   # keep TG checkout off mobile
+git worktree add /opt/waifu-bot-mobile-client feature/mobile-android
+```
+
+Open Cursor on `/opt/waifu-bot-mobile-client` for Android/activity work — do not mix with Telegram edits in REBORN.
+
 ```bash
 git fetch origin
 git checkout feature/mobile-android
@@ -18,11 +37,18 @@ git pull origin feature/mobile-android
 
 Remote: `origin/feature/mobile-android` (created for isolation from Telegram).
 
+
+## Prod isolation (critical)
+
+- **Prod Telegram API** runs only from `/opt/waifu-bot-REBORN` (`webapp-perf-prod` / `main`). Never checkout `feature/mobile-android` there.
+- **Activity/mobile work** stays in `/opt/waifu-bot-mobile-client`. Apply `0129_activity_economy` on **staging** only.
+- Do not merge this branch into `main` until perfection (`0121_player_perfection` … `0125_…`) is verified present and activity migrations sit after `0125` (0126–0129).
+
 ## Backend
 
 ```bash
-# on staging DB only — never apply 0121 to prod Telegram by accident
-alembic upgrade head   # includes 0121_activity_economy
+# on staging DB only — never apply 0129_activity_economy to prod Telegram by accident
+alembic upgrade head   # includes 0129_activity_economy
 
 docker compose -f docker-compose.staging.yml --env-file .env.staging up -d
 ```

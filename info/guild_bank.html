@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Банк гильдии</title>
+  <style>
+    /* ══════════════════════════════════════
+       CSS-переменные — синхронизированы
+       с gold-темой guild_hall.html
+    ══════════════════════════════════════ */
+    :root {
+      --accent:       #f59e0b;
+      --accent-soft:  rgba(245,158,11,0.15);
+      --accent-border:rgba(245,158,11,0.30);
+      --gold-bright:  #fbbf24;
+      --gold-dim:     #d97706;
+      --pur:          rgba(139,92,246,0.15);
+      --pur-border:   rgba(139,92,246,0.35);
+      --pur-text:     #c084fc;
+      --card:         #111827;
+      --card-deep:    #0d1117;
+      --card-raised:  #1a2236;
+      --border:       #1f2937;
+      --text:         #e5e7eb;
+      --muted:        #9ca3af;
+      --muted-deep:   #4b5563;
+      --bg:           #080e1a;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 100vh;
+    }
+
+    /* ══════════════════════════════════════
+       ПАНЕЛЬ БАЛАНСА КАЗНЫ
+    ══════════════════════════════════════ */
+    .gold-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+
+    .panel-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 10px;
+    }
+
+    .gold-amount-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .gold-coin-icon { font-size: 24px; }
+
+    .gold-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--gold-bright);
+      letter-spacing: 0.01em;
+    }
+
+    .gold-buttons {
+      display: flex;
+      gap: 8px;
+    }
+
+    .gold-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 9px 0;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .gold-btn:active { transform: scale(0.97); }
+
+    .btn-deposit {
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      color: var(--gold-bright);
+    }
+    .btn-deposit:hover { background: rgba(245,158,11,0.22); }
+
+    .btn-withdraw {
+      background: var(--pur);
+      border: 1px solid var(--pur-border);
+      color: var(--pur-text);
+    }
+    .btn-withdraw:hover { background: rgba(139,92,246,0.24); }
+
+    /* ══════════════════════════════════════
+       ПАНЕЛЬ СКЛАДА
+    ══════════════════════════════════════ */
+    .storage-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+
+    .storage-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .storage-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .storage-count {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .storage-bar-wrap {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+
+    .storage-bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, var(--accent), var(--gold-bright));
+      transition: width 0.4s ease;
+    }
+
+    .btn-add-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 10px 0;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      background: var(--pur);
+      border: 1px solid var(--pur-border);
+      color: var(--pur-text);
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-add-item:hover { background: rgba(139,92,246,0.25); }
+    .btn-add-item:active { transform: scale(0.98); }
+
+    /* ══════════════════════════════════════
+       ПАНЕЛЬ ПРЕДМЕТОВ
+    ══════════════════════════════════════ */
+    .items-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 14px;
+    }
+
+    .items-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 7px;
+      margin-bottom: 12px;
+    }
+
+    .item-cell {
+      aspect-ratio: 1;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--card-raised);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      cursor: pointer;
+      transition: border-color 0.15s, transform 0.12s;
+      position: relative;
+      user-select: none;
+    }
+    .item-cell:hover {
+      border-color: var(--accent-border);
+      transform: scale(1.06);
+    }
+    .item-cell:active { transform: scale(1.01); }
+
+    .item-cell.empty {
+      background: rgba(255,255,255,0.018);
+      border-style: dashed;
+      cursor: default;
+    }
+    .item-cell.empty:hover { transform: none; border-color: var(--border); }
+
+    /* Редкости */
+    .r1 { background: rgba(99,102,241,0.12);  border-color: rgba(99,102,241,0.28); }
+    .r2 { background: rgba(139,92,246,0.12);  border-color: rgba(139,92,246,0.28); }
+    .r3 { background: rgba(245,158,11,0.10);  border-color: rgba(245,158,11,0.26); }
+    .r4 { background: rgba(239,68,68,0.10);   border-color: rgba(239,68,68,0.24); }
+
+    .item-rarity {
+      position: absolute;
+      bottom: 3px;
+      right: 4px;
+      font-size: 8px;
+      font-weight: 700;
+      color: var(--gold-bright);
+      line-height: 1;
+    }
+
+    .item-qty {
+      position: absolute;
+      top: 3px;
+      left: 5px;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--muted);
+      line-height: 1;
+    }
+
+    /* ══════════════════════════════════════
+       ПАГИНАЦИЯ
+    ══════════════════════════════════════ */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .pag-btn {
+      flex: 1;
+      padding: 8px 0;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      background: var(--card-raised);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .pag-btn:hover:not(:disabled) {
+      border-color: var(--accent-border);
+      color: var(--gold-bright);
+    }
+    .pag-btn:disabled { opacity: 0.35; cursor: default; }
+
+    .pag-info {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+      white-space: nowrap;
+      min-width: 56px;
+    }
+
+    /* ══════════════════════════════════════
+       МОДАЛЬНОЕ ОКНО ПРЕДМЕТА
+    ══════════════════════════════════════ */
+    .item-modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .item-modal-backdrop.open { display: flex; }
+
+    .item-modal-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      width: 100%;
+      max-width: 280px;
+    }
+
+    .imod-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .imod-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      flex-shrink: 0;
+    }
+    .imod-name { font-size: 15px; font-weight: 600; color: var(--text); }
+    .imod-rarity { font-size: 11px; color: var(--gold-bright); margin-top: 2px; }
+    .imod-desc { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 16px; }
+
+    .imod-footer {
+      display: flex;
+      gap: 8px;
+    }
+    .imod-btn {
+      flex: 1;
+      padding: 10px 0;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .imod-btn-close {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .imod-btn-close:hover { background: rgba(255,255,255,0.09); }
+    .imod-btn-take {
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      color: var(--gold-bright);
+    }
+    .imod-btn-take:hover { background: rgba(245,158,11,0.24); }
+
+    /* ══════════════════════════════════════
+       МОДАЛЬНОЕ ОКНО ЗОЛОТА
+    ══════════════════════════════════════ */
+    .gold-modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .gold-modal-backdrop.open { display: flex; }
+
+    .gold-modal-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      width: 100%;
+      max-width: 300px;
+    }
+    .gmod-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .gmod-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+    .gmod-sub strong { color: var(--gold-bright); }
+    .gmod-input {
+      width: 100%;
+      background: var(--card-raised);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 9px 12px;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      font-family: inherit;
+      outline: none;
+      margin-bottom: 14px;
+      transition: border-color 0.15s;
+    }
+    .gmod-input:focus { border-color: var(--accent-border); }
+    .gmod-input::placeholder { color: var(--muted-deep); font-weight: 400; }
+    .gmod-footer { display: flex; gap: 8px; }
+    .gmod-btn {
+      flex: 1;
+      padding: 10px 0;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .gmod-cancel {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .gmod-confirm {
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      color: var(--gold-bright);
+    }
+    .gmod-confirm:hover { background: rgba(245,158,11,0.24); }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ ПАНЕЛЬ КАЗНЫ ═══ -->
+  <div class="gold-panel">
+    <div class="panel-title">Баланс казны гильдии</div>
+    <div class="gold-amount-row">
+      <span class="gold-coin-icon">🪙</span>
+      <span class="gold-value" id="treasury-gold">1,250,000</span>
+    </div>
+    <div class="gold-buttons">
+      <button class="gold-btn btn-deposit" onclick="openGoldModal('deposit')">🪙 Внести золото</button>
+      <button class="gold-btn btn-withdraw" onclick="openGoldModal('withdraw')">✂️ Снять золото</button>
+    </div>
+  </div>
+
+  <!-- ═══ ПАНЕЛЬ СКЛАДА ═══ -->
+  <div class="storage-panel">
+    <div class="storage-header">
+      <span class="storage-title">Склад предметов</span>
+      <span class="storage-count" id="storage-count">55 / 100</span>
+    </div>
+    <div class="storage-bar-wrap">
+      <div class="storage-bar-fill" id="storage-bar" style="width:55%"></div>
+    </div>
+    <button class="btn-add-item" onclick="openDepositModal()">＋ Положить предмет</button>
+  </div>
+
+  <!-- ═══ СЕТКА ПРЕДМЕТОВ ═══ -->
+  <div class="items-panel">
+    <div class="items-grid" id="items-grid"></div>
+    <div class="pagination">
+      <button class="pag-btn" id="btn-prev" onclick="changePage(-1)">← Назад</button>
+      <span class="pag-info" id="pag-info">Стр. 1</span>
+      <button class="pag-btn" id="btn-next" onclick="changePage(1)">Вперёд →</button>
+    </div>
+  </div>
+
+  <!-- ═══ МОДАЛЬНОЕ ОКНО ПРЕДМЕТА ═══ -->
+  <div class="item-modal-backdrop" id="item-modal" onclick="closeItemModal(event)">
+    <div class="item-modal-box">
+      <div class="imod-header">
+        <div class="imod-icon" id="imod-icon-cell"></div>
+        <div>
+          <div class="imod-name" id="imod-name">Название</div>
+          <div class="imod-rarity" id="imod-rarity">★★★</div>
+        </div>
+      </div>
+      <p class="imod-desc" id="imod-desc">Описание предмета.</p>
+      <div class="imod-footer">
+        <button class="imod-btn imod-btn-close" onclick="document.getElementById('item-modal').classList.remove('open')">Закрыть</button>
+        <button class="imod-btn imod-btn-take" onclick="takeItem()">Взять в инвентарь</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ МОДАЛЬНОЕ ОКНО ЗОЛОТА ═══ -->
+  <div class="gold-modal-backdrop" id="gold-modal" onclick="closeGoldModal(event)">
+    <div class="gold-modal-box">
+      <div class="gmod-title" id="gmod-title">Внести золото</div>
+      <p class="gmod-sub">В казне: <strong id="gmod-treasury">1,250,000</strong> 🪙</p>
+      <input class="gmod-input" id="gmod-input" type="number" min="1" placeholder="Введите количество" />
+      <div class="gmod-footer">
+        <button class="gmod-btn gmod-cancel" onclick="document.getElementById('gold-modal').classList.remove('open')">Отмена</button>
+        <button class="gmod-btn gmod-confirm" id="gmod-confirm-btn" onclick="confirmGold()">Внести</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  /* ═══════════════════════════════════════
+     ДАННЫЕ
+  ═══════════════════════════════════════ */
+  const ITEMS_PER_PAGE = 12;
+
+  const ITEM_DATA = [
+    { icon:'🗡️', name:'Клинок разлома',       rarity:'★★',   cls:'r2', qty:1,  desc:'Легендарный меч из осколка магического камня. Увеличивает атаку на 120.' },
+    { icon:'⛑️', name:'Шлем стражника',        rarity:'★',    cls:'r1', qty:3,  desc:'Стандартная защитная экипировка. Защита +40.' },
+    { icon:'📜', name:'Свиток телепортации',    rarity:'★★★',  cls:'r3', qty:2,  desc:'Позволяет мгновенно перемещаться в точку на карте. 5 зарядов.' },
+    { icon:'💍', name:'Кольцо мудрости',        rarity:'★★★',  cls:'r3', qty:1,  desc:'Редкое кольцо с магическими рунами. Магия +60, Интеллект +30.' },
+    { icon:'📕', name:'Гримуар теней',          rarity:'★★',   cls:'r2', qty:1,  desc:'Книга с заклинаниями школы теней. Открывает 2 новых навыка.' },
+    { icon:'🔥', name:'Сфера инферно',          rarity:'★★★★', cls:'r4', qty:1,  desc:'Легендарный артефакт. Наносит урон огнём всем врагам. Урон: 850–1200.' },
+    { icon:'🧪', name:'Зелье выносливости',     rarity:'★',    cls:'r1', qty:8,  desc:'Восстанавливает 200 выносливости при использовании.' },
+    { icon:'🛡️', name:'Щит исполина',           rarity:'★★',   cls:'r2', qty:1,  desc:'Массивный щит из кованого железа. Блок +25%, Защита +90.' },
+    { icon:'💧', name:'Зелье маны',             rarity:'★',    cls:'r1', qty:12, desc:'Восполняет 150 единиц маны.' },
+    { icon:'🧴', name:'Эликсир силы',           rarity:'★★★',  cls:'r3', qty:4,  desc:'Временно увеличивает атаку на 40% на 30 минут.' },
+    { icon:'🪄', name:'Посох лесного духа',     rarity:'★★',   cls:'r2', qty:1,  desc:'Усиливает природную магию. Скорость каста +15%.' },
+    { icon:'🗡️', name:'Клинок смерти',         rarity:'★★★★', cls:'r4', qty:1,  desc:'Один из пяти проклятых клинков. Крит. урон +35%, ХП -5%.' },
+    { icon:'🏹', name:'Лук охотника',           rarity:'★★★',  cls:'r3', qty:1,  desc:'Дальнобойное оружие из эльфийского дерева. Точность +50.' },
+    { icon:'🔮', name:'Орб прозрения',          rarity:'★',    cls:'r1', qty:2,  desc:'Позволяет увидеть скрытые объекты на карте.' },
+    { icon:'⚗️', name:'Колба алхимика',        rarity:'★★',   cls:'r2', qty:6,  desc:'Ингредиент для крафта зелий высшего класса.' },
+    { icon:'🧲', name:'Магнит артефактов',      rarity:'★★★★', cls:'r4', qty:1,  desc:'Автоматически притягивает предметы в радиусе 5 м. Легендарный.' },
+  ];
+
+  let currentPage = 0;
+  const totalPages = Math.ceil(ITEM_DATA.length / ITEMS_PER_PAGE);
+
+  /* ─── Рендер сетки ─── */
+  function renderGrid() {
+    const grid = document.getElementById('items-grid');
+    grid.innerHTML = '';
+    const start = currentPage * ITEMS_PER_PAGE;
+    const pageItems = ITEM_DATA.slice(start, start + ITEMS_PER_PAGE);
+
+    for (let i = 0; i < ITEMS_PER_PAGE; i++) {
+      const cell = document.createElement('div');
+      if (i < pageItems.length) {
+        const it = pageItems[i];
+        cell.className = 'item-cell ' + it.cls;
+        cell.innerHTML =
+          `<span>${it.icon}</span>` +
+          (it.qty > 1 ? `<span class="item-qty">×${it.qty}</span>` : '') +
+          `<span class="item-rarity">${it.rarity}</span>`;
+        cell.onclick = () => openItemModal(start + i);
+      } else {
+        cell.className = 'item-cell empty';
+      }
+      grid.appendChild(cell);
+    }
+
+    document.getElementById('pag-info').textContent = `Стр. ${currentPage + 1}`;
+    document.getElementById('btn-prev').disabled = currentPage === 0;
+    document.getElementById('btn-next').disabled = currentPage >= totalPages - 1;
+  }
+
+  function changePage(dir) {
+    const next = currentPage + dir;
+    if (next >= 0 && next < totalPages) { currentPage = next; renderGrid(); }
+  }
+
+  /* ─── Модалка предмета ─── */
+  function openItemModal(idx) {
+    const it = ITEM_DATA[idx];
+    const iconCell = document.getElementById('imod-icon-cell');
+    iconCell.className = 'imod-icon ' + it.cls;
+    iconCell.textContent = it.icon;
+    document.getElementById('imod-name').textContent   = it.name;
+    document.getElementById('imod-rarity').textContent = it.rarity;
+    document.getElementById('imod-desc').textContent   = it.desc;
+    document.getElementById('item-modal')._activeIdx   = idx;
+    document.getElementById('item-modal').classList.add('open');
+  }
+
+  function closeItemModal(e) {
+    if (e.target === document.getElementById('item-modal'))
+      document.getElementById('item-modal').classList.remove('open');
+  }
+
+  function takeItem() {
+    const idx = document.getElementById('item-modal')._activeIdx;
+    if (idx !== undefined) {
+      ITEM_DATA.splice(idx, 1);
+      updateStorageCount();
+      renderGrid();
+    }
+    document.getElementById('item-modal').classList.remove('open');
+  }
+
+  /* ─── Модалка золота ─── */
+  let goldMode = 'deposit';
+  let treasury = 1250000;
+
+  function openGoldModal(mode) {
+    goldMode = mode;
+    document.getElementById('gmod-title').textContent =
+      mode === 'deposit' ? 'Внести золото' : 'Снять золото';
+    document.getElementById('gmod-confirm-btn').textContent =
+      mode === 'deposit' ? 'Внести' : 'Снять';
+    document.getElementById('gmod-treasury').textContent =
+      treasury.toLocaleString('ru-RU');
+    document.getElementById('gmod-input').value = '';
+    document.getElementById('gold-modal').classList.add('open');
+  }
+
+  function closeGoldModal(e) {
+    if (e.target === document.getElementById('gold-modal'))
+      document.getElementById('gold-modal').classList.remove('open');
+  }
+
+  function confirmGold() {
+    const val = parseInt(document.getElementById('gmod-input').value, 10);
+    if (!val || val <= 0) return;
+    if (goldMode === 'deposit') treasury += val;
+    else treasury = Math.max(0, treasury - val);
+    document.getElementById('treasury-gold').textContent =
+      treasury.toLocaleString('ru-RU');
+    document.getElementById('gold-modal').classList.remove('open');
+  }
+
+  /* ─── Склад: счётчик и полоса ─── */
+  function updateStorageCount() {
+    const used = ITEM_DATA.length;
+    const max = 100;
+    document.getElementById('storage-count').textContent = `${used} / ${max}`;
+    document.getElementById('storage-bar').style.width = (used / max * 100) + '%';
+  }
+
+  function openDepositModal() {
+    alert('Функция "Положить предмет" будет реализована через WaifuApp.openGuildBankDepositModal()');
+  }
+
+  /* Закрытие по Escape */
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      document.getElementById('item-modal').classList.remove('open');
+      document.getElementById('gold-modal').classList.remove('open');
+    }
+  });
+
+  /* Инициализация */
+  renderGrid();
+  updateStorageCount();
+
+  /*
+  ═══════════════════════════════════════════
+  КАК ПОДКЛЮЧИТЬ К guild_hall.html
+  ═══════════════════════════════════════════
+  1. Скопируйте всё содержимое <body> в элемент
+     #guild-act-bank вашей страницы.
+  2. Перенесите CSS в ваш общий styles.css.
+  3. Перенесите <script> в app.js, завернув
+     в namespace WaifuApp.initGuildBank().
+  4. Вызывайте WaifuApp.initGuildBank()
+     при переключении на вкладку банка.
+  ═══════════════════════════════════════════
+  */
+  </script>
+</body>
+</html>

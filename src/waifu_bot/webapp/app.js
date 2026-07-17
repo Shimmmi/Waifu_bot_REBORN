@@ -17,7 +17,6 @@
   };
 })();
 const tg = window.Telegram?.WebApp;
-const API_BASE = "/api";
 
 /**
  * Steam desktop client (Electron, desktop_client/) detection.
@@ -69,6 +68,7 @@ function steamRelativePage(page) {
   return `./${page}`;
 }
 
+const API_BASE = "/api";
 /** Синхронно с waifu_bot.game.constants (EXP_BASE, MAX_LEVEL). */
 const PLAYER_EXP_BASE = 16;
 const PLAYER_MAX_LEVEL = 60;
@@ -207,12 +207,9 @@ function getDevPlayerIdFromQuery() {
   }
 }
 
+
 /**
- * Steam ticket for the current request, if running inside the Electron
- * desktop client. `window.waifuDesktop.getSteamTicket()` (real Steamworks
- * ticket, once Этап 6 wires up the Steamworks SDK) takes priority; falls
- * back to a dev-only stub SteamID64 (see api/deps.py X-Steam-Ticket-Dev,
- * only accepted server-side when APP_ENV is dev/stage/testing).
+ * Desktop/mobile session token for X-Desktop-Session (and Steam ticket fallbacks).
  */
 function getDesktopSessionTokenSync() {
   if (!isDesktopClient() && !isMobileClient()) return null;
@@ -296,98 +293,32 @@ function authHeaders() {
   return headers;
 }
 
-function isFetchNetworkError(err) {
-  if (!err) return false;
-  if (err.name === "TypeError" && /fetch|network|failed/i.test(String(err.message || ""))) {
-    return true;
-  }
-  return err.name === "AbortError";
-}
-
 async function apiFetch(path, options = {}) {
-  if (isDesktopClient() && !String(path).includes("/auth/desktop/")) {
-    await ensureDesktopSessionReady();
+  const opts = { ...options };
+  opts.headers = { ...(options.headers || {}), ...authHeaders() };
+  if (
+    opts.body &&
+    typeof opts.body === "string" &&
+    !opts.headers["Content-Type"] &&
+    !opts.headers["content-type"]
+  ) {
+    opts.headers["Content-Type"] = "application/json";
   }
-
-  const buildOpts = () => {
-    const opts = { ...options };
-    opts.headers = { ...(options.headers || {}), ...authHeaders() };
-    if (
-      opts.body &&
-      typeof opts.body === "string" &&
-      !opts.headers["Content-Type"] &&
-      !opts.headers["content-type"]
-    ) {
-      opts.headers["Content-Type"] = "application/json";
-    }
-    return opts;
-  };
-
-  const maxAttempts = isDesktopClient() ? 5 : 1;
-  let lastErr;
-  let retriedAuth = false;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      const res = await fetch(`${API_BASE}${path}`, buildOpts());
-      if (!res.ok) {
-        const text = await res.text();
-        if (
-          res.status === 401 &&
-          isDesktopClient() &&
-          !String(path).includes("/auth/desktop/") &&
-          !retriedAuth
-        ) {
-          retriedAuth = true;
-          await ensureDesktopSessionReady();
-          const retryRes = await fetch(`${API_BASE}${path}`, buildOpts());
-          if (retryRes.ok) {
-            if (retryRes.status === 204) return null;
-            const ct = (retryRes.headers.get("content-type") || "").toLowerCase();
-            if (ct.includes("application/json")) return retryRes.json();
-            const retryText = await retryRes.text();
-            if (!retryText) return null;
-            try {
-              return JSON.parse(retryText);
-            } catch (_) {
-              return retryText;
-            }
-          }
-        }
-        if (
-          res.status === 401 &&
-          isDesktopClient() &&
-          typeof window.waifuDesktop?.requireAuth === "function" &&
-          !String(path).includes("/auth/desktop/")
-        ) {
-          try {
-            window.waifuDesktop.requireAuth();
-          } catch {
-            /* ignore */
-          }
-        }
-        throw new Error(`HTTP ${res.status}: ${text || "failed"}`);
-      }
-      if (res.status === 204) return null;
-      const ct = (res.headers.get("content-type") || "").toLowerCase();
-      if (ct.includes("application/json")) return res.json();
-      const text = await res.text();
-      if (!text) return null;
-      try {
-        return JSON.parse(text);
-      } catch (_) {
-        return text;
-      }
-    } catch (err) {
-      lastErr = err;
-      if (attempt < maxAttempts && isFetchNetworkError(err)) {
-        await new Promise((r) => setTimeout(r, 400 + attempt * 300));
-        continue;
-      }
-      throw err;
-    }
+  const res = await fetch(`${API_BASE}${path}`, opts);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text || "failed"}`);
   }
-  throw lastErr;
+  if (res.status === 204) return null;
+  const ct = (res.headers.get("content-type") || "").toLowerCase();
+  if (ct.includes("application/json")) return res.json();
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return text;
+  }
 }
 
 function showToast(message, type = "success") {
@@ -568,6 +499,9 @@ const STAT_META = {
   magic_damage_flat: { icon: "🪄", short: "Урон магией" },
   damage_flat: { icon: "⚔️", short: "Доп. урон к оружию" },
   damage_percent: { icon: "⚔️", short: "Доп. урон к оружию %" },
+  hp: { icon: "❤️", short: "HP" },
+  defense: { icon: "🛡️", short: "Защита" },
+  def: { icon: "🛡️", short: "Защита" },
 };
 
 // Описания перков экспедиций (id из expedition_data.PERKS). Кратко — что даёт в экспедиции.
@@ -796,59 +730,12 @@ function isWebAppUnauthorizedError(err) {
     d.includes("init data") ||
     d.includes("hash missing") ||
     d.includes("invalid init") ||
-    d.includes("expired") ||
-    d.includes("desktop_session") ||
-    d.includes("missing or invalid")
+    d.includes("expired")
   );
-}
-
-/** Steam desktop: any 401/403 from API is treated as auth failure. */
-function isDesktopAuthError(err) {
-  if (!isDesktopClient()) return false;
-  const msg = String(err?.message || "");
-  return /\bHTTP 401\b/.test(msg) || /\bHTTP 403\b/.test(msg);
-}
-
-function isApiAuthError(err) {
-  return isWebAppUnauthorizedError(err) || isDesktopAuthError(err);
-}
-
-function isServerUnavailableError(err) {
-  const msg = String(err?.message || "");
-  // Only true gateway/upstream outages — NOT HTTP 500 (app bugs / empty seed).
-  return /\bHTTP 502\b/.test(msg) || /\bHTTP 503\b/.test(msg) || isFetchNetworkError(err);
-}
-
-function formatShopLoadErrorHtml(err) {
-  if (isServerUnavailableError(err)) return serverUnavailableNoticeHtml();
-  const { raw, detail } = parseHttpErrorDetail(err);
-  const detailText = detail || raw || String(err?.message || "unknown error");
-  const statusMatch = String(err?.message || "").match(/\bHTTP\s+(\d+)\b/);
-  const status = statusMatch ? statusMatch[1] : "";
-  const statusLine = status
-    ? `<p class="muted">HTTP ${escapeHtml(status)}</p>`
-    : "";
-  const devHint = isDesktopClient()
-    ? `<p class="muted">DevTools → Network: <code>/api/shop/inventory</code>; Console: <code>Failed to load shop</code>.</p>`
-    : "";
-  return `<div class="webapp-auth-notice" role="alert">
-    <h3 class="webapp-auth-notice-title">Не удалось загрузить магазин</h3>
-    ${statusLine}
-    <p>${escapeHtml(detailText)}</p>
-    ${devHint}
-  </div>`;
 }
 
 /** Сообщение при открытии WebApp вне Telegram или без валидного initData. */
 function webAppAuthNoticeHtml() {
-  if (isDesktopClient()) {
-    return `<div class="webapp-auth-notice" role="alert">
-      <h3 class="webapp-auth-notice-title">Нужен вход</h3>
-      <p>Войдите по email или через Telegram (экран входа при старте клиента). Steamworks-билет пока не подключён.</p>
-      <p class="muted"><button type="button" class="primary" onclick="window.waifuDesktop?.requireAuth?.()">Открыть вход</button></p>
-      <p class="muted">Dev/stage: можно задать <code>steamTicketDev</code> в <code>desktop_client/config.local.json</code> (сервер <code>APP_ENV=dev|stage|testing</code>) — тогда экран входа пропускается.</p>
-    </div>`;
-  }
   const devBlock = `<details class="webapp-auth-details"><summary>Для разработчиков</summary>
     <p>При <code>APP_ENV=dev</code> на сервере можно открыть страницу с параметром <code>?devPlayerId=</code><em>id</em> (id игрока в БД) — тогда запросы пойдут с заголовком <code>X-Player-Id</code>. В production это отключено.</p>
   </details>`;
@@ -953,10 +840,6 @@ function resolveImageUrl(url) {
       params.set("devPlayerId", String(devId));
       const devToken = new URLSearchParams(window.location.search).get("devToken");
       if (devToken) params.set("devToken", devToken);
-    } else if (isDesktopClient()) {
-      // <img> cannot send X-Desktop-Session; pass JWT as query for media GETs.
-      const session = getDesktopSessionTokenSync();
-      if (session) params.set("desktopSession", session);
     }
   }
   const qs = params.toString();
@@ -1010,6 +893,27 @@ function statMeta(stat) {
     return { icon: "⚔️", short: `Урон % vs ${ru}` };
   }
   return STAT_META[low] || STAT_META[key] || { icon: "✨", short: key || "—" };
+}
+
+const PRIMARY_STAT_KEYS = new Set([
+  "strength",
+  "agility",
+  "intelligence",
+  "endurance",
+  "charm",
+  "luck",
+]);
+
+/** Подпись строки аффикса в характеристиках (не путать с affix.name для названия предмета). */
+function resolveAffixCharacteristicLabel(affix) {
+  const sk = String(affix?.stat || "").trim();
+  const skl = sk.toLowerCase();
+  const m = statMeta(sk);
+  if (PRIMARY_STAT_KEYS.has(skl)) return m.short;
+  const desc = String(affix?.description || "").trim();
+  if (desc) return desc;
+  if (m.short && m.short !== sk) return m.short;
+  return sk || "—";
 }
 
 function formatBonusValue(stat, value) {
@@ -1548,14 +1452,80 @@ function renderAtticDungeon(active) {
 
 const ATTIC_LEVEL_RING_C = 2 * Math.PI * 16;
 
-function renderAtticLevelCircle(level, xpPct) {
+function bindAtticLevelCirclePerfectionNav(circle) {
+  if (!circle || circle.dataset.perfectionNavBound === "1") return;
+  circle.dataset.perfectionNavBound = "1";
+  circle.addEventListener("click", () => {
+    if (!circle.classList.contains("attic-level-circle--clickable")) return;
+    window.location.href = "./training_hall.html?tab=perfection";
+  });
+  circle.addEventListener("keydown", (ev) => {
+    if (!circle.classList.contains("attic-level-circle--clickable")) return;
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      window.location.href = "./training_hall.html?tab=perfection";
+    }
+  });
+}
+
+function renderAtticLevelCircle(level, xpPct, opts = {}) {
   const num = document.getElementById("badge-level");
   if (num && level != null) num.textContent = String(level);
   const ring = document.getElementById("attic-level-ring-fg");
+  const circle = document.getElementById("attic-level-circle") || document.querySelector(".attic-level-circle");
+  const usePerfection = Boolean(opts.perfection);
+  const pendingCount = Number(opts.pendingCount || 0);
+  if (circle) {
+    circle.classList.toggle("attic-level-circle--perfection", usePerfection);
+    circle.classList.toggle(
+      "attic-level-circle--perfection-pending",
+      usePerfection && pendingCount > 0
+    );
+    circle.classList.toggle("attic-level-circle--clickable", usePerfection);
+    if (usePerfection) {
+      circle.setAttribute("role", "link");
+      circle.setAttribute("title", "Совершенствование");
+      circle.setAttribute("tabindex", "0");
+      bindAtticLevelCirclePerfectionNav(circle);
+    } else {
+      circle.removeAttribute("role");
+      circle.removeAttribute("title");
+      circle.removeAttribute("tabindex");
+    }
+  }
+  let badge = document.getElementById("attic-perfection-pending");
+  if (circle && pendingCount > 0) {
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.id = "attic-perfection-pending";
+      badge.className = "attic-perfection-pending";
+      badge.title = "Есть невыбранные бонусы совершенствования";
+      circle.appendChild(badge);
+    }
+    badge.hidden = false;
+    badge.textContent = String(pendingCount);
+  } else if (badge) {
+    badge.hidden = true;
+  }
   if (!ring) return;
   const pct = Math.max(0, Math.min(100, Number(xpPct) || 0));
   ring.style.strokeDasharray = String(ATTIC_LEVEL_RING_C);
   ring.style.strokeDashoffset = String(ATTIC_LEVEL_RING_C * (1 - pct / 100));
+}
+
+function formatLevelWithPerfection(level, perfectionLevel) {
+  const lvl = Number(level);
+  const p = Number(perfectionLevel || 0);
+  if (Number.isFinite(lvl) && lvl >= PLAYER_MAX_LEVEL && p > 0) return `${lvl} (${p})`;
+  if (Number.isFinite(lvl)) return String(lvl);
+  return "—";
+}
+
+function perfectionXpPct(profile) {
+  const need = Number(profile?.perfection_xp_to_next || 0);
+  const xp = Number(profile?.perfection_experience || 0);
+  if (need <= 0) return 0;
+  return Math.round(clamp01(xp / need) * 100);
 }
 
 function renderAtticExpeditions(actives, maxConcurrent) {
@@ -1718,12 +1688,22 @@ function populateFromProfile(profile, opts = {}) {
 
   const w = profile.main_waifu;
   if (w) {
-    if (w.level != null) setText("badge-level", w.level);
+    const pLevel = Number(profile.perfection_level || 0);
+    const pending = Number(profile.perfection_pending_count || 0);
+    const usePerfection = Number(w.level) >= PLAYER_MAX_LEVEL && pLevel > 0;
+
+    if (usePerfection) {
+      setText("badge-level", pLevel);
+    } else if (w.level != null) {
+      setText("badge-level", w.level);
+    }
 
     // Legacy IDs kept for back-compat (silently skipped when not in DOM)
     if (w.name) setText("waifu-name", w.name);
     if (w.name) setText("profile-name", w.name);
-    if (w.level != null) setText("profile-level", w.level);
+    if (w.level != null) {
+      setText("profile-level", formatLevelWithPerfection(w.level, pLevel));
+    }
 
     const clsId = Number(w.class_ ?? w.class);
     const raceId = Number(w.race);
@@ -1739,14 +1719,27 @@ function populateFromProfile(profile, opts = {}) {
     }
 
     // XP progress — profile card + ОЧ level ring
-    if (w.level != null && w.experience != null) {
+    const fill = document.getElementById("profile-xp-fill");
+    const xpBlock = document.querySelector(".profile-mtg-xp-block");
+    if (usePerfection) {
+      const need = Number(profile.perfection_xp_to_next || 0);
+      const xp = Number(profile.perfection_experience || 0);
+      const pct = perfectionXpPct(profile);
+      setText(
+        "profile-xp-text",
+        `Совершенствование ${pLevel} · ${xp} / ${need} EXP`
+      );
+      if (fill) fill.style.width = `${pct}%`;
+      if (xpBlock) xpBlock.classList.add("profile-mtg-xp-block--perfection");
+      renderAtticLevelCircle(pLevel, pct, { perfection: true, pendingCount: pending });
+    } else if (w.level != null && w.experience != null) {
       const lvl = Number(w.level);
       const xp = Number(w.experience);
-      const fill = document.getElementById("profile-xp-fill");
+      if (xpBlock) xpBlock.classList.remove("profile-mtg-xp-block--perfection");
       if (lvl >= PLAYER_MAX_LEVEL) {
         setText("profile-xp-text", `Ур. ${lvl} · макс.`);
         if (fill) fill.style.width = "100%";
-        renderAtticLevelCircle(lvl, 100);
+        renderAtticLevelCircle(lvl, 100, { pendingCount: pending });
       } else {
         const nextTotal = totalExpForLevel(lvl + 1);
         const curTotal = totalExpForLevel(lvl);
@@ -1755,10 +1748,10 @@ function populateFromProfile(profile, opts = {}) {
         const pct = Math.round(clamp01(into / span) * 100);
         setText("profile-xp-text", `Ур. ${lvl} · ${xp} / ${nextTotal} EXP`);
         if (fill) fill.style.width = `${pct}%`;
-        renderAtticLevelCircle(lvl, pct);
+        renderAtticLevelCircle(lvl, pct, { pendingCount: pending });
       }
     } else if (w.level != null) {
-      renderAtticLevelCircle(w.level, 0);
+      renderAtticLevelCircle(w.level, 0, { pendingCount: pending });
     }
   }
 
@@ -1769,8 +1762,69 @@ function populateFromProfile(profile, opts = {}) {
     startAtticMailBadgePolling();
   }
 
+  updateTrainingNavAttention(profile);
+  ensureAtticPerfectionMenuItem(profile);
+
   if (document.getElementById("shop-gamble-cost")) updateShopGambleCost();
-  syncAdminUiVisibility();
+}
+
+function updateTrainingNavAttention(profile) {
+  const link = document.querySelector('.nav.basement a[data-page="training"]');
+  if (!link) return;
+  const skillPoints = Number(profile?.skill_points || 0);
+  const pending = Number(profile?.perfection_pending_count || 0);
+  const showDot = skillPoints > 0 || pending > 0;
+  let dot = link.querySelector(".nav-attention-dot");
+  if (showDot) {
+    if (!dot) {
+      dot = document.createElement("span");
+      dot.className = "nav-attention-dot";
+      dot.setAttribute("aria-hidden", "true");
+      link.appendChild(dot);
+    }
+    dot.hidden = false;
+  } else if (dot) {
+    dot.hidden = true;
+  }
+  if (pending > 0) {
+    link.setAttribute("href", "./training_hall.html?tab=perfection");
+  } else {
+    link.setAttribute("href", "./training_hall.html");
+  }
+}
+
+function ensureAtticPerfectionMenuItem(profile) {
+  const menu = document.getElementById("attic-menu");
+  if (!menu) return;
+  const level = Number(profile?.main_waifu?.level || 0);
+  let item = document.getElementById("attic-menu-perfection");
+  if (level < PLAYER_MAX_LEVEL) {
+    if (item) item.hidden = true;
+    return;
+  }
+  if (!item) {
+    item = document.createElement("a");
+    item.className = "attic-menu-item";
+    item.id = "attic-menu-perfection";
+    item.href = "./training_hall.html?tab=perfection";
+    item.setAttribute("role", "menuitem");
+    item.textContent = "✨ Совершенствование";
+    const stats = Array.from(menu.querySelectorAll("a.attic-menu-item")).find((a) =>
+      String(a.getAttribute("href") || "").includes("info=statistics")
+    );
+    const expedition = Array.from(menu.querySelectorAll("a.attic-menu-item")).find((a) =>
+      String(a.getAttribute("href") || "").includes("tab=expedition")
+    );
+    if (stats && stats.nextSibling) {
+      menu.insertBefore(item, stats.nextSibling);
+    } else if (expedition) {
+      menu.insertBefore(item, expedition);
+    } else {
+      menu.appendChild(item);
+    }
+  }
+  item.hidden = false;
+  item.href = "./training_hall.html?tab=perfection";
 }
 
 function getTelegramUser() {
@@ -2119,25 +2173,7 @@ const waifuGeneratorState = {
     eye_shape: "cute",
     outfit: "robes",
     accessories: [],
-    race_feature: "default",
   },
-};
-
-const WAIFU_GEN_RACE_FEATURES = {
-  1: [["default", "—"]],
-  2: [["default", "Уши эльфа"]],
-  3: [
-    ["wolf", "Волк"],
-    ["cat", "Кошка"],
-    ["fox", "Лис"],
-  ],
-  4: [["default", "Крылья"]],
-  5: [["default", "—"]],
-  6: [
-    ["default", "Рога"],
-    ["horns_curved", "Изогнутые рога"],
-  ],
-  7: [["default", "Крылья феи"]],
 };
 
 const WAIFU_GEN_COSMETIC = {
@@ -2302,20 +2338,6 @@ function waifuGenPassiveTitle(lines, fallback) {
   return m ? m[1] : fallback;
 }
 
-function waifuGenRenderStatsText(el, stats) {
-  if (!el) return;
-  el.innerHTML = WAIFU_GEN_STAT_ORDER.map((k) => {
-    const label = WAIFU_GEN_STAT_LABELS[k] || k;
-    const v = Number(stats[k] ?? 0);
-    return (
-      `<div class="waifu-gen-stat-cell">` +
-      `<span class="stat-label">${escapeHtml(label)}</span>` +
-      `<span class="stat-value">${escapeHtml(String(v))}</span>` +
-      `</div>`
-    );
-  }).join("");
-}
-
 function waifuGenRenderRadar(el, stats) {
   if (!el) return;
   const size = 240;
@@ -2438,9 +2460,6 @@ function waifuGenRenderRaceClassGrid(containerId, entries, selectedId, kind) {
       waifuGenSyncHiddenSelects();
       waifuGenBuildRaceClassPickers();
       waifuGenSyncTriggers();
-      if (kind === "race" && window.SteamWaifuPaperdoll?.onRaceChanged) {
-        window.SteamWaifuPaperdoll.onRaceChanged();
-      }
       if (typeof window.__waifuGenRecalc === "function") window.__waifuGenRecalc();
       waifuGenCloseModal(kind === "race" ? "waifu-modal-race" : "waifu-modal-class");
     });
@@ -2666,7 +2685,6 @@ function waifuGenPortraitRequestBody() {
     eye_shape: String(c.eye_shape ?? "cute"),
     outfit: String(c.outfit ?? "robes"),
     accessories: acc.length ? acc : [],
-    race_feature: String(c.race_feature ?? "default") || "default",
   };
 }
 
@@ -3015,7 +3033,6 @@ const ADMIN_USER_ID = 305174198;
 
 function isAdminUser() {
   try {
-    if (profileState?.currentProfile?.is_admin) return true;
     const u = tg?.initDataUnsafe?.user;
     return u && Number(u.id) === ADMIN_USER_ID;
   } catch {
@@ -3043,22 +3060,11 @@ function setAdminUiEnabled(on) {
   syncAdminUiVisibility();
 }
 
-function syncSteamDevUiVisibility() {
-  const profile = profileState?.currentProfile;
-  const show =
-    isDesktopClient() &&
-    Boolean(profile?.is_admin || profile?.allow_waifu_recreate);
-  document.querySelectorAll(".steam-dev-only").forEach((el) => {
-    el.style.display = show ? "" : "none";
-  });
-}
-
 function syncAdminUiVisibility() {
   const show = isAdminUiEnabled();
   document.querySelectorAll(".admin-only").forEach((el) => {
     el.style.display = show ? "" : "none";
   });
-  syncSteamDevUiVisibility();
 }
 
 const settingsState = {
@@ -3066,6 +3072,11 @@ const settingsState = {
   notifySaveTimer: null,
   notifyModalReadyAt: 0,
   notifyBackHandler: null,
+  soloAutoPrefs: null,
+  soloAutoSaveTimer: null,
+  soloAutoModalReadyAt: 0,
+  soloAutoBackHandler: null,
+  soloAutoLoadPromise: null,
 };
 
 function resetSettingsNotifyModalDom() {
@@ -3073,6 +3084,127 @@ function resetSettingsNotifyModalDom() {
   if (!modal) return;
   modal.classList.remove("settings-notify-modal--open");
   modal.style.display = "none";
+}
+
+function resetSettingsSoloAutoModalDom() {
+  const modal = document.getElementById("settings-solo-auto-modal");
+  if (!modal) return;
+  modal.classList.remove("settings-notify-modal--open");
+  modal.style.display = "none";
+}
+
+function syncSoloAutoSubpanelVisibility(enabled) {
+  const sub = document.getElementById("settings-solo-auto-subpanel");
+  if (sub) sub.hidden = !enabled;
+}
+
+function applySoloAutoPrefsToModal(prefs) {
+  if (!prefs) return;
+  const enabledInput = document.getElementById("settings-solo-auto-enabled");
+  if (enabledInput) {
+    enabledInput.checked = Boolean(prefs.enabled);
+    syncSoloAutoSubpanelVisibility(enabledInput.checked);
+  }
+  const hp = document.getElementById("settings-solo-auto-hp");
+  const hpValue = document.getElementById("settings-solo-auto-hp-value");
+  if (hp && prefs.min_hp_percent != null) {
+    hp.value = String(prefs.min_hp_percent);
+    if (hpValue) hpValue.textContent = String(prefs.min_hp_percent);
+  }
+  document.querySelectorAll("#settings-solo-auto-modal [data-solo-auto-key]").forEach((input) => {
+    const key = input.getAttribute("data-solo-auto-key");
+    if (!key || key === "enabled" || key === "min_hp_percent") return;
+    if (Object.prototype.hasOwnProperty.call(prefs, key)) {
+      input.checked = Boolean(prefs[key]);
+    }
+  });
+}
+
+async function loadSoloDungeonAutoPrefs() {
+  const data = await apiFetch("/player/solo-dungeon-auto-prefs");
+  settingsState.soloAutoPrefs = data;
+  return data;
+}
+
+function scheduleSaveSoloDungeonAutoPrefs() {
+  if (settingsState.soloAutoSaveTimer) clearTimeout(settingsState.soloAutoSaveTimer);
+  settingsState.soloAutoSaveTimer = setTimeout(() => {
+    settingsState.soloAutoSaveTimer = null;
+    saveSoloDungeonAutoPrefsFromModal();
+  }, 400);
+}
+
+async function saveSoloDungeonAutoPrefsFromModal() {
+  const patch = {};
+  const enabledInput = document.getElementById("settings-solo-auto-enabled");
+  if (enabledInput) patch.enabled = enabledInput.checked;
+  const hp = document.getElementById("settings-solo-auto-hp");
+  if (hp) patch.min_hp_percent = Number(hp.value);
+  document.querySelectorAll("#settings-solo-auto-modal [data-solo-auto-key]").forEach((input) => {
+    const key = input.getAttribute("data-solo-auto-key");
+    if (!key || key === "enabled" || key === "min_hp_percent") return;
+    patch[key] = input.checked;
+  });
+  try {
+    const data = await apiFetch("/player/solo-dungeon-auto-prefs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    settingsState.soloAutoPrefs = data;
+    applySoloAutoPrefsToModal(data);
+  } catch (e) {
+    console.warn("saveSoloDungeonAutoPrefs failed:", e);
+    showToast("Не удалось сохранить автовход", "error");
+  }
+}
+
+async function ensureSoloDungeonAutoPrefsLoaded() {
+  if (settingsState.soloAutoPrefs) return settingsState.soloAutoPrefs;
+  if (settingsState.soloAutoLoadPromise) return settingsState.soloAutoLoadPromise;
+  settingsState.soloAutoLoadPromise = loadSoloDungeonAutoPrefs()
+    .then((prefs) => {
+      settingsState.soloAutoPrefs = prefs;
+      applySoloAutoPrefsToModal(prefs);
+      return prefs;
+    })
+    .catch((e) => {
+      console.warn("loadSoloDungeonAutoPrefs failed:", e);
+      return null;
+    })
+    .finally(() => {
+      settingsState.soloAutoLoadPromise = null;
+    });
+  return settingsState.soloAutoLoadPromise;
+}
+
+function openSettingsSoloAutoModal() {
+  if (Date.now() < settingsState.soloAutoModalReadyAt) return;
+  const modal = document.getElementById("settings-solo-auto-modal");
+  if (!modal) return;
+  void ensureSoloDungeonAutoPrefsLoaded().then((prefs) => {
+    if (prefs) applySoloAutoPrefsToModal(prefs);
+    modal.style.display = "";
+    modal.classList.add("settings-notify-modal--open");
+    if (tg?.BackButton) {
+      if (!settingsState.soloAutoBackHandler) {
+        settingsState.soloAutoBackHandler = () => closeSettingsSoloAutoModal();
+      }
+      tg.BackButton.onClick(settingsState.soloAutoBackHandler);
+      tg.BackButton.show();
+    }
+  });
+}
+
+function closeSettingsSoloAutoModal() {
+  const modal = document.getElementById("settings-solo-auto-modal");
+  if (!modal) return;
+  modal.classList.remove("settings-notify-modal--open");
+  modal.style.display = "none";
+  if (tg?.BackButton && settingsState.soloAutoBackHandler) {
+    tg.BackButton.offClick(settingsState.soloAutoBackHandler);
+    tg.BackButton.hide();
+  }
 }
 
 async function loadDmNotificationPrefs() {
@@ -3168,6 +3300,8 @@ function closeSettingsNotifyModal() {
 function initSettingsPageBindings() {
   resetSettingsNotifyModalDom();
   closeSettingsNotifyModal();
+  resetSettingsSoloAutoModalDom();
+  closeSettingsSoloAutoModal();
 
   if (!window.__waifuSettingsPageshowBound) {
     window.__waifuSettingsPageshowBound = true;
@@ -3177,6 +3311,7 @@ function initSettingsPageBindings() {
         document.body.classList.contains("page-player")
       ) {
         closeSettingsNotifyModal();
+        closeSettingsSoloAutoModal();
       }
     });
   }
@@ -3185,10 +3320,16 @@ function initSettingsPageBindings() {
     window.__waifuSettingsEscapeBound = true;
     window.addEventListener("keydown", (ev) => {
       if (ev.key !== "Escape") return;
-      const modal = document.getElementById("settings-notify-modal");
-      if (modal?.classList.contains("settings-notify-modal--open")) {
+      const notifyModal = document.getElementById("settings-notify-modal");
+      if (notifyModal?.classList.contains("settings-notify-modal--open")) {
         ev.preventDefault();
         closeSettingsNotifyModal();
+        return;
+      }
+      const soloModal = document.getElementById("settings-solo-auto-modal");
+      if (soloModal?.classList.contains("settings-notify-modal--open")) {
+        ev.preventDefault();
+        closeSettingsSoloAutoModal();
       }
     });
   }
@@ -3236,7 +3377,52 @@ function initSettingsPageBindings() {
     });
   }
 
+  const openSoloBtn = document.getElementById("settings-open-solo-auto");
+  if (openSoloBtn && !openSoloBtn.__waifuBound) {
+    openSoloBtn.__waifuBound = true;
+    openSoloBtn.addEventListener("click", () => openSettingsSoloAutoModal());
+  }
+
+  const soloModal = document.getElementById("settings-solo-auto-modal");
+  if (soloModal && !soloModal.__waifuBound) {
+    soloModal.__waifuBound = true;
+    soloModal.addEventListener("click", (ev) => {
+      if (ev.target === soloModal) closeSettingsSoloAutoModal();
+    });
+    const soloPanel = soloModal.querySelector(".settings-notify-panel");
+    if (soloPanel) {
+      soloPanel.addEventListener("click", (ev) => ev.stopPropagation());
+    }
+    document.getElementById("settings-solo-auto-close")?.addEventListener("click", () => {
+      closeSettingsSoloAutoModal();
+    });
+    document.getElementById("settings-solo-auto-done")?.addEventListener("click", () => {
+      closeSettingsSoloAutoModal();
+    });
+    const enabledInput = document.getElementById("settings-solo-auto-enabled");
+    if (enabledInput) {
+      enabledInput.addEventListener("change", () => {
+        syncSoloAutoSubpanelVisibility(enabledInput.checked);
+        scheduleSaveSoloDungeonAutoPrefs();
+      });
+    }
+    const hp = document.getElementById("settings-solo-auto-hp");
+    if (hp) {
+      hp.addEventListener("input", () => {
+        const hpValue = document.getElementById("settings-solo-auto-hp-value");
+        if (hpValue) hpValue.textContent = String(hp.value);
+        scheduleSaveSoloDungeonAutoPrefs();
+      });
+    }
+    document
+      .querySelectorAll("#settings-solo-auto-modal [data-solo-auto-key='increase_plus_difficulty']")
+      .forEach((input) => {
+        input.addEventListener("change", scheduleSaveSoloDungeonAutoPrefs);
+      });
+  }
+
   settingsState.notifyModalReadyAt = Date.now() + 300;
+  settingsState.soloAutoModalReadyAt = Date.now() + 300;
 }
 
 async function initSettingsPage() {
@@ -3336,17 +3522,6 @@ function initAtticMenu() {
 }
 
 function registerWaifuServiceWorker() {
-  if (isDesktopClient()) {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker
-        .getRegistrations()
-        .then((regs) => {
-          for (const reg of regs) reg.unregister();
-        })
-        .catch(() => {});
-    }
-    return;
-  }
   if (!("serviceWorker" in navigator)) return;
   if (!window.__waifuSwControllerBound) {
     window.__waifuSwControllerBound = true;
@@ -3398,7 +3573,12 @@ async function bootstrapPage(page, afterLoad) {
       profile?.main_waifu && (profile.main_waifu.id != null || profile.main_waifu.level != null),
     );
     if (hasWaifu || page !== "profile") {
-      window.WaifuApp?.Tutorial?.maybeRun(page, profile?.tutorial, forced);
+      let opts;
+      if (page === "dungeons") {
+        const tabParam = new URLSearchParams(window.location.search).get("tab") || "solo";
+        opts = { tab: tabParam };
+      }
+      window.WaifuApp?.Tutorial?.maybeRun(page, profile?.tutorial, forced, opts);
     }
   } catch (err) {
     console.warn("Tutorial bootstrap failed:", err);
@@ -3434,6 +3614,15 @@ async function bootstrapTrainingHall() {
     });
   await Promise.all([profilePromise, loadPassiveSkillTree()]);
   bindHiddenSkillsListenersOnce();
+  bindPerfectionListenersOnce();
+  try {
+    const tabQ = new URLSearchParams(window.location.search).get("tab");
+    if (tabQ === "perfection") {
+      trainingHallTab = "perfection";
+      applyTrainingHallTabUI();
+      await loadPerfectionPanel();
+    }
+  } catch (_) {}
   scheduleDeferredAtticRefresh(profile);
 
   try {
@@ -3449,6 +3638,148 @@ async function bootstrapTrainingHall() {
   }
 
   return profile;
+}
+
+let perfectionStateCache = null;
+let perfectionListenersBound = false;
+
+function bindPerfectionListenersOnce() {
+  if (perfectionListenersBound) return;
+  perfectionListenersBound = true;
+  const closeBtn = document.getElementById("perfection-choose-close");
+  if (closeBtn) closeBtn.addEventListener("click", closePerfectionChooseModal);
+}
+
+function closePerfectionChooseModal() {
+  const modal = document.getElementById("perfection-choose-modal");
+  if (modal) modal.style.display = "none";
+}
+
+function openPerfectionChooseModal(state) {
+  // Single choose modal — never stack a second overlay.
+  const existing = document.getElementById("perfection-choose-modal");
+  if (!existing) return;
+  const modal = existing;
+  const body = document.getElementById("perfection-choose-body");
+  const title = document.getElementById("perfection-choose-title");
+  const pending = state?.pending;
+  if (!body || !pending) return;
+  const kind = pending.kind === "skill_point" ? "Очко навыка" : "Выбор бонуса";
+  if (title) title.textContent = `${kind} · ур. ${pending.perfection_level}`;
+  const opts = Array.isArray(pending.options) ? pending.options : [];
+  body.innerHTML = `<div class="perfection-choose-grid">${opts
+    .map((opt, idx) => {
+      const label = escapeHtml(opt.label || (opt.kind === "permanent" ? "Навсегда" : "Сразу"));
+      const name = escapeHtml(opt.title_ru || opt.bonus_id || "Бонус");
+      const val = escapeHtml(opt.display_value || "");
+      return `<button type="button" class="perfection-choose-card" data-perfection-opt="${idx}">
+        <span class="perfection-choose-badge">${label}</span>
+        <strong class="perfection-choose-name">${name}</strong>
+        <span class="perfection-choose-value">${val}</span>
+      </button>`;
+    })
+    .join("")}</div>`;
+  body.querySelectorAll("[data-perfection-opt]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.getAttribute("data-perfection-opt"));
+      await choosePerfectionOption(pending.id, idx);
+    });
+  });
+  modal.style.display = "flex";
+}
+
+async function loadPerfectionPanel() {
+  const root = document.getElementById("perfection-root");
+  if (!root) return;
+  root.classList.add("placeholder");
+  root.textContent = "Загрузка…";
+  try {
+    const state = await apiFetch("/perfection");
+    perfectionStateCache = state;
+    renderPerfectionPanel(state);
+  } catch (err) {
+    console.error(err);
+    root.textContent = "Не удалось загрузить совершенствование.";
+  }
+}
+
+function renderPerfectionPanel(state) {
+  const root = document.getElementById("perfection-root");
+  if (!root) return;
+  root.classList.remove("placeholder");
+  if (!state?.unlocked) {
+    root.innerHTML = `<div class="perfection-locked muted">Откроется на 60 уровне основной вайфу.</div>`;
+    return;
+  }
+  const lvl = Number(state.perfection_level || 0);
+  const xp = Number(state.perfection_experience || 0);
+  const need = Number(state.perfection_xp_to_next || 0);
+  const pct = need > 0 ? Math.round(clamp01(xp / need) * 100) : 0;
+  const pendingCount = Number(state.pending_count || 0);
+  const summary = Array.isArray(state.bonuses_summary) ? state.bonuses_summary : [];
+  const summaryHtml = summary.length
+    ? `<ul class="perfection-bonus-list">${summary
+        .map(
+          (b) =>
+            `<li><span>${escapeHtml(b.title_ru || b.bonus_id)}</span><strong>${escapeHtml(
+              b.display_value || ""
+            )}</strong><em class="perfection-bonus-tag">${escapeHtml(b.label || "Навсегда")}</em></li>`
+        )
+        .join("")}</ul>`
+    : `<p class="muted tiny">Постоянных бонусов пока нет — выберите первый оффер.</p>`;
+  root.innerHTML = `
+    <div class="perfection-header">
+      <div class="perfection-level-line">Совершенствование <strong>${lvl}</strong> · тир ${Number(state.tier || 1)}</div>
+      <div class="perfection-xp-text">${xp} / ${need} EXP</div>
+      <div class="perfection-xp-bar"><div class="perfection-xp-fill" style="width:${pct}%"></div></div>
+    </div>
+    <div class="perfection-actions">
+      <button type="button" class="btn" id="perfection-open-choose" ${pendingCount > 0 ? "" : "disabled"}>
+        Выбрать бонус${pendingCount > 1 ? ` (${pendingCount})` : ""}
+      </button>
+    </div>
+    <h3 class="section-head">Текущие бонусы</h3>
+    ${summaryHtml}
+  `;
+  const btn = document.getElementById("perfection-open-choose");
+  if (btn && pendingCount > 0) {
+    btn.addEventListener("click", () => openPerfectionChooseModal(state));
+  }
+  // Auto-open FIFO head when there are pending bonuses (single modal DOM).
+  if (pendingCount > 0 && state.pending) {
+    openPerfectionChooseModal(state);
+  }
+}
+
+async function choosePerfectionOption(pendingId, optionIndex) {
+  try {
+    const state = await apiFetch("/perfection/choose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pending_id: pendingId,
+        option_index: optionIndex,
+      }),
+    });
+    closePerfectionChooseModal();
+    perfectionStateCache = state;
+    const applied = state?.applied;
+    if (applied?.title_ru) {
+      showToast(`${applied.title_ru} ${applied.display_value || ""}`, "success");
+    }
+    renderPerfectionPanel(state);
+    const profile = await loadProfile({ lite: false });
+    if (profile) {
+      populateFromProfile(profile);
+      if (isProfilePage()) await populateProfile(profile);
+    }
+    if (state?.pending_count > 0 && state.pending) {
+      openPerfectionChooseModal(state);
+    }
+  } catch (err) {
+    console.error(err);
+    showToast(err?.message || "Не удалось выбрать бонус", "error");
+  }
 }
 
 function consumeShopSmithIntent() {
@@ -3488,9 +3819,6 @@ async function applyShopSmithNavigationIntent(intent) {
 async function bootstrapShopPage() {
   await initPage("shop");
   let profile = null;
-  let shopAuthRequired = false;
-  let shopLoadFailed = false;
-  let shopLoadError = null;
   const actHint = safeInt(profileState.currentProfile?.act ?? shopState.act, 1);
   const shopSmithNavIntent = consumeShopSmithIntent();
   const profilePromise = loadProfile({ lite: true, skipAtticRefresh: true })
@@ -3499,8 +3827,8 @@ async function bootstrapShopPage() {
       return p;
     })
     .catch((err) => {
-      if (isApiAuthError(err)) {
-        console.warn("Профиль недоступен: проверьте Steam auth или ?devPlayerId= при APP_ENV=dev.");
+      if (isWebAppUnauthorizedError(err)) {
+        console.warn("Профиль недоступен: откройте WebApp из Telegram или используйте ?devPlayerId= при APP_ENV=dev.");
         profile = { __authRequired: true };
         return profile;
       }
@@ -3508,51 +3836,9 @@ async function bootstrapShopPage() {
       return null;
     });
 
-  const shopPromise = loadShop(actHint).catch((err) => {
-    if (isApiAuthError(err)) {
-      shopAuthRequired = true;
-      return null;
-    }
-    console.error("Failed to load shop:", err);
-    shopLoadFailed = true;
-    shopLoadError = err;
-    return null;
-  });
-
-  await Promise.all([profilePromise, shopPromise]);
+  await Promise.all([profilePromise, loadShop(actHint)]);
 
   const p = profile || profileState.currentProfile;
-  if (p?.__authRequired || shopAuthRequired) {
-    const errBox = document.getElementById("shop-profile-error");
-    if (errBox) {
-      errBox.style.display = "";
-      errBox.innerHTML = webAppAuthNoticeHtml();
-    }
-    const grid = document.getElementById("shop-buy-grid");
-    if (grid) {
-      grid.innerHTML = "";
-      grid.classList.add("placeholder");
-    }
-    return;
-  }
-  if (shopLoadFailed) {
-    const errBox = document.getElementById("shop-profile-error");
-    if (errBox) {
-      errBox.style.display = "";
-      if (shopLoadError) {
-        errBox.innerHTML = formatShopLoadErrorHtml(shopLoadError);
-      } else {
-        errBox.textContent = "Не удалось загрузить магазин.";
-      }
-    }
-    const grid = document.getElementById("shop-buy-grid");
-    if (grid) {
-      grid.innerHTML = "";
-      grid.classList.add("placeholder");
-    }
-    return;
-  }
-
   const act = safeInt(p?.act ?? actHint, 1);
   applyShopHeroImages(act);
   updateShopProfileError(p);
@@ -4514,6 +4800,9 @@ async function smithTryEnchant() {
       showToast(String(res.error));
       return;
     }
+    if (res?.success) {
+      window.WaifuApp?.Tutorial?.notify?.("shop:enchanted", { inventory_item_id: id, new_level: res?.new_level });
+    }
     const ok = res?.success;
     const nl = res?.new_level;
     const br = res?.broken;
@@ -4711,6 +5000,7 @@ async function smithTryCraftEnchant(operation) {
       return;
     }
     showToast("Зачарование выполнено", "success");
+    window.WaifuApp?.Tutorial?.notify?.("shop:crafted", { inventory_item_id: id, operation });
     const it = shopState.smithItems?.find((x) => x.id === id);
     if (it) {
       it.secondary_fraction_type = res.secondary_fraction_type;
@@ -4903,8 +5193,9 @@ function openShopOffer(slot) {
 async function confirmBuy() {
   if (!shopState.selectedSlot) return;
   const act = shopState.act || 1;
+  let buyRes = null;
   try {
-    await apiFetch(`/shop/buy?act=${act}&slot=${shopState.selectedSlot}`, { method: "POST" });
+    buyRes = await apiFetch(`/shop/buy?act=${act}&slot=${shopState.selectedSlot}`, { method: "POST" });
   } catch (e) {
     const body = document.getElementById("shop-offer-modal-body");
     if (body) body.innerHTML = `<div class="muted tiny" style="padding:8px 0;">Ошибка покупки: ${escapeHtml(String(e?.message || e))}</div>`;
@@ -4913,6 +5204,10 @@ async function confirmBuy() {
   await loadProfile().catch(console.error);
   await loadShop(act).catch(console.error);
   closeShopModal();
+  window.WaifuApp?.Tutorial?.notify?.("shop:bought", {
+    inventory_item_id: buyRes?.inventory_item_id ?? null,
+    slot: shopState.selectedSlot,
+  });
 }
 
 async function refreshShopDebug() {
@@ -5544,7 +5839,7 @@ function renderItemBonusesHtml(item) {
     const sk = String(a.stat || "").trim();
     const m = statMeta(sk);
     const cls = bonusClass(a.value);
-    const lbl = String(a.description || "").trim() || m.short;
+    const lbl = resolveAffixCharacteristicLabel(a);
     const v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
     lines.push(
       `<div><span aria-hidden="true">${m.icon}</span> <span class="muted">${escapeHtml(lbl)}</span> <strong><span class="${cls}">${escapeHtml(v)}</span></strong></div>`
@@ -6022,8 +6317,7 @@ function renderItemModalV2CharacteristicsHtml(item) {
   aff.forEach((a) => {
     const sk = String(a.stat || "").trim();
     const skl = sk.toLowerCase();
-    const m = statMeta(sk);
-    const label = String(a.description || "").trim() || m.short;
+    const label = resolveAffixCharacteristicLabel(a);
     let v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
     if (
       skl.startsWith("passive_node_level_add:") ||
@@ -6243,8 +6537,7 @@ function getItemBonusesText(item) {
   const aff = Array.isArray(item.affixes) ? item.affixes : [];
   aff.forEach((a) => {
     const sk = String(a.stat || "").trim();
-    const m = statMeta(sk);
-    const lbl = String(a.description || "").trim() || m.short;
+    const lbl = resolveAffixCharacteristicLabel(a);
     const v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
     parts.push(`${lbl} ${v}`);
   });
@@ -6265,11 +6558,16 @@ function getItemBonusesText(item) {
   return parts.join(", ");
 }
 
-function renderProfilePortrait(waifu) {
+function renderProfilePortrait(waifu, profile = null) {
   setText("profile-portrait-name", waifu?.name || "—");
   const metaEl = document.getElementById("profile-mtg-meta");
   if (metaEl) {
-    metaEl.textContent = `${raceName(waifu?.race)} · ${className(waifu?.class ?? waifu?.class_)}`;
+    const p = profile || profileState.currentProfile;
+    const lvlLabel = formatLevelWithPerfection(
+      waifu?.level,
+      p?.perfection_level
+    );
+    metaEl.textContent = `Ур. ${lvlLabel} · ${raceName(waifu?.race)} · ${className(waifu?.class ?? waifu?.class_)}`;
   }
 
   const portraitUrl = resolveImageUrl(
@@ -6300,8 +6598,9 @@ function renderProfilePortrait(waifu) {
   }
 }
 
-function renderProfileHeroBars(waifu, details = null) {
+function renderProfileHeroBars(waifu, details = null, profile = null) {
   const d = details || profileState.currentDetails || null;
+  const p = profile || profileState.currentProfile || null;
   const hpCur = safeNumber(d?.hp_current ?? waifu?.current_hp, 0);
   const hpMax = Math.max(1, safeNumber(d?.hp_max ?? waifu?.max_hp, 1));
   setText("profile-hp-text", `${hpCur}/${hpMax}`);
@@ -6311,9 +6610,19 @@ function renderProfileHeroBars(waifu, details = null) {
   const lvl = safeNumber(waifu?.level, 1);
   const xp = safeNumber(waifu?.experience, 0);
   const xpFill = document.getElementById("profile-xp-fill");
-  if (lvl >= PLAYER_MAX_LEVEL) {
+  const xpBlock = document.querySelector(".profile-mtg-xp-block");
+  const pLevel = safeNumber(p?.perfection_level, 0);
+  if (lvl >= PLAYER_MAX_LEVEL && pLevel > 0) {
+    const need = safeNumber(p?.perfection_xp_to_next, 0);
+    const pxp = safeNumber(p?.perfection_experience, 0);
+    const pct = need > 0 ? Math.round(clamp01(pxp / need) * 100) : 0;
+    setText("profile-xp-text", `Совершенствование ${pLevel} · ${pxp} / ${need} EXP`);
+    if (xpFill) xpFill.style.width = `${pct}%`;
+    if (xpBlock) xpBlock.classList.add("profile-mtg-xp-block--perfection");
+  } else if (lvl >= PLAYER_MAX_LEVEL) {
     setText("profile-xp-text", `Ур. ${lvl} · макс.`);
     if (xpFill) xpFill.style.width = "100%";
+    if (xpBlock) xpBlock.classList.remove("profile-mtg-xp-block--perfection");
   } else {
     const curTotal = totalExpForLevel(lvl);
     const nextTotal = totalExpForLevel(lvl + 1);
@@ -6322,7 +6631,32 @@ function renderProfileHeroBars(waifu, details = null) {
       : Math.round(clamp01(xp / nextTotal) * 100);
     setText("profile-xp-text", `Ур. ${lvl} · ${xp} / ${nextTotal} EXP`);
     if (xpFill) xpFill.style.width = `${Math.max(0, xpPct)}%`;
+    if (xpBlock) xpBlock.classList.remove("profile-mtg-xp-block--perfection");
   }
+}
+
+function renderProfilePerfectionSummary(profile) {
+  const wrap = document.getElementById("profile-perfection-summary");
+  const list = document.getElementById("profile-perfection-bonus-list");
+  if (!wrap || !list) return;
+  const summary = Array.isArray(profile?.perfection_bonuses_summary)
+    ? profile.perfection_bonuses_summary
+    : [];
+  const pLevel = Number(profile?.perfection_level || 0);
+  if (!pLevel || !summary.length) {
+    wrap.hidden = true;
+    list.innerHTML = "";
+    return;
+  }
+  wrap.hidden = false;
+  list.innerHTML = summary
+    .map(
+      (b) =>
+        `<li><span>${escapeHtml(b.title_ru || b.bonus_id)}</span><strong>${escapeHtml(
+          b.display_value || ""
+        )}</strong><em class="perfection-bonus-tag">${escapeHtml(b.label || "Навсегда")}</em></li>`
+    )
+    .join("");
 }
 
 function renderProfileIndicators(waifu, details = null) {
@@ -6606,10 +6940,10 @@ function renderProfilePaperDoll(waifu) {
     bodyInner = escapeHtml(waifuPortraitEmoji(waifu) || "👤");
   }
 
-  const menuBtn = `<button type="button" class="profile-paperdoll-menu-btn" title="Действия с образом" aria-label="Меню образа" onclick="event.stopPropagation();WaifuApp.togglePaperdollMenu(event)">⋯</button>`;
+  const menuBtn = `<button type="button" class="profile-paperdoll-menu-btn" data-tutorial="profile-paperdoll-menu" title="Действия с образом" aria-label="Меню образа" onclick="event.stopPropagation();WaifuApp.togglePaperdollMenu(event)">⋯</button>`;
   const menuBlock = `
     <div id="profile-paperdoll-menu" class="profile-paperdoll-menu" style="display:none" role="menu">
-      <button type="button" class="profile-paperdoll-menu-item" role="menuitem"${canGenerate ? "" : " disabled"}
+      <button type="button" class="profile-paperdoll-menu-item" data-tutorial="profile-paperdoll-generate" role="menuitem"${canGenerate ? "" : " disabled"}
         onclick="event.stopPropagation();WaifuApp.generateMainWaifuPaperdoll()">
         <span class="profile-paperdoll-menu-title">Сгенерировать изображение</span>
         <span class="profile-paperdoll-menu-meta">Осталось генераций: ${escapeHtml(remaining)}</span>
@@ -6663,6 +6997,13 @@ async function generateMainWaifuPaperdoll() {
     }
     renderProfileEquipment();
     showToast("Образ с экипировкой сохранён");
+    try {
+      if (window.WaifuApp?.Tutorial?.notify) {
+        window.WaifuApp.Tutorial.notify("paperdoll:generated", { paperdoll_url: url || "" });
+      }
+    } catch (e) {
+      /* ignore */
+    }
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     const msg =
@@ -6959,16 +7300,9 @@ async function populateProfile(profile) {
   const missEl = document.getElementById("profile-missing-waifu");
   const hasMw = Boolean(w && (w.id != null || w.level != null));
 
-  // Keep profile (incl. allow_waifu_recreate) even when ОВ missing, so Steam
-  // recreate controls can still appear after a reset.
-  if (p && !p.__authRequired) {
-    profileState.currentProfile = p;
-  }
-
   if (!hasMw) {
     mainEl?.classList.add("profile-layout--no-mw");
     if (missEl) missEl.hidden = false;
-    syncSteamDevUiVisibility();
     return;
   }
 
@@ -6980,7 +7314,7 @@ async function populateProfile(profile) {
   profileState.viewMode = readProfileInventoryMode();
 
   setText("profile-name", w.name || "—");
-  setText("profile-level", w.level ?? "—");
+  setText("profile-level", formatLevelWithPerfection(w.level, p?.perfection_level));
 
   const clsId = Number(w.class_ ?? w.class);
   const raceId = Number(w.race);
@@ -6995,11 +7329,12 @@ async function populateProfile(profile) {
     raceEl.title = raceName(raceId);
   }
 
-  renderProfilePortrait(w);
-  renderProfileHeroBars(w, profileState.currentDetails);
+  renderProfilePortrait(w, p);
+  renderProfileHeroBars(w, profileState.currentDetails, p);
   renderStatsStrip("profile-stats-strip", w);
   renderStatsBreakdown("profile-stats-breakdown", w, profileState.currentDetails);
   renderProfileIndicators(w, profileState.currentDetails);
+  renderProfilePerfectionSummary(p);
   switchProfileInfoTab(profileState.infoTab);
 
   const invTabActive = document.getElementById("tab-inventory")?.classList.contains("active");
@@ -7039,10 +7374,6 @@ async function populateProfile(profile) {
   } catch {
     // ignore
   }
-
-  // Steam recreate button (.steam-dev-only) starts as display:none in HTML;
-  // ensure it is shown after full profile load (not only via populateFromProfile).
-  syncSteamDevUiVisibility();
 }
 
 const SLOT_MAIN_STAT_KEYS = new Set([
@@ -7301,7 +7632,16 @@ function estimateProfileSellPrice(item) {
   return Math.floor(baseValue * multiplier);
 }
 
-/** Требования v2: пилюли «Ур.» / «ВЫН» и т.д.; без текущих статов ОВ; fail — красная рамка. */
+/** Требования v2: пилюли «Ур.» / «ВЫН» и т.д.; fail — красная рамка. */
+function requirementPillOk(item, waifu, key, fallbackHave, need) {
+  const rs = item?.requirements_status;
+  if (rs && rs[key] && typeof rs[key] === "object" && rs[key].ok != null) {
+    return Boolean(rs[key].ok);
+  }
+  const hasWaifu = Boolean(waifu && (waifu.level != null || waifu.id != null));
+  return !hasWaifu || safeNumber(fallbackHave, 0) >= safeNumber(need, 0);
+}
+
 function buildItemModalRequirementsPillsHtml(item, waifu) {
   const req = item?.requirements && typeof item.requirements === "object" ? item.requirements : {};
   const w = waifu || {};
@@ -7319,7 +7659,7 @@ function buildItemModalRequirementsPillsHtml(item, waifu) {
   const lvlNeed = safeNumber(req.level, 0);
   if (lvlNeed > 0) {
     const have = safeNumber(w.level, 0);
-    const ok = !hasWaifu || have >= lvlNeed;
+    const ok = requirementPillOk(item, w, "level", have, lvlNeed);
     pushPill("Ур.", String(lvlNeed), ok);
   }
 
@@ -7328,26 +7668,28 @@ function buildItemModalRequirementsPillsHtml(item, waifu) {
     ["agility", "ЛОВ", "agility"],
     ["intelligence", "ИНТ", "intelligence"],
     ["endurance", "ВЫН", "endurance"],
+    ["charm", "ОБА", "charm"],
+    ["luck", "УДЧ", "luck"],
   ];
   statBits.forEach(([rk, abbrev, wk]) => {
     const need = safeNumber(req[rk], 0);
     if (need <= 0) return;
-    const have = safeNumber(w[wk], 0);
-    const ok = !hasWaifu || have >= need;
+    const have = profileStatValue(w, wk);
+    const ok = requirementPillOk(item, w, rk, have, need);
     pushPill(abbrev, String(need), ok);
   });
 
   if (req.waifu_race != null && req.waifu_race !== "") {
     const need = Number(req.waifu_race);
     const have = w.race != null ? Number(w.race) : NaN;
-    const ok = !hasWaifu || (Number.isFinite(have) && have === need);
+    const ok = requirementPillOk(item, w, "waifu_race", have, need);
     pushPill("Раса", raceName(need), ok);
   }
   if (req.waifu_class != null && req.waifu_class !== "") {
     const need = Number(req.waifu_class);
     const wc = w.class != null ? w.class : w.class_;
     const have = wc != null ? Number(wc) : NaN;
-    const ok = !hasWaifu || (Number.isFinite(have) && have === need);
+    const ok = requirementPillOk(item, w, "waifu_class", have, need);
     pushPill("Класс", className(need), ok);
   }
 
@@ -7546,6 +7888,7 @@ async function confirmDismantleSelectedItem() {
 async function confirmSellSelectedItem() {
   const item = profileState.selectedItem;
   if (!item?.id) return;
+  const soldId = item.id;
   closeItemSellConfirmOverlay();
   await apiFetch(`/inventory/sell`, {
     method: "POST",
@@ -7554,6 +7897,7 @@ async function confirmSellSelectedItem() {
   });
   closeItemModal();
   await refreshAfterInventoryModalAction();
+  window.WaifuApp?.Tutorial?.notify?.("shop:sold", { inventory_item_id: soldId });
 }
 
 async function unequipItemFromModal() {
@@ -7584,6 +7928,7 @@ async function equipItemFromModal() {
   }
   closeItemModal();
   await refreshAfterInventoryModalAction();
+  window.WaifuApp?.Tutorial?.notify?.("equip:done", { inventory_item_id: item.id, slot: chosen });
 }
 
 async function confirmEquipToRingSlot(slot) {
@@ -7599,26 +7944,10 @@ async function confirmEquipToRingSlot(slot) {
     closeItemEquipRingOverlay();
     return;
   }
+  window.WaifuApp?.Tutorial?.notify?.("equip:done", { inventory_item_id: item.id, slot: s });
   closeItemEquipRingOverlay();
   closeItemModal();
   await refreshAfterInventoryModalAction();
-}
-
-async function resetSteamMainWaifu() {
-  if (
-    !confirm(
-      "Удалить основную вайфу и начать создание заново? Инвентарь и прогресс сохранятся."
-    )
-  ) {
-    return;
-  }
-  try {
-    await apiFetch("/profile/main-waifu", { method: "DELETE" });
-    window.location.href = steamRelativePage("waifu_generator.html");
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showToast(detail || String(e?.message || e), "error");
-  }
 }
 
 async function resetMainWaifu() {
@@ -7675,14 +8004,9 @@ function initTitleScreen(profile) {
       authEl.style.display = "block";
       authEl.innerHTML = webAppAuthNoticeHtml();
     }
-    btn.textContent = isDesktopClient() ? "Войти" : "Вход недоступен";
-    btn.disabled = !isDesktopClient();
-    btn.onclick = isDesktopClient()
-      ? () => {
-          if (window.waifuDesktop?.requireAuth) window.waifuDesktop.requireAuth();
-          else window.location.href = steamRelativePage("login.html");
-        }
-      : null;
+    btn.textContent = "Вход недоступен";
+    btn.disabled = true;
+    btn.onclick = null;
     return;
   }
 
@@ -7693,7 +8017,7 @@ function initTitleScreen(profile) {
     btn.textContent = "Продолжить";
     btn.disabled = false;
     btn.onclick = () => {
-      window.location.href = steamRelativePage("profile.html");
+      window.location.href = "./profile.html";
     };
     return;
   }
@@ -7701,7 +8025,7 @@ function initTitleScreen(profile) {
   btn.textContent = "Новая игра";
   btn.disabled = false;
   btn.onclick = () => {
-    window.location.href = steamRelativePage("waifu_generator.html");
+    window.location.href = "./waifu_generator.html";
   };
 }
 
@@ -8291,30 +8615,10 @@ async function adminSpawnSubmit() {
   }
 }
 
-async function initSteamWaifuGenerator(profile) {
-  await initWaifuGenerator(profile);
-}
-
-function waifuGenResetToStep1() {
-  const s1 = document.getElementById("waifu-step-1");
-  const s2 = document.getElementById("waifu-step-2");
-  const st1 = document.getElementById("waifu-gen-sticky-step1");
-  const st2 = document.getElementById("waifu-gen-sticky-step2");
-  waifuGenTogglePanelHidden(s1, false);
-  waifuGenTogglePanelHidden(s2, true);
-  waifuGenTogglePanelHidden(st1, false);
-  waifuGenTogglePanelHidden(st2, true);
-}
-
 async function initWaifuGenerator(profile) {
-  if (isDesktopClient() && !document.body.classList.contains("page-steam-waifu-gen")) {
-    window.location.href = steamRelativePage("waifu_generator.html");
-    return;
-  }
-
   const mw = profile?.main_waifu;
   if (mw && (mw.id != null || mw.level != null)) {
-    window.location.href = steamRelativePage("profile.html");
+    window.location.href = "./profile.html";
     return;
   }
 
@@ -8330,9 +8634,6 @@ async function initWaifuGenerator(profile) {
   const nextBtn = document.getElementById("waifu-next-btn");
 
   if (!nameInput || !classSel || !raceSel || !statsBox || !nextBtn) return;
-
-  const isSteamGen = document.body.classList.contains("page-steam-waifu-gen");
-  if (isSteamGen) waifuGenResetToStep1();
 
   classSel.innerHTML = WAIFU_CLASSES.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
   raceSel.innerHTML = WAIFU_RACES.map((r) => `<option value="${r.id}">${r.name}</option>`).join("");
@@ -8356,8 +8657,7 @@ async function initWaifuGenerator(profile) {
     Object.entries(rb).forEach(([k, v]) => (cur[k] = (cur[k] || 0) + v));
     Object.entries(cb).forEach(([k, v]) => (cur[k] = (cur[k] || 0) + v));
 
-    if (isSteamGen) waifuGenRenderStatsText(statsBox, cur);
-    else waifuGenRenderRadar(statsBox, cur);
+    waifuGenRenderRadar(statsBox, cur);
     waifuGenSyncTriggers();
     waifuGenRenderPassiveList();
 
@@ -8414,8 +8714,11 @@ function waifuGenGoStep2() {
   waifuGenRefreshHint();
   waifuGenRefreshGenerateButton();
 
-  if (document.body?.classList?.contains("page-steam-waifu-gen") && window.SteamWaifuPaperdoll?.init) {
-    window.SteamWaifuPaperdoll.init();
+  try {
+    const tutorial = window.profileState?.currentProfile?.tutorial || null;
+    window.WaifuApp?.Tutorial?.maybeRun?.("waifu_generator", tutorial, "waifu_gen_step2");
+  } catch (e) {
+    console.warn("waifu_gen_step2 tutorial failed:", e);
   }
 }
 
@@ -8501,13 +8804,6 @@ async function submitWaifuCreation() {
     race: waifuGeneratorState.selectedRaceId,
     class: waifuGeneratorState.selectedClassId,
   };
-  if (waifuGeneratorState.cosmetics && typeof waifuGeneratorState.cosmetics === "object") {
-    payload.paperdoll_cosmetics = {
-      ...waifuGeneratorState.cosmetics,
-      race: waifuGeneratorState.selectedRaceId,
-      class: waifuGeneratorState.selectedClassId,
-    };
-  }
   const sel = waifuGeneratorState.variants[waifuGeneratorState.selectedIdx];
   if (sel && Number.isFinite(Number(sel.slot_index)) && sel.slot_index >= 0 && sel.slot_index <= 2) {
     payload.selected_slot = Number(sel.slot_index);
@@ -8523,7 +8819,7 @@ async function submitWaifuCreation() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    window.location.href = steamRelativePage("profile.html");
+    window.location.href = "./profile.html";
   } catch (e) {
     if (errBox) errBox.textContent = String(e?.message || e);
     if (btn) btn.disabled = false;
@@ -9120,10 +9416,17 @@ function renderGuildMembersHtml(members, viewerContext) {
         m.member_power != null && m.member_power !== ""
           ? formatGuildPower(m.member_power)
           : "—";
+      const lvl =
+        m.waifu_level != null
+          ? formatLevelWithPerfection(m.waifu_level, m.perfection_level)
+          : "";
+      const lvlHtml = lvl
+        ? ` <span class="guild-member-level muted tiny">Ур. ${escapeHtml(lvl)}</span>`
+        : "";
       return `<div class="guild-members-table-row">
       <span class="gmc gmc--dot"><span class="guild-member-dot ${dotCls}" aria-hidden="true" title="${m.online ? "Онлайн" : "Оффлайн"}"></span></span>
       <span class="gmc gmc--avatar">${guildMemberAvatarHtml(m)}</span>
-      <span class="gmc gmc--name"><button type="button" class="guild-member-name-btn" onclick="WaifuApp.openPlayerProfile(${Number(m.player_id)})">${guildMemberLabel(m)}</button></span>
+      <span class="gmc gmc--name"><button type="button" class="guild-member-name-btn" onclick="WaifuApp.openPlayerProfile(${Number(m.player_id)})">${guildMemberLabel(m)}</button>${lvlHtml}</span>
       <span class="gmc gmc--rank"><span class="guild-member-rank">${escapeHtml(guildMemberRankLabel(m))}</span></span>
       <span class="gmc gmc--power"><span class="guild-member-power">${escapeHtml(String(pwr))}</span></span>
       <span class="gmc gmc--actions">${guildMemberActionMenuHtml(m, viewerContext)}</span>
@@ -9872,7 +10175,14 @@ function renderGuildMemberPreviewBody() {
     mailBtn.style.display = isSelf ? "none" : "";
   }
 
-  if (levelEl) levelEl.textContent = mw?.level != null ? String(mw.level) : "—";
+  if (levelEl) {
+    const lvl = mw?.level;
+    const pLvl = mw?.perfection_level ?? data?.perfection_level;
+    levelEl.textContent =
+      lvl != null && lvl !== ""
+        ? `Ур. ${formatLevelWithPerfection(lvl, pLvl)}`
+        : "—";
+  }
   if (powerEl) {
     const mp = data.member_power != null ? Number(data.member_power) : 0;
     powerEl.innerHTML =
@@ -10409,7 +10719,9 @@ function renderPlayerWaifuShowcase(data) {
   if (nameEl) nameEl.textContent = (mw?.name || "").trim() || "—";
   if (levelEl) {
     const lvl = mw?.level;
-    levelEl.textContent = lvl != null && lvl !== "" ? `Ур. ${lvl}` : "";
+    const pLvl = mw?.perfection_level;
+    levelEl.textContent =
+      lvl != null && lvl !== "" ? `Ур. ${formatLevelWithPerfection(lvl, pLvl)}` : "";
   }
   if (img) {
     if (url) {
@@ -12326,47 +12638,6 @@ async function populateGuildHall(profile, opts = {}) {
   }
 }
 
-function initDesktopWindowShell() {
-  try {
-    const mode = new URLSearchParams(window.location.search).get("desktopMode");
-    if (mode !== "window") return;
-    if (document.getElementById("desktop-titlebar")) return;
-
-    if (!document.getElementById("steam-viewport")) {
-      const vp = document.createElement("div");
-      vp.id = "steam-viewport";
-      const nodes = [...document.body.childNodes];
-      for (const node of nodes) {
-        vp.appendChild(node);
-      }
-      document.body.appendChild(vp);
-    }
-
-    const bar = document.createElement("div");
-    bar.id = "desktop-titlebar";
-    bar.className = "desktop-titlebar";
-    bar.setAttribute("aria-hidden", "true");
-    const closeBtn = document.createElement("button");
-    closeBtn.type = "button";
-    closeBtn.className = "desktop-close-btn";
-    closeBtn.setAttribute("aria-label", "Закрыть");
-    closeBtn.textContent = "×";
-    closeBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      window.waifuDesktop?.closeWindow?.();
-    });
-    bar.appendChild(closeBtn);
-    const vp = document.getElementById("steam-viewport");
-    if (vp) {
-      document.body.insertBefore(bar, vp);
-    } else {
-      document.body.appendChild(bar);
-    }
-  } catch (err) {
-    console.warn("initDesktopWindowShell:", err);
-  }
-}
-
 async function initPage(page) {
   applyTheme();
   initNavIcons();
@@ -12378,16 +12649,12 @@ async function initPage(page) {
       console.warn("Telegram WebApp init:", err);
     }
   }
-  if (isDesktopClient()) {
-    initDesktopWindowShell();
-  } else {
-    setActiveNav(page);
-    initAtticChipClicks();
-    initAtticMenu();
-  }
+  setActiveNav(page);
   if (page !== "index") {
     connectSSE();
   }
+  initAtticChipClicks();
+  initAtticMenu();
   initItemArtGenerateDelegated();
 
   registerWaifuServiceWorker();
@@ -12407,8 +12674,8 @@ async function initPage(page) {
         if (window.location.pathname.endsWith("/profile.html")) {
           profileState.currentProfile = { ...(profileState.currentProfile || {}), ...p };
           profileState.currentDetails = p?.main_waifu_details || profileState.currentDetails || null;
-          renderProfilePortrait(w);
-          renderProfileHeroBars(w, profileState.currentDetails);
+          renderProfilePortrait(w, profileState.currentProfile);
+          renderProfileHeroBars(w, profileState.currentDetails, profileState.currentProfile);
           renderStatsStrip("profile-stats-strip", w);
           if (document.getElementById("profile-stats-breakdown")) {
             renderStatsBreakdown("profile-stats-breakdown", w, profileState.currentDetails);
@@ -12755,8 +13022,8 @@ async function populateCaravanPage(profile) {
       </div>`;
     }).join("") +
     `
-    <div class="caravan-pin caravan-pin--library" role="group" aria-label="Библиотека">
-      <button type="button" class="caravan-pin-ico-btn" onclick="WaifuApp.openLibrary()" aria-label="Библиотека">📖</button>
+    <div class="caravan-pin caravan-pin--library" role="group" aria-label="Библиотека" data-tutorial="caravan-library">
+      <button type="button" class="caravan-pin-ico-btn" data-tutorial="caravan-library" onclick="WaifuApp.openLibrary()" aria-label="Библиотека">📖</button>
     </div>`;
 
   ACT_META.forEach(({ act }) => {
@@ -13151,9 +13418,13 @@ function libraryMechanicsShellHtml() {
     return `<button type="button" class="lib-mechanics-subtab${active}" data-mech-sub="${t.id}" onclick="WaifuApp.librarySwitchMechanicsSubtab('${t.id}')">${escapeHtml(t.label)}</button>`;
   }).join("");
   return `
-    <div class="lib-mechanics">
+    <div class="lib-body-chrome">
       <div class="lib-mechanics-subtabs" role="tablist">${subTabs}</div>
-      <div id="lib-mechanics-body" class="lib-mechanics-body">${libraryMechanicsSectionHtml(libraryMechanicsSubtab)}</div>
+    </div>
+    <div class="lib-body-scroll">
+      <div class="lib-mechanics">
+        <div id="lib-mechanics-body" class="lib-mechanics-body">${libraryMechanicsSectionHtml(libraryMechanicsSubtab)}</div>
+      </div>
     </div>`;
 }
 
@@ -13357,55 +13628,63 @@ function libraryItemsSubtabShellHtml() {
   const affActive = sub === "affixes" ? " active" : "";
   if (sub === "affixes") {
     return `
+      <div class="lib-body-chrome">
+        <div class="lib-items-subtabs">
+          <button type="button" class="lib-items-subtab${itemsActive}" onclick="WaifuApp.librarySwitchItemsSubtab('items')">Предметы</button>
+          <button type="button" class="lib-items-subtab${affActive}" onclick="WaifuApp.librarySwitchItemsSubtab('affixes')">Аффиксы</button>
+        </div>
+        <div id="lib-affix-summary" class="lib-summary"></div>
+        <div class="lib-filters">
+          <input id="lib-affix-search" type="search" placeholder="Поиск…" />
+          <select id="lib-affix-kind-filter">
+            <option value="all">Все</option>
+            <option value="prefix">Префиксы</option>
+            <option value="suffix">Суффиксы</option>
+          </select>
+          <select id="lib-affix-seen">
+            <option value="all">Все</option>
+            <option value="seen">Открытые</option>
+            <option value="unseen">Скрытые</option>
+          </select>
+        </div>
+      </div>
+      <div class="lib-body-scroll">
+        <div id="lib-affix-list" class="lib-affix-list"></div>
+      </div>`;
+  }
+  return `
+    <div class="lib-body-chrome">
       <div class="lib-items-subtabs">
         <button type="button" class="lib-items-subtab${itemsActive}" onclick="WaifuApp.librarySwitchItemsSubtab('items')">Предметы</button>
         <button type="button" class="lib-items-subtab${affActive}" onclick="WaifuApp.librarySwitchItemsSubtab('affixes')">Аффиксы</button>
       </div>
-      <div id="lib-affix-summary" class="lib-summary"></div>
+      <div id="lib-items-summary" class="lib-summary"></div>
       <div class="lib-filters">
-        <input id="lib-affix-search" type="search" placeholder="Поиск…" />
-        <select id="lib-affix-kind-filter">
-          <option value="all">Все</option>
-          <option value="prefix">Префиксы</option>
-          <option value="suffix">Суффиксы</option>
+        <input id="lib-items-search" type="search" placeholder="Поиск…" />
+        <select id="lib-items-tier">
+          <option value="all">Все тиры</option>
+          ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((t) => `<option value="${t}">T${t}</option>`).join("")}
         </select>
-        <select id="lib-affix-seen">
+        <select id="lib-items-slot">
+          <option value="all">Все слоты</option>
+          <option value="weapon_1h">Оружие 1H</option>
+          <option value="weapon_2h">Оружие 2H</option>
+          <option value="offhand">Offhand</option>
+          <option value="costume">Доспех</option>
+          <option value="ring">Кольцо</option>
+          <option value="amulet">Амулет</option>
+        </select>
+        <select id="lib-items-seen">
           <option value="all">Все</option>
           <option value="seen">Открытые</option>
           <option value="unseen">Скрытые</option>
         </select>
       </div>
-      <div id="lib-affix-list" class="lib-affix-list"></div>`;
-  }
-  return `
-    <div class="lib-items-subtabs">
-      <button type="button" class="lib-items-subtab${itemsActive}" onclick="WaifuApp.librarySwitchItemsSubtab('items')">Предметы</button>
-      <button type="button" class="lib-items-subtab${affActive}" onclick="WaifuApp.librarySwitchItemsSubtab('affixes')">Аффиксы</button>
+      <p class="lib-tier-hint muted tiny">Цветная рамка — тир предмета (T1–T10).</p>
     </div>
-    <div id="lib-items-summary" class="lib-summary"></div>
-    <div class="lib-filters">
-      <input id="lib-items-search" type="search" placeholder="Поиск…" />
-      <select id="lib-items-tier">
-        <option value="all">Все тиры</option>
-        ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((t) => `<option value="${t}">T${t}</option>`).join("")}
-      </select>
-      <select id="lib-items-slot">
-        <option value="all">Все слоты</option>
-        <option value="weapon_1h">Оружие 1H</option>
-        <option value="weapon_2h">Оружие 2H</option>
-        <option value="offhand">Offhand</option>
-        <option value="costume">Доспех</option>
-        <option value="ring">Кольцо</option>
-        <option value="amulet">Амулет</option>
-      </select>
-      <select id="lib-items-seen">
-        <option value="all">Все</option>
-        <option value="seen">Открытые</option>
-        <option value="unseen">Скрытые</option>
-      </select>
-    </div>
-    <p class="lib-tier-hint muted tiny">Цветная рамка — тир предмета (T1–T10).</p>
-    <div id="lib-items-grid" class="lib-grid lib-grid--items"></div>`;
+    <div class="lib-body-scroll">
+      <div id="lib-items-grid" class="lib-grid lib-grid--items"></div>
+    </div>`;
 }
 
 function librarySwitchItemsSubtab(subtab) {
@@ -13594,7 +13873,11 @@ function ensureLibraryStyles() {
 .lib-tab{display:inline-flex;align-items:center;justify-content:center;flex:1;min-width:0;padding:8px 6px;border:1px solid rgba(200,146,42,.25);border-radius:8px;background:rgba(0,0,0,.25);font-size:18px;line-height:1;cursor:pointer}
 .lib-tab.active{border-color:rgba(232,184,75,.7);background:rgba(200,146,42,.15)}
 .lib-tab[disabled]{opacity:.35;cursor:not-allowed}
-.lib-body{flex:1;min-height:0;overflow-y:auto;padding:10px 12px 16px;-webkit-overflow-scrolling:touch;position:relative;z-index:1}
+.lib-body{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;padding:0;position:relative;z-index:1}
+.lib-body-chrome{flex-shrink:0;padding:10px 12px 0;background:#16100b;position:relative;z-index:2}
+.lib-body-scroll{flex:1;min-height:0;overflow-y:auto;padding:8px 12px 16px;-webkit-overflow-scrolling:touch}
+#library-modal.lib-overlay.lib-overlay--tutorial-lock{pointer-events:none}
+#library-modal.lib-overlay.lib-overlay--tutorial-lock .lib-panel{pointer-events:auto}
 #library-monster-modal.lib-monster-overlay,#library-item-modal.lib-monster-overlay{position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box}
 #library-monster-modal.lib-monster-overlay.hidden,#library-item-modal.lib-monster-overlay.hidden{display:none!important}
 .lib-monster-panel{position:relative;width:min(420px,94vw);max-height:88vh;overflow-y:auto;-webkit-overflow-scrolling:touch;border-radius:12px}
@@ -13664,6 +13947,10 @@ function ensureLibraryStyles() {
 .lib-mechanics h3{font-size:13px;color:#e8b84b;margin:12px 0 6px}
 .lib-mechanics p{font-size:12px;color:rgba(201,184,168,.9);line-height:1.45;margin:0 0 8px}
 .lib-mechanics-subtabs{display:flex;gap:4px;overflow-x:auto;margin-bottom:10px;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.lib-body-chrome .lib-mechanics-subtabs{margin-bottom:8px}
+.lib-body-chrome .lib-filters{margin-bottom:8px}
+.lib-body-chrome .lib-summary{margin-bottom:8px}
+.lib-body-chrome .lib-tier-hint{margin:0 0 8px}
 .lib-mechanics-subtab{flex:0 0 auto;font-size:10px;padding:6px 8px;border-radius:8px;border:1px solid rgba(200,146,42,.25);background:rgba(0,0,0,.25);color:#c9b8a8;cursor:pointer;white-space:nowrap}
 .lib-mechanics-subtab.active{border-color:rgba(232,184,75,.7);background:rgba(200,146,42,.15);color:#e8b84b}
 .lib-mechanics-body{min-height:40px}
@@ -13830,21 +14117,25 @@ function libraryRenderGrid() {
     .join("");
 
   body.innerHTML = `
-    <div class="lib-summary">Встречено: ${summary.seen ?? 0} / ${summary.total ?? 0} · Покорено: ${summary.completed ?? 0}</div>
-    <div class="lib-filters">
-      <input id="lib-f-search" type="search" placeholder="Поиск…" value="${escapeHtml(f.search)}" />
-      <select id="lib-f-act"><option value="all">Все акты</option>${actOpts}</select>
-      <select id="lib-f-family">${famOpts}</select>
-      <select id="lib-f-tier">${tierOpts}</select>
-      <select id="lib-f-seen">${seenOpts}</select>
-      <select id="lib-f-sort">
-        <option value="act" ${librarySort === "act" ? "selected" : ""}>По акту</option>
-        <option value="name" ${librarySort === "name" ? "selected" : ""}>По имени</option>
-        <option value="kills" ${librarySort === "kills" ? "selected" : ""}>По убийствам</option>
-        <option value="tier" ${librarySort === "tier" ? "selected" : ""}>По тиру</option>
-      </select>
+    <div class="lib-body-chrome">
+      <div class="lib-summary">Встречено: ${summary.seen ?? 0} / ${summary.total ?? 0} · Покорено: ${summary.completed ?? 0}</div>
+      <div class="lib-filters">
+        <input id="lib-f-search" type="search" placeholder="Поиск…" value="${escapeHtml(f.search)}" />
+        <select id="lib-f-act"><option value="all">Все акты</option>${actOpts}</select>
+        <select id="lib-f-family">${famOpts}</select>
+        <select id="lib-f-tier">${tierOpts}</select>
+        <select id="lib-f-seen">${seenOpts}</select>
+        <select id="lib-f-sort">
+          <option value="act" ${librarySort === "act" ? "selected" : ""}>По акту</option>
+          <option value="name" ${librarySort === "name" ? "selected" : ""}>По имени</option>
+          <option value="kills" ${librarySort === "kills" ? "selected" : ""}>По убийствам</option>
+          <option value="tier" ${librarySort === "tier" ? "selected" : ""}>По тиру</option>
+        </select>
+      </div>
     </div>
-    <div class="lib-grid" id="lib-grid">${cards || '<p class="muted tiny">Ничего не найдено.</p>'}</div>`;
+    <div class="lib-body-scroll">
+      <div class="lib-grid" id="lib-grid">${cards || '<p class="muted tiny">Ничего не найдено.</p>'}</div>
+    </div>`;
 
   libraryBindFilterHandlers();
   body.querySelectorAll(".lib-card[data-template-id]").forEach((card) => {
@@ -13940,12 +14231,35 @@ async function librarySwitchTab(tabId) {
   body.innerHTML = '<div class="lib-soon">Этот раздел появится позже.</div>';
 }
 
-function closeLibrary() {
+function closeLibrary(opts) {
+  const force = Boolean(opts && opts.force);
+  try {
+    const tut = window.WaifuApp && window.WaifuApp.Tutorial;
+    if (
+      !force &&
+      tut &&
+      typeof tut.isActive === "function" &&
+      tut.isActive() &&
+      typeof tut.getFlowId === "function" &&
+      tut.getFlowId() === "caravan"
+    ) {
+      return;
+    }
+  } catch (e) {
+    /* ignore */
+  }
   libraryCloseMonster();
   const modal = document.getElementById("library-modal");
   if (modal) {
     modal.classList.add("hidden");
+    modal.classList.remove("lib-overlay--tutorial-lock");
     modal.style.display = "none";
+    if (Object.prototype.hasOwnProperty.call(modal.dataset, "tutorialPrevZ")) {
+      const prev = modal.dataset.tutorialPrevZ;
+      delete modal.dataset.tutorialPrevZ;
+      if (prev) modal.style.zIndex = prev;
+      else modal.style.removeProperty("z-index");
+    }
   }
 }
 
@@ -13995,7 +14309,7 @@ async function openLibrary(opts) {
     tabsEl.innerHTML = LIBRARY_TABS.map((t) => {
       const dis = t.enabled ? "" : " disabled";
       const click = t.enabled ? ` onclick="WaifuApp.librarySwitchTab('${t.id}')"` : "";
-      return `<button type="button" class="lib-tab${t.id === (opts.tab || "bestiary") ? " active" : ""}" data-lib-tab="${t.id}" aria-label="${escapeHtml(t.label)}" title="${escapeHtml(t.label)}"${dis}${click}>${t.icon}</button>`;
+      return `<button type="button" class="lib-tab${t.id === (opts.tab || "bestiary") ? " active" : ""}" data-lib-tab="${t.id}" data-tutorial="lib-tab-${t.id}" aria-label="${escapeHtml(t.label)}" title="${escapeHtml(t.label)}"${dis}${click}>${t.icon}</button>`;
     }).join("");
   }
 
@@ -14350,6 +14664,14 @@ function openPassiveSkillModal(nodeId) {
   }
   m.classList.toggle("passive-skill-modal--equip-bonus", eq > 0 || effLv > cur);
   m.style.display = "grid";
+  try {
+    if (window.WaifuApp?.Tutorial?.isActive?.()) {
+      m.dataset.tutorialRaisedZ = "1";
+      m.style.zIndex = "99200";
+    }
+  } catch (e) {
+    /* ignore */
+  }
 }
 
 function closePassiveSkillModal() {
@@ -14360,6 +14682,10 @@ function closePassiveSkillModal() {
     m.classList.remove("passive-skill-modal--dota");
     const panel = m.querySelector(".passive-skill-modal-panel");
     if (panel) panel.classList.remove("passive-skill-modal-panel--dota");
+    if (m.dataset.tutorialRaisedZ) {
+      delete m.dataset.tutorialRaisedZ;
+      m.style.zIndex = "";
+    }
   }
 }
 
@@ -14608,16 +14934,21 @@ async function onPassiveLearnClick(ev) {
 function applyTrainingHallTabUI() {
   const passiveView = document.getElementById("training-passive-view");
   const hiddenView = document.getElementById("training-hidden-view");
+  const perfectionView = document.getElementById("training-perfection-view");
   document.querySelectorAll(".passive-tab[data-training-tab]").forEach((t) => {
     const tab = t.getAttribute("data-training-tab");
     const active = tab === trainingHallTab;
     t.classList.toggle("active", active);
     t.setAttribute("aria-selected", active ? "true" : "false");
   });
-  if (passiveView && hiddenView) {
-    const showHidden = trainingHallTab === "hidden";
-    passiveView.hidden = showHidden;
-    hiddenView.hidden = !showHidden;
+  if (passiveView) {
+    passiveView.hidden = trainingHallTab === "hidden" || trainingHallTab === "perfection";
+  }
+  if (hiddenView) {
+    hiddenView.hidden = trainingHallTab !== "hidden";
+  }
+  if (perfectionView) {
+    perfectionView.hidden = trainingHallTab !== "perfection";
   }
 }
 
@@ -14634,6 +14965,11 @@ function bindPassiveTreeListenersOnce() {
       if (key === "hidden") {
         applyTrainingHallTabUI();
         loadHiddenSkillsIfNeeded();
+        return;
+      }
+      if (key === "perfection") {
+        applyTrainingHallTabUI();
+        loadPerfectionPanel();
         return;
       }
       passiveActiveBranch = key;
@@ -14991,12 +15327,6 @@ function exportWebAppShellGlobals() {
     PERK_EXPEDITION_COUNTER_HINT,
     WAIFU_RACES,
     WAIFU_CLASSES,
-    WAIFU_GEN_COSMETIC,
-    WAIFU_GEN_EYE_SHAPES,
-    WAIFU_GEN_OUTFITS,
-    WAIFU_GEN_ACCS_MULTI,
-    WAIFU_GEN_RACE_FEATURES,
-    waifuGeneratorState,
     apiFetch,
     loadProfile,
     safeNumber,
@@ -15028,6 +15358,7 @@ function exportWebAppShellGlobals() {
     rarityClass,
     slotTypeLabel,
     itemIconForSlotType,
+    itemArtHtml,
     hiredWaifuImageUrl,
     resolveImageUrl,
     classIcon,
@@ -15058,6 +15389,8 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   closePassiveSkillModal,
   openHiddenSkillModal,
   closeHiddenSkillModal,
+  closePerfectionChooseModal,
+  loadPerfectionPanel,
   loadProfile,
   renderAtticDungeon,
   renderAtticLevelCircle,
@@ -15119,8 +15452,6 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   goShopSmithEnchant,
   goShopSmithEnchantFromModal,
   resetMainWaifu,
-  resetSteamMainWaifu,
-  syncSteamDevUiVisibility,
   adminLevelUpWaifu,
   adminAddMainWaifuStat,
   adminAddStatPoints,
@@ -15137,7 +15468,6 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   adminSpawnSubmit,
   showToast,
   initWaifuGenerator,
-  initSteamWaifuGenerator,
   initTitleScreen,
   initSettingsPage,
   openSettingsNotifyModal,

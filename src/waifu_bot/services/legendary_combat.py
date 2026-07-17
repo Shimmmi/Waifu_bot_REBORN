@@ -181,6 +181,12 @@ class LegendaryCombatBridge:
             equipped_legendary_count=self._legendary_count,
         )
 
+    def run_outgoing_for_pool(self, ctx: BonusContext) -> AggregatedLegendaryResult:
+        """Run outgoing handlers once; % mult feeds unified pool, flats/extra_hits after crit."""
+        if not self._rows:
+            return AggregatedLegendaryResult()
+        return run_outgoing_handlers(self._rows, ctx, max_mult=self._max_mult, phase="full")
+
     def apply_pre_crit(self, ctx: BonusContext) -> tuple[bool, float, dict[str, Any]]:
         if not self._rows:
             return False, 1.0, {}
@@ -191,13 +197,20 @@ class LegendaryCombatBridge:
         self,
         ctx: BonusContext,
         damage: int,
+        *,
+        agg: AggregatedLegendaryResult | None = None,
     ) -> tuple[int, AggregatedLegendaryResult]:
         if not self._rows:
             return damage, AggregatedLegendaryResult()
-        agg = run_outgoing_handlers(self._rows, ctx, max_mult=self._max_mult, phase="post_crit")
+        from waifu_bot.game.legendary_bonuses.engine import apply_outgoing_flat_only
+
+        if agg is None:
+            agg = run_outgoing_handlers(self._rows, ctx, max_mult=self._max_mult, phase="post_crit")
+            new_damage = apply_outgoing_to_damage(damage, agg)
+        else:
+            new_damage = apply_outgoing_flat_only(damage, agg)
         if agg.clear_waifu_debuffs:
             agg.battle_state_patch["__clear_debuffs__"] = True
-        new_damage = apply_outgoing_to_damage(damage, agg)
         return new_damage, agg
 
     def apply_pre_crit_force(self, ctx: BonusContext) -> tuple[bool, float]:

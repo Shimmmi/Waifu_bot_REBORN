@@ -14,6 +14,7 @@ from waifu_bot.core.config import settings
 logger = logging.getLogger(__name__)
 
 FALLBACK_HTTP_STATUSES: tuple[int, ...] = (402,)
+DEFAULT_IMAGE_MODEL = "google/gemini-3.1-flash-lite-image"
 _LLM_MAX_CONCURRENT = 2
 _FUSION_MAX_CONCURRENT = 1
 _llm_sem: asyncio.Semaphore | None = None
@@ -58,6 +59,19 @@ def llm_request_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def get_image_model() -> str:
+    """RouterAI image model slug (ROUTERAI_MODEL_IMAGE)."""
+    raw = getattr(settings, "routerai_model_image", None)
+    if raw and str(raw).strip():
+        return str(raw).strip()
+    return DEFAULT_IMAGE_MODEL
+
+
+def has_image_llm_configured() -> bool:
+    """Image generation requires RouterAI."""
+    return has_routerai_configured()
+
+
 def _openrouter_provider() -> LlmProvider | None:
     key = (getattr(settings, "openrouter_api_key", None) or "").strip()
     if not key:
@@ -67,7 +81,7 @@ def _openrouter_provider() -> LlmProvider | None:
         base_url=settings.openrouter_base_url,
         api_key=key,
         text_model=settings.openrouter_model,
-        image_model=settings.openrouter_model_image,
+        image_model=get_image_model(),
     )
 
 
@@ -76,13 +90,12 @@ def _routerai_provider() -> LlmProvider | None:
     if not key:
         return None
     text = getattr(settings, "routerai_model", None) or settings.openrouter_model
-    image = getattr(settings, "routerai_model_image", None) or settings.openrouter_model_image
     return LlmProvider(
         name="routerai",
         base_url=settings.routerai_base_url,
         api_key=key,
         text_model=text,
-        image_model=image,
+        image_model=get_image_model(),
     )
 
 
@@ -97,6 +110,18 @@ def llm_provider_chain() -> list[LlmProvider]:
     elif ra_prov and not or_prov:
         chain.append(ra_prov)
     return chain
+
+
+def image_provider_chain() -> list[LlmProvider]:
+    """RouterAI-only chain for image generation."""
+    ra_prov = _routerai_provider()
+    return [ra_prov] if ra_prov else []
+
+
+def provider_chain_for_request(*, use_image_model: bool) -> list[LlmProvider]:
+    if use_image_model:
+        return image_provider_chain()
+    return llm_provider_chain()
 
 
 def has_llm_configured() -> bool:
@@ -162,16 +187,15 @@ def _payload_with_model(
     out = dict(payload)
     if preserve_explicit_model and out.get("model"):
         return out
-    if provider.name != "routerai":
-        if use_image_model and not out.get("model"):
-            out["model"] = provider.image_model
+    if use_image_model:
+        out["model"] = get_image_model()
         return out
-    if use_image_model and getattr(settings, "routerai_model_image", None):
-        out["model"] = settings.routerai_model_image
-    elif not use_image_model and getattr(settings, "routerai_model", None):
+    if provider.name != "routerai":
+        return out
+    if getattr(settings, "routerai_model", None):
         out["model"] = settings.routerai_model
-    elif use_image_model and not out.get("model"):
-        out["model"] = provider.image_model
+    elif not out.get("model"):
+        out["model"] = provider.text_model
     return out
 
 
@@ -186,10 +210,12 @@ async def post_chat_completions(
     """
     POST /chat/completions через цепочку провайдеров.
     При статусе из fallback_on и наличии следующего провайдера — retry.
+    Image requests use RouterAI only (see image_provider_chain).
     """
-    chain = llm_provider_chain()
+    chain = provider_chain_for_request(use_image_model=use_image_model)
     if not chain:
-        raise RuntimeError("post_chat_completions called without any LLM provider configured")
+        kind = "image" if use_image_model else "text"
+        raise RuntimeError(f"post_chat_completions called without {kind} LLM provider configured")
 
     if should_offload_llm(caller):
         from waifu_bot.services.perf_metrics import track_async

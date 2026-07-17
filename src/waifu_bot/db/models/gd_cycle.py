@@ -74,6 +74,8 @@ class GDRegistration(Base):
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )
+    # collecting_for_round at join time (1 = full registration; >1 = late join)
+    joined_at_round: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
     cycle: Mapped["GDCycle"] = relationship("GDCycle", back_populates="registrations")
 

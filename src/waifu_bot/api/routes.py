@@ -31,6 +31,13 @@ from waifu_bot.services.expedition import ExpeditionService
 from waifu_bot.services.webhook import process_update
 from waifu_bot.services import sse as sse_service
 from waifu_bot.game.solo_rewards import enrich_profile_reward_bonus_pcts, guild_reward_fractions
+from waifu_bot.game.effective_stats import fetch_equipped_inventory_items
+from waifu_bot.game.equip_requirements import (
+    EquipCheckResult,
+    can_equip_to_any_slot,
+    check_item_requirements,
+    check_item_requirements_for_display,
+)
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
 from waifu_bot.game.item_display_name import compose_item_display_name_ru
 from waifu_bot.game.legendary_bonuses.loader import fetch_legendary_bonus_payloads
@@ -68,14 +75,7 @@ from waifu_bot.game.constants import (
     WAIFU_CLASS_LABEL_RU,
     WAIFU_RACE_LABEL_RU,
 )
-from waifu_bot.game.effective_stats import (
-    fetch_equipped_inventory_items,
-    resolve_equipped_visuals_for_overlay,
-    resolve_equipped_weapon_for_profile,
-    resolve_main_weapon_attack_speed,
-    resolve_main_weapon_overlay_meta,
-    resolve_solo_combat_primary_four,
-)
+from waifu_bot.game.effective_stats import resolve_equipped_weapon_for_profile, resolve_solo_combat_primary_four
 from waifu_bot.game.main_waifu_base_stats import (
     class_flat_bonuses_for,
     compute_main_waifu_base_stats,
@@ -99,6 +99,8 @@ from waifu_bot.api.player_notification_routes import router as player_notificati
 from waifu_bot.api.player_profile_routes import router as player_profile_router
 from waifu_bot.api.library_routes import router as library_router
 from waifu_bot.api.abyss_routes import router as abyss_router
+from waifu_bot.api.perfection_routes import router as perfection_router
+from waifu_bot.api.solo_dungeon_auto_routes import router as solo_dungeon_auto_router
 from waifu_bot.api.auth_routes import router as auth_router
 from waifu_bot.api.desktop_auth_routes import router as desktop_auth_router
 from waifu_bot.api.pc_client_routes import router as pc_client_router
@@ -122,6 +124,8 @@ router.include_router(player_profile_router)
 router.include_router(armory_router)
 router.include_router(library_router)
 router.include_router(abyss_router)
+router.include_router(perfection_router)
+router.include_router(solo_dungeon_auto_router)
 router.include_router(auth_router)
 router.include_router(desktop_auth_router)
 router.include_router(pc_client_router)
@@ -585,49 +589,12 @@ def get_available_slots_for_item(inv: m.InventoryItem) -> list[int]:
     return SLOT_TYPE_TO_EQUIPMENT_SLOTS.get(slot_type, [])
 
 
-def check_item_requirements(inv: m.InventoryItem, waifu: m.MainWaifu) -> tuple[bool, list[str]]:
-    """
-    Проверяет требования предмета.
-    Возвращает (можно_экипировать, список_ошибок).
-    """
-    errors = []
-    if bool(getattr(inv, "is_broken", False)):
-        errors.append("Предмет сломан — экипировка недоступна")
-    req = inv.requirements or {}
-    
-    if req.get("level", 0) > waifu.level:
-        errors.append(f"Требуется уровень {req['level']}, у вас {waifu.level}")
-    
-    if req.get("strength", 0) > waifu.strength:
-        errors.append(f"Требуется СИЛ {req['strength']}, у вас {waifu.strength}")
-    
-    if req.get("agility", 0) > waifu.agility:
-        errors.append(f"Требуется ЛОВ {req['agility']}, у вас {waifu.agility}")
-    
-    if req.get("intelligence", 0) > waifu.intelligence:
-        errors.append(f"Требуется ИНТ {req['intelligence']}, у вас {waifu.intelligence}")
-    
-    if req.get("endurance", 0) > waifu.endurance:
-        errors.append(f"Требуется ВЫН {req['endurance']}, у вас {waifu.endurance}")
-
-    wr = req.get("waifu_race")
-    if wr is not None and int(waifu.race or 0) != int(wr):
-        rn = _REQ_RACE_RU.get(int(wr), str(wr))
-        errors.append(f"Требуется раса: {rn}")
-
-    wc = req.get("waifu_class")
-    if wc is not None and int(waifu.class_ or 0) != int(wc):
-        cn = _REQ_CLASS_RU.get(int(wc), str(wc))
-        errors.append(f"Требуется класс: {cn}")
-
-    return len(errors) == 0, errors
-
-
 def _to_gear_item(
     inv: m.InventoryItem,
     waifu: m.MainWaifu | None = None,
     *,
     legendary_bonuses: list | None = None,
+    equip_check: EquipCheckResult | None = None,
 ) -> schemas.GearItemOut:
     slot = SLOT_MAP.get(inv.equipment_slot or 0, "inventory")
     affixes = []
@@ -650,8 +617,11 @@ def _to_gear_item(
     
     can_equip = None
     requirement_errors = None
-    if waifu:
-        can_equip, requirement_errors = check_item_requirements(inv, waifu)
+    requirements_status = None
+    if equip_check is not None:
+        can_equip = equip_check.can_equip
+        requirement_errors = equip_check.errors or None
+        requirements_status = equip_check.requirements_status or None
     
     armor_b = int(getattr(inv, "_armor_base", 0) or 0)
     from waifu_bot.game.item_secondary import effective_fraction_combat, resolve_item_secondaries
@@ -700,6 +670,7 @@ def _to_gear_item(
         image_url=None,
         can_equip=can_equip,
         requirement_errors=requirement_errors,
+        requirements_status=requirements_status,
         equipment_slot=inv.equipment_slot,
     )
 
@@ -877,12 +848,38 @@ async def get_profile(
         main_payload = None
         main_details = None
         equipment_payload: list[schemas.GearItemOut] = []
-        main_weapon_attack_speed = 1
-        main_weapon_type: str | None = None
-        main_weapon_attack_type: str | None = None
-        equipped_visuals_payload: schemas.EquippedVisualsOut | None = None
+        perfection_state: dict = {
+            "perfection_level": 0,
+            "perfection_experience": 0,
+            "perfection_xp_to_next": 0,
+            "pending_count": 0,
+            "bonuses_summary": [],
+        }
+        perf_flats = {
+            "strength": 0,
+            "agility": 0,
+            "intelligence": 0,
+            "endurance": 0,
+            "charm": 0,
+            "luck": 0,
+        }
+        perf_sec: dict[str, float] = {}
 
         if main_waifu:
+            try:
+                from waifu_bot.services import perfection as perfection_svc
+
+                await perfection_svc.unlock_perfection_if_needed(session, player, main_waifu)
+                perfection_state = await perfection_svc.get_state(session, player)
+                perf_flats = perfection_svc.primary_flat_from_totals(
+                    perfection_state.get("bonus_totals") or {}
+                )
+                perf_sec = perfection_svc.secondary_fractions_from_totals(
+                    perfection_state.get("bonus_totals") or {}
+                )
+            except Exception:
+                logger.exception("perfection state in /profile failed player_id=%s", player_id)
+
             # Пересчёт max_hp (пассивы вроде hp_max_pct) и реген. Раньше max жил только в merge для UI — без sync в БД реген/данж видели старый потолок.
             try:
                 pre_max = int(main_waifu.max_hp or 0)
@@ -911,31 +908,27 @@ async def get_profile(
                 ).first()
                 if abyss_active is not None:
                     suppress_regen = not is_player_online(player)
-                regen_changed = apply_regen(main_waifu, suppress=suppress_regen)
+                regen_extra = 0
+                try:
+                    from waifu_bot.services.perfection import (
+                        hp_regen_per_min_from_totals,
+                        perfection_totals_dict,
+                    )
+
+                    regen_extra = hp_regen_per_min_from_totals(
+                        perfection_totals_dict(player)
+                    )
+                except Exception:
+                    pass
+                regen_changed = apply_regen(
+                    main_waifu, suppress=suppress_regen, extra_hp_per_min=regen_extra
+                )
                 if regen_changed or post_max != pre_max:
                     await session.commit()
             except Exception:
                 logger.exception("apply_regen failed in /profile (player_id=%s)", player_id)
 
             if lite:
-                # Portrait URL is needed even in lite mode: the desktop overlay
-                # (overlay.html) shows the waifu persistently and only ever
-                # fetches the lite profile. Resolving it is a file-exists check
-                # (+ one-time sync from the DB blob on first request).
-                lite_portrait_url = main_waifu_profile_portrait_url(main_waifu, player_id)
-                if lite_portrait_url is None and getattr(main_waifu, "image_data", None):
-                    lite_portrait_url = sync_main_waifu_portrait_to_static(main_waifu)
-                    if lite_portrait_url:
-                        try:
-                            await session.commit()
-                        except Exception:
-                            logger.exception(
-                                "Failed to commit waifu media sync (lite) player_id=%s", player_id
-                            )
-
-                lite_cosmetics = getattr(main_waifu, "paperdoll_cosmetics", None)
-                if lite_cosmetics is not None and not isinstance(lite_cosmetics, dict):
-                    lite_cosmetics = None
                 main_payload = schemas.MainWaifuProfile(
                     id=main_waifu.id,
                     name=main_waifu.name,
@@ -952,24 +945,8 @@ async def get_profile(
                     stat_points=int(getattr(main_waifu, "stat_points", 0) or 0),
                     current_hp=main_waifu.current_hp,
                     max_hp=main_waifu.max_hp,
-                    portrait_url=lite_portrait_url,
-                    paperdoll_cosmetics=lite_cosmetics,
-                    has_paperdoll_layers=bool(lite_cosmetics),
                     bio=getattr(main_waifu, "bio", None),
                 )
-                try:
-                    equipped_lite = await fetch_equipped_inventory_items(session, player_id)
-                    main_weapon_attack_speed = resolve_main_weapon_attack_speed(equipped_lite)
-                    main_weapon_type, main_weapon_attack_type = resolve_main_weapon_overlay_meta(
-                        equipped_lite
-                    )
-                    equipped_visuals_payload = schemas.EquippedVisualsOut.model_validate(
-                        resolve_equipped_visuals_for_overlay(equipped_lite)
-                    )
-                except Exception:
-                    logger.exception(
-                        "main_weapon_attack_speed in lite /profile failed player_id=%s", player_id
-                    )
             else:
                 equipped_items = []
                 try:
@@ -980,18 +957,6 @@ async def get_profile(
                     )
                     equipped_items = inv_items.scalars().all()
                     await _enrich_items_with_template_stats(session, equipped_items)
-                    main_weapon_attack_speed = resolve_main_weapon_attack_speed(equipped_items)
-                    main_weapon_type, main_weapon_attack_type = resolve_main_weapon_overlay_meta(
-                        equipped_items
-                    )
-                    try:
-                        equipped_visuals_payload = schemas.EquippedVisualsOut.model_validate(
-                            resolve_equipped_visuals_for_overlay(equipped_items)
-                        )
-                    except Exception:
-                        logger.exception(
-                            "equipped_visuals in /profile failed player_id=%s", player_id
-                        )
                 except Exception:
                     equipped_items = []
 
@@ -1064,6 +1029,35 @@ async def get_profile(
                         guild_gold_frac=guild_gold_profile,
                         night_moscow=night_moscow_profile,
                     )
+                    # Совершенствование: вторички в индикаторы профиля
+                    try:
+                        cc = float(perf_sec.get("crit_chance_pct", 0) or 0)
+                        if cc:
+                            raw_d["crit_chance"] = round(
+                                float(raw_d.get("crit_chance", 0) or 0) + cc * 100.0, 2
+                            )
+                        ev = float(perf_sec.get("evade_pct", 0) or 0)
+                        if ev:
+                            raw_d["dodge_chance"] = round(
+                                float(raw_d.get("dodge_chance", 0) or 0) + ev * 100.0, 2
+                            )
+                        dr = float(perf_sec.get("dmg_reduce_pct", 0) or 0)
+                        if dr:
+                            raw_d["damage_reduction"] = round(
+                                float(raw_d.get("damage_reduction", 0) or 0) + dr * 100.0, 2
+                            )
+                        gb = float(perf_sec.get("gold_bonus_pct", 0) or 0)
+                        if gb:
+                            raw_d["gold_bonus"] = round(
+                                float(raw_d.get("gold_bonus", 0) or 0) + gb * 100.0, 2
+                            )
+                        hp_pct = float(perf_sec.get("hp_max_pct", 0) or 0)
+                        # hp already synced via waifu_hp; keep details hp_max aligned if present
+                        if hp_pct and "hp_max" in raw_d:
+                            # already in compute_effective_max_hp; no double-apply here
+                            pass
+                    except Exception:
+                        pass
                     main_details = schemas.MainWaifuDetails(**raw_d)
                 except Exception:
                     logger.exception("main_waifu_details build failed player_id=%s", player_id)
@@ -1119,8 +1113,18 @@ async def get_profile(
                     current_agility = base_agility + total_bonuses["agility"] + stat_flat
                     current_intelligence = base_intelligence + total_bonuses["intelligence"] + stat_flat
                     current_luck = base_luck + total_bonuses["luck"] + stat_flat
-                current_endurance = base_endurance + total_bonuses["endurance"] + stat_flat
-                current_charm = base_charm + total_bonuses["charm"] + stat_flat
+                current_endurance = (
+                    base_endurance
+                    + total_bonuses["endurance"]
+                    + stat_flat
+                    + int(perf_flats.get("endurance", 0) or 0)
+                )
+                current_charm = (
+                    base_charm
+                    + total_bonuses["charm"]
+                    + stat_flat
+                    + int(perf_flats.get("charm", 0) or 0)
+                )
 
                 media_dirty = False
                 portrait_url = main_waifu_profile_portrait_url(main_waifu, player_id)
@@ -1165,8 +1169,12 @@ async def get_profile(
                     bonus_strength=current_strength - int(base_strength or 0),
                     bonus_agility=current_agility - int(base_agility or 0),
                     bonus_intelligence=current_intelligence - int(base_intelligence or 0),
-                    bonus_endurance=total_bonuses["endurance"] + stat_flat,
-                    bonus_charm=total_bonuses["charm"] + stat_flat,
+                    bonus_endurance=total_bonuses["endurance"]
+                    + stat_flat
+                    + int(perf_flats.get("endurance", 0) or 0),
+                    bonus_charm=total_bonuses["charm"]
+                    + stat_flat
+                    + int(perf_flats.get("charm", 0) or 0),
                     bonus_luck=current_luck - int(base_luck or 0),
                     passive_main_stats_flat=stat_flat,
                     race_flat_bonuses=race_flat_bonuses_for(main_waifu.race),
@@ -1174,15 +1182,6 @@ async def get_profile(
                     portrait_url=portrait_url,
                     paperdoll_url=paperdoll_url,
                     paperdoll_generations_remaining=paperdoll_generations_remaining(main_waifu),
-                    paperdoll_cosmetics=(
-                        getattr(main_waifu, "paperdoll_cosmetics", None)
-                        if isinstance(getattr(main_waifu, "paperdoll_cosmetics", None), dict)
-                        else None
-                    ),
-                    has_paperdoll_layers=bool(
-                        isinstance(getattr(main_waifu, "paperdoll_cosmetics", None), dict)
-                        and getattr(main_waifu, "paperdoll_cosmetics", None)
-                    ),
                     bio=getattr(main_waifu, "bio", None),
                 )
 
@@ -1207,12 +1206,6 @@ async def get_profile(
             protection_stones=int(getattr(player, "protection_stones", 0) or 0),
             enchant_dust=int(getattr(player, "enchant_dust", 0) or 0),
             caravan_travel_costs=list(CARAVAN_TRAVEL_GOLD_TO_ACT),
-            is_admin=settings.is_admin(player_id),
-            allow_waifu_recreate=settings.environment in ("dev", "stage", "testing"),
-            main_weapon_attack_speed=main_weapon_attack_speed,
-            main_weapon_type=main_weapon_type,
-            main_weapon_attack_type=main_weapon_attack_type,
-            equipped_visuals=equipped_visuals_payload,
             main_waifu=main_payload,
             main_waifu_details=main_details,
             equipment=equipment_payload,
@@ -1221,7 +1214,13 @@ async def get_profile(
                 completed=dict(tutorial_raw.get("completed") or {}),
                 skipped=bool(tutorial_raw.get("skipped")),
                 intro_reward_claimed=bool(tutorial_raw.get("intro_reward_claimed")),
+                shop_kit_claimed=bool(tutorial_raw.get("shop_kit_claimed")),
             ),
+            perfection_level=int(perfection_state.get("perfection_level") or 0),
+            perfection_experience=int(perfection_state.get("perfection_experience") or 0),
+            perfection_xp_to_next=int(perfection_state.get("perfection_xp_to_next") or 0),
+            perfection_pending_count=int(perfection_state.get("pending_count") or 0),
+            perfection_bonuses_summary=list(perfection_state.get("bonuses_summary") or []),
         )
     except Exception as e:
         logger.exception("Failed /profile for player_id=%s: %s", player_id, e)
@@ -1234,8 +1233,6 @@ async def get_profile(
             protection_stones=0,
             enchant_dust=0,
             caravan_travel_costs=list(CARAVAN_TRAVEL_GOLD_TO_ACT),
-            is_admin=settings.is_admin(player_id),
-            main_weapon_attack_speed=1,
             main_waifu=None,
             main_waifu_details=None,
             equipment=[],
@@ -1257,16 +1254,34 @@ async def get_equipment(
     bonus_map = await fetch_legendary_bonus_payloads(session, items)
     player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
     waifu = player.main_waifu if player else None
+    equipped_raw = [i for i in items if i.equipment_slot]
+    unequipped = [i for i in items if not i.equipment_slot]
+
     equipped = [
         _to_gear_item(i, waifu, legendary_bonuses=bonus_map.get(int(i.id), []))
-        for i in items
-        if i.equipment_slot
+        for i in equipped_raw
     ]
-    inventory = [
-        _to_gear_item(i, waifu, legendary_bonuses=bonus_map.get(int(i.id), []))
-        for i in items
-        if not i.equipment_slot
-    ]
+    inventory = []
+    for i in unequipped:
+        equip_check = None
+        if waifu:
+            slots = get_available_slots_for_item(i)
+            equip_check = await can_equip_to_any_slot(
+                session,
+                player_id,
+                i,
+                waifu,
+                slots,
+                equipped_items=equipped_raw,
+            )
+        inventory.append(
+            _to_gear_item(
+                i,
+                waifu,
+                legendary_bonuses=bonus_map.get(int(i.id), []),
+                equip_check=equip_check,
+            )
+        )
     try:
         await enrich_items_with_image_urls(session, equipped)
         await enrich_items_with_image_urls(session, inventory)
@@ -1315,9 +1330,15 @@ async def equip_item(
     if not player or not player.main_waifu:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Сначала создайте вайфу")
 
-    can_equip, errors = check_item_requirements(inv, player.main_waifu)
-    if not can_equip:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="; ".join(errors))
+    equip_check = await check_item_requirements(
+        session,
+        player_id,
+        inv,
+        player.main_waifu,
+        target_slot=slot,
+    )
+    if not equip_check.can_equip:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="; ".join(equip_check.errors))
 
     # Unequip only within the same economy (telegram vs activity bags are independent).
     item_economy = getattr(inv, "economy", None) or "telegram"
@@ -1357,11 +1378,14 @@ async def equip_item(
     from waifu_bot.services.event_log import log_event
 
     await log_event(session, player_id, "item_equipped", {"item_name": item_name, "slot": slot})
+    from waifu_bot.services.armory_service import recompute_and_store_gear_score
+
+    await recompute_and_store_gear_score(session, player_id)
     await session.commit()
     await session.refresh(inv)
     player = await session.get(m.Player, player_id, options=[selectinload(m.Player.main_waifu)])
     waifu = player.main_waifu if player else None
-    payload = _to_gear_item(inv, waifu)
+    payload = _to_gear_item(inv, waifu, equip_check=equip_check)
     try:
         await enrich_items_with_image_urls(session, [payload])
     except Exception:
@@ -1394,6 +1418,9 @@ async def unequip_item(
     if player_pre and player_pre.main_waifu:
         await _sync_waifu_max_hp(session, player_id, player_pre.main_waifu)
 
+    from waifu_bot.services.armory_service import recompute_and_store_gear_score
+
+    await recompute_and_store_gear_score(session, player_id)
     await session.commit()
     return {"success": True}
 
@@ -1423,14 +1450,23 @@ async def get_available_items_for_slot(
     )
     all_items = inv_items.scalars().all()
     await _enrich_items_with_template_stats(session, all_items)
+    equipped_items = await fetch_equipped_inventory_items(session, player_id)
 
-    # Отфильтровать предметы, которые можно экипировать в указанный слот
     available_items = []
     for inv in all_items:
         available_slots = get_available_slots_for_item(inv)
         if slot in available_slots:
-            can_equip, errors = check_item_requirements(inv, player.main_waifu)
-            available_items.append(_to_gear_item(inv, player.main_waifu))
+            equip_check = await check_item_requirements(
+                session,
+                player_id,
+                inv,
+                player.main_waifu,
+                target_slot=slot,
+                equipped_items=equipped_items,
+            )
+            available_items.append(
+                _to_gear_item(inv, player.main_waifu, equip_check=equip_check)
+            )
     try:
         await enrich_items_with_image_urls(session, available_items)
     except Exception:
@@ -1505,7 +1541,6 @@ async def preview_main_waifu_portrait(
         payload.eye_shape,
         payload.outfit,
         list(payload.accessories or []),
-        payload.race_feature,
     )
     if not b64:
         raise HTTPException(
@@ -1818,7 +1853,6 @@ async def create_main_waifu(
         name=payload.name,
         race=payload.race,
         class_=payload.class_,
-        paperdoll_cosmetics=payload.paperdoll_cosmetics,
     )
     stats = compute_main_waifu_base_stats(race_enum, class_enum)
     main.strength = stats["strength"]
@@ -1917,13 +1951,6 @@ async def create_main_waifu(
             race_flat_bonuses=race_flat_bonuses_for(main.race),
             class_flat_bonuses=class_flat_bonuses_for(main.class_),
             portrait_url=portrait_url,
-            paperdoll_cosmetics=getattr(main, "paperdoll_cosmetics", None)
-            if isinstance(getattr(main, "paperdoll_cosmetics", None), dict)
-            else None,
-            has_paperdoll_layers=bool(
-                isinstance(getattr(main, "paperdoll_cosmetics", None), dict)
-                and getattr(main, "paperdoll_cosmetics", None)
-            ),
             bio=getattr(main, "bio", None),
         )
     )
@@ -1934,19 +1961,11 @@ async def delete_main_waifu(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Удалить только ОВ и черновики портретов. В prod — только admin."""
-    if settings.environment == "prod" and not settings.is_admin(player_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
-
-    await session.execute(
-        delete(m.MainWaifuPortraitDraft).where(m.MainWaifuPortraitDraft.player_id == player_id)
-    )
+    """Удалить только ОВ (legacy). Каскада в БД для waifu_skills нет — чистим явно."""
     main = await session.scalar(select(m.MainWaifu).where(m.MainWaifu.player_id == player_id))
     if main:
         await session.execute(delete(m.WaifuSkill).where(m.WaifuSkill.waifu_id == main.id))
         await session.delete(main)
-        await session.commit()
-    else:
         await session.commit()
     return None
 

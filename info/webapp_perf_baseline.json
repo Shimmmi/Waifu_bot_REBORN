@@ -1,0 +1,87 @@
+{
+  "player_id": 51888980,
+  "endpoints": [
+    {
+      "label": "profile_full",
+      "path": "/profile",
+      "status": 200,
+      "bytes": 2372709,
+      "ms": 194.2
+    },
+    {
+      "label": "profile_lite",
+      "path": "/profile?lite=1",
+      "status": 200,
+      "bytes": 1869,
+      "ms": 62.4
+    },
+    {
+      "label": "dungeons_active_lite",
+      "path": "/dungeons/active?include_log=0",
+      "status": 200,
+      "bytes": 16,
+      "ms": 22.4
+    },
+    {
+      "label": "dungeons_active_full",
+      "path": "/dungeons/active?include_log=1",
+      "status": 200,
+      "bytes": 16,
+      "ms": 10.6
+    },
+    {
+      "label": "expeditions_slots",
+      "path": "/expeditions/slots",
+      "status": 200,
+      "bytes": 3548,
+      "ms": 71.5
+    },
+    {
+      "label": "expeditions_active",
+      "path": "/expeditions/active",
+      "status": 200,
+      "bytes": 7182,
+      "ms": 204.3
+    },
+    {
+      "label": "tavern_available",
+      "path": "/tavern/available",
+      "status": 200,
+      "bytes": 5603,
+      "ms": 105.2
+    },
+    {
+      "label": "tavern_squad",
+      "path": "/tavern/squad",
+      "status": 200,
+      "bytes": 12,
+      "ms": 12.3
+    },
+    {
+      "label": "tavern_reserve",
+      "path": "/tavern/reserve",
+      "status": 200,
+      "bytes": 1177,
+      "ms": 33.0
+    },
+    {
+      "label": "dungeons_plus_status",
+      "path": "/dungeons/plus/status",
+      "status": 200,
+      "bytes": 37,
+      "ms": 28.4
+    },
+    {
+      "label": "dungeons_list_act1",
+      "path": "/dungeons?act=1&type=1",
+      "status": 200,
+      "bytes": 1601,
+      "ms": 40.4
+    }
+  ],
+  "totals": {
+    "all_measured_bytes": 2393770,
+    "dungeons_page_optimized_est_bytes": 14253,
+    "tavern_page_optimized_est_bytes": 18218
+  }
+}

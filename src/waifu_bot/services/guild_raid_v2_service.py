@@ -1197,11 +1197,18 @@ async def resolve_raid_daily_poll(session: AsyncSession, log: GuildRaidDailyLog)
 
     winner = await _pick_winning_tactic(session, log, raid, guild)
     log.winning_tactic_json = winner
+    from waifu_bot.services.guild_skill_effects import count_guild_active_members, effect_values_for_guild
+
+    gfx = await effect_values_for_guild(session, int(guild.id))
+    online_n = await count_guild_active_members(session, int(guild.id), within_hours=24.0)
     resolve = resolve_daily_tactic(
         tactic=winner,
         location_archetype_id=raid.location_archetype_id,
         party_snapshot=list(raid.party_snapshot_json or []),
         guild_level=int(guild.level or 1),
+        gfx=gfx,
+        online_guildmates=online_n,
+        day_index=int(log.day_index or raid.day_index or 0),
     )
     log.resolve_json = resolve
     log.resolved_at = _utc_now()
@@ -1269,6 +1276,13 @@ async def _finish_raid(session: AsyncSession, raid: GuildRaid, guild: Guild, out
 
     mult = gxp_multiplier_for_outcome(outcome)
     gxp = max(0, int(round(int(raid.gxp_reward or 0) * mult)))
+    try:
+        from waifu_bot.services.guild_skill_effects import apply_raid_gxp_guild_bonuses, effect_values_for_guild
+
+        gfx = await effect_values_for_guild(session, int(guild.id))
+        gxp = apply_raid_gxp_guild_bonuses(gxp, gfx)
+    except Exception:
+        logger.exception("raid v2 guild GXP bonus failed guild_id=%s", guild.id)
     if gxp > 0:
         await add_gxp(session, guild.id, gxp, reason=f"raid_v2_{outcome}")
 

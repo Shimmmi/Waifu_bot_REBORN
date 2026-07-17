@@ -224,6 +224,13 @@ EXP_BASE = 16
 EXP_MULTIPLIER = 2  # exp_to_level = EXP_BASE * level^EXP_MULTIPLIER
 MAX_LEVEL = 60
 
+# Совершенствование (post-60): need(L) = base + linear*(L-1) + quad*(L-1)^2 + tier_bump*((L-1)//10)
+PERFECTION_EXP_BASE = 8000
+PERFECTION_EXP_LINEAR = 1800
+PERFECTION_EXP_QUAD = 55
+PERFECTION_EXP_TIER_BUMP = 4000
+PERFECTION_MILESTONE_EVERY = 10  # каждые N уровней — +1 skill point
+
 # Экспедиции: урон отряду за одно событие (каждые 15 мин), база × mult слота × сложность
 EXPEDITION_HP_DAMAGE_BASE = 10  # базовый урон за событие
 EXPEDITION_EVENT_INTERVAL_MINUTES = 15
@@ -242,7 +249,7 @@ GD_V1_START_CHAT_MESSAGE = (
 # Дефолты (fallback к game_config) для GD v1: тайминги и мульти-цикловый раунд.
 GD_REGISTRATION_WINDOW_MINUTES_DEFAULT = 15  # окно регистрации от первого /gd_join
 GD_ROUND_DURATION_MINUTES_DEFAULT = 15       # длительность сбора одного раунда
-GD_ROUND_CYCLE_CAP_DEFAULT = 8               # макс. число циклов в одном раунде (реплей)
+GD_ROUND_CYCLE_CAP_DEFAULT = 5               # макс. число циклов в одном раунде (реплей)
 GD_MAX_ACTIONS_PER_ROUND_DEFAULT = 8         # макс. отдельных действий игрока за раунд (анти-спам)
 GD_SERIES_WINDOW_SECONDS_DEFAULT = 8         # окно склейки сообщений одного типа в «серию»
 

@@ -279,6 +279,7 @@ class HiredWaifuOut(BaseModel):
     bio: Optional[str] = None
     perk_upgrade_points: int = 0
     exp_current: int = 0
+    exp_to_next: int = 0
     perk_levels: dict = Field(default_factory=dict)
     squad_position: Optional[int] = None
     expedition_id: Optional[int] = None
@@ -301,6 +302,7 @@ class HiredWaifuOut(BaseModel):
         out["inSquad"] = data.get("in_squad")
         out["perkUpgradePoints"] = data.get("perk_upgrade_points", 0)
         out["expCurrent"] = data.get("exp_current", 0)
+        out["expToNext"] = data.get("exp_to_next", 0)
         out["perkLevels"] = data.get("perk_levels") or {}
         return out
 
@@ -401,25 +403,10 @@ class MainWaifuProfile(BaseModel):
     portrait_url: Optional[str] = None
     paperdoll_url: Optional[str] = None
     paperdoll_generations_remaining: int = 0
-    paperdoll_cosmetics: Optional[dict] = None
-    has_paperdoll_layers: bool = False
     bio: Optional[str] = None
 
     class Config:
         populate_by_name = True
-
-
-class EquippedVisualSprite(BaseModel):
-    sprite: str
-    art_key: Optional[str] = None
-    weapon_type: Optional[str] = None
-    attack_type: Optional[str] = None
-
-
-class EquippedVisualsOut(BaseModel):
-    costume: Optional[EquippedVisualSprite] = None
-    weapon: Optional[EquippedVisualSprite] = None
-    offhand: Optional[EquippedVisualSprite] = None
 
 
 class MainWaifuPaperdollResponse(BaseModel):
@@ -446,6 +433,13 @@ class MainWaifuDetails(BaseModel):
     merchant_discount: float
     magic_find_pct: float = 0.0
     magic_find_blend_pct: float = 0.0
+    # Display-only reward / mitigation indicators (see _compute_details + enrich)
+    exp_bonus: float = 0.0
+    gold_bonus: float = 0.0
+    damage_reduction: float = 0.0
+    hire_discount: float = 0.0
+    training_discount: float = 0.0
+    item_drop_bonus: float = 0.0
 
 
 class AffixOut(BaseModel):
@@ -501,6 +495,7 @@ class GearItemOut(BaseModel):
     image_url: Optional[str] = None
     can_equip: Optional[bool] = None  # Для endpoint available - можно ли экипировать
     requirement_errors: Optional[List[str]] = None  # Ошибки требований, если can_equip=False
+    requirements_status: Optional[dict] = None  # {stat: {required, current, ok}} для UI пилюль
     equipment_slot: Optional[int] = None  # Номер слота, если предмет экипирован
 
 
@@ -509,6 +504,7 @@ class TutorialStateResponse(BaseModel):
     completed: dict[str, str] = Field(default_factory=dict)
     skipped: bool = False
     intro_reward_claimed: bool = False
+    shop_kit_claimed: bool = False
 
 
 class TutorialStepRequest(BaseModel):
@@ -518,6 +514,19 @@ class TutorialStepRequest(BaseModel):
 class TutorialCompleteResponse(BaseModel):
     tutorial: TutorialStateResponse
     gold_reward: Optional[int] = None
+
+
+class TutorialProvisionRequest(BaseModel):
+    kit_id: str
+
+
+class TutorialProvisionResponse(BaseModel):
+    tutorial: TutorialStateResponse
+    gold_granted: int = 0
+    dust_granted: int = 0
+    sell_item_id: Optional[int] = None
+    buy_hint: Optional[dict] = None
+    already_claimed: bool = False
 
 
 class DmNotificationPrefsOut(BaseModel):
@@ -536,6 +545,18 @@ class DmNotificationPrefsPatch(BaseModel):
     abyss: Optional[bool] = None
 
 
+class SoloDungeonAutoPrefsOut(BaseModel):
+    enabled: bool = False
+    min_hp_percent: int = 30
+    increase_plus_difficulty: bool = False
+
+
+class SoloDungeonAutoPrefsPatch(BaseModel):
+    enabled: Optional[bool] = None
+    min_hp_percent: Optional[int] = Field(None, ge=10, le=50)
+    increase_plus_difficulty: Optional[bool] = None
+
+
 class ProfileResponse(BaseModel):
     player_id: int
     act: int        # current_act — the act the player is currently in
@@ -545,21 +566,22 @@ class ProfileResponse(BaseModel):
     protection_stones: int = 0
     enchant_dust: int = 0
     caravan_travel_costs: List[int] = []  # длина 5: стоимость переезда в акт 1..5
-    is_admin: bool = False
-    allow_waifu_recreate: bool = False
-    main_weapon_attack_speed: int = 1
-    main_weapon_type: Optional[str] = None
-    main_weapon_attack_type: Optional[str] = None
-    equipped_visuals: Optional[EquippedVisualsOut] = None
     main_waifu: Optional[MainWaifuProfile] = None
     main_waifu_details: Optional[MainWaifuDetails] = None
     equipment: List[GearItemOut] = []
     tutorial: TutorialStateResponse = Field(default_factory=TutorialStateResponse)
+    # Совершенствование (post-60)
+    perfection_level: int = 0
+    perfection_experience: int = 0
+    perfection_xp_to_next: int = 0
+    perfection_pending_count: int = 0
+    perfection_bonuses_summary: List[dict] = Field(default_factory=list)
 
 
 class GuildMemberMainWaifuPreviewOut(BaseModel):
     name: Optional[str] = None
     level: int = 1
+    perfection_level: int = 0
     race: int = 0
     class_: int = Field(default=0, alias="class")
     portrait_url: Optional[str] = None
@@ -709,7 +731,6 @@ class MainWaifuPortraitPreviewRequest(BaseModel):
     eye_shape: MainWaifuEyeShape
     outfit: MainWaifuOutfit
     accessories: List[str] = Field(default_factory=list)
-    race_feature: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -748,7 +769,6 @@ class MainWaifuCreateRequest(BaseModel):
     class_: int = Field(alias="class")
     portrait_base64: Optional[str] = None
     selected_slot: Optional[int] = Field(None, ge=0, le=2)
-    paperdoll_cosmetics: Optional[dict] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -765,50 +785,6 @@ class MainWaifuCreateRequest(BaseModel):
             raise ValueError("portrait_base64_invalid")
         if len(dec) > 4 * 1024 * 1024:
             raise ValueError("portrait_too_large")
-        return self
-
-    @model_validator(mode="after")
-    def _sanitize_paperdoll_cosmetics(self):
-        raw = self.paperdoll_cosmetics
-        if raw is None:
-            return self
-        if not isinstance(raw, dict):
-            raise ValueError("paperdoll_cosmetics_invalid")
-        allowed = {
-            "hair_color",
-            "hairstyle",
-            "eye_shape",
-            "eye_colors",
-            "outfit",
-            "accessories",
-            "race_feature",
-            "race",
-            "class",
-        }
-        cleaned: dict = {}
-        for key, val in raw.items():
-            if key not in allowed:
-                continue
-            if key == "eye_colors":
-                if isinstance(val, list):
-                    cleaned[key] = [str(x)[:64] for x in val[:4]]
-                elif val is not None:
-                    cleaned[key] = [str(val)[:64]]
-            elif key == "accessories":
-                if isinstance(val, list):
-                    cleaned[key] = [str(x)[:64] for x in val[:4]]
-                elif val is not None:
-                    cleaned[key] = [str(val)[:64]]
-            elif key in ("race", "class"):
-                try:
-                    cleaned[key] = int(val)
-                except Exception:
-                    continue
-            elif val is None:
-                continue
-            else:
-                cleaned[key] = str(val)[:64]
-        self.paperdoll_cosmetics = cleaned or None
         return self
 
 

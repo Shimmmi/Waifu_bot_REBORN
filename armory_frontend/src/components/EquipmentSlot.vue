@@ -8,6 +8,8 @@ const props = defineProps<{
   slot: number
   item?: ArmoryItem | null
   adminMode?: boolean
+  /** Hide text label; used in desktop L/R columns */
+  compact?: boolean
 }>()
 
 const emit = defineEmits<{ click: [item: ArmoryItem | null, slot: number] }>()
@@ -51,7 +53,7 @@ function onArtGenerated(url: string) {
   <button
     type="button"
     class="profile-slot-card"
-    :class="[rarity, { empty: !item }]"
+    :class="[rarity, { empty: !item, compact }]"
     :title="item ? itemDisplayName(item) : `Пусто · ${slotName}`"
     :aria-label="slotName"
     :disabled="!item"
@@ -72,6 +74,6 @@ function onArtGenerated(url: string) {
       </div>
       <span v-if="item?.level" class="profile-slot-level">{{ item.level }}</span>
     </div>
-    <span class="profile-slot-label">{{ slotName }}</span>
+    <span v-if="!compact" class="profile-slot-label">{{ slotName }}</span>
   </button>
 </template>

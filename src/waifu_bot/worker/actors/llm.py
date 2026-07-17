@@ -29,11 +29,11 @@ def llm_post_chat_completions_task(
     async def _run_full() -> dict[str, Any]:
         from waifu_bot.services.llm_client import (
             FALLBACK_HTTP_STATUSES,
-            llm_provider_chain,
+            provider_chain_for_request,
             _post_chat_completions_locked,
         )
 
-        chain = llm_provider_chain()
+        chain = provider_chain_for_request(use_image_model=use_image_model)
         if not chain:
             raise RuntimeError("no LLM provider configured")
         async with httpx.AsyncClient(timeout=120.0) as client:

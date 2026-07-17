@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" media="print" onload="this.media='all'" />
     <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" /></noscript>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v65" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v62" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
     <link rel="stylesheet" href="./assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script>
@@ -28,7 +28,7 @@
       })();
     </script>
     <script defer src="./assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v65" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v62" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
   </head>
   <body class="page-player player-chrome--overview" onload="WaifuApp.bootstrapPlayerPage();">
     <div id="player-overflow-menu" class="player-overflow-menu" hidden role="menu">
@@ -165,6 +165,13 @@
             >
               Уведомления в ЛС
             </button>
+            <button
+              type="button"
+              class="list-item settings-list-btn settings-list-btn--chevron"
+              id="settings-open-solo-auto"
+            >
+              Автовход в подземелье
+            </button>
             <div class="list-item settings-toggle-row" id="settings-admin-row" style="display: none">
               <span class="settings-toggle-label">Админ</span>
               <label class="settings-switch">
@@ -289,6 +296,61 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn primary" id="settings-notify-done">Готово</button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="settings-solo-auto-modal"
+      class="modal settings-notify-modal settings-solo-auto-modal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-solo-auto-title"
+    >
+      <div class="modal-content settings-notify-panel">
+        <div class="modal-head">
+          <div class="modal-title" id="settings-solo-auto-title">Автовход в подземелье</div>
+          <button type="button" class="secondary" id="settings-solo-auto-close" aria-label="Закрыть">✖</button>
+        </div>
+        <div class="modal-body settings-notify-body">
+          <p class="muted tiny settings-notify-hint">
+            После успешного прохождения соло-подземелья бот может автоматически начать следующий забег.
+          </p>
+          <div class="settings-notify-options">
+            <label class="settings-notify-option">
+              <span class="settings-notify-option-label">Автоматически входить после прохождения</span>
+              <span class="settings-switch">
+                <input type="checkbox" id="settings-solo-auto-enabled" data-solo-auto-key="enabled" />
+                <span class="settings-switch-slider" aria-hidden="true"></span>
+              </span>
+            </label>
+          </div>
+          <div id="settings-solo-auto-subpanel" class="settings-solo-auto-subpanel" hidden>
+            <label class="settings-solo-auto-hp-row" for="settings-solo-auto-hp">
+              <span class="settings-notify-option-label">Минимум HP: <strong id="settings-solo-auto-hp-value">30</strong>%</span>
+              <input
+                type="range"
+                id="settings-solo-auto-hp"
+                class="settings-solo-auto-hp-range"
+                min="10"
+                max="50"
+                step="5"
+                value="30"
+                data-solo-auto-key="min_hp_percent"
+              />
+            </label>
+            <label class="settings-notify-option settings-solo-auto-plus-row">
+              <span class="settings-notify-option-label">Повышать сложность Dungeon+ (+N → +N+1)</span>
+              <span class="settings-switch">
+                <input type="checkbox" data-solo-auto-key="increase_plus_difficulty" />
+                <span class="settings-switch-slider" aria-hidden="true"></span>
+              </span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn primary" id="settings-solo-auto-done">Готово</button>
         </div>
       </div>
     </div>

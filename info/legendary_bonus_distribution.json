@@ -1,0 +1,4092 @@
+[
+  {
+    "name": "Торговый амулет",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "amulet_CHA",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "VOICE_SIREN"
+    ],
+    "legendary_bonus_ids": [
+      73
+    ]
+  },
+  {
+    "name": "Амулет купца",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "amulet_CHA",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "VOICE_LULLABY"
+    ],
+    "legendary_bonus_ids": [
+      72
+    ]
+  },
+  {
+    "name": "Медальон торговца",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "amulet_CHA",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "SNIPER_BREATH"
+    ],
+    "legendary_bonus_ids": [
+      109
+    ]
+  },
+  {
+    "name": "Магический амулет",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "amulet_INT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "VOICE_COMMAND"
+    ],
+    "legendary_bonus_ids": [
+      71
+    ]
+  },
+  {
+    "name": "Амулет мага",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "amulet_INT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "GIF_FRENZY"
+    ],
+    "legendary_bonus_ids": [
+      62
+    ]
+  },
+  {
+    "name": "Медальон тайн",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "amulet_INT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "PATIENT_BLADE"
+    ],
+    "legendary_bonus_ids": [
+      115
+    ]
+  },
+  {
+    "name": "Амулет знаний",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "amulet_INT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "OVERCLOCK"
+    ],
+    "legendary_bonus_ids": [
+      119
+    ]
+  },
+  {
+    "name": "Амулет архимага",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "amulet_INT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "TEXT_CRESCENDO"
+    ],
+    "legendary_bonus_ids": [
+      143
+    ]
+  },
+  {
+    "name": "Амулет пророка",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "amulet_INT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "MILESTONE_25"
+    ],
+    "legendary_bonus_ids": [
+      150
+    ]
+  },
+  {
+    "name": "Амулет звёзд",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "amulet_INT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "FRESH_TARGET"
+    ],
+    "legendary_bonus_ids": [
+      194
+    ]
+  },
+  {
+    "name": "Амулет вечности",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "amulet_INT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "SCALES_OF_FATE"
+    ],
+    "legendary_bonus_ids": [
+      204
+    ]
+  },
+  {
+    "name": "Амулет бездны",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "amulet_INT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "JACKPOT"
+    ],
+    "legendary_bonus_ids": [
+      287
+    ]
+  },
+  {
+    "name": "Амулет Творения",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "amulet_INT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "HIGH_ROLLER"
+    ],
+    "legendary_bonus_ids": [
+      304
+    ]
+  },
+  {
+    "name": "Амулет удачи",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "amulet_LUK",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "SUNDAY_SERMON"
+    ],
+    "legendary_bonus_ids": [
+      99
+    ]
+  },
+  {
+    "name": "Счастливый амулет",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "amulet_LUK",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "ELITE_PIERCER"
+    ],
+    "legendary_bonus_ids": [
+      182
+    ]
+  },
+  {
+    "name": "Амулет фортуны",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "amulet_LUK",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "ALL_IN"
+    ],
+    "legendary_bonus_ids": [
+      183
+    ]
+  },
+  {
+    "name": "Амулет судьбы",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "amulet_LUK",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "GOLD_RUSH_KILLS"
+    ],
+    "legendary_bonus_ids": [
+      226
+    ]
+  },
+  {
+    "name": "Амулет богини удачи",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "amulet_LUK",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "EVEN_PREY"
+    ],
+    "legendary_bonus_ids": [
+      244
+    ]
+  },
+  {
+    "name": "Амулет провидца",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "amulet_LUK",
+    "slot_type": "amulet",
+    "bonus_keys": [],
+    "legendary_bonus_ids": []
+  },
+  {
+    "name": "Амулет Вселенной",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "amulet_LUK",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "FULL_REGALIA"
+    ],
+    "legendary_bonus_ids": [
+      268
+    ]
+  },
+  {
+    "name": "Простой амулет",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "amulet_VIT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "INTERROGATION"
+    ],
+    "legendary_bonus_ids": [
+      138
+    ]
+  },
+  {
+    "name": "Амулет стойкости",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "amulet_VIT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "ODD_COUNT"
+    ],
+    "legendary_bonus_ids": [
+      125
+    ]
+  },
+  {
+    "name": "Медальон воина",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "amulet_VIT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "EVENING_RITUAL"
+    ],
+    "legendary_bonus_ids": [
+      86
+    ]
+  },
+  {
+    "name": "Амулет защиты",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "amulet_VIT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "NIGHT_STICKERS"
+    ],
+    "legendary_bonus_ids": [
+      98
+    ]
+  },
+  {
+    "name": "Медальон стражника",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "amulet_VIT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "MORNING_RITUAL",
+      "FIRST_DAILY_DUNGEON"
+    ],
+    "legendary_bonus_ids": [
+      17,
+      28
+    ]
+  },
+  {
+    "name": "Амулет паладина",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "amulet_VIT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "BOSS_PIERCER"
+    ],
+    "legendary_bonus_ids": [
+      175
+    ]
+  },
+  {
+    "name": "Амулет хранителя",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "amulet_VIT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "DEATHS_DOOR"
+    ],
+    "legendary_bonus_ids": [
+      186
+    ]
+  },
+  {
+    "name": "Амулет бессмертия",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "amulet_VIT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "BLOOD_PACT"
+    ],
+    "legendary_bonus_ids": [
+      197
+    ]
+  },
+  {
+    "name": "Амулет титана",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "amulet_VIT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "DEVILS_BARGAIN"
+    ],
+    "legendary_bonus_ids": [
+      296
+    ]
+  },
+  {
+    "name": "Амулет богов",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "amulet_VIT",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "MIRROR_IMAGE"
+    ],
+    "legendary_bonus_ids": [
+      289
+    ]
+  },
+  {
+    "name": "Костяной нагрудник",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "armor_bone",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "PHOTO_XRAY"
+    ],
+    "legendary_bonus_ids": [
+      59
+    ]
+  },
+  {
+    "name": "Кости мертвеца",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "armor_bone",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "STICKER_LIFELINE"
+    ],
+    "legendary_bonus_ids": [
+      54
+    ]
+  },
+  {
+    "name": "Костяной доспех",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "armor_bone",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "AMBUSH_TIMING"
+    ],
+    "legendary_bonus_ids": [
+      108
+    ]
+  },
+  {
+    "name": "Ритуальные кости",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "armor_bone",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "ZEN_STRIKE"
+    ],
+    "legendary_bonus_ids": [
+      120
+    ]
+  },
+  {
+    "name": "Костяной страж",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "armor_bone",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "MEDIA_RAIN"
+    ],
+    "legendary_bonus_ids": [
+      152
+    ]
+  },
+  {
+    "name": "Доспех некроманта",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "armor_bone",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "SHAPESHIFTER"
+    ],
+    "legendary_bonus_ids": [
+      153
+    ]
+  },
+  {
+    "name": "Кости великана",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "armor_bone",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "PAIN_PRICE"
+    ],
+    "legendary_bonus_ids": [
+      190
+    ]
+  },
+  {
+    "name": "Костяной титан",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "armor_bone",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "LAST_INCH"
+    ],
+    "legendary_bonus_ids": [
+      193
+    ]
+  },
+  {
+    "name": "Трон из костей",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "armor_bone",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "ANCHOR_STRIKE"
+    ],
+    "legendary_bonus_ids": [
+      292
+    ]
+  },
+  {
+    "name": "Кости прародителя",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "armor_bone",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "PHANTOM_FINALE"
+    ],
+    "legendary_bonus_ids": [
+      298
+    ]
+  },
+  {
+    "name": "Плащ путника",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "armor_cloak",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "SILENT_FILM"
+    ],
+    "legendary_bonus_ids": [
+      80
+    ]
+  },
+  {
+    "name": "Плащ следопыта",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "armor_cloak",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "PEN_VAMPIRISM"
+    ],
+    "legendary_bonus_ids": [
+      50
+    ]
+  },
+  {
+    "name": "Плащ ветра",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "armor_cloak",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "SLOW_BURN"
+    ],
+    "legendary_bonus_ids": [
+      117
+    ]
+  },
+  {
+    "name": "Плащ ночи",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "armor_cloak",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "SPRINT"
+    ],
+    "legendary_bonus_ids": [
+      114
+    ]
+  },
+  {
+    "name": "Плащ стрелы",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "armor_cloak",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "COLLECTOR_5"
+    ],
+    "legendary_bonus_ids": [
+      156
+    ]
+  },
+  {
+    "name": "Плащ фантома",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "armor_cloak",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "PING_PONG"
+    ],
+    "legendary_bonus_ids": [
+      154
+    ]
+  },
+  {
+    "name": "Плащ тени",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "armor_cloak",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "NO_MERCY"
+    ],
+    "legendary_bonus_ids": [
+      238
+    ]
+  },
+  {
+    "name": "Плащ звёзд",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "armor_cloak",
+    "slot_type": "costume",
+    "bonus_keys": [],
+    "legendary_bonus_ids": []
+  },
+  {
+    "name": "Плащ королей",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "armor_cloak",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "TWIN_SOULS"
+    ],
+    "legendary_bonus_ids": [
+      267
+    ]
+  },
+  {
+    "name": "Плащ вечности",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "armor_cloak",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "WIT_SCALING"
+    ],
+    "legendary_bonus_ids": [
+      278
+    ]
+  },
+  {
+    "name": "Латы",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "armor_heavy",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "EMOJI_HEALER"
+    ],
+    "legendary_bonus_ids": [
+      140
+    ]
+  },
+  {
+    "name": "Боевые латы",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "armor_heavy",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "QUESTION_MARK"
+    ],
+    "legendary_bonus_ids": [
+      130
+    ]
+  },
+  {
+    "name": "Рыцарские латы",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "armor_heavy",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "LUNCH_BREAK"
+    ],
+    "legendary_bonus_ids": [
+      85
+    ]
+  },
+  {
+    "name": "Великие латы",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "armor_heavy",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "DEADLINE_RUSH"
+    ],
+    "legendary_bonus_ids": [
+      102
+    ]
+  },
+  {
+    "name": "Доспех паладина",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "armor_heavy",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "ASSASSIN_OPENER"
+    ],
+    "legendary_bonus_ids": [
+      169
+    ]
+  },
+  {
+    "name": "Адамантовые латы",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "armor_heavy",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "CRIT_SPLASH"
+    ],
+    "legendary_bonus_ids": [
+      178
+    ]
+  },
+  {
+    "name": "Осадные латы",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "armor_heavy",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "OPENING_STRIKE"
+    ],
+    "legendary_bonus_ids": [
+      233
+    ]
+  },
+  {
+    "name": "Броня предков",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "armor_heavy",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "ABYSS_GAZE"
+    ],
+    "legendary_bonus_ids": [
+      246
+    ]
+  },
+  {
+    "name": "Доспех легенды",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "armor_heavy",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "ACROBAT"
+    ],
+    "legendary_bonus_ids": [
+      274
+    ]
+  },
+  {
+    "name": "Несокрушимая броня",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "armor_heavy",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "TRINITY"
+    ],
+    "legendary_bonus_ids": [
+      269
+    ]
+  },
+  {
+    "name": "Простая одежда",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "armor_light",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "WALL_OF_TEXT"
+    ],
+    "legendary_bonus_ids": [
+      136
+    ]
+  },
+  {
+    "name": "Кожаная броня",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "armor_light",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "ONE_WORD_VERDICT"
+    ],
+    "legendary_bonus_ids": [
+      134
+    ]
+  },
+  {
+    "name": "Усиленная кожа",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "armor_light",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "PRIME_TIME"
+    ],
+    "legendary_bonus_ids": [
+      97
+    ]
+  },
+  {
+    "name": "Кожаный доспех",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "armor_light",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "NEW_DAY_SPARK"
+    ],
+    "legendary_bonus_ids": [
+      100
+    ]
+  },
+  {
+    "name": "Чешуйчатый доспех",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "armor_light",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "RICOCHET_CRIT"
+    ],
+    "legendary_bonus_ids": [
+      180
+    ]
+  },
+  {
+    "name": "Кираса охотника",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "armor_light",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "STICKER_SLAYER"
+    ],
+    "legendary_bonus_ids": [
+      173
+    ]
+  },
+  {
+    "name": "Драконья кожа",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "armor_light",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "SURGICAL"
+    ],
+    "legendary_bonus_ids": [
+      202
+    ]
+  },
+  {
+    "name": "Теневая броня",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "armor_light",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "MOMENTUM"
+    ],
+    "legendary_bonus_ids": [
+      203
+    ]
+  },
+  {
+    "name": "Плащ Призрака",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "armor_light",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "WILD_MAGIC"
+    ],
+    "legendary_bonus_ids": [
+      316
+    ]
+  },
+  {
+    "name": "Доспех ветра",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "armor_light",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "SHADOW_CLONE"
+    ],
+    "legendary_bonus_ids": [
+      290
+    ]
+  },
+  {
+    "name": "Стёганая броня",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "armor_medium",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "AUDIO_BASSLINE"
+    ],
+    "legendary_bonus_ids": [
+      64
+    ]
+  },
+  {
+    "name": "Кольчуга",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "armor_medium",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "INK_CRIT"
+    ],
+    "legendary_bonus_ids": [
+      48
+    ]
+  },
+  {
+    "name": "Пластинчатая кольч",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "armor_medium",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "RHYTHM_KEEPER"
+    ],
+    "legendary_bonus_ids": [
+      112
+    ]
+  },
+  {
+    "name": "Бригантина",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "armor_medium",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "QUICK_STICKER"
+    ],
+    "legendary_bonus_ids": [
+      116
+    ]
+  },
+  {
+    "name": "Полудоспех",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "armor_medium",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "PRIME_INSTINCT"
+    ],
+    "legendary_bonus_ids": [
+      148
+    ]
+  },
+  {
+    "name": "Кираса воина",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "armor_medium",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "EVEN_BEAT"
+    ],
+    "legendary_bonus_ids": [
+      161
+    ]
+  },
+  {
+    "name": "Рыцарский доспех",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "armor_medium",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "EXECUTIONER"
+    ],
+    "legendary_bonus_ids": [
+      191
+    ]
+  },
+  {
+    "name": "Мифриловая броня",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "armor_medium",
+    "slot_type": "costume",
+    "bonus_keys": [],
+    "legendary_bonus_ids": []
+  },
+  {
+    "name": "Доспех чемпиона",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "armor_medium",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "BLACK_CAT"
+    ],
+    "legendary_bonus_ids": [
+      301
+    ]
+  },
+  {
+    "name": "Святая эгида",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "armor_medium",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "STATIC_CHARGE"
+    ],
+    "legendary_bonus_ids": [
+      299
+    ]
+  },
+  {
+    "name": "Грубая мантия",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "armor_robe",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "EXCLAMATION_STORM"
+    ],
+    "legendary_bonus_ids": [
+      131
+    ]
+  },
+  {
+    "name": "Мантия ученика",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "armor_robe",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "PALINDROME_MAGIC"
+    ],
+    "legendary_bonus_ids": [
+      135
+    ]
+  },
+  {
+    "name": "Одеяние мага",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "armor_robe",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "FIRST_STICKER_OF_HOUR"
+    ],
+    "legendary_bonus_ids": [
+      20
+    ]
+  },
+  {
+    "name": "Мантия тайн",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "armor_robe",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "FRIDAY_PARTY"
+    ],
+    "legendary_bonus_ids": [
+      90
+    ]
+  },
+  {
+    "name": "Аркановая мантия",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "armor_robe",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "NIGHT_PRECISION"
+    ],
+    "legendary_bonus_ids": [
+      174
+    ]
+  },
+  {
+    "name": "Одеяние звёзд",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "armor_robe",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "FULL_HP_EXECUTION"
+    ],
+    "legendary_bonus_ids": [
+      170
+    ]
+  },
+  {
+    "name": "Мантия архимага",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "armor_robe",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "BLOOD_DEBT"
+    ],
+    "legendary_bonus_ids": [
+      221
+    ]
+  },
+  {
+    "name": "Покров бездны",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "armor_robe",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "GUARDIAN_ANGEL"
+    ],
+    "legendary_bonus_ids": [
+      218
+    ]
+  },
+  {
+    "name": "Одеяние пророка",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "armor_robe",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "INVESTOR"
+    ],
+    "legendary_bonus_ids": [
+      251
+    ]
+  },
+  {
+    "name": "Мантия Творения",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "armor_robe",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "AUCTIONEER"
+    ],
+    "legendary_bonus_ids": [
+      255
+    ]
+  },
+  {
+    "name": "Кольчужный камизоль",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "armor_scale",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "PHOTO_FOCUS"
+    ],
+    "legendary_bonus_ids": [
+      57
+    ]
+  },
+  {
+    "name": "Чешуя нагрудник",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "armor_scale",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "GRAPHOMANIA_ECHO"
+    ],
+    "legendary_bonus_ids": [
+      49
+    ]
+  },
+  {
+    "name": "Чешуйчатый панцирь",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "armor_scale",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "BERSERK_TEMPO"
+    ],
+    "legendary_bonus_ids": [
+      106
+    ]
+  },
+  {
+    "name": "Ламелярный доспех",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "armor_scale",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "CHARGED_MINUTES"
+    ],
+    "legendary_bonus_ids": [
+      110
+    ]
+  },
+  {
+    "name": "Чешуя дракона",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "armor_scale",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "THOUGHT_STREAM"
+    ],
+    "legendary_bonus_ids": [
+      24
+    ]
+  },
+  {
+    "name": "Тяжёлая чешуя",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "armor_scale",
+    "slot_type": "costume",
+    "bonus_keys": [],
+    "legendary_bonus_ids": []
+  },
+  {
+    "name": "Чешуйчатый колосс",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "armor_scale",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "GIANT_SLAYER"
+    ],
+    "legendary_bonus_ids": [
+      195
+    ]
+  },
+  {
+    "name": "Панцирь змея",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "armor_scale",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "BALANCE_POINT"
+    ],
+    "legendary_bonus_ids": [
+      189
+    ]
+  },
+  {
+    "name": "Чешуя предков",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "armor_scale",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "PRISM"
+    ],
+    "legendary_bonus_ids": [
+      315
+    ]
+  },
+  {
+    "name": "Чешуя миров",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "armor_scale",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "ENTROPY"
+    ],
+    "legendary_bonus_ids": [
+      312
+    ]
+  },
+  {
+    "name": "Шёлковая рубаха",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "armor_silks",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "MONOLOGUE"
+    ],
+    "legendary_bonus_ids": [
+      33
+    ]
+  },
+  {
+    "name": "Придворная накидка",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "armor_silks",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "EMOJI_SPICE"
+    ],
+    "legendary_bonus_ids": [
+      132
+    ]
+  },
+  {
+    "name": "Шёлк дипломата",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "armor_silks",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "CHRONO_TRIAD"
+    ],
+    "legendary_bonus_ids": [
+      103
+    ]
+  },
+  {
+    "name": "Мантия купца",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "armor_silks",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "MORNING_LOOT"
+    ],
+    "legendary_bonus_ids": [
+      96
+    ]
+  },
+  {
+    "name": "Наряд визиря",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "armor_silks",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "SPEED_CRIT"
+    ],
+    "legendary_bonus_ids": [
+      177
+    ]
+  },
+  {
+    "name": "Шёлк знати",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "armor_silks",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "SHARPENED_EDGE"
+    ],
+    "legendary_bonus_ids": [
+      167
+    ]
+  },
+  {
+    "name": "Одеяние патриция",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "armor_silks",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "HEALTHY_GLOW"
+    ],
+    "legendary_bonus_ids": [
+      188
+    ]
+  },
+  {
+    "name": "Королевский шёлк",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "armor_silks",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "FINISHER_50"
+    ],
+    "legendary_bonus_ids": [
+      192
+    ]
+  },
+  {
+    "name": "Шёлк империи",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "armor_silks",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "ECHO_CHAMBER"
+    ],
+    "legendary_bonus_ids": [
+      293
+    ]
+  },
+  {
+    "name": "Ткань судьбы",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "armor_silks",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "PACIFIST_PARADOX"
+    ],
+    "legendary_bonus_ids": [
+      295
+    ]
+  },
+  {
+    "name": "Амулет нижнего договора",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "rc_amulet_Амулет нижнего договора",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "KILL_ECHO"
+    ],
+    "legendary_bonus_ids": [
+      44
+    ]
+  },
+  {
+    "name": "Амулет нисхождения",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "rc_amulet_Амулет нисхождения",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "CENTURION"
+    ],
+    "legendary_bonus_ids": [
+      166
+    ]
+  },
+  {
+    "name": "Амулет торговых дорог",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "rc_amulet_Амулет торговых дорог",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "SCHOLAR"
+    ],
+    "legendary_bonus_ids": [
+      275
+    ]
+  },
+  {
+    "name": "Амулет четырёх стихий",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "rc_amulet_Амулет четырёх стихий",
+    "slot_type": "amulet",
+    "bonus_keys": [
+      "SIESTA"
+    ],
+    "legendary_bonus_ids": [
+      101
+    ]
+  },
+  {
+    "name": "Доспех полевого маршала",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "rc_armor_Доспех полевого маршала",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "LOOT_MAGNET"
+    ],
+    "legendary_bonus_ids": [
+      263
+    ]
+  },
+  {
+    "name": "Кольчуга ночного охотника",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "rc_armor_Кольчуга ночного охотника",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "FORTUNE_FAVORED"
+    ],
+    "legendary_bonus_ids": [
+      276
+    ]
+  },
+  {
+    "name": "Латы звериной ярости",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "rc_armor_Латы звериной ярости",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "EXECUTIONER_EYE"
+    ],
+    "legendary_bonus_ids": [
+      179
+    ]
+  },
+  {
+    "name": "Панцирь ордена",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "rc_armor_Панцирь ордена",
+    "slot_type": "costume",
+    "bonus_keys": [
+      "UNHURRIED"
+    ],
+    "legendary_bonus_ids": [
+      113
+    ]
+  },
+  {
+    "name": "Кольцо золотой подписи",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "rc_ring_Кольцо золотой подписи",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "LIGHTNING_REFLEX"
+    ],
+    "legendary_bonus_ids": [
+      105
+    ]
+  },
+  {
+    "name": "Кольцо исцеляющего круга",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "rc_ring_Кольцо исцеляющего круга",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "CURSED_BLESSING"
+    ],
+    "legendary_bonus_ids": [
+      306
+    ]
+  },
+  {
+    "name": "Кольцо лунного шёпота",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "rc_ring_Кольцо лунного шёпота",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "HUNTER_EXPERIENCE"
+    ],
+    "legendary_bonus_ids": [
+      26
+    ]
+  },
+  {
+    "name": "Кольцо родовой печати",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "rc_ring_Кольцо родовой печати",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "GLASS_CANNON"
+    ],
+    "legendary_bonus_ids": [
+      171
+    ]
+  },
+  {
+    "name": "Двуручник рыцарского ордена",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Двуручник рыцарского ордена",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "NIGHT_HUNTER"
+    ],
+    "legendary_bonus_ids": [
+      83
+    ]
+  },
+  {
+    "name": "Клинок варварской кузни",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Клинок варварской кузни",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "METRONOME"
+    ],
+    "legendary_bonus_ids": [
+      111
+    ]
+  },
+  {
+    "name": "Клинок лесного народа",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Клинок лесного народа",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "VOICE_CHAIN"
+    ],
+    "legendary_bonus_ids": [
+      158
+    ]
+  },
+  {
+    "name": "Клинок тихой смерти",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Клинок тихой смерти",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "QUANTUM_STRIKE"
+    ],
+    "legendary_bonus_ids": [
+      302
+    ]
+  },
+  {
+    "name": "Клинок феячьего двора",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Клинок феячьего двора",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "APPRENTICE_SURGE"
+    ],
+    "legendary_bonus_ids": [
+      270
+    ]
+  },
+  {
+    "name": "Лук имперского легиона",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Лук имперского легиона",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "MONSTER_WHISPERER"
+    ],
+    "legendary_bonus_ids": [
+      300
+    ]
+  },
+  {
+    "name": "Лук мастера дальнего выстрела",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Лук мастера дальнего выстрела",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "WEEKEND_WARRIOR"
+    ],
+    "legendary_bonus_ids": [
+      88
+    ]
+  },
+  {
+    "name": "Лук серебряных крон",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Лук серебряных крон",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "WOUNDED_PRECISION"
+    ],
+    "legendary_bonus_ids": [
+      176
+    ]
+  },
+  {
+    "name": "Лук теневого убийцы",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Лук теневого убийцы",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "LEVEL_RESONANCE"
+    ],
+    "legendary_bonus_ids": [
+      281
+    ]
+  },
+  {
+    "name": "Посох архимагистра",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Посох архимагистра",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "AMBUSH_SILENCE"
+    ],
+    "legendary_bonus_ids": [
+      16
+    ]
+  },
+  {
+    "name": "Посох лунного эльфа",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Посох лунного эльфа",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "LUCKY_STRIKE"
+    ],
+    "legendary_bonus_ids": [
+      168
+    ]
+  },
+  {
+    "name": "Посох сжигаемой души",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Посох сжигаемой души",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "PROFITEER"
+    ],
+    "legendary_bonus_ids": [
+      264
+    ]
+  },
+  {
+    "name": "Посох хранителя жизни",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Посох хранителя жизни",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "TYCOON"
+    ],
+    "legendary_bonus_ids": [
+      250
+    ]
+  },
+  {
+    "name": "Секира пламени бездны",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Секира пламени бездны",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "STACKING_WRATH"
+    ],
+    "legendary_bonus_ids": [
+      25
+    ]
+  },
+  {
+    "name": "Сфера закрытой раны",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Сфера закрытой раны",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "MEDIA_VAMPIRE"
+    ],
+    "legendary_bonus_ids": [
+      29
+    ]
+  },
+  {
+    "name": "Сфера кровавого лунного затмения",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Сфера кровавого лунного затмения",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "PHANTOM_DOUBLE"
+    ],
+    "legendary_bonus_ids": [
+      30
+    ]
+  },
+  {
+    "name": "Сфера небесного откровения",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Сфера небесного откровения",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "MEDIA_TRIO"
+    ],
+    "legendary_bonus_ids": [
+      35
+    ]
+  },
+  {
+    "name": "Сфера первого заклинания",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Сфера первого заклинания",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "FLASH_STEP"
+    ],
+    "legendary_bonus_ids": [
+      118
+    ]
+  },
+  {
+    "name": "Топор вечного поля боя",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Топор вечного поля боя",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "CHAOS_DICE"
+    ],
+    "legendary_bonus_ids": [
+      285
+    ]
+  },
+  {
+    "name": "Топор зверолюда",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Топор зверолюда",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "DECIMATOR"
+    ],
+    "legendary_bonus_ids": [
+      146
+    ]
+  },
+  {
+    "name": "Щит братства плит",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Щит братства плит",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "MIRROR_HOUR"
+    ],
+    "legendary_bonus_ids": [
+      92
+    ]
+  },
+  {
+    "name": "Щит имперской стражи",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Щит имперской стражи",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "CRIT_VAMPIRE"
+    ],
+    "legendary_bonus_ids": [
+      172
+    ]
+  },
+  {
+    "name": "Щит перворождённого света",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Щит перворождённого света",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "MUSCLE_MEMORY"
+    ],
+    "legendary_bonus_ids": [
+      273
+    ]
+  },
+  {
+    "name": "Щит последнего обряда",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "rc_weapon_Щит последнего обряда",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "LEGION_OF_LEGENDS"
+    ],
+    "legendary_bonus_ids": [
+      266
+    ]
+  },
+  {
+    "name": "Медное кольцо",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "ring_DEX",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "AUDIO_RESONANCE"
+    ],
+    "legendary_bonus_ids": [
+      65
+    ]
+  },
+  {
+    "name": "Кольцо ловкача",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "ring_DEX",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "MULTIMEDIA_LANCE"
+    ],
+    "legendary_bonus_ids": [
+      79
+    ]
+  },
+  {
+    "name": "Кольцо лучника",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "ring_DEX",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "COLD_BLOOD"
+    ],
+    "legendary_bonus_ids": [
+      107
+    ]
+  },
+  {
+    "name": "Кольцо охотника",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "ring_DEX",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "RAPID_FIRE"
+    ],
+    "legendary_bonus_ids": [
+      104
+    ]
+  },
+  {
+    "name": "Кольцо следопыта",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "ring_DEX",
+    "slot_type": "ring",
+    "bonus_keys": [],
+    "legendary_bonus_ids": []
+  },
+  {
+    "name": "Кольцо стрелка",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "ring_DEX",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "COLLECTOR_3"
+    ],
+    "legendary_bonus_ids": [
+      155
+    ]
+  },
+  {
+    "name": "Кольцо призрака",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "ring_DEX",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "COUNTER_CURSE"
+    ],
+    "legendary_bonus_ids": [
+      41
+    ]
+  },
+  {
+    "name": "Кольцо тени",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "ring_DEX",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "UNBREAKABLE"
+    ],
+    "legendary_bonus_ids": [
+      214
+    ]
+  },
+  {
+    "name": "Кольцо мастера",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "ring_DEX",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "COIN_FLIP_TRADE"
+    ],
+    "legendary_bonus_ids": [
+      257
+    ]
+  },
+  {
+    "name": "Кольцо судьбы",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "ring_DEX",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "GOLD_GUARD"
+    ],
+    "legendary_bonus_ids": [
+      253
+    ]
+  },
+  {
+    "name": "Кольцо мысли",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "ring_INT",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "MEME_ARTILLERY"
+    ],
+    "legendary_bonus_ids": [
+      82
+    ]
+  },
+  {
+    "name": "Кольцо учёного",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "ring_INT",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "VIDEO_BLOCKBUSTER"
+    ],
+    "legendary_bonus_ids": [
+      69
+    ]
+  },
+  {
+    "name": "Кольцо мага",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "ring_INT",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "SILENCE_BURST"
+    ],
+    "legendary_bonus_ids": [
+      15
+    ]
+  },
+  {
+    "name": "Кольцо аркана",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "ring_INT",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "MIDNIGHT_STRIKE"
+    ],
+    "legendary_bonus_ids": [
+      19
+    ]
+  },
+  {
+    "name": "Кольцо чародея",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "ring_INT",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "GIF_CAROUSEL"
+    ],
+    "legendary_bonus_ids": [
+      159
+    ]
+  },
+  {
+    "name": "Кольцо архимага",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "ring_INT",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "OPENING_GAMBIT"
+    ],
+    "legendary_bonus_ids": [
+      165
+    ]
+  },
+  {
+    "name": "Кольцо тайн",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "ring_INT",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "FIRST_BLOOD_REPLY"
+    ],
+    "legendary_bonus_ids": [
+      216
+    ]
+  },
+  {
+    "name": "Кольцо бездны",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "ring_INT",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "RETRIBUTION"
+    ],
+    "legendary_bonus_ids": [
+      223
+    ]
+  },
+  {
+    "name": "Кольцо звёзд",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "ring_INT",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "GOLDEN_BULLET"
+    ],
+    "legendary_bonus_ids": [
+      256
+    ]
+  },
+  {
+    "name": "Кольцо Творения",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "ring_INT",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "RAGS_TO_RICHES"
+    ],
+    "legendary_bonus_ids": [
+      261
+    ]
+  },
+  {
+    "name": "Кольцо везения",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "ring_LUK",
+    "slot_type": "ring",
+    "bonus_keys": [],
+    "legendary_bonus_ids": []
+  },
+  {
+    "name": "Кольцо фортуны",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "ring_LUK",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "ESSAY"
+    ],
+    "legendary_bonus_ids": [
+      123
+    ]
+  },
+  {
+    "name": "Кольцо удачи",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "ring_LUK",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "WITCHING_HOUR"
+    ],
+    "legendary_bonus_ids": [
+      87
+    ]
+  },
+  {
+    "name": "Кольцо золота",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "ring_LUK",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "NIGHT_SERENADE"
+    ],
+    "legendary_bonus_ids": [
+      18
+    ]
+  },
+  {
+    "name": "Кольцо торговли",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "ring_LUK",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "CALM_CRIT"
+    ],
+    "legendary_bonus_ids": [
+      181
+    ]
+  },
+  {
+    "name": "Кольцо наследия",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "ring_LUK",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "FULL_DECK"
+    ],
+    "legendary_bonus_ids": [
+      157
+    ]
+  },
+  {
+    "name": "Кольцо провидца",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "ring_LUK",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "MATADOR"
+    ],
+    "legendary_bonus_ids": [
+      207
+    ]
+  },
+  {
+    "name": "Кольцо мира",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "ring_LUK",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "DEBUFF_EATER"
+    ],
+    "legendary_bonus_ids": [
+      213
+    ]
+  },
+  {
+    "name": "Кольцо короны",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "ring_LUK",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "DRAGON_HOARD"
+    ],
+    "legendary_bonus_ids": [
+      259
+    ]
+  },
+  {
+    "name": "Кольцо вечной удачи",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "ring_LUK",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "LUCKY_CHARM"
+    ],
+    "legendary_bonus_ids": [
+      258
+    ]
+  },
+  {
+    "name": "Простое кольцо",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "ring_STR",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "STICKER_TRIPLE"
+    ],
+    "legendary_bonus_ids": [
+      51
+    ]
+  },
+  {
+    "name": "Железное кольцо",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "ring_STR",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "PHOTO_FLASH"
+    ],
+    "legendary_bonus_ids": [
+      56
+    ]
+  },
+  {
+    "name": "Кольцо силы",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "ring_STR",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "MIDWEEK_FOCUS"
+    ],
+    "legendary_bonus_ids": [
+      91
+    ]
+  },
+  {
+    "name": "Стальное кольцо",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "ring_STR",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "MONDAY_RAGE"
+    ],
+    "legendary_bonus_ids": [
+      89
+    ]
+  },
+  {
+    "name": "Кольцо воина",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "ring_STR",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "STICKER_CHAIN"
+    ],
+    "legendary_bonus_ids": [
+      151
+    ]
+  },
+  {
+    "name": "Кольцо чемпиона",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "ring_STR",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "THIRD_STRIKE"
+    ],
+    "legendary_bonus_ids": [
+      144
+    ]
+  },
+  {
+    "name": "Кольцо берсерка",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "ring_STR",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "BOSS_BANE"
+    ],
+    "legendary_bonus_ids": [
+      227
+    ]
+  },
+  {
+    "name": "Кольцо предка",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "ring_STR",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "SURVIVOR_RAGE"
+    ],
+    "legendary_bonus_ids": [
+      243
+    ]
+  },
+  {
+    "name": "Кольцо легенды",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "ring_STR",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "LONE_LEGEND"
+    ],
+    "legendary_bonus_ids": [
+      265
+    ]
+  },
+  {
+    "name": "Кольцо вечности",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "ring_STR",
+    "slot_type": "ring",
+    "bonus_keys": [
+      "SURVIVOR_SPIRIT",
+      "RARITY_SYNERGY"
+    ],
+    "legendary_bonus_ids": [
+      14,
+      31
+    ]
+  },
+  {
+    "name": "Кинжал",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_0",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "STICKER_DOUBLE_TAP"
+    ],
+    "legendary_bonus_ids": [
+      55
+    ]
+  },
+  {
+    "name": "Нож охотника",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_0",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "VOICE_THUNDER"
+    ],
+    "legendary_bonus_ids": [
+      70
+    ]
+  },
+  {
+    "name": "Вакидзаши",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_0",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "EVEN_HOUR_SURGE"
+    ],
+    "legendary_bonus_ids": [
+      93
+    ]
+  },
+  {
+    "name": "Короткий клинок",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_0",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "NIGHT_MERCHANT"
+    ],
+    "legendary_bonus_ids": [
+      95
+    ]
+  },
+  {
+    "name": "Гладиус",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_0",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "SEVENTH_SEAL"
+    ],
+    "legendary_bonus_ids": [
+      160
+    ]
+  },
+  {
+    "name": "Ятаган",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_0",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "CRIT_CHAIN"
+    ],
+    "legendary_bonus_ids": [
+      36
+    ]
+  },
+  {
+    "name": "Фальшион",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_0",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "SHELL_SHOCK"
+    ],
+    "legendary_bonus_ids": [
+      217
+    ]
+  },
+  {
+    "name": "Кортик",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_0",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "REVENGE_CRYSTAL"
+    ],
+    "legendary_bonus_ids": [
+      40
+    ]
+  },
+  {
+    "name": "Мистерикл",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_0",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "PIERCING_SCREAM",
+      "VERBOSITY"
+    ],
+    "legendary_bonus_ids": [
+      11,
+      10
+    ]
+  },
+  {
+    "name": "Теневое жало",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_0",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "MYSTIC_SEVEN",
+      "QUICK_REFLEX"
+    ],
+    "legendary_bonus_ids": [
+      12,
+      9
+    ]
+  },
+  {
+    "name": "Меч",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_1",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "LINK_VIRUS"
+    ],
+    "legendary_bonus_ids": [
+      74
+    ]
+  },
+  {
+    "name": "Арминг-сворд",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_1",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "LINK_RICKROLL"
+    ],
+    "legendary_bonus_ids": [
+      76
+    ]
+  },
+  {
+    "name": "Длинный меч",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_1",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "ODD_HOUR_EDGE"
+    ],
+    "legendary_bonus_ids": [
+      94
+    ]
+  },
+  {
+    "name": "Бастард-сворд",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_1",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "DAWN_PATROL"
+    ],
+    "legendary_bonus_ids": [
+      84
+    ]
+  },
+  {
+    "name": "Катана",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_1",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "GOLDEN_SPIRAL"
+    ],
+    "legendary_bonus_ids": [
+      149
+    ]
+  },
+  {
+    "name": "Палаш",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_1",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "CHARGED_DISCHARGE"
+    ],
+    "legendary_bonus_ids": [
+      34
+    ]
+  },
+  {
+    "name": "Клеймор",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_1",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "ADRENALINE"
+    ],
+    "legendary_bonus_ids": [
+      185
+    ]
+  },
+  {
+    "name": "Волчья сталь",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_1",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "DAMAGE_MIRROR"
+    ],
+    "legendary_bonus_ids": [
+      43
+    ]
+  },
+  {
+    "name": "Рунный меч",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_1",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "GOLD_PULSE",
+      "AFFIX_MASTERY"
+    ],
+    "legendary_bonus_ids": [
+      1,
+      2
+    ]
+  },
+  {
+    "name": "Экскалибур",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_1",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "BOSS_SLAYER",
+      "SNIPER_SHOT"
+    ],
+    "legendary_bonus_ids": [
+      3,
+      4
+    ]
+  },
+  {
+    "name": "Скипетр послушника",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_10",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "AUDIO_ENCORE"
+    ],
+    "legendary_bonus_ids": [
+      66
+    ]
+  },
+  {
+    "name": "Скипетр аколита",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_10",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "STICKER_CRIT"
+    ],
+    "legendary_bonus_ids": [
+      52
+    ]
+  },
+  {
+    "name": "Скипетр жреца",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_10",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "WORD_BLADE"
+    ],
+    "legendary_bonus_ids": [
+      47
+    ]
+  },
+  {
+    "name": "Скипетр прорицателя",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_10",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "GIF_LOOP"
+    ],
+    "legendary_bonus_ids": [
+      60
+    ]
+  },
+  {
+    "name": "Скипетр иерарха",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_10",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "DOUBLE_STICKER"
+    ],
+    "legendary_bonus_ids": [
+      38
+    ]
+  },
+  {
+    "name": "Скипетр света",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_10",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "PENTA_BEAT"
+    ],
+    "legendary_bonus_ids": [
+      145
+    ]
+  },
+  {
+    "name": "Скипетр суда",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_10",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "SECOND_WIND"
+    ],
+    "legendary_bonus_ids": [
+      222
+    ]
+  },
+  {
+    "name": "Скипетр культа",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_10",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "PAIN_CONVERTER"
+    ],
+    "legendary_bonus_ids": [
+      209
+    ]
+  },
+  {
+    "name": "Скипетр апостола",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_10",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "TITHE"
+    ],
+    "legendary_bonus_ids": [
+      262
+    ]
+  },
+  {
+    "name": "Скипетр верховного",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_10",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "POOR_LUCK"
+    ],
+    "legendary_bonus_ids": [
+      252
+    ]
+  },
+  {
+    "name": "Молот кузнеца",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_11",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "EVEN_COUNT"
+    ],
+    "legendary_bonus_ids": [
+      124
+    ]
+  },
+  {
+    "name": "Боевой молот",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_11",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "LONG_SPEECH"
+    ],
+    "legendary_bonus_ids": [
+      32
+    ]
+  },
+  {
+    "name": "Молот карателя",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_11",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "STICKER_PIERCE"
+    ],
+    "legendary_bonus_ids": [
+      53
+    ]
+  },
+  {
+    "name": "Молот великана",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_11",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "LINK_PHISHING"
+    ],
+    "legendary_bonus_ids": [
+      75
+    ]
+  },
+  {
+    "name": "Молот войны",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_11",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "PHOTO_SESSION"
+    ],
+    "legendary_bonus_ids": [
+      163
+    ]
+  },
+  {
+    "name": "Молот бури",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_11",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "DEVILS_DOZEN"
+    ],
+    "legendary_bonus_ids": [
+      147
+    ]
+  },
+  {
+    "name": "Молот титана",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_11",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "CHAIN_REACTION"
+    ],
+    "legendary_bonus_ids": [
+      235
+    ]
+  },
+  {
+    "name": "Рунный молот",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_11",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "KILL_MOMENTUM"
+    ],
+    "legendary_bonus_ids": [
+      224
+    ]
+  },
+  {
+    "name": "Молот падших богов",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_11",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "GROWTH_SPURT"
+    ],
+    "legendary_bonus_ids": [
+      272
+    ]
+  },
+  {
+    "name": "Молот мирового древа",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_11",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "DETONATOR"
+    ],
+    "legendary_bonus_ids": [
+      45
+    ]
+  },
+  {
+    "name": "Стеклянная сфера",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_12",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "MEDIA_STORM"
+    ],
+    "legendary_bonus_ids": [
+      77
+    ]
+  },
+  {
+    "name": "Сфера ученика",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_12",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "PHOTO_ALBUM"
+    ],
+    "legendary_bonus_ids": [
+      58
+    ]
+  },
+  {
+    "name": "Осколок маны",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_12",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "GIF_HYPNOSIS"
+    ],
+    "legendary_bonus_ids": [
+      61
+    ]
+  },
+  {
+    "name": "Сфера фокусировки",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_12",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "GIF_GLITCH"
+    ],
+    "legendary_bonus_ids": [
+      63
+    ]
+  },
+  {
+    "name": "Сфера дуги",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_12",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "MILESTONE_50"
+    ],
+    "legendary_bonus_ids": [
+      162
+    ]
+  },
+  {
+    "name": "Сфера вихря",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_12",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "ALTERNATE_CRIT"
+    ],
+    "legendary_bonus_ids": [
+      164
+    ]
+  },
+  {
+    "name": "Сфера наставника",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_12",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "UNDERDOG"
+    ],
+    "legendary_bonus_ids": [
+      198
+    ]
+  },
+  {
+    "name": "Сфера бездны",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_12",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "TITAN_FELLER"
+    ],
+    "legendary_bonus_ids": [
+      196
+    ]
+  },
+  {
+    "name": "Сфера затмения",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_12",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "LIFE_FEAST"
+    ],
+    "legendary_bonus_ids": [
+      313
+    ]
+  },
+  {
+    "name": "Сфера Творения",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_12",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "OVERKILL_SPLASH"
+    ],
+    "legendary_bonus_ids": [
+      297
+    ]
+  },
+  {
+    "name": "Ручной топор",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_2",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "CAPS_SIEGE"
+    ],
+    "legendary_bonus_ids": [
+      139
+    ]
+  },
+  {
+    "name": "Боевой топор",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_2",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "SHORT_JAB"
+    ],
+    "legendary_bonus_ids": [
+      122
+    ]
+  },
+  {
+    "name": "Секира",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_2",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "PURIST"
+    ],
+    "legendary_bonus_ids": [
+      78
+    ]
+  },
+  {
+    "name": "Бродакс",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_2",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "VIDEO_MONTAGE"
+    ],
+    "legendary_bonus_ids": [
+      68
+    ]
+  },
+  {
+    "name": "Боевая секира",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_2",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "LOUDSPEAKER"
+    ],
+    "legendary_bonus_ids": [
+      81
+    ]
+  },
+  {
+    "name": "Варварский топор",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_2",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "VIDEO_PREMIERE"
+    ],
+    "legendary_bonus_ids": [
+      67
+    ]
+  },
+  {
+    "name": "Великий топор",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_2",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "KILL_FEAST"
+    ],
+    "legendary_bonus_ids": [
+      219
+    ]
+  },
+  {
+    "name": "Рунный топор",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_2",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "AVENGER"
+    ],
+    "legendary_bonus_ids": [
+      211
+    ]
+  },
+  {
+    "name": "Призывной топор",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_2",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [],
+    "legendary_bonus_ids": []
+  },
+  {
+    "name": "Топор бури",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_2",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "WOUND_FURY",
+      "BREAKTHROUGH"
+    ],
+    "legendary_bonus_ids": [
+      7,
+      5
+    ]
+  },
+  {
+    "name": "Короткий лук",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_3",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "LUCKY_SEVEN_CHARS"
+    ],
+    "legendary_bonus_ids": [
+      126
+    ]
+  },
+  {
+    "name": "Длинный лук",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_3",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "NUMERIC_CODE"
+    ],
+    "legendary_bonus_ids": [
+      133
+    ]
+  },
+  {
+    "name": "Охотничий лук",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_3",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "CAPS_FURY"
+    ],
+    "legendary_bonus_ids": [
+      129
+    ]
+  },
+  {
+    "name": "Составной лук",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_3",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "TELEGRAPH"
+    ],
+    "legendary_bonus_ids": [
+      127
+    ]
+  },
+  {
+    "name": "Военный лук",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_3",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "SAME_CHAR_SCREAM"
+    ],
+    "legendary_bonus_ids": [
+      137
+    ]
+  },
+  {
+    "name": "Рекурсивный лук",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_3",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "HAIKU"
+    ],
+    "legendary_bonus_ids": [
+      121
+    ]
+  },
+  {
+    "name": "Эльфийский лук",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_3",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "RIPOSTE"
+    ],
+    "legendary_bonus_ids": [
+      206
+    ]
+  },
+  {
+    "name": "Длань леса",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_3",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [],
+    "legendary_bonus_ids": []
+  },
+  {
+    "name": "Серебряная дуга",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_3",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "IMMUNITY_BREAKER",
+      "REVENGE_THIRST"
+    ],
+    "legendary_bonus_ids": [
+      13,
+      21
+    ]
+  },
+  {
+    "name": "Звёздный лук",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_3",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "TYPE_HUNTER",
+      "HUNT_FRENZY"
+    ],
+    "legendary_bonus_ids": [
+      37,
+      8
+    ]
+  },
+  {
+    "name": "Посох",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_4",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "DIGIT_GAMBIT"
+    ],
+    "legendary_bonus_ids": [
+      142
+    ]
+  },
+  {
+    "name": "Ореховый посох",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_4",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "ONE_WORD_EXECUTION"
+    ],
+    "legendary_bonus_ids": [
+      141
+    ]
+  },
+  {
+    "name": "Боевой посох",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_4",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "NOVELLA"
+    ],
+    "legendary_bonus_ids": [
+      128
+    ]
+  },
+  {
+    "name": "Жезл силы",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_4",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "IRON_WILL"
+    ],
+    "legendary_bonus_ids": [
+      199
+    ]
+  },
+  {
+    "name": "Посох тайн",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_4",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "PHOENIX_SPARK"
+    ],
+    "legendary_bonus_ids": [
+      201
+    ]
+  },
+  {
+    "name": "Лунный посох",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_4",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "OVERFLOW"
+    ],
+    "legendary_bonus_ids": [
+      200
+    ]
+  },
+  {
+    "name": "Архимагов посох",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_4",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "VITALITY_TAX"
+    ],
+    "legendary_bonus_ids": [
+      205
+    ]
+  },
+  {
+    "name": "Посох звёзд",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_4",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "FRESH_START"
+    ],
+    "legendary_bonus_ids": [
+      187
+    ]
+  },
+  {
+    "name": "Скипетр бездны",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_4",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "VOID_TOUCH"
+    ],
+    "legendary_bonus_ids": [
+      303
+    ]
+  },
+  {
+    "name": "Посох Творения",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_4",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "GLITCH_STRIKE"
+    ],
+    "legendary_bonus_ids": [
+      291
+    ]
+  },
+  {
+    "name": "Деревянный щит",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_5",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "LAST_BREATH"
+    ],
+    "legendary_bonus_ids": [
+      42
+    ]
+  },
+  {
+    "name": "Кожаный щит",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_5",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "AGONY"
+    ],
+    "legendary_bonus_ids": [
+      6
+    ]
+  },
+  {
+    "name": "Круглый щит",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_5",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "DESPERATION"
+    ],
+    "legendary_bonus_ids": [
+      184
+    ]
+  },
+  {
+    "name": "Боевой щит",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_5",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "PHOENIX_RAGE"
+    ],
+    "legendary_bonus_ids": [
+      39
+    ]
+  },
+  {
+    "name": "Рыцарский щит",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_5",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "GRUDGE_KEEPER"
+    ],
+    "legendary_bonus_ids": [
+      212
+    ]
+  },
+  {
+    "name": "Башенный щит",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_5",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "THORNS_AURA"
+    ],
+    "legendary_bonus_ids": [
+      210
+    ]
+  },
+  {
+    "name": "Эгида",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_5",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "SOUL_HARVEST"
+    ],
+    "legendary_bonus_ids": [
+      220
+    ]
+  },
+  {
+    "name": "Щит хранителя",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_5",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "COMEBACK_KID"
+    ],
+    "legendary_bonus_ids": [
+      215
+    ]
+  },
+  {
+    "name": "Зеркальный щит",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_5",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "GREEDY_GAMBIT"
+    ],
+    "legendary_bonus_ids": [
+      307
+    ]
+  },
+  {
+    "name": "Несокрушимый",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_5",
+    "slot_type": "offhand",
+    "bonus_keys": [
+      "COIN_OF_FATE"
+    ],
+    "legendary_bonus_ids": [
+      284
+    ]
+  },
+  {
+    "name": "Жезл искр",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_6",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "VENDETTA"
+    ],
+    "legendary_bonus_ids": [
+      208
+    ]
+  },
+  {
+    "name": "Угольный жезл",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_6",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "KILLING_BLOW_HEAL"
+    ],
+    "legendary_bonus_ids": [
+      23
+    ]
+  },
+  {
+    "name": "Жезл молнии",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_6",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "COUNTER_DODGE"
+    ],
+    "legendary_bonus_ids": [
+      22
+    ]
+  },
+  {
+    "name": "Жезл пронзания",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_6",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "AFFIX_FEAST"
+    ],
+    "legendary_bonus_ids": [
+      231
+    ]
+  },
+  {
+    "name": "Жезл власти",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_6",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "TROPHY_HUNTER"
+    ],
+    "legendary_bonus_ids": [
+      239
+    ]
+  },
+  {
+    "name": "Жезл пустоты",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_6",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "EARLY_BIRD_GOLD"
+    ],
+    "legendary_bonus_ids": [
+      242
+    ]
+  },
+  {
+    "name": "Жезл звёзд",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_6",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "TRASH_SWEEPER"
+    ],
+    "legendary_bonus_ids": [
+      229
+    ]
+  },
+  {
+    "name": "Жезл разлома",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_6",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "MF_SNOWBALL"
+    ],
+    "legendary_bonus_ids": [
+      225
+    ]
+  },
+  {
+    "name": "Жезл конца",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_6",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "VETERAN_EDGE"
+    ],
+    "legendary_bonus_ids": [
+      271
+    ]
+  },
+  {
+    "name": "Жезл сотворения",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_6",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "ROOKIE_NERVE"
+    ],
+    "legendary_bonus_ids": [
+      282
+    ]
+  },
+  {
+    "name": "Дубина",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_7",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "SEVENTH_VICTIM"
+    ],
+    "legendary_bonus_ids": [
+      245
+    ]
+  },
+  {
+    "name": "Булава стража",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_7",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "VANGUARD"
+    ],
+    "legendary_bonus_ids": [
+      240
+    ]
+  },
+  {
+    "name": "Таранная булава",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_7",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "CLEAN_KILL"
+    ],
+    "legendary_bonus_ids": [
+      232
+    ]
+  },
+  {
+    "name": "Булава карателя",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_7",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "BOSS_TREASURER"
+    ],
+    "legendary_bonus_ids": [
+      228
+    ]
+  },
+  {
+    "name": "Утренняя звезда",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_7",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "ELITE_BREAKER"
+    ],
+    "legendary_bonus_ids": [
+      230
+    ]
+  },
+  {
+    "name": "Булава инквизитора",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_7",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "CLEAN_CUT"
+    ],
+    "legendary_bonus_ids": [
+      237
+    ]
+  },
+  {
+    "name": "Шипастый шар",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_7",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "WAR_MARCH"
+    ],
+    "legendary_bonus_ids": [
+      236
+    ]
+  },
+  {
+    "name": "Булава титанов",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_7",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "SPLASH_MASTER"
+    ],
+    "legendary_bonus_ids": [
+      234
+    ]
+  },
+  {
+    "name": "Булава падших",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_7",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "MIDAS_TOUCH"
+    ],
+    "legendary_bonus_ids": [
+      247
+    ]
+  },
+  {
+    "name": "Булава конца времён",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_7",
+    "slot_type": "weapon_1h",
+    "bonus_keys": [
+      "SCROOGE"
+    ],
+    "legendary_bonus_ids": [
+      260
+    ]
+  },
+  {
+    "name": "Короткое копьё",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_8",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "MARATHON_RUNNER"
+    ],
+    "legendary_bonus_ids": [
+      241
+    ]
+  },
+  {
+    "name": "Пика легиона",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_8",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "CASINO_ROYALE"
+    ],
+    "legendary_bonus_ids": [
+      283
+    ]
+  },
+  {
+    "name": "Копьё охотника",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_8",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "BERSERKER_TRANCE"
+    ],
+    "legendary_bonus_ids": [
+      308
+    ]
+  },
+  {
+    "name": "Спинтон",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_8",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "GREMLIN"
+    ],
+    "legendary_bonus_ids": [
+      288
+    ]
+  },
+  {
+    "name": "Копьё фаланги",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_8",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "DOUBLE_ELEVEN"
+    ],
+    "legendary_bonus_ids": [
+      294
+    ]
+  },
+  {
+    "name": "Копьё дракона",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_8",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "SLOT_MACHINE"
+    ],
+    "legendary_bonus_ids": [
+      305
+    ]
+  },
+  {
+    "name": "Пика грома",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_8",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "DEJA_VU"
+    ],
+    "legendary_bonus_ids": [
+      310
+    ]
+  },
+  {
+    "name": "Копьё героя",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_8",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "MIMIC"
+    ],
+    "legendary_bonus_ids": [
+      309
+    ]
+  },
+  {
+    "name": "Алебарда стража",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_8",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "PAWNBROKER"
+    ],
+    "legendary_bonus_ids": [
+      254
+    ]
+  },
+  {
+    "name": "Копьё миров",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_8",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "TREASURE_NOSE"
+    ],
+    "legendary_bonus_ids": [
+      248
+    ]
+  },
+  {
+    "name": "Лёгкий арбалет",
+    "tier": 1,
+    "base_grade": 0,
+    "line_key": "weapon_line_9",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "NUMBER_OF_BEAST"
+    ],
+    "legendary_bonus_ids": [
+      314
+    ]
+  },
+  {
+    "name": "Арбалет охотника",
+    "tier": 2,
+    "base_grade": 0,
+    "line_key": "weapon_line_9",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "PERFECT_MINUTE"
+    ],
+    "legendary_bonus_ids": [
+      311
+    ]
+  },
+  {
+    "name": "Тяжёлый арбалет",
+    "tier": 3,
+    "base_grade": 0,
+    "line_key": "weapon_line_9",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "RUSSIAN_ROULETTE"
+    ],
+    "legendary_bonus_ids": [
+      286
+    ]
+  },
+  {
+    "name": "Арбалет стрелка",
+    "tier": 4,
+    "base_grade": 0,
+    "line_key": "weapon_line_9",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "BEGGARS_FURY"
+    ],
+    "legendary_bonus_ids": [
+      249
+    ]
+  },
+  {
+    "name": "Арбалет гарнизона",
+    "tier": 5,
+    "base_grade": 0,
+    "line_key": "weapon_line_9",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "BRAWN_SCALING"
+    ],
+    "legendary_bonus_ids": [
+      277
+    ]
+  },
+  {
+    "name": "Осадный арбалет",
+    "tier": 6,
+    "base_grade": 0,
+    "line_key": "weapon_line_9",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "JACKPOT_SENSE"
+    ],
+    "legendary_bonus_ids": [
+      280
+    ]
+  },
+  {
+    "name": "Арбалет чародея",
+    "tier": 7,
+    "base_grade": 0,
+    "line_key": "weapon_line_9",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "NIMBLE_SCALING"
+    ],
+    "legendary_bonus_ids": [
+      279
+    ]
+  },
+  {
+    "name": "Серебряный болт",
+    "tier": 8,
+    "base_grade": 0,
+    "line_key": "weapon_line_9",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "LIVING_ARTIFACT"
+    ],
+    "legendary_bonus_ids": [
+      46
+    ]
+  },
+  {
+    "name": "Арбалет призрака",
+    "tier": 9,
+    "base_grade": 0,
+    "line_key": "weapon_line_9",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [
+      "PAIN_COLLECTOR"
+    ],
+    "legendary_bonus_ids": [
+      27
+    ]
+  },
+  {
+    "name": "Арбалет звёзд",
+    "tier": 10,
+    "base_grade": 0,
+    "line_key": "weapon_line_9",
+    "slot_type": "weapon_2h",
+    "bonus_keys": [],
+    "legendary_bonus_ids": []
+  }
+]

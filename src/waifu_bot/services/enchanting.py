@@ -449,7 +449,29 @@ async def build_enchant_preview(session: AsyncSession, inventory_item_id: int, p
     if bool(inv.is_broken):
         cur = 0
     if int(inv.enchant_level or 0) >= 10 and not bool(inv.is_broken):
-        return {"error": "enchant_max_reached"}
+        max_cur = int(inv.enchant_level or 10)
+        eff_cur = get_effective_params(inv, armor_base=resolved.armor_base, secondary_bonus_value=frac_val)
+        return {
+            "max_reached": True,
+            "current_level": max_cur,
+            "target_level": max_cur,
+            "chance": None,
+            "is_risky": False,
+            "is_broken": False,
+            "enchant_cost_gold": None,
+            "current_params": {
+                "damage_min": eff_cur["damage_min"],
+                "damage_max": eff_cur["damage_max"],
+                "armor": eff_cur["armor"],
+                "secondary": eff_cur["secondary"],
+            },
+            "target_params": {
+                "damage_min": eff_cur["damage_min"],
+                "damage_max": eff_cur["damage_max"],
+                "armor": eff_cur["armor"],
+                "secondary": eff_cur["secondary"],
+            },
+        }
     target = cur + 1
     safe_max = cfg_int(cfg, "enchant.safe_max", 7)
 
@@ -516,6 +538,8 @@ async def build_enchant_preview(session: AsyncSession, inventory_item_id: int, p
         "is_broken": bool(inv.is_broken),
         "enchant_cost_gold": cost,
         "on_fail_hint": on_fail,
+        "stone_on_success": False if is_risky and target >= 8 else None,
+        "stone_on_fail": bool(is_risky and target >= 8),
         "awaken_on_success": awaken_hint,
         "passive_secondary_type": resolved.bonus_type if is_passive_secondary_type(resolved.bonus_type) else None,
         "passive_secondary_value": resolved.bonus_value if is_passive_secondary_type(resolved.bonus_type) else None,

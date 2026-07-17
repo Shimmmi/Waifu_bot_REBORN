@@ -21,6 +21,7 @@ def _state_response(raw: dict) -> schemas.TutorialStateResponse:
         completed=dict(raw.get("completed") or {}),
         skipped=bool(raw.get("skipped")),
         intro_reward_claimed=bool(raw.get("intro_reward_claimed")),
+        shop_kit_claimed=bool(raw.get("shop_kit_claimed")),
     )
 
 
@@ -71,3 +72,31 @@ async def tutorial_reset(
     state = await tutorial_svc.reset_tutorial_progress(session, player_id)
     await session.commit()
     return _state_response(state)
+
+
+@router.post(
+    "/tutorial/provision",
+    response_model=schemas.TutorialProvisionResponse,
+    tags=["tutorial"],
+)
+async def tutorial_provision(
+    body: schemas.TutorialProvisionRequest,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    kit_id = (body.kit_id or "").strip()
+    if not kit_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="kit_id_required")
+    try:
+        result = await tutorial_svc.provision_tutorial_kit(session, player_id, kit_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    await session.commit()
+    return schemas.TutorialProvisionResponse(
+        tutorial=_state_response(result["tutorial"]),
+        gold_granted=int(result.get("gold_granted") or 0),
+        dust_granted=int(result.get("dust_granted") or 0),
+        sell_item_id=result.get("sell_item_id"),
+        buy_hint=result.get("buy_hint"),
+        already_claimed=bool(result.get("already_claimed")),
+    )

@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Подземелья</title>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v65" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
-    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v65" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v62" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
+    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v62" />
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v65" onerror="console.warn('combat island skipped')"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v65" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
-    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v65" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v57'"></script>
+    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v62" onerror="console.warn('combat island skipped')"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v62" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
+    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v63" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v63'"></script>
     <style>
       .hp-fill-monster.monster-hp-fill--unknown {
         opacity: 0.35;
@@ -2523,6 +2523,34 @@
       .page-dungeons #tab-group .gd-info-note {
         color: #8a7a6a;
       }
+      .page-dungeons #tab-group .gd-webapp-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+        align-items: center;
+      }
+      .page-dungeons #tab-group .gd-section-title {
+        font-size: 0.95rem;
+        margin: 0 0 8px;
+        color: #e8dcc8;
+        font-weight: 600;
+      }
+      .page-dungeons #tab-group .gd-joinable-section {
+        margin-bottom: 16px;
+      }
+      .page-dungeons #tab-group #gd-my-section {
+        margin-bottom: 8px;
+      }
+      .page-dungeons #gd-muster-btn {
+        background: linear-gradient(135deg, #c8922a, #e8b84b);
+        color: #1a1410;
+        border: 1px solid rgba(200, 146, 42, 0.55);
+        font-weight: 600;
+      }
+      .page-dungeons #gd-muster-btn:hover {
+        filter: brightness(1.06);
+      }
 
       /* GD detail modal (appended to body) */
       body.page-dungeons .gd-modal-overlay {
@@ -2918,8 +2946,19 @@
           </div>
 
           <div id="tab-group" class="tab-panel" style="display: none;">
-            <div id="gd-dungeons-list" class="dungeons-gd-list"></div>
-            <!-- Содержимое подставляет app.js (updateGdSessionUI) при ?chat_id= -->
+            <div class="gd-webapp-toolbar">
+              <button type="button" class="btn primary" id="gd-muster-btn" onclick="WaifuApp.startGdMusterDefault()">Начать сбор группы</button>
+              <button type="button" class="gd-help-btn exp-help-btn" onclick="WaifuApp.openGdHelp()" aria-label="Справка" title="Справка">?</button>
+            </div>
+            <div id="gd-joinable-section" class="gd-joinable-section" style="display:none;">
+              <h3 class="gd-section-title">Доступно вступление</h3>
+              <div id="gd-joinable-list" class="dungeons-gd-list"></div>
+            </div>
+            <div id="gd-my-section" style="display:none;">
+              <h3 class="gd-section-title">Мои походы</h3>
+              <div id="gd-dungeons-list" class="dungeons-gd-list"></div>
+            </div>
+            <!-- Содержимое подставляет dungeons.js (updateGdSessionUI) при ?chat_id= -->
             <div id="gd-session-status" class="gd-session-card card" style="display:none;" aria-live="polite"></div>
           </div>
 
@@ -3244,7 +3283,7 @@
       <div class="item-art-gen-busy-panel">
         <div class="item-art-gen-busy-spinner" aria-hidden="true"></div>
         <p>Генерация изображения…</p>
-        <p class="item-art-gen-busy-hint muted tiny">OpenRouter может отвечать до 2 минут</p>
+        <p class="item-art-gen-busy-hint muted tiny">Генерация может занять до 2 минут</p>
       </div>
     </div>
   </body>

@@ -136,10 +136,10 @@ class MainWaifu(Base):
     portrait_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     paperdoll_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    bio: Mapped[str | None] = mapped_column(Text(), nullable=True)
-
     # RO paperdoll cosmetics snapshot from Steam character creator (overlay layers)
     paperdoll_cosmetics: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    bio: Mapped[str | None] = mapped_column(Text(), nullable=True)
 
     # True after last solo dungeon run ended with status failed (SURVIVOR_SPIRIT)
     last_dungeon_failed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

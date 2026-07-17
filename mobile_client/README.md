@@ -6,6 +6,8 @@ Capacitor shell for the **activity** economy: pedometer steps map 1:1 to TEXT ch
 
 All Android / activity work lives on **`feature/mobile-android`** only.
 
+On the VPS/dev host, use the dedicated checkout (git worktree) at **`/opt/waifu-bot-mobile-client`** — same layout as Steam at `/opt/waifu-bot-steam-client`. Keep `/opt/waifu-bot-REBORN` on a Telegram branch (`webapp-perf-prod` / `main`). Open Cursor on the mobile path for APK + activity API work.
+
 ```bash
 git fetch origin
 git checkout feature/mobile-android
@@ -19,7 +21,7 @@ Do **not** merge this branch into Telegram prod branches (`main`, `webapp-perf-p
 - Node.js **20+**
 - JDK **17**
 - Android Studio (SDK platform 34+, build-tools, platform-tools/`adb`)
-- Staging backend on this same branch with migration `0121_activity_economy`
+- Staging backend on this same branch with migration `0129_activity_economy`
 - `export WAIFU_MOBILE_BACKEND_URL=https://<your-staging-host>`
 
 ## One-time project setup

@@ -50,36 +50,8 @@ async def get_shop_inventory(
     session: AsyncSession = Depends(get_db),
 ):
     size = shop_size_for_act(act)
-    try:
-        items = await shop_service.get_shop_inventory(
-            session, act, size=size, player_id=player_id
-        )
-        await session.commit()
-    except HTTPException:
-        raise
-    except RuntimeError as e:
-        # Typical: empty item_base_templates / no seed content in staging DB.
-        logger.exception(
-            "shop inventory RuntimeError player_id=%s act=%s: %s", player_id, act, e
-        )
-        await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"shop_generation_failed:{e}",
-        ) from e
-    except Exception as e:
-        logger.exception(
-            "shop inventory failed player_id=%s act=%s: %s: %s",
-            player_id,
-            act,
-            type(e).__name__,
-            e,
-        )
-        await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"shop_inventory_failed:{type(e).__name__}",
-        ) from e
+    items = await shop_service.get_shop_inventory(session, act, size=size, player_id=player_id)
+    await session.commit()
     return schemas.ShopInventoryResponse(
         items=items, count=len(items), size=size, refresh_at=msk_next_midnight_utc_iso()
     )

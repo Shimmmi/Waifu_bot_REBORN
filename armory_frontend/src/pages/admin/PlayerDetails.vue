@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { apiGet, apiPost } from '../../api/client'
 
@@ -14,6 +14,13 @@ interface AdminPlayerFull {
 
 const full = ref<AdminPlayerFull | null>(null)
 const message = ref('')
+
+const guildId = computed(() => {
+  const g = full.value?.summary?.guild as { id?: number } | undefined
+  return g?.id ?? null
+})
+
+const character = computed(() => full.value?.summary?.character as Record<string, unknown> | undefined)
 
 async function load() {
   full.value = await apiGet(`/admin/players/${props.id}/full`)
@@ -37,6 +44,13 @@ onMounted(load)
   <div>
     <RouterLink to="/admin/players">← К списку</RouterLink>
     <h1 v-if="full">Игрок {{ id }}</h1>
+    <p v-if="full" style="margin: 0.5rem 0">
+      <RouterLink :to="`/p/${id}`">Публичный профиль</RouterLink>
+      <template v-if="guildId">
+        ·
+        <RouterLink :to="`/g/${guildId}`">Гильдия</RouterLink>
+      </template>
+    </p>
     <div v-if="full" class="card" style="margin-top: 1rem">
       <p>
         <strong>Админ бота:</strong>
@@ -48,14 +62,14 @@ onMounted(load)
     <div class="card" style="margin-top: 1rem">
       <h3>Действия</h3>
       <p
-        v-if="full?.summary?.character && 'paperdoll_generations_remaining' in (full.summary.character as object)"
+        v-if="character && 'paperdoll_generations_remaining' in character"
         class="muted"
         style="margin: 0.5rem 0 0"
       >
         Paper-doll: осталось генераций
-        {{ (full.summary.character as Record<string, unknown>).paperdoll_generations_remaining }}
+        {{ character.paperdoll_generations_remaining }}
         (бонус:
-        {{ (full.summary.character as Record<string, unknown>).paperdoll_bonus_generations ?? 0 }})
+        {{ character.paperdoll_bonus_generations ?? 0 }})
       </p>
       <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem">
         <button class="btn btn-danger" @click="action('wipe')">Вайп</button>

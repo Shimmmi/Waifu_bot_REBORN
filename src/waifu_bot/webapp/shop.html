@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Магазин</title>
-  <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v65" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
+  <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v62" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
   <style>
     :root {
       --ink: #0d0a08; /* основной фон */
@@ -910,6 +910,18 @@
       font-size: 12px;
       line-height: 1.45;
     }
+    body.page-shop .shop-smith-card.shop-smith-card--centered {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      overflow: hidden;
+    }
+    body.page-shop .shop-smith-preview-state {
+      color: var(--amber-glow, #e8b84b);
+      font-size: 12px;
+      line-height: 1.4;
+    }
     body.page-shop #shop-smith-pick-modal .modal-content {
       background: rgba(26, 20, 16, 0.97);
       border: 1px solid rgba(200, 146, 42, 0.35);
@@ -1162,7 +1174,7 @@
   <link rel="stylesheet" href="./assets/tutorial.css" />
   <script defer src="./vendor/telegram-web-app.js"></script>
   <script defer src="./assets/tutorial.js"></script>
-  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v65" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
+  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v62" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
 </head>
 <body class="page-shop">
   <header class="attic">
@@ -1337,7 +1349,7 @@
             <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-auto-btn" onclick="WaifuApp.smithAutoSafeEnchant()" disabled>До +7</button>
             <label class="shop-smith-stone-check" id="shop-smith-stone-check-wrap" hidden>
               <input type="checkbox" id="shop-smith-use-stone" />
-              <span>Камень</span>
+              <span>Камень (тратится только при неудачной заточке +8 и выше)</span>
             </label>
             <button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.buyProtectionStoneShop()">Купить камень</button>
           </div>
@@ -1541,7 +1553,7 @@
         <div class="item-modal-sell-price-line">Вы получите <strong>🪙 <span id="item-modal-sell-gold">—</span></strong></div>
         <div class="item-modal-sell-actions">
           <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemSellConfirmOverlay()">Отмена</button>
-          <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" onclick="WaifuApp.confirmSellSelectedItem()">Продать</button>
+          <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell-confirm" onclick="WaifuApp.confirmSellSelectedItem()">Продать</button>
         </div>
       </div>
     </div>
@@ -1682,7 +1694,7 @@
     <div class="item-art-gen-busy-panel">
       <div class="item-art-gen-busy-spinner" aria-hidden="true"></div>
       <p>Генерация иконки…</p>
-      <p class="item-art-gen-busy-hint muted tiny">OpenRouter может отвечать до 2 минут</p>
+      <p class="item-art-gen-busy-hint muted tiny">Генерация может занять до 2 минут</p>
     </div>
   </div>
 </body>

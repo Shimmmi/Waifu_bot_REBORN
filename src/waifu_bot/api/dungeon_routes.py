@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -19,6 +20,15 @@ router = APIRouter()
 
 dungeon_service = DungeonService()
 combat_service = CombatService(redis_client=get_redis())
+
+
+class GdChatIdBody(BaseModel):
+    chat_id: int = Field(..., description="Telegram group chat id")
+
+
+class GdStopBody(BaseModel):
+    chat_id: int | None = Field(None, description="Telegram group chat id (fallback)")
+    cycle_id: int | None = Field(None, description="GD cycle id (preferred)")
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +63,8 @@ def _gd_v1_dungeon_card_dict(
     cycle: m.GDCycle,
     template: m.GDDungeonTemplate | None,
     player_id: int,
+    *,
+    registration: m.GDRegistration | None = None,
 ) -> dict:
     """Payload for WebApp group-dungeon cards (GD v1 cycles)."""
     state = cycle.battle_state_json or {}
@@ -79,6 +91,44 @@ def _gd_v1_dungeon_card_dict(
     deadline_iso = (
         cycle.round_deadline_at.isoformat() if cycle.round_deadline_at is not None else None
     )
+    activity = state.get("activity_totals") or {}
+    power = 0.0
+    presence = 0.0
+    joined_at_round = 1
+    if registration is not None:
+        joined_at_round = max(1, int(getattr(registration, "joined_at_round", None) or 1))
+    stage_mult = 1.0
+    try:
+        from waifu_bot.services.gd_scaling import (
+            late_join_reward_stage_mult,
+            power_score_from_contrib,
+            presence_score_for_uid,
+        )
+        from waifu_bot.services.game_config_service import get_game_config_map
+
+        power = power_score_from_contrib(contrib)
+        presence = presence_score_for_uid(
+            int(player_id),
+            activity,
+            state.get("contribution") or {},
+            apply_floor=(joined_at_round <= 1 or contrib_rounds >= 1),
+        )
+    except Exception:
+        pass
+    try:
+        from waifu_bot.services.gd_scaling import late_join_reward_stage_mult
+
+        total_est = max(8, int(cycle.total_rounds or 12))
+        stage_mult = late_join_reward_stage_mult(joined_at_round, total_est, {})
+    except Exception:
+        stage_mult = 1.0
+    try:
+        from waifu_bot.services.gd_scaling import wipe_reward_multiplier
+
+        wipe_m = wipe_reward_multiplier(int(state.get("wipe_count") or 0), {})
+        wipe_pct = int(round(100 * float(wipe_m)))
+    except Exception:
+        wipe_pct = 100
     return {
         "v1": True,
         "id": cycle.id,
@@ -95,9 +145,20 @@ def _gd_v1_dungeon_card_dict(
         "hp_percent": hp_pct,
         "total_damage": total_damage,
         "contrib_rounds": contrib_rounds,
-        "joined_at_stage": 1,
+        "power_score": int(power),
+        "presence_score": int(presence),
+        "assists": int(contrib.get("assists") or 0),
+        "challenge_level": int(state.get("challenge_level") or 0) or None,
+        "wipe_count": int(state.get("wipe_count") or 0),
+        "idle_silent_streak": int(state.get("idle_silent_streak") or 0),
+        "wipe_reward_pct": wipe_pct,
+        "joined_at_stage": joined_at_round,
+        "joined_at_round": joined_at_round,
+        "reward_stage_mult": round(float(stage_mult), 3),
+        "reward_stage_pct": int(round(100 * float(stage_mult))),
         "duration_seconds": max(0, duration),
         "active_effects": [],
+        "can_stop": registration is not None and cycle.status == "active",
     }
 
 
@@ -163,11 +224,150 @@ async def get_gd_dungeons_active(
             .order_by(m.GDCycle.id.desc())
         )
         rows = (await session.execute(stmt)).all()
-        dungeons = [_gd_v1_dungeon_card_dict(cycle, tmpl, player_id) for cycle, _reg, tmpl in rows]
+        dungeons = [
+            _gd_v1_dungeon_card_dict(cycle, tmpl, player_id, registration=reg)
+            for cycle, reg, tmpl in rows
+        ]
         return {"dungeons": dungeons}
     except Exception as e:
         logger.exception("Failed /gd/dungeons/active for player_id=%s: %s", player_id, e)
         return {"dungeons": []}
+
+
+@router.get("/gd/available-chats", tags=["gd"])
+async def get_gd_available_chats(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Group chats where both the player and bot are present (muster picker)."""
+    from waifu_bot.core import redis as redis_core
+    from waifu_bot.services.gd_cycle_service import GDCycleService
+    from waifu_bot.services.gd_webapp_service import list_gd_available_chats
+
+    gd = GDCycleService(redis_core.get_redis())
+    chats = await list_gd_available_chats(session, player_id, gd)
+    return {"chats": chats}
+
+
+@router.get("/gd/dungeons/joinable", tags=["gd"])
+async def get_gd_dungeons_joinable(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Open GD cycles in the player's bot chats that they have not joined yet."""
+    from waifu_bot.core import redis as redis_core
+    from waifu_bot.services.gd_cycle_service import GDCycleService
+    from waifu_bot.services.gd_webapp_service import list_gd_joinable_dungeons
+
+    gd = GDCycleService(redis_core.get_redis())
+    dungeons = await list_gd_joinable_dungeons(session, player_id, gd)
+    return {"dungeons": dungeons}
+
+
+@router.post("/gd/muster", tags=["gd"])
+async def post_gd_muster(
+    body: GdChatIdBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Open registration in a chat and post a short muster invite."""
+    from waifu_bot.core import redis as redis_core
+    from waifu_bot.services.gd_cycle_service import GDCycleService
+    from waifu_bot.services.gd_webapp_service import muster_gd_in_chat
+    from waifu_bot.services.webhook import get_bot
+
+    chat_id = int(body.chat_id)
+    gd = GDCycleService(redis_core.get_redis())
+    bot = None
+    try:
+        bot = get_bot()
+    except Exception:
+        logger.debug("get_bot failed for muster", exc_info=True)
+    result = await muster_gd_in_chat(session, player_id, chat_id, gd, bot)
+    if result.get("error") == "forbidden":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=result)
+    if result.get("error") and result.get("error") != "send_failed":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result)
+    await session.commit()
+    return result
+
+
+@router.post("/gd/join", tags=["gd"])
+async def post_gd_join(
+    body: GdChatIdBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Join registration or late-join an active GD in a chat the player shares with the bot."""
+    from waifu_bot.core import redis as redis_core
+    from waifu_bot.services.gd_cycle_service import GDCycleService
+    from waifu_bot.services.gd_webapp_service import join_gd_from_webapp_or_dm
+    from waifu_bot.services.webhook import get_bot
+
+    chat_id = int(body.chat_id)
+    gd = GDCycleService(redis_core.get_redis())
+    bot = None
+    try:
+        bot = get_bot()
+    except Exception:
+        logger.debug("get_bot failed for join", exc_info=True)
+    result = await join_gd_from_webapp_or_dm(session, player_id, chat_id, gd, bot)
+    if result.get("error") == "forbidden":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=result)
+    if result.get("error"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result)
+    await session.commit()
+    return result
+
+
+@router.post("/gd/stop", tags=["gd"])
+async def post_gd_stop(
+    body: GdStopBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Stop an active GD as a registered participant (no victory rewards)."""
+    from waifu_bot.core import redis as redis_core
+    from waifu_bot.services.gd_cycle_service import GDCycleService
+    from waifu_bot.services.gd_webapp_service import stop_gd_for_player
+    from waifu_bot.services.webhook import get_bot
+
+    if body.cycle_id is None and body.chat_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "bad_request", "message": "Укажите cycle_id или chat_id."},
+        )
+    gd = GDCycleService(redis_core.get_redis())
+    bot = None
+    try:
+        bot = get_bot()
+    except Exception:
+        logger.debug("get_bot failed for stop", exc_info=True)
+    result = await stop_gd_for_player(
+        session,
+        player_id,
+        gd,
+        bot,
+        chat_id=int(body.chat_id) if body.chat_id is not None else None,
+        cycle_id=int(body.cycle_id) if body.cycle_id is not None else None,
+    )
+    if result.get("error") == "forbidden":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=result)
+    if result.get("error"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result)
+    await session.commit()
+    # Invalidate Redis only after successful commit
+    try:
+        from waifu_bot.services import gd_active_cache as gd_active_cache_mod
+
+        chat = result.get("chat_id")
+        if chat is not None:
+            await gd_active_cache_mod.invalidate_active_cycle_cache(
+                redis_core.get_redis(), int(chat)
+            )
+    except Exception:
+        logger.debug("GD stop cache invalidate after commit failed", exc_info=True)
+    return result
 
 
 @router.get("/gd/cycle/{chat_id}", tags=["gd"])

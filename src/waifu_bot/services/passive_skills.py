@@ -27,6 +27,7 @@ _PASSIVE_EFFECT_CAP_AT_TABLE_MAX: frozenset[str] = frozenset(
         "revive_chance",
         "survive_chance",
         "full_evade_chance",
+        "crit_dmg_melee_pct",
     }
 )
 
@@ -779,6 +780,18 @@ def merge_passive_into_profile_details(
     sd = float(ps.get("shop_discount_pct", 0) or 0)
     if sd > 0:
         out["merchant_discount"] = round(float(out.get("merchant_discount", 0) or 0) + sd * 100.0 * 0.25, 2)
+    return out
+
+
+def apply_guild_hp_to_profile_details(
+    details: dict[str, Any],
+    gfx: dict[str, float],
+) -> dict[str, Any]:
+    """Apply guild Живучесть (max_hp_pct) to profile details hp_max."""
+    out = dict(details)
+    pct = float(gfx.get("max_hp_pct", 0) or 0)
+    if pct > 0:
+        out["hp_max"] = int(round(int(out.get("hp_max", 0) or 0) * (1.0 + pct)))
     return out
 
 

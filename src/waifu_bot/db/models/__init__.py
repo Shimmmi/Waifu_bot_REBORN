@@ -121,6 +121,7 @@ from waifu_bot.db.models.abyss import (
     AbyssWeeklyLeaderboard,
     AbyssShardsShopItem,
 )
+from waifu_bot.db.models.perfection import PlayerPerfectionBonus, PlayerPerfectionPending
 from waifu_bot.db.models.activity import ActivityInputState, ActivityItemTemplate
 
 __all__ = [
@@ -240,6 +241,8 @@ __all__ = [
     "AbyssGrace",
     "AbyssWeeklyLeaderboard",
     "AbyssShardsShopItem",
+    "PlayerPerfectionBonus",
+    "PlayerPerfectionPending",
     "ActivityInputState",
     "ActivityItemTemplate",
 ]

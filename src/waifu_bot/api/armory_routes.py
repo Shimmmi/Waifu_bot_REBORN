@@ -28,14 +28,23 @@ from waifu_bot.db.models.armory import PlayerBan
 from waifu_bot.services.armory_access import can_view_private
 from waifu_bot.services.armory_rate_limit import client_ip, rate_limit_by_ip, rate_limit_by_user
 from waifu_bot.services.armory_service import (
+    LEADERBOARD_KINDS,
     admin_stats,
     build_dungeon_history,
     build_event_feed,
+    build_guild_achievements,
+    build_guild_bank,
+    build_guild_members,
+    build_guild_raids,
+    build_guild_summary,
+    build_guild_wars,
     build_inventory_list,
     build_leaderboard,
     build_public_summary,
     build_stats_detail,
     load_player_bundle,
+    recompute_all_gear_scores,
+    recompute_and_store_gear_score,
     search_players,
 )
 from waifu_bot.services.paperdoll_quota import paperdoll_generations_remaining
@@ -451,9 +460,102 @@ async def get_leaderboard(
     limit: int = Query(50, ge=1, le=100),
 ):
     await rate_limit_by_ip(redis, request, "leaderboards", 120)
-    if kind not in ("level", "gold", "dungeon_plus", "guild"):
+    if kind not in LEADERBOARD_KINDS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unknown leaderboard kind")
     return {"kind": kind, "items": await build_leaderboard(session, kind, limit)}
+
+
+@router.get("/guilds/{guild_id}")
+async def get_guild(
+    guild_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    await rate_limit_by_ip(redis, request, "guild_summary", 60)
+    data = await build_guild_summary(session, guild_id)
+    if not data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="guild not found")
+    return data
+
+
+@router.get("/guilds/{guild_id}/members")
+async def get_guild_members(
+    guild_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    await rate_limit_by_ip(redis, request, "guild_members", 60)
+    items = await build_guild_members(session, guild_id)
+    if items is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="guild not found")
+    return {"items": items}
+
+
+@router.get("/guilds/{guild_id}/raids")
+async def get_guild_raids(
+    guild_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    limit: int = Query(30, ge=1, le=100),
+):
+    await rate_limit_by_ip(redis, request, "guild_raids", 60)
+    data = await build_guild_raids(session, guild_id, limit=limit)
+    if data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="guild not found")
+    return data
+
+
+@router.get("/guilds/{guild_id}/wars")
+async def get_guild_wars(
+    guild_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    limit: int = Query(30, ge=1, le=100),
+):
+    await rate_limit_by_ip(redis, request, "guild_wars", 60)
+    data = await build_guild_wars(session, guild_id, limit=limit)
+    if data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="guild not found")
+    return data
+
+
+@router.get("/guilds/{guild_id}/achievements")
+async def get_guild_achievements(
+    guild_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    await rate_limit_by_ip(redis, request, "guild_achievements", 60)
+    items = await build_guild_achievements(session, guild_id)
+    if items is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="guild not found")
+    return {"items": items}
+
+
+@router.get("/guilds/{guild_id}/bank")
+async def get_guild_bank(
+    guild_id: int,
+    request: Request,
+    viewer: ArmoryUserOptional,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    await rate_limit_by_ip(redis, request, "guild_bank", 60)
+    viewer_is_admin = bool(viewer and settings.is_admin(int(viewer)))
+    data = await build_guild_bank(
+        session,
+        guild_id,
+        viewer_tg_id=int(viewer) if viewer else None,
+        viewer_is_admin=viewer_is_admin,
+    )
+    if data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="guild not found")
+    return data
 
 
 # --- Admin ---
@@ -486,6 +588,20 @@ async def admin_get_stats(
 ):
     await rate_limit_by_user(redis, admin_id, "admin_stats", 60)
     return await admin_stats(session)
+
+
+@router.post("/admin/gear-score/recompute", dependencies=[Depends(verify_csrf)])
+async def admin_recompute_gear_scores(
+    request: Request,
+    admin_id: ArmoryAdmin,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    await rate_limit_by_user(redis, admin_id, "admin_gs_recompute", 2)
+    result = await recompute_all_gear_scores(session)
+    await _admin_audit(session, request, admin_id, "recompute_gear_scores", payload=result)
+    await session.commit()
+    return {"success": True, **result}
 
 
 @router.get("/admin/players")

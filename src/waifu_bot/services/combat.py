@@ -1,4 +1,5 @@
 """Combat service for battle mechanics."""
+import logging
 import time
 from collections import defaultdict
 from typing import Optional
@@ -55,7 +56,6 @@ from waifu_bot.game.formulas import (
     calculate_dodge_chance,
     calculate_damage_reduction,
     calculate_total_experience_for_level,
-    get_crit_multiplier,
 )
 from waifu_bot.game.constants import MAX_LEVEL
 from waifu_bot.services.energy import apply_regen
@@ -77,7 +77,6 @@ from waifu_bot.services.hidden_skills import (
     is_night_moscow,
     set_skill_counter,
     try_early_bird_day,
-    try_first_hit_hour_damage_bonus,
     try_hoarder_saving_streak,
     try_track_consistent_day,
     try_track_marathon_session,
@@ -90,7 +89,11 @@ from waifu_bot.game.effective_stats import (
     roll_weapon_damage_and_meta,
     stat_multipliers_from_passive_hidden,
 )
-from waifu_bot.services.passive_skills import get_passive_skill_bonuses, get_passive_contributions_for_log
+from waifu_bot.services.passive_skills import get_passive_skill_bonuses
+from waifu_bot.services.outgoing_message_damage import (
+    apply_outgoing_crit_bonuses,
+    apply_outgoing_flats_and_bonus_pool,
+)
 from waifu_bot.services import bestiary as bestiary_service
 from waifu_bot.services.combat_contributions import (
     collect_all_dmg_reduce_contribs,
@@ -99,9 +102,13 @@ from waifu_bot.services.combat_contributions import (
     collect_passive_armor_flat_contribs,
     collect_passive_armor_pct_contribs,
 )
+from waifu_bot.game.outgoing_damage_pool import (
+    legendary_crit_add,
+    legendary_pool_add,
+)
 from waifu_bot.services.combat_damage_trace import (
     DamageTrace,
-    append_passive_pool_trace,
+    append_legendary_post_crit_trace,
     build_damage_summary_ru,
     build_incoming_damage_breakdown_ru,
     build_incoming_damage_summary_ru,
@@ -114,7 +121,6 @@ from waifu_bot.services.elite_affix_combat import (
     apply_regen_after_hit,
     apply_stone_skin_to_damage,
     berserk_multiplier,
-    effective_crit_chance_after_anti_crit,
     reflect_params,
     roll_reflect,
     split_behavior_params,
@@ -515,6 +521,27 @@ async def apply_main_waifu_levelups(session: AsyncSession, waifu: MainWaifu) -> 
             )
         except Exception:
             pass
+
+    # Post-60: unlock perfection and divert overflow XP off the main curve.
+    if int(getattr(waifu, "level", 1) or 1) >= int(MAX_LEVEL):
+        try:
+            from waifu_bot.db.models import Player
+            from waifu_bot.services.perfection import (
+                add_perfection_xp,
+                unlock_perfection_if_needed,
+            )
+
+            player = await session.get(Player, int(waifu.player_id))
+            if player is not None:
+                await unlock_perfection_if_needed(session, player, waifu)
+                if int(getattr(player, "perfection_level", 0) or 0) > 0:
+                    cap_xp = int(calculate_total_experience_for_level(int(MAX_LEVEL)))
+                    excess = max(0, int(getattr(waifu, "experience", 0) or 0) - cap_xp)
+                    if excess > 0:
+                        waifu.experience = cap_xp
+                        await add_perfection_xp(session, player, excess)
+        except Exception:
+            pass
     return changed
 
 
@@ -708,6 +735,9 @@ def _with_guild_reward_bonus(payload: dict, guild_bonus: list | dict | None) -> 
     return payload
 
 
+logger = logging.getLogger(__name__)
+
+
 class CombatService:
     """Service for combat mechanics."""
 
@@ -799,6 +829,15 @@ class CombatService:
         ps = await get_passive_skill_bonuses(session, player_id)
         hs = await get_hidden_skill_bonuses(session, player_id)
         hr_pm = max(0, int(round(float(hs.get("hp_regen_per_active_hour", 0) or 0))))
+        try:
+            from waifu_bot.services.perfection import (
+                hp_regen_per_min_from_totals,
+                load_perfection_totals,
+            )
+
+            hr_pm += hp_regen_per_min_from_totals(await load_perfection_totals(session, player_id))
+        except Exception:
+            pass
         from datetime import timezone as _tz
 
         from waifu_bot.services.combat_regen import apply_hp_regen_for_context
@@ -930,43 +969,17 @@ class CombatService:
                     hp_after=hp_after_dot,
                 )
             if int(waifu.current_hp or 0) <= 0:
-                run.status = "failed"
-                run.ended_at = datetime.utcnow()
-                waifu.current_hp = 1
-                prog_q = await session.execute(
-                    select(DungeonProgress).where(
-                        DungeonProgress.player_id == run.player_id,
-                        DungeonProgress.dungeon_id == run.dungeon_id,
-                    )
-                )
-                _prog = prog_q.scalar_one_or_none()
-                if _prog:
-                    _prog.is_active = False
-                _dot_dungeon = await session.get(Dungeon, run.dungeon_id)
-                _dot_name = getattr(_dot_dungeon, "name", None) if _dot_dungeon else None
-                _dot_pl = int(getattr(run, "plus_level", 0) or 0)
-                await session.commit()
-                from waifu_bot.services.dungeon_notify import notify_solo_dungeon_outcome
-
-                await notify_solo_dungeon_outcome(
+                player_dot = await session.get(Player, int(run.player_id))
+                fail_out = await self._fail_solo_dungeon_run(
                     session,
-                    int(run.player_id),
-                    completed=False,
-                    dungeon_name=_dot_name,
-                    dungeon_id=int(run.dungeon_id),
-                    plus_level=_dot_pl,
-                    gold=0,
-                    exp=0,
+                    run,
+                    waifu,
                     reason="dot",
-                    waifu_current_hp=int(waifu.current_hp or 0),
-                    waifu_max_hp=int(waifu.max_hp or 0),
+                    incoming_damage=int(dot_total),
+                    player=player_dot,
+                    monster_defeated=False,
                 )
-                fail_out = {
-                    "dungeon_failed": True,
-                    "waifu_died": True,
-                    "reason": "dot",
-                    "dot_damage": dot_total,
-                }
+                fail_out["dot_damage"] = dot_total
                 await self._publish_battle_event(player_id, fail_out)
                 return fail_out
             if shock_skip:
@@ -1012,247 +1025,106 @@ class CombatService:
                 delta=0,
             )
 
-        passive_log_rows = await get_passive_contributions_for_log(session, player_id)
-        if attack_type == "melee":
-            damage = append_passive_pool_trace(
-                trace, passive_log_rows, "melee_dmg_pct", "ближний бой", "passive_melee_pct_pool", damage
-            )
-        elif attack_type == "ranged":
-            damage = append_passive_pool_trace(
-                trace, passive_log_rows, "ranged_dmg_pct", "дальний бой", "passive_ranged_pct_pool", damage
-            )
-        elif attack_type == "magic":
-            damage = append_passive_pool_trace(
-                trace, passive_log_rows, "magic_dmg_pct", "магия", "passive_magic_pct_pool", damage
-            )
-
-        if media_type in (MediaType.TEXT, MediaType.LINK):
-            dt = float(hs.get("dmg_text_pct", 0) or 0)
-            if dt:
-                nb = damage
-                fac = 1.0 + dt / 100.0
-                damage = int(damage * fac)
-                trace.mult("hidden_dmg_text", f"Скрытый навык: урон от текста +{dt:.0f}%", nb, damage, factor=fac)
-
-        if source_chat_id is not None and int(source_chat_id) < 0:
-            gd = float(hs.get("group_dmg_pct", 0) or 0)
-            if gd > 0:
-                nb = damage
-                fac = 1.0 + gd / 100.0
-                damage = int(damage * fac)
-                trace.mult(
-                    "hidden_group_dmg",
-                    f"Скрытый «Командный игрок»: урон в группе +{gd:.0f}%",
-                    nb,
-                    damage,
-                    factor=fac,
-                )
-
-        _media_mult_key = {
-            MediaType.STICKER: "media_sticker_mult",
-            MediaType.PHOTO: "media_photo_mult",
-            MediaType.GIF: "media_gif_mult",
-            MediaType.AUDIO: "media_audio_mult",
-            MediaType.VOICE: "media_audio_mult",
-            MediaType.VIDEO: "media_video_mult",
-        }.get(media_type)
-        if _media_mult_key:
-            mm = float(hs.get(_media_mult_key, 0) or 0)
-            if mm > 0:
-                nb = damage
-                damage = int(damage * mm)
-                trace.mult("hidden_media_mult", f"Скрытый навык: множитель медиа ×{mm:.3f}", nb, damage, factor=mm)
-
-        if media_type not in (MediaType.TEXT, MediaType.LINK):
-            damage = append_passive_pool_trace(
-                trace, passive_log_rows, "media_dmg_pct", "урон по медиа", "passive_media_dmg_pool", damage
-            )
-            damage = append_passive_pool_trace(
-                trace,
-                passive_log_rows,
-                "media_mult_bonus",
-                "множитель медиа",
-                "passive_media_mult_bonus_pool",
-                damage,
-            )
-
-        fh_mult = await try_first_hit_hour_damage_bonus(
-            self.redis, player_id, float(hs.get("first_hit_per_hour_pct", 0) or 0)
-        )
-        if fh_mult > 1:
-            nb = damage
-            damage = int(damage * fh_mult)
-            trace.mult("hidden_first_hit_hour", f"Скрытый: бонус «первый удар часа» ×{fh_mult:.3f}", nb, damage, factor=fh_mult)
-
-        damage = append_passive_pool_trace(
-            trace,
-            passive_log_rows,
-            "active_skill_dmg_pct",
-            "активные навыки",
-            "passive_active_skill_pool",
-            damage,
-        )
-
-        # Apply Diablo-style bonus keys (media- and monster-type).
-        # Note: these bonuses come from equipped items (affixes), not from base stats.
-        try:
-            media_key = {
-                MediaType.TEXT: "media_damage_text_percent",
-                MediaType.STICKER: "media_damage_sticker_percent",
-                MediaType.PHOTO: "media_damage_photo_percent",
-                MediaType.GIF: "media_damage_gif_percent",
-                MediaType.AUDIO: "media_damage_audio_percent",
-                MediaType.VIDEO: "media_damage_video_percent",
-                MediaType.VOICE: "media_damage_voice_percent",
-                MediaType.LINK: "media_damage_link_percent",
-            }.get(media_type)
-            if media_key:
-                bonus_pct = int(eff_bonuses.get(media_key, 0) or 0)
-                if bonus_pct:
-                    nb = damage
-                    fac = 1.0 + bonus_pct / 100.0
-                    damage = int(damage * fac)
-                    trace.mult(
-                        "affix_media_type",
-                        f"Экипировка: урон по типу медиа +{bonus_pct}%",
-                        nb,
-                        damage,
-                        factor=fac,
-                    )
-        except Exception:
-            pass
-
-        # Monster-family bonuses (undead/beast/demon/...)
-        try:
-            monster_family = None
-            if run and run_monster:
-                monster_family = (getattr(run_monster, "family", None) or "").strip().lower() or None
-            elif monster is not None:
-                monster_family = (getattr(monster, "monster_type", None) or "").strip().lower() or None
-
-            if monster_family:
-                flat_key = f"damage_vs_monster_type_flat:{monster_family}"
-                pct_key = f"damage_vs_monster_type_percent:{monster_family}"
-                flat_bonus = int(eff_bonuses.get(flat_key, 0) or 0)
-                pct_bonus = int(eff_bonuses.get(pct_key, 0) or 0)
-                if flat_bonus:
-                    nb = int(damage)
-                    damage = nb + int(flat_bonus)
-                    trace.add(
-                        "affix_vs_family_flat",
-                        f"Экипировка: урон против «{monster_family}» +{flat_bonus}",
-                        nb,
-                        damage,
-                        delta=flat_bonus,
-                    )
-                if pct_bonus:
-                    nb = damage
-                    fac = 1.0 + pct_bonus / 100.0
-                    damage = int(damage * fac)
-                    trace.mult(
-                        "affix_vs_family_pct",
-                        f"Экипировка: урон против «{monster_family}» +{pct_bonus}%",
-                        nb,
-                        damage,
-                        factor=fac,
-                    )
-        except Exception:
-            pass
-
-        # Bestiary: per-monster outgoing damage bonus (scales with discovery tier).
-        try:
-            if run and run_monster is not None and getattr(run_monster, "template_id", None):
-                bb = await bestiary_service.get_bestiary_bonuses(
-                    session, player_id, int(run_monster.template_id), redis=self.redis
-                )
-                if bb.dmg_pct:
-                    nb = damage
-                    fac = 1.0 + float(bb.dmg_pct)
-                    damage = int(damage * fac)
-                    trace.mult(
-                        "bestiary_dmg",
-                        f"Бестиарий: знание монстра +{round(bb.dmg_pct * 100)}% урона",
-                        nb,
-                        damage,
-                        factor=fac,
-                    )
-        except Exception:
-            pass
-
-        try:
-            st = float(ps.get("stun_chance", 0) or 0)
-            if st > 0 and random.random() < st:
-                nb = damage
-                damage = int(damage * 1.2)
-                trace.mult("passive_stun_proc", "Пассив: срабатывание оглушения ×1.2", nb, damage, factor=1.2)
-        except Exception:
-            pass
-
-        try:
-            max_hp_w = max(1, int(waifu.max_hp or 1))
-            cur_hp_w = int(waifu.current_hp or 0)
-            lhp = float(ps.get("low_hp_dmg_pct", 0) or 0)
-            if lhp > 0 and cur_hp_w * 2 <= max_hp_w:
-                damage = append_passive_pool_trace(
-                    trace, passive_log_rows, "low_hp_dmg_pct", "низкое HP", "passive_low_hp_pool", damage
-                )
-            hld = float(ps.get("hp_loss_dmg_pct", 0) or 0)
-            if hld > 0:
-                missing = 1.0 - (float(cur_hp_w) / float(max_hp_w))
-                steps = int(missing / 0.1)
-                if steps > 0:
-                    nb = damage
-                    fac = 1.0 + hld * float(steps)
-                    damage = int(damage * fac)
-                    trace.mult(
-                        "passive_hp_loss",
-                        f"Пассив: потеря HP (+{steps} ступеней × {hld:.2f})",
-                        nb,
-                        damage,
-                        factor=fac,
-                    )
-        except Exception:
-            pass
-        try:
-            dbf = float(ps.get("debuff_dmg_pct", 0) or 0)
-            if dbf > 0 and run_monster is not None and getattr(run_monster, "applied_affix_ids", None):
-                damage = append_passive_pool_trace(
-                    trace, passive_log_rows, "debuff_dmg_pct", "ослабленные", "passive_debuff_dmg_pool", damage
-                )
-        except Exception:
-            pass
-
         msg_n = 0
         if run_monster is not None:
             msg_n = int(run_monster.messages_on_monster or 0)
         elif progress is not None:
             msg_n = int(progress.current_monster_messages or 0)
 
+        monster_family: str | None = None
         try:
-            fhd = float(ps.get("first_hit_dmg_pct", 0) or 0)
-            if fhd > 0 and msg_n == 0:
-                damage = append_passive_pool_trace(
-                    trace, passive_log_rows, "first_hit_dmg_pct", "первый удар", "passive_first_hit_pool", damage
+            if run and run_monster:
+                monster_family = (getattr(run_monster, "family", None) or "").strip().lower() or None
+            elif monster is not None:
+                monster_family = (getattr(monster, "monster_type", None) or "").strip().lower() or None
+        except Exception:
+            monster_family = None
+
+        bestiary_dmg_pct = 0.0
+        bestiary_dmg_taken_pct = 0.0
+        try:
+            if run and run_monster is not None and getattr(run_monster, "template_id", None):
+                bb = await bestiary_service.get_bestiary_bonuses(
+                    session, player_id, int(run_monster.template_id), redis=self.redis
                 )
+                bestiary_dmg_pct = float(bb.dmg_pct or 0)
+                bestiary_dmg_taken_pct = float(bb.dmg_taken_pct or 0.0)
         except Exception:
             pass
-        try:
-            mat = float(ps.get("media_after_text_pct", 0) or 0)
-            if (
-                mat > 0
-                and msg_n >= 3
-                and media_type not in (MediaType.TEXT, MediaType.LINK)
-            ):
-                damage = append_passive_pool_trace(
-                    trace,
-                    passive_log_rows,
-                    "media_after_text_pct",
-                    "медиа после текста",
-                    "passive_media_after_text_pool",
-                    damage,
+
+        leg_ctx = None
+        leg_outgoing_agg = None
+        leg_force_crit = False
+        leg_crit_add = 0.0
+        leg_ignore_dodge = False
+        leg_ignore_affixes = False
+        legendary_self_dmg = 0
+        leg_pool_add = 0.0
+        leg_contributions: list = []
+        if run and legendary_bridge.active and run_monster is not None:
+            if combat_player is None:
+                combat_player = await session.get(Player, player_id)
+            from waifu_bot.game.legendary_bonuses.state import merge_battle_state as _lbs_merge
+
+            leg_ctx = legendary_bridge.build_context(
+                player_id=player_id,
+                waifu=waifu,
+                run=run,
+                run_monster=run_monster,
+                battle_state=_lbs_merge(run.battle_state or {}, legendary_state_patch),
+                base_damage=legendary_base_damage,
+                media_type=media_type,
+                message_length=msg_len,
+                player_gold=int(combat_player.gold or 0) if combat_player else 0,
+                extra_data=build_legendary_extra_data(media_type, message_text),
+            )
+            try:
+                leg_outgoing_agg = legendary_bridge.run_outgoing_for_pool(leg_ctx)
+                legendary_state_patch.update(leg_outgoing_agg.battle_state_patch or {})
+                leg_force_crit = bool(leg_outgoing_agg.force_crit)
+                leg_pool_add = legendary_pool_add(
+                    leg_outgoing_agg.damage_multiplier,
+                    max_total_mult=legendary_bridge._max_mult,
                 )
-        except Exception:
-            pass
+                leg_crit_add = legendary_crit_add(leg_outgoing_agg.crit_damage_multiplier)
+                leg_contributions = list(leg_outgoing_agg.contributions or [])
+            except Exception:
+                logger.exception(
+                    "outgoing legendary pool failed player_id=%s",
+                    player_id,
+                )
+                leg_outgoing_agg = None
+                leg_force_crit = False
+                leg_pool_add = 0.0
+                leg_crit_add = 0.0
+                leg_contributions = []
+
+        pool_result = await apply_outgoing_flats_and_bonus_pool(
+            session,
+            player_id=player_id,
+            damage=int(damage),
+            attack_type=attack_type,
+            media_type=media_type,
+            eff_bonuses=eff_bonuses,
+            ps=ps,
+            hs=hs,
+            waifu=waifu,
+            msg_n=msg_n,
+            monster_family=monster_family,
+            has_monster_debuff=bool(
+                run_monster is not None and getattr(run_monster, "applied_affix_ids", None)
+            ),
+            is_group_chat=source_chat_id is not None and int(source_chat_id) < 0,
+            bestiary_dmg_pct=bestiary_dmg_pct,
+            redis_client=self.redis,
+            leg_pool_add=leg_pool_add,
+            leg_contributions=leg_contributions,
+            trace=trace,
+            log_context="solo",
+            skip_equipment_flats=True,
+        )
+        damage = pool_result.damage
+        stun_proc = pool_result.stun_proc
 
         # Elite affix pipeline: curse → stone_skin → immune → media_block → crit (anti_crit) → defense/evade
         affix_rows: list[MonsterAffix] = []
@@ -1310,88 +1182,35 @@ class CombatService:
         if run_monster is not None and affix_rows and damage > 0 and not monster_media_immune:
             damage, media_blocked = apply_media_block(run_monster, affix_rows, media_type, damage, trace)
 
-        leg_ctx = None
-        leg_force_crit = False
-        leg_crit_mult = 1.0
-        leg_ignore_dodge = False
-        leg_ignore_affixes = False
-        legendary_self_dmg = 0
-        if run and legendary_bridge.active and run_monster is not None:
-            if combat_player is None:
-                combat_player = await session.get(Player, player_id)
-            from waifu_bot.game.legendary_bonuses.state import merge_battle_state as _lbs_merge
-
-            leg_ctx = legendary_bridge.build_context(
-                player_id=player_id,
-                waifu=waifu,
-                run=run,
-                run_monster=run_monster,
-                battle_state=_lbs_merge(run.battle_state or {}, legendary_state_patch),
-                base_damage=legendary_base_damage,
-                media_type=media_type,
-                message_length=msg_len,
-                player_gold=int(combat_player.gold or 0) if combat_player else 0,
-                extra_data=build_legendary_extra_data(media_type, message_text),
-            )
-            leg_force_crit, leg_crit_mult, pre_patch = legendary_bridge.apply_pre_crit(leg_ctx)
-            legendary_state_patch.update(pre_patch or {})
-
-        # Crit — ANTI_CRIT applies to base agility/luck roll (not N-й / скрытые шансы)
-        n_raw = float(ps.get("nth_hit_crit", 0) or 0)
-        force_nth = False
-        if n_raw >= 2:
-            n_hit = max(2, int(round(n_raw)))
-            if (msg_n + 1) % n_hit == 0:
-                force_nth = True
         anti_crit_total = aggregate_anti_crit(affix_rows) if affix_rows else 0.0
-        base_crit_chance = calculate_crit_chance(eff_agility, eff_luck)
-        eff_crit_chance = effective_crit_chance_after_anti_crit(base_crit_chance, anti_crit_total)
-        if anti_crit_total > 0 and affix_rows:
-            trace.add(
-                "elite_anti_crit",
-                f"Анти-крит элита: шанс крита {base_crit_chance * 100:.1f}% → {eff_crit_chance * 100:.1f}%",
-                int(damage),
-                int(damage),
-                delta=0,
-            )
-        is_crit = bool(force_nth) or (random.random() < eff_crit_chance)
-        if leg_ctx is not None and leg_force_crit:
-            is_crit = True
-        if not is_crit and msg_n < 3:
-            fhc = float(hs.get("first_hit_crit_pct", 0) or 0)
-            if fhc > 0 and random.random() * 100.0 < fhc:
-                is_crit = True
-                trace.add(
-                    "hidden_first_hit_crit",
-                    f"Скрытый «Молния»: принудительный крит (шанс {fhc:.0f}%)",
-                    int(damage),
-                    int(damage),
-                    delta=0,
-                )
-        if not is_crit:
-            pcc = float(ps.get("crit_chance_pct", 0) or 0)
-            if pcc > 0 and random.random() < pcc:
-                is_crit = True
-        if is_crit:
-            nb = damage
-            mult = float(get_crit_multiplier(eff_strength))
-            mult += float(ps.get("crit_mult_add", 0) or 0)
-            if attack_type == "melee":
-                cdm = float(ps.get("crit_dmg_melee_pct", 0) or 0)
-                if cdm > 0:
-                    mult *= 1.0 + cdm
-            if leg_ctx is not None and leg_crit_mult > 1.0:
-                mult *= leg_crit_mult
-            damage = int(damage * mult)
-            crit_label = f"Критический удар (×{mult:.2f}"
-            if force_nth:
-                crit_label += ", N-й удар"
-            crit_label += ")"
-            trace.mult("crit", crit_label, nb, damage, factor=mult)
+        crit_result = apply_outgoing_crit_bonuses(
+            int(damage),
+            attack_type=attack_type,
+            eff_strength=int(eff_strength),
+            eff_agility=int(eff_agility),
+            eff_luck=int(eff_luck),
+            ps=ps,
+            hs=hs,
+            msg_n=msg_n,
+            leg_force_crit=leg_force_crit,
+            leg_crit_add=leg_crit_add,
+            leg_contributions=leg_contributions,
+            anti_crit_total=anti_crit_total,
+            trace=trace,
+        )
+        damage = crit_result.damage
+        is_crit = crit_result.is_crit
 
         if leg_ctx is not None:
             leg_ctx.battle_state = {**(run.battle_state or {}), **legendary_state_patch}
-            damage, leg_agg = legendary_bridge.apply_outgoing(leg_ctx, damage)
+            dmg_before_leg = int(damage)
+            damage, leg_agg = legendary_bridge.apply_outgoing(leg_ctx, damage, agg=leg_outgoing_agg)
+            append_legendary_post_crit_trace(
+                trace,
+                dmg_before_leg,
+                int(damage),
+                leg_agg.contributions or leg_contributions,
+            )
             legendary_state_patch.update(leg_agg.battle_state_patch or {})
             legendary_gold_mult *= float(leg_agg.gold_multiplier or 1.0)
             legendary_drop_mult *= float(leg_agg.drop_chance_multiplier or 1.0)
@@ -1402,14 +1221,6 @@ class CombatService:
                 heal_amt = int(leg_agg.heal_flat) + int(round(damage * float(leg_agg.heal_pct_of_damage or 0)))
                 if heal_amt > 0:
                     waifu.current_hp = min(int(waifu.max_hp or 1), int(waifu.current_hp or 0) + heal_amt)
-            if leg_agg.notifications:
-                trace.add(
-                    "legendary_bonus",
-                    leg_agg.notifications[0],
-                    int(damage),
-                    int(damage),
-                    delta=0,
-                )
             crit_patch = legendary_bridge.post_crit(leg_ctx, is_crit)
             legendary_state_patch.update(crit_patch or {})
             if float(leg_agg.remaining_monsters_damage_multiplier or 0) > 0:
@@ -1513,14 +1324,6 @@ class CombatService:
             or (monster.name if monster is not None else None)
             or None
         )
-        damage_breakdown = trace.as_list()
-        summary_ru = build_damage_summary_ru(
-            damage=damage,
-            is_crit=is_crit,
-            monster_dodged=monster_dodged,
-            monster_media_immune=monster_media_immune,
-            monster_name=solo_monster_name,
-        )
         _lmk_dmg = media_type_to_log_media_key(media_type)
 
         # Apply damage (UNDYING / SPLIT for run monsters)
@@ -1537,12 +1340,24 @@ class CombatService:
                     run_monster.elite_state = st_u
                     monster_hp_after = max(1, int(float(run_monster.max_hp) * float(frac_u)))
                     run_monster.current_hp = monster_hp_after
+                    trace.result(
+                        "elite_undying",
+                        f"Воскрешение UNDYING: {monster_hp_after} HP ({int(float(frac_u) * 100)}% от макс.)",
+                        0,
+                        monster_hp_after,
+                    )
                 else:
                     new_rm = await self._elite_split_on_death(session, run, run_monster, affix_rows)
                     if new_rm is not None:
                         run_monster = new_rm
                         monster_hp_after = int(run_monster.current_hp or 0)
                         elite_split = True
+                        trace.result(
+                            "elite_split",
+                            "Деление SPLIT: появилась копия монстра",
+                            0,
+                            monster_hp_after,
+                        )
                     else:
                         run_monster.current_hp = 0
             else:
@@ -1583,13 +1398,72 @@ class CombatService:
 
             await mob_ab.maybe_apply_first_player_hit_ability(session, run, run_monster, waifu)
 
-        if run and run_monster is not None and affix_rows and not monster_dodged and damage > 0:
+        lethal_fail = False
+        lethal_fail_incoming = 0
+        if monster_hp_after <= 0 and not elite_split:
+            try:
+                from waifu_bot.services.solo_run_rewards import predict_retaliation_damage_worst_case
+
+                sec = await self._get_waifu_armor_and_secondary(session, int(player_id))
+                armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
+                msf_blk = int(ps.get("main_stats_flat", 0) or 0)
+                end_reduce = float(
+                    calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_blk)
+                )
+                sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
+                raw_in = self._compute_raw_retaliation_incoming(
+                    run,
+                    run_monster,
+                    monster if not run else None,
+                    bestiary_dmg_taken_pct=bestiary_dmg_taken_pct,
+                    aff_rows=affix_rows if affix_rows else None,
+                )
+                dmg_worst = predict_retaliation_damage_worst_case(
+                    waifu,
+                    raw_in,
+                    armor_total=armor_total,
+                    end_reduce=end_reduce,
+                    sec_reduce=sec_reduce,
+                    hs=hs,
+                    bestiary_dmg_taken_pct=0.0,
+                )
+                if int(getattr(waifu, "current_hp", 0) or 0) <= int(dmg_worst):
+                    lethal_fail = True
+                    lethal_fail_incoming = int(dmg_worst)
+                    trace.result(
+                        "lethal_retaliation",
+                        "Смертельная контратака: подземелье провалено.",
+                        0,
+                        1,
+                    )
+            except Exception:
+                pass
+
+        if (
+            run
+            and run_monster is not None
+            and affix_rows
+            and not monster_dodged
+            and damage > 0
+            and not lethal_fail
+        ):
             apply_regen_after_hit(
                 run_monster,
                 affix_rows,
                 int(run_monster.messages_on_monster or 0),
                 damage,
             )
+            monster_hp_after = int(run_monster.current_hp or 0)
+
+        damage_breakdown = trace.as_list()
+        summary_ru = build_damage_summary_ru(
+            damage=damage,
+            is_crit=is_crit,
+            monster_dodged=monster_dodged,
+            monster_media_immune=monster_media_immune,
+            monster_name=solo_monster_name,
+            finish_blocked=False,
+        )
 
         # Log battle event
         battle_log = BattleLog(
@@ -1603,6 +1477,8 @@ class CombatService:
                 "monster_media_immune": monster_media_immune,
                 "reflect_damage_taken": reflect_damage_taken,
                 "elite_split": elite_split,
+                "lethal_fail": lethal_fail,
+                "lethal_fail_incoming": lethal_fail_incoming if lethal_fail else None,
                 "media_type": media_type.value,
                 "log_media_key": _lmk_dmg,
                 "message_length": msg_len,
@@ -1626,52 +1502,22 @@ class CombatService:
         )
         await append_solo_battle_log(session, battle_log)
 
+        if lethal_fail and run and run_monster:
+            result = await self._fail_solo_dungeon_run(
+                session,
+                run,
+                waifu,
+                reason="retaliation",
+                incoming_damage=int(lethal_fail_incoming),
+                monster_defeated=False,
+            )
+            result["damage_breakdown"] = damage_breakdown
+            result["summary_ru"] = summary_ru
+            await self._publish_battle_event(player_id, result)
+            return result
+
         # Check if monster defeated
         if monster_hp_after <= 0:
-            # Prevent "death to 0 HP" on victory retaliation:
-            # If killing the monster would result in a retaliation that would drop waifu HP to 0,
-            # block the finishing blow (leave monster at 1 HP). Player can wait for regen and finish later.
-            try:
-                if run and run_monster:
-                    incoming = int(run_monster.damage or 0)
-                else:
-                    incoming = int(monster.damage or 0)  # type: ignore[union-attr]
-                sec = await self._get_waifu_armor_and_secondary(session, int(player_id))
-                armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
-                msf_blk = int(ps.get("main_stats_flat", 0) or 0)
-                end_reduce = float(
-                    calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_blk)
-                )
-                sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
-                _, total_reduce, dmg_taken = compute_incoming_damage_after_mitigation(
-                    incoming,
-                    armor_total,
-                    int(getattr(waifu, "level", 1) or 1),
-                    end_reduce,
-                    sec_reduce,
-                )
-                if int(getattr(waifu, "current_hp", 0) or 0) <= int(dmg_taken):
-                    # revert to 1 HP remaining
-                    monster_hp_after = 1
-                    if run and run_monster:
-                        run_monster.current_hp = 1
-                    else:
-                        progress.current_monster_hp = 1  # type: ignore[union-attr]
-                    await session.commit()
-                    result = {
-                        "monster_defeated": False,
-                        "finish_blocked": True,
-                        "message": "Вайфу слишком ранена, чтобы добить монстра. Подождите регенерации или используйте лечение.",
-                        "required_hp": int(dmg_taken) + 1,
-                        "incoming_damage": int(dmg_taken),
-                        "monster_hp": 1,
-                        "monster_max_hp": (run_monster.max_hp if run_monster else monster.max_hp),
-                    }
-                    await self._publish_battle_event(player_id, result)
-                    return result
-            except Exception:
-                pass
-
             if run and run_monster:
                 if leg_ctx is not None:
                     death_agg = legendary_bridge.on_death_heals(leg_ctx)
@@ -1827,6 +1673,24 @@ class CombatService:
         strength, agility, intelligence, luck = apply_main_stats_flat_to_four(
             strength, agility, intelligence, luck, sf
         )
+        try:
+            from waifu_bot.services.perfection import (
+                apply_perfection_primary_four,
+                combat_bonus_ints_from_totals,
+                load_perfection_totals,
+            )
+
+            pt = await load_perfection_totals(session, player_id)
+            strength, agility, intelligence, luck = apply_perfection_primary_four(
+                strength, agility, intelligence, luck, pt
+            )
+            for k, v in combat_bonus_ints_from_totals(pt).items():
+                try:
+                    bonuses[k] = int(bonuses.get(k, 0) or 0) + int(v)
+                except Exception:
+                    continue
+        except Exception:
+            pass
         return {
             **weapon,
             "strength": strength,
@@ -2075,6 +1939,18 @@ class CombatService:
             idr = float(psb.get("int_dmg_reduce", 0) or 0)
             if idr > 0:
                 bonuses["dmg_reduce_pct"] = float(bonuses.get("dmg_reduce_pct", 0.0) or 0.0) + idr
+        except Exception:
+            pass
+        try:
+            from waifu_bot.services.perfection import (
+                load_perfection_totals,
+                secondary_fractions_from_totals,
+            )
+
+            pt = await load_perfection_totals(session, player_id)
+            for k, v in secondary_fractions_from_totals(pt).items():
+                if v and k in bonuses:
+                    bonuses[k] = float(bonuses.get(k, 0.0) or 0.0) + float(v)
         except Exception:
             pass
         return bonuses
@@ -2580,6 +2456,134 @@ class CombatService:
                 guild_bonus,
             )
 
+    def _compute_raw_retaliation_incoming(
+        self,
+        run: DungeonRun | None,
+        run_monster: DungeonRunMonster | None,
+        monster: Monster | None,
+        *,
+        bestiary_dmg_taken_pct: float = 0.0,
+        aff_rows: list | None = None,
+    ) -> int:
+        """Raw monster retaliation before armor (berserk, bestiary taken dmg)."""
+        if run and run_monster is not None:
+            lb_st = run.battle_state if isinstance(getattr(run, "battle_state", None), dict) else {}
+            if lb_st.get("_legendary_ignore_death"):
+                return 0
+            raw_in = int(run_monster.damage or 0)
+            if int(lb_st.get("_legendary_monster_self_damage", 0) or 0) > 0:
+                return 0
+            if raw_in > 0 and aff_rows:
+                try:
+                    _th, _dbm = berserk_multiplier(aff_rows)
+                    st_b = run_monster.elite_state if isinstance(run_monster.elite_state, dict) else {}
+                    if st_b.get("berserk_active"):
+                        raw_in = max(1, int(round(raw_in * _dbm)))
+                except Exception:
+                    pass
+        elif monster is not None:
+            raw_in = int(monster.damage or 0)
+        else:
+            return 0
+        if bestiary_dmg_taken_pct:
+            raw_in = max(1, int(round(float(raw_in) * (1.0 + float(bestiary_dmg_taken_pct)))))
+        return max(0, int(raw_in))
+
+    async def _fail_solo_dungeon_run(
+        self,
+        session: AsyncSession,
+        run: DungeonRun,
+        waifu: MainWaifu,
+        *,
+        reason: str,
+        incoming_damage: int = 0,
+        player: Player | None = None,
+        guild_bonus: list | None = None,
+        monster_defeated: bool = False,
+    ) -> dict:
+        """End solo run as failed: settle accrued rewards with gold penalty, waifu at 1 HP."""
+        from waifu_bot.services.event_log import log_event
+        from waifu_bot.services.solo_run_rewards import settle_solo_run_rewards
+
+        pid = int(run.player_id)
+        if player is None:
+            player = await session.get(Player, pid)
+
+        run.status = "failed"
+        run.ended_at = datetime.utcnow()
+        waifu.last_dungeon_failed = True
+        waifu.current_hp = 1
+
+        prog_q = await session.execute(
+            select(DungeonProgress).where(
+                DungeonProgress.player_id == run.player_id,
+                DungeonProgress.dungeon_id == run.dungeon_id,
+            )
+        )
+        progress = prog_q.scalar_one_or_none()
+        if progress:
+            progress.is_active = False
+        if player:
+            player.perfect_dungeon_streak = 0
+
+        settled_exp, settled_gold, penalty_pct = await settle_solo_run_rewards(
+            session, run, waifu, player, "failed", redis=self.redis
+        )
+
+        fail_dungeon = await session.get(Dungeon, run.dungeon_id)
+        fail_name = getattr(fail_dungeon, "name", None) if fail_dungeon else None
+        fail_pl = int(getattr(run, "plus_level", 0) or 0)
+
+        await log_event(
+            session,
+            pid,
+            "dungeon_failed",
+            {"dungeon_name": fail_name, "plus_level": fail_pl, "reason": reason},
+        )
+
+        try:
+            from waifu_bot.core import redis as redis_core
+            from waifu_bot.services import solo_active_cache as solo_active_cache_mod
+
+            await solo_active_cache_mod.clear_solo_active(redis_core.get_redis(), pid)
+        except Exception:
+            pass
+
+        await session.commit()
+
+        from waifu_bot.services.dungeon_notify import notify_solo_dungeon_outcome
+
+        await notify_solo_dungeon_outcome(
+            session,
+            pid,
+            completed=False,
+            dungeon_name=fail_name,
+            dungeon_id=int(run.dungeon_id),
+            plus_level=fail_pl,
+            gold=int(settled_gold),
+            exp=int(settled_exp),
+            reason=reason,
+            waifu_current_hp=int(waifu.current_hp or 0),
+            waifu_max_hp=int(waifu.max_hp or 0),
+        )
+
+        out: dict = {
+            "monster_defeated": bool(monster_defeated),
+            "dungeon_failed": True,
+            "waifu_died": True,
+            "reason": reason,
+            "experience_gained": int(settled_exp),
+            "gold_gained": int(settled_gold),
+            "total_experience_gained": int(run.total_exp_gained or 0),
+            "total_gold_gained": int(run.total_gold_gained or 0),
+            "damage_taken": int(incoming_damage),
+        }
+        if penalty_pct is not None:
+            out["gold_penalty_pct"] = float(penalty_pct)
+        if incoming_damage > 0:
+            out["incoming_damage"] = int(incoming_damage)
+        return _with_guild_reward_bonus(out, guild_bonus or [])
+
     async def _handle_run_monster_defeated(
         self,
         session: AsyncSession,
@@ -2726,14 +2730,9 @@ class CombatService:
                 exp_gain = max(0, int(round(exp_gain * (1.0 + mk))))
                 gold_gain = max(0, int(round(gold_gain * (1.0 + mk))))
 
-        waifu.experience += exp_gain
-        await self._apply_levelups(session, waifu)
-        player = await session.get(Player, waifu.player_id)
-        if player:
-            player.gold += gold_gain
-            await try_hoarder_saving_streak(session, pid, int(player.gold or 0), self.redis)
-        if gold_gain > 0:
-            await _guild_quest_record(session, pid, "gold_earned", int(gold_gain))
+        from waifu_bot.services.solo_run_rewards import accrue_solo_kill_rewards, settle_solo_run_rewards
+
+        accrue_solo_kill_rewards(run, exp_gain, gold_gain)
 
         guild_bonus = await _log_solo_monster_reward(
             session,
@@ -2745,8 +2744,7 @@ class CombatService:
             monster_name=getattr(run_monster, "name", None),
         )
 
-        run.total_exp_gained = int(run.total_exp_gained or 0) + exp_gain
-        run.total_gold_gained = int(run.total_gold_gained or 0) + gold_gain
+        player = await session.get(Player, waifu.player_id)
 
         hpok = float(ps_run.get("hp_on_kill_pct", 0) or 0)
         if hpok > 0:
@@ -2926,65 +2924,17 @@ class CombatService:
         )
         progress = prog_q.scalar_one_or_none()
 
-        # If waifu died → fail run; apply gold penalty per ОБА, leave waifu at 1 HP
+        # If waifu died → fail run; gold penalty on all accrued run gold
         if waifu.current_hp <= 0:
-            run.status = "failed"
-            run.ended_at = datetime.utcnow()
-            waifu.last_dungeon_failed = True
-            if progress:
-                progress.is_active = False
-            if player:
-                player.perfect_dungeon_streak = 0
-
-            # Gold penalty on death: base -50%, reduced by charm×0.1%
-            from waifu_bot.game.constants import CHM_DEATH_GOLD_PENALTY_BASE, CHM_DEATH_GOLD_PENALTY_COEFF
-            charm = int(getattr(waifu, "charm", 10) or 10) + int(ps_run.get("main_stats_flat", 0) or 0)
-            penalty = max(0.0, CHM_DEATH_GOLD_PENALTY_BASE - charm * CHM_DEATH_GOLD_PENALTY_COEFF)
-            penalized_gold = max(0, int(gold_gain * (1.0 - penalty)))
-            # XP is already credited above; fix gold to penalized amount
-            if player:
-                player.gold = max(0, (player.gold or 0) - gold_gain + penalized_gold)
-            # Leave waifu at 1 HP (not 0)
-            waifu.current_hp = 1
-
-            _fail_dungeon = await session.get(Dungeon, run.dungeon_id)
-            _fail_name = getattr(_fail_dungeon, "name", None) if _fail_dungeon else None
-            _fail_pl = int(getattr(run, "plus_level", 0) or 0)
-            from waifu_bot.services.event_log import log_event
-
-            await log_event(
+            return await self._fail_solo_dungeon_run(
                 session,
-                pid,
-                "dungeon_failed",
-                {"dungeon_name": _fail_name, "plus_level": _fail_pl, "reason": "retaliation"},
-            )
-            await session.commit()
-            from waifu_bot.services.dungeon_notify import notify_solo_dungeon_outcome
-
-            await notify_solo_dungeon_outcome(
-                session,
-                pid,
-                completed=False,
-                dungeon_name=_fail_name,
-                dungeon_id=int(run.dungeon_id),
-                plus_level=_fail_pl,
-                gold=penalized_gold,
-                exp=exp_gain,
+                run,
+                waifu,
                 reason="retaliation",
-                waifu_current_hp=int(waifu.current_hp or 0),
-                waifu_max_hp=int(waifu.max_hp or 0),
-            )
-            return _with_guild_reward_bonus(
-                {
-                    "monster_defeated": True,
-                    "dungeon_failed": True,
-                    "waifu_died": True,
-                    "experience_gained": exp_gain,
-                    "gold_gained": penalized_gold,
-                    "gold_penalty_pct": round(penalty * 100, 1),
-                    "damage_taken": dmg_taken,
-                },
-                guild_bonus,
+                incoming_damage=int(dmg_taken),
+                player=player,
+                guild_bonus=guild_bonus,
+                monster_defeated=True,
             )
 
         # Advance or complete
@@ -3223,6 +3173,9 @@ class CombatService:
                     "gold": int(run.total_gold_gained or 0),
                     "exp": int(run.total_exp_gained or 0),
                 },
+            )
+            await settle_solo_run_rewards(
+                session, run, waifu, player, "completed", redis=self.redis
             )
             await clear_solo_battle_log(session, pid, int(run.dungeon_id))
             await session.commit()

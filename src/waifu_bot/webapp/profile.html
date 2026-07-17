@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" media="print" onload="this.media='all'" />
     <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" /></noscript>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v65" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v62" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
     <style>
       /* Палитра как у магазина / таверны */
       body.page-profile .profile-missing-waifu {
@@ -99,7 +99,6 @@
         white-space: nowrap;
       }
       body.page-profile .profile-tabs .tab-reset,
-      body.page-profile .profile-tabs .tab-steam-recreate,
       body.page-profile .profile-tabs .tab-levelup,
       body.page-profile .profile-tabs .tab-statspend-reset,
       body.page-profile .profile-tabs .tab-clearitems {
@@ -334,6 +333,9 @@
       }
       body.page-profile .profile-mtg-bar--xp .profile-mtg-bar-fill {
         background: linear-gradient(90deg, rgba(200, 146, 42, 0.95), rgba(232, 184, 75, 0.95));
+      }
+      body.page-profile .profile-mtg-xp-block--perfection .profile-mtg-bar--xp .profile-mtg-bar-fill {
+        background: linear-gradient(90deg, rgba(52, 211, 153, 0.95), rgba(74, 222, 128, 0.95));
       }
       body.page-profile .profile-mtg-bottom {
         position: absolute;
@@ -1293,7 +1295,7 @@
     <link rel="stylesheet" href="./assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="./assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v65" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v62" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
   </head>
   <body class="page-profile" onload="WaifuApp.bootstrapPage('profile', WaifuApp.populateProfile);">
     <header class="attic">
@@ -1356,7 +1358,6 @@
         <button class="tab" data-tab="inventory" data-tutorial="profile-inventory-tab" onclick="WaifuApp.switchProfileTab('inventory')">Инвентарь</button>
         <button class="tab" data-tab="info" onclick="WaifuApp.switchProfileTab('info')">Подробно</button>
         <button class="tab tab-reset admin-only" title="Сбросить вайфу" aria-label="Сбросить вайфу" onclick="WaifuApp.resetMainWaifu()" style="display:none">♻️</button>
-        <button class="tab tab-steam-recreate steam-dev-only" type="button" title="Пересоздать вайфу (dev)" aria-label="Пересоздать основную вайфу" onclick="WaifuApp.resetSteamMainWaifu()" style="display:none">🔄</button>
         <button class="tab tab-levelup admin-only" title="Повысить уровень +1" aria-label="Повысить уровень ОВ на 1" onclick="WaifuApp.adminLevelUpWaifu()" style="display:none">⬆️</button>
         <button class="tab tab-statspend-reset admin-only" title="Сбросить потраченные ОХ (статы к базе)" aria-label="Сбросить потраченные очки характеристик" onclick="WaifuApp.adminResetMainWaifuStatSpend()" style="display:none">⟲</button>
         <button class="tab tab-clearitems admin-only" title="Удалить все предметы" aria-label="Удалить все предметы" onclick="WaifuApp.adminClearAllItems()" style="display:none">🗑️</button>
@@ -1519,6 +1520,10 @@
 
           <div id="profile-info-indicators" class="profile-info-panel active">
             <div id="profile-indicators-grid" class="details-grid profile-detail-grid"></div>
+            <div id="profile-perfection-summary" class="profile-perfection-summary" hidden>
+              <h4 class="profile-perfection-summary-title">Совершенствование</h4>
+              <ul id="profile-perfection-bonus-list" class="perfection-bonus-list"></ul>
+            </div>
           </div>
 
           <div id="profile-info-statistics" class="profile-info-panel">
@@ -1656,7 +1661,7 @@
           <div class="item-modal-sell-price-line">Вы получите <strong>🪙 <span id="item-modal-sell-gold">—</span></strong></div>
           <div class="item-modal-sell-actions">
             <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemSellConfirmOverlay()">Отмена</button>
-            <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" onclick="WaifuApp.confirmSellSelectedItem()">Продать</button>
+            <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell-confirm" onclick="WaifuApp.confirmSellSelectedItem()">Продать</button>
           </div>
         </div>
       </div>
@@ -1722,7 +1727,7 @@
       <div class="item-art-gen-busy-panel">
         <div class="item-art-gen-busy-spinner" aria-hidden="true"></div>
         <p>Генерация иконки…</p>
-        <p class="item-art-gen-busy-hint muted tiny">OpenRouter может отвечать до 2 минут</p>
+        <p class="item-art-gen-busy-hint muted tiny">Генерация может занять до 2 минут</p>
       </div>
     </div>
 

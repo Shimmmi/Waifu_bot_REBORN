@@ -84,23 +84,28 @@ class Settings(BaseSettings):
     # Log P50/P95 for group_message_damage and LLM (Stage 1 baseline; see docs/STAGE1_INFRA.md).
     perf_metrics_enabled: bool = Field(False, alias="PERF_METRICS_ENABLED")
 
-    # --- OpenRouter: все модели задаются в .env (OPENROUTER_MODEL, OPENROUTER_MODEL_HIRE, OPENROUTER_MODEL_IMAGE) ---
+    # --- OpenRouter: текстовые модели (OPENROUTER_MODEL, OPENROUTER_MODEL_HIRE); image → ROUTERAI_MODEL_IMAGE ---
     openrouter_api_key: str | None = Field(None, alias="OPENROUTER_API_KEY")
     openrouter_base_url: str = Field("https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL")
     openrouter_model: str = Field("openrouter/healer-alpha", alias="OPENROUTER_MODEL")
     openrouter_model_hire: str | None = Field(None, alias="OPENROUTER_MODEL_HIRE")
+    # Legacy; image generation uses ROUTERAI_MODEL_IMAGE only (see get_image_model in llm_client).
     openrouter_model_image: str = Field("sourceful/riverflow-v2-fast", alias="OPENROUTER_MODEL_IMAGE")
 
     # RouterAI: primary text provider + fallback при HTTP 402 от OpenRouter (OpenAI-compatible API)
     routerai_api_key: str | None = Field(None, alias="ROUTERAI_API_KEY")
     routerai_base_url: str = Field("https://routerai.ru/api/v1", alias="ROUTERAI_BASE_URL")
     routerai_model: str | None = Field(None, alias="ROUTERAI_MODEL")
-    routerai_model_image: str | None = Field(None, alias="ROUTERAI_MODEL_IMAGE")
+    routerai_model_image: str = Field(
+        "google/gemini-3.1-flash-lite-image",
+        alias="ROUTERAI_MODEL_IMAGE",
+    )
 
     # AI presets (RouterAI fusion)
     ai_presets_path: str = Field("config/ai_presets.yaml", alias="AI_PRESETS_PATH")
     ai_default_preset: str = Field("fast", alias="AI_DEFAULT_PRESET")
     ai_preset_narrative: str = Field("fast", alias="AI_PRESET_NARRATIVE")
+    ai_preset_gd: str = Field("gd_narrative", alias="AI_PRESET_GD")
     ai_preset_balance: str = Field("expert", alias="AI_PRESET_BALANCE")
     ai_preset_architect: str = Field("architect", alias="AI_PRESET_ARCHITECT")
 
@@ -117,13 +122,6 @@ class Settings(BaseSettings):
 
     # Browser dev bypass: when DEV_BROWSER_TOKEN is set, ?devPlayerId=N&devToken=<token> works in any APP_ENV.
     dev_browser_token: str | None = Field(None, alias="DEV_BROWSER_TOKEN")
-
-    # Steam client (see docs Steam-migration plan). Real Steamworks Web API key is only
-    # needed once the Steamworks partner account exists (Этап 6); until then
-    # validate_steam_ticket() answers 501 and only the X-Steam-Ticket-Dev stub works
-    # (dev/stage/testing only, see auth_steam.py / api/deps.py).
-    steam_web_api_key: str | None = Field(None, alias="STEAM_WEB_API_KEY")
-    steam_app_id: int | None = Field(None, alias="STEAM_APP_ID")
 
     # dev/testing (only used when APP_ENV=testing)
     dev_user_ids: list[int] = Field(default_factory=list, alias="DEV_USER_IDS")
@@ -147,6 +145,7 @@ class Settings(BaseSettings):
     armory_oidc_redirect_uri: str | None = Field(None, alias="ARMORY_OIDC_REDIRECT_URI")
     bot_username: str | None = Field(None, alias="BOT_USERNAME")
     telegram_oidc_client_id: str | None = Field(None, alias="TELEGRAM_OIDC_CLIENT_ID")
+
 
     # Desktop Electron interim auth (email/Telegram JWT via X-Desktop-Session)
     desktop_session_secret: str | None = Field(None, alias="DESKTOP_SESSION_SECRET")
@@ -231,7 +230,6 @@ class Settings(BaseSettings):
         if self.environment in ("dev", "testing"):
             return self.webhook_secret
         raise ValueError("ARMORY_SESSION_SECRET is required in production")
-
     @property
     def desktop_session_key(self) -> str:
         """Secret for desktop Electron JWT sessions (X-Desktop-Session)."""
@@ -242,6 +240,8 @@ class Settings(BaseSettings):
         if self.environment in ("dev", "testing", "stage"):
             return self.webhook_secret
         raise ValueError("DESKTOP_SESSION_SECRET is required in production")
+
+
 
 settings = Settings()
 

@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Home from './pages/Home.vue'
 import Player from './pages/Player.vue'
+import Guild from './pages/Guild.vue'
 import Login from './pages/Login.vue'
 import AdminDashboard from './pages/admin/Dashboard.vue'
 import AdminPlayers from './pages/admin/Players.vue'
@@ -15,6 +16,7 @@ const router = createRouter({
     { path: '/', name: 'home', component: Home },
     { path: '/login', name: 'login', component: Login },
     { path: '/p/:id', name: 'player', component: Player, props: true },
+    { path: '/g/:id', name: 'guild', component: Guild, props: true },
     { path: '/admin', name: 'admin', component: AdminDashboard },
     { path: '/admin/players', name: 'admin-players', component: AdminPlayers },
     { path: '/admin/players/:id', name: 'admin-player', component: AdminPlayerDetails, props: true },
