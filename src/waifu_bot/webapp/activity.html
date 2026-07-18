@@ -37,6 +37,15 @@
   <script src="/webapp/app.js"></script>
   <script>
     (function () {
+      // Prefer dedicated mobile shell; keep this page as fallback.
+      try {
+        if (window.WaifuApp?.isMobileClient?.() || new URLSearchParams(location.search).get("mobileClient") === "1") {
+          if (!localStorage.getItem("waifuDesktopSession") && !window.waifuMobile?.getDesktopSessionToken?.()) {
+            location.replace("/webapp/mobile/login.html?mobileClient=1");
+            return;
+          }
+        }
+      } catch (_) {}
       const $ = (id) => document.getElementById(id);
       let pollTimer = null;
 

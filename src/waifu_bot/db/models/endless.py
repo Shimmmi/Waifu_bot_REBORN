@@ -66,6 +66,8 @@ class AffixFamily(Base):
     weight_base: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     max_per_item: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     is_legendary_aspect: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # telegram | steam | mobile | common
+    channel: Mapped[str] = mapped_column(String(16), default="common", nullable=False)
 
     tiers: Mapped[list["AffixFamilyTier"]] = relationship(
         "AffixFamilyTier", back_populates="family", cascade="all, delete-orphan"

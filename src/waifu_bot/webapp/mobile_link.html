@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Код для Mobile / Steam</title>
+  <link rel="stylesheet" href="/webapp/styles.css" />
+  <script src="/webapp/vendor/telegram-web-app.js"></script>
+</head>
+<body>
+  <div style="padding:16px;max-width:480px;margin:0 auto">
+    <h1>Код привязки</h1>
+    <p class="muted">Откройте в Telegram WebApp. Код действует 10 минут — введите его в APK (экран входа).</p>
+    <button type="button" id="btn-code" class="btn">Получить код</button>
+    <p id="code-out" style="font-size:1.6rem;letter-spacing:0.12em;margin-top:16px"></p>
+    <p id="code-err" class="muted"></p>
+    <p><a href="./index.html">← Назад</a></p>
+  </div>
+  <script src="/webapp/app.js"></script>
+  <script>
+    document.getElementById("btn-code").addEventListener("click", async () => {
+      const out = document.getElementById("code-out");
+      const err = document.getElementById("code-err");
+      out.textContent = "";
+      err.textContent = "";
+      try {
+        const data = await WaifuApp.apiFetch("/auth/link_code", { method: "POST" });
+        out.textContent = data.code || "—";
+        err.textContent = `TTL: ${data.ttl_seconds || 600}s`;
+      } catch (e) {
+        err.textContent = String(e.message || e);
+      }
+    });
+  </script>
+</body>
+</html>

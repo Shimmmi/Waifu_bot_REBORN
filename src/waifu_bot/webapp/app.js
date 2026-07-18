@@ -59,12 +59,62 @@ function getClientEconomy() {
   return "telegram";
 }
 
+/** Bonus channel for inventory resolve / remap (telegram | steam | mobile). */
+function getClientChannel() {
+  if (isMobileClient()) return "mobile";
+  if (isDesktopClient()) return "steam";
+  return "telegram";
+}
+
+function getMobileSessionTokenSync() {
+  try {
+    const fromMobile = window.waifuMobile?.getDesktopSessionToken?.();
+    if (fromMobile) return String(fromMobile);
+    if (typeof localStorage !== "undefined") {
+      const fromLs = localStorage.getItem("waifuDesktopSession");
+      if (fromLs) return String(fromLs);
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/** Redirect Capacitor/mobile pages to login when desktop_session is missing. */
+function requireMobileSessionOrRedirect() {
+  if (!isMobileClient()) return true;
+  try {
+    const path = String(window.location.pathname || "");
+    if (path.includes("/mobile/login.html")) return true;
+  } catch {
+    /* ignore */
+  }
+  if (getMobileSessionTokenSync()) return true;
+  window.location.replace("/webapp/mobile/login.html?mobileClient=1");
+  return false;
+}
+
 /** Desktop tab pages live under webapp/steam/ unless already on a steam layout. */
 function steamRelativePage(page) {
   const inSteamDir =
     document.body?.classList?.contains("page-steam-shell") ||
     document.body?.classList?.contains("page-steam-waifu-gen");
   if (isDesktopClient() && !inSteamDir) return `./steam/${page}`;
+  return `./${page}`;
+}
+
+/** Mobile dedicated pages under webapp/mobile/. */
+function mobileRelativePage(page) {
+  const inMobileDir =
+    document.body?.classList?.contains("page-mobile-shell") ||
+    document.body?.classList?.contains("page-mobile-login");
+  if (isMobileClient() && !inMobileDir) {
+    if (page === "activity" || page === "index" || page === "home") {
+      return `/webapp/mobile/shell.html?mobileClient=1`;
+    }
+    if (page === "login") return `/webapp/mobile/login.html?mobileClient=1`;
+    return `/webapp/mobile/shell.html?mobileClient=1`;
+  }
   return `./${page}`;
 }
 
@@ -137,6 +187,17 @@ if (typeof window !== "undefined") {
     /* ignore */
   }
 })();
+
+// Mobile auth gate (after helpers below are defined — deferred microtask)
+queueMicrotask(() => {
+  try {
+    if (typeof requireMobileSessionOrRedirect === "function") {
+      requireMobileSessionOrRedirect();
+    }
+  } catch {
+    /* ignore */
+  }
+});
 const CARAVAN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/caravan`;
 const DUNGEONS_STATIC_BASE = `${GAME_STATIC_BASE}/dungeons`;
 const SHOP_STATIC_BASE = `${GAME_STATIC_BASE}/ui/shop`;
@@ -277,8 +338,16 @@ function getDesktopSteamAuthHeader() {
 }
 
 function authHeaders() {
-  const initData = getInitData();
   const headers = {};
+  // Mobile/desktop: prefer desktop session so Capacitor never falls into TG initData 401.
+  if (isMobileClient() || isDesktopClient()) {
+    const steamAuth = getDesktopSteamAuthHeader();
+    if (steamAuth) {
+      headers[steamAuth.name] = steamAuth.value;
+      return headers;
+    }
+  }
+  const initData = getInitData();
   if (initData) {
     headers["X-Telegram-Init-Data"] = initData;
   } else {
@@ -294,6 +363,16 @@ function authHeaders() {
 }
 
 async function apiFetch(path, options = {}) {
+  if (isMobileClient() || isDesktopClient()) {
+    await ensureDesktopSessionReady();
+  }
+  if (isMobileClient() && !getMobileSessionTokenSync()) {
+    const p = String(path || "");
+    if (!p.startsWith("/auth/")) {
+      requireMobileSessionOrRedirect();
+      throw new Error("mobile_session_required");
+    }
+  }
   const opts = { ...options };
   opts.headers = { ...(options.headers || {}), ...authHeaders() };
   if (
@@ -304,9 +383,22 @@ async function apiFetch(path, options = {}) {
   ) {
     opts.headers["Content-Type"] = "application/json";
   }
-  const res = await fetch(`${API_BASE}${path}`, opts);
+  // Inventory: ask server for client-channel resolve (mobile/steam)
+  let urlPath = path;
+  if (
+    typeof urlPath === "string" &&
+    urlPath.startsWith("/inventory") &&
+    !urlPath.includes("client=")
+  ) {
+    const ch = getClientChannel();
+    urlPath += (urlPath.includes("?") ? "&" : "?") + `client=${encodeURIComponent(ch)}`;
+  }
+  const res = await fetch(`${API_BASE}${urlPath}`, opts);
   if (!res.ok) {
     const text = await res.text();
+    if (res.status === 401 && isMobileClient()) {
+      requireMobileSessionOrRedirect();
+    }
     throw new Error(`HTTP ${res.status}: ${text || "failed"}`);
   }
   if (res.status === 204) return null;
@@ -15602,6 +15694,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   apiFetch,
   getInitData,
   getClientEconomy,
+  getClientChannel,
+  mobileRelativePage,
+  requireMobileSessionOrRedirect,
   isMobileClient,
   isDesktopClient,
   spendStatPoint,

@@ -126,8 +126,11 @@ class InventoryItem(Base):
     # 0 = not equipped, 1-6 = equipment slot
     equipment_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # telegram = chat/media economy; activity = Steam clicks / mobile steps (shared bag)
+    # telegram = chat/media economy; activity = Steam clicks / mobile steps (legacy bag tag)
     economy: Mapped[str] = mapped_column(String(16), default="telegram", nullable=False)
+
+    # Sticky per-client bonus overlays after t_→m_/s_ remap: {"mobile":[...],"steam":[...]}
+    channel_bonus_overrides: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Enchanting (+1..+10): steps computed once at creation; level changes on enchant attempts
     enchant_level: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -212,6 +215,8 @@ class Affix(Base):
     is_percent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     tier: Mapped[int] = mapped_column(Integer, nullable=False)
     min_level: Mapped[int] = mapped_column(Integer, nullable=False)
+    # telegram | steam | mobile | common — combat applies common + client channel only
+    channel: Mapped[str] = mapped_column(String(16), default="common", nullable=False)
     applies_to: Mapped[list[str]] = mapped_column(ARRAY(String(32)), nullable=False)
     weight: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 

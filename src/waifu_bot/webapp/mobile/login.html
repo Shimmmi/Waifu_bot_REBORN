@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ru" class="mobile-client">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Вход — Waifu Mobile</title>
+  <link rel="stylesheet" href="/webapp/mobile-theme.css" />
+  <link rel="stylesheet" href="/webapp/mobile/mobile-shell.css" />
+</head>
+<body class="page-mobile-login">
+  <main class="mobile-login-card">
+    <h1>Waifu Activity</h1>
+    <p class="muted">Привяжите аккаунт Telegram (код из WebApp) и войдите. Без сессии шаги нельзя забрать.</p>
+
+    <label class="mobile-field">
+      Код привязки из Telegram
+      <input id="link-code" type="text" inputmode="text" autocomplete="one-time-code" placeholder="например AB12CD" maxlength="32" />
+    </label>
+    <p class="muted small">В Telegram WebApp на staging: вызовите выдачу кода (кнопка «Код для Mobile» / API <code>POST /api/auth/link_code</code>).</p>
+
+    <label class="mobile-field">
+      Google sub (только stage/dev)
+      <input id="google-sub" type="text" placeholder="dev-google-sub" value="mobile-dev-user" />
+    </label>
+
+    <button type="button" id="btn-login-link" class="mobile-btn primary">Войти с привязкой к Telegram</button>
+    <button type="button" id="btn-login-solo" class="mobile-btn secondary">Продолжить без привязки (отдельный аккаунт)</button>
+
+    <p id="login-status" class="mobile-status" role="status" aria-live="polite"></p>
+  </main>
+  <script>
+    (function () {
+      const statusEl = document.getElementById("login-status");
+      const codeEl = document.getElementById("link-code");
+      const subEl = document.getElementById("google-sub");
+
+      function setStatus(msg, ok) {
+        statusEl.textContent = msg || "";
+        statusEl.classList.toggle("ok", !!ok);
+        statusEl.classList.toggle("err", !!msg && !ok);
+      }
+
+      function storeSession(token) {
+        try {
+          localStorage.setItem("waifuDesktopSession", String(token));
+        } catch (_) {}
+        if (window.waifuMobile?.setDesktopSessionToken) {
+          window.waifuMobile.setDesktopSessionToken(String(token));
+        }
+      }
+
+      async function login(withLink) {
+        setStatus("Вход…", true);
+        const google_sub_dev = (subEl.value || "").trim();
+        if (!google_sub_dev) {
+          setStatus("Укажите google sub (stage)", false);
+          return;
+        }
+        const body = { google_sub_dev };
+        if (withLink) {
+          const code = (codeEl.value || "").trim();
+          if (!code) {
+            setStatus("Нужен код привязки из Telegram", false);
+            return;
+          }
+          body.link_code = code;
+        }
+        try {
+          const res = await fetch("/api/auth/mobile/google", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const text = await res.text();
+          let data = null;
+          try { data = text ? JSON.parse(text) : null; } catch (_) { data = { detail: text }; }
+          if (!res.ok) {
+            const d = data?.detail;
+            throw new Error(typeof d === "string" ? d : `HTTP ${res.status}`);
+          }
+          if (!data?.desktop_session) throw new Error("no_desktop_session");
+          storeSession(data.desktop_session);
+          setStatus(
+            data.linked
+              ? `Готово: привязан player #${data.player_id}`
+              : `Готово: отдельный аккаунт #${data.player_id}`,
+            true
+          );
+          setTimeout(() => {
+            window.location.href = "/webapp/mobile/shell.html?mobileClient=1";
+          }, 400);
+        } catch (e) {
+          setStatus(String(e.message || e), false);
+        }
+      }
+
+      document.getElementById("btn-login-link").addEventListener("click", () => login(true));
+      document.getElementById("btn-login-solo").addEventListener("click", () => login(false));
+
+      // Already logged in → shell
+      try {
+        const t = localStorage.getItem("waifuDesktopSession");
+        if (t) {
+          window.location.replace("/webapp/mobile/shell.html?mobileClient=1");
+        }
+      } catch (_) {}
+    })();
+  </script>
+</body>
+</html>

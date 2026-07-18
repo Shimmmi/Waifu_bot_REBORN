@@ -14,7 +14,7 @@ const config = {
   appName: "Waifu Activity",
   webDir: "www",
   server: {
-    url: `${backend}/webapp/activity.html?mobileClient=1&economy=activity`,
+    url: `${backend}/webapp/mobile/login.html?mobileClient=1`,
     cleartext: false,
     allowNavigation: [host, "localhost", "10.0.2.2"],
   },

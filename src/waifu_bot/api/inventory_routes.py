@@ -52,11 +52,18 @@ async def list_inventory(
     session: AsyncSession = Depends(get_db),
     rarity: Optional[int] = Query(None, ge=1, le=5),
     equipped: Optional[bool] = None,
-    economy: Optional[str] = Query(None, description="telegram | activity"),
+    economy: Optional[str] = Query(None, description="telegram | activity (optional filter)"),
+    client: Optional[str] = Query(
+        None, description="telegram | steam | mobile — channel resolve + sticky remap"
+    ),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
     from waifu_bot.game.economy import normalize_economy
+    from waifu_bot.services.channel_bonus_remap import (
+        ensure_channel_overlays,
+        resolve_item_bonuses_for_client,
+    )
 
     query = select(m.InventoryItem).options(*inventory_item_load_options()).where(
         m.InventoryItem.player_id == player_id
@@ -72,15 +79,29 @@ async def list_inventory(
 
     res = await session.execute(query.offset(offset).limit(limit))
     items = res.scalars().all()
+    channel_remap = None
+    if client:
+        try:
+            channel_remap = await ensure_channel_overlays(session, player_id, client)
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            channel_remap = None
     payload = await build_inventory_payloads(session, items)
     for inv, row in zip(items, payload):
         row["sell_price"] = await _inventory_item_sell_price(session, player_id, inv)
+        if client:
+            row["resolved_channel"] = client
+            row["resolved_bonuses"] = resolve_item_bonuses_for_client(inv, client)
     try:
         await enrich_items_with_image_urls(session, payload)
     except Exception:
         # Keep inventory endpoint unbreakable
         pass
-    return {"items": payload, "count": len(items)}
+    out = {"items": payload, "count": len(items)}
+    if channel_remap:
+        out["channel_remap"] = channel_remap
+    return out
 
 
 @router.get("/inventory/{item_id}", tags=["inventory"])
