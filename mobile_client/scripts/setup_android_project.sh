@@ -37,63 +37,62 @@ if [[ -z "$MAIN" ]]; then
   exit 1
 fi
 
+# Prefer committed sources under android/ if present; otherwise write templates.
 HELPER="$JAVA_SRC/$PKG_PATH/BridgeLoader.java"
-cat > "$HELPER" <<'JAVA'
-package ru.shimmirpgbot.waifu.activity;
-
-import android.webkit.WebView;
-import com.getcapacitor.BridgeActivity;
-
-/**
- * Injects window.waifuMobile bootstrap into the Capacitor WebView after page load.
- * The full bridge logic is also available as android_asset www/bridge.js for bundled mode.
- */
-public final class BridgeLoader {
-    private BridgeLoader() {}
-
-    public static final String BOOTSTRAP =
-        "(function(){"
-        + "if(window.waifuMobile)return;"
-        + "var s=document.createElement('script');"
-        + "s.src='https://localhost/bridge.js';"
-        + "document.documentElement.appendChild(s);"
-        + "})();";
-
-    /** Fallback inline minimal stub if asset URL is unavailable under remote server.url */
-    public static final String INLINE_STUB =
-        "(function(g){if(g.waifuMobile)return;"
-        + "var last=null,total=0,perm='prompt';"
-        + "function rs(){try{return g.localStorage.getItem('waifuDesktopSession')}catch(e){return null}}"
-        + "function ws(t){try{if(t)g.localStorage.setItem('waifuDesktopSession',String(t));"
-        + "else g.localStorage.removeItem('waifuDesktopSession')}catch(e){}}"
-        + "g.waifuMobile={getDesktopSessionToken:rs,setDesktopSessionToken:ws,"
-        + "getStepSnapshot:async function(){if(g.Capacitor&&g.Capacitor.Plugins&&g.Capacitor.Plugins.WaifuStepCounter){"
-        + "var snap=await g.Capacitor.Plugins.WaifuStepCounter.getSnapshot();total=Number(snap.total||0);perm=snap.permission||perm;"
-        + "var d=last==null?0:Math.max(0,total-last);return{total:total,deltaSinceLastClaim:d,pendingDelta:d,permission:perm};}"
-        + "return{total:0,deltaSinceLastClaim:0,pendingDelta:0,permission:'unavailable'};},"
-        + "consumePendingSteps:async function(){var snap=await g.waifuMobile.getStepSnapshot();var u=Number(snap.deltaSinceLastClaim||0);"
-        + "if(snap.total!=null)last=Number(snap.total);return{units:u,total:snap.total};},"
-        + "requestActivityPermission:async function(){if(g.Capacitor&&g.Capacitor.Plugins&&g.Capacitor.Plugins.WaifuStepCounter){"
-        + "var r=await g.Capacitor.Plugins.WaifuStepCounter.requestPermission();perm=r.permission||perm;return r;}"
-        + "return{permission:'unavailable'};}};})(window);";
-
-    public static void inject(WebView webView) {
-        if (webView == null) return;
-        webView.evaluateJavascript(INLINE_STUB, null);
-    }
-}
-JAVA
-echo "[OK] Wrote BridgeLoader.java"
+if [[ -f "$ROOT/android/app/src/main/java/$PKG_PATH/BridgeLoader.java" ]]; then
+  cp -f "$ROOT/android/app/src/main/java/$PKG_PATH/BridgeLoader.java" "$HELPER"
+  echo "[OK] Copied BridgeLoader.java from android tree"
+else
+  echo "[WARN] BridgeLoader.java missing under android/ — skip template rewrite"
+fi
 
 # Rewrite MainActivity cleanly (do NOT replace Capacitor WebViewClient)
 cat > "$MAIN" <<JAVA
 package ${APP_ID};
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.webkit.ValueCallback;
+import android.webkit.WebView;
+
 import com.getcapacitor.BridgeActivity;
+
 import ${APP_ID}.plugins.WaifuStepCounterPlugin;
 
 public class MainActivity extends BridgeActivity {
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private int injectAttempts = 0;
+    private static final int MAX_INJECT_ATTEMPTS = 12;
+    private static final long INJECT_INTERVAL_MS = 500L;
+
+    private final Runnable injectLoop = new Runnable() {
+        @Override
+        public void run() {
+            if (bridge == null || bridge.getWebView() == null) {
+                return;
+            }
+            final WebView webView = bridge.getWebView();
+            BridgeLoader.inject(webView);
+            injectAttempts++;
+            if (injectAttempts >= MAX_INJECT_ATTEMPTS) {
+                return;
+            }
+            webView.evaluateJavascript(
+                "(function(){try{return !!(window.waifuMobile&&window.waifuMobile.__nativeReady);}catch(e){return false;}})()",
+                new ValueCallback<String>() {
+                    @Override
+                    public void onReceiveValue(String value) {
+                        if ("true".equals(value)) {
+                            return;
+                        }
+                        mainHandler.postDelayed(injectLoop, INJECT_INTERVAL_MS);
+                    }
+                }
+            );
+        }
+    };
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(WaifuStepCounterPlugin.class);
@@ -101,15 +100,27 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    public void onStart() {
+        super.onStart();
+        scheduleBridgeInject();
+    }
+
+    @Override
     public void onResume() {
         super.onResume();
-        // Re-inject after remote WebApp navigations; Capacitor keeps its own WebViewClient.
-        if (bridge != null && bridge.getWebView() != null) {
-            bridge.getWebView().postDelayed(
-                () -> BridgeLoader.inject(bridge.getWebView()),
-                300
-            );
-        }
+        scheduleBridgeInject();
+    }
+
+    @Override
+    public void onPause() {
+        mainHandler.removeCallbacks(injectLoop);
+        super.onPause();
+    }
+
+    private void scheduleBridgeInject() {
+        mainHandler.removeCallbacks(injectLoop);
+        injectAttempts = 0;
+        mainHandler.postDelayed(injectLoop, 200L);
     }
 }
 JAVA

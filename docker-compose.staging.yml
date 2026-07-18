@@ -57,7 +57,8 @@ services:
       HOST: 0.0.0.0
       PORT: 8000
     ports:
-      - "18000:8000"
+      # Localhost only — public access via nginx stage.shimmirpgbot.ru
+      - "127.0.0.1:18000:8000"
     depends_on:
       postgres:
         condition: service_healthy

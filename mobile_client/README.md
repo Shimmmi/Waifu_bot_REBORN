@@ -16,6 +16,8 @@ git pull
 
 Do **not** merge this branch into Telegram prod branches (`main`, `webapp-perf-prod`, etc.) until an explicit PR review. Do **not** develop Android APK tooling on the headless prod VPS disk for Electron/Android SDK — clone this branch on your laptop.
 
+**Полный гайд (Windows 11 → Git Bash → первый debug APK):** [docs/MOBILE_ANDROID_DEV_SETUP.md](../docs/MOBILE_ANDROID_DEV_SETUP.md) — секция «Local PC: Windows → first debug APK» (установка Git/Node/JDK/Android Studio, `ANDROID_HOME`, clone, `android:setup`, `android:apk`, adb). На Windows все `npm run android:*` запускайте из **Git Bash**, не из cmd.
+
 ## Prerequisites (dev laptop)
 
 - Node.js **20+**
@@ -34,6 +36,8 @@ npm run android:signing      # optional: wire release keystore.properties.exampl
 ```
 
 ## Build & install debug APK
+
+Краткий путь (детали и troubleshooting — в DEV_SETUP выше):
 
 ```bash
 export WAIFU_MOBILE_BACKEND_URL=https://<staging-host>

@@ -1,13 +1,12 @@
 /**
- * Injected into the WebView as window.waifuMobile (see Android MainActivity / capacitor plugin).
- * Pure-JS fallback used when running remote WebApp without native bridge.
+ * window.waifuMobile for Capacitor WebView (remote server.url + bundled www).
+ * Resolves WaifuStepCounter via Plugins map or Capacitor.registerPlugin.
  */
 (function initWaifuMobileBridge(global) {
-  if (global.waifuMobile) return;
-
   let lastClaimedTotal = null;
   let cachedTotal = 0;
   let permission = "prompt";
+  let pluginRef = null;
 
   function readSession() {
     try {
@@ -26,7 +25,37 @@
     }
   }
 
-  global.waifuMobile = {
+  function resolvePlugin() {
+    const Cap = global.Capacitor;
+    if (!Cap) return null;
+    if (pluginRef) return pluginRef;
+    try {
+      if (Cap.Plugins && Cap.Plugins.WaifuStepCounter) {
+        pluginRef = Cap.Plugins.WaifuStepCounter;
+        return pluginRef;
+      }
+      if (typeof Cap.registerPlugin === "function") {
+        pluginRef = Cap.registerPlugin("WaifuStepCounter");
+        return pluginRef;
+      }
+    } catch {
+      pluginRef = null;
+    }
+    return null;
+  }
+
+  function markReady(ok) {
+    const api = global.waifuMobile;
+    if (!api) return;
+    api.__nativeReady = !!ok;
+    api.__hasCapacitor = !!global.Capacitor;
+    api.__hasPlugin = !!ok;
+  }
+
+  const api = {
+    __nativeReady: false,
+    __hasCapacitor: false,
+    __hasPlugin: false,
     getDesktopSessionToken() {
       return readSession();
     },
@@ -34,35 +63,62 @@
       writeSession(token);
     },
     async getStepSnapshot() {
-      // Native plugin overrides this method via Capacitor.
-      if (global.Capacitor?.Plugins?.WaifuStepCounter) {
-        const snap = await global.Capacitor.Plugins.WaifuStepCounter.getSnapshot();
-        cachedTotal = Number(snap.total || 0);
-        permission = snap.permission || permission;
-        const delta =
-          lastClaimedTotal == null ? 0 : Math.max(0, cachedTotal - lastClaimedTotal);
+      const plugin = resolvePlugin();
+      markReady(!!plugin);
+      if (!plugin || typeof plugin.getSnapshot !== "function") {
         return {
           total: cachedTotal,
-          deltaSinceLastClaim: delta,
-          pendingDelta: delta,
-          permission,
+          deltaSinceLastClaim: 0,
+          pendingDelta: 0,
+          permission: "unavailable",
+          sensor: "none",
         };
       }
-      return { total: cachedTotal, deltaSinceLastClaim: 0, pendingDelta: 0, permission: "unavailable" };
+      const snap = await plugin.getSnapshot();
+      cachedTotal = Number(snap.total || 0);
+      permission = snap.permission || permission;
+      const delta =
+        lastClaimedTotal == null ? 0 : Math.max(0, cachedTotal - lastClaimedTotal);
+      return {
+        total: cachedTotal,
+        deltaSinceLastClaim: delta,
+        pendingDelta: delta,
+        permission,
+        sensor: snap.sensor || null,
+      };
     },
     async consumePendingSteps() {
-      const snap = await global.waifuMobile.getStepSnapshot();
+      const snap = await api.getStepSnapshot();
       const units = Number(snap.deltaSinceLastClaim || 0);
       if (snap.total != null) lastClaimedTotal = Number(snap.total);
       return { units, total: snap.total };
     },
     async requestActivityPermission() {
-      if (global.Capacitor?.Plugins?.WaifuStepCounter) {
-        const r = await global.Capacitor.Plugins.WaifuStepCounter.requestPermission();
-        permission = r.permission || permission;
-        return r;
+      const plugin = resolvePlugin();
+      markReady(!!plugin);
+      if (!plugin || typeof plugin.requestPermission !== "function") {
+        return { permission: "unavailable" };
       }
-      return { permission: "unavailable" };
+      const r = await plugin.requestPermission();
+      permission = r.permission || permission;
+      return r;
     },
   };
+
+  // Always (re)install so a late Capacitor inject upgrades a cold stub.
+  global.waifuMobile = api;
+  markReady(!!resolvePlugin());
+
+  // Poll briefly for Capacitor on remote pages where bridge arrives after HTML.
+  let tries = 0;
+  const timer = global.setInterval(() => {
+    tries += 1;
+    if (resolvePlugin()) {
+      markReady(true);
+      global.clearInterval(timer);
+    } else if (tries >= 20) {
+      markReady(false);
+      global.clearInterval(timer);
+    }
+  }, 250);
 })(typeof window !== "undefined" ? window : globalThis);

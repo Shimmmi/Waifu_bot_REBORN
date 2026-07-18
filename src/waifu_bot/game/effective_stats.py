@@ -144,6 +144,28 @@ async def fetch_equipped_inventory_items(
         return []
 
 
+def resolve_main_weapon_attack_speed(equipped: list[InventoryItem]) -> int:
+    """
+    Clicks/steps needed for one attack (1–10).
+    Same weapon priority as roll_weapon_damage_and_meta / combat min_chars.
+    """
+    mainhand = None
+    offhand = None
+    for inv in equipped:
+        slot = int(getattr(inv, "equipment_slot", 0) or 0)
+        if slot == 1:
+            mainhand = inv
+        elif slot == 2:
+            offhand = inv
+    weapon = mainhand if mainhand is not None else offhand
+    if weapon is None:
+        return 1
+    try:
+        return max(1, min(10, int(getattr(weapon, "attack_speed", 1) or 1)))
+    except (TypeError, ValueError):
+        return 1
+
+
 @dataclass
 class SoloCombatPrimaryFourResult:
     """Эффективные STR/AGI/INT/УДЧ для соло-боя после экипа, main_stats_flat и all_stats_pct."""
