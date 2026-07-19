@@ -120,6 +120,7 @@ async def enrich_inventory_items_with_template_stats(
                     text("armor_base"),
                     text("secondary_bonus_type"),
                     text("secondary_bonus_value"),
+                    text("flavor_ru"),
                 )
                 .select_from(text("item_base_templates"))
                 .where(text("COALESCE(base_grade, 0) = 0"))
@@ -142,6 +143,10 @@ async def enrich_inventory_items_with_template_stats(
             canon = str(getattr(tpl_row, "name", "") or "").strip()
             if canon:
                 inv._canonical_base_name = canon  # type: ignore[attr-defined]
+            flavor = str(getattr(tpl_row, "flavor_ru", None) or "").strip()
+            inv._flavor_ru = flavor or None  # type: ignore[attr-defined]
+        else:
+            inv._flavor_ru = None  # type: ignore[attr-defined]
         template = template_row_from_mapping(tpl_row) if tpl_row else None
         resolved = resolve_item_secondaries(inv, template)
         attach_resolved_attrs(inv, resolved)
@@ -202,10 +207,16 @@ def serialize_inventory_item(
     frac_type, frac_val = effective_fraction_combat(inv, resolved)
     eff = get_effective_params(inv, armor_base=ab, secondary_bonus_value=frac_val or 0.0)
 
+    flavor = getattr(inv, "_flavor_ru", None)
+    if not flavor:
+        flavor = getattr(getattr(inv, "item", None), "description", None)
+    description = str(flavor).strip() if flavor else None
+
     return {
         "id": inv.id,
         "name": base_name,
         "display_name": display_name,
+        "description": description or None,
         "rarity": inv.rarity,
         "level": inv.level,
         "tier": inv.tier,

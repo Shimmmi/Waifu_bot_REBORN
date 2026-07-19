@@ -458,6 +458,7 @@ class GearItemOut(BaseModel):
     slot: str
     name: str
     display_name: Optional[str] = None
+    description: Optional[str] = None
     rarity: int
     level: Optional[int] = None
     tier: Optional[int] = None

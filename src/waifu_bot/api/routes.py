@@ -639,11 +639,16 @@ def _to_gear_item(
     resolved = getattr(inv, "_resolved_secondaries", None) or resolve_item_secondaries(inv, None)
     frac_type, frac_val = effective_fraction_combat(inv, resolved)
     eff = get_effective_params(inv, armor_base=armor_b, secondary_bonus_value=frac_val or 0.0)
+    flavor = getattr(inv, "_flavor_ru", None)
+    if not flavor and inv.item is not None:
+        flavor = getattr(inv.item, "description", None)
+    description = str(flavor).strip() if flavor else None
     return schemas.GearItemOut(
         id=inv.id,
         slot=slot,
         name=base_name,
         display_name=display_name,
+        description=description or None,
         rarity=inv.rarity or (inv.item.rarity if inv.item else 1),
         level=inv.level or (inv.item.level if inv.item else None),
         tier=inv.tier or (inv.item.tier if inv.item else None),
