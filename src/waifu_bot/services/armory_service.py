@@ -21,6 +21,7 @@ from waifu_bot.db.models.guild_extended import GuildRaidStatus, GuildWarRowStatu
 from waifu_bot.services.armory_access import PUBLIC_EVENT_TYPES, armory_access_level
 from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
 from waifu_bot.services.passive_skills import get_passive_skill_bonuses
+from waifu_bot.services.perfection import perfection_totals_dict, summarize_totals
 from waifu_bot.services.player_ban import is_player_banned
 from waifu_bot.services.inventory_payload import build_inventory_payloads
 from waifu_bot.services.paperdoll_quota import paperdoll_generations_remaining
@@ -227,6 +228,7 @@ async def build_public_summary(
         for run, name in recent_runs_q.all()
     ]
 
+    perfection_level = int(getattr(player, "perfection_level", 0) or 0)
     out: dict[str, Any] = {
         "telegram_id": tg_id,
         "username": player.username,
@@ -242,6 +244,10 @@ async def build_public_summary(
         "guild": guild_info,
         "recent_dungeons": recent_dungeons,
         "has_character": waifu is not None,
+        "perfection_level": perfection_level,
+        "perfection_bonuses_summary": (
+            summarize_totals(perfection_totals_dict(player)) if perfection_level > 0 else []
+        ),
     }
 
     if waifu:

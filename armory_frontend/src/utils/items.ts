@@ -197,6 +197,17 @@ export function formatEvent(type: string, payload: Record<string, unknown>): str
   }
 }
 
+/** Max waifu level before perfection (paragon) unlocks. */
+export const PLAYER_MAX_LEVEL = 60
+
+export function formatLevelWithPerfection(level: number | undefined, perfectionLevel?: number | null): string {
+  const lvl = Number(level)
+  const p = Number(perfectionLevel || 0)
+  if (Number.isFinite(lvl) && lvl >= PLAYER_MAX_LEVEL && p > 0) return `${lvl} (${p})`
+  if (Number.isFinite(lvl)) return String(lvl)
+  return '—'
+}
+
 export function radarStats(stats: Record<string, number>): Array<[string, number]> {
   return STAT_ORDER.map((key) => [STAT_FULL_LABELS[key] || key, Number(stats[key] ?? 0)])
 }
