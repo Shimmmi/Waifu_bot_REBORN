@@ -1285,9 +1285,10 @@ class CombatService:
                 sec_r = await self._get_waifu_armor_and_secondary(session, int(player_id))
                 armor_tr = max(0, int(sec_r.get("armor_total", 0.0) or 0.0))
                 msf_blk_r = int(ps.get("main_stats_flat", 0) or 0)
-                end_reduce_r = float(
-                    calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_blk_r)
+                end_for_dr_r = await self._endurance_for_damage_reduction(
+                    session, int(player_id), waifu, msf_blk_r
                 )
+                end_reduce_r = float(calculate_damage_reduction(end_for_dr_r))
                 sec_reduce_r = float(sec_r.get("dmg_reduce_pct", 0.0) or 0.0)
                 _, total_reduce_r, reflect_damage_taken = compute_incoming_damage_after_mitigation(
                     raw_refl,
@@ -1394,9 +1395,10 @@ class CombatService:
                 sec = await self._get_waifu_armor_and_secondary(session, int(player_id))
                 armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
                 msf_blk = int(ps.get("main_stats_flat", 0) or 0)
-                end_reduce = float(
-                    calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_blk)
+                end_for_dr = await self._endurance_for_damage_reduction(
+                    session, int(player_id), waifu, msf_blk
                 )
+                end_reduce = float(calculate_damage_reduction(end_for_dr))
                 sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
                 raw_in = self._compute_raw_retaliation_incoming(
                     run,
@@ -1628,6 +1630,27 @@ class CombatService:
         pl = int(getattr(run_row, "plus_level", 0) or 0) if run_row else 0
         bonus = elite_spawn_bonus_for_plus_level(pl)
         return await roll_monster_elite(session, run_monster, elite_chance_bonus=bonus)
+
+    async def _endurance_for_damage_reduction(
+        self,
+        session: AsyncSession,
+        player_id: int,
+        waifu: MainWaifu,
+        main_stats_flat: int = 0,
+    ) -> int:
+        """ВЫН для DR: база + main_stats_flat + Paragon end_flat."""
+        end = int(getattr(waifu, "endurance", 10) or 10) + int(main_stats_flat or 0)
+        try:
+            from waifu_bot.services.perfection import (
+                load_perfection_totals,
+                primary_flat_from_totals,
+            )
+
+            pt = await load_perfection_totals(session, int(player_id))
+            end += int(primary_flat_from_totals(pt).get("endurance", 0) or 0)
+        except Exception:
+            pass
+        return end
 
     async def _get_effective_combat_profile(
         self,
@@ -2029,7 +2052,10 @@ class CombatService:
         armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
         ps_cl = await get_passive_skill_bonuses(session, int(waifu.player_id))
         msf_cl = int(ps_cl.get("main_stats_flat", 0) or 0)
-        end_reduce = float(calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_cl))
+        end_for_dr = await self._endurance_for_damage_reduction(
+            session, int(waifu.player_id), waifu, msf_cl
+        )
+        end_reduce = float(calculate_damage_reduction(end_for_dr))
         sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
 
         hs_cl = await get_hidden_skill_bonuses(session, int(waifu.player_id))
@@ -2573,7 +2599,8 @@ class CombatService:
         ps_run = await get_passive_skill_bonuses(session, pid)
         armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
         msf_run = int(ps_run.get("main_stats_flat", 0) or 0)
-        end_reduce = float(calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_run))
+        end_for_dr = await self._endurance_for_damage_reduction(session, pid, waifu, msf_run)
+        end_reduce = float(calculate_damage_reduction(end_for_dr))
         sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
 
         hs = await get_hidden_skill_bonuses(session, pid)
@@ -3542,9 +3569,8 @@ class CombatService:
             ps = await get_passive_skill_bonuses(session, pid)
             hs = await get_hidden_skill_bonuses(session, pid)
             msf = int(ps.get("main_stats_flat", 0) or 0)
-            end_reduce = float(
-                calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf)
-            )
+            end_for_dr = await self._endurance_for_damage_reduction(session, pid, waifu, msf)
+            end_reduce = float(calculate_damage_reduction(end_for_dr))
             sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
             armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
             raw_in = int(run_monster.damage or 0)
@@ -3606,9 +3632,8 @@ class CombatService:
             ps = await get_passive_skill_bonuses(session, pid)
             hs = await get_hidden_skill_bonuses(session, pid)
             msf = int(ps.get("main_stats_flat", 0) or 0)
-            end_reduce = float(
-                calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf)
-            )
+            end_for_dr = await self._endurance_for_damage_reduction(session, pid, waifu, msf)
+            end_reduce = float(calculate_damage_reduction(end_for_dr))
             sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
             armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
             raw_in = int(monster.damage or 0)

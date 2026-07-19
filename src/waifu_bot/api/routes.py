@@ -244,11 +244,13 @@ def _compute_details(
     *,
     main_stats_flat: int = 0,
     effective_primary_four: tuple[int, int, int, int] | None = None,
+    extra_bonuses: dict | None = None,
 ) -> dict:
     """Compute aggregated stats with equipment bonuses.
 
     effective_primary_four: STR, AGI, INT, LUK после экипа, main_stats_pct и all_stats_pct (как в соло-бое).
     Для HP используется СИЛ без all_stats_pct (согласовано с waifu_hp).
+    extra_bonuses: доп. плоские бонусы (напр. урон от совершенствования) до расчёта индикаторов.
     """
     # Базовые статы вайфу
     strength = main.strength or 0
@@ -313,6 +315,22 @@ def _compute_details(
                     0 if bool(inv.is_broken) else int(inv.enchant_level or 0)
                 )
                 _apply_fraction_secondary_to_total(total_bonuses, legacy_type, sec_eff)
+
+    if extra_bonuses:
+        for key in (
+            "melee_damage_flat",
+            "ranged_damage_flat",
+            "magic_damage_flat",
+            "damage_flat",
+        ):
+            if key not in extra_bonuses:
+                continue
+            try:
+                total_bonuses[key] = int(total_bonuses.get(key, 0) or 0) + int(
+                    extra_bonuses.get(key, 0) or 0
+                )
+            except (TypeError, ValueError):
+                continue
 
     # Применяем бонусы к статам
     strength += total_bonuses["strength"]
@@ -989,6 +1007,15 @@ async def get_profile(
                     logger.exception("resolve_solo_combat_primary_four in /profile player_id=%s", player_id)
 
                 try:
+                    perf_damage_flats: dict[str, int] = {}
+                    try:
+                        from waifu_bot.services.perfection import combat_bonus_ints_from_totals
+
+                        perf_damage_flats = combat_bonus_ints_from_totals(
+                            perfection_state.get("bonus_totals") or {}
+                        )
+                    except Exception:
+                        perf_damage_flats = {}
                     if eff_four is not None:
                         prim = (
                             eff_four.strength,
@@ -1001,6 +1028,7 @@ async def get_profile(
                             equipped_items,
                             main_stats_flat=stat_flat,
                             effective_primary_four=prim,
+                            extra_bonuses=perf_damage_flats,
                         )
                         raw_d = merge_passive_into_profile_details(
                             raw_d,
@@ -1012,6 +1040,7 @@ async def get_profile(
                             main_waifu,
                             equipped_items,
                             main_stats_flat=stat_flat,
+                            extra_bonuses=perf_damage_flats,
                         )
                         raw_d = merge_passive_into_profile_details(raw_d, psb_profile)
                     raw_d = enrich_profile_reward_bonus_pcts(
@@ -1043,13 +1072,11 @@ async def get_profile(
                             raw_d["gold_bonus"] = round(
                                 float(raw_d.get("gold_bonus", 0) or 0) + gb * 100.0, 2
                             )
-                        hp_pct = float(perf_sec.get("hp_max_pct", 0) or 0)
-                        # hp already synced via waifu_hp; keep details hp_max aligned if present
-                        if hp_pct and "hp_max" in raw_d:
-                            # already in compute_effective_max_hp; no double-apply here
-                            pass
                     except Exception:
                         pass
+                    # Канонический max HP уже в waifu (парагон + гильдия); details не дублируем формулой
+                    raw_d["hp_max"] = int(main_waifu.max_hp or 0)
+                    raw_d["hp_current"] = int(main_waifu.current_hp or 0)
                     main_details = schemas.MainWaifuDetails(**raw_d)
                 except Exception:
                     logger.exception("main_waifu_details build failed player_id=%s", player_id)
@@ -2800,6 +2827,8 @@ async def expeditions_perks():
                 name=p.name,
                 counters=list(p.counters),
                 category=p.category,
+                flavor_ru=p.flavor_ru,
+                effect_ru=p.effect_ru,
             )
             for p in PERKS
         ],

@@ -90,7 +90,7 @@ async def resolve_effective_waifu_stats(
     *,
     equipped_items: list[InventoryItem] | None = None,
 ) -> EffectiveWaifuStats:
-    """Mirror /profile main_waifu totals: base + gear + passive main_stats_flat + all_stats_pct."""
+    """Mirror /profile totals: base + gear + main_stats_flat + Paragon flats + all_stats_pct."""
     from waifu_bot.api.routes import calculate_item_bonuses
 
     if equipped_items is None:
@@ -108,11 +108,43 @@ async def resolve_effective_waifu_stats(
 
     s, a, i, l, _ = accumulate_primary_four_from_gear(waifu, equipped_items)
     s, a, i, l = apply_main_stats_flat_to_four(s, a, i, l, stat_flat)
+
+    perf_flats = {
+        "strength": 0,
+        "agility": 0,
+        "intelligence": 0,
+        "endurance": 0,
+        "charm": 0,
+        "luck": 0,
+    }
+    try:
+        from waifu_bot.services.perfection import (
+            apply_perfection_primary_four,
+            load_perfection_totals,
+            primary_flat_from_totals,
+        )
+
+        pt = await load_perfection_totals(session, player_id)
+        s, a, i, l = apply_perfection_primary_four(s, a, i, l, pt)
+        perf_flats = primary_flat_from_totals(pt)
+    except Exception:
+        pass
+
     _, _, combined_mult = stat_multipliers_from_passive_hidden(ps, hs)
     s, a, i, l = apply_combined_stat_mult_to_four(s, a, i, l, combined_mult)
 
-    endurance = int(waifu.endurance or 0) + total_bonuses["endurance"] + stat_flat
-    charm = int(waifu.charm or 0) + total_bonuses["charm"] + stat_flat
+    endurance = (
+        int(waifu.endurance or 0)
+        + total_bonuses["endurance"]
+        + stat_flat
+        + int(perf_flats.get("endurance", 0) or 0)
+    )
+    charm = (
+        int(waifu.charm or 0)
+        + total_bonuses["charm"]
+        + stat_flat
+        + int(perf_flats.get("charm", 0) or 0)
+    )
 
     return EffectiveWaifuStats(
         level=int(waifu.level or 1),
@@ -216,9 +248,9 @@ async def check_item_requirements(
     """
     Check item requirements against effective waifu stats.
 
-    target_slot set: simulate replacing gear in that slot (equip validation).
+    target_slot set: simulate replacing gear in that slot (equip validation);
+    requirements_status uses the same post-swap stats as can_equip (UI pills).
     target_slot None: use current gear only (preview).
-    requirements_status always reflects current effective stats (UI pills).
     """
     if equipped_items is None:
         equipped_items = await fetch_equipped_inventory_items(session, player_id)
@@ -231,11 +263,8 @@ async def check_item_requirements(
     stats = await resolve_effective_waifu_stats(
         session, player_id, waifu, equipped_items=equipped_sim
     )
-    display_stats = await resolve_effective_waifu_stats(
-        session, player_id, waifu, equipped_items=equipped_items
-    )
     ok, errors = _evaluate_requirements(inv, stats, waifu)
-    status = _build_requirements_status(inv, display_stats, waifu)
+    status = _build_requirements_status(inv, stats, waifu)
     return EquipCheckResult(
         can_equip=ok,
         errors=errors,
@@ -275,15 +304,18 @@ async def can_equip_to_any_slot(
     *,
     equipped_items: list[InventoryItem] | None = None,
 ) -> EquipCheckResult:
-    """True if requirements pass after swap into at least one slot."""
+    """True if requirements pass after swap into at least one slot.
+
+    requirements_status matches the stats used for the gate (successful slot,
+    or last failing post-swap stats when all slots fail).
+    """
     if equipped_items is None:
         equipped_items = await fetch_equipped_inventory_items(session, player_id)
 
-    display = await check_item_requirements_for_display(
-        session, player_id, inv, waifu, equipped_items=equipped_items
-    )
-
     if not slots:
+        display = await check_item_requirements_for_display(
+            session, player_id, inv, waifu, equipped_items=equipped_items
+        )
         return EquipCheckResult(
             can_equip=False,
             errors=["Предмет нельзя экипировать"],
@@ -292,7 +324,7 @@ async def can_equip_to_any_slot(
         )
 
     last_errors: list[str] = []
-    last_stats = display.stats
+    last_result: EquipCheckResult | None = None
     for slot in slots:
         result = await check_item_requirements(
             session,
@@ -307,14 +339,15 @@ async def can_equip_to_any_slot(
                 can_equip=True,
                 errors=[],
                 stats=result.stats,
-                requirements_status=display.requirements_status,
+                requirements_status=result.requirements_status,
             )
         last_errors = result.errors
-        last_stats = result.stats
+        last_result = result
 
+    assert last_result is not None
     return EquipCheckResult(
         can_equip=False,
         errors=last_errors,
-        stats=last_stats,
-        requirements_status=display.requirements_status,
+        stats=last_result.stats,
+        requirements_status=last_result.requirements_status,
     )

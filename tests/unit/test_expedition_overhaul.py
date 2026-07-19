@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -15,7 +16,9 @@ from waifu_bot.game.expedition_overhaul import (
     gate_log_entry,
     heal_duration_minutes,
     interpolate_heal_hp,
+    pick_procedural_affixes,
     squad_power_total,
+    tick_affix_count,
     validate_reward_type,
 )
 from waifu_bot.game.expedition_redesign import expedition_event_interval_minutes
@@ -97,9 +100,59 @@ def test_interpolate_heal_hp_linear():
 
 
 def test_gate_log_entry_text():
-    entry = gate_log_entry(event_index=1, category="monsters", damage=5, covered=True)
+    entry = gate_log_entry(
+        event_index=1,
+        category="monsters",
+        damage=5,
+        covered=True,
+        affix_names=["с пауками", "Туманная"],
+    )
     assert "пройдено" in entry["text"]
     assert entry["damage"] == 5
+    assert entry["affix_names"] == ["с пауками", "Туманная"]
+
+
+def test_tick_affix_count_by_depth():
+    assert tick_affix_count(1) == 1
+    assert tick_affix_count(2) == 2
+    assert tick_affix_count(3) == 2
+    assert tick_affix_count(4) == 3
+    assert tick_affix_count(5) == 3
+    assert tick_affix_count(None) == 1
+
+
+def test_pick_procedural_affixes_exclude_avoids_prev_when_possible():
+    pool = [MagicMock(id=i, name=f"a{i}") for i in range(1, 8)]
+    rng = random.Random(42)
+    first = pick_procedural_affixes(pool, rng, count=2)
+    first_ids = {int(a.id) for a in first}
+    second = pick_procedural_affixes(pool, random.Random(43), count=2, exclude_ids=first_ids)
+    second_ids = {int(a.id) for a in second}
+    assert first_ids.isdisjoint(second_ids)
+
+
+def test_pick_procedural_affixes_exclude_falls_back_when_pool_small():
+    pool = [MagicMock(id=1), MagicMock(id=2)]
+    picked = pick_procedural_affixes(pool, random.Random(1), count=2, exclude_ids=[1, 2])
+    assert len(picked) == 2
+    assert {int(a.id) for a in picked} == {1, 2}
+
+
+def test_consecutive_tick_seeds_pick_different_affix_sets():
+    """Different events_done seeds + exclude → different obstacle sets (large pool)."""
+    pool = [MagicMock(id=i, name=f"affix-{i}") for i in range(1, 20)]
+    active_id = 100
+    picks = []
+    exclude = []
+    for events_done in range(3):
+        rng = random.Random((active_id << 8) + events_done)
+        chosen = pick_procedural_affixes(
+            pool, rng, count=tick_affix_count(4), exclude_ids=exclude
+        )
+        ids = [int(a.id) for a in chosen]
+        picks.append(tuple(sorted(ids)))
+        exclude = ids
+    assert len(set(picks)) >= 2
 
 
 def test_hired_expedition_eligible_blocks_healing():

@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Подземелья</title>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v62" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
-    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v62" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v65" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
+    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v65" />
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v62" onerror="console.warn('combat island skipped')"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v62" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
-    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v63" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v63'"></script>
+    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v65" onerror="console.warn('combat island skipped')"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v65" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
+    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v65" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v64'"></script>
     <style>
       .hp-fill-monster.monster-hp-fill--unknown {
         opacity: 0.35;
@@ -1497,6 +1497,27 @@
         grid-template-columns: 1fr;
         gap: 4px;
       }
+      .exp-roster-power {
+        flex-shrink: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 6px 10px;
+        margin: 0 0 8px;
+        padding: 6px 8px;
+        font-size: 12px;
+        color: #e8dcc8;
+        background: rgba(0, 0, 0, 0.28);
+        border: 1px solid rgba(200, 146, 42, 0.22);
+        border-radius: 8px;
+      }
+      .exp-roster-power .exp-power-ok { color: #4ade80; font-weight: 700; }
+      .exp-roster-power .exp-power-low { color: #fbbf24; font-weight: 700; }
+      .exp-roster-power .exp-power-bad { color: #f87171; font-weight: 700; }
+      .exp-roster-power-tier {
+        font-size: 11px;
+        color: rgba(232, 220, 200, 0.75);
+      }
       .exp-roster-footer {
         flex-shrink: 0;
         padding-top: 8px;
@@ -2889,6 +2910,10 @@
               <div class="exp-sheet-handle"></div>
               <button type="button" class="exp-modal-close" onclick="WaifuApp.closeExpRosterModal()" aria-label="Закрыть">✕</button>
               <div class="exp-opt-label" style="margin-top:0;margin-bottom:6px">Выберите наёмниц</div>
+              <div id="esm-roster-power" class="exp-roster-power" aria-live="polite">
+                <span>⚔ Мощь отряда: <span class="exp-power-ok">0</span></span>
+                <span class="exp-roster-power-tier">доступно: I Разведка</span>
+              </div>
               <div class="exp-picker-toolbar" id="esm-picker-toolbar">
                 <div class="exp-picker-filters" id="esm-picker-filters"></div>
                 <div class="exp-picker-tools">

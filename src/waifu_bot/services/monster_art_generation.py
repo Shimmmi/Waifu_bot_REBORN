@@ -23,6 +23,7 @@ from waifu_bot.services.expedition_events_ai import (
     monster_template_dominant_trait_ru,
 )
 from waifu_bot.services.llm_client import (
+    IMAGE_MODALITY_ATTEMPTS,
     get_image_model,
     has_image_llm_configured,
     post_chat_completions,
@@ -260,7 +261,7 @@ async def generate_monster_art_webp(
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
+            attempts: tuple[tuple[str, ...], ...] = IMAGE_MODALITY_ATTEMPTS
             last_message: dict = {}
             for modalities in attempts:
                 body = {
@@ -335,7 +336,7 @@ async def _openrouter_generate_webp(prompt: str, *, log_tag: str) -> Optional[by
     model = get_image_model()
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
+            attempts: tuple[tuple[str, ...], ...] = IMAGE_MODALITY_ATTEMPTS
             last_message: dict = {}
             for modalities in attempts:
                 body = {

@@ -54,6 +54,7 @@ const TAVERN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/tavern`;
 const NAV_STATIC_BASE = `${GAME_STATIC_BASE}/ui/nav`;
 const EXPEDITION_BIOMES_BASE = `${GAME_STATIC_BASE}/expeditions/biomes`;
 const EXPEDITION_ARCHETYPES_BASE = `${GAME_STATIC_BASE}/expeditions/archetypes`;
+const EXPEDITION_PERKS_WEBP_BASE = `${GAME_STATIC_BASE}/expeditions/perks/webp`;
 /** Cache-bust для свежесгенерированных артов архетипов (archetype_id -> v). */
 const expeditionArchetypeArtVersion = {};
 /** Имена файлов в `static/game/ui/tavern/audio/` (добавьте MP3 на сервер). */
@@ -340,59 +341,117 @@ const STAT_META = {
   def: { icon: "🛡️", short: "Защита" },
 };
 
-// Описания перков экспедиций (id из expedition_data.PERKS). Кратко — что даёт в экспедиции.
-const PERK_DESCS = {
-  gas_mask: "Снижает штраф от вони и ядовитого воздуха",
-  diver: "Снижает штраф в затопленных локациях",
-  fireproof: "Снижает штраф в жарких локациях",
-  frostproof: "Снижает штраф в ледяных локациях",
-  navigator: "Снижает штраф в тумане и шторме",
-  desert_walker: "Снижает штраф в пыли и зыбучих песках",
-  gas_filter: "Снижает штраф от ядовитого воздуха",
-  snow_warrior: "Снижает штраф в снежной буре",
-  acid_proof: "Снижает штраф от кислотного дождя",
-  wind_walker: "Снижает штраф в штормовых локациях",
-  elf_slayer: "Бонус против злых эльфов",
-  orc_hunter: "Бонус против орков-берсеркеров",
-  priest: "Бонус против нежити",
-  demon_slayer: "Бонус против демонов",
-  dragonslayer: "Бонус против драконов",
-  goblin_shaker: "Бонус против гоблинов",
-  troll_slayer: "Бонус против троллей",
-  vampire_hunter: "Бонус против вампиров",
-  entomologist: "Бонус против гигантских насекомых",
-  bat_hunter: "Бонус против летучих мышей",
-  mushroom_expert: "Снижает штраф от ядовитых грибов",
-  scout: "Снижает штраф от ловушек",
-  archaeologist: "Снижает штраф от проклятых артефактов",
-  swamp_walker: "Снижает штраф от зыбучих песков",
-  spider_hunter: "Снижает штраф от паутины",
-  chemist: "Снижает штраф от кислотных луж",
-  magic_researcher: "Снижает штраф от магических аномалий",
-  exorcist: "Снижает штраф от призрачных явлений",
-  mountain_engineer: "Снижает штраф от обвалов",
-  anti_magnet: "Снижает штраф от магнитных аномалий",
-  curse_removal: "Снижает штраф от проклятий",
-  anti_mage: "Снижает штраф от зачарований",
-  spatial_mage: "Снижает штраф от искажений",
-  light_protection: "Снижает штраф от ослепления",
-  magic_resistance: "Снижает штраф от паралича",
-  chronomancer: "Снижает штраф от замедления времени",
-  accelerator: "Снижает штраф от ускорения времени",
-  spatial_navigator: "Снижает штраф от искажения пространства",
-  mana_shield: "Снижает штраф от магического истощения",
-  lucky: "Снижает штраф от проклятия удачи",
-  mental_shield: "Снижает штраф от ментальных атак",
-  strong_spirit: "Снижает штраф от навязчивых страхов",
-  mental_clarity: "Снижает штраф от галлюцинаций",
-  sleepless: "Снижает штраф от магического сна",
-  trusting: "Снижает штраф от паранойи",
-  photographic_memory: "Снижает штраф от амнезии",
-  calm: "Снижает штраф от мании преследования",
-  optimist: "Снижает штраф от депрессии",
-  anger_control: "Снижает штраф от агрессии",
-  passionate: "Снижает штраф от апатии",
+// Гэговые описания перков (sync с expedition_data.PERKS.flavor_ru).
+const PERK_FLAVOR = {
+  gas_mask: "Дышит через фильтр «Премиум-Капуста» и называет вони «сложным букетом».",
+  diver: "Ныряет с важным видом, будто так и надо было начинать квест с лужи.",
+  fireproof: "Жарит маршмеллоу на лаве и жалуется, что «слабо подсолили».",
+  frostproof: "Лижет сосульку ради науки и утверждает, что это «ледяной смузи».",
+  navigator: "Ведёт отряд по компасу, который показывает «куда-нибудь не сюда».",
+  desert_walker: "Считает песок личным врагом и ведёт с ним долгие переговоры.",
+  gas_filter: "Носит запасной фильтр «на удачу» и иногда дышит им в качестве ароматерапии.",
+  snow_warrior: "Строит снежную крепость быстрее, чем отряд успевает замёрзнуть морально.",
+  acid_proof: "Под кислотным дождём распускает зонтик и шепчет: «погода — это настроение».",
+  wind_walker: "Ловит ураган как попутку и просит не ронять причёску истории.",
+  elf_slayer: "Специализируется на высокомерных ушастых и их токсичных комментариях о моде.",
+  orc_hunter: "Знает семнадцать способов сказать «спокойно, зелёный» до того, как начнётся драка.",
+  priest: "Кропит нежить святой водой и спрашивает, не записались ли они на отпевание.",
+  demon_slayer: "Говорит демонам «не сегодня» таким тоном, будто отменяет подписку.",
+  dragonslayer: "Коллекционирует чешую как стикеры и мечтает о полном альбоме.",
+  goblin_shaker: "Трясёт гоблинов за уши, пока не выпадет мелочь и самооценка.",
+  troll_slayer: "Бьёт троллей дубиной и мемами — что окажется больнее, неизвестно.",
+  vampire_hunter: "Носит колья как зубочистки и предлагает вампирам «дневной спа».",
+  entomologist: "Любит жуков professionally и лично — особенно когда они размером с диван.",
+  bat_hunter: "Свистит ультразвуком и спорит с летучими мышами о расписании.",
+  mushroom_expert: "Различает «можно» и «похороны» по запаху и уровню самоуверенности.",
+  scout: "Находит ловушки взглядом «я же говорил» ещё до того, как кто-то наступит.",
+  archaeologist: "Гладит проклятый кубок тряпочкой и шепчет: «ты просто недопонятый».",
+  swamp_walker: "Идёт по трясине так, будто это красная дорожка на болотном балу.",
+  spider_hunter: "Снимает паутину с лица как шарф и делает вид, что так и задумано.",
+  chemist: "Нюхает кислотные лужи «для пробы» и записывает рецепт в блокнот ужасов.",
+  magic_researcher: "Тыкает аномалию палочкой и говорит «интересный баг» вместо «беги».",
+  exorcist: "Выгоняет призраков вежливо, как незваных родственников с дивана.",
+  mountain_engineer: "Подпирает потолок киркой и обещает, что «это временно, как ремонт».",
+  anti_magnet: "Отталкивает аномалии харизмой и медью — наука пока не разобралась чем именно.",
+  curse_removal: "Снимает проклятия как старые стикеры: с характерным звуком и лёгким «упс».",
+  anti_mage: "Гасит чужие чары взглядом «я не в настроении для спецэффектов».",
+  spatial_mage: "Складывает пространство оригами и теряет ключи в соседнем измерении.",
+  light_protection: "Носит очки «от судьбы» и считает блики личным оскорблением.",
+  magic_resistance: "Паралич обходит стороной: слишком занята спором с заклинанием.",
+  chronomancer: "Замедляет время, чтобы успеть допить чай до конца кат-сцены.",
+  accelerator: "Ускоряет всё вокруг, кроме очереди за лутом — там свои законы.",
+  spatial_navigator: "Читает карту вселенной вверх ногами и всё равно приходит первой.",
+  mana_shield: "Держит щит из маны и мемов; истощение стучится — не пускаем.",
+  lucky: "Роняет клевер и всё равно выигрывает — вселенная устала спорить.",
+  mental_shield: "В голове стоит «не беспокоить» — ментальные атаки оставляют визитку.",
+  strong_spirit: "Боится только недосыпа и пустого инвентаря — остальное по расписанию.",
+  mental_clarity: "Видит галлюцинации, но вежливо просит их подождать в очереди.",
+  sleepless: "Не спит принципиально: вдруг сон окажется платным DLC.",
+  trusting: "Доверяет всем, включая подозрительный куст — и как-то это работает.",
+  photographic_memory: "Помнит всё, кроме где оставила ключи от подземелья — это нормально.",
+  calm: "Даже если за ней гонятся, она делает вид, что это флешмоб.",
+  optimist: "В любой яме видит «углублённый уровень» и бонус к характеру.",
+  anger_control: "Считает до десяти… на драконьем, чтобы злость успела устать.",
+  passionate: "Горит энтузиазмом так ярко, что апатия просит огнетушитель.",
 };
+
+// Механический эффект перка (sync с expedition_data.PERKS.effect_ru).
+/** Эффект перка: «Снижает штраф» + точные имена препятствий (синхрон с expedition_data.format_perk_effect_ru). */
+const PERK_EFFECTS = {
+  gas_mask: "Снижает штраф: Вонючий, Ядовитый воздух",
+  diver: "Снижает штраф: Затопленный",
+  fireproof: "Снижает штраф: Жаркий",
+  frostproof: "Снижает штраф: Ледяной",
+  navigator: "Снижает штраф: Туманный, Штормовой",
+  desert_walker: "Снижает штраф: Пыльный, Зыбучие пески",
+  gas_filter: "Снижает штраф: Ядовитый воздух",
+  snow_warrior: "Снижает штраф: Снежная буря",
+  acid_proof: "Снижает штраф: Кислотный дождь",
+  wind_walker: "Снижает штраф: Штормовой",
+  elf_slayer: "Снижает штраф: Злые эльфы",
+  orc_hunter: "Снижает штраф: Орки-берсеркеры",
+  priest: "Снижает штраф: Нежить",
+  demon_slayer: "Снижает штраф: Демоны",
+  dragonslayer: "Снижает штраф: Драконы",
+  goblin_shaker: "Снижает штраф: Гоблины",
+  troll_slayer: "Снижает штраф: Тролли",
+  vampire_hunter: "Снижает штраф: Вампиры",
+  entomologist: "Снижает штраф: Гигантские насекомые",
+  bat_hunter: "Снижает штраф: Летучие мыши",
+  mushroom_expert: "Снижает штраф: Ядовитые грибы",
+  scout: "Снижает штраф: Ловушки",
+  archaeologist: "Снижает штраф: Проклятые артефакты",
+  swamp_walker: "Снижает штраф: Зыбучие пески",
+  spider_hunter: "Снижает штраф: Паутина",
+  chemist: "Снижает штраф: Кислотные лужи",
+  magic_researcher: "Снижает штраф: Магические аномалии",
+  exorcist: "Снижает штраф: Призрачные явления",
+  mountain_engineer: "Снижает штраф: Обвалы",
+  anti_magnet: "Снижает штраф: Магнитные аномалии",
+  curse_removal: "Снижает штраф: Проклятый",
+  anti_mage: "Снижает штраф: Зачарованный",
+  spatial_mage: "Снижает штраф: Искаженный",
+  light_protection: "Снижает штраф: Ослепляющий",
+  magic_resistance: "Снижает штраф: Парализующий",
+  chronomancer: "Снижает штраф: Замедление времени",
+  accelerator: "Снижает штраф: Ускорение времени",
+  spatial_navigator: "Снижает штраф: Искажение пространства",
+  mana_shield: "Снижает штраф: Магическое истощение",
+  lucky: "Снижает штраф: Проклятие удачи",
+  mental_shield: "Снижает штраф: Ментальные атаки",
+  strong_spirit: "Снижает штраф: Навязчивые страхи",
+  mental_clarity: "Снижает штраф: Галлюцинации",
+  sleepless: "Снижает штраф: Магический сон",
+  trusting: "Снижает штраф: Паранойя",
+  photographic_memory: "Снижает штраф: Амнезия",
+  calm: "Снижает штраф: Мания преследования",
+  optimist: "Снижает штраф: Депрессия",
+  anger_control: "Снижает штраф: Агрессия",
+  passionate: "Снижает штраф: Апатия",
+};
+
+/** @deprecated use PERK_FLAVOR — kept as alias for older call sites */
+const PERK_DESCS = PERK_FLAVOR;
 
 // Русские названия перков (синхрон с expedition_data.PERKS) — для таверны без payload perks в API.
 const PERK_NAMES = {
@@ -502,9 +561,41 @@ const PERK_ICONS = {
   passionate: "❤️",
 };
 
-/** Пояснение, как перк связан со сложностью экспедиций (слоты 1–5, сумма аффиксов). */
-const PERK_EXPEDITION_COUNTER_HINT =
-  "Перк помогает в экспедициях, если закрывает тип сложности слота (Монстры, Нежить…). Эффективность = min(100%, уровень_перка ÷ уровень_препятствия I–V). Прокачка перков — вкладка ⬆ LVL в таверне (очки за лвлап после экспедиции).";
+function perkNameRu(pid) {
+  const id = String(pid || "").trim();
+  if (!id) return "";
+  return PERK_NAMES[id] || id;
+}
+
+function perkFlavorRu(pid) {
+  const id = String(pid || "").trim();
+  return PERK_FLAVOR[id] || PERK_DESCS[id] || "Специальное умение для экспедиций.";
+}
+
+function perkEffectRu(pid) {
+  const id = String(pid || "").trim();
+  return PERK_EFFECTS[id] || "";
+}
+
+function perkArtUrl(pid) {
+  const id = String(pid || "").trim();
+  if (!id) return "";
+  return `${EXPEDITION_PERKS_WEBP_BASE}/${encodeURIComponent(id)}.webp`;
+}
+
+/** WebP icon with emoji fallback (PERK_ICONS). */
+function perkIconHtml(pid, opts = {}) {
+  const id = String(pid || "").trim();
+  const emoji = PERK_ICONS[id] || "✦";
+  const cls = opts.className ? String(opts.className) : "perk-ico-img";
+  const title = opts.title != null ? String(opts.title) : perkNameRu(id);
+  const url = perkArtUrl(id);
+  if (!url) {
+    return `<span class="perk-ico-emoji" aria-hidden="true">${emoji}</span>`;
+  }
+  const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+  return `<img class="${escapeHtml(cls)}" src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async"${titleAttr} data-perk-emoji="${escapeHtml(emoji)}" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'perk-ico-emoji',textContent:this.dataset.perkEmoji||'✦',ariaHidden:'true'}))" />`;
+}
 
 function safeInt(x, fallback = 0) {
   const v = Number.parseInt(String(x), 10);
@@ -15151,12 +15242,19 @@ function exportWebAppShellGlobals() {
     TAVERN_STATIC_BASE,
     EXPEDITION_BIOMES_BASE,
     EXPEDITION_ARCHETYPES_BASE,
+    EXPEDITION_PERKS_WEBP_BASE,
     TAVERN_BGM_TRACKS,
     expeditionArchetypeArtVersion,
     PERK_ICONS,
     PERK_DESCS,
+    PERK_FLAVOR,
+    PERK_EFFECTS,
     PERK_NAMES,
-    PERK_EXPEDITION_COUNTER_HINT,
+    perkNameRu,
+    perkFlavorRu,
+    perkEffectRu,
+    perkArtUrl,
+    perkIconHtml,
     WAIFU_RACES,
     WAIFU_CLASSES,
     apiFetch,
@@ -15199,6 +15297,8 @@ function exportWebAppShellGlobals() {
     openItemModal,
     isAdminUser,
     isAdminUiEnabled,
+    setItemArtGenBusy,
+    ITEM_ART_GEN_SVG,
     profileState,
     tg,
     className,
@@ -15305,6 +15405,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   openSettingsNotifyModal,
   closeSettingsNotifyModal,
   isAdminUiEnabled,
+  setItemArtGenBusy,
   syncAdminUiVisibility,
   setAdminUiEnabled,
   waifuGenGoStep1,

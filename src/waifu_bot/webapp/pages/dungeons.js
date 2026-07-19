@@ -2379,7 +2379,7 @@ function expeditionUnitMatchIndicators(unit, activeTags) {
       kind: "perk",
       id: pid,
       icon: PERK_ICONS[pid] || "✦",
-      title: `${PERK_DESCS[pid] || pid}${hit.length ? " · " + hit.join(", ") : ""}`,
+      title: `${(typeof perkFlavorRu === "function" ? perkFlavorRu(pid) : null) || PERK_FLAVOR?.[pid] || PERK_DESCS?.[pid] || (typeof perkNameRu === "function" ? perkNameRu(pid) : pid)}${hit.length ? " · " + hit.join(", ") : ""}`,
     });
   }
   const raceTags = (unit?.race_tags || []).filter((t) => active.has(t));
@@ -2434,8 +2434,16 @@ function expPickPerksHtml(u, matchedPerkIds) {
   return `<div class="exp-pick-perks">${perks
     .map((pid) => {
       const isMatch = matchedPerkIds.has(pid);
-      const title = PERK_DESCS[pid] || pid;
-      return `<span class="perk-icon-badge${isMatch ? " perk-icon-badge--match" : ""}" title="${escapeHtml(title)}">${PERK_ICONS[pid] || "✦"}</span>`;
+      const title =
+        (typeof perkFlavorRu === "function" ? perkFlavorRu(pid) : null) ||
+        PERK_FLAVOR?.[pid] ||
+        PERK_DESCS?.[pid] ||
+        (typeof perkNameRu === "function" ? perkNameRu(pid) : pid);
+      const ico =
+        typeof perkIconHtml === "function"
+          ? perkIconHtml(pid, { className: "perk-icon-badge-img", title })
+          : PERK_ICONS[pid] || "✦";
+      return `<span class="perk-icon-badge${isMatch ? " perk-icon-badge--match" : ""}" title="${escapeHtml(title)}">${ico}</span>`;
     })
     .join("")}</div>`;
 }
@@ -2919,13 +2927,41 @@ function renderExpTierSelect() {
   }
 }
 
+function expeditionMaxUnlockedTier(sqPower) {
+  const tiers = expeditionState.catalog?.depth_tiers || [];
+  let best = null;
+  for (const dt of tiers) {
+    if (sqPower >= (dt.min_squad_power || 0)) best = dt;
+  }
+  return best;
+}
+
 function updateExpeditionSquadPowerLabel() {
-  const el = expG("esm-squad-power");
-  if (!el) return;
   const sq = expeditionSquadPowerTotal();
-  const tier = (expeditionState.catalog?.depth_tiers || []).find((t) => t.tier === expeditionSend.depthTier);
-  const need = tier ? tier.min_squad_power || 0 : 0;
-  el.textContent = `Мощь отряда: ${sq}${need ? ` / нужно ${need}` : ""}`;
+  const tiers = expeditionState.catalog?.depth_tiers || [];
+  const selected = tiers.find((t) => t.tier === expeditionSend.depthTier);
+  const needSelected = selected ? selected.min_squad_power || 0 : 0;
+  const nextLocked = tiers.find((t) => sq < (t.min_squad_power || 0));
+  const colorNeed = needSelected > sq ? needSelected : nextLocked ? nextLocked.min_squad_power || 0 : needSelected;
+  const powerCls = powerThresholdClass(sq, colorNeed);
+
+  const el = expG("esm-squad-power");
+  if (el) {
+    el.innerHTML = `Мощь отряда: <span class="${powerCls}">${sq}</span>${needSelected ? ` / нужно ${needSelected}` : ""}`;
+  }
+
+  const rosterEl = expG("esm-roster-power");
+  if (rosterEl) {
+    const unlocked = expeditionMaxUnlockedTier(sq);
+    const roman = unlocked ? TIER_ROMAN[(unlocked.tier || 1) - 1] || String(unlocked.tier) : "I";
+    const name = unlocked
+      ? TIER_SHORT_NAMES[unlocked.tier] || unlocked.name_ru || unlocked.name || `Тир ${unlocked.tier}`
+      : TIER_SHORT_NAMES[1] || "Разведка";
+    rosterEl.innerHTML =
+      `<span>⚔ Мощь отряда: <span class="${powerCls}">${sq}</span></span>` +
+      `<span class="exp-roster-power-tier">доступно: ${escapeHtml(roman)} ${escapeHtml(name)}</span>`;
+  }
+
   renderExpTierSelect();
 }
 
@@ -3180,9 +3216,16 @@ function openSendExpModal() {
 
 function openExpRosterModal() {
   expOpenOverlay("exp-roster-modal");
+  updateExpeditionSquadPowerLabel();
   ensureExpeditionRoster()
-    .then(() => renderExpRosterPicker())
-    .catch(() => renderExpRosterPicker());
+    .then(() => {
+      renderExpRosterPicker();
+      updateExpeditionSquadPowerLabel();
+    })
+    .catch(() => {
+      renderExpRosterPicker();
+      updateExpeditionSquadPowerLabel();
+    });
 }
 
 function closeExpRosterModal() {
@@ -3428,11 +3471,17 @@ function expGateLogEntryHtml(g) {
   const mathHtml = mathParts.length ? `<div class="exp-gate-log-math">${mathParts.join("")}</div>` : "";
   const tagsArr = Array.isArray(g.active_tags) ? g.active_tags : [];
   const covArr = Array.isArray(g.covered_tags) ? g.covered_tags : [];
+  const affixNames = Array.isArray(g.affix_names) ? g.affix_names.filter(Boolean) : [];
   let tagsHtml = "";
+  if (affixNames.length) {
+    tagsHtml += `<div class="exp-gate-log-tags">Препятствия: ${affixNames.map((n) => escapeHtml(String(n))).join(" · ")}</div>`;
+  }
   if (tagsArr.length) {
     const covSet = new Set(covArr.map((t) => String(t)));
     const TAG_LABEL_RU = {
-      cursed: "Проклятия", undead: "Нежить", beasts: "Звери", constructs: "Конструкты",
+      monsters: "Монстры", undead: "Нежить", dark_magic: "Тёмная магия", elements: "Стихии",
+      traps: "Ловушки", curses: "Проклятия", knowledge: "Знания", social: "Социум",
+      cursed: "Проклятия", beasts: "Звери", constructs: "Конструкты",
       hazard: "Опасности", arcane: "Магия", poison: "Яды", terrain: "Местность",
     };
     const chips = tagsArr.map((t) => {
@@ -3440,7 +3489,7 @@ function expGateLogEntryHtml(g) {
       const ok = covSet.has(String(t));
       return `<span style="color:${ok ? "#4ade80" : "#f87171"}">${ok ? "✓" : "✗"}${label}</span>`;
     });
-    tagsHtml = `<div class="exp-gate-log-tags">Сложности: ${chips.join(" · ")}</div>`;
+    tagsHtml += `<div class="exp-gate-log-tags">Сложности: ${chips.join(" · ")}</div>`;
   }
   return `<li>${head}${tagsHtml}${mathHtml}</li>`;
 }
@@ -3645,13 +3694,13 @@ async function healExpeditionSquad(squadState) {
     return;
   }
 
-  const modal = document.getElementById("expedition-result-modal");
   const btn = document.getElementById("exp-result-heal-btn");
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Лечение...";
   }
   const errors = [];
+  let healed = 0;
   for (const u of wounded) {
     try {
       const res = await apiFetch(`/tavern/heal?hired_waifu_id=${u.hired_waifu_id}`, { method: "POST" });
@@ -3660,6 +3709,7 @@ async function healExpeditionSquad(squadState) {
       } else {
         u.healing = true;
         u.heal_minutes = res?.heal_minutes ?? u.heal_forecast_minutes;
+        healed += 1;
       }
     } catch (e) {
       const { detail } = parseHttpErrorDetail(e);
@@ -3667,15 +3717,23 @@ async function healExpeditionSquad(squadState) {
     }
   }
   expResultSquadState = squadState;
-  renderExpResultSquad(expResultSquadState);
-  if (modal) modal.style.display = "flex";
 
-  if (errors.length) {
-    showToast?.(`Часть не вылечена: ${errors.join("; ")}`, "danger");
-  }
-  await loadExpeditionTab({ force: true }).catch(() => {});
   if (typeof loadProfile === "function") await loadProfile().catch(() => {});
-  if (modal) modal.style.display = "flex";
+
+  if (healed > 0) {
+    if (errors.length) {
+      showToast?.(`Часть не вылечена: ${errors.join("; ")}`, "danger");
+    }
+    closeExpeditionResult();
+    return;
+  }
+
+  renderExpResultSquad(expResultSquadState);
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = "💊 Отправить на лечение";
+  }
+  showToast?.(`Не удалось отправить на лечение: ${errors.join("; ")}`, "danger");
 }
 
 function closeExpeditionResult() {

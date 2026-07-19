@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterable
 
 from waifu_bot.db.models.waifu import WaifuRarity
 
@@ -199,6 +199,7 @@ def gate_log_entry(
     active_tags: list[str] | None = None,
     covered_tags: list[str] | None = None,
     coverage: float | None = None,
+    affix_names: list[str] | None = None,
 ) -> dict[str, Any]:
     from waifu_bot.game.expedition_difficulty_tags import DIFFICULTY_TAG_LABEL_RU
 
@@ -235,12 +236,41 @@ def gate_log_entry(
         entry["covered_tags"] = list(covered_tags)
     if coverage is not None:
         entry["coverage"] = round(float(coverage), 3)
+    if affix_names is not None:
+        entry["affix_names"] = [str(n) for n in affix_names if str(n).strip()]
     return entry
 
 
-def pick_procedural_affixes(all_affixes: list[Any], rng: random.Random, count: int = 2) -> list[Any]:
-    """Случайный набор аффиксов для процедурной экспедиции."""
+def tick_affix_count(depth_tier: int | None) -> int:
+    """Сколько аффиксов роллить на один тик v2 (1–3 по тиру глубины)."""
+    tier = max(1, int(depth_tier or 1))
+    return min(3, 1 + tier // 2)
+
+
+def pick_procedural_affixes(
+    all_affixes: list[Any],
+    rng: random.Random,
+    count: int = 2,
+    *,
+    exclude_ids: Iterable[int] | None = None,
+) -> list[Any]:
+    """Случайный набор аффиксов для процедурной экспедиции / тика.
+
+    ``exclude_ids`` — не повторять аффиксы прошлого тика, если в пуле хватает
+    альтернатив; иначе берём из полного пула.
+    """
     if not all_affixes:
         return []
-    n = max(1, min(count, len(all_affixes)))
-    return rng.sample(list(all_affixes), k=n)
+    n = max(1, min(int(count), len(all_affixes)))
+    exclude = {int(x) for x in (exclude_ids or []) if x is not None}
+    pool = all_affixes
+    if exclude:
+        filtered = [
+            a
+            for a in all_affixes
+            if getattr(a, "id", None) is None or int(a.id) not in exclude
+        ]
+        if len(filtered) >= n:
+            pool = filtered
+    n = max(1, min(n, len(pool)))
+    return rng.sample(list(pool), k=n)

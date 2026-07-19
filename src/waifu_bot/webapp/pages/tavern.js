@@ -1798,7 +1798,11 @@ function tavernUpgradePerkGridHtml(w, perksMap, inExpedition) {
           data-perk-id="${escapeHtml(String(pid))}"
           aria-label="${escapeHtml(ariaLabel)}"
           ${canUpgrade ? "" : "disabled tabindex=\"-1\""}>
-          <span class="tavern-upgrade-perk-ico" aria-hidden="true">${PERK_ICONS[pid] || "✦"}</span>
+          ${
+            typeof perkIconHtml === "function"
+              ? perkIconHtml(pid, { className: "tavern-upgrade-perk-ico-img", title: perkName })
+              : `<span class="tavern-upgrade-perk-ico" aria-hidden="true">${PERK_ICONS[pid] || "✦"}</span>`
+          }
           ${perkLevelStars(lv, maxLv, compact)}
         </button>
       </div>`;
@@ -2091,7 +2095,16 @@ function renderTavernSquad() {
       ? perkIds
           .map(
             (pid) =>
-              `<span class="squad-mtg-perk-ico" title="${escapeHtml(String(perksMap[pid] || pid))}">${PERK_ICONS[pid] || "✦"}</span>`
+              (() => {
+                const label = String(
+                  perksMap[pid] || (typeof perkNameRu === "function" ? perkNameRu(pid) : pid)
+                );
+                const ico =
+                  typeof perkIconHtml === "function"
+                    ? perkIconHtml(pid, { className: "squad-mtg-perk-ico-img", title: label })
+                    : PERK_ICONS[pid] || "✦";
+                return `<span class="squad-mtg-perk-ico" title="${escapeHtml(label)}">${ico}</span>`;
+              })()
           )
           .join("")
       : `<span class="muted tiny" style="opacity:.75;">—</span>`;
@@ -2322,7 +2335,11 @@ function openTavernWaifuModal(w) {
           const p = String(pid);
           const icon = PERK_ICONS[p] || "✦";
           const label = String(perksMap[p] || p);
-          return `<button type="button" class="waifu-mtg-perk-cell" data-perk-id="${escapeHtml(p)}" aria-label="${escapeHtml(label)}"><span class="waifu-mtg-perk-ico" aria-hidden="true">${icon}</span></button>`;
+          const ico =
+            typeof perkIconHtml === "function"
+              ? perkIconHtml(p, { className: "waifu-mtg-perk-ico-img", title: label })
+              : `<span class="waifu-mtg-perk-ico" aria-hidden="true">${icon}</span>`;
+          return `<button type="button" class="waifu-mtg-perk-cell" data-perk-id="${escapeHtml(p)}" aria-label="${escapeHtml(label)}">${ico}</button>`;
         })
         .join("")
     : `<div class="waifu-mtg-no-perks">Нет перков</div>`;
@@ -2331,6 +2348,10 @@ function openTavernWaifuModal(w) {
   const portraitInner = imgUrl
     ? `<img class="waifu-mtg-art-img" src="${escapeHtml(imgUrl)}" alt="" loading="lazy" decoding="async" />`
     : `<div class="waifu-mtg-art-placeholder" aria-hidden="true">${waifuPortraitEmoji(w)}</div>`;
+  const adminArtBtn =
+    typeof isAdminUiEnabled === "function" && isAdminUiEnabled() && Number(w?.id) > 0
+      ? `<span class="item-art-generate-btn hired-waifu-art-generate-btn" role="button" tabindex="0" data-waifu-id="${escapeHtml(String(w.id))}" title="Сгенерировать портрет (admin)" aria-label="Сгенерировать портрет наёмницы">${typeof ITEM_ART_GEN_SVG === "string" ? ITEM_ART_GEN_SVG : "🖼"}</span>`
+      : "";
 
   const level = Number(w?.level ?? 1);
   const expInLevel = Math.max(0, Number(w?.expCurrent ?? w?.exp_current ?? 0));
@@ -2354,8 +2375,8 @@ function openTavernWaifuModal(w) {
         <div class="waifu-mtg-flip-inner" id="waifu-mtg-flip-inner">
           <div class="waifu-mtg-face waifu-mtg-face--front">
             <div class="waifu-mtg-card ${rCls}">
-              <div class="waifu-mtg-art">
-                ${portraitInner}
+              <div class="waifu-mtg-art${adminArtBtn ? " waifu-mtg-art--admin" : ""}">
+                <span class="item-art-admin-wrap hired-waifu-art-admin-wrap">${portraitInner}${adminArtBtn}</span>
                 <div class="waifu-mtg-art-scrim" aria-hidden="true"></div>
                 <header class="waifu-mtg-header-row">
                   <h2 class="waifu-mtg-name">${escapeHtml(nm)}</h2>
@@ -2421,9 +2442,16 @@ function openTavernWaifuModal(w) {
       ev.stopPropagation();
       const pid = cell.getAttribute("data-perk-id") || "";
       if (!tipEl || !tipName || !tipDesc || !tipDiff) return;
-      tipName.textContent = String(perksMap[pid] ?? perksMap[String(pid)] ?? pid);
-      tipDesc.textContent = PERK_DESCS[pid] || "Специальное умение для экспедиций.";
-      tipDiff.textContent = PERK_EXPEDITION_COUNTER_HINT;
+      tipName.textContent = String(
+        perksMap[pid] ?? perksMap[String(pid)] ?? (typeof perkNameRu === "function" ? perkNameRu(pid) : pid)
+      );
+      tipDesc.textContent =
+        (typeof perkFlavorRu === "function" ? perkFlavorRu(pid) : null) ||
+        PERK_FLAVOR?.[pid] ||
+        PERK_DESCS?.[pid] ||
+        "Специальное умение для экспедиций.";
+      tipDiff.textContent =
+        (typeof perkEffectRu === "function" ? perkEffectRu(pid) : null) || PERK_EFFECTS?.[pid] || "";
       tipEl.hidden = false;
       tipEl.classList.add("tavern-perk-tip--open");
     });
@@ -2445,8 +2473,95 @@ function openTavernWaifuModal(w) {
     });
   }
 
+  const adminGenBtn = body.querySelector(".hired-waifu-art-generate-btn");
+  if (adminGenBtn) {
+    const activate = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      handleHiredWaifuArtGenerateClick(adminGenBtn);
+    };
+    adminGenBtn.addEventListener("click", activate);
+    adminGenBtn.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") activate(ev);
+    });
+  }
+
   setTavernWaifuModalPageScrollLocked(true);
   m.style.display = "grid";
+}
+
+function patchHiredWaifuImageUrlInState(waifuId, imageUrl) {
+  const id = Number(waifuId);
+  if (!Number.isFinite(id) || id < 1 || !imageUrl) return;
+  const apply = (list) => {
+    if (!Array.isArray(list)) return;
+    for (const row of list) {
+      if (Number(row?.id) === id) {
+        row.imageUrl = imageUrl;
+        row.image_url = imageUrl;
+      }
+    }
+  };
+  apply(tavernState.squad);
+  apply(tavernState.reserve);
+  if (Number(tavernState.selectedWaifu?.id) === id) {
+    tavernState.selectedWaifu.imageUrl = imageUrl;
+    tavernState.selectedWaifu.image_url = imageUrl;
+  }
+}
+
+async function handleHiredWaifuArtGenerateClick(el) {
+  if (!el || (typeof isAdminUser === "function" && !isAdminUser())) return;
+  const waifuId = parseInt(el.getAttribute("data-waifu-id") || "", 10);
+  if (!Number.isFinite(waifuId) || waifuId < 1) return;
+  el.classList.add("is-loading");
+  el.setAttribute("aria-busy", "true");
+  if (typeof setItemArtGenBusy === "function") setItemArtGenBusy(true);
+  try {
+    const payload = await apiFetch(
+      `/admin/hired-waifu-art/generate?waifu_id=${encodeURIComponent(waifuId)}`,
+      { method: "POST" }
+    );
+    const newUrl = String(payload?.image_url || "").trim();
+    if (!newUrl) throw new Error("no_image_url");
+    patchHiredWaifuImageUrlInState(waifuId, newUrl);
+    const wrap = el.closest(".hired-waifu-art-admin-wrap");
+    let busted = newUrl;
+    try {
+      const u = new URL(newUrl, window.location.origin);
+      u.searchParams.set("v", String(Date.now()));
+      u.searchParams.set("variant", "full");
+      busted = u.pathname + u.search;
+    } catch {
+      busted = `${newUrl.split("?")[0]}?variant=full&v=${Date.now()}`;
+    }
+    if (wrap) {
+      wrap.innerHTML = `<img class="waifu-mtg-art-img" src="${escapeHtml(busted)}" alt="" loading="lazy" decoding="async" />${el.outerHTML}`;
+      const btn = wrap.querySelector(".hired-waifu-art-generate-btn");
+      if (btn) {
+        btn.classList.remove("is-loading");
+        btn.removeAttribute("aria-busy");
+        const reactivate = (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          handleHiredWaifuArtGenerateClick(btn);
+        };
+        btn.addEventListener("click", reactivate);
+        btn.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter" || ev.key === " ") reactivate(ev);
+        });
+      }
+    }
+    showToast("Портрет сохранён");
+    renderTavernSquad();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Ошибка генерации портрета", "error");
+  } finally {
+    el.classList.remove("is-loading");
+    el.removeAttribute("aria-busy");
+    if (typeof setItemArtGenBusy === "function") setItemArtGenBusy(false);
+  }
 }
 
 function closeTavernWaifuModal() {
@@ -2499,7 +2614,20 @@ function renderSquadPickerModal(available, slotPosition) {
     const hpPct = hpMax > 0 ? Math.round((cur / hpMax) * 100) : 100;
     const statusOk = cur > 0;
     const clsId = Number(u?.class ?? u?.class_ ?? 0);
-    const perkPips = (u.perks || []).slice(0, 3).map((pid) => `<span class="perk-pip" title="${PERK_DESCS[pid] || ""}">${(perksMap[pid] || pid).toString().split(" ")[0] || "?"}</span>`).join("");
+    const perkPips = (u.perks || [])
+      .slice(0, 3)
+      .map((pid) => {
+        const tip =
+          (typeof perkFlavorRu === "function" ? perkFlavorRu(pid) : null) ||
+          PERK_FLAVOR?.[pid] ||
+          PERK_DESCS?.[pid] ||
+          "";
+        const shortName = (perksMap[pid] || (typeof perkNameRu === "function" ? perkNameRu(pid) : pid) || "?")
+          .toString()
+          .split(" ")[0];
+        return `<span class="perk-pip" title="${escapeHtml(tip)}">${escapeHtml(shortName)}</span>`;
+      })
+      .join("");
     return `
       <div class="squad-picker-card ${statusOk ? "" : "squad-picker-card--weak"}" data-waifu-id="${u.id}" role="button" tabindex="0">
         <div class="squad-picker-icon">${waifuPortraitEmoji(u)}</div>
