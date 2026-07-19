@@ -8,12 +8,20 @@ const size = 240
 const cx = size / 2
 const cy = size / 2
 const rOuter = 92
-const scale = 20
 
 const entries = computed(() => radarStats(props.stats))
 
+const scale = computed(() => {
+  const max = Math.max(0, ...entries.value.map(([, v]) => v))
+  return max > 0 ? max : 1
+})
+
 function angle(i: number, total: number) {
   return -Math.PI / 2 + (i * Math.PI * 2) / total
+}
+
+function radiusFor(v: number): number {
+  return (Math.max(0, v) / scale.value) * rOuter
 }
 
 const rings = computed(() =>
@@ -43,7 +51,7 @@ const valuePoints = computed(() =>
   entries.value
     .map(([, v], i) => {
       const a = angle(i, entries.value.length)
-      const r = (Math.max(0, Math.min(scale, v)) / scale) * rOuter
+      const r = radiusFor(v)
       return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`
     })
     .join(' '),
@@ -52,7 +60,7 @@ const valuePoints = computed(() =>
 const vertices = computed(() =>
   entries.value.map(([, v], i) => {
     const a = angle(i, entries.value.length)
-    const r = (Math.max(0, Math.min(scale, v)) / scale) * rOuter
+    const r = radiusFor(v)
     return { cx: (cx + r * Math.cos(a)).toFixed(1), cy: (cy + r * Math.sin(a)).toFixed(1) }
   }),
 )
