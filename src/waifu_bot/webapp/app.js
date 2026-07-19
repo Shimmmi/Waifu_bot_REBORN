@@ -696,6 +696,19 @@ function rarityLabel(r) {
   );
 }
 
+function rarityShortLabel(r) {
+  const v = Number(r);
+  return (
+    {
+      1: "Об",
+      2: "Необ",
+      3: "Ред",
+      4: "Эпик",
+      5: "Лег",
+    }[v] || "—"
+  );
+}
+
 function rarityClass(r) {
   const v = Number(r);
   return (
@@ -5677,6 +5690,33 @@ function openItemEquipRingOverlay() {
   ov.setAttribute("aria-hidden", "false");
 }
 
+function resetItemModalFlip() {
+  const inner = document.getElementById("item-modal-flip-inner");
+  if (inner) inner.classList.remove("is-flipped");
+}
+
+function toggleItemModalFlip() {
+  const inner = document.getElementById("item-modal-flip-inner");
+  if (inner) inner.classList.toggle("is-flipped");
+}
+
+function wireItemModalFlip() {
+  const scene = document.getElementById("item-modal-flip-scene");
+  if (!scene || scene.dataset.flipWired === "1") return;
+  scene.dataset.flipWired = "1";
+  scene.addEventListener("click", (e) => {
+    if (e.target.closest(".item-art-generate-btn")) return;
+    e.preventDefault();
+    toggleItemModalFlip();
+  });
+  scene.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleItemModalFlip();
+    }
+  });
+}
+
 function closeItemModal() {
   const m = document.getElementById("item-modal");
   if (m) {
@@ -5684,6 +5724,7 @@ function closeItemModal() {
     m.style.removeProperty("--attic-bar-height");
     m.style.display = "none";
   }
+  resetItemModalFlip();
   closeItemSellConfirmOverlay();
   closeItemDismantleConfirmOverlay();
   closeItemEquipRingOverlay();
@@ -6158,47 +6199,91 @@ function renderItemModalV2LegendaryBlockHtml(bonuses) {
   return entries;
 }
 
+function fillItemModalHeroPrimaryStats(item) {
+  const left = document.getElementById("item-modal-hero-left");
+  const right = document.getElementById("item-modal-hero-right");
+  if (!left || !right) return;
+
+  left.innerHTML = "";
+  right.innerHTML = "";
+
+  if (!item) return;
+
+  const st = String(item?.slot_type || "").toLowerCase();
+  const isWeapon = st.includes("weapon");
+  const isAccessory = st.includes("ring") || st.includes("amulet");
+
+  if (isWeapon) {
+    const dmgMinE =
+      item?.damage_min_effective != null ? Number(item.damage_min_effective) : Number(item?.damage_min ?? NaN);
+    const dmgMaxE =
+      item?.damage_max_effective != null ? Number(item.damage_max_effective) : Number(item?.damage_max ?? NaN);
+    if (Number.isFinite(dmgMinE) && Number.isFinite(dmgMaxE)) {
+      left.innerHTML = `<div class="item-modal-v2-hero-stat-lbl">Урон</div>
+        <div class="item-modal-v2-hero-dmg" aria-label="Урон ${dmgMinE}–${dmgMaxE}">
+          <span class="item-modal-v2-hero-dmg-line">${escapeHtml(String(dmgMinE))}</span>
+          <span class="item-modal-v2-hero-dmg-sep">–</span>
+          <span class="item-modal-v2-hero-dmg-line">${escapeHtml(String(dmgMaxE))}</span>
+        </div>`;
+    }
+    const speed = item?.attack_speed != null ? Number(item.attack_speed) : null;
+    if (speed != null && Number.isFinite(speed)) {
+      right.innerHTML = `<div class="item-modal-v2-hero-stat-lbl">Скор.</div>
+        <div class="item-modal-v2-hero-stat-val item-modal-v2-hero-stat-val--spd">${escapeHtml(String(speed))}</div>`;
+    }
+    return;
+  }
+
+  if (!isAccessory) {
+    const armorEff =
+      item?.armor_effective != null
+        ? safeNumber(item.armor_effective, safeNumber(item?.armor_base, 0))
+        : safeNumber(item?.armor_base, 0);
+    if (armorEff > 0) {
+      left.innerHTML = `<div class="item-modal-v2-hero-stat-lbl">Броня</div>
+        <div class="item-modal-v2-hero-stat-val item-modal-v2-hero-stat-val--arm">${escapeHtml(String(armorEff))}</div>`;
+    }
+  }
+}
+
 function renderItemModalV2CharacteristicsHtml(item) {
   if (!item) return "";
   itemModalV2NextIcon._i = 0;
   const baseRows = [];
   const otherRows = [];
 
-  const armorEff =
-    item?.armor_effective != null
-      ? safeNumber(item.armor_effective, safeNumber(item?.armor_base, 0))
-      : safeNumber(item?.armor_base, 0);
-  const dmgMinE = item?.damage_min_effective != null ? Number(item.damage_min_effective) : Number(item?.damage_min ?? NaN);
-  const dmgMaxE = item?.damage_max_effective != null ? Number(item.damage_max_effective) : Number(item?.damage_max ?? NaN);
-  const speed = item?.attack_speed != null ? Number(item.attack_speed) : null;
-  const st = String(item?.slot_type || "").toLowerCase();
-  const isWeapon = st.includes("weapon");
-  const isAccessory = st.includes("ring") || st.includes("amulet");
+  // Урон / скорость / броня — в боковых колонках арта (fillItemModalHeroPrimaryStats).
 
-  if (!isWeapon && !isAccessory && armorEff > 0) {
-    baseRows.push(
-      itemModalV2StatRow("Броня", escapeHtml(String(armorEff)), "item-modal-v2-sv-te", null)
-    );
-  }
-  if (isWeapon && Number.isFinite(dmgMinE) && Number.isFinite(dmgMaxE)) {
-    baseRows.push(
-      itemModalV2StatRow("Урон", escapeHtml(`${dmgMinE}–${dmgMaxE}`), "item-modal-v2-sv-re", null)
-    );
-  }
-  if (isWeapon && speed != null) {
-    baseRows.push(
-      itemModalV2StatRow("Скорость атаки", escapeHtml(String(speed)), "item-modal-v2-sv-go", null)
-    );
-  }
+  const mergeMap = new Map();
+  const addMergedStat = (stat, rawValue, isPercentFlag) => {
+    const sk = String(stat || "").trim();
+    const skl = sk.toLowerCase();
+    if (!skl) return false;
+    if (
+      skl.startsWith("passive_node_level_add:") ||
+      skl.startsWith("passive_branch_level_add:") ||
+      skl === "passive_all_nodes_level_add"
+    ) {
+      return false;
+    }
+    const isPct =
+      Boolean(isPercentFlag) ||
+      skl.endsWith("_pct") ||
+      skl.endsWith("_percent") ||
+      skl.includes("chance_percent");
+    const key = `${skl}|${isPct ? 1 : 0}`;
+    const n = safeNumber(rawValue, 0);
+    const prev = mergeMap.get(key);
+    if (prev) {
+      prev.value += n;
+    } else {
+      mergeMap.set(key, { stat: skl, isPercent: isPct, value: n });
+    }
+    return true;
+  };
 
   if (item.base_stat && item.base_stat_value != null) {
-    const m = statMeta(item.base_stat);
-    const v = formatBonusValue(item.base_stat, item.base_stat_value);
-    const cls =
-      String(item.base_stat).includes("strength") || String(item.base_stat).includes("damage")
-        ? "item-modal-v2-sv-re"
-        : "item-modal-v2-sv-pu";
-    otherRows.push(itemModalV2StatRow(m.short, escapeHtml(v), cls, null, true));
+    addMergedStat(item.base_stat, item.base_stat_value, false);
   }
 
   const t = String(item?.secondary_bonus_type || "").trim();
@@ -6240,17 +6325,33 @@ function renderItemModalV2CharacteristicsHtml(item) {
   aff.forEach((a) => {
     const sk = String(a.stat || "").trim();
     const skl = sk.toLowerCase();
-    const label = resolveAffixCharacteristicLabel(a);
-    let v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
     if (
       skl.startsWith("passive_node_level_add:") ||
       skl.startsWith("passive_branch_level_add:") ||
       skl === "passive_all_nodes_level_add"
     ) {
+      const label = resolveAffixCharacteristicLabel(a);
+      let v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
       v = `${v} ур.`;
+      otherRows.push(itemModalV2StatRow(label, escapeHtml(v), "item-modal-v2-sv-pu", null, true));
+      return;
     }
-    otherRows.push(itemModalV2StatRow(label, escapeHtml(v), "item-modal-v2-sv-pu", null, true));
+    if (!addMergedStat(sk, a.value, a?.is_percent)) {
+      const label = resolveAffixCharacteristicLabel(a);
+      const v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
+      otherRows.push(itemModalV2StatRow(label, escapeHtml(v), "item-modal-v2-sv-pu", null, true));
+    }
   });
+
+  for (const entry of mergeMap.values()) {
+    const label = resolveAffixCharacteristicLabel({ stat: entry.stat });
+    const v = formatAffixCharacteristicValue(entry.stat, entry.value, entry.isPercent);
+    const cls =
+      entry.stat.includes("strength") || entry.stat.includes("damage")
+        ? "item-modal-v2-sv-re"
+        : "item-modal-v2-sv-pu";
+    otherRows.push(itemModalV2StatRow(label, escapeHtml(v), cls, null, true));
+  }
 
   const leg = Array.isArray(item.legendary_bonuses) ? item.legendary_bonuses : [];
   const basePanel = itemModalV2Subpanel("item-modal-v2-subpanel--base", baseRows.join(""));
@@ -7658,8 +7759,8 @@ function openItemModal(item) {
 
   const rpill = document.getElementById("item-modal-rpill");
   if (rpill) {
-    rpill.textContent = rarityLabel(item?.rarity);
-    rpill.className = `item-modal-v2-rpill ${rarityPillModifierClass(item?.rarity)}`.trim();
+    rpill.textContent = rarityShortLabel(item?.rarity);
+    rpill.className = `item-modal-v2-rarity-chip ${rarityPillModifierClass(item?.rarity)}`.trim();
   }
 
   const art = document.getElementById("item-modal-art");
@@ -7711,15 +7812,19 @@ function openItemModal(item) {
 
   body.innerHTML = charHtml;
 
+  fillItemModalHeroPrimaryStats(item);
+  wireItemModalFlip();
+  resetItemModalFlip();
+
   const descEl = document.getElementById("item-modal-desc");
   const descText = String(item?.description || "").trim();
   if (descEl) {
     if (descText) {
-      descEl.style.display = "";
       descEl.textContent = `"${descText}"`;
+      descEl.classList.remove("is-empty");
     } else {
-      descEl.style.display = "none";
-      descEl.innerHTML = "";
+      descEl.textContent = "Описание отсутствует";
+      descEl.classList.add("is-empty");
     }
   }
 
