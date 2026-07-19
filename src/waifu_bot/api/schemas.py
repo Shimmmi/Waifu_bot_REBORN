@@ -799,6 +799,8 @@ class ExpeditionPerkOut(BaseModel):
     name: str
     counters: List[str] = []
     category: str
+    flavor_ru: str = ""
+    effect_ru: str = ""
 
 
 class ExpeditionLegacyAffixOut(BaseModel):

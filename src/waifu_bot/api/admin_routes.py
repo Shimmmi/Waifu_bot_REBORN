@@ -45,7 +45,14 @@ def _tavern_perks_for_response():
     from waifu_bot.game.expedition_data import PERKS
 
     return [
-        schemas.ExpeditionPerkOut(id=p.id, name=p.name, counters=list(p.counters), category=p.category)
+        schemas.ExpeditionPerkOut(
+            id=p.id,
+            name=p.name,
+            counters=list(p.counters),
+            category=p.category,
+            flavor_ru=p.flavor_ru,
+            effect_ru=p.effect_ru,
+        )
         for p in PERKS
     ]
 

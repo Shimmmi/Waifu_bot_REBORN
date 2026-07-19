@@ -1798,7 +1798,11 @@ function tavernUpgradePerkGridHtml(w, perksMap, inExpedition) {
           data-perk-id="${escapeHtml(String(pid))}"
           aria-label="${escapeHtml(ariaLabel)}"
           ${canUpgrade ? "" : "disabled tabindex=\"-1\""}>
-          <span class="tavern-upgrade-perk-ico" aria-hidden="true">${PERK_ICONS[pid] || "✦"}</span>
+          ${
+            typeof perkIconHtml === "function"
+              ? perkIconHtml(pid, { className: "tavern-upgrade-perk-ico-img", title: perkName })
+              : `<span class="tavern-upgrade-perk-ico" aria-hidden="true">${PERK_ICONS[pid] || "✦"}</span>`
+          }
           ${perkLevelStars(lv, maxLv, compact)}
         </button>
       </div>`;
@@ -2091,7 +2095,16 @@ function renderTavernSquad() {
       ? perkIds
           .map(
             (pid) =>
-              `<span class="squad-mtg-perk-ico" title="${escapeHtml(String(perksMap[pid] || pid))}">${PERK_ICONS[pid] || "✦"}</span>`
+              (() => {
+                const label = String(
+                  perksMap[pid] || (typeof perkNameRu === "function" ? perkNameRu(pid) : pid)
+                );
+                const ico =
+                  typeof perkIconHtml === "function"
+                    ? perkIconHtml(pid, { className: "squad-mtg-perk-ico-img", title: label })
+                    : PERK_ICONS[pid] || "✦";
+                return `<span class="squad-mtg-perk-ico" title="${escapeHtml(label)}">${ico}</span>`;
+              })()
           )
           .join("")
       : `<span class="muted tiny" style="opacity:.75;">—</span>`;
@@ -2322,7 +2335,11 @@ function openTavernWaifuModal(w) {
           const p = String(pid);
           const icon = PERK_ICONS[p] || "✦";
           const label = String(perksMap[p] || p);
-          return `<button type="button" class="waifu-mtg-perk-cell" data-perk-id="${escapeHtml(p)}" aria-label="${escapeHtml(label)}"><span class="waifu-mtg-perk-ico" aria-hidden="true">${icon}</span></button>`;
+          const ico =
+            typeof perkIconHtml === "function"
+              ? perkIconHtml(p, { className: "waifu-mtg-perk-ico-img", title: label })
+              : `<span class="waifu-mtg-perk-ico" aria-hidden="true">${icon}</span>`;
+          return `<button type="button" class="waifu-mtg-perk-cell" data-perk-id="${escapeHtml(p)}" aria-label="${escapeHtml(label)}">${ico}</button>`;
         })
         .join("")
     : `<div class="waifu-mtg-no-perks">Нет перков</div>`;
@@ -2425,9 +2442,16 @@ function openTavernWaifuModal(w) {
       ev.stopPropagation();
       const pid = cell.getAttribute("data-perk-id") || "";
       if (!tipEl || !tipName || !tipDesc || !tipDiff) return;
-      tipName.textContent = String(perksMap[pid] ?? perksMap[String(pid)] ?? pid);
-      tipDesc.textContent = PERK_DESCS[pid] || "Специальное умение для экспедиций.";
-      tipDiff.textContent = PERK_EXPEDITION_COUNTER_HINT;
+      tipName.textContent = String(
+        perksMap[pid] ?? perksMap[String(pid)] ?? (typeof perkNameRu === "function" ? perkNameRu(pid) : pid)
+      );
+      tipDesc.textContent =
+        (typeof perkFlavorRu === "function" ? perkFlavorRu(pid) : null) ||
+        PERK_FLAVOR?.[pid] ||
+        PERK_DESCS?.[pid] ||
+        "Специальное умение для экспедиций.";
+      tipDiff.textContent =
+        (typeof perkEffectRu === "function" ? perkEffectRu(pid) : null) || PERK_EFFECTS?.[pid] || "";
       tipEl.hidden = false;
       tipEl.classList.add("tavern-perk-tip--open");
     });
@@ -2590,7 +2614,20 @@ function renderSquadPickerModal(available, slotPosition) {
     const hpPct = hpMax > 0 ? Math.round((cur / hpMax) * 100) : 100;
     const statusOk = cur > 0;
     const clsId = Number(u?.class ?? u?.class_ ?? 0);
-    const perkPips = (u.perks || []).slice(0, 3).map((pid) => `<span class="perk-pip" title="${PERK_DESCS[pid] || ""}">${(perksMap[pid] || pid).toString().split(" ")[0] || "?"}</span>`).join("");
+    const perkPips = (u.perks || [])
+      .slice(0, 3)
+      .map((pid) => {
+        const tip =
+          (typeof perkFlavorRu === "function" ? perkFlavorRu(pid) : null) ||
+          PERK_FLAVOR?.[pid] ||
+          PERK_DESCS?.[pid] ||
+          "";
+        const shortName = (perksMap[pid] || (typeof perkNameRu === "function" ? perkNameRu(pid) : pid) || "?")
+          .toString()
+          .split(" ")[0];
+        return `<span class="perk-pip" title="${escapeHtml(tip)}">${escapeHtml(shortName)}</span>`;
+      })
+      .join("");
     return `
       <div class="squad-picker-card ${statusOk ? "" : "squad-picker-card--weak"}" data-waifu-id="${u.id}" role="button" tabindex="0">
         <div class="squad-picker-icon">${waifuPortraitEmoji(u)}</div>

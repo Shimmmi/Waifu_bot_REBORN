@@ -2827,6 +2827,8 @@ async def expeditions_perks():
                 name=p.name,
                 counters=list(p.counters),
                 category=p.category,
+                flavor_ru=p.flavor_ru,
+                effect_ru=p.effect_ru,
             )
             for p in PERKS
         ],

@@ -2379,7 +2379,7 @@ function expeditionUnitMatchIndicators(unit, activeTags) {
       kind: "perk",
       id: pid,
       icon: PERK_ICONS[pid] || "✦",
-      title: `${PERK_DESCS[pid] || pid}${hit.length ? " · " + hit.join(", ") : ""}`,
+      title: `${(typeof perkFlavorRu === "function" ? perkFlavorRu(pid) : null) || PERK_FLAVOR?.[pid] || PERK_DESCS?.[pid] || (typeof perkNameRu === "function" ? perkNameRu(pid) : pid)}${hit.length ? " · " + hit.join(", ") : ""}`,
     });
   }
   const raceTags = (unit?.race_tags || []).filter((t) => active.has(t));
@@ -2434,8 +2434,16 @@ function expPickPerksHtml(u, matchedPerkIds) {
   return `<div class="exp-pick-perks">${perks
     .map((pid) => {
       const isMatch = matchedPerkIds.has(pid);
-      const title = PERK_DESCS[pid] || pid;
-      return `<span class="perk-icon-badge${isMatch ? " perk-icon-badge--match" : ""}" title="${escapeHtml(title)}">${PERK_ICONS[pid] || "✦"}</span>`;
+      const title =
+        (typeof perkFlavorRu === "function" ? perkFlavorRu(pid) : null) ||
+        PERK_FLAVOR?.[pid] ||
+        PERK_DESCS?.[pid] ||
+        (typeof perkNameRu === "function" ? perkNameRu(pid) : pid);
+      const ico =
+        typeof perkIconHtml === "function"
+          ? perkIconHtml(pid, { className: "perk-icon-badge-img", title })
+          : PERK_ICONS[pid] || "✦";
+      return `<span class="perk-icon-badge${isMatch ? " perk-icon-badge--match" : ""}" title="${escapeHtml(title)}">${ico}</span>`;
     })
     .join("")}</div>`;
 }
