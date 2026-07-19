@@ -635,6 +635,64 @@ async def admin_generate_item_art(
     }
 
 
+@router.post("/admin/hired-waifu-art/generate", tags=["admin"])
+async def admin_generate_hired_waifu_art(
+    waifu_id: int = Query(..., ge=1),
+    _admin: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: (re)generate hired-waifu portrait via RouterAI; persist on HiredWaifu.image_*."""
+    from waifu_bot.api.hired_waifu_media import hired_waifu_portrait_path
+    from waifu_bot.services.expedition_events_ai import generate_hire_waifu_image
+    from waifu_bot.services.llm_client import has_image_llm_configured
+
+    waifu = await session.get(m.HiredWaifu, int(waifu_id))
+    if not waifu:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="waifu_not_found")
+
+    if not has_image_llm_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ROUTERAI_API_KEY не задан в .env",
+        )
+
+    _, race_ru, class_ru, _level, _perk_names = tavern_service._waifu_bio_inputs(waifu)
+    bio = (getattr(waifu, "bio", None) or "").strip() or ""
+    name = (waifu.name or "Наёмница").strip() or "Наёмница"
+    perk_ids = list(getattr(waifu, "perks", None) or [])
+
+    image_b64 = await generate_hire_waifu_image(
+        race_ru, class_ru, bio, name, perk_ids=perk_ids
+    )
+    if not image_b64:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="hired_waifu_art_generation_failed",
+        )
+
+    now = datetime.now(tz=timezone.utc)
+    waifu.image_data = image_b64
+    waifu.image_mime = "image/webp"
+    waifu.image_generated_at = now
+    try:
+        await session.commit()
+    except SQLAlchemyError:
+        logger.exception("admin_generate_hired_waifu_art DB commit failed waifu_id=%s", waifu_id)
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="hired_waifu_art_db_failed",
+        )
+
+    cache_bust = int(now.timestamp())
+    image_url = f"{hired_waifu_portrait_path(waifu.id)}?v={cache_bust}"
+    return {
+        "success": True,
+        "waifu_id": int(waifu.id),
+        "image_url": image_url,
+    }
+
+
 @router.post("/admin/monster-art/generate", tags=["admin"])
 async def admin_generate_monster_art(
     template_id: int = Query(..., ge=1),

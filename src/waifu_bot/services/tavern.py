@@ -232,7 +232,7 @@ class TavernService:
             bio = _template_bio(waifu)
         waifu.bio = bio
 
-        # Портрет через RouterAI image API (cursor_plan_7): modalities ["image"], ответ в message.images[]
+        # Портрет через RouterAI image API: modalities ["image","text"] then ["image"]; ответ в message.images[]
         image_b64 = await generate_hire_waifu_image(
             race_ru, class_ru, bio, waifu.name, perk_ids=waifu.perks
         )

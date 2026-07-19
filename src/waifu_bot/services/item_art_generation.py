@@ -15,6 +15,7 @@ from PIL import Image
 from waifu_bot.services.expedition_events_ai import _extract_openrouter_image_b64
 from waifu_bot.services.item_art import is_legendary_art_key
 from waifu_bot.services.llm_client import (
+    IMAGE_MODALITY_ATTEMPTS,
     get_image_model,
     has_image_llm_configured,
     post_chat_completions,
@@ -302,9 +303,8 @@ async def generate_item_pixel_art_webp(
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
             last_message: dict = {}
-            for modalities in attempts:
+            for modalities in IMAGE_MODALITY_ATTEMPTS:
                 body = {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],

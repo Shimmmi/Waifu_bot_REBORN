@@ -31,6 +31,7 @@ from waifu_bot.game.expedition_narrative_catalog import (
 from waifu_bot.services.ai_narrative_rewrite import rhythm_rewrite_narrative
 from waifu_bot.services.ai_service import generate as ai_generate
 from waifu_bot.services.llm_client import (
+    IMAGE_MODALITY_ATTEMPTS,
     get_image_model,
     has_image_llm_configured,
     has_llm_configured,
@@ -1220,8 +1221,60 @@ def _b64_from_data_image_url(url: str) -> Optional[str]:
         return None
     m = re.match(r"^data:image/[\w.+-]+;base64,(.+)$", url.strip(), re.DOTALL)
     if m:
-        return m.group(1).strip()
+        return re.sub(r"\s+", "", m.group(1))
     return None
+
+
+def _summarize_image_choice_for_log(choice: dict, *, limit: int = 1800) -> str:
+    """Compact choice dump for parse-miss logs (no multi-MB base64 / reasoning blobs)."""
+
+    def _short(obj: Any, depth: int = 0) -> Any:
+        if isinstance(obj, dict):
+            out: dict[str, Any] = {}
+            for k, v in obj.items():
+                if k in ("url", "b64_json", "signature", "data") and isinstance(v, str) and len(v) > 96:
+                    out[k] = f"<str len={len(v)} prefix={v[:48]!r}>"
+                elif k == "reasoning_details" and isinstance(v, list):
+                    out[k] = f"<list len={len(v)}>"
+                else:
+                    out[k] = _short(v, depth + 1)
+            return out
+        if isinstance(obj, list):
+            head = [_short(x, depth + 1) for x in obj[:2]]
+            if len(obj) > 2:
+                head.append(f"...+{len(obj) - 2}")
+            return head
+        if isinstance(obj, str) and len(obj) > 240:
+            return f"<str len={len(obj)}>"
+        return obj
+
+    payload = {
+        "finish_reason": choice.get("finish_reason"),
+        "native_finish_reason": choice.get("native_finish_reason"),
+        "choice_keys": list(choice.keys()),
+        "message": _short(choice.get("message") if isinstance(choice.get("message"), dict) else {}),
+    }
+    return json.dumps(payload, ensure_ascii=False)[:limit]
+
+
+def _log_image_parse_miss(
+    tag: str,
+    *,
+    modalities: Sequence[str],
+    choice: dict | None,
+    usage: Any = None,
+) -> None:
+    choice_dict = choice if isinstance(choice, dict) else {}
+    msg = choice_dict.get("message") if isinstance(choice_dict.get("message"), dict) else {}
+    logger.info(
+        "[%s] parse miss modalities=%s message_keys=%s finish_reason=%s usage=%s choice=%s",
+        tag,
+        modalities,
+        list(msg.keys()) if isinstance(msg, dict) else [],
+        choice_dict.get("finish_reason"),
+        usage,
+        _summarize_image_choice_for_log(choice_dict),
+    )
 
 
 def _image_url_block_url(block: object) -> str:
@@ -1390,9 +1443,8 @@ async def generate_main_waifu_portrait(
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
-            last_message: dict = {}
-            for modalities in attempts:
+            last_choice: dict = {}
+            for modalities in IMAGE_MODALITY_ATTEMPTS:
                 body = {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
@@ -1423,19 +1475,21 @@ async def generate_main_waifu_portrait(
                 first = choices[0]
                 if not isinstance(first, dict):
                     continue
+                last_choice = first
                 message = first.get("message") or {}
-                last_message = message if isinstance(message, dict) else {}
-                b64_out = await _extract_openrouter_image_b64(last_message, client)
+                message = message if isinstance(message, dict) else {}
+                b64_out = await _extract_openrouter_image_b64(message, client)
                 if b64_out:
                     return b64_out
-                logger.info(
-                    "[MAIN OV IMAGE] no image in message modalities=%s keys=%s",
-                    modalities,
-                    list(last_message.keys()),
+                _log_image_parse_miss(
+                    "MAIN OV IMAGE",
+                    modalities=modalities,
+                    choice=first,
+                    usage=data.get("usage"),
                 )
             logger.warning(
-                "[MAIN OV IMAGE] no base64 after attempts; last_message=%s",
-                json.dumps(last_message, ensure_ascii=False)[:700],
+                "[MAIN OV IMAGE] no base64 after attempts; last_choice=%s",
+                _summarize_image_choice_for_log(last_choice),
             )
             return None
     except httpx.TimeoutException:
@@ -1759,11 +1813,10 @@ async def generate_main_waifu_paperdoll_from_portrait(
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            modality_attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
             last_message: dict = {}
             for gen_attempt in range(_PAPERDOLL_GENERATION_MAX_ATTEMPTS):
                 landscape_retry = False
-                for modalities in modality_attempts:
+                for modalities in IMAGE_MODALITY_ATTEMPTS:
                     body = {
                         "model": model,
                         "messages": [{"role": "user", "content": user_content}],
@@ -1954,9 +2007,9 @@ async def generate_hire_waifu_image(
                 chosen_perk_id,
             )
     base_tail = (
-        "fantasy RPG character, upper body, detailed face, "
-        "dark atmospheric background, dramatic lighting, "
-        "high quality illustration, 1girl"
+        "absurd comedy anime, surreal gag energy, oddly specific funny detail, "
+        "lighthearted chaos, clean soft lighting, upper body, detailed face, "
+        "high quality illustration, 1girl, wholesome chaos not horror"
     )
     parts: list[str] = [
         "anime style portrait",
@@ -1976,9 +2029,8 @@ async def generate_hire_waifu_image(
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
-            last_message: dict = {}
-            for modalities in attempts:
+            last_choice: dict = {}
+            for modalities in IMAGE_MODALITY_ATTEMPTS:
                 body = {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
@@ -2012,17 +2064,23 @@ async def generate_hire_waifu_image(
                 if not isinstance(first, dict):
                     logger.warning("[IMAGE GEN] choices[0] is not dict: %s", type(first))
                     continue
+                last_choice = first
                 message = first.get("message") or {}
-                last_message = message if isinstance(message, dict) else {}
-                logger.info("[IMAGE GEN] Response keys: %s", list(last_message.keys()))
-                b64_out = await _extract_openrouter_image_b64(last_message, client)
+                message = message if isinstance(message, dict) else {}
+                logger.info("[IMAGE GEN] Response keys: %s", list(message.keys()))
+                b64_out = await _extract_openrouter_image_b64(message, client)
                 if b64_out:
                     return b64_out
-                logger.info("[IMAGE GEN] parse miss modalities=%s", modalities)
+                _log_image_parse_miss(
+                    "IMAGE GEN",
+                    modalities=modalities,
+                    choice=first,
+                    usage=data.get("usage"),
+                )
 
             logger.warning(
-                "[IMAGE GEN] Image not found. last_message=%s",
-                json.dumps(last_message, ensure_ascii=False)[:700],
+                "[IMAGE GEN] Image not found. last_choice=%s",
+                _summarize_image_choice_for_log(last_choice),
             )
             return None
     except httpx.TimeoutException:
