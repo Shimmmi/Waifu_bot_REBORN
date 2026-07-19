@@ -1482,47 +1482,63 @@
   <div id="item-modal" class="modal item-modal-root item-modal-v2-wrap item-modal-v2-host" style="display:none;" onclick="if (event.target === this) WaifuApp.closeItemModal()">
     <div class="item-modal-v2-shell">
       <div id="item-modal-content" class="item-modal-v2-card" role="dialog" aria-modal="true" aria-labelledby="item-modal-name" onclick="event.stopPropagation()">
-        <header class="item-modal-v2-hdr">
-          <div class="item-modal-v2-hdr-l">
-            <button type="button" class="item-modal-v2-hdr-x" aria-label="Закрыть" onclick="WaifuApp.closeItemModal()">✕</button>
-            <span class="item-modal-v2-hdr-t">Детали предмета</span>
-          </div>
-        </header>
-        <div class="item-modal-v2-scroll">
-          <div class="item-modal-v2-title-block">
+        <div class="item-modal-v2-titlebar">
+          <div class="item-modal-v2-rarity-chip" id="item-modal-rpill">—</div>
+          <div class="item-modal-v2-title-field">
             <div class="item-modal-v2-title" id="item-modal-name">—</div>
-            <div class="item-modal-v2-sub">
-              <div class="item-modal-v2-sub-spacer" aria-hidden="true"></div>
-              <div class="item-modal-v2-sub-main">
-                <span class="item-modal-v2-sub-lbl" id="item-modal-subline"></span>
-                <span class="item-modal-v2-dot" aria-hidden="true"></span>
-                <span class="item-modal-v2-rpill" id="item-modal-rpill">—</span>
-              </div>
-              <div class="item-modal-v2-sub-tail">
-                <span class="item-modal-v2-upgrade" id="item-modal-upgrade-hint" style="display: none" aria-hidden="true"></span>
+          </div>
+          <button type="button" class="item-modal-v2-hdr-x" aria-label="Закрыть" onclick="WaifuApp.closeItemModal()">✕</button>
+        </div>
+        <div class="item-modal-v2-hero-row">
+          <aside class="item-modal-v2-hero-side item-modal-v2-hero-side--left" id="item-modal-hero-left"></aside>
+          <div class="item-modal-v2-hero">
+            <div
+              class="item-modal-v2-flip-scene"
+              id="item-modal-flip-scene"
+              role="button"
+              tabindex="0"
+              aria-label="Перевернуть карточку: описание предмета"
+            >
+              <div class="item-modal-v2-flip-inner" id="item-modal-flip-inner">
+                <div class="item-modal-v2-face item-modal-v2-face--front">
+                  <div class="item-modal-v2-art-wrap">
+                    <div class="item-modal-v2-art" aria-hidden="true">
+                      <div class="item-modal-v2-frame" id="item-modal-art-frame">
+                        <div class="item-modal-v2-art-inner" id="item-modal-art">📦</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="item-modal-v2-hero-bottom">
+                    <div class="item-modal-v2-sub">
+                      <div class="item-modal-v2-sub-spacer" aria-hidden="true"></div>
+                      <div class="item-modal-v2-sub-main">
+                        <span class="item-modal-v2-sub-lbl" id="item-modal-subline"></span>
+                      </div>
+                      <div class="item-modal-v2-sub-tail">
+                        <span class="item-modal-v2-upgrade" id="item-modal-upgrade-hint" style="display: none" aria-hidden="true"></span>
+                      </div>
+                    </div>
+                    <div class="item-modal-v2-ench" id="item-modal-ench"></div>
+                  </div>
+                </div>
+                <div class="item-modal-v2-face item-modal-v2-face--back">
+                  <div class="item-modal-v2-desc-flip" id="item-modal-desc"></div>
+                </div>
               </div>
             </div>
           </div>
-          <div class="item-modal-v2-art-wrap">
-            <div class="item-modal-v2-art" aria-hidden="true">
-              <div class="item-modal-v2-ring item-modal-v2-ring--outer"></div>
-              <div class="item-modal-v2-ring item-modal-v2-ring--inner"></div>
-              <div class="item-modal-v2-glow"></div>
-              <div class="item-modal-v2-frame" id="item-modal-art-frame">
-                <div class="item-modal-v2-art-inner" id="item-modal-art">📦</div>
-              </div>
-            </div>
-          </div>
-          <div class="item-modal-v2-ench" id="item-modal-ench"></div>
+          <aside class="item-modal-v2-hero-side item-modal-v2-hero-side--right" id="item-modal-hero-right"></aside>
+        </div>
+        <div class="item-modal-v2-scroll">
           <div class="item-modal-v2-spanel">
-            <div class="item-modal-v2-spanel-hd"><span aria-hidden="true">✦</span> Характеристики</div>
             <div id="item-modal-body"></div>
           </div>
+        </div>
+        <div class="item-modal-v2-foot">
           <div class="item-modal-v2-req" id="item-modal-req-section" style="display:none;">
-            <div class="item-modal-v2-req-hd">Требования</div>
+            <span class="item-modal-v2-req-hd">Требования</span>
             <div class="item-modal-v2-req-pills" id="item-modal-requirements" aria-live="polite"></div>
           </div>
-          <div class="item-modal-v2-desc" id="item-modal-desc" style="display:none;"></div>
           <div class="item-modal-v2-cta">
             <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
               <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip" type="button" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Надеть</button>
@@ -1533,7 +1549,6 @@
               <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
             </div>
           </div>
-          <div class="item-modal-v2-scroll-pad shop-offer-modal-scroll-pad" aria-hidden="true"></div>
         </div>
       </div>
     </div>
