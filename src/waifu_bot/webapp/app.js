@@ -4988,6 +4988,7 @@ function closeShopModal() {
     m.classList.remove("shop-modal--open");
     m.style.display = "none";
   }
+  resetItemModalFlip("shop-offer-modal");
   shopState.selectedSlot = null;
   shopState.selectedOffer = null;
   const grid = document.getElementById("shop-items") || document.getElementById("shop-buy-grid");
@@ -5005,21 +5006,27 @@ function openShopOffer(slot) {
   const m = document.getElementById("shop-modal");
   if (!m) return;
 
-  const contentEl = document.getElementById("shop-offer-modal-content");
-  const nameEl = document.getElementById("shop-offer-modal-name");
-  const subEl = document.getElementById("shop-offer-modal-subline");
-  const rpill = document.getElementById("shop-offer-modal-rpill");
-  const upHint = document.getElementById("shop-offer-modal-upgrade-hint");
-  const art = document.getElementById("shop-offer-modal-art");
-  const body = document.getElementById("shop-offer-modal-body");
+  const prefix = "shop-offer-modal";
+  const contentEl = document.getElementById(`${prefix}-content`);
+  const nameEl = document.getElementById(`${prefix}-name`);
+  const subEl = document.getElementById(`${prefix}-subline`);
+  const rpill = document.getElementById(`${prefix}-rpill`);
+  const upHint = document.getElementById(`${prefix}-upgrade-hint`);
+  const art = document.getElementById(`${prefix}-art`);
+  const artFrame = document.getElementById(`${prefix}-art-frame`);
+  const body = document.getElementById(`${prefix}-body`);
+  const enchRow = document.getElementById(`${prefix}-ench`);
   const buyBtn = document.getElementById("shop-modal-buy");
+  const reqFoot = document.getElementById(`${prefix}-requirements`);
+  const reqSec = document.getElementById(`${prefix}-req-section`);
+  const descEl = document.getElementById(`${prefix}-desc`);
 
   if (!offer) {
     if (nameEl) nameEl.textContent = `Слот ${slot}`;
     if (subEl) subEl.textContent = "";
     if (rpill) {
       rpill.textContent = "—";
-      rpill.className = "item-modal-v2-rpill";
+      rpill.className = "item-modal-v2-rarity-chip";
     }
     if (upHint) {
       upHint.style.display = "none";
@@ -5027,24 +5034,28 @@ function openShopOffer(slot) {
       upHint.setAttribute("aria-hidden", "true");
     }
     if (art) art.innerHTML = "—";
+    if (enchRow) enchRow.innerHTML = "";
     if (body) body.innerHTML = `<div class="muted tiny" style="padding:8px 0;">Пустой слот.</div>`;
-    const reqSec = document.getElementById("shop-offer-modal-req-section");
-    const reqFoot = document.getElementById("shop-offer-modal-requirements");
     if (reqFoot) reqFoot.innerHTML = "";
     if (reqSec) reqSec.style.display = "none";
-    const descEl = document.getElementById("shop-offer-modal-desc");
     if (descEl) {
-      descEl.style.display = "none";
-      descEl.innerHTML = "";
+      descEl.textContent = "Описание отсутствует";
+      descEl.classList.add("is-empty");
+      descEl.style.display = "";
     }
+    fillItemModalHeroPrimaryStats(null, prefix);
     if (buyBtn) {
       buyBtn.disabled = true;
       buyBtn.textContent = "—";
     }
     if (contentEl) {
-      ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) => contentEl.classList.remove(c));
+      ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) =>
+        contentEl.classList.remove(c)
+      );
       contentEl.classList.add("rarity-common");
     }
+    wireItemModalFlip(prefix);
+    resetItemModalFlip(prefix);
     m.classList.add("shop-modal--open");
     m.style.display = "grid";
     return;
@@ -5059,8 +5070,8 @@ function openShopOffer(slot) {
   }
   if (subEl) subEl.textContent = buildItemModalMetaLine(offer);
   if (rpill) {
-    rpill.textContent = rarityLabel(offer?.rarity);
-    rpill.className = `item-modal-v2-rpill ${rarityPillModifierClass(offer?.rarity)}`.trim();
+    rpill.textContent = rarityShortLabel(offer?.rarity);
+    rpill.className = `item-modal-v2-rarity-chip ${rarityPillModifierClass(offer?.rarity)}`.trim();
   }
   if (upHint) {
     upHint.style.display = "none";
@@ -5068,9 +5079,17 @@ function openShopOffer(slot) {
     upHint.setAttribute("aria-hidden", "true");
   }
   if (art) art.innerHTML = itemArtHtml(offer, { adminGen: true });
+  if (artFrame) {
+    artFrame.querySelectorAll(".item-enchant-overlay").forEach((el) => el.remove());
+    const overlayHtml = itemEnchantOverlayHtml(offer, "modal");
+    if (overlayHtml) artFrame.insertAdjacentHTML("beforeend", overlayHtml);
+  }
+  if (enchRow) enchRow.innerHTML = buildItemModalEnchantRowHtml(offer);
 
   if (contentEl) {
-    ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) => contentEl.classList.remove(c));
+    ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) =>
+      contentEl.classList.remove(c)
+    );
     contentEl.classList.add(offer?.rarity != null ? rarityClass(offer.rarity) : "rarity-common");
   }
 
@@ -5092,22 +5111,24 @@ function openShopOffer(slot) {
     }
   }
 
+  fillItemModalHeroPrimaryStats(offer?.sold ? null : offer, prefix);
+  wireItemModalFlip(prefix);
+  resetItemModalFlip(prefix);
+
   const mw = profileState.currentProfile?.main_waifu || null;
-  const reqFoot = document.getElementById("shop-offer-modal-requirements");
-  const reqSec = document.getElementById("shop-offer-modal-req-section");
   const pillsHtml = buildItemModalRequirementsPillsHtml(offer, mw);
   if (reqFoot) reqFoot.innerHTML = pillsHtml;
   if (reqSec) reqSec.style.display = pillsHtml && !offer?.sold ? "" : "none";
 
-  const descEl = document.getElementById("shop-offer-modal-desc");
-  const descText = String(offer?.description || "").trim();
+  const descText = String(offer?.description || offer?.flavor_ru || "").trim();
   if (descEl) {
+    descEl.style.display = "";
     if (descText && !offer?.sold) {
-      descEl.style.display = "";
       descEl.textContent = `"${descText}"`;
+      descEl.classList.remove("is-empty");
     } else {
-      descEl.style.display = "none";
-      descEl.innerHTML = "";
+      descEl.textContent = offer?.sold ? "Продано" : "Описание отсутствует";
+      descEl.classList.add("is-empty");
     }
   }
 
@@ -5690,29 +5711,29 @@ function openItemEquipRingOverlay() {
   ov.setAttribute("aria-hidden", "false");
 }
 
-function resetItemModalFlip() {
-  const inner = document.getElementById("item-modal-flip-inner");
+function resetItemModalFlip(prefix = "item-modal") {
+  const inner = document.getElementById(`${prefix}-flip-inner`);
   if (inner) inner.classList.remove("is-flipped");
 }
 
-function toggleItemModalFlip() {
-  const inner = document.getElementById("item-modal-flip-inner");
+function toggleItemModalFlip(prefix = "item-modal") {
+  const inner = document.getElementById(`${prefix}-flip-inner`);
   if (inner) inner.classList.toggle("is-flipped");
 }
 
-function wireItemModalFlip() {
-  const scene = document.getElementById("item-modal-flip-scene");
+function wireItemModalFlip(prefix = "item-modal") {
+  const scene = document.getElementById(`${prefix}-flip-scene`);
   if (!scene || scene.dataset.flipWired === "1") return;
   scene.dataset.flipWired = "1";
   scene.addEventListener("click", (e) => {
     if (e.target.closest(".item-art-generate-btn")) return;
     e.preventDefault();
-    toggleItemModalFlip();
+    toggleItemModalFlip(prefix);
   });
   scene.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      toggleItemModalFlip();
+      toggleItemModalFlip(prefix);
     }
   });
 }
@@ -6199,9 +6220,9 @@ function renderItemModalV2LegendaryBlockHtml(bonuses) {
   return entries;
 }
 
-function fillItemModalHeroPrimaryStats(item) {
-  const left = document.getElementById("item-modal-hero-left");
-  const right = document.getElementById("item-modal-hero-right");
+function fillItemModalHeroPrimaryStats(item, prefix = "item-modal") {
+  const left = document.getElementById(`${prefix}-hero-left`);
+  const right = document.getElementById(`${prefix}-hero-right`);
   if (!left || !right) return;
 
   left.innerHTML = "";
@@ -7802,6 +7823,8 @@ function openItemModal(item) {
       upHintEl.setAttribute("aria-hidden", "true");
     }
   }
+  const descText = String(item?.description || item?.flavor_ru || "").trim();
+
   let charHtml = renderItemModalV2CharacteristicsHtml(item);
   if (!charHtml) {
     const statsInner = [weaponStatsHtml, combinedBonusesHtml].filter(Boolean).join("");
@@ -7817,8 +7840,8 @@ function openItemModal(item) {
   resetItemModalFlip();
 
   const descEl = document.getElementById("item-modal-desc");
-  const descText = String(item?.description || "").trim();
   if (descEl) {
+    descEl.style.display = "";
     if (descText) {
       descEl.textContent = `"${descText}"`;
       descEl.classList.remove("is-empty");

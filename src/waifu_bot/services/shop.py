@@ -501,6 +501,10 @@ class ShopService:
             "base_name": base_name,
             "name": full_name or base_name,
             "display_name": full_name or base_name,
+            "description": (
+                str(getattr(inv, "_flavor_ru", None) or getattr(getattr(inv, "item", None), "description", None) or "").strip()
+                or None
+            ),
             "image_key": image_key,
             "art_key": art_key,
             "image_url": None,
