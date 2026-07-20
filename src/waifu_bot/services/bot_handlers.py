@@ -347,8 +347,12 @@ async def group_message_damage(message: Message, bot: Bot) -> None:
         log_tavern_audio_enqueue(message, chat_id, player_id)
 
     media_type = _media_type_from_message(message)
-    message_text = message.text or message.caption
-    msg_len = len(message_text) if message_text else 0
+    from waifu_bot.services.message_privacy import extract_from_telegram_message
+
+    privacy = extract_from_telegram_message(message, media_type)
+    # Ephemeral text for legendary text_content only; length/signals for everything else.
+    message_text = privacy.ephemeral.value
+    msg_len = privacy.signals.length
 
     from waifu_bot.services.perf_metrics import track_async
 
@@ -488,7 +492,6 @@ async def _group_message_damage_body(
                 player_id,
                 message_length=msg_len,
                 media_types=mt or None,
-                text_preview=(message_text or "")[:200] or None,
             )
             if rd.get("ok") and rd.get("damage"):
                 logger.info(
@@ -531,8 +534,8 @@ async def _group_message_damage_body(
                             session,
                             player_id,
                             media_type=media_type,
-                            message_text=message_text,
-                            error_summary=str(combat_exc),
+                            message_length=msg_len,
+                            error_summary=str(combat_exc)[:200],
                             source_chat_id=chat_id,
                             source_message_id=message.message_id,
                         )
@@ -1233,10 +1236,13 @@ async def cmd_private_unknown_slash(message: Message) -> None:
     )
     try:
         await message.answer(txt)
+        raw = message.text or ""
+        cmd_name = (raw.split(None, 1)[0] if raw else "")[:64].split("@", 1)[0]
         logger.info(
-            "private unknown slash answered chat_id=%s text_preview=%r",
+            "private unknown slash answered chat_id=%s command=%s text_len=%s",
             message.chat.id,
-            message.text[:80],
+            cmd_name or "/",
+            len(raw),
         )
     except Exception:
         logger.exception(
@@ -1260,10 +1266,12 @@ async def cmd_group_unknown_slash(message: Message, bot: Bot) -> None:
     txt = f"Команда не распознана. Доступно: {help_ex}, {gd_ex}."
     try:
         await message.reply(txt)
+        cmd_name = (text.split(None, 1)[0] if text else "")[:64].split("@", 1)[0]
         logger.info(
-            "group unknown slash answered chat_id=%s text_preview=%r",
+            "group unknown slash answered chat_id=%s command=%s text_len=%s",
             message.chat.id,
-            text[:80],
+            cmd_name or "/",
+            len(text),
         )
     except Exception:
         logger.exception(

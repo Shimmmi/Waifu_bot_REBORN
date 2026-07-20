@@ -153,7 +153,8 @@ async def log_solo_combat_processing_error(
     player_id: int,
     *,
     media_type: MediaType,
-    message_text: str | None,
+    message_text: str | None = None,
+    message_length: int | None = None,
     error_summary: str,
     source_chat_id: int | None = None,
     source_message_id: int | None = None,
@@ -170,6 +171,11 @@ async def log_solo_combat_processing_error(
         return
     _lmk = media_type_to_log_media_key(media_type)
     summary = (error_summary or "ошибка обработки удара").strip()[:200]
+    msg_len = int(
+        message_length
+        if message_length is not None
+        else (len(message_text) if message_text else 0)
+    )
     battle_log = BattleLog(
         player_id=int(player_id),
         dungeon_id=int(run.dungeon_id),
@@ -179,10 +185,11 @@ async def log_solo_combat_processing_error(
             "summary_ru": f"Атака не обработана: {summary}",
             "log_media_key": _lmk,
             "media_type": media_type.value,
+            "message_length": msg_len,
             "source_chat_id": source_chat_id,
             "source_message_id": source_message_id,
         },
-        message_text=message_text,
+        message_length=msg_len,
     )
     await append_solo_battle_log(session, battle_log)
     await session.commit()
@@ -225,16 +232,10 @@ async def shift_run_monster_positions_for_split(
 def _solo_message_too_short_summary_ru(
     min_chars: int,
     msg_len: int,
-    message_text: str | None,
+    message_text: str | None = None,
 ) -> str:
-    preview = (message_text or "").strip()
-    if len(preview) > 40:
-        preview = preview[:40] + "…"
-    if preview:
-        return (
-            f"Атака отменена: для оружия нужно ≥{min_chars} симв., "
-            f"в сообщении {msg_len} («{preview}»)."
-        )
+    """Length-only summary — never quote user message text (privacy)."""
+    del message_text  # accepted for call-site compat; intentionally unused
     return f"Атака отменена: для оружия нужно ≥{min_chars} симв., в сообщении {msg_len}."
 
 
@@ -927,12 +928,12 @@ class CombatService:
                     "source_chat_type": source_chat_type,
                     "source_message_id": source_message_id,
                     "summary_ru": _solo_message_too_short_summary_ru(
-                        min_chars, msg_len, message_text
+                        min_chars, msg_len
                     ),
                 },
                 monster_hp_before=(run_monster.current_hp if run and run_monster else (progress.current_monster_hp or monster.max_hp)),
                 monster_hp_after=(run_monster.current_hp if run and run_monster else (progress.current_monster_hp or monster.max_hp)),
-                message_text=message_text,
+                message_length=msg_len,
             )
             await append_solo_battle_log(session, battle_log)
             await session.commit()
@@ -1487,7 +1488,7 @@ class CombatService:
             },
             monster_hp_before=monster_hp_before,
             monster_hp_after=monster_hp_after,
-            message_text=message_text,
+            message_length=msg_len,
         )
         await append_solo_battle_log(session, battle_log)
 
