@@ -1022,7 +1022,8 @@ function getProfileIndicators(waifu, details = null) {
   const intelligence = profileStatValue(waifu, "intelligence");
   const agility = profileStatValue(waifu, "agility");
 
-  const hpMax = safeNumber(d?.hp_max ?? waifu?.max_hp, 0);
+  // Prefer synced waifu.max_hp when details omit guild/paragon HP
+  const hpMax = Math.max(1, safeNumber(d?.hp_max, 0), safeNumber(waifu?.max_hp, 0));
   const melee = safeNumber(d?.melee_damage, 0);
   const ranged = safeNumber(d?.ranged_damage, 0);
   const magic = safeNumber(d?.magic_damage, 0);
@@ -1089,7 +1090,7 @@ function profileStatBonusLines(statKey, waifu, details = null) {
         `+${profileFormatPercent(total * 0.1, 1)} к получаемому опыту`,
       ];
     case "endurance": {
-      const maxHp = details?.hp_max ?? (waifu?.max_hp ?? 0);
+      const maxHp = Math.max(safeNumber(details?.hp_max, 0), safeNumber(waifu?.max_hp, 0));
       const regenInDungeon = maxHp > 0 ? (maxHp * (1 - Math.exp(-total / 100))).toFixed(0) : "—";
       const regenOut = maxHp > 0 ? (maxHp * (1 - Math.exp(-total / 100)) * 5).toFixed(0) : "—";
       return [
@@ -6646,8 +6647,10 @@ function renderProfilePortrait(waifu, profile = null) {
 function renderProfileHeroBars(waifu, details = null, profile = null) {
   const d = details || profileState.currentDetails || null;
   const p = profile || profileState.currentProfile || null;
-  const hpCur = safeNumber(d?.hp_current ?? waifu?.current_hp, 0);
-  const hpMax = Math.max(1, safeNumber(d?.hp_max ?? waifu?.max_hp, 1));
+  // Synced waifu.max_hp is canonical (guild + paragon); details alone can understate max
+  const hpMax = Math.max(1, safeNumber(d?.hp_max, 0), safeNumber(waifu?.max_hp, 0));
+  const hpCurRaw = safeNumber(d?.hp_current ?? waifu?.current_hp, 0);
+  const hpCur = Math.min(hpCurRaw, hpMax);
   setText("profile-hp-text", `${hpCur}/${hpMax}`);
   const hpFill = document.getElementById("profile-hp-fill");
   if (hpFill) hpFill.style.width = `${Math.round(clamp01(hpCur / hpMax) * 100)}%`;

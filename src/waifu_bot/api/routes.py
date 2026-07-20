@@ -238,6 +238,17 @@ def _apply_fraction_secondary_to_total(
         total_bonuses[mapped] = float(total_bonuses.get(mapped, 0.0) or 0.0) + float(sec_eff or 0.0)
 
 
+def align_profile_hp_details(raw_d: dict, waifu: m.MainWaifu) -> dict:
+    """Align profile details HP with synced waifu.max_hp / current_hp.
+
+    ``_compute_details`` omits guild max_hp_pct and Paragon HP; sync already includes them.
+    """
+    out = raw_d if isinstance(raw_d, dict) else {}
+    out["hp_max"] = int(getattr(waifu, "max_hp", 0) or 0)
+    out["hp_current"] = int(getattr(waifu, "current_hp", 0) or 0)
+    return out
+
+
 def _compute_details(
     main: m.MainWaifu,
     equipped_items: list[m.InventoryItem] | None = None,
@@ -1080,8 +1091,7 @@ async def get_profile(
                     except Exception:
                         pass
                     # Канонический max HP уже в waifu (парагон + гильдия); details не дублируем формулой
-                    raw_d["hp_max"] = int(main_waifu.max_hp or 0)
-                    raw_d["hp_current"] = int(main_waifu.current_hp or 0)
+                    raw_d = align_profile_hp_details(raw_d, main_waifu)
                     main_details = schemas.MainWaifuDetails(**raw_d)
                 except Exception:
                     logger.exception("main_waifu_details build failed player_id=%s", player_id)
