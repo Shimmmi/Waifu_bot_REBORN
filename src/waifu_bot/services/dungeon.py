@@ -139,6 +139,9 @@ async def fetch_solo_battle_log_entries(
                     lmk = "other"
             else:
                 lmk = "other"
+        msg_len = getattr(r, "message_length", None)
+        if msg_len is None and isinstance(ed.get("message_length"), int):
+            msg_len = ed.get("message_length")
         entry: dict = {
             "id": r.id,
             "event_type": r.event_type,
@@ -146,7 +149,7 @@ async def fetch_solo_battle_log_entries(
             "summary_ru": summary,
             "log_media_key": lmk,
             "log_media_label_ru": log_media_label_ru(lmk),
-            "message_text": (r.message_text or "").strip() or None,
+            "message_length": int(msg_len) if msg_len is not None else None,
         }
         if r.event_type == "damage":
             entry["damage_breakdown"] = ed.get("damage_breakdown")

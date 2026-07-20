@@ -369,6 +369,7 @@ def test_aggregate_chat_slots_respects_min_event_ts():
         )
         active = [s for s in slots if not s["rest"]]
         assert len(active) == 1
-        assert active[0]["previews"] == ["after raid"]
+        assert active[0]["previews"] == []
+        assert active[0]["messages"] >= 1
 
     asyncio.run(_run())

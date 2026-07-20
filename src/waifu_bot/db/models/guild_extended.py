@@ -178,6 +178,7 @@ class GuildRaidChatEvent(Base):
     event_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     message_length: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     media_types_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Privacy: always written as NULL; column kept for schema compat (purged in 0126).
     text_preview: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 

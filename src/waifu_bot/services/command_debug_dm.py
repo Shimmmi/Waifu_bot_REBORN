@@ -1,4 +1,8 @@
-"""Дублирование команд в ЛС для отладки (группа молчит vs апдейт не доходит)."""
+"""Дублирование метаданных команд в ЛС для отладки (группа молчит vs апдейт не доходит).
+
+Privacy: never sends command body / args text — only command name and lengths.
+Disabled entirely when APP_ENV=prod (settings.telegram_command_debug_dm forced false).
+"""
 
 from __future__ import annotations
 
@@ -14,12 +18,22 @@ logger = logging.getLogger(__name__)
 
 
 def _command_debug_enabled() -> bool:
+    if (getattr(settings, "environment", "") or "").lower() == "prod":
+        return False
     return bool(getattr(settings, "telegram_command_debug_dm", False))
+
+
+def _command_meta(text: str) -> tuple[str, int]:
+    """Return (command_name, args_len) without exposing args content."""
+    first = (text.split(None, 1)[0] if text else "")[:64]
+    name = first.split("@", 1)[0] if first else ""
+    rest = text[len(first) :].lstrip() if first else ""
+    return name or "/", len(rest)
 
 
 class CommandDebugDmMiddleware(BaseMiddleware):
     """
-    Перед обработчиком: если текст похож на команду (/...), шлём копию в ЛС.
+    Перед обработчиком: если текст похож на команду (/...), шлём метаданные в ЛС.
     Получатели: ADMIN_IDS и (опционально) автор сообщения — без дублей.
     В ЛС можно написать только тем, кто уже открывал бота (/start в личке).
     """
@@ -60,14 +74,16 @@ class CommandDebugDmMiddleware(BaseMiddleware):
         uid = message.from_user.id if message.from_user else None
         uname = (message.from_user.username or "").strip() if message.from_user else ""
         uline = f"from_username: @{uname}\n" if uname else ""
-        preview = text[:3500]
+        cmd_name, args_len = _command_meta(text)
         body = (
-            "[cmd-debug] Поймана команда (эхо для диагностики)\n"
+            "[cmd-debug] Поймана команда (метаданные, без текста)\n"
             f"chat_id: {message.chat.id}\n"
             f"chat_type: {message.chat.type}\n"
             f"from_id: {uid}\n"
             f"{uline}"
-            f"text: {preview}"
+            f"command: {cmd_name}\n"
+            f"text_len: {len(text)}\n"
+            f"args_len: {args_len}"
         )
 
         for rid in sorted(recipients):

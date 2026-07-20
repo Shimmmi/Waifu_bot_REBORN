@@ -1,7 +1,7 @@
 """Battle log model."""
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from waifu_bot.db.base import Base
@@ -26,7 +26,7 @@ class BattleLog(Base):
     player_hp_before: Mapped[int | None] = mapped_column(Integer, nullable=True)
     player_hp_after: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    message_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # Original message if applicable
+    message_length: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False

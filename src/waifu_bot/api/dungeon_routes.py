@@ -733,17 +733,26 @@ async def exit_dungeon(
 async def battle_message(
     media_type: int = Query(..., ge=1, le=8),
     message_text: Optional[str] = None,
+    message_length: Optional[int] = Query(None, ge=0, le=4096),
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
+    """WebApp attack. Prefer message_length; message_text is ephemeral for legendary text_content only."""
     from waifu_bot.game.constants import MediaType
 
+    msg_len = int(
+        message_length
+        if message_length is not None
+        else (len(message_text) if message_text else 0)
+    )
+    # Ephemeral text for legendary bonuses only — never persisted by combat service.
+    ephemeral = message_text if message_text else None
     return schemas.BattleMessageResponse(
         **await combat_service.process_message_damage(
             session,
             player_id,
             MediaType(media_type),
-            message_text=message_text,
-            message_length=len(message_text) if message_text else 0,
+            message_text=ephemeral,
+            message_length=msg_len,
         )
     )

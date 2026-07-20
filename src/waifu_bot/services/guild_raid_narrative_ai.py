@@ -219,12 +219,10 @@ def _slot_summary(slot_beats: list[dict[str, Any]] | None) -> str:
             rest_labels.append(str(label))
             continue
         actors = sb.get("active_players") or []
-        previews = sb.get("previews") or []
-        preview_bit = ""
-        if previews:
-            preview_bit = f" Фрагменты чата: {' | '.join(str(p)[:80] for p in previews[:5])}."
+        msg_count = int(sb.get("messages") or 0)
         actor_bit = ", ".join(str(a) for a in actors[:6]) if actors else "участники молчали"
-        active_lines.append(f"- {label} [АКТИВЕН]: {actor_bit}.{preview_bit}")
+        msg_bit = f" сообщений: {msg_count}." if msg_count else ""
+        active_lines.append(f"- {label} [АКТИВЕН]: {actor_bit}.{msg_bit}")
     parts: list[str] = []
     if active_lines:
         parts.append("Активные 4-часовые слоты:")
@@ -323,12 +321,11 @@ def _build_slot_fallback_summary(
         )
     actors = slot_beat.get("active_players") or []
     actor_bit = escape_telegram_html(", ".join(str(a) for a in actors[:6])) if actors else "отряд"
-    previews = slot_beat.get("previews") or []
-    if previews:
-        flavor = escape_telegram_html(str(previews[0])[:120])
+    msg_count = int(slot_beat.get("messages") or 0)
+    if msg_count > 0:
         return (
-            f"В {escape_telegram_html(slot_label)} {actor_bit} оживили лагерь: "
-            f"«{flavor}» — и снова в путь."
+            f"В {escape_telegram_html(slot_label)} {actor_bit} оживили лагерь "
+            f"({msg_count} сообщ.) — и снова в путь."
         )
     return (
         f"В {escape_telegram_html(slot_label)} {actor_bit} "

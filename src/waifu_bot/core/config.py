@@ -1,6 +1,5 @@
-from pydantic import AnyHttpUrl, Field
+from pydantic import AnyHttpUrl, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
 
 
 def _parse_int_list(v: str | list[int] | None) -> list[int]:
@@ -48,9 +47,9 @@ class Settings(BaseSettings):
     webhook_secret: str = Field(..., alias="WEBHOOK_SECRET")
     admin_ids: list[int] = Field(default_factory=list, alias="ADMIN_IDS")
     public_base_url: AnyHttpUrl = Field(..., alias="PUBLIC_BASE_URL")
-    # Подробные логи: webhook → update → исходящие ответы (диагностика «бот молчит в группе»). В prod можно выключить.
-    telegram_trace_log: bool = Field(True, alias="TELEGRAM_TRACE_LOG")
-    # Дублировать каждую команду (/...) в ЛС админам (и опционально автору) — см. TELEGRAM_COMMAND_DEBUG_DM_INCLUDE_SENDER
+    # Подробные логи метаданных (без тела сообщений). Default false (fail-closed); enable in .env for local diag.
+    telegram_trace_log: bool = Field(False, alias="TELEGRAM_TRACE_LOG")
+    # Дублировать метаданные команд (/...) в ЛС админам. В prod всегда выключено (игнор env).
     telegram_command_debug_dm: bool = Field(False, alias="TELEGRAM_COMMAND_DEBUG_DM")
     telegram_command_debug_dm_include_sender: bool = Field(True, alias="TELEGRAM_COMMAND_DEBUG_DM_INCLUDE_SENDER")
     # Базовый URL Bot API через Cloudflare Worker (путь включает секретный префикс). Имеет приоритет над TELEGRAM_BOT_PROXY.
@@ -208,10 +207,16 @@ class Settings(BaseSettings):
                 return True
         return False
 
+    @model_validator(mode="after")
+    def _privacy_fail_closed(self) -> "Settings":
+        """Prod: never echo commands to admin DMs regardless of env."""
+        if (self.environment or "").lower() == "prod":
+            object.__setattr__(self, "telegram_command_debug_dm", False)
+        return self
+
     def is_admin(self, tg_id: int) -> bool:
         """Check if Telegram user id is an administrator."""
-        legacy_admin = 305174198
-        return tg_id in self.admin_ids or tg_id == legacy_admin
+        return tg_id in self.admin_ids
 
     @property
     def armory_session_key(self) -> str:
