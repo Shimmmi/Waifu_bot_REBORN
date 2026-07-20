@@ -1099,6 +1099,84 @@ _MAIN_WAIFU_RACE_VISUAL_EN: dict[int, str] = {
     6: "demon girl, small curved horns, dark aura",
     7: "fairy girl, small iridescent wings, magical glow",
 }
+# Extra constraints so the model does not invent traits absent from the portrait crop.
+_MAIN_WAIFU_RACE_NEGATIVE_EN: dict[int, str] = {
+    4: "no demon horns, no demonic features",
+}
+_PAPERDOLL_IDENTITY_IMAGE_CAPTION = (
+    "Identity reference — tight head/upper-neck crop ONLY (no arms or hands visible). "
+    "Copy face, hair, eye color(s) exactly as shown, ears, and only racial features visible in this crop; "
+    "IGNORE any limb pose hints:"
+)
+
+
+def _paperdoll_race_constraint_en(race_id: int) -> str:
+    """Short race-specific negatives for paperdoll identity fidelity."""
+    specific = _MAIN_WAIFU_RACE_NEGATIVE_EN.get(int(race_id))
+    if specific:
+        return specific
+    return "do not invent horns unless visible in the identity reference"
+
+
+def _build_main_waifu_paperdoll_prompt(
+    *,
+    race_id: int,
+    class_id: int,
+    pose_en: str,
+    identity_cropped: bool,
+    equipment_prompt_en: str | None = None,
+    equipment_ref_count: int = 0,
+    avg_equipment_tier: float = 1.0,
+) -> str:
+    """Build the text prompt for main-waifu paperdoll generation (testable)."""
+    race_en = _MAIN_WAIFU_RACE_VISUAL_EN.get(int(race_id), "human girl")
+    class_en = _MAIN_WAIFU_CLASS_VISUAL_EN.get(int(class_id), "female adventurer")
+    raw_eq = str(equipment_prompt_en or "").strip()
+    equip_extra = "\n\n" + raw_eq if raw_eq else ""
+    bg_en = _paperdoll_background_for_avg_tier(avg_equipment_tier)
+    gear_ref_note = ""
+    if equipment_ref_count > 0:
+        gear_ref_note = (
+            f"\nAttached after the identity portrait: {int(equipment_ref_count)} reference image(s) of equipped gear — "
+            "integrate each item's design onto the character in the matching slot."
+        )
+    identity_ref_note = (
+        "The attached identity image is a tight head-and-upper-neck crop only — it intentionally contains NO arms, "
+        "hands, torso below the collarbone, or full-body pose. Do not hallucinate extra arms from any other source."
+        if identity_cropped
+        else (
+            "The attached identity image must be used for face and hair only — ignore any visible arms or hands in it "
+            "and draw a completely new body pose."
+        )
+    )
+    race_constraint = _paperdoll_race_constraint_en(race_id)
+    return (
+        "Generate a single JRPG-style 2D full-color illustration of a fantasy heroine with the SAME identity as the "
+        "attached identity reference, but in a completely NEW full waist-up pose drawn from scratch."
+        f"\n{identity_ref_note}"
+        "\nDo NOT continue, edit, or restyle any previous full-body paperdoll image — none is attached. "
+        "The ONLY identity source is the attached portrait crop; pose and body are drawn from scratch."
+        "\nIdentity (copy from identity reference ONLY): same face, facial features, exact eye color(s) as shown "
+        "(if both eyes match on the reference, keep them the same — do not invent heterochromia), "
+        "nose, mouth shape, hairstyle, hair color, skin tone, ears, and only racial features that are visible "
+        "on the identity crop (e.g. horns/animal ears/wings only if present there). "
+        "Do not add horns, a second eye color, wings, halo, or other traits absent from the identity crop. "
+        "Do not redesign the face."
+        f"\nRace constraint: {race_constraint}."
+        "\nDraw ALL arms, hands, and fingers ONLY from the Pose requirement below — never copy limb positions from any reference."
+        "\nAnatomy (mandatory): exactly two arms and two hands total in the final image; anatomically correct; "
+        "each hand holds at most one item; no duplicate arms, no merged limbs, no third arm, no extra floating hands."
+        f"\nPose (mandatory — sole source for limb layout): {pose_en}"
+        f"\nCharacter flavor: {race_en}, {class_en}."
+        f"{equip_extra}"
+        f"{gear_ref_note}"
+        "\nArt style: soft cel-shading, clean line art, not photorealistic, not 3D render, fantasy JRPG character art. "
+        "Safe for work, 1girl."
+        "\nCanvas: vertical portrait orientation only — image must be taller than wide (3:4 aspect ratio)."
+        f"\n{bg_en}"
+    )
+
+
 _MAIN_WAIFU_CLASS_VISUAL_EN: dict[int, str] = {
     1: "female knight, sword",
     2: "female warrior, armor",
@@ -1739,45 +1817,17 @@ async def generate_main_waifu_paperdoll_from_portrait(
     data_url = f"data:{mime};base64,{identity_b64}"
 
     model = get_image_model()
-    race_en = _MAIN_WAIFU_RACE_VISUAL_EN.get(int(race_id), "human girl")
-    class_en = _MAIN_WAIFU_CLASS_VISUAL_EN.get(int(class_id), "female adventurer")
     raw_eq = str(equipment_prompt_en or "").strip()
-    equip_extra = "\n\n" + raw_eq if raw_eq else ""
     pose_en = str(pose_hint_en or "").strip() or random.choice(_PAPERDOLL_POSES_NEUTRAL_EN)
-    bg_en = _paperdoll_background_for_avg_tier(avg_equipment_tier)
-    gear_ref_note = ""
     refs = equipment_references or []
-    if refs:
-        gear_ref_note = (
-            f"\nAttached after the identity portrait: {len(refs)} reference image(s) of equipped gear — "
-            "integrate each item's design onto the character in the matching slot."
-        )
-    identity_ref_note = (
-        "The attached identity image is a tight head-and-upper-neck crop only — it intentionally contains NO arms, "
-        "hands, torso below the collarbone, or full-body pose. Do not hallucinate extra arms from any other source."
-        if identity_cropped
-        else (
-            "The attached identity image must be used for face and hair only — ignore any visible arms or hands in it "
-            "and draw a completely new body pose."
-        )
-    )
-    prompt = (
-        "Generate a single JRPG-style 2D full-color illustration of a fantasy heroine with the SAME identity as the "
-        "attached identity reference, but in a completely NEW full waist-up pose drawn from scratch."
-        f"\n{identity_ref_note}"
-        "\nIdentity (copy from identity reference ONLY): same face, facial features, eye colors (including heterochromia), "
-        "nose, mouth shape, hairstyle, hair color, skin tone, horns, ears, and general body type. Do not redesign the face."
-        "\nDraw ALL arms, hands, and fingers ONLY from the Pose requirement below — never copy limb positions from any reference."
-        "\nAnatomy (mandatory): exactly two arms and two hands total in the final image; anatomically correct; "
-        "each hand holds at most one item; no duplicate arms, no merged limbs, no third arm, no extra floating hands."
-        f"\nPose (mandatory — sole source for limb layout): {pose_en}"
-        f"\nCharacter flavor: {race_en}, {class_en}."
-        f"{equip_extra}"
-        f"{gear_ref_note}"
-        "\nArt style: soft cel-shading, clean line art, not photorealistic, not 3D render, fantasy JRPG character art. "
-        "Safe for work, 1girl."
-        "\nCanvas: vertical portrait orientation only — image must be taller than wide (3:4 aspect ratio)."
-        f"\n{bg_en}"
+    prompt = _build_main_waifu_paperdoll_prompt(
+        race_id=int(race_id),
+        class_id=int(class_id),
+        pose_en=pose_en,
+        identity_cropped=identity_cropped,
+        equipment_prompt_en=raw_eq or None,
+        equipment_ref_count=len(refs),
+        avg_equipment_tier=avg_equipment_tier,
     )
     logger.info(
         "[MAIN OV PAPERDOLL] model=%s race=%s class=%s equip_chars=%s refs=%s avg_tier=%.2f pose=%s",
@@ -1794,10 +1844,7 @@ async def generate_main_waifu_paperdoll_from_portrait(
         {"type": "text", "text": prompt},
         {
             "type": "text",
-            "text": (
-                "Identity reference — tight head/upper-neck crop ONLY (no arms or hands visible). "
-                "Copy face, hair, horns, ears, eye colors; IGNORE any limb pose hints:"
-            ),
+            "text": _PAPERDOLL_IDENTITY_IMAGE_CAPTION,
         },
         {"type": "image_url", "image_url": {"url": data_url}},
     ]

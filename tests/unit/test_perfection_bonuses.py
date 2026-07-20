@@ -1,11 +1,11 @@
-"""Paragon/perfection bonuses: HP sync, profile details alignment, damage flats, END→DR."""
+"""Paragon/perfection bonuses: HP sync, profile details alignment, END→DR."""
 from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from waifu_bot.api.routes import _compute_details
+from waifu_bot.api.routes import _compute_details, align_profile_hp_details
 from waifu_bot.game.formulas import calculate_damage_reduction, calculate_max_hp
 from waifu_bot.services.combat import CombatService
 from waifu_bot.services.perfection import (
@@ -67,26 +67,39 @@ def test_compute_effective_max_hp_includes_perfection_hp():
     asyncio.run(_run())
 
 
-def test_profile_details_hp_aligned_with_synced_max():
-    """details.hp_max without perfection understates; after align equals synced max."""
+def test_align_profile_hp_details_closes_guild_or_paragon_gap():
+    """details understate max (guild/paragon omitted); align matches synced waifu."""
     waifu = SimpleNamespace(
-        level=10,
+        level=51,
         strength=10,
         agility=10,
         intelligence=10,
         endurance=10,
         charm=10,
         luck=10,
-        current_hp=1200,
-        max_hp=1250,
+        current_hp=1844,
+        max_hp=1844,  # synced: includes guild max_hp_pct
     )
     raw_d = _compute_details(waifu, equipped_items=None, main_stats_flat=0)
+    # Simulate understated details like UI before align (Stonks: 1770 vs 1844)
+    raw_d["hp_max"] = 1770
+    raw_d["hp_current"] = 1844
     assert int(raw_d["hp_max"]) < int(waifu.max_hp)
+    assert int(raw_d["hp_current"]) > int(raw_d["hp_max"])
 
-    raw_d["hp_max"] = int(waifu.max_hp or 0)
-    raw_d["hp_current"] = int(waifu.current_hp or 0)
-    assert raw_d["hp_max"] == waifu.max_hp
-    assert raw_d["hp_current"] <= raw_d["hp_max"]
+    aligned = align_profile_hp_details(raw_d, waifu)
+    assert aligned["hp_max"] == waifu.max_hp
+    assert aligned["hp_current"] == waifu.current_hp
+    assert aligned["hp_current"] <= aligned["hp_max"]
+
+
+def test_align_profile_hp_details_paragon_gap():
+    waifu = SimpleNamespace(current_hp=2167, max_hp=2167)
+    raw_d = {"hp_max": 2001, "hp_current": 2167, "crit_chance": 1.0}
+    aligned = align_profile_hp_details(raw_d, waifu)
+    assert aligned["hp_max"] == 2167
+    assert aligned["hp_current"] == 2167
+    assert aligned["crit_chance"] == 1.0  # other fields preserved
 
 
 def test_compute_details_applies_perfection_damage_flats():
