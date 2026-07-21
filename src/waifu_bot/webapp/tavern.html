@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Таверна</title>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v66" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v67" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
     <link rel="stylesheet" href="./assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="./assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v66" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
-    <script defer src="/webapp/bundle/tavern.min.js?v=waifu-webapp-v66" onerror="this.onerror=null;this.src='/webapp/pages/tavern.js?v=waifu-webapp-v50'"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v67" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
+    <script defer src="/webapp/bundle/tavern.min.js?v=waifu-webapp-v67" onerror="this.onerror=null;this.src='/webapp/pages/tavern.js?v=waifu-webapp-v50'"></script>
     <style>
       .page-tavern {
         --ink: #0d0a08;
@@ -1548,7 +1548,7 @@
           <span id="attic-dungeon-label">Нет боя</span>
           <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden></div>
         </div>
-        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Экспедиции">
+        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Операции">
           <span class="attic-exp-ico" aria-hidden="true">🗺</span>
           <div class="attic-exp-cells" id="attic-exp-cells" aria-label="Статус экспедиций"></div>
         </div>
@@ -1635,6 +1635,7 @@
 
       <div id="tab-squad" class="tab-panel" style="display:none;">
         <section class="section">
+          <div id="tavern-quick-feed-banner" class="banner" style="display:none;margin-bottom:8px;"></div>
           <div id="tavern-lineup-atk" style="margin:6px 0;font-size:13px;opacity:.9;"></div>
           <div id="tavern-lineup-def" style="margin:0 0 10px;font-size:13px;opacity:.9;"></div>
           <div class="squad-grid tavern-squad-grid tavern-pool-grid" id="tavern-squad-grid">

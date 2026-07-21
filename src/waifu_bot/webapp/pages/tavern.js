@@ -38,6 +38,9 @@ const tavernState = {
   selectedWaifu: null,
   pendingHireSlot: null, // 1..4
   lastHiredResult: null, // result of last successful hire for result modal
+  benchCap: 10,
+  quickFeedMode: false,
+  quickFeedTargetId: null,
 };
 
 function showTavernError(message, kind = "info") {
@@ -56,7 +59,27 @@ function showTavernError(message, kind = "info") {
 }
 
 const TAVERN_HEAL_GOLD_PER_HP = 2; // золото за 1 HP; при 0 HP (обморок) ×2
-const TAVERN_POOL_MAX = 10;
+const TAVERN_POOL_MAX_DEFAULT = 10;
+
+function tavernBenchCap() {
+  const fromAvail = Number(tavernState.available?.bench_cap ?? tavernState.benchCap);
+  if (Number.isFinite(fromAvail) && fromAvail > 0) return Math.min(24, Math.max(8, fromAvail));
+  return TAVERN_POOL_MAX_DEFAULT;
+}
+
+function hiredCr(w) {
+  const v = w?.combatRating ?? w?.combat_rating ?? w?.power;
+  return v == null || v === "" ? "—" : v;
+}
+
+function hiredArchetypeLabel(w) {
+  return String(w?.archetype_name || w?.archetypeName || w?.archetype_id || w?.archetypeId || "").trim();
+}
+
+function perkIdsCapped(w, max = 3) {
+  const ids = Array.isArray(w?.perks) ? w.perks : [];
+  return ids.slice(0, max);
+}
 
 function hiredWaifuHp(w) {
   const max = Number(w?.hpMax ?? w?.max_hp ?? 65);
@@ -65,7 +88,7 @@ function hiredWaifuHp(w) {
 }
 
 function hiredWaifuIsHealing(w) {
-  return Boolean(w?.healing) || w?.status === "healing";
+  return Boolean(w?.healing || w?.resting) || w?.status === "healing" || w?.status === "resting";
 }
 
 function hiredWaifuHealCompleteAt(w) {
@@ -1955,6 +1978,7 @@ async function loadTavernWithProfile(profile, opts = {}) {
 
     tavernState.available = available;
     tavernState.perksMap = buildTavernPerksMap(available);
+    if (available?.bench_cap != null) tavernState.benchCap = Number(available.bench_cap) || tavernState.benchCap;
 
     renderTavernHire(p, available);
     if (loadRoster) renderTavernSquad();
@@ -2022,7 +2046,7 @@ function renderWaifuCardHtml(w, opts = {}) {
           <div class="tag">—</div>
         </div>
         <div class="tavern-mini-stats">
-          <div class="pill"><span class="muted">Мощь</span><strong>—</strong></div>
+          <div class="pill"><span class="muted">CR</span><strong>—</strong></div>
           <div class="pill"><span class="muted">Перки</span><strong>—</strong></div>
         </div>
       </div>
@@ -2033,14 +2057,17 @@ function renderWaifuCardHtml(w, opts = {}) {
   const raceId = Number(w?.race);
   const rarity = Number(w?.rarity ?? 1);
   const lvl = w?.level ?? "—";
-  const pos = w?.squad_position != null ? Number(w.squad_position) : null;
-  const tag = pos != null ? `#${pos}` : "запас";
+  const atk = w?.atkSlot ?? w?.atk_slot;
+  const def = w?.defSlot ?? w?.def_slot;
+  const tag =
+    atk != null ? `ATK ${atk}` : def != null ? `DEF ${def}` : w?.squad_position != null ? `#${w.squad_position}` : "скамья";
   const nm = String(w?.name || "Вайфу");
-  const sub = `lvl ${lvl} · ${rarityLabel(rarity)} · ${className(clsId)} / ${raceName(raceId)}`;
+  const arch = hiredArchetypeLabel(w);
+  const sub = `lvl ${lvl} · ${rarityLabel(rarity)} · ${className(clsId)} / ${raceName(raceId)}${arch ? ` · ${arch}` : ""}`;
   const extra = String(opts?.extraClass || "").trim();
   const cls = `${"tavern-waifu-card"}${extra ? ` ${extra}` : ""}`;
-  const power = w?.power ?? "—";
-  const perksCount = Array.isArray(w?.perks) ? w.perks.length : 0;
+  const power = hiredCr(w);
+  const perksCount = perkIdsCapped(w).length;
   const portraitUrl = hiredWaifuImageUrl(w, "thumb");
   const portraitContent = portraitUrl
     ? `<img src="${escapeHtml(portraitUrl)}" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;" />`
@@ -2058,7 +2085,7 @@ function renderWaifuCardHtml(w, opts = {}) {
         <div class="tag">${tag}</div>
       </div>
       <div class="tavern-mini-stats">
-        <div class="pill"><span class="muted">Мощь</span><strong>${power}</strong></div>
+        <div class="pill"><span class="muted">CR</span><strong>${power}</strong></div>
         <div class="pill"><span class="muted">Перки</span><strong>${perksCount}</strong></div>
       </div>
     </div>
@@ -2070,19 +2097,27 @@ function renderTavernSquad() {
   if (!box) return;
 
   const roster = sortTavernPool(tavernState.squad, tavernState.reserve);
-  const pool = roster.slice(0, TAVERN_POOL_MAX);
+  const poolMax = tavernBenchCap();
+  const pool = roster.slice(0, poolMax);
   const perksMap = tavernState.perksMap || {};
+  const feedBanner = document.getElementById("tavern-quick-feed-banner");
+  if (feedBanner) {
+    feedBanner.style.display = tavernState.quickFeedMode ? "" : "none";
+    feedBanner.textContent = tavernState.quickFeedMode
+      ? "Quick Feed: выберите наёмницу-корм (ещё раз по цели — отмена)"
+      : "";
+  }
 
   box.innerHTML = "";
 
-  for (let i = 0; i < TAVERN_POOL_MAX; i += 1) {
+  for (let i = 0; i < poolMax; i += 1) {
     const w = pool[i] || null;
     if (!w) {
       const empty = document.createElement("div");
       empty.className = "squad-slot";
       empty.innerHTML = `<span style="font-size:24px;opacity:.3">＋</span><span style="font-size:11px;">Пустой слот</span>`;
       empty.onclick = () => {
-        if (roster.length >= TAVERN_POOL_MAX) {
+        if (roster.length >= poolMax) {
           showToast("Пул наёмниц заполнен", "error");
           return;
         }
@@ -2097,8 +2132,10 @@ function renderTavernSquad() {
     const clsId = Number(w?.class ?? w?.class_ ?? 0);
     const raceId = Number(w?.race ?? 0);
     const { first, last } = hiredWaifuNameLines(w?.name);
-    const meta = `${escapeHtml(raceName(raceId))} · ${escapeHtml(className(clsId))} · Ур.${escapeHtml(String(w?.level ?? "—"))} · Мощь ${escapeHtml(String(w?.power ?? "—"))}`;
-    const perkIds = Array.isArray(w.perks) ? w.perks : [];
+    const stars = Number(w?.potentialStars ?? w?.potential_stars ?? 0);
+    const arch = hiredArchetypeLabel(w);
+    const meta = `${escapeHtml(raceName(raceId))} · ${escapeHtml(className(clsId))} · Ур.${escapeHtml(String(w?.level ?? "—"))} · CR ${escapeHtml(String(hiredCr(w)))}${stars ? ` · ★${stars}` : ""}${arch ? ` · ${escapeHtml(arch)}` : ""}`;
+    const perkIds = perkIdsCapped(w, 3);
     const perkBadges = perkIds.length
       ? perkIds
           .map(
@@ -2125,6 +2162,14 @@ function renderTavernSquad() {
 
     const uiSt = hiredWaifuPoolUiStatus(w);
     const statusCls = `squad-mtg-card--${uiSt.key}`;
+    const atk = w?.atkSlot ?? w?.atk_slot;
+    const def = w?.defSlot ?? w?.def_slot;
+    const slotBadge =
+      atk != null
+        ? `<span class="squad-mtg-slot-badge">ATK ${atk}</span>`
+        : def != null
+          ? `<span class="squad-mtg-slot-badge">DEF ${def}</span>`
+          : "";
 
     const slot = document.createElement("div");
     slot.className = "squad-slot occupied";
@@ -2141,6 +2186,7 @@ function renderTavernSquad() {
             <div class="squad-mtg-name-first">${escapeHtml(first)}</div>
             ${last ? `<div class="squad-mtg-name-last">${escapeHtml(last)}</div>` : ""}
           </div>
+          ${slotBadge}
         </div>
         <div class="squad-mtg-bottom">
           <div class="squad-mtg-meta">${meta}</div>
@@ -2148,7 +2194,20 @@ function renderTavernSquad() {
         </div>
       </div>`;
 
-    const open = () => openTavernWaifuModal(w);
+    const open = () => {
+      if (tavernState.quickFeedMode && tavernState.quickFeedTargetId) {
+        if (Number(w.id) === Number(tavernState.quickFeedTargetId)) {
+          tavernState.quickFeedMode = false;
+          tavernState.quickFeedTargetId = null;
+          renderTavernSquad();
+          showToast("Quick Feed отменён");
+          return;
+        }
+        tavernQuickFeedApply(tavernState.quickFeedTargetId, w.id);
+        return;
+      }
+      openTavernWaifuModal(w);
+    };
     slot.onclick = open;
     slot.onkeydown = (ev) => {
       if (ev.key === "Enter" || ev.key === " ") {
@@ -2242,7 +2301,7 @@ function showTavernHireResultModal(result) {
   const newWaifu = (tavernState.reserve || []).find((w) => w.id === result?.waifu_id);
   const raceId = Number(newWaifu?.race ?? 0);
   const classId = Number(newWaifu?.class ?? newWaifu?.class_ ?? 0);
-  setText("result-meta", `${raceName(raceId)} · ${className(classId)}`);
+  setText("result-meta", `${raceName(raceId)} · ${className(classId)}${hiredArchetypeLabel(newWaifu) ? ` · ${hiredArchetypeLabel(newWaifu)}` : ""}`);
   const bioText =
     result?.bio ||
     newWaifu?.bio ||
@@ -2251,11 +2310,11 @@ function showTavernHireResultModal(result) {
   const statsEl = document.getElementById("result-hire-stats");
   if (statsEl) {
     statsEl.textContent = newWaifu
-      ? `Ур. ${newWaifu.level ?? "—"} · Мощь ${newWaifu.power ?? "—"}`
+      ? `Ур. ${newWaifu.level ?? "—"} · CR ${hiredCr(newWaifu)}`
       : "—";
   }
   const perksEl = document.getElementById("result-perks");
-  const perkIds = Array.isArray(newWaifu?.perks) ? newWaifu.perks : [];
+  const perkIds = perkIdsCapped(newWaifu, 3);
   const perksMap = tavernState.perksMap || {};
   if (perksEl) {
     perksEl.innerHTML = perkIds.length
@@ -2336,7 +2395,7 @@ function openTavernWaifuModal(w) {
   const rCls = rarityClass(rarity);
   const nm = String(w?.name || "Вайфу");
   const perksMap = tavernState.perksMap || {};
-  const perkIds = Array.isArray(w?.perks) ? w.perks : [];
+  const perkIds = perkIdsCapped(w, 3);
   const perkCells = perkIds.length
     ? perkIds
         .map((pid) => {
@@ -2376,6 +2435,9 @@ function openTavernWaifuModal(w) {
         : "";
 
   const bioText = (w?.bio && String(w.bio).trim()) ? String(w.bio).trim() : "Биография не задана.";
+  const arch = hiredArchetypeLabel(w);
+  const stars = Number(w?.potentialStars ?? w?.potential_stars ?? 0);
+  const typeBar = `${escapeHtml(raceName(raceId))} · ${escapeHtml(className(clsId))} · ${escapeHtml(rarityLabel(rarity))} · CR ${escapeHtml(String(hiredCr(w)))}${stars ? ` · ★${stars}` : ""}${arch ? ` · ${escapeHtml(arch)}` : ""}`;
 
   body.innerHTML = `
     <div class="tavern-waifu-mtg-wrap">
@@ -2392,7 +2454,7 @@ function openTavernWaifuModal(w) {
                 </header>
                 <div class="waifu-mtg-lower-overlay">
                   <div class="waifu-mtg-typebar">
-                    ${escapeHtml(raceName(raceId))} · ${escapeHtml(className(clsId))} · ${escapeHtml(rarityLabel(rarity))} · Мощь ${escapeHtml(String(w?.power ?? "—"))}
+                    ${typeBar}
                   </div>
                   <div class="waifu-mtg-perks-head">
                     <span class="waifu-mtg-perks-label">Перки</span>
@@ -2421,6 +2483,16 @@ function openTavernWaifuModal(w) {
         </div>
       </div>
       ${xpBarHtml}
+      <div class="tavern-waifu-lineup-actions" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">
+        <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="atk" data-lineup-slot="1">ATK 1</button>
+        <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="atk" data-lineup-slot="2">ATK 2</button>
+        <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="atk" data-lineup-slot="3">ATK 3</button>
+        <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="def" data-lineup-slot="1">DEF 1</button>
+        <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="def" data-lineup-slot="2">DEF 2</button>
+        <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="def" data-lineup-slot="3">DEF 3</button>
+        <button type="button" class="tavern-btn tavern-btn-mini" id="tavern-btn-clear-lineup">Со скамейки</button>
+        <button type="button" class="tavern-btn tavern-btn-primary tavern-btn-mini" id="tavern-btn-quick-feed">Quick Feed ★</button>
+      </div>
     </div>
   `;
 
@@ -2457,7 +2529,7 @@ function openTavernWaifuModal(w) {
         (typeof perkFlavorRu === "function" ? perkFlavorRu(pid) : null) ||
         PERK_FLAVOR?.[pid] ||
         PERK_DESCS?.[pid] ||
-        "Специальное умение для экспедиций.";
+        "Специальное умение для операций.";
       tipDiff.textContent =
         (typeof perkEffectRu === "function" ? perkEffectRu(pid) : null) || PERK_EFFECTS?.[pid] || "";
       tipEl.hidden = false;
@@ -2478,6 +2550,37 @@ function openTavernWaifuModal(w) {
       if (!flipInner.classList.contains("is-flipped")) return;
       hideTavernPerkTip(body);
       flipInner.classList.remove("is-flipped");
+    });
+  }
+
+  body.querySelectorAll("[data-lineup-side]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const side = btn.getAttribute("data-lineup-side");
+      const slot = Number(btn.getAttribute("data-lineup-slot"));
+      tavernSetLineup(side, slot, w.id);
+    });
+  });
+  const clearBtn = body.querySelector("#tavern-btn-clear-lineup");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      const atk = w?.atkSlot ?? w?.atk_slot;
+      const def = w?.defSlot ?? w?.def_slot;
+      if (atk != null) await tavernSetLineup("atk", Number(atk), null);
+      if (def != null) await tavernSetLineup("def", Number(def), null);
+      if (atk == null && def == null) showToast("Уже на скамейке");
+    });
+  }
+  const feedBtn = body.querySelector("#tavern-btn-quick-feed");
+  if (feedBtn) {
+    feedBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      tavernState.quickFeedMode = true;
+      tavernState.quickFeedTargetId = Number(w.id);
+      closeTavernWaifuModal();
+      renderTavernSquad();
+      showToast("Выберите корм для ★");
     });
   }
 
@@ -2840,9 +2943,11 @@ async function openDebutLegendary() {
     showToast("Debut недоступен", "error");
     return;
   }
-  const pick = list[0];
-  const ok = window.confirm(`Взять легенду «${pick.name}»?`);
-  if (!ok) return;
+  const labels = list.map((o, i) => `${i + 1}. ${o.name}`).join("\n");
+  const raw = window.prompt(`Выберите легенду (1–${list.length}):\n${labels}`, "1");
+  if (raw == null) return;
+  const idx = Math.max(0, Math.min(list.length - 1, (parseInt(raw, 10) || 1) - 1));
+  const pick = list[idx];
   try {
     await apiFetch("/tavern/debut-legendary", {
       method: "POST",
@@ -2852,9 +2957,17 @@ async function openDebutLegendary() {
     showToast(`Легенда: ${pick.name}`, "info");
     await loadMercStatusPity();
     await ensureTavernRosterLoaded().catch(() => {});
+    renderTavernSquad();
   } catch (e) {
     showToast("Не удалось взять легенду", "error");
   }
+}
+
+function _rosterNameById(id) {
+  if (id == null) return "—";
+  const all = [...(tavernState.squad || []), ...(tavernState.reserve || [])];
+  const w = all.find((x) => Number(x.id) === Number(id));
+  return w?.name ? String(w.name) : `#${id}`;
 }
 
 async function renderTavernLineupBars() {
@@ -2862,9 +2975,55 @@ async function renderTavernLineupBars() {
     const lu = await apiFetch("/tavern/lineup");
     const atkEl = document.getElementById("tavern-lineup-atk");
     const defEl = document.getElementById("tavern-lineup-def");
-    if (atkEl) atkEl.textContent = `ATK: ${(lu.atk || []).map((x, i) => (x ? `#${x}` : `—`)).join(" · ")}`;
-    if (defEl) defEl.textContent = `DEF: ${(lu.def || []).map((x) => (x ? `#${x}` : `—`)).join(" · ")}`;
+    const fmt = (arr) =>
+      (arr || [])
+        .map((x, i) => `${i + 1}:${x ? _rosterNameById(x) : "—"}`)
+        .join(" · ");
+    if (atkEl) atkEl.textContent = `ATK · ${fmt(lu.atk)}`;
+    if (defEl) defEl.textContent = `DEF · ${fmt(lu.def)}`;
   } catch (_) {}
+}
+
+async function tavernSetLineup(side, slot, waifuId) {
+  try {
+    const res = await apiFetch("/tavern/lineup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ side, slot, waifu_id: waifuId }),
+    });
+    if (res?.error) {
+      showToast(res.hint || res.error, "error");
+      return;
+    }
+    showToast(waifuId == null ? "Слот очищен" : `${String(side).toUpperCase()} ${slot}`);
+    closeTavernWaifuModal();
+    await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
+    renderTavernLineupBars();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось назначить слот", "error");
+  }
+}
+
+async function tavernQuickFeedApply(targetId, fodderId) {
+  try {
+    const res = await apiFetch("/tavern/fodder-stars", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_id: targetId, fodder_ids: [fodderId] }),
+    });
+    if (res?.error) {
+      showToast(res.hint || res.error, "error");
+      return;
+    }
+    tavernState.quickFeedMode = false;
+    tavernState.quickFeedTargetId = null;
+    showToast(`★${res.potential_stars ?? res.stars ?? ""}`, "info");
+    await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Quick Feed не удался", "error");
+  }
 }
 
 async function renderTavernArena() {
@@ -2987,6 +3146,8 @@ Object.assign(window.WaifuApp, {
   tavernExchangeBuy,
   openTavernCodex,
   loadMercStatusPity,
+  tavernSetLineup,
+  tavernQuickFeedApply,
   adminRefreshTavern,
   refreshTavernPage,
   toggleTavernBgmMuted,

@@ -2356,6 +2356,41 @@ async def operations_catalog(session: AsyncSession = Depends(get_db)):
     return data
 
 
+@router.get("/operations/active", response_model=schemas.ExpeditionActiveResponse, tags=["operations"])
+async def operations_active(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    return await expeditions_active(player_id=player_id, session=session)
+
+
+@router.post("/operations/preview", response_model=schemas.ExpeditionPreviewOut, tags=["operations"])
+async def operations_preview(
+    payload: schemas.ExpeditionPreviewRequest,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    return await expeditions_preview(payload=payload, player_id=player_id, session=session)
+
+
+@router.post("/operations/start", tags=["operations"])
+async def operations_start(
+    payload: schemas.ExpeditionStartRequest,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    return await expeditions_start(payload=payload, player_id=player_id, session=session)
+
+
+@router.post("/operations/claim", tags=["operations"])
+async def operations_claim(
+    active_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    return await expeditions_claim(active_id=active_id, player_id=player_id, session=session)
+
+
 @router.get("/expeditions/roster", tags=["expeditions"])
 async def expeditions_roster(
     player_id: int = Depends(get_player_id),
@@ -2626,11 +2661,18 @@ async def expeditions_start(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
+    squad_ids = list(payload.squad_waifu_ids or [])
+    # Merc overhaul: default Ops squad = ATK lineup when client sends empty
+    if not squad_ids:
+        from waifu_bot.services import merc_systems as merc_sys
+
+        lu = await merc_sys.get_lineup(session, player_id)
+        squad_ids = [int(x) for x in (lu.get("atk") or []) if x]
     result = await expedition_service.start(
         session,
         player_id,
         payload.expedition_slot_id,
-        payload.squad_waifu_ids,
+        squad_ids,
         payload.duration_minutes,
         reward_type=payload.reward_type,
         depth_tier=payload.depth_tier,

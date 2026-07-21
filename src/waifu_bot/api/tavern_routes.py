@@ -37,6 +37,13 @@ tavern_service = TavernService()
 
 
 def _hired_waifu_in_squad(w: m.HiredWaifu) -> bool:
+    atk = getattr(w, "atk_slot", None)
+    if atk is not None:
+        try:
+            if 1 <= int(atk) <= 3:
+                return True
+        except (TypeError, ValueError):
+            pass
     pos = getattr(w, "squad_position", None)
     if pos is None:
         return False
@@ -49,7 +56,7 @@ def _hired_waifu_in_squad(w: m.HiredWaifu) -> bool:
 
 def _hired_waifu_status(
     w: m.HiredWaifu, *, now=None
-) -> Literal["expedition", "wounded", "squad", "ready", "healing"]:
+) -> Literal["expedition", "wounded", "squad", "ready", "healing", "resting"]:
     from datetime import datetime, timezone
 
     from waifu_bot.game.expedition_overhaul import is_healing
@@ -58,7 +65,7 @@ def _hired_waifu_status(
     if getattr(w, "expedition_id", None):
         return "expedition"
     if is_healing(w, now):
-        return "healing"
+        return "resting"
     from waifu_bot.services.hired_waifu_state import effective_hired_hp
 
     cur, max_hp = effective_hired_hp(w, now)
@@ -81,6 +88,7 @@ def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
     now = datetime.now(tz=timezone.utc)
     hp_data = hired_roster_payload(w, now)
     image_url = hired_waifu_portrait_url(w)
+    arch = hp_data.get("archetype") or {}
     return schemas.HiredWaifuOut(
         id=w.id,
         name=w.name,
@@ -90,13 +98,21 @@ def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
         level=w.level,
         experience=w.experience,
         power=hp_data.get("power") or getattr(w, "power", None),
-        perks=getattr(w, "perks", None),
+        combat_rating=hp_data.get("combat_rating") or hp_data.get("power"),
+        perks=hp_data.get("perks") or getattr(w, "perks", None),
         bio=getattr(w, "bio", None),
         perk_upgrade_points=getattr(w, "perk_upgrade_points", 0),
         exp_current=getattr(w, "exp_current", 0),
         exp_to_next=exp_to_next_level_hired(max(1, int(w.level or 1))),
         perk_levels=dict(getattr(w, "perk_levels", None) or {}),
         squad_position=w.squad_position,
+        atk_slot=getattr(w, "atk_slot", None),
+        def_slot=getattr(w, "def_slot", None),
+        potential_stars=int(getattr(w, "potential_stars", 0) or 0),
+        template_id=getattr(w, "template_id", None),
+        archetype_id=arch.get("id"),
+        archetype_name=arch.get("name"),
+        stance=arch.get("stance"),
         expedition_id=getattr(w, "expedition_id", None),
         in_squad=_hired_waifu_in_squad(w),
         status=_hired_waifu_status(w, now=now),
@@ -104,6 +120,8 @@ def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
         current_hp=hp_data["current_hp"],
         max_hp=hp_data["max_hp"],
         healing=bool(hp_data.get("healing")),
+        resting=bool(hp_data.get("resting") or hp_data.get("healing")),
+        can_arena=bool(hp_data.get("can_arena", True)),
         heal_complete_at=hp_data.get("heal_complete_at"),
         eligible=bool(hp_data.get("eligible", True)),
     )
@@ -114,6 +132,8 @@ async def tavern_available(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
+    from waifu_bot.services import merc_systems as merc_sys
+
     try:
         slots, hire_price = await asyncio.gather(
             tavern_service.get_available_waifus(session, player_id),
@@ -135,12 +155,25 @@ async def tavern_available(
             )
         )
     remaining = sum(1 for s in slots if s.hired_at is None)
+    state = await merc_sys.get_or_create_tavern_state(session, player_id)
+    pity = merc_sys.pity_status(state)
+    cap = await merc_sys.bench_cap(session, player_id)
+    count = await merc_sys.pool_count(session, player_id)
+    await session.commit()
     return schemas.TavernAvailableResponse(
         slots=out,
         remaining=int(remaining),
         total=int(TAVERN_SLOTS_PER_DAY),
         price=hire_price,
         first_hire_free=first_hire_free,
+        pity_legendary=int(pity.get("pity_legendary") or 0),
+        pity_legendary_hard=int(pity.get("pity_legendary_hard") or 50),
+        pity_epic=int(pity.get("pity_epic") or 0),
+        pity_epic_hard=int(pity.get("pity_epic_hard") or 20),
+        debut_legendary_done=bool(pity.get("debut_legendary_done")),
+        merc_contracts=int(pity.get("merc_contracts") or 0),
+        bench_cap=cap,
+        bench_count=count,
     )
 
 

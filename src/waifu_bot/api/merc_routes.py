@@ -6,6 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.api.deps import get_db, get_player_id
@@ -280,6 +281,90 @@ async def gear_equip(
     refresh_unit_power(w)
     await session.commit()
     return {"ok": True, "gear_score": score, "power": w.power}
+
+
+@router.post("/tavern/gear/disassemble")
+async def gear_disassemble(
+    waifu_id: int = Query(...),
+    slot: str = Query(..., description="weapon|charm|relic"),
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Disassemble gear slot → merc dust."""
+    from waifu_bot.db.models import HiredWaifu
+    from waifu_bot.game.merc_combat_rating import refresh_unit_power
+    from waifu_bot.services import merc_systems as merc_sys
+
+    w = await session.get(HiredWaifu, int(waifu_id))
+    if not w or int(w.player_id) != int(player_id):
+        raise HTTPException(status_code=404, detail={"error": "waifu_not_found"})
+    slot_l = slot.lower().strip()
+    if slot_l not in ("weapon", "charm", "relic"):
+        raise HTTPException(status_code=400, detail={"error": "invalid_slot"})
+    attr = f"gear_{slot_l}"
+    g = getattr(w, attr, None)
+    if not g:
+        raise HTTPException(status_code=400, detail={"error": "empty_slot"})
+    dust = max(1, int((g or {}).get("score") or (g or {}).get("rarity") or 1) * 3)
+    setattr(w, attr, None)
+    score = 0
+    for s in ("weapon", "charm", "relic"):
+        gg = getattr(w, f"gear_{s}", None) or {}
+        if isinstance(gg, dict):
+            score += int(gg.get("score") or gg.get("rarity") or 0)
+    w.gear_score_cache = score
+    refresh_unit_power(w)
+    state = await merc_sys.get_or_create_tavern_state(session, player_id)
+    state.merc_dust = int(state.merc_dust or 0) + dust
+    await session.commit()
+    return {"ok": True, "dust_gained": dust, "merc_dust": state.merc_dust, "power": w.power}
+
+
+class GuildAssistBody(BaseModel):
+    owner_player_id: int
+    waifu_id: int
+
+
+@router.post("/operations/assist")
+async def guild_assist(
+    body: GuildAssistBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Borrow one guildmate hired for Ops only (not Arena DEF). 1/day."""
+    from waifu_bot.db.models import HiredWaifu, GuildMember
+    from waifu_bot.services import merc_systems as merc_sys
+
+    state = await merc_sys.get_or_create_tavern_state(session, player_id)
+    day = merc_sys._moscow_day_key()
+    assist_day, _ = merc_sys._parse_guild_assist(state)
+    if assist_day == day:
+        raise HTTPException(status_code=400, detail={"error": "assist_already_used"})
+    # Same guild check
+    my_g = (
+        await session.execute(select(GuildMember).where(GuildMember.player_id == player_id))
+    ).scalar_one_or_none()
+    their_g = (
+        await session.execute(
+            select(GuildMember).where(GuildMember.player_id == int(body.owner_player_id))
+        )
+    ).scalar_one_or_none()
+    if not my_g or not their_g or int(my_g.guild_id) != int(their_g.guild_id):
+        raise HTTPException(status_code=403, detail={"error": "not_same_guild"})
+    w = await session.get(HiredWaifu, int(body.waifu_id))
+    if not w or int(w.player_id) != int(body.owner_player_id):
+        raise HTTPException(status_code=404, detail={"error": "waifu_not_found"})
+    # Encode waifu id so DEF lineup can reject this unit today
+    state.guild_assist_day = f"{day}:{int(w.id)}"
+    await session.commit()
+    cr = int(getattr(w, "power", 0) or 0)
+    return {
+        "ok": True,
+        "assist_waifu_id": w.id,
+        "name": w.name,
+        "cr_effective": int(cr * 0.7),
+        "note": "Ops-only; cannot set on Arena DEF",
+    }
 
 
 @router.get("/tavern/codex")

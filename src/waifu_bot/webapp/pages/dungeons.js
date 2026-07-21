@@ -2027,28 +2027,74 @@ async function loadExpeditionTab(opts = {}) {
   try {
     if (!expeditionTabDataLoaded || force) {
       if (!expeditionTabDataLoaded) expeditionTabDataLoaded = true;
-      const [catalogRes, activeRes] = await Promise.all([
-        apiFetch("/expeditions/catalog").catch(() => ({ reward_types: [], depth_tiers: [] })),
+      const [catalogRes, activeRes, boardRes] = await Promise.all([
+        apiFetch("/operations/catalog").catch(() =>
+          apiFetch("/expeditions/catalog").catch(() => ({ reward_types: [], depth_tiers: [] }))
+        ),
         apiFetch("/expeditions/active"),
+        apiFetch("/operations/board").catch(() => null),
       ]);
       expeditionState.catalog = {
         reward_types: Array.isArray(catalogRes?.reward_types) ? catalogRes.reward_types : [],
         depth_tiers: Array.isArray(catalogRes?.depth_tiers) ? catalogRes.depth_tiers : [],
         max_concurrent: Number(catalogRes?.max_concurrent) || 3,
       };
+      expeditionState.opsBoard = boardRes;
       expeditionState.active = Array.isArray(activeRes?.active) ? activeRes.active : [];
       expeditionUiCache.activeById = {};
       (expeditionState.active || []).forEach((a) => {
         expeditionUiCache.activeById[a.id] = a;
       });
     }
+    renderOpsBoardStrip();
     renderExpeditionGrids();
     wireExpeditionTabTimers();
     refreshAtticChips({ skipDungeon: true });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
-    showExpeditionError(detail || "Ошибка загрузки экспедиций");
+    showExpeditionError(detail || "Ошибка загрузки операций");
   }
+}
+
+function renderOpsBoardStrip() {
+  const host = document.getElementById("ops-board-strip");
+  if (!host) return;
+  const board = expeditionState.opsBoard;
+  const contracts = Array.isArray(board?.contracts) ? board.contracts : [];
+  if (!contracts.length) {
+    host.style.display = "none";
+    host.innerHTML = "";
+    return;
+  }
+  host.style.display = "";
+  host.innerHTML =
+    `<div class="exp-sec-header" style="margin-bottom:8px;"><span class="exp-sec-title">Недельная доска · ${escapeHtml(String(board.week_key || ""))}</span></div>` +
+    `<div class="exp-card-grid" style="margin-bottom:12px;">` +
+    contracts
+      .map((c) => {
+        const tags = (c.threat_labels || c.threat_tags || []).slice(0, 3).join(" · ");
+        const star = "★".repeat(Math.max(1, Math.min(5, Number(c.star) || 1)));
+        return `<button type="button" class="exp-free-slot-card" data-ops-contract="${escapeHtml(String(c.id))}" data-ops-depth="${escapeHtml(String(c.depth_tier || c.star || 1))}" style="text-align:left;">
+          <div style="font-weight:600;">${star} · ${escapeHtml(c.recommended_archetype || "Контракт")}</div>
+          <div class="muted tiny" style="margin-top:4px;">${escapeHtml(tags || "—")}</div>
+          <div class="muted tiny">${escapeHtml(String(c.duration_minutes || 90))} мин · ${escapeHtml(String(c.reward_bias || "mixed"))}</div>
+        </button>`;
+      })
+      .join("") +
+    `</div>`;
+  host.querySelectorAll("[data-ops-contract]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const depth = Number(btn.getAttribute("data-ops-depth") || 1);
+      if (typeof openSendExpModal === "function") {
+        try {
+          expeditionSend.depthTier = depth;
+        } catch (_) {}
+        openSendExpModal();
+      } else if (typeof WaifuApp?.openSendExpModal === "function") {
+        WaifuApp.openSendExpModal();
+      }
+    });
+  });
 }
 
 function formatExpeditionTime(seconds) {
@@ -2953,7 +2999,7 @@ function updateExpeditionSquadPowerLabel() {
 
   const el = expG("esm-squad-power");
   if (el) {
-    el.innerHTML = `Мощь отряда: <span class="${powerCls}">${sq}</span>${needSelected ? ` / нужно ${needSelected}` : ""}`;
+    el.innerHTML = `CR отряда: <span class="${powerCls}">${sq}</span>${needSelected ? ` / нужно ${needSelected}` : ""}`;
   }
 
   const rosterEl = expG("esm-roster-power");
@@ -2964,7 +3010,7 @@ function updateExpeditionSquadPowerLabel() {
       ? TIER_SHORT_NAMES[unlocked.tier] || unlocked.name_ru || unlocked.name || `Тир ${unlocked.tier}`
       : TIER_SHORT_NAMES[1] || "Разведка";
     rosterEl.innerHTML =
-      `<span>⚔ Мощь отряда: <span class="${powerCls}">${sq}</span></span>` +
+      `<span>⚔ CR отряда: <span class="${powerCls}">${sq}</span></span>` +
       `<span class="exp-roster-power-tier">доступно: ${escapeHtml(roman)} ${escapeHtml(name)}</span>`;
   }
 
@@ -3615,12 +3661,13 @@ function renderExpResultSquad(squadState) {
   const healBtn = document.getElementById("exp-result-heal-btn");
   if (healBtn) {
     const hasWounded = (squadState || []).some((u) => u.hp_current < u.hp_max && u.hired_waifu_id && !u.healing);
+    // Auto-Rest starts on claim; button is informational / optional force-rest stub
     healBtn.style.display = hasWounded ? "" : "none";
     healBtn.disabled = false;
-    healBtn.textContent = "💊 Отправить на лечение";
+    healBtn.textContent = "🛏 Отдых уже запущен (Ops)";
     healBtn.onclick = (ev) => {
       ev?.stopPropagation?.();
-      healExpeditionSquad(expResultSquadState);
+      showToast?.("Отдых стартует автоматически после claim. Арена доступна.", "info");
     };
   }
 }
