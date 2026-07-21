@@ -60,25 +60,50 @@ def hired_expedition_eligible(waifu: HiredWaifu, now: datetime | None = None) ->
 
 
 def refresh_hired_power(waifu: HiredWaifu) -> None:
-    waifu.power = compute_hired_power(int(waifu.level or 1), int(waifu.rarity or 1))
+    from waifu_bot.game.merc_combat_rating import refresh_unit_power
+
+    refresh_unit_power(waifu)
+
+
+def can_arena_while_resting(_waifu: HiredWaifu) -> bool:
+    """Arena attacks allowed during Rest (plan §12.5)."""
+    return True
 
 
 def hired_roster_payload(waifu: HiredWaifu, now: datetime | None = None) -> dict[str, Any]:
     now = now or datetime.now(tz=timezone.utc)
     sync_hired_hp_after_heal_complete(waifu, now)
     cur, mx = effective_hired_hp(waifu, now)
-    eligible, _ = hired_expedition_eligible(waifu, now)
+    eligible, reason = hired_expedition_eligible(waifu, now)
     healing = is_healing(waifu, now)
     heal_complete_at = getattr(waifu, "heal_complete_at", None)
+    from waifu_bot.game.merc_combat_rating import cr_breakdown_for_unit, refresh_unit_power
+    from waifu_bot.game.merc_perks import archetype_for_perks, migrate_perk_list
+
+    refresh_unit_power(waifu)
+    perks = migrate_perk_list(list(getattr(waifu, "perks", None) or []))
+    arch = archetype_for_perks(perks)
+    bd = cr_breakdown_for_unit(waifu)
     return {
         "current_hp": cur,
         "max_hp": mx,
         "hp_current": cur,
         "hp_max": mx,
-        "power": int(getattr(waifu, "power", 0) or compute_hired_power(int(waifu.level or 1), int(waifu.rarity or 1))),
+        "power": int(getattr(waifu, "power", 0) or bd["total"]),
+        "combat_rating": int(bd["total"]),
+        "cr_breakdown": bd,
         "eligible": eligible,
+        "eligible_reason": reason,
         "healing": healing,
+        "resting": healing,
+        "can_arena": True,
         "heal_complete_at": heal_complete_at.isoformat() if heal_complete_at else None,
+        "atk_slot": getattr(waifu, "atk_slot", None),
+        "def_slot": getattr(waifu, "def_slot", None),
+        "potential_stars": int(getattr(waifu, "potential_stars", 0) or 0),
+        "template_id": getattr(waifu, "template_id", None),
+        "archetype": {"id": arch.id, "name": arch.name_ru, "stance": arch.stance},
+        "perks": perks,
     }
 
 

@@ -1560,12 +1560,14 @@
       <div class="attic-menu" id="attic-menu" hidden role="menu" aria-label="Дополнительные разделы">
         <a class="attic-menu-item" href="./profile.html?tab=inventory" role="menuitem">🎒 Инвентарь</a>
         <a class="attic-menu-item" href="./profile.html?tab=info&info=statistics" role="menuitem">📊 Статистика</a>
-        <a class="attic-menu-item" href="./dungeons.html?tab=expedition" role="menuitem">🗺 Экспедиции</a>
+        <a class="attic-menu-item" href="./dungeons.html?tab=operations" role="menuitem">🗺️ Операции</a>
         <a class="attic-menu-item" href="./dungeons.html?tab=abyss" role="menuitem">🕳 Бездна</a>
         <a class="attic-menu-item" href="./shop.html?tab=gamble" role="menuitem">🎲 Gamble</a>
         <a class="attic-menu-item" href="./shop.html?tab=smith" role="menuitem">🔨 Кузнец</a>
-        <a class="attic-menu-item" href="./tavern.html?tab=heal" role="menuitem">💊 Лечение</a>
-        <a class="attic-menu-item" href="./tavern.html?tab=upgrade" role="menuitem">⬆ Прокачка наёмниц</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=arena" role="menuitem">⚔️ Арена</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=hire" role="menuitem">🎲 Найм</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=squad" role="menuitem">👥 Отряд</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=exchange" role="menuitem">🏪 Обмен</a>
         <a class="attic-menu-item" href="#" role="menuitem" onclick="event.preventDefault();(function(){var m=document.getElementById('attic-menu');var b=document.getElementById('attic-menu-btn');if(m)m.hidden=true;if(b)b.setAttribute('aria-expanded','false');WaifuApp.openLibrary();})()">📖 Библиотека</a>
         <a class="attic-menu-item" href="./player.html#settings" role="menuitem">⚙ Настройки</a>
       </div>
@@ -1575,8 +1577,8 @@
       <div class="tavern-tabs">
         <button type="button" class="tab active" data-tab="hire" onclick="WaifuApp.switchTavernTab('hire')">⚔ Найм</button>
         <button type="button" class="tab" data-tab="squad" onclick="WaifuApp.switchTavernTab('squad')">🛡 Отряд</button>
-        <button type="button" class="tab" data-tab="heal" onclick="WaifuApp.switchTavernTab('heal')">💊 Леч.</button>
-        <button type="button" class="tab" data-tab="upgrade" onclick="WaifuApp.switchTavernTab('upgrade')">⬆ LVL</button>
+        <button type="button" class="tab" data-tab="arena" onclick="WaifuApp.switchTavernTab('arena')">⚔ Арена</button>
+        <button type="button" class="tab" data-tab="exchange" onclick="WaifuApp.switchTavernTab('exchange')">🏪 Обмен</button>
         <button
           type="button"
           class="tavern-tab-refresh admin-only"
@@ -1633,21 +1635,27 @@
 
       <div id="tab-squad" class="tab-panel" style="display:none;">
         <section class="section">
+          <div id="tavern-lineup-atk" style="margin:6px 0;font-size:13px;opacity:.9;"></div>
+          <div id="tavern-lineup-def" style="margin:0 0 10px;font-size:13px;opacity:.9;"></div>
           <div class="squad-grid tavern-squad-grid tavern-pool-grid" id="tavern-squad-grid">
             <div class="placeholder">Загрузка отряда...</div>
           </div>
         </section>
       </div>
 
-      <div id="tab-heal" class="tab-panel" style="display:none;">
+      <div id="tab-arena" class="tab-panel" style="display:none;">
         <section class="section">
-          <div id="tavern-heal-list" class="placeholder muted" style="font-style:italic;">Раненые наёмницы появятся здесь. Стоимость ×2 при 0 HP.</div>
+          <div id="tavern-arena-header" style="margin-bottom:10px;font-size:14px;"></div>
+          <div id="tavern-arena-opponents"></div>
+          <div id="tavern-arena-history" style="margin-top:14px;font-size:12px;opacity:.85;"></div>
         </section>
       </div>
 
-      <div id="tab-upgrade" class="tab-panel" style="display:none;">
+      <div id="tab-exchange" class="tab-panel" style="display:none;">
         <section class="section">
-          <div id="tavern-upgrade-list" class="tavern-upgrade-list placeholder muted" style="font-style:italic;">Загрузка…</div>
+          <div id="tavern-exchange-wallet" style="padding:4px 0 8px;font-size:13px;"></div>
+          <div id="tavern-exchange-list"></div>
+          <button type="button" class="tavern-btn" style="margin-top:10px;" onclick="WaifuApp.openTavernCodex && WaifuApp.openTavernCodex()">📖 Кодекс легенд</button>
         </section>
       </div>
     </main>

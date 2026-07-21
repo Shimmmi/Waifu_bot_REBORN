@@ -3421,9 +3421,33 @@ function initAtticChipClicks() {
   const expChip = document.getElementById("attic-exp-chip");
   if (expChip) {
     expChip.addEventListener("click", () => {
-      window.location.href = "./dungeons.html?tab=expedition";
+      window.location.href = "./dungeons.html?tab=operations";
     });
     expChip.style.cursor = "pointer";
+    expChip.title = "Операции";
+  }
+  // Arena chip (merc overhaul) — inject next to ops chip if missing
+  let arenaChip = document.getElementById("attic-arena-chip");
+  if (!arenaChip && expChip && expChip.parentElement) {
+    arenaChip = document.createElement("div");
+    arenaChip.className = "chip attic-arena-chip";
+    arenaChip.id = "attic-arena-chip";
+    arenaChip.title = "Арена";
+    arenaChip.innerHTML = `<span id="attic-arena-tickets">⚔ —</span>`;
+    expChip.parentElement.insertBefore(arenaChip, expChip.nextSibling);
+  }
+  if (arenaChip) {
+    arenaChip.addEventListener("click", () => {
+      window.location.href = "./tavern.html?tab=arena";
+    });
+    arenaChip.style.cursor = "pointer";
+    fetch("/api/arena/status", { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const el = document.getElementById("attic-arena-tickets");
+        if (el && data) el.textContent = `⚔ ${data.arena_tickets ?? 0}`;
+      })
+      .catch(() => {});
   }
   if (document.getElementById("attic-exp-cells")) {
     renderAtticExpeditions([], 3);

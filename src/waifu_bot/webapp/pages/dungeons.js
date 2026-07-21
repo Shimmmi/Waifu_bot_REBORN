@@ -886,6 +886,7 @@ async function populateDungeonsPage(profile) {
       .catch(() => {});
   }
 
+  if (tabParam === "operations") tabParam = "expedition";
   if (tabParam === "solo" || tabParam === "expedition" || tabParam === "group" || tabParam === "abyss") {
     showTab(tabParam);
   }

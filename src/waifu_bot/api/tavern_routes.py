@@ -617,9 +617,12 @@ async def tavern_heal(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
+    """Deprecated: starts Rest (heal-over-time). Prefer auto-Rest after Operations."""
     result = await tavern_service.heal_waifu(session, player_id, hired_waifu_id)
     if result.get("error"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
+    result["deprecated"] = True
+    result["note"] = "Use auto-Rest after Operations; Arena is not blocked by Rest."
     return result
 
 
