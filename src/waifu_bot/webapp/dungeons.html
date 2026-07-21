@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Подземелья</title>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v66" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
-    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v66" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v67" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
+    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v67" />
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v66" onerror="console.warn('combat island skipped')"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v66" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
-    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v66" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v64'"></script>
+    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v67" onerror="console.warn('combat island skipped')"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v67" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
+    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v67" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v64'"></script>
     <style>
       .hp-fill-monster.monster-hp-fill--unknown {
         opacity: 0.35;
@@ -2689,7 +2689,7 @@
           <span id="attic-dungeon-label">Нет боя</span>
           <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden></div>
         </div>
-        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Экспедиции">
+        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Операции">
           <span class="attic-exp-ico" aria-hidden="true">🗺</span>
           <div class="attic-exp-cells" id="attic-exp-cells" aria-label="Статус экспедиций"></div>
         </div>
@@ -2804,13 +2804,14 @@
 
           <div id="tab-expedition" class="tab-panel" style="display: none;">
             <div id="expedition-error" class="banner" style="display:none;"></div>
+            <div id="ops-board-strip" style="display:none;"></div>
 
             <div id="exp-active-section" style="display:none;">
               <div class="exp-sec-header">
-                <span class="exp-sec-title">Активные экспедиции</span>
+                <span class="exp-sec-title">Активные операции</span>
                 <div class="exp-sec-header-right">
                   <span class="exp-slots-indicator" id="exp-slots-indicator"></span>
-                  <button type="button" class="exp-help-btn" onclick="WaifuApp.openExpeditionHelp()" aria-label="Справка по экспедициям" title="Справка">?</button>
+                  <button type="button" class="exp-help-btn" onclick="WaifuApp.openExpeditionHelp()" aria-label="Справка по операциям" title="Справка">?</button>
                 </div>
               </div>
               <div class="exp-card-grid" id="exp-active-grid">
@@ -2864,7 +2865,7 @@
                   <div class="exp-squad-slot" id="exp-sl-2"><span class="exp-squad-empty">—</span></div>
                 </div>
                 <button type="button" id="esm-open-roster-btn" class="exp-roster-open-btn" onclick="WaifuApp.openExpRosterModal()">Выбрать наёмниц</button>
-                <div id="esm-squad-power" class="muted tiny" style="margin:2px 0 4px" aria-live="polite">Мощь отряда: —</div>
+                <div id="esm-squad-power" class="muted tiny" style="margin:2px 0 4px" aria-live="polite">CR отряда: —</div>
               </div>
               <div class="exp-send-options">
                 <div class="exp-send-select-field">
@@ -2941,7 +2942,7 @@
             <div class="exp-sheet" style="max-height:85vh;overflow-y:auto;">
               <div class="exp-sheet-handle"></div>
               <button type="button" class="exp-sheet-close" onclick="WaifuApp.closeExpeditionHelp()">✕</button>
-              <div class="exp-modal-title exp-help-title" style="margin-bottom:10px;">Экспедиции — справка</div>
+              <div class="exp-modal-title exp-help-title" style="margin-bottom:10px;">Операции — справка</div>
               <div id="expedition-help-body" class="exp-help-body"></div>
             </div>
           </div>
@@ -2968,7 +2969,7 @@
                 <div class="exp-result-rewards" id="exp-result-rewards"></div>
                 <div class="exp-result-squad-title">Состояние отряда после экспедиции</div>
                 <div class="exp-result-squad" id="exp-result-squad"></div>
-                <button type="button" class="exp-result-heal-btn" id="exp-result-heal-btn" style="display:none;">💊 Отправить на лечение</button>
+                <button type="button" class="exp-result-heal-btn" id="exp-result-heal-btn" style="display:none;">🛏 Отдых</button>
               </div>
             </div>
           </div>

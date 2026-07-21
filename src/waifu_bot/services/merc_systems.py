@@ -31,6 +31,14 @@ from waifu_bot.game.merc_potential import (
     fodder_cost_for_next_star,
     perk_level_cap,
 )
+from waifu_bot.game.merc_config import (
+    ARENA_TICKETS_DAILY,
+    ARENA_UNLOCK_ACT,
+    LEG_BASE_RATE,
+    PITY_EPIC_HARD,
+    PITY_LEG_HARD,
+    PITY_LEG_SOFT_START,
+)
 from waifu_bot.game.merc_threat_tags import THREAT_TAG_LABELS_RU, THREAT_TAGS
 
 try:
@@ -40,12 +48,8 @@ try:
 except Exception:  # pragma: no cover
     MOSCOW_TZ = timezone.utc
 
-PITY_LEG_HARD = 50
-PITY_LEG_SOFT_START = 35
-PITY_EPIC_HARD = 20
-LEG_BASE_RATE = 0.0075
-ARENA_TICKETS_DAILY = 5
-ARENA_UNLOCK_ACT = 3
+# Re-export for callers / tests
+__all_pity__ = (PITY_LEG_HARD, PITY_LEG_SOFT_START, PITY_EPIC_HARD, LEG_BASE_RATE)
 
 
 def _moscow_day_key() -> str:
@@ -293,6 +297,21 @@ async def generate_hired_with_pity(session: AsyncSession, player_id: int) -> Hir
     return waifu
 
 
+def _parse_guild_assist(state: TavernState) -> tuple[str | None, int | None]:
+    """guild_assist_day stores ``YYYY-MM-DD`` or ``YYYY-MM-DD:<waifu_id>``."""
+    raw = getattr(state, "guild_assist_day", None)
+    if not raw:
+        return None, None
+    s = str(raw)
+    if ":" in s:
+        day, _, wid = s.partition(":")
+        try:
+            return day, int(wid)
+        except (TypeError, ValueError):
+            return day or None, None
+    return s, None
+
+
 async def set_lineup_slot(
     session: AsyncSession,
     player_id: int,
@@ -331,6 +350,14 @@ async def set_lineup_slot(
     waifu = await session.get(HiredWaifu, int(waifu_id))
     if not waifu or int(waifu.player_id) != int(player_id):
         return {"error": "waifu_not_found"}
+
+    # Guild Assist is Ops-only — never on Arena DEF
+    if side == "def":
+        state = await get_or_create_tavern_state(session, player_id)
+        day, assist_wid = _parse_guild_assist(state)
+        if day == _moscow_day_key() and assist_wid and int(assist_wid) == int(waifu_id):
+            return {"error": "assist_ops_only", "hint": "Guild Assist нельзя ставить в DEF арены"}
+
     # Clear this unit's previous slot on same side
     setattr(waifu, field, slot_i)
     if side == "atk":

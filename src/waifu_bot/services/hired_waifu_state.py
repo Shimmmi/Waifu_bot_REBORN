@@ -82,6 +82,9 @@ def hired_roster_payload(waifu: HiredWaifu, now: datetime | None = None) -> dict
 
     refresh_unit_power(waifu)
     perks = migrate_perk_list(list(getattr(waifu, "perks", None) or []))
+    # Persist migrated perk ids once (legacy → merc v2)
+    if list(getattr(waifu, "perks", None) or []) != perks:
+        waifu.perks = perks
     arch = archetype_for_perks(perks)
     bd = cr_breakdown_for_unit(waifu)
     return {
