@@ -871,9 +871,12 @@ async function populateDungeonsPage(profile) {
     }
   };
 
-  const tabParam = new URLSearchParams(window.location.search).get("tab");
+  const tabParamRaw = new URLSearchParams(window.location.search).get("tab");
   const skipSoloBootstrap =
-    tabParam === "expedition" || tabParam === "group" || tabParam === "abyss";
+    tabParamRaw === "expedition" ||
+    tabParamRaw === "operations" ||
+    tabParamRaw === "group" ||
+    tabParamRaw === "abyss";
 
   if (!skipSoloBootstrap) {
     await ensureSoloTabBootstrapped(p);
@@ -886,9 +889,20 @@ async function populateDungeonsPage(profile) {
       .catch(() => {});
   }
 
+  let tabParam = tabParamRaw;
   if (tabParam === "operations") tabParam = "expedition";
   if (tabParam === "solo" || tabParam === "expedition" || tabParam === "group" || tabParam === "abyss") {
     showTab(tabParam);
+  }
+  if (tabParam === "expedition") {
+    const wantSend = new URLSearchParams(window.location.search).get("send") === "1";
+    if (wantSend) {
+      setTimeout(() => {
+        try {
+          openSendExpModal({ preferAtk: true });
+        } catch (_) {}
+      }, 400);
+    }
   }
 }
 
@@ -2072,27 +2086,35 @@ function renderOpsBoardStrip() {
     `<div class="exp-card-grid" style="margin-bottom:12px;">` +
     contracts
       .map((c) => {
-        const tags = (c.threat_labels || c.threat_tags || []).slice(0, 3).join(" · ");
+        const labels = c.threat_labels || c.threat_tags || [];
+        const chips = labels
+          .slice(0, 3)
+          .map((t) => `<span class="exp-affix-chip">${escapeHtml(String(t))}</span>`)
+          .join("");
         const star = "★".repeat(Math.max(1, Math.min(5, Number(c.star) || 1)));
-        return `<button type="button" class="exp-free-slot-card" data-ops-contract="${escapeHtml(String(c.id))}" data-ops-depth="${escapeHtml(String(c.depth_tier || c.star || 1))}" style="text-align:left;">
-          <div style="font-weight:600;">${star} · ${escapeHtml(c.recommended_archetype || "Контракт")}</div>
-          <div class="muted tiny" style="margin-top:4px;">${escapeHtml(tags || "—")}</div>
-          <div class="muted tiny">${escapeHtml(String(c.duration_minutes || 90))} мин · ${escapeHtml(String(c.reward_bias || "mixed"))}</div>
+        const biasIcon =
+          c.reward_bias === "merc_coins"
+            ? "🪙"
+            : c.reward_bias === "tickets"
+              ? "⚔"
+              : c.reward_bias === "contracts"
+                ? "📜"
+                : c.reward_bias === "merc_dust"
+                  ? "✨"
+                  : "🎁";
+        return `<button type="button" class="exp-free-slot-card ops-board-card" data-ops-contract="${escapeHtml(String(c.id))}" style="text-align:left;">
+          <div style="font-weight:600;">${star} · ${escapeHtml(c.recommended_archetype || "Контракт")} ${biasIcon}</div>
+          <div class="exp-modal-affixes" style="margin-top:6px;">${chips || '<span class="muted tiny">—</span>'}</div>
+          <div class="muted tiny" style="margin-top:6px;">${escapeHtml(String(c.duration_minutes || 90))} мин · ${escapeHtml(String(c.reward_bias || "mixed"))}</div>
         </button>`;
       })
       .join("") +
     `</div>`;
   host.querySelectorAll("[data-ops-contract]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const depth = Number(btn.getAttribute("data-ops-depth") || 1);
-      if (typeof openSendExpModal === "function") {
-        try {
-          expeditionSend.depthTier = depth;
-        } catch (_) {}
-        openSendExpModal();
-      } else if (typeof WaifuApp?.openSendExpModal === "function") {
-        WaifuApp.openSendExpModal();
-      }
+      const id = btn.getAttribute("data-ops-contract");
+      const contract = contracts.find((c) => String(c.id) === String(id));
+      openSendExpModal({ contract, preferAtk: true });
     });
   });
 }
@@ -2765,7 +2787,7 @@ function renderExpBottomZone(activeCount, maxConcurrent) {
       const free = maxConcurrent - activeCount;
       const slots = [];
       for (let i = 0; i < free; i++) {
-        slots.push(`<div class="exp-free-slot" data-tutorial="exp-free-slot" onclick="WaifuApp.openSendExpModal()"><span class="exp-free-slot-ico">＋</span><span>Отправить<br>экспедицию</span></div>`);
+        slots.push(`<div class="exp-free-slot" data-tutorial="exp-free-slot" onclick="WaifuApp.openSendExpModal({preferAtk:true})"><span class="exp-free-slot-ico">＋</span><span>Начать<br>операцию</span></div>`);
       }
       freeWrap.innerHTML = slots.join("");
       freeWrap.style.display = "";
@@ -3247,10 +3269,39 @@ function closeActiveExpModal() {
   expCloseOverlay("exp-active-modal");
 }
 
-function openSendExpModal() {
-  expeditionSend.rewardType = expeditionSend.rewardType || "gold";
-  expeditionSend.depthTier = expeditionSend.depthTier || 1;
+async function openSendExpModal(opts = {}) {
+  const preferAtk = Boolean(opts.preferAtk ?? true);
+  const contract = opts.contract || null;
+  expeditionSend.opsContractId = contract?.id || null;
+  expeditionSend.threatTags = contract?.threat_tags || [];
+  expeditionSend.rewardBias = contract?.reward_bias || null;
+  if (contract) {
+    expeditionSend.depthTier = Number(contract.depth_tier || contract.star || expeditionSend.depthTier || 1);
+    if (contract.reward_bias && contract.reward_bias !== "mixed") {
+      // map bias to existing reward_type if present
+      const bias = String(contract.reward_bias);
+      const types = expeditionState.catalog?.reward_types || [];
+      const hit = types.find((t) => t.id === bias || t.reward_type === bias);
+      if (hit) expeditionSend.rewardType = hit.id || hit.reward_type;
+    }
+  } else {
+    expeditionSend.rewardType = expeditionSend.rewardType || "gold";
+    expeditionSend.depthTier = expeditionSend.depthTier || 1;
+  }
   expeditionSend.squadSlots = [null, null, null];
+  if (preferAtk) {
+    try {
+      const lu = await apiFetch("/tavern/lineup");
+      const roster = await ensureExpeditionRoster({ force: false }).catch(() => []);
+      const byId = {};
+      (roster || []).forEach((u) => {
+        byId[Number(u.id)] = u;
+      });
+      expeditionSend.squadSlots = (lu.atk || [null, null, null]).map((id) => (id ? byId[Number(id)] || null : null));
+    } catch (_) {
+      // lineup may 404 on undeployed server — leave empty
+    }
+  }
   renderExpRewardSelect();
   renderExpTierSelect();
   updateExpeditionSquadPowerLabel();
@@ -3260,9 +3311,29 @@ function openSendExpModal() {
     forecastEl.innerHTML = "";
   }
   const warnEl = expG("esm-send-warnings");
-  if (warnEl) warnEl.textContent = "";
+  if (warnEl) {
+    const resting = (expeditionSend.squadSlots || []).filter(
+      (u) => u && (u.healing || u.resting || u.status === "healing" || u.status === "resting")
+    );
+    if (resting.length) {
+      warnEl.innerHTML = `Отдых: ${resting.map((u) => escapeHtml(u.name || "?")).join(", ")} — старт заблокирован. <a href="./tavern.html?tab=squad">Отряд</a>`;
+    } else if (contract) {
+      warnEl.textContent = `Контракт ${contract.recommended_archetype || ""} · ${(contract.threat_labels || contract.threat_tags || []).slice(0, 3).join(", ")}`;
+    } else {
+      warnEl.textContent = "";
+    }
+  }
   renderExpeditionSquadSlots();
   updateExpConfirmPanel(null);
+  // block send if resting
+  const btn = expG("exp-send-btn");
+  const hasRest = (expeditionSend.squadSlots || []).some(
+    (u) => u && (u.healing || u.resting || u.status === "healing" || u.status === "resting")
+  );
+  if (btn) {
+    btn.textContent = "Начать операцию";
+    if (hasRest) btn.disabled = true;
+  }
   expOpenOverlay("exp-send-modal");
 }
 
@@ -3332,6 +3403,13 @@ async function submitExpeditionStart() {
     showExpeditionError("Выберите отряд (1–3 наёмницы).");
     return;
   }
+  const resting = (expeditionSend.squadSlots || []).filter(
+    (u) => u && (u.healing || u.resting || u.status === "healing" || u.status === "resting")
+  );
+  if (resting.length) {
+    showExpeditionError("Наёмницы на отдыхе — дождитесь Rest или смените ATK.");
+    return;
+  }
   const savedReward = expeditionSend.rewardType;
   const savedTier = expeditionSend.depthTier;
   const savedSquad = expeditionSend.squadSlots.slice();
@@ -3344,15 +3422,29 @@ async function submitExpeditionStart() {
   }
   openExpeditionSendLoading();
   try {
-    await apiFetch("/expeditions/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        unit_ids: unitIds,
-        reward_type: expeditionSend.rewardType,
-        depth_tier: expeditionSend.depthTier,
-      }),
-    });
+    try {
+      await apiFetch("/operations/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          unit_ids: unitIds,
+          reward_type: expeditionSend.rewardType,
+          depth_tier: expeditionSend.depthTier,
+        }),
+      });
+    } catch (e) {
+      const { status } = parseHttpErrorDetail(e);
+      if (status !== 404) throw e;
+      await apiFetch("/expeditions/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          unit_ids: unitIds,
+          reward_type: expeditionSend.rewardType,
+          depth_tier: expeditionSend.depthTier,
+        }),
+      });
+    }
     if (expSendLoadingInterval) {
       clearInterval(expSendLoadingInterval);
       expSendLoadingInterval = null;
@@ -3360,7 +3452,7 @@ async function submitExpeditionStart() {
     const fill = document.getElementById("exp-send-loading-fill");
     const sub = document.getElementById("exp-send-loading-sub");
     if (fill) fill.style.width = "100%";
-    if (sub) sub.textContent = "Отряд вышел в поход!";
+    if (sub) sub.textContent = "Отряд вышел на операцию!";
     await new Promise((r) => setTimeout(r, 300));
     closeExpeditionSendLoading();
     showExpeditionError("");
@@ -3409,17 +3501,13 @@ function expeditionHelpHtml() {
       </tbody></table>`;
 
   return `
-    <p><strong>Слоты.</strong> До 3 параллельных экспедиций одновременно. Состав — 1–3 наёмницы, HP ≥ 25% для участия.</p>
-    <p><strong>Тиры глубины I–V.</strong> Определяют длительность, число событий, рекоменд. мощность и урон за тик. Недостаточная мощность блокирует выбор тира.</p>
+    <p><strong>Операции.</strong> Недельная доска контрактов + до 3 активных одновременно. Состав по умолчанию — ATK из таверны (1–3).</p>
+    <p><strong>Доска.</strong> Карточки ★ / длительность / threat-tags / рекомендуемый архетип / bias наград. Тап открывает отправку.</p>
+    <p><strong>Отдых (Rest).</strong> После claim раненые уходят в отдых автоматически. Rest блокирует <em>новый</em> старт Ops, но не Арену.</p>
+    <p><strong>Тиры глубины I–V.</strong> Длительность, события, рекоменд. CR и урон за тик.</p>
     ${tierTableHtml}
-    <p><strong>Тики.</strong> События равномерно распределены по длительности (≈30 мин на событие). Больше событий — выше риск по HP, но больше награда.</p>
-    <p><strong>Исход.</strong> Считается по остатку HP отряда после всех тиков (не предролл-шанс): &lt;12% — <span style="color:#f87171">провал</span>, ≥52% — <span style="color:#4ade80">успех</span>, иначе — <span style="color:#fbbf24">частичный</span> (награда ×0.7).</p>
-    <p><strong>Теги/аффиксы сложности (8).</strong> Генерируются <em>случайно после старта</em> экспедиции — на этапе формирования игроку неизвестны. Покрытие тегов отрядом (раса/класс/перк) снижает урон. Влияние каждого тега раскрывается в логе результата.</p>
-    <p><strong>Твисты (~10%).</strong> Случайные события: treasure (награда), rest (восстановление HP), skip damage (пропуск урона) и др.</p>
-    <p><strong>Типы наград (6).</strong> 💰 Золото · ✨ Опыт вайфу · ⚔ Снаряжение · 🔮 Камни заточки · 📖 Опыт наёмниц · 🎁 Смешанная.</p>
-    <p><strong>Мощность наёмницы.</strong> <code>RARITY_BASE + (level−1)×3</code> (Common 40 → Legendary 120). Рекоменд. пороги: 0 / 80 / 150 / 220 / 300.</p>
-    <p><strong>Лечение.</strong> После экспедиции раненые наёмницы лечатся автоматически: 0.8 мин за 1% потерянного HP (×1.5 при HP=0).</p>
-    <p><strong>Перки.</strong> Прокачка во вкладке ⬆ LVL таверны (очки за лвлап после экспедиции). Эффективность перка против уровня препятствия:</p>
+    <p><strong>Награды.</strong> Merc Coins / пыль / тикеты арены / контракты — основные; золото и exp вторичны.</p>
+    <p><strong>Перки.</strong> Каталог merc v2 (ATK/DEF/SUP) + архетипы. Прокачка ★ через Quick Feed в таверне.</p>
     <table class="exp-help-table" aria-label="Эффективность перка">
       <thead><tr><th>Перк↓ / Ур.→</th><th>I</th><th>II</th><th>III</th><th>IV</th><th>V</th></tr></thead>
       <tbody>${effRows}</tbody>
@@ -3707,6 +3795,11 @@ function fillExpeditionResult(result) {
   if (rewardsEl) {
     const rt = result.reward_type || "gold";
     const rows = [];
+    const merc = result.merc_rewards || result.merc_bonus || result.merc || {};
+    if (merc.merc_coins > 0) rows.push(expResultRewardRow("Merc Coins", `🪙 ${merc.merc_coins}`));
+    if (merc.merc_dust > 0) rows.push(expResultRewardRow("Пыль", `✨ ${merc.merc_dust}`));
+    if (merc.arena_tickets > 0) rows.push(expResultRewardRow("Тикеты арены", `⚔ ${merc.arena_tickets}`));
+    if (merc.merc_contracts > 0) rows.push(expResultRewardRow("Контракты", `📜 ${merc.merc_contracts}`));
     if (result.gold_earned > 0 || rt === "gold" || rt === "mixed") {
       rows.push(expResultRewardRow("Золото", `🪙 ${result.gold_earned ?? 0}`, cfg.mult));
     }

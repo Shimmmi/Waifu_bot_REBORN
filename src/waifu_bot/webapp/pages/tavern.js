@@ -35,12 +35,16 @@ const tavernState = {
   squad: [],
   reserve: [],
   perksMap: {},
+  perksCatalog: {},
+  lineup: { atk: [null, null, null], def: [null, null, null] },
   selectedWaifu: null,
   pendingHireSlot: null, // 1..4
   lastHiredResult: null, // result of last successful hire for result modal
   benchCap: 10,
   quickFeedMode: false,
   quickFeedTargetId: null,
+  modalSeg: "overview",
+  lineupPick: null, // { side, slot } when picking for empty ATK/DEF
 };
 
 function showTavernError(message, kind = "info") {
@@ -1672,7 +1676,10 @@ function switchTavernTab(name) {
       .catch(() => {});
   }
   if (name === "arena") {
-    renderTavernArena().catch(() => {});
+    renderTavernArena().catch((e) => {
+      const { detail } = parseHttpErrorDetail(e);
+      showToast(detail || "Ошибка арены", "error");
+    });
   }
   if (name === "exchange") {
     renderTavernExchange().catch(() => {});
@@ -1918,11 +1925,109 @@ function renderTavernUpgradeList() {
 }
 
 function buildTavernPerksMap(available) {
+  const fromCatalog = tavernState.perksCatalog || {};
+  const names = {};
+  Object.keys(fromCatalog).forEach((id) => {
+    names[id] = fromCatalog[id].name || id;
+  });
   const perksList = Array.isArray(available?.perks) ? available.perks : [];
-  if (perksList.length) {
-    return Object.fromEntries(perksList.map((x) => [x.id, x.name || x.id]));
+  perksList.forEach((x) => {
+    if (x?.id) names[x.id] = x.name || x.id;
+  });
+  if (Object.keys(names).length) return names;
+  return { ...(window.WaifuApp?.PERK_NAMES || window.PERK_NAMES || {}) };
+}
+
+async function ensureMercPerksCatalog() {
+  if (tavernState.perksCatalog && Object.keys(tavernState.perksCatalog).length) {
+    window.__mercPerksCatalog = tavernState.perksCatalog;
+    return tavernState.perksCatalog;
   }
-  return { ...(window.WaifuApp?.PERK_NAMES || {}) };
+  try {
+    const data = await apiFetch("/tavern/perks");
+    const map = {};
+    (data?.perks || []).forEach((p) => {
+      if (!p?.id) return;
+      map[p.id] = {
+        name: p.name,
+        flavor: p.flavor || "",
+        effect: p.effect || "",
+        type: p.type,
+        rarity: p.rarity,
+        tags: p.tags || [],
+      };
+    });
+    tavernState.perksCatalog = map;
+    window.__mercPerksCatalog = map;
+    tavernState.perksMap = { ...buildTavernPerksMap(tavernState.available), ...Object.fromEntries(Object.entries(map).map(([k, v]) => [k, v.name])) };
+  } catch (_) {
+    tavernState.perksCatalog = tavernState.perksCatalog || {};
+  }
+  return tavernState.perksCatalog;
+}
+
+function mercPerkTip(pid) {
+  const cat = tavernState.perksCatalog?.[pid] || window.__mercPerksCatalog?.[pid];
+  const name =
+    cat?.name ||
+    tavernState.perksMap?.[pid] ||
+    (typeof perkNameRu === "function" ? perkNameRu(pid) : null) ||
+    pid;
+  const flavor =
+    cat?.flavor ||
+    (typeof perkFlavorRu === "function" ? perkFlavorRu(pid) : null) ||
+    "Специальное умение для операций.";
+  const effect =
+    cat?.effect ||
+    (typeof perkEffectRu === "function" ? perkEffectRu(pid) : null) ||
+    PERK_EFFECTS?.[pid] ||
+    "";
+  return { name, flavor, effect };
+}
+
+function allRosterWaifus() {
+  return [...(tavernState.squad || []), ...(tavernState.reserve || [])];
+}
+
+function findRosterWaifu(id) {
+  if (id == null) return null;
+  return allRosterWaifus().find((w) => Number(w.id) === Number(id)) || null;
+}
+
+function rosterByIdMap() {
+  const m = {};
+  allRosterWaifus().forEach((w) => {
+    m[Number(w.id)] = w;
+  });
+  return m;
+}
+
+function isOnLineup(w) {
+  const a = w?.atkSlot ?? w?.atk_slot;
+  const d = w?.defSlot ?? w?.def_slot;
+  return (a != null && Number(a) >= 1) || (d != null && Number(d) >= 1);
+}
+
+function typePipsHtml(waifus) {
+  const counts = { ATK: 0, DEF: 0, SUP: 0 };
+  (waifus || []).forEach((w) => {
+    const t = String(w?.archetype_id || w?.archetypeId || "").toLowerCase();
+    // fallback: count perk types from catalog
+    const perks = Array.isArray(w?.perks) ? w.perks : [];
+    perks.forEach((pid) => {
+      const tp = tavernState.perksCatalog?.[pid]?.type;
+      if (tp === "ATK" || tp === "DEF" || tp === "SUP") counts[tp] += 1;
+    });
+    if (!perks.length) {
+      if (t.includes("berserk") || t.includes("vanguard") || t.includes("duel")) counts.ATK += 1;
+      else if (t.includes("citadel") || t.includes("bulwark") || t.includes("ward")) counts.DEF += 1;
+      else counts.SUP += 1;
+    }
+  });
+  const order = ["ATK", "DEF", "SUP"];
+  const present = order.filter((k) => counts[k] > 0).slice(0, 3);
+  if (!present.length) present.push("ATK");
+  return `<span class="tavern-type-pips">${present.map((k) => `<span class="tavern-type-pip ${k.toLowerCase()}" title="${k}"></span>`).join("")}</span>`;
 }
 
 function scheduleTavernBgmStart() {
@@ -1979,9 +2084,13 @@ async function loadTavernWithProfile(profile, opts = {}) {
     tavernState.available = available;
     tavernState.perksMap = buildTavernPerksMap(available);
     if (available?.bench_cap != null) tavernState.benchCap = Number(available.bench_cap) || tavernState.benchCap;
+    await ensureMercPerksCatalog().catch(() => {});
 
     renderTavernHire(p, available);
-    if (loadRoster) renderTavernSquad();
+    if (loadRoster) {
+      await renderTavernLineupBars();
+      renderTavernSquad();
+    }
 
     loadOk = true;
     return { available, squad: tavernState.squad, reserve: tavernState.reserve };
@@ -2092,41 +2201,83 @@ function renderWaifuCardHtml(w, opts = {}) {
   `;
 }
 
+function renderLineupSlotEl(side, slotNum, waifuId) {
+  const w = findRosterWaifu(waifuId);
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = `tavern-lineup-slot${w ? " filled" : ""}`;
+  el.setAttribute("data-side", side);
+  el.setAttribute("data-slot", String(slotNum));
+  if (w) {
+    const url = hiredWaifuImageUrl(w, "thumb");
+    const img = url
+      ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />`
+      : `<span aria-hidden="true">${waifuPortraitEmoji(w)}</span>`;
+    el.innerHTML = `${img}<span>${escapeHtml(String(w.name || "—"))}</span><span class="muted tiny">CR ${escapeHtml(String(hiredCr(w)))}</span>`;
+    el.onclick = () => openTavernWaifuModal(w);
+  } else {
+    el.innerHTML = `<span style="opacity:.5;font-size:18px">＋</span><span>${side.toUpperCase()} ${slotNum}</span>`;
+    el.onclick = () => {
+      tavernState.lineupPick = { side, slot: slotNum };
+      showToast(`Выберите наёмницу для ${side.toUpperCase()} ${slotNum}`);
+      // highlight bench — next bench tap assigns
+      renderTavernSquad();
+    };
+  }
+  return el;
+}
+
+function renderTavernLineupRowsFromState() {
+  const lu = tavernState.lineup || { atk: [null, null, null], def: [null, null, null] };
+  const atkBox = document.getElementById("tavern-lineup-atk-slots");
+  const defBox = document.getElementById("tavern-lineup-def-slots");
+  if (atkBox) {
+    atkBox.innerHTML = "";
+    for (let i = 0; i < 3; i += 1) atkBox.appendChild(renderLineupSlotEl("atk", i + 1, lu.atk?.[i]));
+  }
+  if (defBox) {
+    defBox.innerHTML = "";
+    for (let i = 0; i < 3; i += 1) defBox.appendChild(renderLineupSlotEl("def", i + 1, lu.def?.[i]));
+  }
+  const atkUnits = (lu.atk || []).map(findRosterWaifu).filter(Boolean);
+  const crSum = atkUnits.reduce((s, w) => s + (Number(hiredCr(w)) || 0), 0);
+  const meta = document.getElementById("tavern-atk-meta");
+  if (meta) meta.innerHTML = `CR ${crSum || "—"} ${typePipsHtml(atkUnits)}`;
+  const capLabel = document.getElementById("tavern-bench-cap-label");
+  if (capLabel) {
+    const bench = allRosterWaifus().filter((w) => !isOnLineup(w));
+    const total = allRosterWaifus().length;
+    const cap = tavernBenchCap();
+    capLabel.textContent = `${total}/${cap} · запас ${bench.length}`;
+  }
+}
+
 function renderTavernSquad() {
   const box = document.getElementById("tavern-squad-grid");
   if (!box) return;
 
+  renderTavernLineupRowsFromState();
+
   const roster = sortTavernPool(tavernState.squad, tavernState.reserve);
+  const bench = roster.filter((w) => !isOnLineup(w));
   const poolMax = tavernBenchCap();
-  const pool = roster.slice(0, poolMax);
   const perksMap = tavernState.perksMap || {};
   const feedBanner = document.getElementById("tavern-quick-feed-banner");
   if (feedBanner) {
-    feedBanner.style.display = tavernState.quickFeedMode ? "" : "none";
-    feedBanner.textContent = tavernState.quickFeedMode
-      ? "Quick Feed: выберите наёмницу-корм (ещё раз по цели — отмена)"
-      : "";
+    feedBanner.style.display = tavernState.quickFeedMode || tavernState.lineupPick ? "" : "none";
+    if (tavernState.lineupPick) {
+      feedBanner.textContent = `Выбор для ${tavernState.lineupPick.side.toUpperCase()} ${tavernState.lineupPick.slot} — тап по скамейке`;
+    } else if (tavernState.quickFeedMode) {
+      feedBanner.textContent = "Quick Feed: выберите наёмницу-корм (ещё раз по цели — отмена)";
+    } else {
+      feedBanner.textContent = "";
+    }
   }
 
   box.innerHTML = "";
+  const emptySlots = Math.max(0, Math.min(3, poolMax - roster.length));
 
-  for (let i = 0; i < poolMax; i += 1) {
-    const w = pool[i] || null;
-    if (!w) {
-      const empty = document.createElement("div");
-      empty.className = "squad-slot";
-      empty.innerHTML = `<span style="font-size:24px;opacity:.3">＋</span><span style="font-size:11px;">Пустой слот</span>`;
-      empty.onclick = () => {
-        if (roster.length >= poolMax) {
-          showToast("Пул наёмниц заполнен", "error");
-          return;
-        }
-        switchTavernTab("hire");
-      };
-      box.appendChild(empty);
-      continue;
-    }
-
+  const renderCard = (w) => {
     const rarity = Number(w?.rarity ?? 1);
     const rCls = rarityClass(rarity);
     const clsId = Number(w?.class ?? w?.class_ ?? 0);
@@ -2138,39 +2289,23 @@ function renderTavernSquad() {
     const perkIds = perkIdsCapped(w, 3);
     const perkBadges = perkIds.length
       ? perkIds
-          .map(
-            (pid) =>
-              (() => {
-                const label = String(
-                  perksMap[pid] || (typeof perkNameRu === "function" ? perkNameRu(pid) : pid)
-                );
-                const ico =
-                  typeof perkIconHtml === "function"
-                    ? perkIconHtml(pid, { className: "squad-mtg-perk-ico-img", title: label })
-                    : PERK_ICONS[pid] || "✦";
-                return `<span class="squad-mtg-perk-ico" title="${escapeHtml(label)}">${ico}</span>`;
-              })()
-          )
+          .map((pid) => {
+            const label = String(perksMap[pid] || mercPerkTip(pid).name);
+            const ico =
+              typeof perkIconHtml === "function"
+                ? perkIconHtml(pid, { className: "squad-mtg-perk-ico-img", title: label })
+                : PERK_ICONS[pid] || "✦";
+            return `<span class="squad-mtg-perk-ico" title="${escapeHtml(label)}">${ico}</span>`;
+          })
           .join("")
       : `<span class="muted tiny" style="opacity:.75;">—</span>`;
-
     const url = hiredWaifuImageUrl(w, "full");
     const portraitLayer = url
       ? `<img class="squad-mtg-bg-img" src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />`
       : "";
     const bgCls = url ? "squad-mtg-bg" : "squad-mtg-bg squad-mtg-bg--placeholder";
-
     const uiSt = hiredWaifuPoolUiStatus(w);
     const statusCls = `squad-mtg-card--${uiSt.key}`;
-    const atk = w?.atkSlot ?? w?.atk_slot;
-    const def = w?.defSlot ?? w?.def_slot;
-    const slotBadge =
-      atk != null
-        ? `<span class="squad-mtg-slot-badge">ATK ${atk}</span>`
-        : def != null
-          ? `<span class="squad-mtg-slot-badge">DEF ${def}</span>`
-          : "";
-
     const slot = document.createElement("div");
     slot.className = "squad-slot occupied";
     slot.setAttribute("role", "button");
@@ -2186,15 +2321,19 @@ function renderTavernSquad() {
             <div class="squad-mtg-name-first">${escapeHtml(first)}</div>
             ${last ? `<div class="squad-mtg-name-last">${escapeHtml(last)}</div>` : ""}
           </div>
-          ${slotBadge}
         </div>
         <div class="squad-mtg-bottom">
           <div class="squad-mtg-meta">${meta}</div>
           <div class="squad-mtg-perks">${perkBadges}</div>
         </div>
       </div>`;
-
     const open = () => {
+      if (tavernState.lineupPick) {
+        const { side, slot: sn } = tavernState.lineupPick;
+        tavernState.lineupPick = null;
+        tavernSetLineup(side, sn, w.id);
+        return;
+      }
       if (tavernState.quickFeedMode && tavernState.quickFeedTargetId) {
         if (Number(w.id) === Number(tavernState.quickFeedTargetId)) {
           tavernState.quickFeedMode = false;
@@ -2216,6 +2355,20 @@ function renderTavernSquad() {
       }
     };
     box.appendChild(slot);
+  };
+
+  bench.forEach(renderCard);
+
+  for (let i = 0; i < emptySlots; i += 1) {
+    const empty = document.createElement("div");
+    empty.className = "squad-slot";
+    empty.innerHTML = `<span style="font-size:24px;opacity:.3">＋</span><span style="font-size:11px;">Нанять</span>`;
+    empty.onclick = () => switchTavernTab("hire");
+    box.appendChild(empty);
+  }
+
+  if (!bench.length && !emptySlots) {
+    box.innerHTML = `<div class="placeholder muted">Скамейка пуста — все в ATK/DEF или наймите новых</div>`;
   }
 }
 
@@ -2483,6 +2636,19 @@ function openTavernWaifuModal(w) {
         </div>
       </div>
       ${xpBarHtml}
+      <div class="tavern-waifu-seg-tabs" id="tavern-waifu-seg-tabs">
+        <button type="button" class="tavern-btn tavern-btn-mini active" data-seg="overview">Обзор</button>
+        <button type="button" class="tavern-btn tavern-btn-mini" data-seg="gear">Шмот</button>
+        <button type="button" class="tavern-btn tavern-btn-mini" data-seg="lineup">Состав</button>
+        <button type="button" class="tavern-btn tavern-btn-mini" data-seg="train">Прокачка</button>
+      </div>
+      <div id="tavern-waifu-seg-overview" class="tavern-waifu-seg">
+        <div class="muted tiny">${arch ? escapeHtml(arch) : "Архетип —"} · ★${stars}</div>
+      </div>
+      <div id="tavern-waifu-seg-gear" class="tavern-waifu-seg" style="display:none;">
+        <div class="tavern-gear-slots" id="tavern-gear-slots"></div>
+      </div>
+      <div id="tavern-waifu-seg-lineup" class="tavern-waifu-seg" style="display:none;">
       <div class="tavern-waifu-lineup-actions" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">
         <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="atk" data-lineup-slot="1">ATK 1</button>
         <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="atk" data-lineup-slot="2">ATK 2</button>
@@ -2491,6 +2657,9 @@ function openTavernWaifuModal(w) {
         <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="def" data-lineup-slot="2">DEF 2</button>
         <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="def" data-lineup-slot="3">DEF 3</button>
         <button type="button" class="tavern-btn tavern-btn-mini" id="tavern-btn-clear-lineup">Со скамейки</button>
+      </div>
+      </div>
+      <div id="tavern-waifu-seg-train" class="tavern-waifu-seg" style="display:none;">
         <button type="button" class="tavern-btn tavern-btn-primary tavern-btn-mini" id="tavern-btn-quick-feed">Quick Feed ★</button>
       </div>
     </div>
@@ -2522,16 +2691,10 @@ function openTavernWaifuModal(w) {
       ev.stopPropagation();
       const pid = cell.getAttribute("data-perk-id") || "";
       if (!tipEl || !tipName || !tipDesc || !tipDiff) return;
-      tipName.textContent = String(
-        perksMap[pid] ?? perksMap[String(pid)] ?? (typeof perkNameRu === "function" ? perkNameRu(pid) : pid)
-      );
-      tipDesc.textContent =
-        (typeof perkFlavorRu === "function" ? perkFlavorRu(pid) : null) ||
-        PERK_FLAVOR?.[pid] ||
-        PERK_DESCS?.[pid] ||
-        "Специальное умение для операций.";
-      tipDiff.textContent =
-        (typeof perkEffectRu === "function" ? perkEffectRu(pid) : null) || PERK_EFFECTS?.[pid] || "";
+      const tip = mercPerkTip(pid);
+      tipName.textContent = tip.name;
+      tipDesc.textContent = tip.flavor;
+      tipDiff.textContent = tip.effect;
       tipEl.hidden = false;
       tipEl.classList.add("tavern-perk-tip--open");
     });
@@ -2550,6 +2713,83 @@ function openTavernWaifuModal(w) {
       if (!flipInner.classList.contains("is-flipped")) return;
       hideTavernPerkTip(body);
       flipInner.classList.remove("is-flipped");
+    });
+  }
+
+  const showSeg = (seg) => {
+    tavernState.modalSeg = seg;
+    ["overview", "gear", "lineup", "train"].forEach((s) => {
+      const el = body.querySelector(`#tavern-waifu-seg-${s}`);
+      if (el) el.style.display = s === seg ? "" : "none";
+    });
+    body.querySelectorAll("[data-seg]").forEach((b) => b.classList.toggle("active", b.getAttribute("data-seg") === seg));
+  };
+  body.querySelectorAll("[data-seg]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      showSeg(btn.getAttribute("data-seg"));
+    });
+  });
+  showSeg("overview");
+
+  const gearBox = body.querySelector("#tavern-gear-slots");
+  if (gearBox) {
+    const slots = [
+      { key: "weapon", label: "Оружие", g: w.gear_weapon || w.gearWeapon },
+      { key: "charm", label: "Амулет", g: w.gear_charm || w.gearCharm },
+      { key: "relic", label: "Реликвия", g: w.gear_relic || w.gearRelic },
+    ];
+    gearBox.innerHTML = slots
+      .map((s) => {
+        const g = s.g && typeof s.g === "object" ? s.g : null;
+        const title = g ? escapeHtml(g.name || s.label) : escapeHtml(s.label);
+        const sub = g ? `score ${g.score ?? g.rarity ?? 0}` : "пусто";
+        return `<div class="tavern-gear-slot" data-gear-slot="${s.key}">
+          <div><strong>${title}</strong></div>
+          <div class="muted tiny">${sub}</div>
+          ${
+            g
+              ? `<button type="button" class="tavern-btn tavern-btn-mini" data-gear-disassemble="${s.key}">Разобрать</button>`
+              : `<button type="button" class="tavern-btn tavern-btn-mini" data-gear-equip="${s.key}">Экип stub</button>`
+          }
+        </div>`;
+      })
+      .join("");
+    gearBox.querySelectorAll("[data-gear-disassemble]").forEach((btn) => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const slot = btn.getAttribute("data-gear-disassemble");
+        try {
+          const res = await apiFetch(
+            `/tavern/gear/disassemble?waifu_id=${encodeURIComponent(w.id)}&slot=${encodeURIComponent(slot)}`,
+            { method: "POST" }
+          );
+          showToast(`+${res.dust_gained || 0} пыли`, "info");
+          openTavernWaifuModal({ ...w, [`gear_${slot}`]: null });
+        } catch (e) {
+          const { detail } = parseHttpErrorDetail(e);
+          showToast(detail || "Не удалось разобрать", "error");
+        }
+      });
+    });
+    gearBox.querySelectorAll("[data-gear-equip]").forEach((btn) => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const slot = btn.getAttribute("data-gear-equip");
+        try {
+          const item = { name: `${slot} scrap`, rarity: 1, score: 3 };
+          await apiFetch("/tavern/gear/equip", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ waifu_id: w.id, slot, item }),
+          });
+          showToast("Экипировано", "info");
+          openTavernWaifuModal({ ...w, [`gear_${slot}`]: item });
+        } catch (e) {
+          const { detail } = parseHttpErrorDetail(e);
+          showToast(detail || "Экип недоступен", "error");
+        }
+      });
     });
   }
 
@@ -2973,15 +3213,41 @@ function _rosterNameById(id) {
 async function renderTavernLineupBars() {
   try {
     const lu = await apiFetch("/tavern/lineup");
-    const atkEl = document.getElementById("tavern-lineup-atk");
-    const defEl = document.getElementById("tavern-lineup-def");
-    const fmt = (arr) =>
-      (arr || [])
-        .map((x, i) => `${i + 1}:${x ? _rosterNameById(x) : "—"}`)
-        .join(" · ");
-    if (atkEl) atkEl.textContent = `ATK · ${fmt(lu.atk)}`;
-    if (defEl) defEl.textContent = `DEF · ${fmt(lu.def)}`;
-  } catch (_) {}
+    tavernState.lineup = {
+      atk: Array.isArray(lu?.atk) ? lu.atk : [null, null, null],
+      def: Array.isArray(lu?.def) ? lu.def : [null, null, null],
+    };
+    // sync local atk/def slots onto roster for bench filtering
+    const byId = rosterByIdMap();
+    allRosterWaifus().forEach((w) => {
+      w.atk_slot = null;
+      w.def_slot = null;
+      w.atkSlot = null;
+      w.defSlot = null;
+    });
+    (tavernState.lineup.atk || []).forEach((id, i) => {
+      const w = byId[Number(id)];
+      if (w) {
+        w.atk_slot = i + 1;
+        w.atkSlot = i + 1;
+      }
+    });
+    (tavernState.lineup.def || []).forEach((id, i) => {
+      const w = byId[Number(id)];
+      if (w) {
+        w.def_slot = i + 1;
+        w.defSlot = i + 1;
+      }
+    });
+    renderTavernLineupRowsFromState();
+  } catch (e) {
+    const { detail, status } = parseHttpErrorDetail(e);
+    if (status === 404) {
+      showToast("Lineup API недоступен — задеплойте сервер", "error");
+    } else if (detail) {
+      showToast(detail, "error");
+    }
+  }
 }
 
 async function tavernSetLineup(side, slot, waifuId) {
@@ -2998,10 +3264,36 @@ async function tavernSetLineup(side, slot, waifuId) {
     showToast(waifuId == null ? "Слот очищен" : `${String(side).toUpperCase()} ${slot}`);
     closeTavernWaifuModal();
     await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
-    renderTavernLineupBars();
+    await renderTavernLineupBars();
+    renderTavernSquad();
   } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showToast(detail || "Не удалось назначить слот", "error");
+    const { detail, status } = parseHttpErrorDetail(e);
+    if (status === 404) {
+      showToast("Сервер без /tavern/lineup — нужен деплой merc-overhaul", "error");
+    } else {
+      showToast(detail || "Не удалось назначить слот", "error");
+    }
+  }
+}
+
+async function copyAtkToDef() {
+  const atk = tavernState.lineup?.atk || [null, null, null];
+  try {
+    for (let i = 0; i < 3; i += 1) {
+      const res = await apiFetch("/tavern/lineup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ side: "def", slot: i + 1, waifu_id: atk[i] ?? null }),
+      });
+      if (res?.error) throw new Error(res.hint || res.error);
+    }
+    showToast("DEF = ATK");
+    await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
+    await renderTavernLineupBars();
+    renderTavernSquad();
+  } catch (e) {
+    const { detail, status } = parseHttpErrorDetail(e);
+    showToast(status === 404 ? "Нужен деплой /tavern/lineup" : detail || "Не удалось скопировать", "error");
   }
 }
 
@@ -3026,38 +3318,101 @@ async function tavernQuickFeedApply(targetId, fodderId) {
   }
 }
 
+function closeArenaResult() {
+  const modal = document.getElementById("modal-arena-result");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
+}
+
+function openArenaResult(res) {
+  const body = document.getElementById("tavern-arena-result-body");
+  const modal = document.getElementById("modal-arena-result");
+  if (!body || !modal) {
+    window.alert(JSON.stringify(res));
+    return;
+  }
+  const win = res.winner === "attacker" ? "Победа" : "Поражение";
+  const lines = (res.log || []).slice(0, 8).join("\n");
+  body.textContent = `${win} (${res.rating_delta > 0 ? "+" : ""}${res.rating_delta})\n\n${lines}`;
+  modal.classList.remove("hidden");
+  modal.style.display = "flex";
+}
+
 async function renderTavernArena() {
   const header = document.getElementById("tavern-arena-header");
   const opp = document.getElementById("tavern-arena-opponents");
   const hist = document.getElementById("tavern-arena-history");
+  const defRow = document.getElementById("tavern-arena-def");
   if (!header || !opp) return;
-  const st = await apiFetch("/arena/status");
-  header.textContent = st.unlocked
-    ? `Рейтинг ${st.arena_rating} · Тикеты ${st.arena_tickets}`
-    : `Арена с акта ${st.unlock_act}`;
-  if (!st.unlocked) {
-    opp.innerHTML = "";
-    return;
-  }
-  const { opponents } = await apiFetch("/arena/opponents");
-  opp.innerHTML = (opponents || [])
-    .map(
-      (o, i) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08);">
-      <span>${o.bot ? "Бот" : "Игрок " + o.player_id} · ${o.rating}</span>
-      <button type="button" class="tavern-btn tavern-btn-primary" onclick="WaifuApp.tavernArenaAttack(${o.player_id || "null"}, ${o.bot ? "true" : "false"})">Атака</button>
-    </div>`
-    )
-    .join("");
+  header.textContent = "Загрузка арены…";
+  opp.innerHTML = `<div class="placeholder muted">Загрузка соперников…</div>`;
   try {
-    const h = await apiFetch("/arena/history?limit=5");
-    if (hist) {
-      hist.innerHTML =
-        "<div style='margin-bottom:6px;opacity:.7;'>История</div>" +
-        (h.matches || [])
-          .map((m) => `<div>${m.winner === "attacker" ? "W" : "L"} ${m.rating_delta > 0 ? "+" : ""}${m.rating_delta}</div>`)
-          .join("");
+    await ensureMercPerksCatalog().catch(() => {});
+    await ensureTavernRosterLoaded().catch(() => {});
+    await renderTavernLineupBars().catch(() => {});
+    const st = await apiFetch("/arena/status");
+    header.textContent = st.unlocked
+      ? `Рейтинг ${st.arena_rating} · Тикеты ${st.arena_tickets}/${st.tickets_daily ?? 5}`
+      : `Арена откроется с акта ${st.unlock_act}`;
+    if (defRow) {
+      const defs = tavernState.lineup?.def || [null, null, null];
+      defRow.innerHTML = "";
+      for (let i = 0; i < 3; i += 1) {
+        const w = findRosterWaifu(defs[i]);
+        const cell = document.createElement("div");
+        cell.className = `tavern-lineup-slot${w ? " filled" : ""}`;
+        if (w) {
+          const url = hiredWaifuImageUrl(w, "thumb");
+          cell.innerHTML = `${url ? `<img src="${escapeHtml(url)}" alt=""/>` : "🛡"}<span>${escapeHtml(w.name || "—")}</span>`;
+        } else {
+          cell.innerHTML = `<span style="opacity:.5">DEF ${i + 1}</span>`;
+        }
+        defRow.appendChild(cell);
+      }
     }
-  } catch (_) {}
+    if (!st.unlocked) {
+      opp.innerHTML = `<div class="placeholder muted">Доступно с акта ${st.unlock_act}. Rest не блокирует атаку.</div>`;
+      if (hist) hist.innerHTML = "";
+      return;
+    }
+    const { opponents } = await apiFetch("/arena/opponents");
+    if (!(opponents || []).length) {
+      opp.innerHTML = `<div class="placeholder muted">Нет соперников</div>`;
+    } else {
+      opp.innerHTML = (opponents || [])
+        .map(
+          (o) => `<div class="tavern-arena-opp">
+        <span>${o.bot ? "Бот" : "Игрок " + o.player_id} · ${o.rating}</span>
+        <button type="button" class="tavern-btn tavern-btn-primary" onclick="WaifuApp.tavernArenaAttack(${o.player_id || "null"}, ${o.bot ? "true" : "false"})">Атака</button>
+      </div>`
+        )
+        .join("");
+    }
+    try {
+      const h = await apiFetch("/arena/history?limit=5");
+      if (hist) {
+        hist.innerHTML =
+          "<div style='margin-bottom:6px;opacity:.7;'>История</div>" +
+          ((h.matches || []).length
+            ? (h.matches || [])
+                .map(
+                  (m) =>
+                    `<div>${m.winner === "attacker" ? "W" : "L"} ${m.rating_delta > 0 ? "+" : ""}${m.rating_delta}</div>`
+                )
+                .join("")
+            : "<div class='muted tiny'>Пока пусто</div>");
+      }
+    } catch (_) {
+      if (hist) hist.innerHTML = "";
+    }
+  } catch (e) {
+    const { detail, status } = parseHttpErrorDetail(e);
+    header.textContent = "Арена недоступна";
+    opp.innerHTML = `<div class="placeholder muted">${escapeHtml(status === 404 ? "API арены не задеплоен" : detail || "Ошибка загрузки")}</div>`;
+    showToast(detail || "Ошибка арены", "error");
+  }
 }
 
 async function tavernArenaAttack(defenderId, bot) {
@@ -3067,11 +3422,11 @@ async function tavernArenaAttack(defenderId, bot) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ defender_id: defenderId, bot: !!bot }),
     });
-    const lines = (res.log || []).slice(0, 8).join("\n");
-    window.alert(`${res.winner === "attacker" ? "Победа" : "Поражение"} (${res.rating_delta})\n\n${lines}`);
+    openArenaResult(res);
     await renderTavernArena();
   } catch (e) {
-    showToast("Атака не удалась", "error");
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Атака не удалась", "error");
   }
 }
 
@@ -3142,6 +3497,8 @@ Object.assign(window.WaifuApp, {
   openDebutLegendary,
   renderTavernArena,
   tavernArenaAttack,
+  closeArenaResult,
+  copyAtkToDef,
   renderTavernExchange,
   tavernExchangeBuy,
   openTavernCodex,

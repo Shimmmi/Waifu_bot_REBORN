@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Таверна</title>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v67" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v68" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
     <link rel="stylesheet" href="./assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="./assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v67" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
-    <script defer src="/webapp/bundle/tavern.min.js?v=waifu-webapp-v67" onerror="this.onerror=null;this.src='/webapp/pages/tavern.js?v=waifu-webapp-v50'"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v68" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
+    <script defer src="/webapp/bundle/tavern.min.js?v=waifu-webapp-v68" onerror="this.onerror=null;this.src='/webapp/pages/tavern.js?v=waifu-webapp-v50'"></script>
     <style>
       .page-tavern {
         --ink: #0d0a08;
@@ -615,8 +615,10 @@
         border-color: rgba(232, 184, 75, 0.55);
         background: rgba(200, 146, 42, 0.18);
       }
-      /* Отряд / Леч / LVL: тёмно-золотой фон вместо глобального --card */
+      /* Отряд / Арена / Обмен: тёмно-золотой фон вместо глобального --card */
       .page-tavern #tab-squad .section,
+      .page-tavern #tab-arena .section,
+      .page-tavern #tab-exchange .section,
       .page-tavern #tab-heal .section,
       .page-tavern #tab-upgrade .section {
         background: linear-gradient(165deg, rgba(46, 37, 32, 0.94), rgba(22, 18, 14, 0.92));
@@ -624,16 +626,128 @@
         box-shadow: inset 0 1px 0 rgba(232, 184, 75, 0.05);
       }
       .page-tavern #tab-squad .section .section-head h3,
+      .page-tavern #tab-arena .section .section-head h3,
+      .page-tavern #tab-exchange .section .section-head h3,
       .page-tavern #tab-heal .section .section-head h3,
       .page-tavern #tab-upgrade .section .section-head h3 {
         color: var(--amber-glow);
       }
       .page-tavern #tab-squad .placeholder,
+      .page-tavern #tab-arena .placeholder,
+      .page-tavern #tab-exchange .placeholder,
       .page-tavern #tab-heal .placeholder,
       .page-tavern #tab-upgrade .placeholder {
         background: rgba(13, 10, 8, 0.45);
         border-color: rgba(200, 146, 42, 0.22);
         color: var(--ash);
+      }
+      .page-tavern .tavern-lineup-row {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      .page-tavern .tavern-lineup-row-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--amber-glow);
+      }
+      .page-tavern .tavern-lineup-slots {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+      .page-tavern .tavern-lineup-slot {
+        min-height: 72px;
+        border-radius: 10px;
+        border: 1px dashed rgba(200, 146, 42, 0.35);
+        background: rgba(13, 10, 8, 0.5);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 6px;
+        cursor: pointer;
+        color: var(--ash);
+        font-size: 11px;
+        text-align: center;
+      }
+      .page-tavern .tavern-lineup-slot.filled {
+        border-style: solid;
+        border-color: rgba(232, 184, 75, 0.45);
+      }
+      .page-tavern .tavern-lineup-slot img {
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        object-fit: cover;
+      }
+      .page-tavern .tavern-type-pips {
+        display: flex;
+        gap: 4px;
+      }
+      .page-tavern .tavern-type-pip {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: rgba(255,255,255,.2);
+      }
+      .page-tavern .tavern-type-pip.atk { background: #e07a5f; }
+      .page-tavern .tavern-type-pip.def { background: #81b29a; }
+      .page-tavern .tavern-type-pip.sup { background: #f2cc8f; }
+      .page-tavern .tavern-bench-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 4px 0 8px;
+        font-size: 13px;
+        color: var(--amber-glow);
+      }
+      .page-tavern .tavern-arena-def-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin: 8px 0 12px;
+      }
+      .page-tavern .tavern-arena-opp {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 0;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+      }
+      .page-tavern .tavern-waifu-seg-tabs {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin: 8px 0;
+      }
+      .page-tavern .tavern-waifu-seg-tabs button {
+        flex: 1;
+        min-width: 64px;
+      }
+      .page-tavern .tavern-waifu-seg-tabs button.active {
+        outline: 1px solid rgba(232, 184, 75, 0.55);
+      }
+      .page-tavern .tavern-gear-slots {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .page-tavern .tavern-gear-slot {
+        min-height: 64px;
+        border-radius: 10px;
+        border: 1px solid rgba(200, 146, 42, 0.3);
+        background: rgba(13,10,8,.45);
+        padding: 8px;
+        font-size: 11px;
+        text-align: center;
       }
       /* Фон страницы под вкладками */
       .page-tavern .tavern-root-stage {
@@ -1636,8 +1750,24 @@
       <div id="tab-squad" class="tab-panel" style="display:none;">
         <section class="section">
           <div id="tavern-quick-feed-banner" class="banner" style="display:none;margin-bottom:8px;"></div>
-          <div id="tavern-lineup-atk" style="margin:6px 0;font-size:13px;opacity:.9;"></div>
-          <div id="tavern-lineup-def" style="margin:0 0 10px;font-size:13px;opacity:.9;"></div>
+          <div class="tavern-lineup-row" id="tavern-atk-row">
+            <div class="tavern-lineup-row-head">
+              <strong>ATK</strong>
+              <span id="tavern-atk-meta" class="muted tiny">CR —</span>
+            </div>
+            <div class="tavern-lineup-slots" id="tavern-lineup-atk-slots"></div>
+          </div>
+          <div class="tavern-lineup-row" id="tavern-def-row">
+            <div class="tavern-lineup-row-head">
+              <strong>DEF · снимок арены</strong>
+              <button type="button" class="tavern-btn tavern-btn-mini" id="tavern-copy-atk-to-def" onclick="WaifuApp.copyAtkToDef && WaifuApp.copyAtkToDef()">= ATK</button>
+            </div>
+            <div class="tavern-lineup-slots" id="tavern-lineup-def-slots"></div>
+          </div>
+          <div class="tavern-bench-head">
+            <strong>Скамейка</strong>
+            <span id="tavern-bench-cap-label" class="muted tiny">0/8</span>
+          </div>
           <div class="squad-grid tavern-squad-grid tavern-pool-grid" id="tavern-squad-grid">
             <div class="placeholder">Загрузка отряда...</div>
           </div>
@@ -1646,10 +1776,28 @@
 
       <div id="tab-arena" class="tab-panel" style="display:none;">
         <section class="section">
-          <div id="tavern-arena-header" style="margin-bottom:10px;font-size:14px;"></div>
+          <div id="tavern-arena-header" style="margin-bottom:10px;font-size:14px;">Загрузка арены…</div>
+          <div class="tavern-lineup-row-head" style="margin-bottom:4px;">
+            <strong>Защита</strong>
+            <button type="button" class="tavern-btn tavern-btn-mini" onclick="WaifuApp.switchTavernTab('squad')">Изменить</button>
+          </div>
+          <div class="tavern-arena-def-row" id="tavern-arena-def"></div>
+          <div class="tavern-lineup-row-head" style="margin:10px 0 4px;"><strong>Атака</strong></div>
           <div id="tavern-arena-opponents"></div>
           <div id="tavern-arena-history" style="margin-top:14px;font-size:12px;opacity:.85;"></div>
         </section>
+      </div>
+
+      <div id="modal-arena-result" class="modal hidden" style="display:none;align-items:center;justify-content:center;" role="dialog" aria-modal="true">
+        <div class="tavern-modal-sheet">
+          <div class="modal-handle"></div>
+          <button type="button" class="secondary" style="position:absolute;top:16px;right:16px;" onclick="WaifuApp.closeArenaResult && WaifuApp.closeArenaResult()" aria-label="Закрыть">✕</button>
+          <div id="tavern-arena-result-body" class="hire-confirm-body" style="text-align:left;white-space:pre-wrap;font-size:13px;"></div>
+          <div class="btn-row">
+            <button type="button" class="tavern-btn tavern-btn-secondary" onclick="WaifuApp.closeArenaResult && WaifuApp.closeArenaResult()">Закрыть</button>
+            <button type="button" class="tavern-btn tavern-btn-primary" id="tavern-arena-result-again" onclick="WaifuApp.closeArenaResult && WaifuApp.closeArenaResult()">Ещё</button>
+          </div>
+        </div>
       </div>
 
       <div id="tab-exchange" class="tab-panel" style="display:none;">
