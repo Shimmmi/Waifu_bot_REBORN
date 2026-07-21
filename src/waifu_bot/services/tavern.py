@@ -479,7 +479,7 @@ class TavernService:
     ) -> dict:
         """
         Уволить наёмницу (удалить навсегда). Доступно из отряда или запаса; не в экспедиции.
-        Уровень уволенной сохраняется в TavernState; следующая нанятая вайфу получит его (ТЗ).
+        Опыт уволенной суммируется в TavernState.pending_hired_exp; следующая нанятая получит пул.
         Используется узкий SELECT (без power/perks), чтобы не падать на старых БД без этих колонок.
         """
         stmt = select(
@@ -487,6 +487,7 @@ class TavernService:
             HiredWaifu.player_id,
             HiredWaifu.squad_position,
             HiredWaifu.level,
+            HiredWaifu.exp_current,
             HiredWaifu.expedition_id,
         ).where(HiredWaifu.id == waifu_id)
         row = (await session.execute(stmt)).one_or_none()
@@ -495,7 +496,16 @@ class TavernService:
         if getattr(row, "expedition_id", None) is not None:
             return {"error": "waifu_on_expedition", "hint": "Дождитесь возвращения из экспедиции."}
 
-        level_to_transfer = max(1, int(row.level or 1))
+        from waifu_bot.services.expedition import (
+            hired_level_from_total_exp,
+            hired_total_exp,
+        )
+
+        level = max(1, int(row.level or 1))
+        exp_current = max(0, int(getattr(row, "exp_current", 0) or 0))
+        exp_added = hired_total_exp(level, exp_current)
+        pending_exp = exp_added
+        level_preview = 1
 
         # Обнулить ссылки в слотах найма, иначе FK блокирует удаление
         await session.execute(
@@ -511,16 +521,27 @@ class TavernService:
 
         try:
             state = await self._get_or_create_tavern_state(session, player_id)
-            state.last_dismissed_level = level_to_transfer
+            pending_exp = max(0, int(getattr(state, "pending_hired_exp", 0) or 0)) + exp_added
+            state.pending_hired_exp = pending_exp
+            level_preview, _ = hired_level_from_total_exp(pending_exp)
         except SQLAlchemyError:
             pass
 
         await session.commit()
+        if pending_exp > 0:
+            hint = (
+                f"Опыт сохранён (+{exp_added}). Следующая наёмница получит "
+                f"накопленный опыт (~ур. {level_preview})."
+            )
+        else:
+            hint = "Наёмница уволена."
         return {
             "success": True,
             "waifu_id": waifu_id,
-            "level_saved": level_to_transfer,
-            "hint": "Следующая нанятая в таверне вайфу получит этот уровень.",
+            "exp_added": exp_added,
+            "pending_exp": pending_exp,
+            "level_preview": level_preview,
+            "hint": hint,
         }
 
     async def _get_or_create_tavern_state(
@@ -537,14 +558,18 @@ class TavernService:
     async def _generate_waifu(
         self, session: AsyncSession, player_id: int
     ) -> HiredWaifu:
-        """Generate a random hired waifu. Level = 1 or last_dismissed_level (ТЗ)."""
+        """Generate a random hired waifu. Level/exp from pending_hired_exp pool if any."""
         import random
 
+        from waifu_bot.services.expedition import hired_level_from_total_exp
+
         start_level = 1
+        start_exp = 0
         state = await self._get_or_create_tavern_state(session, player_id)
-        if getattr(state, "last_dismissed_level", None) is not None:
-            start_level = max(1, int(state.last_dismissed_level))
-            state.last_dismissed_level = None  # один раз передаём уровень
+        pending = max(0, int(getattr(state, "pending_hired_exp", 0) or 0))
+        if pending > 0:
+            start_level, start_exp = hired_level_from_total_exp(pending)
+            state.pending_hired_exp = 0
 
         # Roll rarity (weights: Common 50%, Uncommon 30%, Rare 15%, Epic 5%)
         rarity_roll = random.random()
@@ -583,6 +608,7 @@ class TavernService:
             class_=class_.value,
             rarity=rarity.value,
             level=start_level,
+            exp_current=start_exp,
             power=power,
             perks=perk_ids,
             squad_position=None,

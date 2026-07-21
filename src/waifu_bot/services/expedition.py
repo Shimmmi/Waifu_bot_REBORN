@@ -409,6 +409,32 @@ def exp_to_next_level_hired(level: int) -> int:
     return HIRED_EXP_LEVEL_BASE + n * HIRED_EXP_LEVEL_LINEAR + (n * n) * HIRED_EXP_LEVEL_SQUARE
 
 
+def hired_total_exp(level: int, exp_current: int = 0) -> int:
+    """Суммарный опыт наёмницы: пороги 1..(level-1) + прогресс текущего уровня."""
+    lvl = max(1, int(level or 1))
+    cur = max(0, int(exp_current or 0))
+    total = 0
+    for L in range(1, min(lvl, HIRED_MAX_LEVEL)):
+        total += exp_to_next_level_hired(L)
+    if lvl >= HIRED_MAX_LEVEL:
+        return total + min(cur, exp_to_next_level_hired(HIRED_MAX_LEVEL))
+    return total + cur
+
+
+def hired_level_from_total_exp(total_exp: int) -> tuple[int, int]:
+    """Разложить суммарный опыт в (level, exp_current) с clamp до HIRED_MAX_LEVEL."""
+    remaining = max(0, int(total_exp or 0))
+    level = 1
+    while level < HIRED_MAX_LEVEL:
+        need = exp_to_next_level_hired(level)
+        if remaining < need:
+            return level, remaining
+        remaining -= need
+        level += 1
+    cap = exp_to_next_level_hired(HIRED_MAX_LEVEL)
+    return HIRED_MAX_LEVEL, min(remaining, cap)
+
+
 def calculate_unit_chance(
     unit: HiredWaifu,
     slot_level: int,

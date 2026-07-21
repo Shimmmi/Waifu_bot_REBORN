@@ -4984,9 +4984,6 @@ body.page-dungeons #item-modal.modal.item-modal-root.item-modal-v2-wrap.item-mod
   .attic-exp-ico {
     display: none;
   }
-  #attic-dungeon-label {
-    max-width: 48px;
-  }
   .attic-menu {
     min-width: 180px;
   }
