@@ -1279,11 +1279,31 @@ class ExpeditionService:
 
         await self._unlock_squad_expedition(session, squad_ids)
 
+        # Merc overhaul: exclusive rewards + auto-Rest (blocks Ops, not Arena)
+        merc_bonus: dict = {}
+        try:
+            from waifu_bot.services.hired_waifu_state import start_heal_over_time
+            from waifu_bot.services import merc_systems as merc_sys
+
+            star = int(getattr(active, "depth_tier", None) or getattr(active, "affix_level", None) or 1)
+            merc_bonus = await merc_sys.grant_ops_rewards(
+                session, player_id, outcome=str(outcome), star=star
+            )
+            for wid in squad_ids:
+                w = await session.get(HiredWaifu, wid)
+                if w and w.player_id == player_id:
+                    cur = int(getattr(w, "current_hp", 0) or 0)
+                    mx = int(getattr(w, "max_hp", 1) or 1)
+                    if cur < mx:
+                        start_heal_over_time(w, now)
+        except Exception:
+            logger.exception("merc ops reward/rest failed exp=%s", active.id)
+
         slot = active.expedition_slot
         expedition_name = (
             (active.display_base_location or "").strip()
             or (slot.name if slot else None)
-            or "Экспедиция"
+            or "Операция"
         )
         event_text = (getattr(active, "event_text", None) or "").strip()
         if not event_text:
@@ -1340,6 +1360,7 @@ class ExpeditionService:
             "gate_log": gate_log,
             "enchant_stones": int(reward_summary.get("enchant_stones") or 0),
             "waifu_exp_gained": int(reward_summary.get("waifu_exp_gained") or 0),
+            "merc_rewards": merc_bonus,
         }
 
     async def get_finished_unnotified(

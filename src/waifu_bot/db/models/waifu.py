@@ -258,8 +258,19 @@ class HiredWaifu(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    # Squad position (0 = reserve, 1-6 = squad slot)
+    # Squad position (0 = reserve, 1-6 = squad slot) — dual-write with atk/def during migration
     squad_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Arena / Ops lineups (1..3)
+    atk_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    def_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Potential stars 0..5; legendary template id if from fixed pool
+    potential_stars: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    template_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Gear lite scores cache
+    gear_score_cache: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    gear_weapon: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    gear_charm: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    gear_relic: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Экспедиция v1.3: на время похода привязка к active_expedition (блок найма/продажи/второго похода)
     expedition_id: Mapped[int | None] = mapped_column(

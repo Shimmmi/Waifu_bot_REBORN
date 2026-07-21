@@ -89,6 +89,7 @@ from waifu_bot.services.inventory_payload import enrich_inventory_items_with_tem
 from waifu_bot.api.guild_routes import router as guild_router
 from waifu_bot.api.shop_routes import router as shop_router
 from waifu_bot.api.tavern_routes import router as tavern_router
+from waifu_bot.api.merc_routes import router as merc_router
 from waifu_bot.api.dungeon_routes import router as dungeon_router
 from waifu_bot.api.skill_routes import router as skill_router
 from waifu_bot.api.mail_routes import router as mail_router
@@ -110,6 +111,7 @@ router.include_router(inventory_router)
 router.include_router(guild_router)
 router.include_router(shop_router)
 router.include_router(tavern_router)
+router.include_router(merc_router)
 router.include_router(dungeon_router)
 router.include_router(skill_router)
 router.include_router(mail_router)
@@ -2343,6 +2345,15 @@ async def expeditions_catalog(session: AsyncSession = Depends(get_db)):
         "max_concurrent": EXPEDITION_MAX_CONCURRENT,
         "affix_levels": [{"level": i, "roman": ("I", "II", "III", "IV", "V")[i - 1]} for i in range(1, 6)],
     }
+
+
+@router.get("/operations/catalog", tags=["operations"])
+async def operations_catalog(session: AsyncSession = Depends(get_db)):
+    """Alias of /expeditions/catalog (merc overhaul)."""
+    data = await expeditions_catalog(session)
+    # Attach weekly board hint key for FE
+    data["label"] = "Операции"
+    return data
 
 
 @router.get("/expeditions/roster", tags=["expeditions"])

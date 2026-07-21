@@ -25,15 +25,13 @@ REWARD_TYPE_LABELS_RU: dict[str, str] = {
     "mixed": "Смешанная добыча",
 }
 
-# База мощи по редкости + рост за уровень
-POWER_RARITY_BASE: dict[int, int] = {
-    int(WaifuRarity.COMMON): 40,
-    int(WaifuRarity.UNCOMMON): 55,
-    int(WaifuRarity.RARE): 75,
-    int(WaifuRarity.EPIC): 95,
-    int(WaifuRarity.LEGENDARY): 120,
-}
-POWER_PER_LEVEL = 3
+# CR / мощь — канон в merc_combat_rating (реэкспорт для совместимости)
+from waifu_bot.game.merc_combat_rating import (  # noqa: E402
+    POWER_PER_LEVEL,
+    POWER_RARITY_BASE,
+    compute_hired_cr,
+    compute_hired_power,
+)
 
 
 @dataclass(frozen=True)
@@ -57,14 +55,6 @@ DEPTH_TIERS: tuple[DepthTier, ...] = (
 )
 
 MIXED_REWARD_PENALTY = 0.55  # каждая часть смешанной награды
-
-
-def compute_hired_power(level: int, rarity: int) -> int:
-    """Мощь наёмницы: база редкости + рост с уровнем."""
-    lv = max(1, int(level or 1))
-    r = int(rarity or int(WaifuRarity.COMMON))
-    base = POWER_RARITY_BASE.get(r, 40)
-    return base + (lv - 1) * POWER_PER_LEVEL
 
 
 def squad_power_total(units: list[Any]) -> int:
