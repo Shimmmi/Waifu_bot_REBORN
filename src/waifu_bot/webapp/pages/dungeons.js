@@ -879,6 +879,11 @@ async function populateDungeonsPage(profile) {
     await ensureSoloTabBootstrapped(p);
   } else {
     window.__lastProfileForDungeons = p;
+    // Deep-link to expedition/group/abyss skips full solo bootstrap, but the
+    // attic chip still needs active-dungeon state (otherwise it stays "Нет боя").
+    fetchActiveDungeon({ includeLog: false })
+      .then(renderAtticDungeon)
+      .catch(() => {});
   }
 
   if (tabParam === "solo" || tabParam === "expedition" || tabParam === "group" || tabParam === "abyss") {
