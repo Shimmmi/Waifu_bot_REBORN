@@ -584,6 +584,55 @@ async def admin_generate_expedition_art(
     }
 
 
+@router.post("/admin/ops-art/generate", tags=["admin"])
+async def admin_generate_ops_art(
+    art_key: str = Query(..., min_length=3, max_length=64),
+    _admin: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin: generate watercolor ops-board briefing WEBP via OpenRouter."""
+    from waifu_bot.paths import static_game_directory
+
+    try:
+        from waifu_bot.services.ops_art_generation import generate_ops_art_webp, safe_ops_art_key
+    except ImportError:
+        logger.exception("admin_generate_ops_art: Pillow/ops_art_generation import failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ops_art_pillow_unavailable",
+        )
+
+    key = safe_ops_art_key(art_key)
+    result = await generate_ops_art_webp(session, art_key=key)
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ops_art_generation_failed",
+        )
+
+    out_file = static_game_directory() / result.relative_path
+    try:
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_bytes(result.webp_bytes)
+    except OSError:
+        logger.exception("admin_generate_ops_art write failed path=%s", out_file)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ops_art_write_failed",
+        )
+
+    import time
+
+    cache_bust = int(time.time())
+    image_url = f"/static/game/{result.relative_path}?v={cache_bust}"
+    return {
+        "ok": True,
+        "art_key": result.art_key,
+        "image_url": image_url,
+        "relative_path": result.relative_path,
+    }
+
+
 @router.post("/admin/item-art/generate", tags=["admin"])
 async def admin_generate_item_art(
     art_key: str = Query(..., min_length=1, max_length=191),

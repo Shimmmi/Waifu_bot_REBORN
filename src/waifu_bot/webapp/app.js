@@ -569,7 +569,9 @@ function perkNameRu(pid) {
 
 function perkFlavorRu(pid) {
   const id = String(pid || "").trim();
-  return PERK_FLAVOR[id] || PERK_DESCS[id] || "Специальное умение для экспедиций.";
+  const merc = window.__mercPerksCatalog?.[id];
+  if (merc?.flavor) return merc.flavor;
+  return PERK_FLAVOR[id] || PERK_DESCS[id] || "Специальное умение для операций.";
 }
 
 function perkEffectRu(pid) {
@@ -635,15 +637,17 @@ function formatApiErrorDetail(detail) {
 
 function parseHttpErrorDetail(err) {
   const msg = String(err?.message || err || "");
+  const statusMatch = msg.match(/HTTP\s+(\d{3})/i);
+  const status = statusMatch ? Number(statusMatch[1]) : null;
   const idx = msg.indexOf(":");
-  if (idx === -1) return { raw: msg, detail: msg };
+  if (idx === -1) return { raw: msg, detail: msg, status };
   const tail = msg.slice(idx + 1).trim();
   try {
     const obj = JSON.parse(tail);
     const detail = obj?.detail != null ? formatApiErrorDetail(obj.detail) : tail;
-    return { raw: msg, detail };
+    return { raw: msg, detail, status };
   } catch {
-    return { raw: msg, detail: tail || msg };
+    return { raw: msg, detail: tail || msg, status };
   }
 }
 
@@ -3869,7 +3873,7 @@ async function bootstrapTavernPage() {
 
   try {
     const tavernTab = new URLSearchParams(window.location.search).get("tab");
-    if (tavernTab && ["hire", "squad", "heal", "upgrade"].includes(tavernTab)) {
+    if (tavernTab && ["hire", "squad", "arena", "exchange", "inventory"].includes(tavernTab)) {
       window.WaifuApp?.switchTavernTab?.(tavernTab);
     }
   } catch {
@@ -4341,6 +4345,9 @@ const expeditionSend = {
   squadSlots: [null, null, null],
   rewardType: "gold",
   depthTier: 1,
+  opsContractId: null,
+  threatTags: [],
+  rewardBias: null,
 };
 
 function switchShopTab(name) {
@@ -6029,6 +6036,13 @@ function initItemArtGenerateDelegated() {
   const onActivate = (e) => {
     const el = e.target.closest(".item-art-generate-btn");
     if (!el || !document.body.contains(el)) return;
+    // Hired-waifu portrait uses a different endpoint; do not hijack.
+    if (
+      el.classList.contains("hired-waifu-art-generate-btn") ||
+      (el.getAttribute("data-waifu-id") && !el.getAttribute("data-art-key"))
+    ) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     handleItemArtGenerateClick(el);
@@ -6038,6 +6052,12 @@ function initItemArtGenerateDelegated() {
     if (e.key !== "Enter" && e.key !== " ") return;
     const el = e.target.closest(".item-art-generate-btn");
     if (!el || !document.body.contains(el)) return;
+    if (
+      el.classList.contains("hired-waifu-art-generate-btn") ||
+      (el.getAttribute("data-waifu-id") && !el.getAttribute("data-art-key"))
+    ) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     handleItemArtGenerateClick(el);

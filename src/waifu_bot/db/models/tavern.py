@@ -75,6 +75,7 @@ class TavernState(Base):
     merc_dust: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     legendary_crests: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     drill_manuals: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    merc_gear_bag: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     codex_legendary_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     arena_rating: Mapped[int] = mapped_column(Integer, default=1000, nullable=False)
     arena_tickets: Mapped[int] = mapped_column(Integer, default=5, nullable=False)

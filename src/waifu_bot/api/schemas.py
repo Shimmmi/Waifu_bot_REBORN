@@ -313,6 +313,10 @@ class HiredWaifuOut(BaseModel):
     can_arena: bool = True
     heal_complete_at: Optional[str] = None
     eligible: bool = True
+    gear_weapon: Optional[dict] = None
+    gear_charm: Optional[dict] = None
+    gear_relic: Optional[dict] = None
+    gear_score_cache: int = 0
 
     @model_serializer(mode="wrap")
     def _serialize_hired_waifu(self, handler):
@@ -326,6 +330,10 @@ class HiredWaifuOut(BaseModel):
         out["expCurrent"] = data.get("exp_current", 0)
         out["expToNext"] = data.get("exp_to_next", 0)
         out["perkLevels"] = data.get("perk_levels") or {}
+        out["gearWeapon"] = data.get("gear_weapon")
+        out["gearCharm"] = data.get("gear_charm")
+        out["gearRelic"] = data.get("gear_relic")
+        out["gearScore"] = data.get("gear_score_cache", 0)
         out["combatRating"] = data.get("combat_rating") or data.get("power")
         out["atkSlot"] = data.get("atk_slot")
         out["defSlot"] = data.get("def_slot")
@@ -1019,12 +1027,17 @@ class ExpeditionStartRequest(BaseModel):
     slot_id: Optional[int] = None
     unit_ids: Optional[List[int]] = None
 
+    ops_contract_id: Optional[str] = None
+    contract_id: Optional[str] = None  # alias
+
     model_config = {"populate_by_name": True}
 
     @model_validator(mode="after")
     def _merge_aliases(self):
         if self.expedition_slot_id is None and self.slot_id is not None:
             object.__setattr__(self, "expedition_slot_id", self.slot_id)
+        if not self.ops_contract_id and self.contract_id:
+            object.__setattr__(self, "ops_contract_id", self.contract_id)
         if not self.squad_waifu_ids and self.unit_ids:
             object.__setattr__(self, "squad_waifu_ids", list(self.unit_ids))
         return self

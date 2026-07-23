@@ -16,6 +16,19 @@ REWARD_TYPES: tuple[str, ...] = (
     "mixed",
 )
 
+# Ops board biases stored on ActiveExpedition.reward_type (accepted by validate; not in catalog UI)
+OPS_REWARD_TYPES: tuple[str, ...] = (
+    "merc_coins",
+    "merc_dust",
+    "contracts",
+    "tickets",
+)
+
+# No player gold from grant_expedition_rewards for these
+MERC_NO_GOLD_REWARD_TYPES: frozenset[str] = frozenset(
+    (*OPS_REWARD_TYPES, "merc_exp")
+)
+
 REWARD_TYPE_LABELS_RU: dict[str, str] = {
     "gold": "Золото",
     "waifu_exp": "Опыт основной вайфу",
@@ -23,6 +36,10 @@ REWARD_TYPE_LABELS_RU: dict[str, str] = {
     "enchant": "Камни заточки",
     "merc_exp": "Опыт наёмниц",
     "mixed": "Смешанная добыча",
+    "merc_coins": "Merc Coins",
+    "merc_dust": "Пыль",
+    "contracts": "Контракты найма",
+    "tickets": "Тикеты арены",
 }
 
 # CR / мощь — канон в merc_combat_rating (реэкспорт для совместимости)
@@ -101,9 +118,9 @@ def reward_type_catalog() -> list[dict[str, str]]:
 
 def validate_reward_type(reward_type: str | None) -> str | None:
     rt = str(reward_type or "").strip().lower()
-    if rt not in REWARD_TYPES:
-        return None
-    return rt
+    if rt in REWARD_TYPES or rt in OPS_REWARD_TYPES:
+        return rt
+    return None
 
 
 def base_reward_amount(reward_type: str, *, depth: DepthTier, player_level: int = 10) -> int:
@@ -121,6 +138,9 @@ def base_reward_amount(reward_type: str, *, depth: DepthTier, player_level: int 
         return max(40, int(50 + lv * 2) * depth.reward_mult)
     if reward_type == "mixed":
         return max(40, int(60 + lv * 2) * depth.reward_mult * MIXED_REWARD_PENALTY)
+    # Ops merc biases: no player-gold base; merc_exp still uses its formula above
+    if reward_type in OPS_REWARD_TYPES:
+        return max(40, int(50 + lv * 2) * depth.reward_mult)
     return 0
 
 
