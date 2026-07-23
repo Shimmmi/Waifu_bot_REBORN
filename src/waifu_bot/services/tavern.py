@@ -671,46 +671,19 @@ class TavernService:
         waifu_id: int,
         perk_id: str,
     ) -> dict:
-        """Spend perk_upgrade_points to raise a perk level by 1.
+        """Alias: spend one T1 note for this perk type (soft/hard caps from ★)."""
+        from waifu_bot.services import merc_systems as merc_sys
 
-        Cost formula: current_level points (1→2 costs 1 pt, 2→3 costs 2 pts, ...).
-        Maximum perk level is 5.
-        """
-        waifu = await session.get(HiredWaifu, waifu_id)
-        if waifu is None or waifu.player_id != player_id:
-            return {"error": "waifu_not_found"}
-
-        perks = list(waifu.perks or [])
-        perk_id_str = str(perk_id)
-        if perk_id_str not in perks:
-            return {"error": "perk_not_owned"}
-
-        if perk_id_str not in PERK_BY_ID:
-            return {"error": "perk_unknown"}
-
-        perk_levels: dict = dict(getattr(waifu, "perk_levels", None) or {})
-        current_level = int(perk_levels.get(perk_id_str, 1))
-        max_perk_level = 5
-        if current_level >= max_perk_level:
-            return {"error": "perk_max_level", "level": current_level}
-
-        cost = current_level  # points cost to go current_level → current_level + 1
-        available_points = int(getattr(waifu, "perk_upgrade_points", 0) or 0)
-        if available_points < cost:
-            return {
-                "error": "insufficient_points",
-                "have": available_points,
-                "need": cost,
-            }
-
-        perk_levels[perk_id_str] = current_level + 1
-        waifu.perk_levels = perk_levels
-        waifu.perk_upgrade_points = available_points - cost
-        await session.flush()
+        result = await merc_sys.apply_manual_to_perk(
+            session, player_id, waifu_id=waifu_id, perk_id=str(perk_id), tier=1
+        )
+        if result.get("error"):
+            return result
         await session.commit()
         return {
             "ok": True,
-            "perk_id": perk_id_str,
-            "new_level": current_level + 1,
-            "points_remaining": waifu.perk_upgrade_points,
+            "perk_id": result.get("perk_id"),
+            "new_level": result.get("level"),
+            "tier": 1,
+            "points_remaining": 0,
         }

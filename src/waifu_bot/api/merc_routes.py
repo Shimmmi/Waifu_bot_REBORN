@@ -34,6 +34,7 @@ class FodderBody(BaseModel):
 class ManualBody(BaseModel):
     waifu_id: int
     perk_id: str
+    tier: int = Field(2, ge=1, le=3)
 
 
 class ConvertManualBody(BaseModel):
@@ -136,7 +137,7 @@ async def apply_manual(
     session: AsyncSession = Depends(get_db),
 ):
     result = await merc_sys.apply_manual_to_perk(
-        session, player_id, waifu_id=body.waifu_id, perk_id=body.perk_id
+        session, player_id, waifu_id=body.waifu_id, perk_id=body.perk_id, tier=body.tier
     )
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result)
@@ -173,10 +174,11 @@ async def arena_status(
 
 @router.get("/arena/opponents")
 async def arena_opponents(
+    q: str | None = None,
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    return {"opponents": await merc_sys.arena_opponents(session, player_id)}
+    return {"opponents": await merc_sys.arena_opponents(session, player_id, q=q)}
 
 
 @router.post("/arena/attack")
@@ -253,6 +255,7 @@ class GearEquipBody(BaseModel):
     waifu_id: int
     slot: str  # weapon|charm|relic
     item: Optional[dict] = None  # None = unequip; else {name, rarity, score}
+    bag_item_id: Optional[str] = None  # preferred: pull from merc_gear_bag
 
 
 @router.post("/tavern/gear/equip")
@@ -263,6 +266,7 @@ async def gear_equip(
 ):
     from waifu_bot.db.models import HiredWaifu
     from waifu_bot.game.merc_combat_rating import refresh_unit_power
+    from waifu_bot.services import merc_systems as merc_sys
 
     w = await session.get(HiredWaifu, int(body.waifu_id))
     if not w or int(w.player_id) != int(player_id):
@@ -271,7 +275,32 @@ async def gear_equip(
     if slot not in ("weapon", "charm", "relic"):
         raise HTTPException(status_code=400, detail={"error": "invalid_slot"})
     attr = f"gear_{slot}"
-    setattr(w, attr, body.item)
+    item = body.item
+    if body.bag_item_id:
+        state = await merc_sys.get_or_create_tavern_state(session, player_id)
+        bag = list(getattr(state, "merc_gear_bag", None) or [])
+        found = None
+        rest = []
+        for it in bag:
+            if str((it or {}).get("id")) == str(body.bag_item_id):
+                found = it
+            else:
+                rest.append(it)
+        if not found:
+            raise HTTPException(status_code=404, detail={"error": "bag_item_not_found"})
+        if str(found.get("slot") or slot) != slot:
+            raise HTTPException(status_code=400, detail={"error": "slot_mismatch"})
+        # Previous equipped gear is discarded to dust path only via disassemble; overwrite
+        item = {
+            "id": found.get("id"),
+            "name": found.get("name"),
+            "rarity": found.get("rarity"),
+            "score": found.get("score"),
+            "tier": found.get("tier"),
+            "slot": slot,
+        }
+        state.merc_gear_bag = rest
+    setattr(w, attr, item)
     score = 0
     for s in ("weapon", "charm", "relic"):
         g = getattr(w, f"gear_{s}", None) or {}
@@ -280,7 +309,7 @@ async def gear_equip(
     w.gear_score_cache = score
     refresh_unit_power(w)
     await session.commit()
-    return {"ok": True, "gear_score": score, "power": w.power}
+    return {"ok": True, "gear_score": score, "power": w.power, "item": item}
 
 
 @router.post("/tavern/gear/disassemble")

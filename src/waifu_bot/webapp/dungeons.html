@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Подземелья</title>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v68" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
-    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v68" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v78" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
+    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v78" />
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v68" onerror="console.warn('combat island skipped')"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v68" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
-    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v68" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v64'"></script>
+    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v78" onerror="console.warn('combat island skipped')"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v78" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
+    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v78" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v64'"></script>
     <style>
       .hp-fill-monster.monster-hp-fill--unknown {
         opacity: 0.35;
@@ -1301,6 +1301,174 @@
       }
       .exp-free-slot-ico { font-size: 22px; opacity: 0.7; }
 
+      /* Weekly ops board: compact 3-col vertical mini-tiles */
+      #ops-board-strip .ops-board-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+      #ops-board-strip .ops-board-card {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        border-radius: 8px;
+        border: 1px solid rgba(232, 184, 75, 0.42);
+        background: #221c16;
+        color: #e8dcc8;
+        cursor: pointer;
+        overflow: hidden;
+        transition: border-color 0.15s, transform 0.12s;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #ops-board-strip .ops-board-card:hover,
+      #ops-board-strip .ops-board-card:focus-visible {
+        border-color: rgba(232, 184, 75, 0.7);
+        transform: translateY(-1px);
+        outline: none;
+      }
+      #ops-board-strip .ops-board-thumb-wrap {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        border-radius: 0;
+        overflow: hidden;
+        background: #1a1410;
+        flex-shrink: 0;
+      }
+      #ops-board-strip .ops-board-thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      #ops-board-strip .ops-board-thumb-fallback {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        background: linear-gradient(135deg, #2a2018, #14100c);
+      }
+      #ops-board-strip .ops-art-gen-btn {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        z-index: 2;
+        font-size: 11px;
+        padding: 1px 4px;
+        border-radius: 4px;
+        border: 1px solid rgba(232,184,75,.45);
+        background: rgba(0,0,0,.55);
+        color: #f5e6c8;
+        cursor: pointer;
+      }
+      #ops-board-strip .ops-board-body {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 0;
+        padding: 2px 5px 5px;
+      }
+      #ops-board-strip .ops-board-title {
+        font-weight: 600;
+        font-size: 10px;
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #ops-board-strip .ops-board-meta {
+        font-size: 9px;
+        line-height: 1.2;
+        opacity: 0.85;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .ops-slots-hint {
+        padding: 6px 2px 10px;
+      }
+      #exp-send-modal .ops-contract-summary {
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        padding: 0;
+        margin: 0 -14px 8px;
+        font-size: 12px;
+        color: #e8dcc8;
+        overflow: hidden;
+      }
+      #exp-send-modal .ops-send-hero {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: #1a1410;
+        overflow: hidden;
+      }
+      #exp-send-modal .ops-send-thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      #exp-send-modal .ops-send-overlay {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        padding: 32px 14px 16px;
+        background: linear-gradient(to top, rgba(10, 8, 6, 0.92) 0%, rgba(10, 8, 6, 0.55) 55%, transparent 100%);
+        pointer-events: none;
+      }
+      #exp-send-modal .ops-send-title {
+        font-weight: 700;
+        font-size: 14px;
+        line-height: 1.25;
+        color: #f5ead8;
+      }
+      #exp-send-modal .ops-send-sub {
+        font-size: 11px;
+        margin-top: 2px;
+        opacity: 0.92;
+        color: #e8dcc8;
+      }
+      #exp-send-modal #esm-ops-coverage {
+        margin: 0 0 8px;
+      }
+      #exp-send-modal .ops-coverage-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 0;
+      }
+      .ops-coverage-chip {
+        font-size: 10px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        background: rgba(13, 10, 8, 0.55);
+        color: #c4b59a;
+      }
+      .ops-coverage-chip.covered {
+        border-color: rgba(129, 178, 154, 0.65);
+        color: #b7e0c8;
+        background: rgba(40, 70, 55, 0.45);
+      }
+      .ops-coverage-chip.miss {
+        border-color: rgba(224, 122, 95, 0.55);
+        color: #f0b8a8;
+      }
+      .exp-squad-slot.exp-slot-busy {
+        border-color: rgba(224, 122, 95, 0.55);
+        opacity: 0.85;
+      }
+
       .exp-last-loot {
         margin: 12px 0 4px;
         font-size: 11px;
@@ -2082,21 +2250,45 @@
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 6px;
-        margin-top: 2px;
+        margin-top: 6px;
+      }
+      .exp-squad-head-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 0;
+      }
+      .exp-squad-title {
+        margin-top: 0 !important;
+        margin-bottom: 0;
+        font-weight: 700;
+        color: #f0e6d8;
+        letter-spacing: 0.01em;
+      }
+      .exp-squad-cr {
+        flex-shrink: 0;
+        font-size: 11px;
+        font-weight: 600;
+        color: #e8dcc8;
+        white-space: nowrap;
       }
       .exp-squad-slot {
         border: 1px dashed rgba(200, 146, 42, 0.25);
         border-radius: 8px;
-        padding: 8px 6px;
+        padding: 0;
         text-align: center;
         cursor: pointer;
         transition: border-color 0.15s;
-        min-height: 64px;
+        min-height: 0;
+        aspect-ratio: 1;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 3px;
+        gap: 0;
+        overflow: hidden;
+        position: relative;
       }
       .exp-squad-slot:hover {
         border-color: rgba(200, 146, 42, 0.5);
@@ -2105,27 +2297,61 @@
         border-style: solid;
         border-color: rgba(200, 146, 42, 0.35);
         background: rgba(200, 146, 42, 0.05);
+        padding: 0;
       }
       .exp-squad-empty {
-        font-size: 10px;
+        font-size: 18px;
         color: #6a5a4a;
       }
       .exp-squad-ico {
         font-size: 18px;
       }
-      .exp-pick-portrait--squad {
-        width: 28px;
-        height: 28px;
-        margin: 0 auto 4px;
-        font-size: 14px;
+      #exp-send-modal .exp-squad-slot .exp-pick-portrait.exp-pick-portrait--squad {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        font-size: 22px;
+        border: none;
+        border-radius: 0;
+      }
+      #exp-send-modal .exp-squad-slot .exp-pick-portrait--squad .exp-pick-portrait-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
       }
       .exp-squad-name {
-        font-size: 9px;
-        color: #8a7a6a;
+        display: none;
       }
-      .exp-squad-hp {
+      .exp-squad-hp--overlay {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 2;
+        padding: 10px 4px 3px;
         font-size: 9px;
-        color: #4ade80;
+        font-weight: 700;
+        color: #b7f0c8;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+        background: linear-gradient(to top, rgba(0, 0, 0, 0.72), transparent);
+        pointer-events: none;
+        line-height: 1.2;
+      }
+      .exp-squad-busy {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 2;
+        padding: 8px 3px 3px;
+        font-size: 8px;
+        font-weight: 600;
+        color: #f0b8a8;
+        line-height: 1.15;
+        background: linear-gradient(to top, rgba(40, 10, 8, 0.85), transparent);
+        margin-top: 0;
       }
       .exp-picker-tags {
         margin-bottom: 8px;
@@ -2857,25 +3083,29 @@
             <div class="exp-sheet exp-sheet--send" onclick="event.stopPropagation()">
               <div class="exp-sheet-handle"></div>
               <button type="button" class="exp-modal-close" onclick="WaifuApp.closeSendExpModal()" aria-label="Закрыть">✕</button>
+              <div id="esm-ops-contract" class="ops-contract-summary" style="display:none;" aria-live="polite"></div>
+              <div id="esm-ops-coverage" style="display:none;" aria-live="polite"></div>
+              <div class="exp-send-options" style="margin-top:4px;">
+                <div class="exp-send-select-field" id="esm-reward-field">
+                  <label class="exp-opt-label" for="esm-reward-select">Тип награды</label>
+                  <select id="esm-reward-select" class="exp-send-select" aria-label="Тип награды"></select>
+                </div>
+                <div class="exp-send-select-field" id="esm-tier-field">
+                  <label class="exp-opt-label" for="esm-tier-select">Тир глубины</label>
+                  <select id="esm-tier-select" class="exp-send-select" aria-label="Тир глубины"></select>
+                </div>
+              </div>
               <div class="exp-send-head">
-                <div class="exp-opt-label" style="margin-top:0">Состав отряда (1–3)</div>
+                <div class="exp-squad-head-row">
+                  <div class="exp-opt-label exp-squad-title">Состав отряда (1–3)</div>
+                  <div id="esm-squad-power" class="exp-squad-cr" aria-live="polite">CR —</div>
+                </div>
                 <div class="exp-squad-row">
                   <div class="exp-squad-slot" id="exp-sl-0"><span class="exp-squad-empty">—</span></div>
                   <div class="exp-squad-slot" id="exp-sl-1"><span class="exp-squad-empty">—</span></div>
                   <div class="exp-squad-slot" id="exp-sl-2"><span class="exp-squad-empty">—</span></div>
                 </div>
                 <button type="button" id="esm-open-roster-btn" class="exp-roster-open-btn" onclick="WaifuApp.openExpRosterModal()">Выбрать наёмниц</button>
-                <div id="esm-squad-power" class="muted tiny" style="margin:2px 0 4px" aria-live="polite">CR отряда: —</div>
-              </div>
-              <div class="exp-send-options">
-                <div class="exp-send-select-field">
-                  <label class="exp-opt-label" for="esm-reward-select">Тип награды</label>
-                  <select id="esm-reward-select" class="exp-send-select" aria-label="Тип награды"></select>
-                </div>
-                <div class="exp-send-select-field">
-                  <label class="exp-opt-label" for="esm-tier-select">Тир глубины</label>
-                  <select id="esm-tier-select" class="exp-send-select" aria-label="Тир глубины"></select>
-                </div>
               </div>
               <div id="esm-send-warnings" class="exp-send-warnings" aria-live="polite"></div>
               <div class="exp-send-footer">
@@ -2886,7 +3116,7 @@
                   <span id="esm-confirm-dur" class="exp-send-confirm-stat">⏱ —</span>
                   <span id="esm-confirm-reward" class="exp-send-confirm-stat">💰 —</span>
                 </div>
-                <button type="button" class="exp-send-btn" id="exp-send-btn" disabled onclick="WaifuApp.submitExpeditionStart()">Начать операцию</button>
+                <button type="button" class="exp-send-btn" id="exp-send-btn" disabled onclick="WaifuApp.submitExpeditionStart()">Отправить</button>
               </div>
             </div>
           </div>

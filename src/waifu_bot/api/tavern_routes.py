@@ -124,6 +124,10 @@ def _to_hired_waifu(w: m.HiredWaifu) -> schemas.HiredWaifuOut:
         can_arena=bool(hp_data.get("can_arena", True)),
         heal_complete_at=hp_data.get("heal_complete_at"),
         eligible=bool(hp_data.get("eligible", True)),
+        gear_weapon=getattr(w, "gear_weapon", None),
+        gear_charm=getattr(w, "gear_charm", None),
+        gear_relic=getattr(w, "gear_relic", None),
+        gear_score_cache=int(getattr(w, "gear_score_cache", 0) or 0),
     )
 
 

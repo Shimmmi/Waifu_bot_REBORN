@@ -2373,12 +2373,32 @@ async def operations_preview(
     return await expeditions_preview(payload=payload, player_id=player_id, session=session)
 
 
+async def _apply_ops_contract_to_start_payload(
+    session, player_id: int, payload: schemas.ExpeditionStartRequest
+) -> None:
+    """Resolve weekly board contract → reward_bias + depth (authoritative)."""
+    if not getattr(payload, "ops_contract_id", None):
+        return
+    from waifu_bot.services import merc_systems as merc_sys
+
+    board = await merc_sys.get_or_create_ops_board(session, player_id)
+    contracts = list(getattr(board, "contracts_json", None) or [])
+    hit = next((c for c in contracts if str(c.get("id")) == str(payload.ops_contract_id)), None)
+    if not hit:
+        return
+    bias = str(hit.get("reward_bias") or "mixed")
+    depth = int(hit.get("depth_tier") or hit.get("star") or payload.depth_tier or 1)
+    object.__setattr__(payload, "reward_type", bias)
+    object.__setattr__(payload, "depth_tier", depth)
+
+
 @router.post("/operations/start", tags=["operations"])
 async def operations_start(
     payload: schemas.ExpeditionStartRequest,
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
+    await _apply_ops_contract_to_start_payload(session, player_id, payload)
     return await expeditions_start(payload=payload, player_id=player_id, session=session)
 
 
@@ -2661,6 +2681,7 @@ async def expeditions_start(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
+    await _apply_ops_contract_to_start_payload(session, player_id, payload)
     squad_ids = list(payload.squad_waifu_ids or [])
     # Merc overhaul: default Ops squad = ATK lineup when client sends empty
     if not squad_ids:
@@ -2869,18 +2890,21 @@ async def expeditions_claim_by_id(
             "heal_forecast_minutes": heal_mins,
         })
 
+    merc_rewards = result.get("merc_rewards") or {}
     return {
         "expedition_name": expedition_name,
         "outcome": result.get("outcome") or "failure",
         "ai_narrative": result.get("event_text") or "Отряд вернулся из экспедиции.",
         "gate_log": result.get("gate_log") or [],
         "reward_type": result.get("reward_type"),
+        "reward_bias": merc_rewards.get("reward_bias") or result.get("reward_type"),
         "gold_earned": result.get("gold_gained", 0),
         "exp_earned": result.get("experience_gained", 0),
         "waifu_exp_gained": result.get("waifu_exp_gained", 0),
         "enchant_stones": result.get("enchant_stones", 0),
         "squad_state": squad_state,
         "items_earned": result.get("items_earned") or [],
+        "merc_rewards": merc_rewards,
     }
 
 

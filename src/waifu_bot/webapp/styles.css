@@ -6316,15 +6316,18 @@ body.page-dungeons #item-modal.modal.item-modal-root.item-modal-v2-wrap.item-mod
 
 .page-tavern .tavern-squad-grid,
 .page-tavern .tavern-pool-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 6px;
   margin-top: 12px;
   min-width: 0;
+  align-items: stretch;
 }
 
 .page-tavern .tavern-squad-grid > *,
 .page-tavern .tavern-pool-grid > * {
+  flex: 1 1 0;
   min-width: 0;
 }
 

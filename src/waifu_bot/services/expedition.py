@@ -1286,8 +1286,13 @@ class ExpeditionService:
             from waifu_bot.services import merc_systems as merc_sys
 
             star = int(getattr(active, "depth_tier", None) or getattr(active, "affix_level", None) or 1)
+            bias = str(getattr(active, "reward_type", None) or "mixed")
             merc_bonus = await merc_sys.grant_ops_rewards(
-                session, player_id, outcome=str(outcome), star=star
+                session,
+                player_id,
+                outcome=str(outcome),
+                star=star,
+                reward_bias=bias,
             )
             for wid in squad_ids:
                 w = await session.get(HiredWaifu, wid)

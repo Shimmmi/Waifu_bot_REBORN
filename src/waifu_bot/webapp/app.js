@@ -3873,7 +3873,7 @@ async function bootstrapTavernPage() {
 
   try {
     const tavernTab = new URLSearchParams(window.location.search).get("tab");
-    if (tavernTab && ["hire", "squad", "arena", "exchange"].includes(tavernTab)) {
+    if (tavernTab && ["hire", "squad", "arena", "exchange", "inventory"].includes(tavernTab)) {
       window.WaifuApp?.switchTavernTab?.(tavernTab);
     }
   } catch {
@@ -6036,6 +6036,13 @@ function initItemArtGenerateDelegated() {
   const onActivate = (e) => {
     const el = e.target.closest(".item-art-generate-btn");
     if (!el || !document.body.contains(el)) return;
+    // Hired-waifu portrait uses a different endpoint; do not hijack.
+    if (
+      el.classList.contains("hired-waifu-art-generate-btn") ||
+      (el.getAttribute("data-waifu-id") && !el.getAttribute("data-art-key"))
+    ) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     handleItemArtGenerateClick(el);
@@ -6045,6 +6052,12 @@ function initItemArtGenerateDelegated() {
     if (e.key !== "Enter" && e.key !== " ") return;
     const el = e.target.closest(".item-art-generate-btn");
     if (!el || !document.body.contains(el)) return;
+    if (
+      el.classList.contains("hired-waifu-art-generate-btn") ||
+      (el.getAttribute("data-waifu-id") && !el.getAttribute("data-art-key"))
+    ) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     handleItemArtGenerateClick(el);

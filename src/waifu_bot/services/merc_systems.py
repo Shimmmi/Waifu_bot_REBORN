@@ -27,9 +27,13 @@ from waifu_bot.game.merc_perks import (
     roll_perk_ids_for_rarity,
 )
 from waifu_bot.game.merc_potential import (
+    add_manual,
     bench_cap_for_main_level,
+    consume_manual,
     fodder_cost_for_next_star,
+    normalize_drill_manuals,
     perk_level_cap,
+    perk_soft_cap,
 )
 from waifu_bot.game.merc_config import (
     ARENA_TICKETS_DAILY,
@@ -69,7 +73,36 @@ async def get_or_create_tavern_state(session: AsyncSession, player_id: int) -> T
         state = TavernState(player_id=player_id)
         session.add(state)
         await session.flush()
+    await migrate_perk_points_to_t1_notes(session, player_id, state)
+    state.drill_manuals = normalize_drill_manuals(getattr(state, "drill_manuals", None))
     return state
+
+
+async def migrate_perk_points_to_t1_notes(
+    session: AsyncSession, player_id: int, state: TavernState
+) -> None:
+    """One-shot: convert leftover perk_upgrade_points into T1 notes by unit perk type."""
+    rows = (
+        await session.execute(select(HiredWaifu).where(HiredWaifu.player_id == player_id))
+    ).scalars().all()
+    changed = False
+    manuals = normalize_drill_manuals(getattr(state, "drill_manuals", None))
+    for u in rows:
+        pts = int(getattr(u, "perk_upgrade_points", 0) or 0)
+        if pts <= 0:
+            continue
+        ptype = "ATK"
+        perks = migrate_perk_list(list(u.perks or []))
+        if perks:
+            perk = PERK_BY_ID.get(perks[0])
+            if perk:
+                ptype = perk.perk_type
+        manuals = add_manual(manuals, ptype, tier=1, amount=pts)
+        u.perk_upgrade_points = 0
+        changed = True
+    if changed:
+        state.drill_manuals = manuals
+        await session.flush()
 
 
 async def main_waifu_level(session: AsyncSession, player_id: int) -> int:
@@ -93,6 +126,10 @@ async def bench_cap(session: AsyncSession, player_id: int) -> int:
 
 
 def pity_status(state: TavernState) -> dict[str, Any]:
+    manuals = normalize_drill_manuals(getattr(state, "drill_manuals", None))
+    # keep normalized form on state when read
+    if dict(getattr(state, "drill_manuals", None) or {}) != manuals:
+        state.drill_manuals = manuals
     return {
         "pity_legendary": int(getattr(state, "pity_legendary", 0) or 0),
         "pity_legendary_hard": PITY_LEG_HARD,
@@ -103,7 +140,8 @@ def pity_status(state: TavernState) -> dict[str, Any]:
         "merc_contracts": int(getattr(state, "merc_contracts", 0) or 0),
         "merc_dust": int(getattr(state, "merc_dust", 0) or 0),
         "legendary_crests": int(getattr(state, "legendary_crests", 0) or 0),
-        "drill_manuals": dict(getattr(state, "drill_manuals", None) or {}),
+        "drill_manuals": manuals,
+        "merc_gear_bag": list(getattr(state, "merc_gear_bag", None) or []),
         "arena_rating": int(getattr(state, "arena_rating", 1000) or 1000),
         "arena_tickets": int(getattr(state, "arena_tickets", ARENA_TICKETS_DAILY) or 0),
         "codex_count": len(list(getattr(state, "codex_legendary_ids", None) or [])),
@@ -396,11 +434,22 @@ async def fodder_for_stars(
     if stars >= 5:
         return {"error": "max_stars"}
     need = fodder_cost_for_next_star(stars)
-    if len(fodder_ids) < need:
-        return {"error": "not_enough_fodder", "need": need, "have": len(fodder_ids)}
+    unique_ids = []
+    seen = set()
+    for fid in fodder_ids or []:
+        i = int(fid)
+        if i in seen:
+            continue
+        seen.add(i)
+        unique_ids.append(i)
+    if len(unique_ids) < need:
+        return {"error": "not_enough_fodder", "need": need, "have": len(unique_ids)}
+
+    lineup = await get_lineup(session, player_id)
+    locked = {int(x) for x in (lineup.get("atk") or []) + (lineup.get("def") or []) if x}
 
     eaten = 0
-    for fid in fodder_ids:
+    for fid in unique_ids:
         if eaten >= need:
             break
         if int(fid) == int(target_id):
@@ -410,6 +459,11 @@ async def fodder_for_stars(
             continue
         if getattr(fw, "expedition_id", None):
             continue
+        if int(fw.id) in locked:
+            continue
+        fodder_stars = int(getattr(fw, "potential_stars", 0) or 0)
+        if fodder_stars >= stars + 1:
+            continue
         await session.delete(fw)
         eaten += 1
     if eaten < need:
@@ -417,7 +471,13 @@ async def fodder_for_stars(
     target.potential_stars = stars + 1
     refresh_unit_power(target)
     await session.flush()
-    return {"ok": True, "potential_stars": target.potential_stars, "fodder_used": eaten}
+    return {
+        "ok": True,
+        "potential_stars": target.potential_stars,
+        "fodder_used": eaten,
+        "need": need,
+        "perk_level_cap": perk_level_cap(target.potential_stars),
+    }
 
 
 async def convert_to_manual(
@@ -437,12 +497,11 @@ async def convert_to_manual(
         perk = PERK_BY_ID.get(perks[0])
         if perk:
             ptype = perk.perk_type
-    manuals = dict(getattr(state, "drill_manuals", None) or {})
-    manuals[ptype] = int(manuals.get(ptype, 0) or 0) + 1
+    manuals = add_manual(getattr(state, "drill_manuals", None), ptype, tier=2, amount=1)
     state.drill_manuals = manuals
     await session.delete(waifu)
     await session.flush()
-    return {"ok": True, "manual_type": ptype, "manuals": manuals}
+    return {"ok": True, "manual_type": ptype, "tier": 2, "manuals": manuals}
 
 
 async def apply_manual_to_perk(
@@ -451,6 +510,7 @@ async def apply_manual_to_perk(
     *,
     waifu_id: int,
     perk_id: str,
+    tier: int = 2,
 ) -> dict:
     state = await get_or_create_tavern_state(session, player_id)
     waifu = await session.get(HiredWaifu, int(waifu_id))
@@ -462,22 +522,25 @@ async def apply_manual_to_perk(
     perks = migrate_perk_list(list(waifu.perks or []))
     if perk_id not in perks:
         return {"error": "perk_not_on_unit"}
-    manuals = dict(getattr(state, "drill_manuals", None) or {})
-    have = int(manuals.get(perk.perk_type, 0) or 0)
-    if have < 1:
-        return {"error": "no_manual", "type": perk.perk_type}
+    t = max(1, min(3, int(tier or 2)))
+    stars = int(getattr(waifu, "potential_stars", 0) or 0)
     levels = dict(getattr(waifu, "perk_levels", None) or {})
     cur = int(levels.get(perk_id, 1) or 1)
-    cap = perk_level_cap(int(getattr(waifu, "potential_stars", 0) or 0))
-    if cur >= cap:
-        return {"error": "perk_level_cap", "cap": cap}
+    hard = perk_level_cap(stars)
+    soft = perk_soft_cap(stars, t)
+    if cur >= hard:
+        return {"error": "perk_level_cap", "cap": hard}
+    if cur >= soft:
+        return {"error": "tier_soft_cap", "tier": t, "soft_cap": soft, "hard_cap": hard, "need_tier": min(3, t + 1) if soft < hard else None}
+    manuals, err = consume_manual(getattr(state, "drill_manuals", None), perk.perk_type, t, 1)
+    if err:
+        return {"error": "no_manual", "type": perk.perk_type, "tier": t}
     levels[perk_id] = cur + 1
     waifu.perk_levels = levels
-    manuals[perk.perk_type] = have - 1
     state.drill_manuals = manuals
     refresh_unit_power(waifu)
     await session.flush()
-    return {"ok": True, "perk_id": perk_id, "level": levels[perk_id]}
+    return {"ok": True, "perk_id": perk_id, "level": levels[perk_id], "tier": t, "soft_cap": soft, "hard_cap": hard}
 
 
 # --- Ops board ---
@@ -496,6 +559,17 @@ async def get_or_create_ops_board(session: AsyncSession, player_id: int) -> Merc
         )
     ).scalar_one_or_none()
     if row:
+        # Backfill art_key on legacy weekly boards
+        contracts = list(row.contracts_json or [])
+        changed = False
+        for c in contracts:
+            if isinstance(c, dict) and not c.get("art_key"):
+                bias = str(c.get("reward_bias") or "mixed")
+                c["art_key"] = f"ops_bias_{bias}"
+                changed = True
+        if changed:
+            row.contracts_json = contracts
+            await session.flush()
         return row
     rng = random.Random(f"{player_id}-{wk}")
     contracts = []
@@ -503,6 +577,7 @@ async def get_or_create_ops_board(session: AsyncSession, player_id: int) -> Merc
         star = 1 + (i % 5)
         tags = rng.sample(list(THREAT_TAGS), k=min(3, 2 + (star // 2)))
         arch_names = ["Берсерк", "Цитадель", "Тактик", "Медик", "Дуэлянт", "Паладин"]
+        bias = _REWARD_BIASES[i % len(_REWARD_BIASES)]
         contracts.append(
             {
                 "id": f"{wk}-{i+1}",
@@ -511,7 +586,8 @@ async def get_or_create_ops_board(session: AsyncSession, player_id: int) -> Merc
                 "threat_tags": tags,
                 "threat_labels": [THREAT_TAG_LABELS_RU.get(t, t) for t in tags],
                 "recommended_archetype": rng.choice(arch_names),
-                "reward_bias": _REWARD_BIASES[i % len(_REWARD_BIASES)],
+                "reward_bias": bias,
+                "art_key": f"ops_bias_{bias}",
                 "depth_tier": star,  # alias for legacy start
             }
         )
@@ -563,29 +639,91 @@ def _bot_defense(rating: int) -> list:
     ]
 
 
-async def arena_opponents(session: AsyncSession, player_id: int) -> list[dict]:
+def _arena_opponent_payload(
+    player: Player | None,
+    tavern: TavernState | None,
+    *,
+    bot: bool = False,
+    fallback_player_id: int | None = None,
+) -> dict:
+    pid = None
+    if bot:
+        pid = None
+    elif tavern is not None:
+        pid = int(tavern.player_id)
+    elif player is not None:
+        pid = int(player.id)
+    elif fallback_player_id is not None:
+        pid = int(fallback_player_id)
+    username = (getattr(player, "username", None) or None) if player else None
+    first = (getattr(player, "first_name", None) or "").strip() if player else ""
+    display = (
+        first
+        or (f"@{username}" if username else None)
+        or (f"Игрок {pid}" if pid else "Бот")
+    )
+    rating = int(getattr(tavern, "arena_rating", 1000) or 1000) if tavern else 1000
+    return {
+        "player_id": pid,
+        "rating": rating,
+        "bot": bot,
+        "username": username,
+        "display_name": display if not bot else "Бот",
+    }
+
+
+async def arena_opponents(
+    session: AsyncSession,
+    player_id: int,
+    *,
+    q: str | None = None,
+) -> list[dict]:
     state = await get_or_create_tavern_state(session, player_id)
     my_r = int(getattr(state, "arena_rating", 1000) or 1000)
-    # Find nearby ratings
+    query = (q or "").strip().lstrip("@")
+    if query:
+        pattern = f"%{query}%"
+        # Global player search (not guild / not tavern-only)
+        rows = (
+            await session.execute(
+                select(Player, TavernState)
+                .outerjoin(TavernState, TavernState.player_id == Player.id)
+                .where(Player.id != player_id)
+                .where(
+                    or_(
+                        Player.username.ilike(pattern),
+                        Player.first_name.ilike(pattern),
+                    )
+                )
+                .order_by(func.abs(func.coalesce(TavernState.arena_rating, 1000) - my_r))
+                .limit(10)
+            )
+        ).all()
+        return [_arena_opponent_payload(p, t) for p, t in rows]
+
+    # Nearby ratings (suggested 3) + bots to fill
     others = (
         await session.execute(
-            select(TavernState)
+            select(TavernState, Player)
+            .outerjoin(Player, Player.id == TavernState.player_id)
             .where(TavernState.player_id != player_id)
             .order_by(func.abs(TavernState.arena_rating - my_r))
             .limit(5)
         )
-    ).scalars().all()
+    ).all()
     out = []
-    for o in others[:3]:
+    for t, p in others[:3]:
+        out.append(_arena_opponent_payload(p, t))
+    while len(out) < 3:
         out.append(
             {
-                "player_id": o.player_id,
-                "rating": int(o.arena_rating or 1000),
-                "bot": False,
+                "player_id": None,
+                "rating": my_r + random.randint(-40, 40),
+                "bot": True,
+                "username": None,
+                "display_name": "Бот",
             }
         )
-    while len(out) < 3:
-        out.append({"player_id": None, "rating": my_r + random.randint(-40, 40), "bot": True})
     return out
 
 
@@ -639,6 +777,13 @@ async def arena_attack(
     state.arena_attacks_today = int(state.arena_attacks_today or 0) + 1
     if win:
         state.merc_coins = int(state.merc_coins or 0) + 25
+        # Rare T3 doctrine drip (thin balance ok)
+        if random.random() < 0.08:
+            ptype = random.choice(["ATK", "DEF", "SUP"])
+            state.drill_manuals = add_manual(getattr(state, "drill_manuals", None), ptype, tier=3, amount=1)
+        elif random.random() < 0.35:
+            ptype = random.choice(["ATK", "DEF", "SUP"])
+            state.drill_manuals = add_manual(getattr(state, "drill_manuals", None), ptype, tier=1, amount=1)
     match = MercArenaMatch(
         attacker_id=player_id,
         defender_id=defender_id,
@@ -666,12 +811,126 @@ async def arena_attack(
 # --- Exchange ---
 
 EXCHANGE_CATALOG = [
-    {"id": "contract", "name": "Контракт найма", "cost_coins": 80, "gives": {"merc_contracts": 1}},
-    {"id": "dust_pack", "name": "Пыль ×20", "cost_coins": 40, "gives": {"merc_dust": 20}},
-    {"id": "ticket", "name": "Тикет арены", "cost_coins": 50, "gives": {"arena_tickets": 1}},
-    {"id": "manual_atk", "name": "Учебник ATK", "cost_coins": 60, "gives": {"manual": "ATK"}},
-    {"id": "manual_def", "name": "Учебник DEF", "cost_coins": 60, "gives": {"manual": "DEF"}},
-    {"id": "manual_sup", "name": "Учебник SUP", "cost_coins": 60, "gives": {"manual": "SUP"}},
+    {
+        "id": "contract",
+        "name": "Контракт найма",
+        "icon": "📜",
+        "description": "Оплачивает один найм в таверне вместо золота. Удобно копить с операций.",
+        "cost_coins": 80,
+        "gives": {"merc_contracts": 1},
+    },
+    {
+        "id": "dust_pack",
+        "name": "Пыль ×20",
+        "icon": "✨",
+        "description": "+20 пыли. Нужна для прокачки потенциала ★ наёмниц (fodder / sink).",
+        "cost_coins": 40,
+        "gives": {"merc_dust": 20},
+    },
+    {
+        "id": "ticket",
+        "name": "Тикет арены",
+        "icon": "🎟",
+        "description": "+1 тикет арены. Тратится на атаку соперника в async-арене 3v3.",
+        "cost_coins": 50,
+        "gives": {"arena_tickets": 1},
+    },
+    {
+        "id": "notes_atk",
+        "name": "Заметки ATK",
+        "icon": "📘",
+        "description": "Учебник T1 (ATK). Повышает уровень ATK-перка в карточке наёмницы.",
+        "cost_coins": 25,
+        "gives": {"manual": "ATK", "tier": 1},
+    },
+    {
+        "id": "notes_def",
+        "name": "Заметки DEF",
+        "icon": "📗",
+        "description": "Учебник T1 (DEF). Повышает уровень DEF-перка в карточке наёмницы.",
+        "cost_coins": 25,
+        "gives": {"manual": "DEF", "tier": 1},
+    },
+    {
+        "id": "notes_sup",
+        "name": "Заметки SUP",
+        "icon": "📙",
+        "description": "Учебник T1 (SUP). Повышает уровень SUP-перка в карточке наёмницы.",
+        "cost_coins": 25,
+        "gives": {"manual": "SUP", "tier": 1},
+    },
+    {
+        "id": "manual_atk",
+        "name": "Учебник ATK",
+        "icon": "📖",
+        "description": "Учебник T2 (ATK). Сильнее заметок; нужен для средних уровней перков.",
+        "cost_coins": 60,
+        "gives": {"manual": "ATK", "tier": 2},
+    },
+    {
+        "id": "manual_def",
+        "name": "Учебник DEF",
+        "icon": "📖",
+        "description": "Учебник T2 (DEF). Сильнее заметок; нужен для средних уровней перков.",
+        "cost_coins": 60,
+        "gives": {"manual": "DEF", "tier": 2},
+    },
+    {
+        "id": "manual_sup",
+        "name": "Учебник SUP",
+        "icon": "📖",
+        "description": "Учебник T2 (SUP). Сильнее заметок; нужен для средних уровней перков.",
+        "cost_coins": 60,
+        "gives": {"manual": "SUP", "tier": 2},
+    },
+    {
+        "id": "doctrine_atk",
+        "name": "Доктрина ATK",
+        "icon": "📕",
+        "description": "Учебник T3 (ATK). Редкий расходник для высоких уровней ATK-перков.",
+        "cost_coins": 140,
+        "gives": {"manual": "ATK", "tier": 3},
+    },
+    {
+        "id": "doctrine_def",
+        "name": "Доктрина DEF",
+        "icon": "📕",
+        "description": "Учебник T3 (DEF). Редкий расходник для высоких уровней DEF-перков.",
+        "cost_coins": 140,
+        "gives": {"manual": "DEF", "tier": 3},
+    },
+    {
+        "id": "doctrine_sup",
+        "name": "Доктрина SUP",
+        "icon": "📕",
+        "description": "Учебник T3 (SUP). Редкий расходник для высоких уровней SUP-перков.",
+        "cost_coins": 140,
+        "gives": {"manual": "SUP", "tier": 3},
+    },
+    {
+        "id": "gear_box_t1",
+        "name": "Ящик снаряжения T1",
+        "icon": "📦",
+        "description": "Случайный предмет экипа T1 в сумку. Надевается на weapon / charm / relic.",
+        "cost_coins": 50,
+        "gives": {"loot_box": "gear", "tier": 1},
+    },
+    {
+        "id": "gear_box_t2",
+        "name": "Ящик снаряжения T2",
+        "icon": "📦",
+        "description": "Случайный предмет экипа T2 в сумку. Сильнее T1 по score/редкости.",
+        "cost_coins": 100,
+        "gives": {"loot_box": "gear", "tier": 2},
+    },
+    {
+        "id": "gear_box_t3",
+        "name": "Ящик снаряжения T3",
+        "icon": "🎁",
+        "description": "Случайный предмет экипа T3 в сумку. Топ-тир для CR и синергий.",
+        "cost_coins": 180,
+        "gives": {"loot_box": "gear", "tier": 3},
+    },
 ]
 
 
@@ -693,12 +952,27 @@ async def exchange_buy(session: AsyncSession, player_id: int, item_id: str) -> d
         await ensure_arena_tickets(state)
         state.arena_tickets = int(state.arena_tickets or 0) + int(gives["arena_tickets"])
     if "manual" in gives:
-        manuals = dict(state.drill_manuals or {})
-        t = gives["manual"]
-        manuals[t] = int(manuals.get(t, 0) or 0) + 1
+        manuals = add_manual(
+            getattr(state, "drill_manuals", None),
+            gives["manual"],
+            tier=int(gives.get("tier") or 2),
+            amount=1,
+        )
         state.drill_manuals = manuals
+    rolled = None
+    if gives.get("loot_box") == "gear":
+        from waifu_bot.game.merc_gear import roll_merc_gear
+
+        rolled = roll_merc_gear(int(gives.get("tier") or 1))
+        bag = list(getattr(state, "merc_gear_bag", None) or [])
+        bag.append(rolled)
+        state.merc_gear_bag = bag
     await session.flush()
-    return {"ok": True, "wallet": pity_status(state)}
+    out = {"ok": True, "wallet": pity_status(state)}
+    if rolled:
+        out["item"] = rolled
+        out["merc_gear_bag"] = list(getattr(state, "merc_gear_bag", None) or [])
+    return out
 
 
 async def codex_list(session: AsyncSession, player_id: int) -> list[dict]:
@@ -717,14 +991,56 @@ async def grant_ops_rewards(
     *,
     outcome: str = "success",
     star: int = 1,
+    reward_bias: str | None = "mixed",
 ) -> dict:
     """Primary merc rewards on ops claim (call alongside legacy gold path)."""
     state = await get_or_create_tavern_state(session, player_id)
-    mult = {"success": 1.0, "partial": 0.7, "failure": 0.4}.get(outcome, 0.7)
-    coins = int((20 + star * 15) * mult)
-    dust = int((5 + star * 3) * mult)
-    tickets = 1 if outcome == "success" and star >= 3 else 0
-    contracts = 1 if outcome == "success" and star >= 4 else 0
+    mult = {"success": 1.0, "partial_success": 0.7, "partial": 0.7, "failure": 0.4}.get(
+        str(outcome), 0.7
+    )
+    star_n = max(1, min(5, int(star or 1)))
+    bias = str(reward_bias or "mixed").strip().lower()
+    if bias not in _REWARD_BIASES:
+        bias = "mixed"
+    base_coins = int((20 + star_n * 15) * mult)
+    base_dust = int((5 + star_n * 3) * mult)
+    success = str(outcome) == "success"
+    partial = str(outcome) in ("partial_success", "partial")
+
+    coins = 0
+    dust = 0
+    tickets = 0
+    contracts = 0
+    if bias == "merc_coins":
+        coins = int(base_coins * 1.55)
+        dust = int(base_dust * 0.25)
+    elif bias == "merc_dust":
+        coins = int(base_coins * 0.25)
+        dust = int(base_dust * 1.8)
+    elif bias == "tickets":
+        coins = int(base_coins * 0.35)
+        dust = int(base_dust * 0.35)
+        if success:
+            tickets = 1 + (1 if star_n >= 3 else 0)
+        elif partial and star_n >= 2:
+            tickets = 1
+    elif bias == "contracts":
+        coins = int(base_coins * 0.35)
+        dust = int(base_dust * 0.35)
+        if success:
+            contracts = 1 + (1 if star_n >= 4 else 0)
+        elif partial and star_n >= 3:
+            contracts = 1
+    elif bias == "merc_exp":
+        coins = int(base_coins * 0.3)
+        dust = int(base_dust * 0.3)
+    else:
+        # mixed
+        coins = base_coins
+        dust = base_dust
+        tickets = 1 if success and star_n >= 3 else 0
+        contracts = 1 if success and star_n >= 4 else 0
+
     state.merc_coins = int(state.merc_coins or 0) + coins
     state.merc_dust = int(state.merc_dust or 0) + dust
     if tickets:
@@ -732,10 +1048,18 @@ async def grant_ops_rewards(
         state.arena_tickets = int(state.arena_tickets or 0) + tickets
     if contracts:
         state.merc_contracts = int(state.merc_contracts or 0) + contracts
+    # Early T1 notes drip from ops
+    notes = 0
+    if (success or partial) and star_n >= 1:
+        notes = 1 + (1 if star_n >= 3 and success else 0)
+        ptype = random.choice(["ATK", "DEF", "SUP"])
+        state.drill_manuals = add_manual(getattr(state, "drill_manuals", None), ptype, tier=1, amount=notes)
     await session.flush()
     return {
         "merc_coins": coins,
         "merc_dust": dust,
         "arena_tickets": tickets,
         "merc_contracts": contracts,
+        "t1_notes": notes,
+        "reward_bias": bias,
     }

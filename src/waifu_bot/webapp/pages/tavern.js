@@ -41,11 +41,219 @@ const tavernState = {
   pendingHireSlot: null, // 1..4
   lastHiredResult: null, // result of last successful hire for result modal
   benchCap: 10,
+  benchPage: 0,
   quickFeedMode: false,
   quickFeedTargetId: null,
+  fodderSelectedIds: [],
   modalSeg: "overview",
   lineupPick: null, // { side, slot } when picking for empty ATK/DEF
+  arenaSearchQ: "",
+  arenaSearchTimer: null,
+  drillManuals: {},
+  mercGearBag: [],
+  exchangeItems: [],
+  exchangeSelectedId: null,
 };
+
+const BENCH_PAGE_SIZE = 4;
+
+/** Potential ★ fodder costs (target star after upgrade). */
+const STAR_FODDER_COST = { 1: 2, 2: 4, 3: 7, 4: 12, 5: 18 };
+const PERK_HARD_CAP_BY_STARS = { 0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6 };
+const PERK_SOFT_CAP_BY_STARS = {
+  0: [1, 1, 1],
+  1: [1, 2, 2],
+  2: [2, 3, 3],
+  3: [2, 3, 4],
+  4: [3, 4, 5],
+  5: [3, 5, 6],
+};
+
+function perkHardCap(stars) {
+  const s = Math.max(0, Math.min(5, Number(stars) || 0));
+  return PERK_HARD_CAP_BY_STARS[s] ?? 1;
+}
+
+function perkSoftCap(stars, tier) {
+  const s = Math.max(0, Math.min(5, Number(stars) || 0));
+  const t = Math.max(1, Math.min(3, Number(tier) || 1));
+  return (PERK_SOFT_CAP_BY_STARS[s] || [1, 1, 1])[t - 1];
+}
+
+function fodderNeedForTarget(targetId) {
+  const w = findRosterWaifu(targetId);
+  const stars = Number(w?.potentialStars ?? w?.potential_stars ?? 0);
+  if (stars >= 5) return 0;
+  return STAR_FODDER_COST[stars + 1] || 99;
+}
+
+function isValidFodderCandidate(w, targetId) {
+  if (!w || Number(w.id) === Number(targetId)) return false;
+  if (w.expedition_id != null || w.expeditionId != null) return false;
+  if (isOnLineup(w)) return false;
+  const target = findRosterWaifu(targetId);
+  const tStars = Number(target?.potentialStars ?? target?.potential_stars ?? 0);
+  const fStars = Number(w?.potentialStars ?? w?.potential_stars ?? 0);
+  if (fStars >= tStars + 1) return false;
+  return true;
+}
+
+function toggleFodderSelection(w) {
+  if (!tavernState.quickFeedMode || !tavernState.quickFeedTargetId) return;
+  if (!isValidFodderCandidate(w, tavernState.quickFeedTargetId)) {
+    showToast("Нельзя взять как корм", "error");
+    return;
+  }
+  const id = Number(w.id);
+  const cur = (tavernState.fodderSelectedIds || []).map(Number);
+  const idx = cur.indexOf(id);
+  if (idx >= 0) cur.splice(idx, 1);
+  else cur.push(id);
+  tavernState.fodderSelectedIds = cur;
+  renderTavernSquad();
+}
+
+function cancelFodderPickMode() {
+  tavernState.quickFeedMode = false;
+  tavernState.quickFeedTargetId = null;
+  tavernState.fodderSelectedIds = [];
+  renderTavernSquad();
+}
+
+async function confirmFodderStars() {
+  const targetId = Number(tavernState.quickFeedTargetId);
+  const ids = (tavernState.fodderSelectedIds || []).map(Number);
+  const need = fodderNeedForTarget(targetId);
+  if (!targetId || ids.length < need) {
+    showToast(`Нужно ${need} корма`, "error");
+    return;
+  }
+  try {
+    const res = await apiFetch("/tavern/fodder-stars", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_id: targetId, fodder_ids: ids }),
+    });
+    if (res?.error) {
+      showToast(res.hint || res.error, "error");
+      return;
+    }
+    cancelFodderPickMode();
+    showToast(`★${res.potential_stars ?? ""}`, "info");
+    await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Прорыв не удался", "error");
+  }
+}
+
+function manualWalletCount(ptype, tier) {
+  const bag = tavernState.drillManuals || {};
+  const row = bag[ptype] || bag[String(ptype).toUpperCase()] || {};
+  if (typeof row === "number") return tier === 2 ? Number(row) || 0 : 0;
+  return Number(row[`t${tier}`] || 0);
+}
+
+function formatManualWalletChips() {
+  const types = ["ATK", "DEF", "SUP"];
+  return types
+    .map((t) => {
+      const a = manualWalletCount(t, 1);
+      const b = manualWalletCount(t, 2);
+      const c = manualWalletCount(t, 3);
+      return `<span class="tavern-manual-chip">${t} T1:${a} T2:${b} T3:${c}</span>`;
+    })
+    .join("");
+}
+
+async function refreshDrillManuals() {
+  try {
+    const st = await apiFetch("/tavern/merc-status");
+    tavernState.drillManuals = st.drill_manuals || {};
+    tavernState.mercGearBag = Array.isArray(st.merc_gear_bag) ? st.merc_gear_bag : [];
+  } catch (_) {
+    /* keep cache */
+  }
+}
+
+function renderTavernInventoryTab() {
+  const invBox = document.getElementById("tavern-page-inv-list");
+  if (!invBox) return;
+  const slotLabels = { weapon: "Оружие", charm: "Амулет", relic: "Реликвия" };
+  const rows = [];
+  const bag = tavernState.mercGearBag || [];
+  for (const g of bag) {
+    if (!g || typeof g !== "object") continue;
+    rows.push({
+      kind: "bag",
+      bagId: g.id,
+      slot: g.slot || "weapon",
+      itemName: g.name || "Предмет",
+      waifuName: "в сумке",
+      score: g.score ?? g.rarity ?? "—",
+    });
+  }
+  for (const unit of allRosterWaifus()) {
+    const pieces = [
+      ["weapon", unit.gear_weapon || unit.gearWeapon],
+      ["charm", unit.gear_charm || unit.gearCharm],
+      ["relic", unit.gear_relic || unit.gearRelic],
+    ];
+    for (const [slot, g] of pieces) {
+      if (!g || typeof g !== "object") continue;
+      rows.push({
+        kind: "eq",
+        waifuId: unit.id,
+        waifuName: unit.name || `#${unit.id}`,
+        slot,
+        itemName: g.name || slotLabels[slot] || slot,
+        score: g.score ?? g.rarity ?? "—",
+      });
+    }
+  }
+  if (!rows.length) {
+    invBox.innerHTML = `<div class="placeholder muted tiny">Сумка и экип пусты — купите ящик в Обмене</div>`;
+    return;
+  }
+  invBox.innerHTML = rows
+    .map((r) => {
+      if (r.kind === "bag") {
+        return `<div class="tavern-inv-row">
+          <span class="ellip">${escapeHtml(String(r.itemName))}</span>
+          <span class="muted">${escapeHtml(slotLabels[r.slot] || r.slot)} · bag</span>
+          <span class="ellip muted">score ${escapeHtml(String(r.score))}</span>
+        </div>`;
+      }
+      return `<button type="button" class="tavern-inv-row" data-inv-waifu="${escapeHtml(String(r.waifuId))}" data-inv-seg="gear">
+        <span class="ellip">${escapeHtml(String(r.itemName))}</span>
+        <span class="muted">${escapeHtml(slotLabels[r.slot] || r.slot)}</span>
+        <span class="ellip muted">на: ${escapeHtml(String(r.waifuName))}</span>
+      </button>`;
+    })
+    .join("");
+  invBox.querySelectorAll("[data-inv-waifu]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.getAttribute("data-inv-waifu"));
+      const target = findRosterWaifu(id);
+      if (!target) return;
+      openTavernWaifuModal(target, { seg: "gear" });
+    });
+  });
+}
+
+function mercCoinIcon(extraClass = "") {
+  const cls = extraClass ? ` merc-coin-ico ${extraClass}` : " merc-coin-ico";
+  return `<span class="${cls.trim()}" title="Merc Coins" aria-label="Merc Coins">MC</span>`;
+}
+
+function arenaOpponentLabel(o) {
+  if (o?.bot) return "Бот";
+  const un = String(o?.username || "").trim().replace(/^@/, "");
+  if (un) return `@${un}`;
+  const dn = String(o?.display_name || "").trim();
+  if (dn) return dn;
+  return `Игрок ${o?.player_id ?? ""}`;
+}
 
 function showTavernError(message, kind = "info") {
   const box = document.getElementById("tavern-hire-error");
@@ -1655,7 +1863,7 @@ function switchTavernTab(name) {
   document.querySelectorAll(".tavern-tabs .tab").forEach((btn) => {
     if (btn.dataset.tab) btn.classList.toggle("active", btn.dataset.tab === name);
   });
-  ["hire", "squad", "arena", "exchange", "heal", "upgrade"].forEach((t) => {
+  ["hire", "squad", "arena", "exchange", "inventory", "heal", "upgrade"].forEach((t) => {
     const panel = document.getElementById(`tab-${t}`);
     if (!panel) return;
     const isActive = t === name;
@@ -1683,6 +1891,12 @@ function switchTavernTab(name) {
   }
   if (name === "exchange") {
     renderTavernExchange().catch(() => {});
+  }
+  if (name === "inventory") {
+    ensureTavernRosterLoaded()
+      .then(() => refreshDrillManuals())
+      .then(() => renderTavernInventoryTab())
+      .catch(() => renderTavernInventoryTab());
   }
   syncTavernPageBackgroundVisibility();
 }
@@ -2201,7 +2415,7 @@ function renderWaifuCardHtml(w, opts = {}) {
   `;
 }
 
-function renderLineupSlotEl(side, slotNum, waifuId) {
+function renderLineupSlotEl(side, slotNum, waifuId, opts = {}) {
   const w = findRosterWaifu(waifuId);
   const el = document.createElement("button");
   el.type = "button";
@@ -2212,16 +2426,19 @@ function renderLineupSlotEl(side, slotNum, waifuId) {
     const url = hiredWaifuImageUrl(w, "thumb");
     const img = url
       ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />`
-      : `<span aria-hidden="true">${waifuPortraitEmoji(w)}</span>`;
-    el.innerHTML = `${img}<span>${escapeHtml(String(w.name || "—"))}</span><span class="muted tiny">CR ${escapeHtml(String(hiredCr(w)))}</span>`;
+      : `<span class="tavern-lineup-portrait-fallback" aria-hidden="true">${waifuPortraitEmoji(w)}</span>`;
+    el.innerHTML = `${img}<span class="tavern-lineup-overlay"><span class="tavern-lineup-name">${escapeHtml(String(w.name || "—"))}</span><span class="tavern-lineup-cr muted">CR ${escapeHtml(String(hiredCr(w)))}</span></span>`;
     el.onclick = () => openTavernWaifuModal(w);
   } else {
-    el.innerHTML = `<span style="opacity:.5;font-size:18px">＋</span><span>${side.toUpperCase()} ${slotNum}</span>`;
+    el.innerHTML = `<span class="tavern-lineup-empty"><span style="font-size:18px">＋</span><span>${side.toUpperCase()} ${slotNum}</span></span>`;
     el.onclick = () => {
       tavernState.lineupPick = { side, slot: slotNum };
-      showToast(`Выберите наёмницу для ${side.toUpperCase()} ${slotNum}`);
-      // highlight bench — next bench tap assigns
-      renderTavernSquad();
+      if (opts.fromArena) {
+        if (typeof switchTavernTab === "function") switchTavernTab("squad");
+        else renderTavernSquad();
+      } else {
+        renderTavernSquad();
+      }
     };
   }
   return el;
@@ -2268,37 +2485,44 @@ function renderTavernSquad() {
     if (tavernState.lineupPick) {
       feedBanner.textContent = `Выбор для ${tavernState.lineupPick.side.toUpperCase()} ${tavernState.lineupPick.slot} — тап по скамейке`;
     } else if (tavernState.quickFeedMode) {
-      feedBanner.textContent = "Quick Feed: выберите наёмницу-корм (ещё раз по цели — отмена)";
+      const need = fodderNeedForTarget(tavernState.quickFeedTargetId);
+      const have = (tavernState.fodderSelectedIds || []).length;
+      feedBanner.innerHTML = `Прорыв ★: нужно <strong>${need}</strong>, выбрано <strong>${have}</strong> · тап по корму · <button type="button" class="tavern-btn tavern-btn-mini" id="tavern-fodder-confirm-btn"${have < need ? " disabled" : ""}>Прорвать</button> <button type="button" class="tavern-btn tavern-btn-mini" id="tavern-fodder-cancel-btn">Отмена</button>`;
     } else {
       feedBanner.textContent = "";
     }
   }
 
+  // Hire empties only pad the last page.
+  const totalPages = Math.max(1, Math.ceil(bench.length / BENCH_PAGE_SIZE) || 1);
+  if (tavernState.benchPage >= totalPages) tavernState.benchPage = Math.max(0, totalPages - 1);
+  if (tavernState.benchPage < 0) tavernState.benchPage = 0;
+  const page = tavernState.benchPage;
+  const pageSlice = bench.slice(page * BENCH_PAGE_SIZE, page * BENCH_PAGE_SIZE + BENCH_PAGE_SIZE);
+  const isLastPage = page >= totalPages - 1;
+  const hireEmptyBudget = Math.max(0, Math.min(BENCH_PAGE_SIZE - pageSlice.length, poolMax - roster.length));
+  const emptySlots = isLastPage ? hireEmptyBudget : 0;
+
   box.innerHTML = "";
-  const emptySlots = Math.max(0, Math.min(3, poolMax - roster.length));
 
   const renderCard = (w) => {
     const rarity = Number(w?.rarity ?? 1);
     const rCls = rarityClass(rarity);
-    const clsId = Number(w?.class ?? w?.class_ ?? 0);
-    const raceId = Number(w?.race ?? 0);
-    const { first, last } = hiredWaifuNameLines(w?.name);
-    const stars = Number(w?.potentialStars ?? w?.potential_stars ?? 0);
-    const arch = hiredArchetypeLabel(w);
-    const meta = `${escapeHtml(raceName(raceId))} · ${escapeHtml(className(clsId))} · Ур.${escapeHtml(String(w?.level ?? "—"))} · CR ${escapeHtml(String(hiredCr(w)))}${stars ? ` · ★${stars}` : ""}${arch ? ` · ${escapeHtml(arch)}` : ""}`;
+    const cr = hiredCr(w);
+    const pips = typePipsHtml([w]);
     const perkIds = perkIdsCapped(w, 3);
-    const perkBadges = perkIds.length
-      ? perkIds
+    const perkDots = perkIds.length
+      ? `<div class="squad-mtg-perks squad-mtg-perks--bench" aria-hidden="true">${perkIds
           .map((pid) => {
-            const label = String(perksMap[pid] || mercPerkTip(pid).name);
-            const ico =
-              typeof perkIconHtml === "function"
-                ? perkIconHtml(pid, { className: "squad-mtg-perk-ico-img", title: label })
-                : PERK_ICONS[pid] || "✦";
-            return `<span class="squad-mtg-perk-ico" title="${escapeHtml(label)}">${ico}</span>`;
+            const p = String(pid);
+            const label = String(perksMap[p] || p);
+            if (typeof perkIconHtml === "function") {
+              return perkIconHtml(p, { className: "squad-mtg-perk-ico-img", title: label });
+            }
+            return `<span class="squad-mtg-perk-ico" title="${escapeHtml(label)}">${PERK_ICONS[p] || "✦"}</span>`;
           })
-          .join("")
-      : `<span class="muted tiny" style="opacity:.75;">—</span>`;
+          .join("")}</div>`
+      : "";
     const url = hiredWaifuImageUrl(w, "full");
     const portraitLayer = url
       ? `<img class="squad-mtg-bg-img" src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />`
@@ -2306,8 +2530,9 @@ function renderTavernSquad() {
     const bgCls = url ? "squad-mtg-bg" : "squad-mtg-bg squad-mtg-bg--placeholder";
     const uiSt = hiredWaifuPoolUiStatus(w);
     const statusCls = `squad-mtg-card--${uiSt.key}`;
+    const fodderSel = (tavernState.fodderSelectedIds || []).map(Number).includes(Number(w.id));
     const slot = document.createElement("div");
-    slot.className = "squad-slot occupied";
+    slot.className = `squad-slot occupied${fodderSel ? " squad-slot--fodder-sel" : ""}`;
     slot.setAttribute("role", "button");
     slot.tabIndex = 0;
     slot.innerHTML = `
@@ -2316,15 +2541,9 @@ function renderTavernSquad() {
         <div class="squad-mtg-scrim-top" aria-hidden="true"></div>
         <div class="squad-mtg-scrim-bottom" aria-hidden="true"></div>
         <div class="squad-mtg-status-hatch" aria-hidden="true"></div>
-        <div class="squad-mtg-top">
-          <div class="squad-mtg-name-lines">
-            <div class="squad-mtg-name-first">${escapeHtml(first)}</div>
-            ${last ? `<div class="squad-mtg-name-last">${escapeHtml(last)}</div>` : ""}
-          </div>
-        </div>
+        ${perkDots}
         <div class="squad-mtg-bottom">
-          <div class="squad-mtg-meta">${meta}</div>
-          <div class="squad-mtg-perks">${perkBadges}</div>
+          <div class="squad-mtg-cr-row">${pips}<span class="squad-mtg-cr-val">CR ${escapeHtml(String(cr))}</span></div>
         </div>
       </div>`;
     const open = () => {
@@ -2335,14 +2554,7 @@ function renderTavernSquad() {
         return;
       }
       if (tavernState.quickFeedMode && tavernState.quickFeedTargetId) {
-        if (Number(w.id) === Number(tavernState.quickFeedTargetId)) {
-          tavernState.quickFeedMode = false;
-          tavernState.quickFeedTargetId = null;
-          renderTavernSquad();
-          showToast("Quick Feed отменён");
-          return;
-        }
-        tavernQuickFeedApply(tavernState.quickFeedTargetId, w.id);
+        toggleFodderSelection(w);
         return;
       }
       openTavernWaifuModal(w);
@@ -2357,7 +2569,7 @@ function renderTavernSquad() {
     box.appendChild(slot);
   };
 
-  bench.forEach(renderCard);
+  pageSlice.forEach(renderCard);
 
   for (let i = 0; i < emptySlots; i += 1) {
     const empty = document.createElement("div");
@@ -2369,6 +2581,47 @@ function renderTavernSquad() {
 
   if (!bench.length && !emptySlots) {
     box.innerHTML = `<div class="placeholder muted">Скамейка пуста — все в ATK/DEF или наймите новых</div>`;
+  }
+
+  const pager = document.getElementById("tavern-bench-pager");
+  const pageLabel = document.getElementById("tavern-bench-page-label");
+  const prevBtn = document.getElementById("tavern-bench-prev");
+  const nextBtn = document.getElementById("tavern-bench-next");
+  if (pager) {
+    const showPager = totalPages > 1;
+    pager.hidden = !showPager;
+    if (pageLabel) pageLabel.textContent = `${page + 1}/${totalPages}`;
+    if (prevBtn && !prevBtn.dataset.wired) {
+      prevBtn.dataset.wired = "1";
+      prevBtn.onclick = () => {
+        tavernState.benchPage = Math.max(0, tavernState.benchPage - 1);
+        renderTavernSquad();
+      };
+    }
+    if (nextBtn && !nextBtn.dataset.wired) {
+      nextBtn.dataset.wired = "1";
+      nextBtn.onclick = () => {
+        tavernState.benchPage += 1;
+        renderTavernSquad();
+      };
+    }
+    if (prevBtn) prevBtn.disabled = page <= 0;
+    if (nextBtn) nextBtn.disabled = page >= totalPages - 1;
+  }
+
+  const fodConfirm = document.getElementById("tavern-fodder-confirm-btn");
+  if (fodConfirm) {
+    fodConfirm.onclick = (ev) => {
+      ev.stopPropagation();
+      confirmFodderStars().catch(() => {});
+    };
+  }
+  const fodCancel = document.getElementById("tavern-fodder-cancel-btn");
+  if (fodCancel) {
+    fodCancel.onclick = (ev) => {
+      ev.stopPropagation();
+      cancelFodderPickMode();
+    };
   }
 }
 
@@ -2536,11 +2789,12 @@ function setTavernWaifuModalPageScrollLocked(locked) {
   }
 }
 
-function openTavernWaifuModal(w) {
+function openTavernWaifuModal(w, opts = {}) {
   tavernState.selectedWaifu = w || null;
   const m = document.getElementById("tavern-waifu-modal");
   const body = document.getElementById("tavern-waifu-modal-body");
   if (!m || !body || !w) return;
+  const initialSeg = opts.seg || tavernState.modalSeg || "overview";
 
   const clsId = Number(w?.class ?? w?.class_ ?? w?.["class"]);
   const raceId = Number(w?.race);
@@ -2549,6 +2803,32 @@ function openTavernWaifuModal(w) {
   const nm = String(w?.name || "Вайфу");
   const perksMap = tavernState.perksMap || {};
   const perkIds = perkIdsCapped(w, 3);
+  const level = Number(w?.level ?? 1);
+  const expInLevel = Math.max(0, Number(w?.expCurrent ?? w?.exp_current ?? 0));
+  const expNeed = Math.max(
+    1,
+    Number(w?.expToNext ?? w?.exp_to_next ?? expToNextForHiredLevel(level))
+  );
+  const expPct = Math.min(100, Math.round((expInLevel / expNeed) * 100));
+  const xpBarHtml =
+    level >= 1 && level < 50
+      ? `<div class="waifu-mtg-xp full-bar-row"><div class="full-bar-label"><span>Опыт</span><span>${expInLevel}/${expNeed}</span></div><div class="full-bar"><div class="full-bar-fill" style="width:${expPct}%;background:linear-gradient(90deg,#c8922a,#e8b84b);"></div></div></div>`
+      : level >= 50
+        ? `<div class="waifu-mtg-xp waifu-mtg-xp--max">Макс. уровень</div>`
+        : "";
+  const bioText = (w?.bio && String(w.bio).trim()) ? String(w.bio).trim() : "Биография не задана.";
+  const arch = hiredArchetypeLabel(w);
+  const stars = Number(w?.potentialStars ?? w?.potential_stars ?? 0);
+  const typeBar = `${escapeHtml(raceName(raceId))} · ${escapeHtml(className(clsId))} · ${escapeHtml(rarityLabel(rarity))} · CR ${escapeHtml(String(hiredCr(w)))}${stars ? ` · ★${stars}` : ""}${arch ? ` · ${escapeHtml(arch)}` : ""}`;
+  const imgUrl = hiredWaifuImageUrl(w, "full");
+  const portraitInner = imgUrl
+    ? `<img class="waifu-mtg-art-img" src="${escapeHtml(imgUrl)}" alt="" loading="lazy" decoding="async" />`
+    : `<div class="waifu-mtg-art-placeholder" aria-hidden="true">${waifuPortraitEmoji(w)}</div>`;
+  const adminArtBtn =
+    typeof isAdminUiEnabled === "function" && isAdminUiEnabled() && Number(w?.id) > 0
+      ? `<span class="hired-waifu-art-generate-btn" role="button" tabindex="0" data-waifu-id="${escapeHtml(String(w.id))}" title="Сгенерировать портрет (admin)" aria-label="Сгенерировать портрет наёмницы">${typeof ITEM_ART_GEN_SVG === "string" ? ITEM_ART_GEN_SVG : "🖼"}</span>`
+      : "";
+
   const perkCells = perkIds.length
     ? perkIds
         .map((pid) => {
@@ -2564,198 +2844,236 @@ function openTavernWaifuModal(w) {
         .join("")
     : `<div class="waifu-mtg-no-perks">Нет перков</div>`;
 
-  const imgUrl = hiredWaifuImageUrl(w, "full");
-  const portraitInner = imgUrl
-    ? `<img class="waifu-mtg-art-img" src="${escapeHtml(imgUrl)}" alt="" loading="lazy" decoding="async" />`
-    : `<div class="waifu-mtg-art-placeholder" aria-hidden="true">${waifuPortraitEmoji(w)}</div>`;
-  const adminArtBtn =
-    typeof isAdminUiEnabled === "function" && isAdminUiEnabled() && Number(w?.id) > 0
-      ? `<span class="item-art-generate-btn hired-waifu-art-generate-btn" role="button" tabindex="0" data-waifu-id="${escapeHtml(String(w.id))}" title="Сгенерировать портрет (admin)" aria-label="Сгенерировать портрет наёмницы">${typeof ITEM_ART_GEN_SVG === "string" ? ITEM_ART_GEN_SVG : "🖼"}</span>`
-      : "";
-
-  const level = Number(w?.level ?? 1);
-  const expInLevel = Math.max(0, Number(w?.expCurrent ?? w?.exp_current ?? 0));
-  const expNeed = Math.max(
-    1,
-    Number(w?.expToNext ?? w?.exp_to_next ?? expToNextForHiredLevel(level))
-  );
-  const expPct = Math.min(100, Math.round((expInLevel / expNeed) * 100));
-  const xpBarHtml =
-    level >= 1 && level < 50
-      ? `<div class="waifu-mtg-xp full-bar-row"><div class="full-bar-label"><span>Опыт</span><span>${expInLevel}/${expNeed}</span></div><div class="full-bar"><div class="full-bar-fill" style="width:${expPct}%;background:linear-gradient(90deg,#c8922a,#e8b84b);"></div></div></div>`
-      : level >= 50
-        ? `<div class="waifu-mtg-xp waifu-mtg-xp--max">Макс. уровень</div>`
-        : "";
-
-  const bioText = (w?.bio && String(w.bio).trim()) ? String(w.bio).trim() : "Биография не задана.";
-  const arch = hiredArchetypeLabel(w);
-  const stars = Number(w?.potentialStars ?? w?.potential_stars ?? 0);
-  const typeBar = `${escapeHtml(raceName(raceId))} · ${escapeHtml(className(clsId))} · ${escapeHtml(rarityLabel(rarity))} · CR ${escapeHtml(String(hiredCr(w)))}${stars ? ` · ★${stars}` : ""}${arch ? ` · ${escapeHtml(arch)}` : ""}`;
-
-  body.innerHTML = `
-    <div class="tavern-waifu-mtg-wrap">
-      <div class="waifu-mtg-flip-scene">
-        <div class="waifu-mtg-flip-inner" id="waifu-mtg-flip-inner">
-          <div class="waifu-mtg-face waifu-mtg-face--front">
-            <div class="waifu-mtg-card ${rCls}">
-              <div class="waifu-mtg-art${adminArtBtn ? " waifu-mtg-art--admin" : ""}">
-                <span class="item-art-admin-wrap hired-waifu-art-admin-wrap">${portraitInner}${adminArtBtn}</span>
-                <div class="waifu-mtg-art-scrim" aria-hidden="true"></div>
-                <header class="waifu-mtg-header-row">
-                  <h2 class="waifu-mtg-name">${escapeHtml(nm)}</h2>
-                  <div class="waifu-mtg-lvl-badge" title="Уровень"><span class="waifu-mtg-lvl-num">${escapeHtml(String(level))}</span></div>
-                </header>
-                <div class="waifu-mtg-lower-overlay">
-                  <div class="waifu-mtg-typebar">
-                    ${typeBar}
-                  </div>
-                  <div class="waifu-mtg-perks-head">
-                    <span class="waifu-mtg-perks-label">Перки</span>
-                    <button type="button" class="waifu-mtg-bio-chip" data-flip-to="back">BIO</button>
-                  </div>
-                  <div class="waifu-mtg-perk-grid">${perkCells}</div>
-                </div>
-                <div class="tavern-perk-tip" id="tavern-perk-tip" role="dialog" aria-modal="true" hidden>
-                  <div class="tavern-perk-tip-name" id="tavern-perk-tip-name"></div>
-                  <div class="tavern-perk-tip-desc" id="tavern-perk-tip-desc"></div>
-                  <div class="tavern-perk-tip-diff" id="tavern-perk-tip-diff"></div>
-                  <button type="button" class="tavern-perk-tip-close tavern-btn-mini">Понятно</button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="waifu-mtg-face waifu-mtg-face--back">
-            <div class="waifu-mtg-card ${rCls} waifu-mtg-card--backface">
-              <div class="waifu-mtg-bio-back-head">
-                <span class="waifu-mtg-bio-back-title">${escapeHtml(nm)}</span>
-                <button type="button" class="waifu-mtg-bio-chip" data-flip-to="front">Перки</button>
-              </div>
-              <div class="waifu-mtg-bio-back-text"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      ${xpBarHtml}
-      <div class="tavern-waifu-seg-tabs" id="tavern-waifu-seg-tabs">
-        <button type="button" class="tavern-btn tavern-btn-mini active" data-seg="overview">Обзор</button>
-        <button type="button" class="tavern-btn tavern-btn-mini" data-seg="gear">Шмот</button>
-        <button type="button" class="tavern-btn tavern-btn-mini" data-seg="lineup">Состав</button>
-        <button type="button" class="tavern-btn tavern-btn-mini" data-seg="train">Прокачка</button>
-      </div>
-      <div id="tavern-waifu-seg-overview" class="tavern-waifu-seg">
-        <div class="muted tiny">${arch ? escapeHtml(arch) : "Архетип —"} · ★${stars}</div>
-      </div>
-      <div id="tavern-waifu-seg-gear" class="tavern-waifu-seg" style="display:none;">
-        <div class="tavern-gear-slots" id="tavern-gear-slots"></div>
-      </div>
-      <div id="tavern-waifu-seg-lineup" class="tavern-waifu-seg" style="display:none;">
-      <div class="tavern-waifu-lineup-actions" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">
-        <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="atk" data-lineup-slot="1">ATK 1</button>
-        <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="atk" data-lineup-slot="2">ATK 2</button>
-        <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="atk" data-lineup-slot="3">ATK 3</button>
-        <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="def" data-lineup-slot="1">DEF 1</button>
-        <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="def" data-lineup-slot="2">DEF 2</button>
-        <button type="button" class="tavern-btn tavern-btn-mini" data-lineup-side="def" data-lineup-slot="3">DEF 3</button>
-        <button type="button" class="tavern-btn tavern-btn-mini" id="tavern-btn-clear-lineup">Со скамейки</button>
-      </div>
-      </div>
-      <div id="tavern-waifu-seg-train" class="tavern-waifu-seg" style="display:none;">
-        <button type="button" class="tavern-btn tavern-btn-primary tavern-btn-mini" id="tavern-btn-quick-feed">Quick Feed ★</button>
-      </div>
-    </div>
-  `;
-
-  const bioBack = body.querySelector(".waifu-mtg-bio-back-text");
-  if (bioBack) bioBack.textContent = bioText;
-
-  const flipInner = body.querySelector("#waifu-mtg-flip-inner");
-  body.querySelectorAll("[data-flip-to]").forEach((btn) => {
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      hideTavernPerkTip(body);
-      const to = btn.getAttribute("data-flip-to");
-      if (!flipInner) return;
-      if (to === "back") flipInner.classList.add("is-flipped");
-      else flipInner.classList.remove("is-flipped");
-    });
-  });
-
-  const tipEl = body.querySelector("#tavern-perk-tip");
-  const tipName = body.querySelector("#tavern-perk-tip-name");
-  const tipDesc = body.querySelector("#tavern-perk-tip-desc");
-  const tipDiff = body.querySelector("#tavern-perk-tip-diff");
-  const tipClose = body.querySelector(".tavern-perk-tip-close");
-
-  body.querySelectorAll(".waifu-mtg-perk-cell").forEach((cell) => {
-    cell.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      const pid = cell.getAttribute("data-perk-id") || "";
-      if (!tipEl || !tipName || !tipDesc || !tipDiff) return;
-      const tip = mercPerkTip(pid);
-      tipName.textContent = tip.name;
-      tipDesc.textContent = tip.flavor;
-      tipDiff.textContent = tip.effect;
-      tipEl.hidden = false;
-      tipEl.classList.add("tavern-perk-tip--open");
-    });
-  });
-
-  if (tipClose) {
-    tipClose.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      hideTavernPerkTip(body);
-    });
-  }
-
-  const backFace = body.querySelector(".waifu-mtg-face--back");
-  if (backFace && flipInner) {
-    backFace.addEventListener("click", () => {
-      if (!flipInner.classList.contains("is-flipped")) return;
-      hideTavernPerkTip(body);
-      flipInner.classList.remove("is-flipped");
-    });
-  }
-
-  const showSeg = (seg) => {
-    tavernState.modalSeg = seg;
-    ["overview", "gear", "lineup", "train"].forEach((s) => {
-      const el = body.querySelector(`#tavern-waifu-seg-${s}`);
-      if (el) el.style.display = s === seg ? "" : "none";
-    });
-    body.querySelectorAll("[data-seg]").forEach((b) => b.classList.toggle("active", b.getAttribute("data-seg") === seg));
-  };
-  body.querySelectorAll("[data-seg]").forEach((btn) => {
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      showSeg(btn.getAttribute("data-seg"));
-    });
-  });
-  showSeg("overview");
-
-  const gearBox = body.querySelector("#tavern-gear-slots");
-  if (gearBox) {
+  const gearSlotHtml = (() => {
     const slots = [
       { key: "weapon", label: "Оружие", g: w.gear_weapon || w.gearWeapon },
       { key: "charm", label: "Амулет", g: w.gear_charm || w.gearCharm },
       { key: "relic", label: "Реликвия", g: w.gear_relic || w.gearRelic },
     ];
-    gearBox.innerHTML = slots
+    const bag = tavernState.mercGearBag || [];
+    return slots
       .map((s) => {
         const g = s.g && typeof s.g === "object" ? s.g : null;
         const title = g ? escapeHtml(g.name || s.label) : escapeHtml(s.label);
         const sub = g ? `score ${g.score ?? g.rarity ?? 0}` : "пусто";
-        return `<div class="tavern-gear-slot" data-gear-slot="${s.key}">
+        const bagOpts = bag
+          .filter((it) => String(it?.slot || "") === s.key)
+          .map(
+            (it) =>
+              `<option value="${escapeHtml(String(it.id))}">${escapeHtml(String(it.name || s.key))} · ${escapeHtml(String(it.score ?? 0))}</option>`
+          )
+          .join("");
+        const equipCtl = g
+          ? `<button type="button" class="tavern-btn tavern-btn-mini" data-gear-disassemble="${s.key}">Разобрать</button>`
+          : bagOpts
+            ? `<div class="tavern-gear-bag-pick"><select data-gear-bag-select="${s.key}"><option value="">Из сумки…</option>${bagOpts}</select>
+               <button type="button" class="tavern-btn tavern-btn-mini" data-gear-equip-bag="${s.key}">Экип</button></div>`
+            : `<span class="muted tiny">Сумка пуста</span>`;
+        return `<div class="tavern-gear-slot-oncard" data-gear-slot="${s.key}">
           <div><strong>${title}</strong></div>
           <div class="muted tiny">${sub}</div>
-          ${
-            g
-              ? `<button type="button" class="tavern-btn tavern-btn-mini" data-gear-disassemble="${s.key}">Разобрать</button>`
-              : `<button type="button" class="tavern-btn tavern-btn-mini" data-gear-equip="${s.key}">Экип stub</button>`
-          }
+          ${equipCtl}
         </div>`;
       })
       .join("");
-    gearBox.querySelectorAll("[data-gear-disassemble]").forEach((btn) => {
+  })();
+
+  const lineupGridHtml = (() => {
+    const lu = tavernState.lineup || { atk: [null, null, null], def: [null, null, null] };
+    const cell = (side, i) => {
+      const id = lu[side]?.[i];
+      const u = id ? findRosterWaifu(id) : null;
+      const mine = u && Number(u.id) === Number(w.id);
+      const label = u ? escapeHtml(String(u.name || `#${u.id}`).split(" ")[0]) : "—";
+      return `<button type="button" class="tavern-modal-lineup-cell${mine ? " is-mine" : ""}" data-lineup-side="${side}" data-lineup-slot="${i + 1}">
+        <span class="tiny muted">${side.toUpperCase()} ${i + 1}</span>
+        <span class="ellip">${label}</span>
+      </button>`;
+    };
+    return `<div class="tavern-modal-lineup-grid">
+      ${[0, 1, 2].map((i) => cell("atk", i)).join("")}
+      ${[0, 1, 2].map((i) => cell("def", i)).join("")}
+    </div>
+    <div class="tavern-waifu-lineup-actions" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">
+      <button type="button" class="tavern-btn tavern-btn-mini" id="tavern-btn-clear-lineup">Со скамейки</button>
+    </div>`;
+  })();
+
+  const hard = perkHardCap(stars);
+  const needNext = stars >= 5 ? 0 : STAR_FODDER_COST[stars + 1] || 0;
+  const buildTrainHtml = () => {
+    const catalog = tavernState.perksCatalog || {};
+    const perkLevels = w.perkLevels || w.perk_levels || {};
+    const trainPerkRows = perkIds
+      .map((pid) => {
+        const p = String(pid);
+        const tip = typeof mercPerkTip === "function" ? mercPerkTip(p) : { name: perksMap[p] || p };
+        const lv = Number(perkLevels[p] ?? 1);
+        const meta = catalog[p] || {};
+        const ptype = String(meta.type || meta.perk_type || meta.perkType || "ATK").toUpperCase();
+        let prefer = null;
+        for (let t = 1; t <= 3; t += 1) {
+          if (lv < perkSoftCap(stars, t) && lv < hard) {
+            prefer = t;
+            break;
+          }
+        }
+        const chips = [1, 2, 3]
+          .map((t) => {
+            const soft = perkSoftCap(stars, t);
+            const blocked = lv >= soft || lv >= hard;
+            const have = manualWalletCount(ptype, t);
+            const active = prefer === t && !blocked;
+            return `<button type="button" class="tavern-tier-chip${active ? " is-ready" : ""}" data-apply-perk="${escapeHtml(p)}" data-tier="${t}" ${blocked || have < 1 ? "disabled" : ""} title="${ptype} T${t} · soft ${soft}">T${t} (${have})</button>`;
+          })
+          .join("");
+        return `<div class="tavern-train-perk-row">
+          <div class="tavern-train-perk-meta"><strong>${escapeHtml(tip.name || p)}</strong> · ур. ${lv}/${hard} · ${ptype}</div>
+          <div class="tavern-train-perk-actions">${chips}</div>
+        </div>`;
+      })
+      .join("") || `<div class="muted tiny">Нет перков</div>`;
+    return `<div class="tavern-train-stage">
+      <div class="tavern-train-head">★ ${stars}/5 · CR ${escapeHtml(String(hiredCr(w)))} · XP ${expInLevel}/${expNeed}</div>
+      <div class="tavern-train-potential">
+        <div>Потенциал: до следующей ★ нужно <strong>${needNext || "—"}</strong> корма</div>
+        <button type="button" class="tavern-btn tavern-btn-primary tavern-btn-mini" id="tavern-btn-quick-feed"${stars >= 5 ? " disabled" : ""}>Выбрать корм</button>
+      </div>
+      <div class="tavern-train-perks">${trainPerkRows}</div>
+      <div class="tavern-manual-wallet">${formatManualWalletChips()}</div>
+      <button type="button" class="tavern-btn tavern-btn-mini" id="tavern-btn-convert-manual">Конверт → T2 учебник</button>
+    </div>`;
+  };
+
+  const portraitCard = (lowerOverlay, { flip = true } = {}) => {
+    const tipBlock = flip
+      ? `<div class="tavern-perk-tip" id="tavern-perk-tip" role="dialog" aria-modal="true" hidden>
+                <div class="tavern-perk-tip-name" id="tavern-perk-tip-name"></div>
+                <div class="tavern-perk-tip-desc" id="tavern-perk-tip-desc"></div>
+                <div class="tavern-perk-tip-diff" id="tavern-perk-tip-diff"></div>
+                <button type="button" class="tavern-perk-tip-close tavern-btn-mini">Понятно</button>
+              </div>`
+      : "";
+    const front = `<div class="waifu-mtg-card ${rCls}">
+            <div class="waifu-mtg-art${adminArtBtn ? " waifu-mtg-art--admin" : ""}">
+              <span class="item-art-admin-wrap hired-waifu-art-admin-wrap">${portraitInner}${adminArtBtn}</span>
+              <div class="waifu-mtg-art-scrim" aria-hidden="true"></div>
+              <header class="waifu-mtg-header-row">
+                <h2 class="waifu-mtg-name">${escapeHtml(nm)}</h2>
+                <div class="waifu-mtg-lvl-badge" title="Уровень"><span class="waifu-mtg-lvl-num">${escapeHtml(String(level))}</span></div>
+              </header>
+              <div class="waifu-mtg-lower-overlay">${lowerOverlay}</div>
+              ${tipBlock}
+            </div>
+          </div>`;
+    if (!flip) return `<div class="waifu-mtg-flip-scene"><div class="waifu-mtg-face waifu-mtg-face--front">${front}</div></div>`;
+    return `
+    <div class="waifu-mtg-flip-scene">
+      <div class="waifu-mtg-flip-inner" id="waifu-mtg-flip-inner">
+        <div class="waifu-mtg-face waifu-mtg-face--front">${front}</div>
+        <div class="waifu-mtg-face waifu-mtg-face--back">
+          <div class="waifu-mtg-card ${rCls} waifu-mtg-card--backface">
+            <div class="waifu-mtg-bio-back-head">
+              <span class="waifu-mtg-bio-back-title">${escapeHtml(nm)}</span>
+              <button type="button" class="waifu-mtg-bio-chip" data-flip-to="front">Перки</button>
+            </div>
+            <div class="waifu-mtg-bio-back-text"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  const overviewLower = `
+    <div class="waifu-mtg-typebar">${typeBar}</div>
+    <div class="waifu-mtg-perks-head">
+      <span class="waifu-mtg-perks-label">Перки</span>
+      <button type="button" class="waifu-mtg-bio-chip" data-flip-to="back">BIO</button>
+    </div>
+    <div class="waifu-mtg-perk-grid">${perkCells}</div>`;
+
+  const gearLower = `
+    <div class="waifu-mtg-typebar">${typeBar}</div>
+    <div class="waifu-mtg-perks-head"><span class="waifu-mtg-perks-label">Шмот</span></div>
+    <div class="waifu-mtg-gear-oncard">${gearSlotHtml}</div>`;
+
+  body.innerHTML = `
+    <div class="tavern-waifu-mtg-wrap">
+      <div id="tavern-waifu-card-stage" data-mode="overview"></div>
+      ${xpBarHtml}
+      <div class="tavern-waifu-seg-tabs" id="tavern-waifu-seg-tabs" role="tablist">
+        <button type="button" class="tavern-seg-tab" data-seg="overview" role="tab">Обзор</button>
+        <button type="button" class="tavern-seg-tab" data-seg="gear" role="tab">Шмот</button>
+        <button type="button" class="tavern-seg-tab" data-seg="lineup" role="tab">Состав</button>
+        <button type="button" class="tavern-seg-tab" data-seg="train" role="tab">Прокачка</button>
+      </div>
+    </div>
+  `;
+
+  const stage = body.querySelector("#tavern-waifu-card-stage");
+
+  const wirePortraitCommon = () => {
+    const bioBack = body.querySelector(".waifu-mtg-bio-back-text");
+    if (bioBack) bioBack.textContent = bioText;
+    const flipInner = body.querySelector("#waifu-mtg-flip-inner");
+    body.querySelectorAll("[data-flip-to]").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        hideTavernPerkTip(body);
+        const to = btn.getAttribute("data-flip-to");
+        if (!flipInner) return;
+        if (to === "back") flipInner.classList.add("is-flipped");
+        else flipInner.classList.remove("is-flipped");
+      });
+    });
+    const tipEl = body.querySelector("#tavern-perk-tip");
+    const tipName = body.querySelector("#tavern-perk-tip-name");
+    const tipDesc = body.querySelector("#tavern-perk-tip-desc");
+    const tipDiff = body.querySelector("#tavern-perk-tip-diff");
+    const tipClose = body.querySelector(".tavern-perk-tip-close");
+    body.querySelectorAll(".waifu-mtg-perk-cell").forEach((cell) => {
+      cell.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const pid = cell.getAttribute("data-perk-id") || "";
+        if (!tipEl || !tipName || !tipDesc || !tipDiff) return;
+        const tip = mercPerkTip(pid);
+        tipName.textContent = tip.name;
+        tipDesc.textContent = tip.flavor;
+        tipDiff.textContent = tip.effect;
+        tipEl.hidden = false;
+        tipEl.classList.add("tavern-perk-tip--open");
+      });
+    });
+    if (tipClose) {
+      tipClose.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        hideTavernPerkTip(body);
+      });
+    }
+    const backFace = body.querySelector(".waifu-mtg-face--back");
+    if (backFace && flipInner) {
+      backFace.addEventListener("click", () => {
+        if (!flipInner.classList.contains("is-flipped")) return;
+        hideTavernPerkTip(body);
+        flipInner.classList.remove("is-flipped");
+      });
+    }
+    const adminGenBtn = body.querySelector(".hired-waifu-art-generate-btn");
+    if (adminGenBtn) {
+      const activate = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        handleHiredWaifuArtGenerateClick(adminGenBtn);
+      };
+      adminGenBtn.addEventListener("click", activate);
+      adminGenBtn.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") activate(ev);
+      });
+    }
+  };
+
+  const wireGearActions = () => {
+    body.querySelectorAll("[data-gear-disassemble]").forEach((btn) => {
       btn.addEventListener("click", async (ev) => {
         ev.stopPropagation();
         const slot = btn.getAttribute("data-gear-disassemble");
@@ -2765,77 +3083,163 @@ function openTavernWaifuModal(w) {
             { method: "POST" }
           );
           showToast(`+${res.dust_gained || 0} пыли`, "info");
-          openTavernWaifuModal({ ...w, [`gear_${slot}`]: null });
+          openTavernWaifuModal({ ...w, [`gear_${slot}`]: null }, { seg: "gear" });
         } catch (e) {
           const { detail } = parseHttpErrorDetail(e);
           showToast(detail || "Не удалось разобрать", "error");
         }
       });
     });
-    gearBox.querySelectorAll("[data-gear-equip]").forEach((btn) => {
+    body.querySelectorAll("[data-gear-equip-bag]").forEach((btn) => {
       btn.addEventListener("click", async (ev) => {
         ev.stopPropagation();
-        const slot = btn.getAttribute("data-gear-equip");
+        const slot = btn.getAttribute("data-gear-equip-bag");
+        const sel = body.querySelector(`[data-gear-bag-select="${slot}"]`);
+        const bagItemId = sel?.value;
+        if (!bagItemId) {
+          showToast("Выберите предмет из сумки", "error");
+          return;
+        }
         try {
-          const item = { name: `${slot} scrap`, rarity: 1, score: 3 };
-          await apiFetch("/tavern/gear/equip", {
+          const res = await apiFetch("/tavern/gear/equip", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ waifu_id: w.id, slot, item }),
+            body: JSON.stringify({ waifu_id: w.id, slot, bag_item_id: bagItemId }),
           });
           showToast("Экипировано", "info");
-          openTavernWaifuModal({ ...w, [`gear_${slot}`]: item });
+          await refreshDrillManuals();
+          await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
+          const fresh = findRosterWaifu(w.id) || { ...w, [`gear_${slot}`]: res.item };
+          openTavernWaifuModal(fresh, { seg: "gear" });
         } catch (e) {
           const { detail } = parseHttpErrorDetail(e);
           showToast(detail || "Экип недоступен", "error");
         }
       });
     });
-  }
+  };
 
-  body.querySelectorAll("[data-lineup-side]").forEach((btn) => {
+  const wireLineupActions = () => {
+    body.querySelectorAll("[data-lineup-side]").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const side = btn.getAttribute("data-lineup-side");
+        const slot = Number(btn.getAttribute("data-lineup-slot"));
+        tavernSetLineup(side, slot, w.id);
+      });
+    });
+    const clearBtn = body.querySelector("#tavern-btn-clear-lineup");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const atk = w?.atkSlot ?? w?.atk_slot;
+        const def = w?.defSlot ?? w?.def_slot;
+        if (atk != null) await tavernSetLineup("atk", Number(atk), null);
+        if (def != null) await tavernSetLineup("def", Number(def), null);
+      });
+    }
+  };
+
+  const wireTrainActions = () => {
+    const feedBtn = body.querySelector("#tavern-btn-quick-feed");
+    if (feedBtn) {
+      feedBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        tavernState.quickFeedMode = true;
+        tavernState.quickFeedTargetId = Number(w.id);
+        tavernState.fodderSelectedIds = [];
+        closeTavernWaifuModal();
+        switchTavernTab("squad");
+        renderTavernSquad();
+      });
+    }
+    body.querySelectorAll("[data-apply-perk]").forEach((btn) => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const perkId = btn.getAttribute("data-apply-perk");
+        const tier = Number(btn.getAttribute("data-tier") || 2);
+        try {
+          const res = await apiFetch("/tavern/apply-manual", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ waifu_id: w.id, perk_id: perkId, tier }),
+          });
+          if (res?.error) {
+            showToast(res.hint || res.error, "error");
+            return;
+          }
+          showToast(`Перк → ${res.level}`, "info");
+          await refreshDrillManuals();
+          await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
+          const fresh = findRosterWaifu(w.id) || w;
+          openTavernWaifuModal(fresh, { seg: "train" });
+        } catch (e) {
+          const { detail } = parseHttpErrorDetail(e);
+          showToast(detail || "Не удалось применить", "error");
+        }
+      });
+    });
+    const conv = body.querySelector("#tavern-btn-convert-manual");
+    if (conv) {
+      conv.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        if (!window.confirm(`Конвертировать «${nm}» в T2 учебник? Наёмница исчезнет.`)) return;
+        try {
+          const res = await apiFetch("/tavern/convert-manual", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ waifu_id: w.id }),
+          });
+          if (res?.error) {
+            showToast(res.hint || res.error, "error");
+            return;
+          }
+          showToast(`+T2 ${res.manual_type || ""}`, "info");
+          closeTavernWaifuModal();
+          await refreshDrillManuals();
+          await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
+        } catch (e) {
+          const { detail } = parseHttpErrorDetail(e);
+          showToast(detail || "Конверт не удался", "error");
+        }
+      });
+    }
+  };
+
+  const showSeg = (seg) => {
+    const mode = ["overview", "gear", "lineup", "train"].includes(seg) ? seg : "overview";
+    tavernState.modalSeg = mode;
+    if (stage) stage.setAttribute("data-mode", mode);
+    body.querySelectorAll("[data-seg]").forEach((b) => b.classList.toggle("active", b.getAttribute("data-seg") === mode));
+    if (!stage) return;
+    if (mode === "overview") {
+      stage.innerHTML = portraitCard(overviewLower);
+      wirePortraitCommon();
+    } else if (mode === "gear") {
+      stage.innerHTML = portraitCard(gearLower, { flip: false });
+      wirePortraitCommon();
+      wireGearActions();
+    } else if (mode === "lineup") {
+      stage.innerHTML = `<div class="tavern-modal-lineup-stage">${lineupGridHtml}</div>`;
+      wireLineupActions();
+    } else if (mode === "train") {
+      stage.innerHTML = buildTrainHtml();
+      wireTrainActions();
+    }
+  };
+
+  body.querySelectorAll("[data-seg]").forEach((btn) => {
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      const side = btn.getAttribute("data-lineup-side");
-      const slot = Number(btn.getAttribute("data-lineup-slot"));
-      tavernSetLineup(side, slot, w.id);
+      showSeg(btn.getAttribute("data-seg"));
     });
   });
-  const clearBtn = body.querySelector("#tavern-btn-clear-lineup");
-  if (clearBtn) {
-    clearBtn.addEventListener("click", async (ev) => {
-      ev.stopPropagation();
-      const atk = w?.atkSlot ?? w?.atk_slot;
-      const def = w?.defSlot ?? w?.def_slot;
-      if (atk != null) await tavernSetLineup("atk", Number(atk), null);
-      if (def != null) await tavernSetLineup("def", Number(def), null);
-      if (atk == null && def == null) showToast("Уже на скамейке");
-    });
-  }
-  const feedBtn = body.querySelector("#tavern-btn-quick-feed");
-  if (feedBtn) {
-    feedBtn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      tavernState.quickFeedMode = true;
-      tavernState.quickFeedTargetId = Number(w.id);
-      closeTavernWaifuModal();
-      renderTavernSquad();
-      showToast("Выберите корм для ★");
-    });
-  }
 
-  const adminGenBtn = body.querySelector(".hired-waifu-art-generate-btn");
-  if (adminGenBtn) {
-    const activate = (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      handleHiredWaifuArtGenerateClick(adminGenBtn);
-    };
-    adminGenBtn.addEventListener("click", activate);
-    adminGenBtn.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter" || ev.key === " ") activate(ev);
-    });
-  }
+  const boot = async () => {
+    if (initialSeg === "train" || initialSeg === "gear") await refreshDrillManuals();
+    showSeg(initialSeg);
+  };
+  boot();
 
   setTavernWaifuModalPageScrollLocked(true);
   m.style.display = "grid";
@@ -3151,6 +3555,7 @@ async function adminRefreshTavern() {
 async function loadMercStatusPity() {
   try {
     const st = await apiFetch("/tavern/merc-status");
+    if (st?.drill_manuals) tavernState.drillManuals = st.drill_manuals;
     let bar = document.getElementById("tavern-pity-meter");
     if (!bar) {
       const hire = document.getElementById("tab-hire");
@@ -3261,7 +3666,6 @@ async function tavernSetLineup(side, slot, waifuId) {
       showToast(res.hint || res.error, "error");
       return;
     }
-    showToast(waifuId == null ? "Слот очищен" : `${String(side).toUpperCase()} ${slot}`);
     closeTavernWaifuModal();
     await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
     await renderTavernLineupBars();
@@ -3287,7 +3691,6 @@ async function copyAtkToDef() {
       });
       if (res?.error) throw new Error(res.hint || res.error);
     }
-    showToast("DEF = ATK");
     await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
     await renderTavernLineupBars();
     renderTavernSquad();
@@ -3297,12 +3700,13 @@ async function copyAtkToDef() {
   }
 }
 
-async function tavernQuickFeedApply(targetId, fodderId) {
+async function tavernQuickFeedApply(targetId, fodderIdOrIds) {
+  const ids = Array.isArray(fodderIdOrIds) ? fodderIdOrIds : [fodderIdOrIds];
   try {
     const res = await apiFetch("/tavern/fodder-stars", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target_id: targetId, fodder_ids: [fodderId] }),
+      body: JSON.stringify({ target_id: targetId, fodder_ids: ids.map(Number) }),
     });
     if (res?.error) {
       showToast(res.hint || res.error, "error");
@@ -3310,6 +3714,7 @@ async function tavernQuickFeedApply(targetId, fodderId) {
     }
     tavernState.quickFeedMode = false;
     tavernState.quickFeedTargetId = null;
+    tavernState.fodderSelectedIds = [];
     showToast(`★${res.potential_stars ?? res.stars ?? ""}`, "info");
     await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
   } catch (e) {
@@ -3330,7 +3735,7 @@ function openArenaResult(res) {
   const body = document.getElementById("tavern-arena-result-body");
   const modal = document.getElementById("modal-arena-result");
   if (!body || !modal) {
-    window.alert(JSON.stringify(res));
+    console.info("arena result", res);
     return;
   }
   const win = res.winner === "attacker" ? "Победа" : "Поражение";
@@ -3340,12 +3745,56 @@ function openArenaResult(res) {
   modal.style.display = "flex";
 }
 
+function wireArenaSearchInput() {
+  const input = document.getElementById("tavern-arena-search");
+  if (!input || input.dataset.wired) return;
+  input.dataset.wired = "1";
+  input.value = tavernState.arenaSearchQ || "";
+  input.addEventListener("input", () => {
+    tavernState.arenaSearchQ = input.value || "";
+    if (tavernState.arenaSearchTimer) clearTimeout(tavernState.arenaSearchTimer);
+    tavernState.arenaSearchTimer = setTimeout(() => {
+      loadArenaOpponentsList().catch(() => {});
+    }, 280);
+  });
+}
+
+function renderArenaOpponentsList(opponents, { searching = false } = {}) {
+  const opp = document.getElementById("tavern-arena-opponents");
+  if (!opp) return;
+  const list = opponents || [];
+  if (!list.length) {
+    opp.innerHTML = `<div class="placeholder muted">${searching ? "Никого не найдено" : "Нет соперников"}</div>`;
+    return;
+  }
+  const rows = list
+    .map(
+      (o) => `<div class="tavern-arena-opp">
+        <span class="tavern-arena-opp-name">${escapeHtml(arenaOpponentLabel(o))}</span>
+        <span class="tavern-arena-opp-rating">${escapeHtml(String(o.rating ?? "—"))}</span>
+        <button type="button" class="tavern-btn tavern-btn-primary" onclick="WaifuApp.tavernArenaAttack(${o.player_id || "null"}, ${o.bot ? "true" : "false"})">Атака</button>
+      </div>`
+    )
+    .join("");
+  opp.innerHTML = `<div class="tavern-arena-opp-head"><span>Игрок</span><span style="text-align:right">Рейт</span><span></span></div>${rows}`;
+}
+
+async function loadArenaOpponentsList() {
+  const opp = document.getElementById("tavern-arena-opponents");
+  if (!opp) return;
+  const q = String(tavernState.arenaSearchQ || "").trim();
+  const url = q ? `/arena/opponents?q=${encodeURIComponent(q)}` : "/arena/opponents";
+  const { opponents } = await apiFetch(url);
+  renderArenaOpponentsList(opponents, { searching: Boolean(q) });
+}
+
 async function renderTavernArena() {
   const header = document.getElementById("tavern-arena-header");
   const opp = document.getElementById("tavern-arena-opponents");
   const hist = document.getElementById("tavern-arena-history");
   const defRow = document.getElementById("tavern-arena-def");
   if (!header || !opp) return;
+  wireArenaSearchInput();
   header.textContent = "Загрузка арены…";
   opp.innerHTML = `<div class="placeholder muted">Загрузка соперников…</div>`;
   try {
@@ -3360,16 +3809,7 @@ async function renderTavernArena() {
       const defs = tavernState.lineup?.def || [null, null, null];
       defRow.innerHTML = "";
       for (let i = 0; i < 3; i += 1) {
-        const w = findRosterWaifu(defs[i]);
-        const cell = document.createElement("div");
-        cell.className = `tavern-lineup-slot${w ? " filled" : ""}`;
-        if (w) {
-          const url = hiredWaifuImageUrl(w, "thumb");
-          cell.innerHTML = `${url ? `<img src="${escapeHtml(url)}" alt=""/>` : "🛡"}<span>${escapeHtml(w.name || "—")}</span>`;
-        } else {
-          cell.innerHTML = `<span style="opacity:.5">DEF ${i + 1}</span>`;
-        }
-        defRow.appendChild(cell);
+        defRow.appendChild(renderLineupSlotEl("def", i + 1, defs[i], { fromArena: true }));
       }
     }
     if (!st.unlocked) {
@@ -3377,19 +3817,7 @@ async function renderTavernArena() {
       if (hist) hist.innerHTML = "";
       return;
     }
-    const { opponents } = await apiFetch("/arena/opponents");
-    if (!(opponents || []).length) {
-      opp.innerHTML = `<div class="placeholder muted">Нет соперников</div>`;
-    } else {
-      opp.innerHTML = (opponents || [])
-        .map(
-          (o) => `<div class="tavern-arena-opp">
-        <span>${o.bot ? "Бот" : "Игрок " + o.player_id} · ${o.rating}</span>
-        <button type="button" class="tavern-btn tavern-btn-primary" onclick="WaifuApp.tavernArenaAttack(${o.player_id || "null"}, ${o.bot ? "true" : "false"})">Атака</button>
-      </div>`
-        )
-        .join("");
-    }
+    await loadArenaOpponentsList();
     try {
       const h = await apiFetch("/arena/history?limit=5");
       if (hist) {
@@ -3434,33 +3862,133 @@ async function renderTavernExchange() {
   const wallet = document.getElementById("tavern-exchange-wallet");
   const list = document.getElementById("tavern-exchange-list");
   const data = await apiFetch("/tavern/exchange");
+  if (data?.wallet?.drill_manuals) {
+    tavernState.drillManuals = data.wallet.drill_manuals;
+  }
+  if (Array.isArray(data?.wallet?.merc_gear_bag)) {
+    tavernState.mercGearBag = data.wallet.merc_gear_bag;
+  }
   if (wallet) {
     const w = data.wallet || {};
-    wallet.textContent = `Coins ${w.merc_coins || 0} · Contracts ${w.merc_contracts || 0} · Dust ${w.merc_dust || 0}`;
+    const bagN = (w.merc_gear_bag || tavernState.mercGearBag || []).length;
+    wallet.innerHTML = `${mercCoinIcon()} ${Number(w.merc_coins || 0)} · Contracts ${Number(w.merc_contracts || 0)} · Dust ${Number(w.merc_dust || 0)} · Bag ${bagN}
+      <div class="tavern-manual-wallet" style="margin-top:6px;">${formatManualWalletChips()}</div>`;
   }
-  if (list) {
-    list.innerHTML = (data.items || [])
-      .map(
-        (it) => `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08);">
-        <span>${it.name} — ${it.cost_coins}🪙</span>
-        <button type="button" class="tavern-btn" onclick="WaifuApp.tavernExchangeBuy('${it.id}')">Купить</button>
-      </div>`
-      )
-      .join("");
+  if (!list) return;
+  const items = data.items || [];
+  tavernState.exchangeItems = items;
+  if (!items.length) {
+    list.innerHTML = `<div class="placeholder muted">Пусто</div>`;
+    return;
+  }
+  list.innerHTML = `<div class="tavern-exchange-grid">${items
+    .map((it) => {
+      const id = String(it.id || "");
+      const icon = String(it.icon || "📦");
+      const cost = Number(it.cost_coins ?? 0);
+      return `<button type="button" class="tavern-exchange-card" data-exchange-id="${escapeHtml(id)}" aria-label="${escapeHtml(String(it.name || id))}">
+        <div class="tavern-exchange-art" aria-hidden="true">${escapeHtml(icon)}</div>
+        <div class="tavern-exchange-price">${mercCoinIcon()} ${escapeHtml(String(cost))}</div>
+      </button>`;
+    })
+    .join("")}</div>`;
+  list.querySelectorAll("[data-exchange-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      openTavernExchangeItemModal(btn.getAttribute("data-exchange-id"));
+    });
+  });
+}
+
+function openTavernExchangeItemModal(itemId) {
+  const item = (tavernState.exchangeItems || []).find((x) => String(x.id) === String(itemId));
+  if (!item) return;
+  tavernState.exchangeSelectedId = String(item.id);
+  const modal = document.getElementById("modal-exchange-item");
+  const art = document.getElementById("exchange-item-art");
+  const title = document.getElementById("exchange-item-title");
+  const desc = document.getElementById("exchange-item-desc");
+  const cost = document.getElementById("exchange-item-cost");
+  const buyBtn = document.getElementById("exchange-item-buy-btn");
+  if (art) art.textContent = String(item.icon || "📦");
+  if (title) title.textContent = String(item.name || item.id);
+  if (desc) desc.textContent = String(item.description || "Товар обмена за Merc Coins.");
+  if (cost) cost.innerHTML = `${mercCoinIcon()} ${Number(item.cost_coins ?? 0)}`;
+  if (buyBtn) {
+    buyBtn.disabled = false;
+    buyBtn.onclick = () => tavernExchangeBuy(String(item.id));
+  }
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+  }
+}
+
+function closeTavernExchangeItemModal() {
+  tavernState.exchangeSelectedId = null;
+  const modal = document.getElementById("modal-exchange-item");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
+}
+
+const EXCHANGE_HELP_HTML = `
+  <h4>Merc Coins (MC)</h4>
+  <p>Основная валюта обмена. Добывается за завершённые <strong>операции</strong> (недельная доска). Здесь тратится на расходники и лут.</p>
+  <h4>Контракты найма</h4>
+  <p>Один контракт = один найм без золота. Удобно копить с Ops и тратить в пики найма.</p>
+  <h4>Пыль и потенциал ★</h4>
+  <p>Пыль нужна для прокачки потенциала наёмниц. Выше ★ — выше потолок уровней перков и сильнее юнит.</p>
+  <h4>Учебники ATK / DEF / SUP</h4>
+  <p><strong>T1 заметки</strong>, <strong>T2 учебники</strong>, <strong>T3 доктрины</strong> — расходники для уровней перков в карточке наёмницы. Тип должен совпадать с перком (ATK/DEF/SUP). Часть T1 можно конвертировать в T2 в карточке.</p>
+  <h4>Ящики снаряжения</h4>
+  <p>Случайный экип (weapon / charm / relic) нужного тира попадает в <strong>сумку</strong>. Надевается из инвентаря/карточки наёмницы и повышает CR.</p>
+  <h4>Тикеты арены</h4>
+  <p>Тратятся на атаку в async-арене 3v3. Можно купить здесь или получать по дневному лимиту.</p>
+  <h4>Как покупать</h4>
+  <p>Тап по иконке товара → описание и кнопка «Купить». На сетке показывается только цена поверх арта.</p>
+`;
+
+function openTavernExchangeHelp() {
+  const body = document.getElementById("exchange-help-body");
+  if (body) body.innerHTML = EXCHANGE_HELP_HTML;
+  const modal = document.getElementById("modal-exchange-help");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+  }
+}
+
+function closeTavernExchangeHelp() {
+  const modal = document.getElementById("modal-exchange-help");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
   }
 }
 
 async function tavernExchangeBuy(itemId) {
+  const buyBtn = document.getElementById("exchange-item-buy-btn");
+  if (buyBtn) buyBtn.disabled = true;
   try {
-    await apiFetch("/tavern/exchange/buy", {
+    const res = await apiFetch("/tavern/exchange/buy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ item_id: itemId }),
     });
-    showToast("Куплено", "info");
+    if (res?.item) {
+      showToast(`${res.item.name || "Предмет"} · T${res.item.tier || "?"} → сумка`, "info");
+      if (Array.isArray(res.merc_gear_bag)) tavernState.mercGearBag = res.merc_gear_bag;
+    } else {
+      showToast("Куплено", "success");
+    }
+    if (res?.wallet?.drill_manuals) tavernState.drillManuals = res.wallet.drill_manuals;
+    if (Array.isArray(res?.wallet?.merc_gear_bag)) tavernState.mercGearBag = res.wallet.merc_gear_bag;
+    closeTavernExchangeItemModal();
     await renderTavernExchange();
   } catch (_) {
     showToast("Не хватает монет", "error");
+    if (buyBtn) buyBtn.disabled = false;
   }
 }
 
@@ -3501,6 +4029,10 @@ Object.assign(window.WaifuApp, {
   copyAtkToDef,
   renderTavernExchange,
   tavernExchangeBuy,
+  openTavernExchangeItemModal,
+  closeTavernExchangeItemModal,
+  openTavernExchangeHelp,
+  closeTavernExchangeHelp,
   openTavernCodex,
   loadMercStatusPity,
   tavernSetLineup,
