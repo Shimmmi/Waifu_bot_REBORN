@@ -633,9 +633,15 @@ def _bot_defense(rating: int) -> list:
 
     base = max(40, rating // 12)
     return [
-        ArenaFighter("Страж-бот", base + 10, ["ironwall_u", "fortify_c"], "Ward", "bulwark"),
-        ArenaFighter("Клинок-бот", base + 15, ["cleave_u", "first_strike_c"], "Assault", "vanguard"),
-        ArenaFighter("Канал-бот", base + 5, ["mend_u", "mark_u"], "Tactics", "warden"),
+        ArenaFighter(
+            "Страж-бот", base + 10, ["ironwall_u", "fortify_c"], "Ward", "bulwark", side="defender"
+        ),
+        ArenaFighter(
+            "Клинок-бот", base + 15, ["cleave_u", "first_strike_c"], "Assault", "vanguard", side="defender"
+        ),
+        ArenaFighter(
+            "Канал-бот", base + 5, ["mend_u", "mark_u"], "Tactics", "warden", side="defender"
+        ),
     ]
 
 
@@ -752,7 +758,7 @@ async def arena_attack(
         if w:
             refresh_unit_power(w)
             atk_units.append(w)
-    attackers = [fighter_from_unit(u) for u in atk_units]
+    attackers = [fighter_from_unit(u, side="attacker") for u in atk_units]
 
     defenders = []
     if bot or not defender_id:
@@ -764,11 +770,14 @@ async def arena_attack(
             w = await session.get(HiredWaifu, int(wid))
             if w:
                 refresh_unit_power(w)
-                defenders.append(fighter_from_unit(w))
+                defenders.append(fighter_from_unit(w, side="defender"))
         if not defenders:
             defenders = _bot_defense(int(state.arena_rating or 1000))
 
-    seed = f"{player_id}-{defender_id}-{datetime.now(timezone.utc).timestamp()}"
+    # Per-attempt nonce so rematch vs same DEF can flip (same roster ≠ same outcome).
+    attempt = int(state.arena_attacks_today or 0)
+    nonce = f"{attempt}-{datetime.now(timezone.utc).timestamp():.6f}-{random.getrandbits(32):08x}"
+    seed = f"{player_id}:{defender_id}:{int(state.arena_rating or 1000)}:{nonce}"
     result = simulate_3v3(attackers, defenders, match_seed=seed)
     win = result["winner"] == "attacker"
     delta = 18 if win else -12

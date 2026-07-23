@@ -83,12 +83,44 @@ def test_tag_coverage_capped():
 
 
 def test_arena_sim_deterministic():
-    a = [ArenaFighter("A", 100, ["cleave_u"], "Assault", "vanguard")]
-    b = [ArenaFighter("B", 100, ["ironwall_u"], "Ward", "bulwark")]
+    a = [ArenaFighter("A", 100, ["cleave_u"], "Assault", "vanguard", side="attacker")]
+    b = [ArenaFighter("B", 100, ["ironwall_u"], "Ward", "bulwark", side="defender")]
     r1 = simulate_3v3(a, b, match_seed="seed-1")
     r2 = simulate_3v3(a, b, match_seed="seed-1")
     assert r1["winner"] == r2["winner"]
     assert r1["log"] == r2["log"]
+
+
+def test_arena_sim_seed_can_flip_close_match():
+    a = [
+        ArenaFighter("A1", 90, ["cleave_u", "execute_r"], "Assault", "vanguard", side="attacker"),
+        ArenaFighter("A2", 88, ["mend_u"], "Tactics", "warden", side="attacker"),
+        ArenaFighter("A3", 85, ["ironwall_u"], "Ward", "bulwark", side="attacker"),
+    ]
+    b = [
+        ArenaFighter("B1", 92, ["ironwall_u", "fortify_r"], "Ward", "bulwark", side="defender"),
+        ArenaFighter("B2", 86, ["cleave_u"], "Assault", "vanguard", side="defender"),
+        ArenaFighter("B3", 84, ["mend_u"], "Tactics", "warden", side="defender"),
+    ]
+    winners = {simulate_3v3(a, b, match_seed=f"close-{i}")["winner"] for i in range(40)}
+    assert winners == {"attacker", "defender"}
+
+
+def test_arena_fairness_large_cr_gap_favors_favorite():
+    strong = [
+        ArenaFighter("S1", 200, ["cleave_u"], "Assault", "vanguard", side="attacker"),
+        ArenaFighter("S2", 190, ["execute_r"], "Assault", "vanguard", side="attacker"),
+        ArenaFighter("S3", 180, ["berserk_e"], "Assault", "vanguard", side="attacker"),
+    ]
+    weak = [
+        ArenaFighter("W1", 60, ["ironwall_u"], "Ward", "bulwark", side="defender"),
+        ArenaFighter("W2", 55, ["fortify_c"], "Ward", "bulwark", side="defender"),
+        ArenaFighter("W3", 50, ["mend_c"], "Tactics", "warden", side="defender"),
+    ]
+    wins = sum(
+        1 for i in range(50) if simulate_3v3(strong, weak, match_seed=f"gap-{i}")["winner"] == "attacker"
+    )
+    assert wins >= 40  # ≥80% when CR gap ≫ 25%
 
 
 def test_parse_guild_assist_day_encoding():

@@ -274,8 +274,11 @@ async def gear_equip(
     slot = body.slot.lower().strip()
     if slot not in ("weapon", "charm", "relic"):
         raise HTTPException(status_code=400, detail={"error": "invalid_slot"})
+    import uuid
+
     attr = f"gear_{slot}"
     item = body.item
+    bag_out = None
     if body.bag_item_id:
         state = await merc_sys.get_or_create_tavern_state(session, player_id)
         bag = list(getattr(state, "merc_gear_bag", None) or [])
@@ -300,6 +303,26 @@ async def gear_equip(
             "slot": slot,
         }
         state.merc_gear_bag = rest
+        bag_out = rest
+    elif body.item is None:
+        # Unequip: return current piece to merc_gear_bag
+        prev = getattr(w, attr, None)
+        if isinstance(prev, dict) and prev:
+            state = await merc_sys.get_or_create_tavern_state(session, player_id)
+            bag = list(getattr(state, "merc_gear_bag", None) or [])
+            bag.append(
+                {
+                    "id": prev.get("id") or str(uuid.uuid4()),
+                    "name": prev.get("name") or slot,
+                    "rarity": prev.get("rarity"),
+                    "score": prev.get("score"),
+                    "tier": prev.get("tier"),
+                    "slot": slot,
+                }
+            )
+            state.merc_gear_bag = bag
+            bag_out = bag
+        item = None
     setattr(w, attr, item)
     score = 0
     for s in ("weapon", "charm", "relic"):
@@ -309,7 +332,10 @@ async def gear_equip(
     w.gear_score_cache = score
     refresh_unit_power(w)
     await session.commit()
-    return {"ok": True, "gear_score": score, "power": w.power, "item": item}
+    out = {"ok": True, "gear_score": score, "power": w.power, "item": item}
+    if bag_out is not None:
+        out["merc_gear_bag"] = bag_out
+    return out
 
 
 @router.post("/tavern/gear/disassemble")
