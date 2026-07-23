@@ -51,9 +51,14 @@ const tavernState = {
   arenaSearchTimer: null,
   drillManuals: {},
   mercGearBag: [],
+  invPage: 0,
+  invFilterSlot: "all", // all | weapon | charm | relic
+  invSort: "type", // type | score | rarity
   exchangeItems: [],
   exchangeSelectedId: null,
 };
+
+const INV_PAGE_SIZE = 20;
 
 const BENCH_PAGE_SIZE = 4;
 
@@ -176,67 +181,192 @@ async function refreshDrillManuals() {
   }
 }
 
+function invSlotIcon(slot) {
+  if (slot === "charm") return "🔮";
+  if (slot === "relic") return "📜";
+  return "⚔";
+}
+
+function invEquipCandidates() {
+  const lu = tavernState.lineup || { atk: [null, null, null] };
+  const atkIds = new Set((lu.atk || []).filter(Boolean).map(Number));
+  const atk = (lu.atk || []).map(findRosterWaifu).filter(Boolean);
+  const bench = allRosterWaifus().filter((w) => !atkIds.has(Number(w.id)));
+  return [...atk, ...bench];
+}
+
+async function equipBagItemOnWaifu(bagItemId, slot, waifuId) {
+  const res = await apiFetch("/tavern/gear/equip", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ waifu_id: waifuId, slot, bag_item_id: bagItemId }),
+  });
+  if (Array.isArray(res?.merc_gear_bag)) tavernState.mercGearBag = res.merc_gear_bag;
+  await refreshDrillManuals().catch(() => {});
+  await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
+  return res;
+}
+
 function renderTavernInventoryTab() {
+  const host = document.getElementById("tab-inventory");
   const invBox = document.getElementById("tavern-page-inv-list");
-  if (!invBox) return;
+  if (!invBox || !host) return;
   const slotLabels = { weapon: "Оружие", charm: "Амулет", relic: "Реликвия" };
-  const rows = [];
-  const bag = tavernState.mercGearBag || [];
-  for (const g of bag) {
-    if (!g || typeof g !== "object") continue;
-    rows.push({
-      kind: "bag",
-      bagId: g.id,
-      slot: g.slot || "weapon",
-      itemName: g.name || "Предмет",
-      waifuName: "в сумке",
-      score: g.score ?? g.rarity ?? "—",
-    });
+  const bag = (tavernState.mercGearBag || []).filter((g) => g && typeof g === "object");
+  const filter = String(tavernState.invFilterSlot || "all");
+  const sort = String(tavernState.invSort || "type");
+  let rows = bag.map((g) => ({
+    bagId: g.id,
+    slot: g.slot || "weapon",
+    itemName: g.name || "Предмет",
+    score: Number(g.score ?? 0) || 0,
+    rarity: Number(g.rarity ?? 0) || 0,
+  }));
+  if (filter !== "all") rows = rows.filter((r) => r.slot === filter);
+  const slotOrder = { weapon: 0, charm: 1, relic: 2 };
+  rows.sort((a, b) => {
+    if (sort === "score") return b.score - a.score || String(a.itemName).localeCompare(String(b.itemName));
+    if (sort === "rarity") return b.rarity - a.rarity || b.score - a.score;
+    return (slotOrder[a.slot] ?? 9) - (slotOrder[b.slot] ?? 9) || b.score - a.score;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / INV_PAGE_SIZE) || 1);
+  if (tavernState.invPage >= totalPages) tavernState.invPage = Math.max(0, totalPages - 1);
+  if (tavernState.invPage < 0) tavernState.invPage = 0;
+  const page = tavernState.invPage;
+  const slice = rows.slice(page * INV_PAGE_SIZE, page * INV_PAGE_SIZE + INV_PAGE_SIZE);
+
+  let toolbar = host.querySelector("#tavern-inv-toolbar");
+  if (!toolbar) {
+    toolbar = document.createElement("div");
+    toolbar.id = "tavern-inv-toolbar";
+    toolbar.className = "tavern-inv-toolbar";
+    invBox.parentNode.insertBefore(toolbar, invBox);
   }
-  for (const unit of allRosterWaifus()) {
-    const pieces = [
-      ["weapon", unit.gear_weapon || unit.gearWeapon],
-      ["charm", unit.gear_charm || unit.gearCharm],
-      ["relic", unit.gear_relic || unit.gearRelic],
-    ];
-    for (const [slot, g] of pieces) {
-      if (!g || typeof g !== "object") continue;
-      rows.push({
-        kind: "eq",
-        waifuId: unit.id,
-        waifuName: unit.name || `#${unit.id}`,
-        slot,
-        itemName: g.name || slotLabels[slot] || slot,
-        score: g.score ?? g.rarity ?? "—",
-      });
-    }
-  }
+  toolbar.innerHTML = `
+    <div class="tavern-inv-toolbar-row">
+      <label class="tavern-inv-filter muted tiny">Тип
+        <select id="tavern-inv-filter">
+          <option value="all"${filter === "all" ? " selected" : ""}>все</option>
+          <option value="weapon"${filter === "weapon" ? " selected" : ""}>оружие</option>
+          <option value="charm"${filter === "charm" ? " selected" : ""}>амулет</option>
+          <option value="relic"${filter === "relic" ? " selected" : ""}>реликвия</option>
+        </select>
+      </label>
+      <label class="tavern-inv-filter muted tiny">Сорт
+        <select id="tavern-inv-sort">
+          <option value="type"${sort === "type" ? " selected" : ""}>тип</option>
+          <option value="score"${sort === "score" ? " selected" : ""}>CR</option>
+          <option value="rarity"${sort === "rarity" ? " selected" : ""}>редкость</option>
+        </select>
+      </label>
+      <div class="tavern-inv-pager">
+        <button type="button" class="tavern-btn tavern-btn-mini" id="tavern-inv-prev" ${page <= 0 ? "disabled" : ""} aria-label="Назад">‹</button>
+        <span class="muted tiny">${page + 1}/${totalPages}</span>
+        <button type="button" class="tavern-btn tavern-btn-mini" id="tavern-inv-next" ${page >= totalPages - 1 ? "disabled" : ""} aria-label="Вперёд">›</button>
+      </div>
+    </div>`;
+
+  const tip = host.querySelector(".tab-inventory-tip") || host.querySelector("p.muted.tiny");
+  if (tip) tip.textContent = "Сумка экипа · тап — надеть на наёмницу";
+
   if (!rows.length) {
-    invBox.innerHTML = `<div class="placeholder muted tiny">Сумка и экип пусты — купите ящик в Обмене</div>`;
-    return;
+    invBox.className = "tavern-inv-grid";
+    invBox.innerHTML = `<div class="placeholder muted tiny" style="grid-column:1/-1">Сумка пуста — купите ящик в Обмене</div>`;
+  } else {
+    invBox.className = "tavern-inv-grid";
+    invBox.innerHTML = slice
+      .map(
+        (r) => `<button type="button" class="tavern-inv-cell" data-inv-bag="${escapeHtml(String(r.bagId))}" data-inv-slot="${escapeHtml(String(r.slot))}">
+        <span class="tavern-inv-cell-ico" aria-hidden="true">${invSlotIcon(r.slot)}</span>
+        <span class="tavern-inv-cell-name ellip">${escapeHtml(String(r.itemName))}</span>
+        <span class="tavern-inv-cell-score muted">CR ${escapeHtml(String(r.score))}</span>
+      </button>`
+      )
+      .join("");
   }
-  invBox.innerHTML = rows
-    .map((r) => {
-      if (r.kind === "bag") {
-        return `<div class="tavern-inv-row">
-          <span class="ellip">${escapeHtml(String(r.itemName))}</span>
-          <span class="muted">${escapeHtml(slotLabels[r.slot] || r.slot)} · bag</span>
-          <span class="ellip muted">score ${escapeHtml(String(r.score))}</span>
-        </div>`;
-      }
-      return `<button type="button" class="tavern-inv-row" data-inv-waifu="${escapeHtml(String(r.waifuId))}" data-inv-seg="gear">
-        <span class="ellip">${escapeHtml(String(r.itemName))}</span>
-        <span class="muted">${escapeHtml(slotLabels[r.slot] || r.slot)}</span>
-        <span class="ellip muted">на: ${escapeHtml(String(r.waifuName))}</span>
-      </button>`;
-    })
-    .join("");
-  invBox.querySelectorAll("[data-inv-waifu]").forEach((btn) => {
+
+  const filterEl = toolbar.querySelector("#tavern-inv-filter");
+  const sortEl = toolbar.querySelector("#tavern-inv-sort");
+  if (filterEl) {
+    filterEl.onchange = () => {
+      tavernState.invFilterSlot = filterEl.value || "all";
+      tavernState.invPage = 0;
+      renderTavernInventoryTab();
+    };
+  }
+  if (sortEl) {
+    sortEl.onchange = () => {
+      tavernState.invSort = sortEl.value || "type";
+      tavernState.invPage = 0;
+      renderTavernInventoryTab();
+    };
+  }
+  toolbar.querySelector("#tavern-inv-prev")?.addEventListener("click", () => {
+    tavernState.invPage = Math.max(0, page - 1);
+    renderTavernInventoryTab();
+  });
+  toolbar.querySelector("#tavern-inv-next")?.addEventListener("click", () => {
+    tavernState.invPage = Math.min(totalPages - 1, page + 1);
+    renderTavernInventoryTab();
+  });
+
+  invBox.querySelectorAll("[data-inv-bag]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = Number(btn.getAttribute("data-inv-waifu"));
-      const target = findRosterWaifu(id);
-      if (!target) return;
-      openTavernWaifuModal(target, { seg: "gear" });
+      const bagId = btn.getAttribute("data-inv-bag");
+      const slot = btn.getAttribute("data-inv-slot") || "weapon";
+      const cands = invEquipCandidates();
+      if (!cands.length) {
+        showToast("Нет наёмниц в ATK/скамейке", "error");
+        return;
+      }
+      openInvEquipPicker(bagId, slot, cands);
+    });
+  });
+}
+
+function openInvEquipPicker(bagItemId, slot, candidates) {
+  const existing = document.getElementById("tavern-inv-equip-picker");
+  if (existing) existing.remove();
+  const overlay = document.createElement("div");
+  overlay.id = "tavern-inv-equip-picker";
+  overlay.className = "tavern-inv-equip-overlay";
+  overlay.innerHTML = `
+    <div class="tavern-inv-equip-sheet" role="dialog" aria-modal="true">
+      <div class="tavern-inv-equip-head">Надеть · ${escapeHtml(slot)}</div>
+      <div class="tavern-inv-equip-list">
+        ${candidates
+          .map(
+            (w) =>
+              `<button type="button" class="tavern-inv-equip-opt" data-equip-waifu="${escapeHtml(String(w.id))}">
+                <span class="ellip">${escapeHtml(String(w.name || `#${w.id}`))}</span>
+                <span class="muted tiny">CR ${escapeHtml(String(hiredCr(w)))}</span>
+              </button>`
+          )
+          .join("")}
+      </div>
+      <button type="button" class="tavern-btn tavern-btn-mini" data-inv-equip-cancel>Отмена</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (ev) => {
+    if (ev.target === overlay) close();
+  });
+  overlay.querySelector("[data-inv-equip-cancel]")?.addEventListener("click", close);
+  overlay.querySelectorAll("[data-equip-waifu]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const wid = Number(btn.getAttribute("data-equip-waifu"));
+      btn.disabled = true;
+      try {
+        await equipBagItemOnWaifu(bagItemId, slot, wid);
+        showToast("Экипировано", "info");
+        close();
+        renderTavernInventoryTab();
+      } catch (e) {
+        const { detail } = parseHttpErrorDetail(e);
+        showToast(detail || "Экип недоступен", "error");
+        btn.disabled = false;
+      }
     });
   });
 }
@@ -2478,7 +2608,6 @@ function renderTavernSquad() {
   const roster = sortTavernPool(tavernState.squad, tavernState.reserve);
   const bench = roster.filter((w) => !isOnLineup(w));
   const poolMax = tavernBenchCap();
-  const perksMap = tavernState.perksMap || {};
   const feedBanner = document.getElementById("tavern-quick-feed-banner");
   if (feedBanner) {
     feedBanner.style.display = tavernState.quickFeedMode || tavernState.lineupPick ? "" : "none";
@@ -2510,19 +2639,6 @@ function renderTavernSquad() {
     const rCls = rarityClass(rarity);
     const cr = hiredCr(w);
     const pips = typePipsHtml([w]);
-    const perkIds = perkIdsCapped(w, 3);
-    const perkDots = perkIds.length
-      ? `<div class="squad-mtg-perks squad-mtg-perks--bench" aria-hidden="true">${perkIds
-          .map((pid) => {
-            const p = String(pid);
-            const label = String(perksMap[p] || p);
-            if (typeof perkIconHtml === "function") {
-              return perkIconHtml(p, { className: "squad-mtg-perk-ico-img", title: label });
-            }
-            return `<span class="squad-mtg-perk-ico" title="${escapeHtml(label)}">${PERK_ICONS[p] || "✦"}</span>`;
-          })
-          .join("")}</div>`
-      : "";
     const url = hiredWaifuImageUrl(w, "full");
     const portraitLayer = url
       ? `<img class="squad-mtg-bg-img" src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />`
@@ -2541,9 +2657,9 @@ function renderTavernSquad() {
         <div class="squad-mtg-scrim-top" aria-hidden="true"></div>
         <div class="squad-mtg-scrim-bottom" aria-hidden="true"></div>
         <div class="squad-mtg-status-hatch" aria-hidden="true"></div>
-        ${perkDots}
+        <div class="squad-mtg-cr squad-mtg-cr--bench" aria-label="CR">CR ${escapeHtml(String(cr))}</div>
         <div class="squad-mtg-bottom">
-          <div class="squad-mtg-cr-row">${pips}<span class="squad-mtg-cr-val">CR ${escapeHtml(String(cr))}</span></div>
+          <div class="squad-mtg-cr-row">${pips}</div>
         </div>
       </div>`;
     const open = () => {
@@ -2864,7 +2980,7 @@ function openTavernWaifuModal(w, opts = {}) {
           )
           .join("");
         const equipCtl = g
-          ? `<button type="button" class="tavern-btn tavern-btn-mini" data-gear-disassemble="${s.key}">Разобрать</button>`
+          ? `<button type="button" class="tavern-btn tavern-btn-mini" data-gear-unequip="${s.key}">Снять</button>`
           : bagOpts
             ? `<div class="tavern-gear-bag-pick"><select data-gear-bag-select="${s.key}"><option value="">Из сумки…</option>${bagOpts}</select>
                <button type="button" class="tavern-btn tavern-btn-mini" data-gear-equip-bag="${s.key}">Экип</button></div>`
@@ -3073,20 +3189,26 @@ function openTavernWaifuModal(w, opts = {}) {
   };
 
   const wireGearActions = () => {
-    body.querySelectorAll("[data-gear-disassemble]").forEach((btn) => {
+    body.querySelectorAll("[data-gear-unequip]").forEach((btn) => {
       btn.addEventListener("click", async (ev) => {
         ev.stopPropagation();
-        const slot = btn.getAttribute("data-gear-disassemble");
+        const slot = btn.getAttribute("data-gear-unequip");
         try {
-          const res = await apiFetch(
-            `/tavern/gear/disassemble?waifu_id=${encodeURIComponent(w.id)}&slot=${encodeURIComponent(slot)}`,
-            { method: "POST" }
-          );
-          showToast(`+${res.dust_gained || 0} пыли`, "info");
-          openTavernWaifuModal({ ...w, [`gear_${slot}`]: null }, { seg: "gear" });
+          const res = await apiFetch("/tavern/gear/equip", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ waifu_id: w.id, slot, item: null }),
+          });
+          if (Array.isArray(res?.merc_gear_bag)) tavernState.mercGearBag = res.merc_gear_bag;
+          showToast("Снято в сумку", "info");
+          await refreshDrillManuals().catch(() => {});
+          await loadTavernWithProfile({ act: tavernState.act }, { innerRefresh: true });
+          const fresh = findRosterWaifu(w.id) || { ...w, [`gear_${slot}`]: null };
+          openTavernWaifuModal(fresh, { seg: "gear" });
+          renderTavernInventoryTab();
         } catch (e) {
           const { detail } = parseHttpErrorDetail(e);
-          showToast(detail || "Не удалось разобрать", "error");
+          showToast(detail || "Не удалось снять", "error");
         }
       });
     });

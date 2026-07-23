@@ -2142,6 +2142,7 @@ function renderOpsBoardStrip() {
       })
       .join("") +
     `</div>`;
+  if (typeof syncAdminUiVisibility === "function") syncAdminUiVisibility();
   const openContract = (el) => {
     const id = el.getAttribute("data-ops-contract");
     const contract = contracts.find((c) => String(c.id) === String(id));
@@ -3108,14 +3109,15 @@ function updateExpeditionSquadPowerLabel() {
 
   const rosterEl = expG("esm-roster-power");
   if (rosterEl) {
-    const unlocked = expeditionMaxUnlockedTier(sq);
-    const roman = unlocked ? TIER_ROMAN[(unlocked.tier || 1) - 1] || String(unlocked.tier) : "I";
-    const name = unlocked
-      ? TIER_SHORT_NAMES[unlocked.tier] || unlocked.name_ru || unlocked.name || `Тир ${unlocked.tier}`
-      : TIER_SHORT_NAMES[1] || "Разведка";
+    const need = needSelected;
+    const ok = !need || sq >= need;
+    const statusCls = ok ? "exp-power-ok" : "exp-power-bad";
+    const statusTxt = ok ? "достаточно" : "недостаточно";
+    const detail = need
+      ? ` · CR <span class="${powerCls}">${sq}</span> / ${need}`
+      : ` · CR <span class="${powerCls}">${sq}</span>`;
     rosterEl.innerHTML =
-      `<span>⚔ CR отряда: <span class="${powerCls}">${sq}</span></span>` +
-      `<span class="exp-roster-power-tier">доступно: ${escapeHtml(roman)} ${escapeHtml(name)}</span>`;
+      `<span>⚔ Отряд: <span class="${statusCls}">${statusTxt}</span>${detail}</span>`;
   }
 
   renderExpTierSelect();
@@ -3848,8 +3850,6 @@ function expGateLogSummaryHtml(result, gateLog) {
   return `<li class="exp-gate-log-summary">Суммарный урон: <strong>−${totalDmg} HP</strong>. ${hpLine}.</li>`;
 }
 
-let expResultSquadState = [];
-
 function expResultRewardRow(label, valueHtml, mult) {
   const multHtml = mult ? `<span class="exp-result-reward-mult">${mult}</span>` : "";
   return `<div class="exp-result-reward-row">
@@ -3910,54 +3910,6 @@ async function hydrateExpResultItemThumbs(items) {
       }
     })
   );
-}
-
-function renderExpResultSquad(squadState) {
-  const squadEl = document.getElementById("exp-result-squad");
-  if (!squadEl) return;
-  squadEl.innerHTML = (squadState || [])
-    .map((u) => {
-      const hpPct = u.hp_max ? Math.round((u.hp_current / u.hp_max) * 100) : 100;
-      const needsHeal = u.hp_current < u.hp_max && !u.healing;
-      let healTxt = " · ✓ Здорова";
-      if (u.healing) {
-        const mins = u.heal_minutes ?? u.heal_forecast_minutes;
-        healTxt = mins != null
-          ? ` · <span style="color:#60a5fa">💊 На лечении ~${mins} мин</span>`
-          : ' · <span style="color:#60a5fa">💊 На лечении</span>';
-      } else if (needsHeal && u.heal_forecast_minutes != null) {
-        healTxt = ` · <span style="color:#60a5fa">💊 Лечение ~${u.heal_forecast_minutes} мин</span>`;
-      } else if (needsHeal) {
-        healTxt = ' · <span style="color:#f87171">Нужно лечение</span>';
-      }
-      return `
-          <div class="exp-result-unit">
-            <div class="exp-result-unit-info">
-              <div class="exp-result-unit-name">${escapeHtml(u.name || "—")}</div>
-              <div class="exp-result-unit-stats">
-                ❤ ${u.hp_current}/${u.hp_max}${healTxt}
-                ${u.leveled_up ? ' · <span style="color:#4ade80">⭐ Новый уровень!</span>' : ""}
-              </div>
-            </div>
-            <div class="exp-result-unit-bar">
-              <div class="exp-result-unit-bar-fill" style="width:${hpPct}%"></div>
-            </div>
-          </div>`;
-    })
-    .join("");
-
-  const healBtn = document.getElementById("exp-result-heal-btn");
-  if (healBtn) {
-    const hasWounded = (squadState || []).some((u) => u.hp_current < u.hp_max && u.hired_waifu_id && !u.healing);
-    // Auto-Rest starts on claim; button is informational / optional force-rest stub
-    healBtn.style.display = hasWounded ? "" : "none";
-    healBtn.disabled = false;
-    healBtn.textContent = "🛏 Отдых уже запущен (Ops)";
-    healBtn.onclick = (ev) => {
-      ev?.stopPropagation?.();
-      showToast?.("Отдых стартует автоматически после claim. Арена доступна.", "info");
-    };
-  }
 }
 
 function fillExpeditionResult(result) {
@@ -4028,60 +3980,6 @@ function fillExpeditionResult(result) {
     rewardsEl.innerHTML = rows.join("");
     hydrateExpResultItemThumbs(items).catch(() => {});
   }
-
-  expResultSquadState = Array.isArray(result.squad_state) ? result.squad_state.map((u) => ({ ...u })) : [];
-  renderExpResultSquad(expResultSquadState);
-}
-
-async function healExpeditionSquad(squadState) {
-  const wounded = (squadState || []).filter(
-    (u) => u.hp_current < u.hp_max && u.hired_waifu_id && !u.healing
-  );
-  if (!wounded.length) {
-    showToast?.("Лечение не требуется", "info");
-    return;
-  }
-
-  const btn = document.getElementById("exp-result-heal-btn");
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Лечение...";
-  }
-  const errors = [];
-  let healed = 0;
-  for (const u of wounded) {
-    try {
-      const res = await apiFetch(`/tavern/heal?hired_waifu_id=${u.hired_waifu_id}`, { method: "POST" });
-      if (res?.error) {
-        errors.push(`${u.name}: ${res.error}`);
-      } else {
-        u.healing = true;
-        u.heal_minutes = res?.heal_minutes ?? u.heal_forecast_minutes;
-        healed += 1;
-      }
-    } catch (e) {
-      const { detail } = parseHttpErrorDetail(e);
-      errors.push(`${u.name}: ${detail || "ошибка"}`);
-    }
-  }
-  expResultSquadState = squadState;
-
-  if (typeof loadProfile === "function") await loadProfile().catch(() => {});
-
-  if (healed > 0) {
-    if (errors.length) {
-      showToast?.(`Часть не вылечена: ${errors.join("; ")}`, "danger");
-    }
-    closeExpeditionResult();
-    return;
-  }
-
-  renderExpResultSquad(expResultSquadState);
-  if (btn) {
-    btn.disabled = false;
-    btn.textContent = "💊 Отправить на лечение";
-  }
-  showToast?.(`Не удалось отправить на лечение: ${errors.join("; ")}`, "danger");
 }
 
 function closeExpeditionResult() {
@@ -4620,7 +4518,6 @@ Object.assign(window.WaifuApp, {
   openExpRosterModal,
   closeExpRosterModal,
   closeActiveExpModal,
-  healExpeditionSquad,
   getAvailableUnits,
   claimExpedition,
   openExpeditionResult,

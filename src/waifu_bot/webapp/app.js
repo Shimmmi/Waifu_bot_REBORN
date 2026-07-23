@@ -3003,7 +3003,13 @@ function setAdminUiEnabled(on) {
 
 function syncAdminUiVisibility() {
   const show = isAdminUiEnabled();
+  document.body.classList.toggle("is-admin", show);
   document.querySelectorAll(".admin-only").forEach((el) => {
+    if (el.classList.contains("ops-art-gen-btn")) {
+      // CSS body.is-admin gate; skip inline display so !important rules work
+      el.style.removeProperty("display");
+      return;
+    }
     el.style.display = show ? "" : "none";
   });
 }
@@ -15472,6 +15478,7 @@ function exportWebAppShellGlobals() {
     openItemModal,
     isAdminUser,
     isAdminUiEnabled,
+    syncAdminUiVisibility,
     setItemArtGenBusy,
     ITEM_ART_GEN_SVG,
     profileState,
