@@ -318,7 +318,7 @@ async def collect_evade_chance_contribs(
     out: list[dict[str, Any]] = [
         _contrib_row(
             source="stat:agility_luck_dodge",
-            label_ru=f"ЛОВ/УДЧ: базовый шанс уклонения {base * 100:.2f}%",
+            label_ru=f"ЛОВ: базовый шанс уклонения {base * 100:.2f}%",
             pct_add=base,
             meta={"agility": eff_agility, "luck": eff_luck},
         )

@@ -106,15 +106,15 @@ MEDIA_COEFFICIENTS = {
 }
 
 # Combat formulas constants
-HP_K_COEFFICIENT = 10        # k_hp for HP from ВЫН: ВЫН × 10
+HP_K_COEFFICIENT = 12        # k_hp for HP from ВЫН: ВЫН × 12
 STR_HP_COEFFICIENT = 3       # HP from СИЛ: СИЛ × 3
 BASE_HP_PER_LEVEL = 20       # Base HP increase per level
 
-MELEE_DAMAGE_COEFFICIENT = 1.0    # flat damage per СИЛ point
-RANGED_DAMAGE_COEFFICIENT = 1.0   # flat damage per ЛОВ point
-SPELL_DAMAGE_COEFFICIENT = 1.0    # flat damage per ИНТ point (оружие magic)
+MELEE_DAMAGE_COEFFICIENT = 1.2    # flat damage per СИЛ point
+RANGED_DAMAGE_COEFFICIENT = 1.2   # flat damage per ЛОВ point
+SPELL_DAMAGE_COEFFICIENT = 1.2    # flat damage per ИНТ point (оружие magic)
 
-INT_SKILL_DAMAGE_COEFF = 1.0      # доп. урон за ИНТ к медиа (не TEXT/LINK): ИНТ × коэфф.
+INT_SKILL_DAMAGE_COEFF = 1.2      # доп. урон за ИНТ к медиа (не TEXT/LINK): ИНТ × коэфф.
 INT_EXP_BONUS_COEFF = 0.001       # bonus EXP gained per ИНТ (0.1%/point)
 
 END_ENERGY_COEFF = 0.5            # max energy bonus per ВЫН (ВЫН × 0.5)

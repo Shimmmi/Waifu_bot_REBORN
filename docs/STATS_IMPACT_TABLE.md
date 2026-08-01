@@ -14,15 +14,14 @@
 
 | Характеристика | На что влияет | Где считается | Ключ/параметр |
 |---|---|---|---|
-| **СИЛ (strength)** | Урон ближнего боя в бою (масштабирование) | `game/formulas.py::calculate_damage` | `MELEE_DAMAGE_COEFFICIENT` |
-|  | “Урон ближ.” во вкладке Info (простой “(strength-10)+…”) | `api/routes.py::_compute_details` | `base_melee_damage = max(0, strength-10)` |
-| **ЛОВ (agility)** | Урон дальнего боя в бою (масштабирование) | `game/formulas.py::calculate_damage` | `RANGED_DAMAGE_COEFFICIENT` |
+| **СИЛ (strength)** | Урон ближнего боя (`× MELEE_DAMAGE_COEFFICIENT`, сейчас 1.2) | `game/formulas.py::calculate_damage` | `MELEE_DAMAGE_COEFFICIENT` |
+|  | “Урон ближ.” во вкладке Info (тот же `calculate_damage` + weapon/flats) | `api/routes.py::_compute_details` | `_damage_bounds("melee", …)` |
+| **ЛОВ (agility)** | Урон дальнего боя (`× RANGED_DAMAGE_COEFFICIENT`, сейчас 1.2) | `game/formulas.py::calculate_damage` | `RANGED_DAMAGE_COEFFICIENT` |
 |  | Крит шанс в бою | `game/formulas.py::calculate_crit_chance` | `CRIT_CHANCE_AGILITY` |
 |  | Уворот в бою | `game/formulas.py::calculate_dodge_chance` | `DODGE_CHANCE_AGILITY` |
-|  | “Урон дальн.” во вкладке Info | `api/routes.py::_compute_details` | `base_ranged_damage = max(0, agility-10)` |
-|  | “Шанс крита” во вкладке Info (другая формула!) | `api/routes.py::_compute_details` | `5 + (agility-10)*0.5 + (luck-10)*0.25` |
-| **ИНТ (intelligence)** | Урон магией в бою (масштабирование) | `game/formulas.py::calculate_damage` | `SPELL_DAMAGE_COEFFICIENT` |
-|  | “Урон маг.” во вкладке Info | `api/routes.py::_compute_details` | `base_magic_damage = max(0, intelligence-10)` |
+|  | “Урон дальн.” во вкладке Info | `api/routes.py::_compute_details` | `_damage_bounds("ranged", …)` |
+| **ИНТ (intelligence)** | Урон магией (`× SPELL_DAMAGE_COEFFICIENT`, сейчас 1.2) | `game/formulas.py::calculate_damage` | `SPELL_DAMAGE_COEFFICIENT` |
+|  | “Урон маг.” во вкладке Info | `api/routes.py::_compute_details` | `_damage_bounds("magic", …)` |
 | **ВЫН (endurance)** | Максимальное HP | `game/formulas.py::calculate_max_hp` | `BASE_HP_PER_LEVEL`, `HP_K_COEFFICIENT` |
 |  | Защита во вкладке Info | `api/routes.py::_compute_details` | `base_defense = max(0, endurance-10)` |
 |  | **Реген HP** | `services/energy.py::apply_regen` | **5 HP/мин + max(0, ВЫН-10) HP/мин** |
@@ -38,26 +37,17 @@
 ## Детали по каждому стату (ссылки)
 
 ### СИЛ (strength)
-- **Бой (урон)**: `calculate_damage` выбирает `strength * MELEE_DAMAGE_COEFFICIENT` при `attack_type == "melee"`  
-  См. `src/waifu_bot/game/formulas.py` (`calculate_damage`).
-- **UI Info (урон ближ.)**: `base_melee_damage = max(0, strength - 10)` + плоские бонусы экипировки  
-  См. `src/waifu_bot/api/routes.py` (`_compute_details`, строки вокруг `base_melee_damage` и `melee_damage`).
+- **Бой / Info (урон)**: `calculate_damage(..., attack_type="melee")` → `base + strength * MELEE_DAMAGE_COEFFICIENT` (1.2) + weapon/flats.  
+  См. `formulas.py` и `_compute_details` → `_damage_bounds`.
 
 ### ЛОВ (agility)
-- **Бой (урон ranged)**: `agility * RANGED_DAMAGE_COEFFICIENT`  
-  `src/waifu_bot/game/formulas.py::calculate_damage`
-- **Бой (крит)**: `agility*0.4% + luck*0.2%`  
-  `src/waifu_bot/game/formulas.py::calculate_crit_chance`
-- **Бой (уворот)**: `agility*0.2% + luck*0.1%`  
-  `src/waifu_bot/game/formulas.py::calculate_dodge_chance`
-- **UI Info**: отдельная формула crit chance (не из `game/formulas.py`)  
-  `src/waifu_bot/api/routes.py::_compute_details`
+- **Бой / Info (урон ranged)**: `agility * RANGED_DAMAGE_COEFFICIENT` (1.2)  
+- **Бой (крит)**: `agility*0.1% + luck*0.1%` (`CRIT_CHANCE_*`)  
+- **Бой (уворот)**: `agility*0.1%` (УДЧ не участвует; cap 40%)  
 
 ### ИНТ (intelligence)
-- **Бой (урон magic/spell)**: `intelligence * SPELL_DAMAGE_COEFFICIENT`  
-  `src/waifu_bot/game/formulas.py::calculate_damage`
-- **UI Info (урон маг.)**: `max(0, intelligence-10)` + плоские бонусы  
-  `src/waifu_bot/api/routes.py::_compute_details`
+- **Бой / Info (урон magic/spell)**: `intelligence * SPELL_DAMAGE_COEFFICIENT` (1.2)  
+- **Медиа (не TEXT/LINK)**: доп. `INT_SKILL_DAMAGE_COEFF` (1.2)
 
 ### ВЫН (endurance)
 - **Макс HP**: `BASE_HP_PER_LEVEL*level + endurance*HP_K_COEFFICIENT`  

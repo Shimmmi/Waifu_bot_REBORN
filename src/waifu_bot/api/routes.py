@@ -448,7 +448,7 @@ def _compute_details(
         merchant_discount = merchant_discount * (1 + total_bonuses["merchant_discount_percent"] / 100)
     merchant_discount = min(50.0, merchant_discount)
 
-    # HP с учётом ВЫН × 10 + СИЛ × 3 + item bonuses
+    # HP с учётом ВЫН × HP_K_COEFFICIENT + СИЛ × STR_HP_COEFFICIENT + item bonuses
     from waifu_bot.game.formulas import calculate_max_hp
     hp_max = calculate_max_hp(int(main.level or 1), int(endurance), int(str_for_hp))
     hp_max = int(hp_max + total_bonuses["hp_flat"])

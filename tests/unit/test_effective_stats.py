@@ -174,7 +174,7 @@ def test_resolve_equipped_weapon_for_profile_dual_wield() -> None:
 
 
 def test_compute_details_axe_25_32_with_str_bonus() -> None:
-    """STR 14 +7 from axe, weapon 25-32 → core(10, STR 21)=31 + weapon 25-32 → 56-63."""
+    """STR 14 +7 from axe, weapon 25-32 → core(10, STR 21)=35 + weapon 25-32 → 60-67."""
     from waifu_bot.api.routes import _compute_details
 
     waifu = SimpleNamespace(
@@ -185,9 +185,9 @@ def test_compute_details_axe_25_32_with_str_bonus() -> None:
         1, 25, 32, slot_type="weapon_2h", weapon_type="axe", base_stat="strength", base_stat_value=7
     )
     details = _compute_details(waifu, [axe])
-    assert details["melee_damage_min"] == 56
-    assert details["melee_damage_max"] == 63
-    assert details["melee_damage"] == 59
+    assert details["melee_damage_min"] == 60
+    assert details["melee_damage_max"] == 67
+    assert details["melee_damage"] == 63
 
 
 def test_compute_details_hammer_melee_flat_excludes_construct() -> None:
@@ -213,9 +213,10 @@ def test_compute_details_hammer_melee_flat_excludes_construct() -> None:
         affixes=affixes,
     )
     details = _compute_details(waifu, [hammer])
-    assert details["melee_damage_min"] == 106
-    assert details["melee_damage_max"] == 122
-    assert details["melee_damage"] == 114
+    # core(10, STR 16)=29 + 65 flat + weapon 15-31 → 109-125
+    assert details["melee_damage_min"] == 109
+    assert details["melee_damage_max"] == 125
+    assert details["melee_damage"] == 117
 
 
 def test_compute_details_unarmed_str_14() -> None:
@@ -226,9 +227,9 @@ def test_compute_details_unarmed_str_14() -> None:
         level=1, current_hp=100,
     )
     details = _compute_details(waifu, [])
-    # BASE_SKILL_DAMAGE 10 + STR 14
-    assert details["melee_damage_min"] == 24
-    assert details["melee_damage_max"] == 24
+    # BASE_SKILL_DAMAGE 10 + STR 14 × 1.2 → 26
+    assert details["melee_damage_min"] == 26
+    assert details["melee_damage_max"] == 26
 
 
 def test_compute_details_reflects_equipped_weapon_damage() -> None:
@@ -266,7 +267,7 @@ def test_compute_details_offhand_sole_weapon_reflected() -> None:
 
 
 def test_compute_details_magic_staff_additive() -> None:
-    """INT 20 → magic 30-30; staff 3-6 +1 INT → core(10, INT 21)=31 + weapon 3-6 → 34-37."""
+    """INT 20 → magic 34-34; staff 3-6 +1 INT → core(10, INT 21)=35 + weapon 3-6 → 38-41."""
     from waifu_bot.api.routes import _compute_details
 
     waifu = SimpleNamespace(
@@ -274,8 +275,8 @@ def test_compute_details_magic_staff_additive() -> None:
         level=1, current_hp=100,
     )
     unarmed = _compute_details(waifu, [])
-    assert unarmed["magic_damage_min"] == 30
-    assert unarmed["magic_damage_max"] == 30
+    assert unarmed["magic_damage_min"] == 34
+    assert unarmed["magic_damage_max"] == 34
 
     staff = _detail_item_range(
         1,
@@ -288,9 +289,9 @@ def test_compute_details_magic_staff_additive() -> None:
         base_stat_value=1,
     )
     armed = _compute_details(waifu, [staff])
-    assert armed["magic_damage_min"] == 34
-    assert armed["magic_damage_max"] == 37
-    assert armed["magic_damage"] == 35
+    assert armed["magic_damage_min"] == 38
+    assert armed["magic_damage_max"] == 41
+    assert armed["magic_damage"] == 39
     assert armed["melee_damage_min"] == unarmed["melee_damage_min"]
     assert armed["ranged_damage_min"] == unarmed["ranged_damage_min"]
 

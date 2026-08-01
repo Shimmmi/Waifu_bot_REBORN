@@ -34,7 +34,7 @@
 
 ## Исходящий урон (сообщение в чате)
 
-1. **База** — `build_message_damage_base_trace_ru` (оружие, длина текста, flat от основной статы, коэффициент типа медиа) + `apply_equipment_damage_flats` (плоские бонусы и `damage_percent` с экипировки).
+1. **База** — `build_message_damage_base_trace_ru` (оружие, длина текста, flat от основной статы × `MELEE/RANGED/SPELL_DAMAGE_COEFFICIENT` = **1.2**, коэффициент типа медиа) + `apply_equipment_damage_flats` (плоские бонусы и `damage_percent` с экипировки). Для не-TEXT/LINK медиа дополнительно `ИНТ × INT_SKILL_DAMAGE_COEFF` (тоже **1.2**).
 2. **Единый бонусный пул** — все % бонусы **суммируются**, затем один раз: `pre_crit = floor(base × (1 + bonus_pool))`. В пул входят: пассивы (`melee_dmg_pct`, `low_hp_dmg_pct`, `hp_loss_dmg_pct` как ступени, …), скрытые навыки, affix media/vs-monster %, бестиарий, оглушение (+20% при проке), **легендарные `damage_multiplier`** (как `mult − 1`, с cap `legendary_bonus_max_total_multiplier`). Сборка: [`outgoing_damage_pool.py`](../src/waifu_bot/game/outgoing_damage_pool.py).
 3. **Плоский урон** против семейства монстров — после пула (`damage_vs_monster_type_flat`).
 4. **Элита** — curse, stone_skin, иммунитет/блок медиа (до крита).

@@ -50,7 +50,7 @@ from waifu_bot.game.constants import (
 def calculate_max_hp(level: int, endurance: int, strength: int = 0) -> int:
     """Calculate maximum HP.
 
-    Formula: BASE_HP_PER_LEVEL × level + ВЫН × 10 + СИЛ × 3
+    Formula: BASE_HP_PER_LEVEL × level + ВЫН × HP_K_COEFFICIENT + СИЛ × STR_HP_COEFFICIENT
     """
     base_hp = BASE_HP_PER_LEVEL * level
     endurance_bonus = endurance * HP_K_COEFFICIENT
@@ -105,7 +105,7 @@ def calculate_damage(
     """Calculate damage based on weapon and stats.
 
     Formula: base_damage + flat_stat_bonus
-    Each point of the primary stat adds COEFFICIENT flat damage (currently 1.0).
+    Each point of the primary stat adds COEFFICIENT flat damage (currently 1.2).
     This matches the profile UI which shows "+N к урону" per stat point.
     """
     if attack_type == "melee":

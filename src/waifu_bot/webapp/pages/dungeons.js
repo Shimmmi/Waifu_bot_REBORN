@@ -1256,7 +1256,11 @@ async function loadBattle() {
   setText("waifu-battle-name", `ВАША ВАЙФУ: ${data.waifu_name}`);
   setText(
     "waifu-stats",
-    `Атака: ${data.waifu_attack_min}-${data.waifu_attack_max} | Защита: ${data.waifu_defense}`
+    `Урон (база+СИЛ): ${data.waifu_attack_min}${
+      data.waifu_attack_max != null && data.waifu_attack_max !== data.waifu_attack_min
+        ? `-${data.waifu_attack_max}`
+        : ""
+    } | Сниж. ур. (ВЫН): ${data.waifu_defense}%`
   );
 
   const enemyHp = safeNumber(data.monster_current_hp, 0);
@@ -3011,6 +3015,27 @@ function expeditionSquadPowerTotal() {
   return expeditionSend.squadSlots.filter(Boolean).reduce((sum, u) => sum + (Number(u.power) || 0), 0);
 }
 
+function expeditionDepthTierById(tierId) {
+  const tiers = expeditionState.catalog?.depth_tiers || [];
+  const n = Number(tierId);
+  return tiers.find((t) => Number(t.tier) === n) || null;
+}
+
+/** Required min CR for current send: ops contract tier wins over UI-selected tier. */
+function expeditionRequiredPower() {
+  let tierId = Number(expeditionSend.depthTier) || 0;
+  const opsId = expeditionSend.opsContractId;
+  if (opsId) {
+    const contracts = expeditionState.opsBoard?.contracts || [];
+    const hit = contracts.find((c) => String(c.id) === String(opsId));
+    if (hit) {
+      tierId = Number(hit.depth_tier || hit.star || tierId) || tierId;
+    }
+  }
+  const dt = expeditionDepthTierById(tierId);
+  return dt ? Number(dt.min_squad_power) || 0 : 0;
+}
+
 const REWARD_ICONS = {
   gold: "🪙", waifu_exp: "⭐", items: "🗡", enchant: "💎", merc_exp: "✨", mixed: "🎁",
 };
@@ -3053,11 +3078,15 @@ function renderExpTierSelect() {
   if (!sel) return;
   const tiers = expeditionState.catalog?.depth_tiers || [];
   const sqPower = expeditionSquadPowerTotal();
-  const current = tiers.find((t) => t.tier === expeditionSend.depthTier);
-  if (current && sqPower < (current.min_squad_power || 0)) {
-    const unlocked = tiers.filter((t) => sqPower >= (t.min_squad_power || 0));
-    if (unlocked.length) expeditionSend.depthTier = unlocked[unlocked.length - 1].tier;
+  // Ops contract locks depth_tier server-side — never auto-downgrade the UI tier.
+  if (!expeditionSend.opsContractId) {
+    const current = expeditionDepthTierById(expeditionSend.depthTier);
+    if (current && sqPower < (current.min_squad_power || 0)) {
+      const unlocked = tiers.filter((t) => sqPower >= (t.min_squad_power || 0));
+      if (unlocked.length) expeditionSend.depthTier = unlocked[unlocked.length - 1].tier;
+    }
   }
+  const selectedTier = Number(expeditionSend.depthTier);
   sel.innerHTML =
     tiers
       .map((dt) => {
@@ -3068,7 +3097,7 @@ function renderExpTierSelect() {
         const dur = formatExpeditionDurationShort(dt.duration_minutes);
         const ev = dt.events_count || "—";
         const label = `${roman} · ${name} · ⚔${power} · ${dur} · ${ev} соб.`;
-        const selected = expeditionSend.depthTier === dt.tier ? " selected" : "";
+        const selected = selectedTier === Number(dt.tier) ? " selected" : "";
         return `<option value="${dt.tier}"${locked ? " disabled" : ""}${selected}>${escapeHtml(label)}</option>`;
       })
       .join("") || '<option value="">Загрузка…</option>';
@@ -3095,29 +3124,18 @@ function expeditionMaxUnlockedTier(sqPower) {
 
 function updateExpeditionSquadPowerLabel() {
   const sq = expeditionSquadPowerTotal();
-  const tiers = expeditionState.catalog?.depth_tiers || [];
-  const selected = tiers.find((t) => t.tier === expeditionSend.depthTier);
-  const needSelected = selected ? selected.min_squad_power || 0 : 0;
-  const nextLocked = tiers.find((t) => sq < (t.min_squad_power || 0));
-  const colorNeed = needSelected > sq ? needSelected : nextLocked ? nextLocked.min_squad_power || 0 : needSelected;
-  const powerCls = powerThresholdClass(sq, colorNeed);
+  const need = expeditionRequiredPower();
+  const powerCls = need && sq < need ? "exp-power-bad" : "exp-power-ok";
+  const needSuffix = need ? ` / ${need}` : "";
 
   const el = expG("esm-squad-power");
   if (el) {
-    el.innerHTML = `CR <span class="${powerCls}">${sq}</span>${needSelected ? ` / ${needSelected}` : ""}`;
+    el.innerHTML = `CR <span class="${powerCls}">${sq}</span>${needSuffix}`;
   }
 
   const rosterEl = expG("esm-roster-power");
   if (rosterEl) {
-    const need = needSelected;
-    const ok = !need || sq >= need;
-    const statusCls = ok ? "exp-power-ok" : "exp-power-bad";
-    const statusTxt = ok ? "достаточно" : "недостаточно";
-    const detail = need
-      ? ` · CR <span class="${powerCls}">${sq}</span> / ${need}`
-      : ` · CR <span class="${powerCls}">${sq}</span>`;
-    rosterEl.innerHTML =
-      `<span>⚔ Отряд: <span class="${statusCls}">${statusTxt}</span>${detail}</span>`;
+    rosterEl.innerHTML = `<span>⚔ CR <span class="${powerCls}">${sq}</span>${needSuffix}</span>`;
   }
 
   renderExpTierSelect();
@@ -3565,9 +3583,9 @@ function renderExpeditionSquadSlots() {
     }
   }
   const btn = expG("exp-send-btn");
-  const tier = (expeditionState.catalog?.depth_tiers || []).find((t) => t.tier === expeditionSend.depthTier);
   const sqPower = expeditionSquadPowerTotal();
-  const powerOk = !tier || sqPower >= (tier.min_squad_power || 0);
+  const need = expeditionRequiredPower();
+  const powerOk = !need || sqPower >= need;
   const hasSquad = expeditionSend.squadSlots.some((s) => s && !isExpeditionUnitBusy(s));
   const hasBusy = expeditionSend.squadSlots.some((s) => s && isExpeditionUnitBusy(s));
   if (btn) btn.disabled = !hasSquad || !powerOk || hasBusy;

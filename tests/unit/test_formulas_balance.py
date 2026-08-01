@@ -24,13 +24,14 @@ from waifu_bot.game.formulas import (
 
 
 def test_calculate_damage_flat_per_stat_one() -> None:
-    assert calculate_damage(10, strength=10, agility=0, intelligence=0, attack_type="melee") == 20
-    assert calculate_damage(10, strength=0, agility=7, intelligence=0, attack_type="ranged") == 17
+    # COEFF=1.2: int(base + stat*1.2)
+    assert calculate_damage(10, strength=10, agility=0, intelligence=0, attack_type="melee") == 22
+    assert calculate_damage(10, strength=0, agility=7, intelligence=0, attack_type="ranged") == 18
     assert calculate_damage(10, strength=0, agility=0, intelligence=4, attack_type="magic") == 14
 
 
 def test_calculate_max_hp_coefficients() -> None:
-    assert calculate_max_hp(10, endurance=5, strength=3) == 20 * 10 + 5 * 10 + 3 * 3
+    assert calculate_max_hp(10, endurance=5, strength=3) == 20 * 10 + 5 * 12 + 3 * 3
 
 
 def test_calculate_crit_multiplier_str_scaling() -> None:
@@ -98,4 +99,4 @@ def test_shop_buy_sell_ratio() -> None:
 
 def test_int_exp_coeff_defined() -> None:
     assert INT_EXP_BONUS_COEFF == 0.001
-    assert INT_SKILL_DAMAGE_COEFF == 1.0
+    assert INT_SKILL_DAMAGE_COEFF == 1.2
