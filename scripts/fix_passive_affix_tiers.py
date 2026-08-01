@@ -35,9 +35,12 @@ def _bands_for_family(family_id: str) -> dict[int, tuple[int, int]] | None:
     if tree_tier is None:
         return None
     tier_min = TIER_MIN_ILVL[tree_tier]
+    # Core bands stay 1–50; A10 overcap extends to 60 (Dungeon+ ilvl).
     bands = split_ilvl_bands(tier_min, 10, 50)
     if len(bands) != 10:
         raise RuntimeError(f"Expected 10 bands for {family_id}, got {len(bands)}")
+    last_min, _last_max = bands[9]
+    bands[9] = (last_min, 60)
     return {i + 1: bands[i] for i in range(10)}
 
 
