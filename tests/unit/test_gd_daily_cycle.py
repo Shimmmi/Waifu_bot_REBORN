@@ -119,7 +119,9 @@ def test_start_and_finale_copy_readable():
     roster = format_daily_start_roster_html(party)
     assert "@hero" in roster
     assert "Мира" in roster
-    assert "совершенствование 3" in roster
+    assert ": 12," in roster
+    assert "ур.шмота <b>440</b>" in roster
+    assert "совершенствование" not in roster
     rows = build_player_summary_rows(
         [_Reg(1, party[0], {"msg_total": 5, "by_type": {"text": 5}, "damage_total": 99})],
         chat_msg_total=10,

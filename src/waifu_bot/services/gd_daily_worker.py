@@ -17,10 +17,16 @@ from waifu_bot.db.models import (
     MainWaifu,
     Player,
 )
+from waifu_bot.game.constants import MAX_LEVEL
 from waifu_bot.game.msk_time import gd_should_finalize_now, gd_should_start_now, msk_now
 from waifu_bot.services.combat import apply_main_waifu_levelups
-from waifu_bot.services.game_config_service import cfg_float, cfg_int, get_game_config_map
+from waifu_bot.services.game_config_service import cfg_int, get_game_config_map
 from waifu_bot.services.gd_cycle_service import GDCycleService, REDIS_GD_DAILY_LOCK
+from waifu_bot.services.gd_daily_rewards import (
+    compute_daily_payout,
+    contribution_display_pct,
+    roll_daily_reward_items,
+)
 from waifu_bot.services.gd_daily_stats import (
     build_player_summary_rows,
     format_mention,
@@ -33,7 +39,6 @@ from waifu_bot.services.gd_narrative_ai import (
 )
 from waifu_bot.services.gd_pie_chart import generate_gd_daily_pie_png, pie_caption_from_rows
 from waifu_bot.services.bot_group_chats import ACTIVE_STATUSES
-from waifu_bot.services.gd_scaling import reward_level_multiplier
 
 if TYPE_CHECKING:
     from aiogram import Bot
@@ -61,17 +66,28 @@ async def _unlock(redis: Any, key: str) -> None:
         pass
 
 
+def format_level_display(level: int, perfection_level: int = 0) -> str:
+    """Main level, with (paragon) only when MAX_LEVEL and perfection unlocked."""
+    lvl = max(1, int(level or 1))
+    perf = max(0, int(perfection_level or 0))
+    if lvl >= int(MAX_LEVEL) and perf > 0:
+        return f"{lvl} ({perf})"
+    return str(lvl)
+
+
 def format_daily_start_roster_html(party: list[dict[str, Any]]) -> str:
     lines: list[str] = []
     for p in party:
         uid = int(p.get("user_id") or 0)
         mention = format_mention(p.get("username"), uid)
         name = p.get("name") or "—"
-        lvl = int(p.get("level") or 1)
-        perf = int(p.get("perfection_level") or 0)
+        lvl_txt = format_level_display(
+            int(p.get("level") or 1),
+            int(p.get("perfection_level") or 0),
+        )
         gs = int(p.get("gear_score") or 0)
         lines.append(
-            f"• {mention} — <b>{name}</b>: ур. {lvl}, совершенствование {perf}, предметы {gs}"
+            f"• {mention} — <b>{name}</b>: {lvl_txt}, ур.шмота <b>{gs}</b>"
         )
     return "\n".join(lines) if lines else "• (пусто)"
 
@@ -116,6 +132,19 @@ def format_daily_finale_stats_html(
     return "\n".join(lines)
 
 
+def _ensure_intro_ends_with_sostave(intro: str) -> str:
+    text = (intro or "").strip()
+    if not text:
+        return "В опасное путешествие отправился наш бравый отряд домохозяек в составе:"
+    low = text.rstrip().lower()
+    if low.endswith("в составе:") or low.endswith("в составе："):
+        return text.rstrip()
+    # Soft append if model forgot the cue
+    if "в составе" in low:
+        return text.rstrip().rstrip(".") + ":"
+    return text.rstrip().rstrip(".") + " в составе:"
+
+
 async def send_daily_start_message(
     bot: Any,
     session: AsyncSession,
@@ -123,37 +152,23 @@ async def send_daily_start_message(
     party: list[dict[str, Any]],
     dungeon_name: str,
 ) -> None:
+    _ = dungeon_name
     cfg = await get_game_config_map(session)
     timeout = float(cfg.get("gd_ai_timeout_seconds") or "18")
     use_ai = cfg_int(cfg, "gd_daily_ai_start", 1) == 1
     roster = format_daily_start_roster_html(party)
-    humor_top = ""
-    humor_bot = ""
+    humor_top = "В опасное путешествие отправился наш бравый отряд домохозяек в составе:"
+    humor_bot = "Пишите в чат — статистика дня считает всё, кроме оправданий. Шмот уже в слепке до завтра."
     if use_ai:
-        _, humor = await generate_gd_daily_start_narrative(
-            dungeon_name=dungeon_name,
-            party=party,
-            timeout_sec=timeout,
-        )
-        # Expect two short paragraphs separated by blank line; otherwise use as top.
+        _, humor = await generate_gd_daily_start_narrative(timeout_sec=timeout)
         parts = [p.strip() for p in (humor or "").split("\n\n") if p.strip()]
         if len(parts) >= 2:
             humor_top, humor_bot = parts[0], parts[-1]
         elif parts:
             humor_top = parts[0]
-            humor_bot = "Удачи в дневном походе — экипировка уже зафиксирована до завтра."
-        else:
-            humor_top = f"Отряд входит в «{dungeon_name}». Слепок вайфу снят — меняйте шмот на здоровье, учтём завтра."
-            humor_bot = "Пишите в чат: каждое сообщение кормит статистику дня."
-    else:
-        humor_top = f"⚔️ Дневной поход «{dungeon_name}» начался."
-        humor_bot = "Слепок основной вайфу зафиксирован до следующего утра."
+    humor_top = _ensure_intro_ends_with_sostave(humor_top)
 
-    text = (
-        f"{humor_top}\n\n"
-        f"<b>Участники дневного похода</b>:\n{roster}\n\n"
-        f"{humor_bot}"
-    )
+    text = f"{humor_top}\n{roster}\n\n{humor_bot}"
     try:
         await bot.send_message(chat_id=cycle.chat_id, text=text, parse_mode="HTML")
     except Exception:
@@ -171,13 +186,11 @@ async def finalize_daily_rewards_and_notify(
     least: dict[str, Any] | None,
 ) -> None:
     cfg = await get_game_config_map(session)
-    base_exp = cfg_float(cfg, "gd_base_exp_reward", 900)
-    base_gold = cfg_float(cfg, "gd_base_gold_reward", 1800)
     tpl = await session.get(GDDungeonTemplate, cycle.dungeon_template_id)
     dungeon_name = tpl.name if tpl else "Подземелье"
 
-    total_score = sum(float(r.get("score") or 0) for r in rows) or 1.0
     ranked = sorted(rows, key=lambda r: float(r.get("score") or 0), reverse=True)
+    sum_msgs = sum(max(0, int(r.get("msg_total") or 0)) for r in ranked)
 
     stats_html = format_daily_finale_stats_html(
         rows,
@@ -192,11 +205,8 @@ async def finalize_daily_rewards_and_notify(
         timeout = float(cfg.get("gd_ai_timeout_seconds") or "20")
         _, ai_block = await generate_gd_daily_finale_narrative(
             {
-                "dungeon_name": dungeon_name,
                 "mvp": mvp,
                 "least": least,
-                "rows": rows,
-                "chat_msg_total": chat_msg_total,
             },
             timeout_sec=timeout,
         )
@@ -232,27 +242,45 @@ async def finalize_daily_rewards_and_notify(
 
     for i, r in enumerate(ranked):
         uid = int(r["user_id"])
-        share = float(r.get("score") or 0) / total_score
         waifu_pre = (
             await session.execute(select(MainWaifu).where(MainWaifu.player_id == uid))
         ).scalar_one_or_none()
-        lvl_m = reward_level_multiplier(int(waifu_pre.level or 1) if waifu_pre else 1, cfg)
-        activity_m = 0.35 + 0.65 * min(1.0, float(r.get("msg_total") or 0) / 20.0)
-        exp = int(base_exp * share * lvl_m * activity_m)
-        gold = int(base_gold * share * lvl_m * activity_m)
+        player = await session.get(Player, uid)
+        waifu_level = int(waifu_pre.level or 1) if waifu_pre else int(r.get("level") or 1)
+        perfection_level = int(getattr(player, "perfection_level", 0) or 0) if player else int(
+            r.get("perfection_level") or 0
+        )
+        payout = compute_daily_payout(
+            msg_total=int(r.get("msg_total") or 0),
+            waifu_level=waifu_level,
+            perfection_level=perfection_level,
+            cfg=cfg,
+        )
+        exp = int(payout["exp"])
+        gold = int(payout["gold"])
+        items: list[dict[str, Any]] = []
+        if payout.get("eligible"):
+            items = await roll_daily_reward_items(
+                session,
+                player_id=uid,
+                waifu_level=waifu_level,
+                item_chance=float(payout["item_chance"]),
+                item_rolls=int(payout["item_rolls"]),
+                cfg=cfg,
+            )
+        contrib_pct = contribution_display_pct(int(r.get("msg_total") or 0), sum_msgs)
         rew = GDRewardRow(
             cycle_id=cycle.id,
             user_id=uid,
             exp_earned=exp,
             gold_earned=gold,
-            items_json=None,
-            contribution_pct=100.0 * share,
+            items_json=items if items else None,
+            contribution_pct=contrib_pct,
             dm_sent=False,
         )
         session.add(rew)
         await session.flush()
-        player = await session.get(Player, uid)
-        if player:
+        if player and gold > 0:
             player.gold = int(player.gold or 0) + gold
         if waifu_pre and exp > 0:
             waifu_pre.experience = (waifu_pre.experience or 0) + exp
@@ -268,12 +296,18 @@ async def finalize_daily_rewards_and_notify(
         except Exception:
             pass
         rank = i + 1
+        item_bit = ""
+        if items:
+            item_bit = "\nПредметы: " + ", ".join(
+                f"{it.get('name')} (ур. {it.get('level')})" for it in items
+            )
+        counted = int(payout.get("counted_msgs") or 0)
         dm = (
             f"⚔️ Дневной поход «{dungeon_name}» завершён.\n"
             f"Место: {rank}/{len(ranked)}\n"
-            f"Сообщений: {r['msg_total']} ({r['chat_share_pct']:.1f}% чата)\n"
+            f"Сообщений: {r['msg_total']} (учтено {counted}/500)\n"
             f"Урон: {r['damage_total']}\n"
-            f"Награда: {exp} опыта, {gold} золота."
+            f"Награда: {exp} опыта, {gold} золота.{item_bit}"
         )
         for attempt in range(3):
             try:
