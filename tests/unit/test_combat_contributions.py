@@ -20,7 +20,7 @@ class _Waifu:
 
 
 @pytest.mark.asyncio
-async def test_endurance_contrib_capped_at_35_percent():
+async def test_endurance_contrib_capped_at_end_cap():
     w = _Waifu(500)
     row = await collect_endurance_dmg_reduce_contrib(w, 0)
     assert row["kind"] == "contrib"

@@ -1,11 +1,12 @@
-"""GD v1.0: cycle-based group dungeons (registration, rounds, rewards)."""
+"""GD cycles: daily auto group dungeons (snapshots, day stats, rewards)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -49,6 +50,9 @@ class GDCycle(Base):
     # Когда закончить сбор действий для текущего раунда (UTC). NULL = между тиками / не активен.
     round_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Daily GD: MSK calendar day of auto-start + planned finalize (next 04:00 MSK).
+    game_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     total_rounds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     current_round_number: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     battle_state_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -76,6 +80,8 @@ class GDRegistration(Base):
     )
     # collecting_for_round at join time (1 = full registration; >1 = late join)
     joined_at_round: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # Daily GD: per-player message/damage counters for the day-long cycle.
+    day_stats_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     cycle: Mapped["GDCycle"] = relationship("GDCycle", back_populates="registrations")
 

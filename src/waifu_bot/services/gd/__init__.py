@@ -1,9 +1,13 @@
-"""Group Dungeon v1 service package.
+"""Group Dungeon service package (daily auto cycle).
 
 Re-exports from flat service layout so existing ``from waifu_bot.services.gd_*``
 imports keep working while new code can import from ``waifu_bot.services.gd.*``.
 """
 from waifu_bot.services.gd_cycle_service import GDCycleService, build_waifu_snapshot  # noqa: F401
+from waifu_bot.services.gd_daily_worker import (  # noqa: F401
+    run_gd_daily_finalize_tick,
+    run_gd_daily_start_tick,
+)
 from waifu_bot.services.gd_v1_worker import (  # noqa: F401
     format_gd_v1_battle_status_report,
     process_gd_registration_deadlines,
@@ -17,6 +21,8 @@ from waifu_bot.services.gd_narrative_ai import generate_gd_round_narrative  # no
 __all__ = [
     "GDCycleService",
     "build_waifu_snapshot",
+    "run_gd_daily_start_tick",
+    "run_gd_daily_finalize_tick",
     "process_gd_registration_deadlines",
     "run_gd_v1_round_tick_poll",
     "process_gd_round",

@@ -30,11 +30,13 @@ from waifu_bot.db.models import (
     StoryBossDefinition,
 )
 from waifu_bot.game.constants import (
+    BASE_SKILL_DAMAGE,
     CURSED_TAG_WEIGHT_MULTIPLIER,
     MediaType,
     STORY_PLUS_TIERS,
     elite_spawn_bonus_for_plus_level,
 )
+from waifu_bot.game.formulas import calculate_damage, calculate_damage_reduction
 from waifu_bot.game.dungeon_plus_scaling import (
     dungeon_plus_difficulty_params,
     dungeon_plus_dmg_mult,
@@ -73,6 +75,25 @@ def _solo_battle_log_summary_fallback(event_type: str, event_data: dict | None) 
     if event_type == "monster_reward":
         return (ed.get("summary_ru") or "").strip() or "Награда за монстра."
     return event_type or "Событие боя."
+
+
+def _waifu_battle_ui_combat_stats(waifu: MainWaifu) -> dict[str, int]:
+    """Оценка для UI боя: база+СИЛ×coeff (без оружия) и снижение от ВЫН в %."""
+    strength = int(getattr(waifu, "strength", 0) or 0)
+    endurance = int(getattr(waifu, "endurance", 0) or 0)
+    atk = int(
+        calculate_damage(
+            int(BASE_SKILL_DAMAGE),
+            strength=strength,
+            attack_type="melee",
+        )
+    )
+    dr_pct = int(round(float(calculate_damage_reduction(endurance)) * 100.0))
+    return {
+        "waifu_attack_min": atk,
+        "waifu_attack_max": atk,
+        "waifu_defense": dr_pct,
+    }
 
 
 async def prune_solo_battle_log(
@@ -1190,9 +1211,7 @@ class DungeonService:
                     "waifu_level": waifu.level,
                     "waifu_current_hp": waifu.current_hp,
                     "waifu_max_hp": waifu.max_hp,
-                    "waifu_attack_min": max(0, waifu.strength - 10),
-                    "waifu_attack_max": max(0, waifu.strength - 10) + 5,
-                    "waifu_defense": max(0, waifu.endurance - 10),
+                    **_waifu_battle_ui_combat_stats(waifu),
                     "battle_log": battle_log,
                     "battle_log_entries": battle_log_entries,
                 }
@@ -1252,9 +1271,7 @@ class DungeonService:
                 "waifu_level": waifu.level,
                 "waifu_current_hp": waifu.current_hp,
                 "waifu_max_hp": waifu.max_hp,
-                "waifu_attack_min": max(0, waifu.strength - 10),
-                "waifu_attack_max": max(0, waifu.strength - 10) + 5,
-                "waifu_defense": max(0, waifu.endurance - 10),
+                **_waifu_battle_ui_combat_stats(waifu),
                 "battle_log": battle_log,
                 "battle_log_entries": battle_log_entries,
             }
@@ -1294,9 +1311,7 @@ class DungeonService:
             "waifu_level": waifu.level,
             "waifu_current_hp": waifu.current_hp,
             "waifu_max_hp": waifu.max_hp,
-            "waifu_attack_min": max(0, waifu.strength - 10),  # Простая формула атаки
-            "waifu_attack_max": max(0, waifu.strength - 10) + 5,
-            "waifu_defense": max(0, waifu.endurance - 10),
+            **_waifu_battle_ui_combat_stats(waifu),
             "battle_log": battle_log,
             "battle_log_entries": battle_log_entries,
         }

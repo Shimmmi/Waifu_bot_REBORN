@@ -101,7 +101,7 @@ PERFECTION_BONUSES: tuple[PerfectionBonusDef, ...] = (
     PerfectionBonusDef("str_flat", "+СИЛ", "permanent", "primary", PRIMARY_VALUES),
     PerfectionBonusDef("agi_flat", "+ЛОВ", "permanent", "primary", PRIMARY_VALUES),
     PerfectionBonusDef("int_flat", "+ИНТ", "permanent", "primary", PRIMARY_VALUES),
-    PerfectionBonusDef("end_flat", "+ВНС", "permanent", "primary", PRIMARY_VALUES),
+    PerfectionBonusDef("end_flat", "+ВЫН", "permanent", "primary", PRIMARY_VALUES),
     PerfectionBonusDef("chm_flat", "+ОБА", "permanent", "primary", PRIMARY_VALUES),
     PerfectionBonusDef("lck_flat", "+УДЧ", "permanent", "primary", PRIMARY_VALUES),
     PerfectionBonusDef("hp_flat", "+HP", "permanent", "hp", HP_FLAT_VALUES, unit="HP"),

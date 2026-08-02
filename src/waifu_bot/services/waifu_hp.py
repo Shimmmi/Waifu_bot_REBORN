@@ -70,7 +70,7 @@ async def compute_effective_max_hp(
     player_id: int,
     waifu: m.MainWaifu,
 ) -> int:
-    """Compute waifu max HP including all equipped item bonuses (ВЫН×10 + СИЛ×3)."""
+    """Compute waifu max HP including all equipped item bonuses (ВЫН×HP_K + СИЛ×STR_HP)."""
     base_endurance = int(getattr(waifu, "endurance", 10) or 10)
     base_strength = int(getattr(waifu, "strength", 10) or 10)
     endurance_bonus = 0

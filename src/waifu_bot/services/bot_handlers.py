@@ -166,46 +166,12 @@ async def cmd_start(message: Message, bot: Bot) -> None:
         and message.chat
         and message.chat.type == "private"
     ):
-        raw = payload[len("gd_join_") :]
-        try:
-            target_chat = int(raw)
-        except ValueError:
-            await _send_response_traced(
-                message, "Неверная ссылка вступления в поход.", "gd_join_start_bad"
-            )
-            return
-        user_id = message.from_user.id
-        try:
-            async for session in get_session():
-                from waifu_bot.services.gd_webapp_service import join_gd_from_webapp_or_dm
-
-                result = await join_gd_from_webapp_or_dm(
-                    session, user_id, target_chat, gd_v1_cycle_service, bot
-                )
-                await session.commit()
-                if result.get("success"):
-                    late = result.get("late_join")
-                    pct = int(round(100 * float(result.get("reward_stage_mult") or 1)))
-                    extra = (
-                        f" Поздний вход с раунда {result.get('joined_at_round')} (~{pct}% награды)."
-                        if late
-                        else ""
-                    )
-                    await _send_response_traced(
-                        message,
-                        f"✅ {result.get('name', 'Вайфу')} в походе «{result.get('dungeon_name')}».{extra}",
-                        "gd_join_start_ok",
-                    )
-                else:
-                    await _send_response_traced(
-                        message,
-                        result.get("message", "Не удалось вступить."),
-                        "gd_join_start_fail",
-                    )
-                break
-        except Exception:
-            logger.exception("gd_join start payload failed")
-            await _send_response_traced(message, "Ошибка вступления.", "gd_join_start_exc")
+        await _send_response_traced(
+            message,
+            "ℹ️ Ссылка записи устарела. Дневной поход стартует в группе автоматически в 04:30 МСК "
+            "(нужна основная вайфу; напишите хотя бы раз в группе с ботом).",
+            "gd_join_start_deprecated",
+        )
         return
 
     name = (message.from_user.first_name or message.from_user.username or "Игрок") if message.from_user else "Игрок"
@@ -214,11 +180,12 @@ async def cmd_start(message: Message, bot: Bot) -> None:
         me = await bot.me()
         un = (me.username or settings.bot_username or "").strip()
         if un:
-            group_hint = f" В группе: /gd_join@{un}, /help@{un}."
+            group_hint = f" В группе: /gd_start@{un}, /gd_party@{un}, /help@{un}."
     text = (
         f"Привет, {name}! 👋\n\n"
         "Я бот Waifu REBORN — вайфу, подземелья, гильдии и групповые рейды.\n"
-        f"В группе — еженедельный групповой поход GD v1; вне активного похода сообщения могут наносить урон в соло.{group_hint}\n"
+        f"В группе — дневной групповой поход (/gd_start для первого запуска, далее автостарт "
+        f"04:30 МСК, итог 04:00 МСК); сообщения также могут наносить урон в соло.{group_hint}\n"
         "В личке: открой веб-приложение по кнопке меню или напиши /help."
     )
     await _send_response_traced(message, text, "cmd_start")
@@ -231,7 +198,7 @@ async def cmd_help(message: Message, bot: Bot) -> None:
         return
     me = await bot.me()
     bot_un = (me.username or settings.bot_username or "").strip()
-    gd_join = f"/gd_join@{bot_un}" if bot_un else "/gd_join"
+    gd_start = f"/gd_start@{bot_un}" if bot_un else "/gd_start"
     gd_party = f"/gd_party@{bot_un}" if bot_un else "/gd_party"
     help_cmd = f"/help@{bot_un}" if bot_un else "/help"
     in_group = message.chat and message.chat.type in ("group", "supergroup")
@@ -239,10 +206,11 @@ async def cmd_help(message: Message, bot: Bot) -> None:
         "📖 <b>Команды</b>\n"
         "/start — приветствие\n"
         f"{help_cmd} — эта справка\n"
-        f"{gd_join} — записаться в групповой поход <b>GD v1</b> (регистрация 15 мин, затем раунды по 15 мин; "
-        "сообщения в группе попадают в буфер раунда).\n"
-        f"{gd_party} — показать текущий состав отряда (имя, уровень, раса/класс).\n"
-        "В группе вне активного GD v1: обычные сообщения могут наносить урон в соло-режиме, если он активен.\n"
+        f"{gd_start} — ручной запуск дневного группового похода (первый старт / по необходимости).\n"
+        "Дальше поход <b>ежедневный</b>: автостарт <b>04:30 МСК</b>, итог <b>04:00 МСК</b>. "
+        "Участники — игроки с основной вайфу, которых бот уже видел в чате; слепок экипировки на утро.\n"
+        f"{gd_party} — показать состав текущего дневного похода.\n"
+        "Сообщения в группе копят дневную статистику и параллельно могут бить соло-монстра, если он активен.\n"
         "Профиль, инвентарь и подземелья — в веб-приложении (ссылку можно получить у бота)."
     )
     if in_group and bot_un:
@@ -434,20 +402,50 @@ async def _group_message_damage_body(
             )
             if v1:
                 td, media = _gd_v1_media_and_text_len(message)
-                logger.info(
-                    "group gd_v1 round buffer: chat_id=%s cycle_id=%s player_id=%s text_delta=%s media=%s",
-                    chat_id,
-                    v1.id,
-                    player_id,
-                    td,
-                    media,
+                from waifu_bot.services.gd_daily_stats import (
+                    calc_snapshot_message_damage,
+                    media_type_to_day_key,
                 )
-                await gd_v1_cycle_service.record_round_action(
+                from waifu_bot.db.models import GDRegistration
+                from sqlalchemy import select as sa_select
+
+                msg_key = media_type_to_day_key(media_type)
+                if message.document and not message.photo and not message.animation:
+                    msg_key = "document"
+                reg = (
+                    await session.execute(
+                        sa_select(GDRegistration).where(
+                            GDRegistration.cycle_id == v1.id,
+                            GDRegistration.user_id == int(player_id),
+                        )
+                    )
+                ).scalar_one_or_none()
+                is_participant = reg is not None
+                dmg = 0
+                if is_participant:
+                    dmg = calc_snapshot_message_damage(
+                        reg.waifu_snapshot if reg else None,
+                        media_type,
+                        message_length=int(td or msg_len or 0),
+                    )
+                logger.info(
+                    "group gd_daily stats: chat_id=%s cycle_id=%s player_id=%s key=%s dmg=%s participant=%s",
                     chat_id,
                     v1.id,
                     player_id,
-                    text_delta=td,
-                    media_kind=media,
+                    msg_key,
+                    dmg,
+                    is_participant,
+                )
+                await gd_v1_cycle_service.record_daily_message(
+                    session,
+                    v1,
+                    player_id,
+                    msg_key=msg_key,
+                    damage=dmg,
+                    is_participant=is_participant,
+                    text_chars=int(msg_len or 0),
+                    ephemeral_text=message_text if is_participant else None,
                 )
                 from waifu_bot.services import guild_progress as guild_prog
 
@@ -462,11 +460,7 @@ async def _group_message_damage_body(
                         session, player_id, "chat_media", media_kinds=media_list
                     )
                 await session.commit()
-                # NOTE: do NOT break here. Damage must be counted everywhere at once:
-                # a GD participant's message contributes to the GD round AND still deals
-                # solo-dungeon damage, while chat members who are not in the GD keep dealing
-                # their own solo damage. process_message_damage no-ops cleanly when the player
-                # has no active solo run, so non-dungeon users are unaffected.
+                # Dual-path: daily GD stats + solo dungeon damage when active.
 
             skip_solo_while_gd = bool(
                 v1
@@ -678,75 +672,95 @@ async def _run_raid_admin_with_raid(message: Message, op) -> None:
         await message.reply("Ошибка сервера при выполнении админ-команды рейда.")
 
 
-# --- Group dungeon GD v1: /gd_join, manual test commands for GD_V1_MANUAL_TEST_USER_IDS ---
-@router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_join"), command_addressed_to_this_bot)
-async def cmd_gd_join(message: Message, bot: Bot) -> None:
-    """GD v1.0: register or late-join main waifu for the group run."""
+# --- Group dungeon daily: /gd_start manual kickoff; /gd_join deprecated ---
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_start"), command_addressed_to_this_bot)
+async def cmd_gd_start(message: Message, bot: Bot) -> None:
+    """Manual first/on-demand start of today's daily group dungeon for this chat."""
     if not message.from_user or message.from_user.is_bot:
         return
     chat_id = message.chat.id
-    user_id = message.from_user.id
     try:
         async for session in get_session():
-            from waifu_bot.services.gd_webapp_service import join_gd_from_webapp_or_dm
+            from waifu_bot.core import redis as redis_core
+            from waifu_bot.services.gd_daily_worker import run_gd_daily_start_tick
 
-            result = await join_gd_from_webapp_or_dm(
-                session, user_id, chat_id, gd_v1_cycle_service, bot, require_membership=False
+            active = await gd_v1_cycle_service.get_active_v1_cycle(session, chat_id)
+            if active:
+                st = dict(active.battle_state_json or {})
+                is_daily = str(st.get("mode") or "") == "daily" or getattr(active, "game_date", None)
+                if is_daily:
+                    await _send_response_traced(
+                        message,
+                        f"⚔️ Дневной поход уже идёт (цикл #{active.id}). Состав: /gd_party.",
+                        "gd_start_already",
+                    )
+                    break
+
+            n = await run_gd_daily_start_tick(
+                session,
+                bot,
+                redis_core.get_redis(),
+                force_chat_id=chat_id,
+                force=True,
             )
-            await session.commit()
-            if result.get("success"):
-                cls_id = int(result.get("class_id") or 0)
-                cls = WAIFU_CLASS_LABEL_RU.get(cls_id, f"класс {cls_id}")
-                closes = result.get("registration_closes") or ""
-                closes_bit = ""
-                if closes and not result.get("late_join"):
-                    try:
-                        from datetime import datetime
-                        from zoneinfo import ZoneInfo
-
-                        dt = datetime.fromisoformat(closes.replace("Z", "+00:00"))
-                        closes_bit = (
-                            f" Окно до {dt.astimezone(ZoneInfo('Europe/Moscow')).strftime('%H:%M')} МСК."
-                        )
-                    except Exception:
-                        closes_bit = ""
-                dungeon = result.get("dungeon_name") or "Подземелье"
-                party_n = result.get("party_count", "?")
-                max_p = result.get("max_party", "?")
-                if result.get("late_join"):
-                    pct = int(round(100 * float(result.get("reward_stage_mult") or 1)))
-                    await _send_response_traced(
-                        message,
-                        f"✅ {result.get('name', 'Вайфу')} (ур. {result.get('level', '?')}, {cls}) "
-                        f"присоединилась к «{dungeon}» — {party_n}/{max_p}. "
-                        f"Раунд {result.get('joined_at_round')}, награда ~{pct}%.",
-                        "gd_join_late_ok",
-                    )
-                else:
-                    first_bit = (
-                        "Регистрация открыта этим сообщением. "
-                        if result.get("was_first")
-                        else ""
-                    )
-                    await _send_response_traced(
-                        message,
-                        f"✅ {result.get('name', 'Вайфу')} (ур. {result.get('level', '?')}, {cls}) "
-                        f"в отряде «{dungeon}» — {party_n}/{max_p}.{closes_bit}\n"
-                        f"{first_bit}"
-                        "Дальше просто пишите в чат после старта — отдельные команды не нужны. "
-                        "Состав: /gd_party.",
-                        "gd_join_ok",
-                    )
-            else:
+            if n > 0:
                 await _send_response_traced(
                     message,
-                    result.get("message", "Не удалось зарегистрироваться."),
-                    "gd_join_fail",
+                    "✅ Дневной поход запущен. Участники — игроки с основной вайфу, "
+                    "которых бот уже видел в чате. Дальше просто пишите в чат. Состав: /gd_party.",
+                    "gd_start_ok",
                 )
+            else:
+                # Idempotent miss: already started today / cancelled empty / no templates
+                from waifu_bot.game.msk_time import gd_daily_game_date_for_start
+
+                existing = await gd_v1_cycle_service.get_cycle_for_game_date(
+                    session, chat_id, gd_daily_game_date_for_start()
+                )
+                if existing and existing.status == "active":
+                    await _send_response_traced(
+                        message,
+                        f"⚔️ Поход на сегодня уже активен (цикл #{existing.id}). /gd_party",
+                        "gd_start_exists_active",
+                    )
+                elif existing and existing.status == "cancelled":
+                    await _send_response_traced(
+                        message,
+                        "❌ Некого записывать: нет игроков с основной вайфу, "
+                        "которых бот уже видел в этом чате.",
+                        "gd_start_empty",
+                    )
+                elif existing and existing.status == "finished":
+                    await _send_response_traced(
+                        message,
+                        "ℹ️ Поход на сегодня уже завершён. Следующий автостарт — в 04:30 МСК.",
+                        "gd_start_finished",
+                    )
+                else:
+                    await _send_response_traced(
+                        message,
+                        "Не удалось запустить поход (нет шаблонов или ошибка). "
+                        "Проверьте seed_gd_content / логи.",
+                        "gd_start_fail",
+                    )
             break
     except Exception:
-        logger.exception("gd_join failed")
-        await _send_response_traced(message, "Ошибка регистрации.", "gd_join_exception")
+        logger.exception("gd_start failed")
+        await _send_response_traced(message, "Ошибка запуска группового похода.", "gd_start_exc")
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_join"), command_addressed_to_this_bot)
+async def cmd_gd_join(message: Message, bot: Bot) -> None:
+    """Deprecated: daily GD auto-enrolls at 04:30 MSK; use /gd_start for manual kickoff."""
+    if not message.from_user or message.from_user.is_bot:
+        return
+    await _send_response_traced(
+        message,
+        "ℹ️ Ручная запись (/gd_join) отключена.\n"
+        "Первый запуск: <b>/gd_start</b>. Дальше поход стартует сам в <b>04:30 МСК</b> "
+        "для игроков с основной вайфу, которых бот уже видел в чате. Состав: /gd_party.",
+        "gd_join_deprecated",
+    )
 
 
 @router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_stop"), command_addressed_to_this_bot)
@@ -796,74 +810,15 @@ async def cmd_gd_stop(message: Message, bot: Bot) -> None:
 
 @router.message(F.chat.type == "private", Command("gd_join"), command_addressed_to_this_bot)
 async def cmd_gd_join_private(message: Message, bot: Bot) -> None:
-    """DM /gd_join [chat_id]: join the only open cycle among player's chats, or a given chat_id."""
+    """Deprecated: daily GD auto-enrolls; no manual join."""
     if not message.from_user or message.from_user.is_bot:
         return
-    user_id = message.from_user.id
-    arg_chat: int | None = None
-    if message.text:
-        parts = message.text.strip().split()
-        if len(parts) >= 2:
-            try:
-                arg_chat = int(parts[1].replace("@", "").split("@")[0])
-            except ValueError:
-                arg_chat = None
-    try:
-        async for session in get_session():
-            from waifu_bot.services.gd_webapp_service import (
-                join_gd_from_webapp_or_dm,
-                list_gd_joinable_dungeons,
-            )
-
-            if arg_chat is None:
-                joinable = await list_gd_joinable_dungeons(
-                    session, user_id, gd_v1_cycle_service
-                )
-                if len(joinable) == 1:
-                    arg_chat = int(joinable[0]["chat_id"])
-                elif len(joinable) == 0:
-                    await _send_response_traced(
-                        message,
-                        "Нет открытых походов в ваших чатах с ботом. "
-                        "Откройте вкладку «Групповые» в WebApp или перейдите по ссылке из сбора.",
-                        "gd_join_dm_none",
-                    )
-                    break
-                else:
-                    lines = ["Несколько походов — укажите чат: /gd_join <chat_id>"]
-                    for d in joinable[:8]:
-                        lines.append(
-                            f"• {d.get('chat_title') or d['chat_id']}: "
-                            f"{d.get('dungeon_name')} ({d.get('cycle_status')}) "
-                            f"— chat_id={d['chat_id']}"
-                        )
-                    await _send_response_traced(
-                        message, "\n".join(lines), "gd_join_dm_multi"
-                    )
-                    break
-            result = await join_gd_from_webapp_or_dm(
-                session, user_id, int(arg_chat), gd_v1_cycle_service, bot
-            )
-            await session.commit()
-            if result.get("success"):
-                pct = int(round(100 * float(result.get("reward_stage_mult") or 1)))
-                late = " (поздний вход)" if result.get("late_join") else ""
-                await _send_response_traced(
-                    message,
-                    f"✅ {result.get('name')} → «{result.get('dungeon_name')}»{late}. "
-                    f"Награда ~{pct}%.",
-                    "gd_join_dm_ok",
-                )
-            else:
-                await _send_response_traced(
-                    message,
-                    result.get("message", "Не удалось вступить."),
-                    "gd_join_dm_fail",
-                )
-            break
-    except Exception:
-        logger.exception("gd_join private failed")
-        await _send_response_traced(message, "Ошибка вступления.", "gd_join_dm_exc")
+    await _send_response_traced(
+        message,
+        "ℹ️ Ручная запись отключена. Дневной поход стартует в группе автоматически в 04:30 МСК "
+        "(нужна основная вайфу; бот должен хотя бы раз видеть вас в чате). Статус — вкладка «Групповые».",
+        "gd_join_dm_deprecated",
+    )
 
 
 @router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_party"), command_addressed_to_this_bot)
@@ -880,33 +835,26 @@ async def cmd_gd_party(message: Message) -> None:
         if not roster:
             await _send_response_traced(
                 message,
-                "Сейчас нет ни активного похода, ни открытой регистрации в этом чате. "
-                "Начните регистрацию командой /gd_join.",
+                "Сейчас нет активного дневного похода в этом чате. "
+                "Автостарт в 04:30 МСК (нужна основная вайфу).",
                 "gd_party_none",
             )
             return
         members = roster.get("members") or []
-        if roster.get("phase") == "registration":
-            head = (
-                f"📋 Состав отряда — регистрация (цикл #{roster['cycle_id']}), "
-                f"{len(members)} участник(ов):"
-            )
-        else:
-            head = (
-                f"⚔️ Состав отряда — поход идёт (цикл #{roster['cycle_id']}), "
-                f"{len(members)} участник(ов):"
-            )
+        head = (
+            f"⚔️ Дневной поход (цикл #{roster['cycle_id']}), "
+            f"{len(members)} участник(ов):"
+        )
         lines = [head]
         if not members:
-            lines.append("• пока пусто — записывайтесь через /gd_join")
+            lines.append("• пока пусто — дождитесь автостарта 04:30 МСК")
         else:
             for m in members:
                 name = m.get("name") or f"Игрок {m.get('user_id', '?')}"
                 lvl = m.get("level", "?")
                 cls = WAIFU_CLASS_LABEL_RU.get(int(m.get("class_id") or 0), "класс ?")
                 race = WAIFU_RACE_LABEL_RU.get(int(m.get("race_id") or 0), "раса ?")
-                knock = " · нокдаун" if m.get("fallen") else ""
-                lines.append(f"• {name} — ур. {lvl} — {race}/{cls}{knock}")
+                lines.append(f"• {name} — ур. {lvl} — {race}/{cls}")
         await _send_response_traced(message, "\n".join(lines), "gd_party_ok")
     except Exception:
         logger.exception("gd_party failed")
@@ -915,169 +863,94 @@ async def cmd_gd_party(message: Message) -> None:
 
 @router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_v1_test_join"), command_addressed_to_this_bot)
 async def cmd_gd_v1_test_join(message: Message) -> None:
-    """GD v1 manual test: same as /gd_join (only GD_V1_MANUAL_TEST_USER_IDS)."""
+    """Deprecated under daily GD."""
     if not message.from_user or message.from_user.is_bot:
         return
     if not _gd_v1_manual_test_allowed(message.from_user.id):
         await message.reply(GD_V1_TEST_ACCESS_DENIED)
         return
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-    try:
-        async for session in get_session():
-            result = await gd_v1_cycle_service.register_join(session, chat_id, user_id)
-            await session.commit()
-            if result.get("success"):
-                cls = result.get("class_id", "?")
-                await message.reply(
-                    f"[TEST] ✅ {result.get('name', 'Вайфу')} записана в отряд (класс {cls}). "
-                    f"Дальше: /gd_v1_test_start"
-                )
-            else:
-                await message.reply(f"[TEST] {result.get('message', 'Не удалось зарегистрироваться.')}")
-            break
-    except Exception:
-        logger.exception("gd_v1_test_join failed")
-        await message.reply("[TEST] Ошибка регистрации.")
+    await message.reply(
+        "[TEST] Ручная запись отключена. Используйте /gd_daily_force_start."
+    )
 
 
 @router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_v1_test_start"), command_addressed_to_this_bot)
-async def cmd_gd_v1_test_start(message: Message) -> None:
-    """GD v1 manual test: force-close registration and start with >=1 player."""
-    if not message.from_user or message.from_user.is_bot:
-        return
-    if not _gd_v1_manual_test_allowed(message.from_user.id):
-        await message.reply(GD_V1_TEST_ACCESS_DENIED)
-        return
-    chat_id = message.chat.id
-    try:
-        async for session in get_session():
-            active = await gd_v1_cycle_service.get_active_v1_cycle(session, chat_id)
-            if active:
-                await message.reply(
-                    "[TEST] Поход уже активен. Сначала /gd_v1_test_reset или дождитесь завершения."
-                )
-                break
-            cycle = await gd_v1_cycle_service.get_registration_cycle_any(session, chat_id)
-            if not cycle:
-                await message.reply(
-                    "[TEST] Нет цикла в регистрации. Сначала /gd_v1_test_join (или /gd_v1_test_reset)."
-                )
-                break
-            out = await gd_v1_cycle_service.close_registration_and_maybe_start(
-                session, cycle, force=True
-            )
-            await session.commit()
-            if out["status"] == "cancelled":
-                await message.reply(
-                    "[TEST] Нет ни одного участника в цикле. Сначала /gd_v1_test_join."
-                )
-                break
-            fresh = await session.get(GDCycle, cycle.id)
-            if fresh:
-                await send_gd_v1_group_start_narrative(message.bot, session, fresh)
-            await message.reply(
-                f"[TEST] Старт: активен цикл #{cycle.id}, участников: {out['registrations']}."
-            )
-            break
-    except Exception:
-        logger.exception("gd_v1_test_start failed")
-        await message.reply("[TEST] Ошибка старта.")
-
-
-@router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_v1_force_round"), command_addressed_to_this_bot)
-async def cmd_gd_v1_force_round(message: Message) -> None:
-    """Принудительно закрыть сбор текущего раунда и сгенерировать ИИ-нарратив (без ожидания дедлайна)."""
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_daily_force_start"), command_addressed_to_this_bot)
+async def cmd_gd_daily_force_start(message: Message) -> None:
+    """Admin/test: force daily auto-start for this chat now."""
     if not message.from_user or message.from_user.is_bot:
         return
     if not _gd_v1_force_round_allowed(message.from_user.id):
         await message.reply(GD_V1_FORCE_ROUND_DENIED)
         return
     chat_id = message.chat.id
-    cycle_id: int | None = None
-    status_msg = None
     try:
         async for session in get_session():
+            from waifu_bot.core import redis as redis_core
+            from waifu_bot.services.gd_daily_worker import run_gd_daily_start_tick
+
+            n = await run_gd_daily_start_tick(
+                session,
+                message.bot,
+                redis_core.get_redis(),
+                force_chat_id=chat_id,
+                force=True,
+            )
+            await message.reply(f"[TEST] Daily start: started={n} for chat {chat_id}.")
+            break
+    except Exception:
+        logger.exception("gd_daily_force_start failed")
+        await message.reply("[TEST] Ошибка принудительного старта.")
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_daily_force_finalize"), command_addressed_to_this_bot)
+async def cmd_gd_daily_force_finalize(message: Message) -> None:
+    """Admin/test: force finalize active daily cycle in this chat."""
+    if not message.from_user or message.from_user.is_bot:
+        return
+    if not _gd_v1_force_round_allowed(message.from_user.id):
+        await message.reply(GD_V1_FORCE_ROUND_DENIED)
+        return
+    chat_id = message.chat.id
+    try:
+        async for session in get_session():
+            from waifu_bot.core import redis as redis_core
+            from waifu_bot.services.gd_daily_worker import run_gd_daily_finalize_tick
+
             active = await gd_v1_cycle_service.get_active_v1_cycle(session, chat_id)
             if not active:
-                await message.reply("Нет активного группового похода (GD v1) в этом чате.")
+                await message.reply("[TEST] Нет активного дневного похода.")
                 break
-            cycle_id = active.id
+            # Make due immediately
+            from datetime import datetime, timezone
+
+            active.ends_at = datetime.now(timezone.utc)
+            await session.commit()
+            n = await run_gd_daily_finalize_tick(
+                session,
+                message.bot,
+                redis_core.get_redis(),
+                force_cycle_id=active.id,
+            )
+            await message.reply(f"[TEST] Daily finalize: done={n} cycle=#{active.id}.")
             break
-        if cycle_id is None:
-            return
-        if not gd_v1_try_begin_round_processing(cycle_id):
-            await message.reply(
-                "Раунд этого похода уже обрабатывается (симуляция, ИИ или рассылка наград). "
-                "Дождитесь нового сообщения в чате или завершения предыдущей команды."
-            )
-            return
-        try:
-            status_msg = await message.reply(
-                "Раунд отправлен на обработку: нарратив появится в чате после симуляции и ИИ."
-            )
-            res = await _process_gd_v1_round_for_cycle_locked(
-                cycle_id, message.bot, redis_core.get_redis(), force=True
-            )
-        finally:
-            gd_v1_end_round_processing(cycle_id)
-        final: str
-        if res.ok:
-            rnd = res.round_number if res.round_number is not None else "?"
-            if res.narrative_sent:
-                final = (
-                    f"✅ Раунд {rnd} обработан: сообщение в чат отправлено "
-                    f"(buffer_users={res.buffer_user_count})."
-                )
-            else:
-                final = (
-                    f"⚠️ Раунд {rnd} записан в БД, но бот не смог отправить сообщение в чат "
-                    f"(права бота или отсутствие bot). buffer_users={res.buffer_user_count}."
-                )
-        elif res.skipped_reason == "not_active":
-            final = "Поход не активен — раунд не обработан, нарратив не создавался."
-        elif res.skipped_reason == "no_monsters":
-            final = (
-                "Раунд не проведён: нет активного боя (часто поход уже завершён). "
-                "ИИ-нарратив в чат не отправлялся. Для нового похода начните регистрацию заново."
-            )
-        elif res.skipped_reason == "no_cycle":
-            final = "Цикл не найден после начала обработки (см. логи сервера)."
-        elif res.skipped_reason == "cycle_lost_after_round":
-            final = (
-                "Симуляция прошла, но сохранить раунд не удалось (цикл пропал). См. логи сервера."
-            )
-        elif res.skipped_reason == "no_session":
-            final = "Внутренняя ошибка: нет сессии БД."
-        elif res.skipped_reason == "already_processing":
-            final = (
-                "Параллельная обработка того же похода (воркер или вторая команда). "
-                "Этот запрос не выполнялся — смотрите чат и предыдущий статус."
-            )
-        else:
-            final = f"Раунд не обработан (причина: {res.skipped_reason or 'неизвестно'})."
-        try:
-            await status_msg.edit_text(final)
-        except Exception:
-            logger.exception("gd_v1_force_round: edit_text failed, sending fallback reply")
-            await message.reply(final)
     except Exception:
-        logger.exception("gd_v1_force_round failed")
-        err = (
-            "Ошибка принудительного раунда (исключение на сервере; дедлайн при необходимости "
-            "восстановлен в логике worker)."
-        )
-        if status_msg:
-            try:
-                await status_msg.edit_text(err)
-            except Exception:
-                logger.exception("gd_v1_force_round: edit_text after exception failed")
-                try:
-                    await message.reply(err)
-                except Exception:
-                    logger.exception("gd_v1_force_round: reply after exception failed")
-        else:
-            await message.reply(err)
+        logger.exception("gd_daily_force_finalize failed")
+        await message.reply("[TEST] Ошибка принудительного финала.")
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_v1_force_round"), command_addressed_to_this_bot)
+async def cmd_gd_v1_force_round(message: Message) -> None:
+    """Deprecated: rounds removed; use /gd_daily_force_finalize."""
+    if not message.from_user or message.from_user.is_bot:
+        return
+    if not _gd_v1_force_round_allowed(message.from_user.id):
+        await message.reply(GD_V1_FORCE_ROUND_DENIED)
+        return
+    await message.reply(
+        "ℹ️ Раунды отключены в дневном GD. Для досрочного итога: /gd_daily_force_finalize"
+    )
+    return
 
 
 @router.message(F.chat.type.in_({"group", "supergroup"}), Command("gd_v1_peek_round_buffer"), command_addressed_to_this_bot)

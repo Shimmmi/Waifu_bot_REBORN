@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Магазин</title>
-  <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v80" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
+  <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v82" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
   <style>
     :root {
       --ink: #0d0a08; /* основной фон */
@@ -812,6 +812,12 @@
       line-height: 1;
       padding: 0;
     }
+    body.page-shop .shop-smith-controls-sharpen {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+    }
     body.page-shop .shop-smith-controls-row {
       display: flex;
       flex-wrap: nowrap;
@@ -837,6 +843,7 @@
       color: var(--cream);
       cursor: pointer;
       font-weight: 600;
+      white-space: nowrap;
     }
     body.page-shop .shop-smith-ctrl-btn--primary {
       background: linear-gradient(180deg, rgba(200, 146, 42, 0.55), rgba(160, 110, 30, 0.65));
@@ -853,14 +860,15 @@
     }
     body.page-shop .shop-smith-stone-check {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 4px;
       font-size: 10px;
       line-height: 1.2;
       margin: 0;
       cursor: pointer;
-      flex: 0 1 auto;
-      white-space: nowrap;
+      flex: none;
+      width: 100%;
+      white-space: normal;
       color: var(--cream);
     }
     body.page-shop .shop-smith-stone-check input {
@@ -1174,7 +1182,7 @@
   <link rel="stylesheet" href="./assets/tutorial.css" />
   <script defer src="./vendor/telegram-web-app.js"></script>
   <script defer src="./assets/tutorial.js"></script>
-  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v80" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
+  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v82" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
 </head>
 <body class="page-shop">
   <header class="attic">
@@ -1347,14 +1355,16 @@
               <div id="shop-smith-craft-preview" class="shop-smith-card muted tiny">Выберите предмет для зачарования пылью.</div>
             </div>
           </div>
-          <div id="shop-smith-controls-sharpen" class="shop-smith-controls-row">
-            <button type="button" class="shop-smith-ctrl-btn shop-smith-ctrl-btn--primary" id="shop-smith-enchant-btn" onclick="WaifuApp.smithTryEnchant()" disabled>Заточить</button>
-            <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-auto-btn" onclick="WaifuApp.smithAutoSafeEnchant()" disabled>До +7</button>
+          <div id="shop-smith-controls-sharpen" class="shop-smith-controls-sharpen">
+            <div class="shop-smith-controls-row">
+              <button type="button" class="shop-smith-ctrl-btn shop-smith-ctrl-btn--primary" id="shop-smith-enchant-btn" onclick="WaifuApp.smithTryEnchant()" disabled>Заточить</button>
+              <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-auto-btn" onclick="WaifuApp.smithAutoSafeEnchant()" disabled>До +7</button>
+              <button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.buyProtectionStoneShop()">Купить камень</button>
+            </div>
             <label class="shop-smith-stone-check" id="shop-smith-stone-check-wrap" hidden>
               <input type="checkbox" id="shop-smith-use-stone" />
               <span>Камень (тратится только при неудачной заточке +8 и выше)</span>
             </label>
-            <button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.buyProtectionStoneShop()">Купить камень</button>
           </div>
           <div id="shop-smith-controls-craft" class="shop-smith-controls-row" style="display:none;">
             <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-craft-add" onclick="WaifuApp.smithTryCraftEnchant('add')" disabled title="Случайная вторичка, если её ещё нет">Выдать бонус</button>

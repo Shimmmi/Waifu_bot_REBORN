@@ -34,6 +34,8 @@ def get_background_tick_registry() -> list[BackgroundTickSpec]:
         _chat_rewards_flush_fn,
         _expedition_notify_tick,
         _expedition_tick_loop_fn,
+        _gd_daily_finalize_tick,
+        _gd_daily_start_tick,
         _gd_v1_registration_tick,
         _gd_v1_round_tick,
         _guild_tick_fn,
@@ -55,10 +57,10 @@ def get_background_tick_registry() -> list[BackgroundTickSpec]:
             lock_ttl_sec=25,
         ),
         BackgroundTickSpec(
-            "gd_v1_registration",
+            "gd_daily_finalize",
             GD_V1_REG_POLL_SECONDS,
-            _gd_v1_registration_tick,
-            lock_ttl_sec=35,
+            _gd_daily_finalize_tick,
+            lock_ttl_sec=55,
         ),
         BackgroundTickSpec(
             "guild_tick",
@@ -86,10 +88,10 @@ def get_background_tick_registry() -> list[BackgroundTickSpec]:
             lock_ttl_sec=880,
         ),
         BackgroundTickSpec(
-            "gd_v1_round",
+            "gd_daily_start",
             GD_V1_ROUND_POLL_SECONDS,
-            _gd_v1_round_tick,
-            lock_ttl_sec=25,
+            _gd_daily_start_tick,
+            lock_ttl_sec=55,
         ),
         BackgroundTickSpec(
             "abyss_daily_reset",

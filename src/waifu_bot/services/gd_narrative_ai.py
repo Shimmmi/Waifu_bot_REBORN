@@ -642,3 +642,92 @@ async def generate_gd_finale_narrative(ctx: dict[str, Any], *, timeout_sec: floa
     except Exception:
         logger.exception("GD finale narrative failed")
         return None, stub
+
+
+async def generate_gd_daily_start_narrative(
+    *,
+    dungeon_name: str = "",
+    party: list[dict[str, Any]] | None = None,
+    timeout_sec: float = 18.0,
+) -> tuple[str | None, str]:
+    """Two short humorous player-facing paragraphs (intro + closer). No dungeon/waifu lore."""
+    _ = (dungeon_name, party)  # intentionally unused — avoid feeding lore to the model
+    stub = (
+        "В опасное путешествие отправился наш бравый отряд домохозяек в составе:\n\n"
+        "Пишите в чат — статистика дня считает всё, кроме оправданий. Шмот уже в слепке до завтра."
+    )
+    if not has_text_llm_configured():
+        return None, stub
+    prompt = (
+        "Сгенерируй РОВНО два коротких абзаца на русском для Telegram (HTML: только <b> при необходимости). "
+        "Раздели абзацы пустой строкой.\n\n"
+        "Абзац 1 — юмористическое обращение к ИГРОКАМ про дневной групповой поход, "
+        "в духе «В опасное путешествие отправился наш бравый отряд домохозяек в составе:». "
+        "Абзац ОБЯЗАН заканчиваться на «в составе:» (с двоеточием). "
+        "Не перечисляй игроков и вайфу — список добавит код.\n"
+        "Абзац 2 — короткая юморная концовка про активность в чате и/или то, что экипировка "
+        "зафиксирована до следующего утра.\n\n"
+        "ЗАПРЕЩЕНО: описание локации/атмосферы подземелья, лор, внешность/класс/раса вайфу, "
+        "имена персонажей, цифры, списки. Суммарно 2–4 предложения."
+    )
+    try:
+        text = await ai_generate(
+            prompt,
+            system=GD_SYSTEM_PROMPT,
+            preset=settings.ai_preset_gd,
+            caller="gd-start",
+            timeout_sec=timeout_sec,
+            max_tokens=220,
+            post_process_rhythm=False,
+        )
+        if not text:
+            return None, stub
+        out = escape_telegram_html(text)
+        return out, out
+    except Exception:
+        logger.exception("GD daily start narrative failed")
+        return None, stub
+
+
+async def generate_gd_daily_finale_narrative(
+    ctx: dict[str, Any],
+    *,
+    timeout_sec: float = 20.0,
+) -> tuple[str | None, str]:
+    """Humorous player-facing epilogue: MVP + least-active. No dungeon/waifu lore."""
+    mvp = ctx.get("mvp") or {}
+    least = ctx.get("least") or {}
+    mvp_name = mvp.get("name") or "никто"
+    least_name = least.get("name") or "никто"
+    stub = (
+        f"День закрыт, отряд разошёлся по своим чатикам. MVP — <b>{mvp_name}</b>, "
+        f"а <b>{least_name}</b> почти растворился(ась) в фоне — респект за стелс."
+    )
+    if not has_text_llm_configured():
+        return None, stub
+    prompt = (
+        "Напиши 1 короткий абзац (2–4 предложения) на русском для Telegram HTML. "
+        "Это шуточное обращение к игрокам по итогам дневного группового похода Waifu REBORN: "
+        "похвали MVP и мягко подшути над самым малоактивным. Без оскорблений.\n"
+        "ЗАПРЕЩЕНО: художественное описание подземелья/локации, лор, внешность/класс/раса вайфу, "
+        "сырые цифры статистики.\n"
+        f"MVP (имя вайфу для обращения): {mvp_name}.\n"
+        f"Малоактивный (имя вайфу): {least_name}."
+    )
+    try:
+        text = await ai_generate(
+            prompt,
+            system=GD_SYSTEM_PROMPT,
+            preset=settings.ai_preset_gd,
+            caller="gd-finale",
+            timeout_sec=timeout_sec,
+            max_tokens=280,
+            post_process_rhythm=False,
+        )
+        if not text:
+            return None, stub
+        out = escape_telegram_html(text)
+        return out, out
+    except Exception:
+        logger.exception("GD daily finale narrative failed")
+        return None, stub

@@ -52,56 +52,22 @@ def test_muster_invite_contains_deep_link_placeholder_or_text():
 
 
 @pytest.mark.asyncio
-async def test_join_rejects_non_member_chat():
+async def test_join_disabled_for_daily_auto_cycle():
     session = AsyncMock()
     gd = MagicMock()
-    with patch(
-        "waifu_bot.services.gd_webapp_service.player_has_active_bot_chat",
-        new=AsyncMock(return_value=False),
-    ):
-        result = await join_gd_from_webapp_or_dm(session, 1, -100999, gd)
-    assert result.get("error") == "forbidden"
+    result = await join_gd_from_webapp_or_dm(session, 1, -100999, gd)
+    assert result.get("error") == "daily_auto"
     gd.join_chat.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_muster_idempotent_skips_repost_within_cooldown():
+async def test_muster_disabled_for_daily_auto_cycle():
     session = AsyncMock()
-    session.scalar = AsyncMock(return_value=2)
-    session.get = AsyncMock(return_value=SimpleNamespace(name="Данж"))
-    redis = AsyncMock()
-    redis.get = AsyncMock(return_value=str(__import__("time").time()))
-    redis.set = AsyncMock()
     bot = AsyncMock()
     gd = MagicMock()
-    gd.redis = redis
-    gd.get_active_v1_cycle = AsyncMock(return_value=None)
-    gd.get_registration_cycle_any = AsyncMock(
-        return_value=SimpleNamespace(id=7, dungeon_template_id=1, registration_closes=None)
-    )
-    gd.ensure_registration_cycle = AsyncMock(
-        return_value=SimpleNamespace(id=7, dungeon_template_id=1, registration_closes=None)
-    )
-    gd.register_join = AsyncMock(return_value={"success": True})
-
-    with patch(
-        "waifu_bot.services.gd_webapp_service.player_has_active_bot_chat",
-        new=AsyncMock(return_value=True),
-    ), patch(
-        "waifu_bot.services.gd_webapp_service.get_game_config_map",
-        new=AsyncMock(
-            return_value={
-                "gd_max_party_size": "10",
-                "gd_muster_repost_cooldown_seconds": "300",
-            }
-        ),
-    ):
-        result = await muster_gd_in_chat(session, 1, -1001, gd, bot)
-
-    assert result.get("success") is True
-    assert result.get("already_open") is True
-    assert result.get("invite_posted") is False
-    assert result.get("invite_skipped_rate_limit") is True
+    result = await muster_gd_in_chat(session, 1, -1001, gd, bot)
+    assert result.get("error") == "daily_auto"
+    assert "04:30" in (result.get("message") or "")
     bot.send_message.assert_not_called()
 
 
@@ -184,6 +150,13 @@ async def test_build_waifu_snapshot_passes_redis_to_combat_service():
     session.execute = AsyncMock(
         return_value=SimpleNamespace(scalar_one_or_none=lambda: waifu)
     )
+    session.get = AsyncMock(
+        return_value=SimpleNamespace(
+            username="hero",
+            perfection_level=2,
+            gear_score=120,
+        )
+    )
 
     with patch("waifu_bot.services.combat.CombatService", combat_cls), patch(
         "waifu_bot.core.redis.get_redis", return_value=fake_redis
@@ -198,3 +171,6 @@ async def test_build_waifu_snapshot_passes_redis_to_combat_service():
     combat_cls.assert_called_once_with(fake_redis)
     assert snap is not None
     assert snap.get("name") == "Test"
+    assert snap.get("username") == "hero"
+    assert snap.get("perfection_level") == 2
+    assert snap.get("gear_score") == 120
