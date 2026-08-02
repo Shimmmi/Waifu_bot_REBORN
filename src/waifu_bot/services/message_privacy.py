@@ -3,7 +3,9 @@
 Contract:
 - Persist / log only MessageSignals (lengths, media meta, ids).
 - EphemeralText may be passed into combat for legendary text_content bonuses
-  and must never be written to DB, Redis, logs, or battle_state.
+  and must never be written to DB, logs, or battle_state.
+- Narrow exception: GD daily phantom Redis buffer (`gd_phantom_log`) may hold
+  truncated bodies until 04:00 MSK word analysis, then purge — never PostgreSQL.
 """
 
 from __future__ import annotations

@@ -30,13 +30,20 @@ from waifu_bot.services.gd_daily_rewards import (
 from waifu_bot.services.gd_daily_stats import (
     build_player_summary_rows,
     format_mention,
+    format_top_words_line_ru,
     format_type_breakdown_ru,
     pick_mvp_and_least,
+    sort_rows_by_activity,
+)
+from waifu_bot.services.gd_daily_word_ai import (
+    analyze_day_word_stats,
+    merge_word_stats_into_rows,
 )
 from waifu_bot.services.gd_narrative_ai import (
     generate_gd_daily_finale_narrative,
     generate_gd_daily_start_narrative,
 )
+from waifu_bot.services.gd_phantom_log import load_phantom_log, purge_phantom_log
 from waifu_bot.services.gd_pie_chart import generate_gd_daily_pie_png, pie_caption_from_rows
 from waifu_bot.services.bot_group_chats import ACTIVE_STATUSES
 
@@ -44,6 +51,8 @@ if TYPE_CHECKING:
     from aiogram import Bot
 
 logger = logging.getLogger(__name__)
+
+TELEGRAM_HTML_SOFT_LIMIT = 3500
 
 
 async def _try_lock(redis: Any, key: str, ttl: int = 120) -> bool:
@@ -92,29 +101,27 @@ def format_daily_start_roster_html(party: list[dict[str, Any]]) -> str:
     return "\n".join(lines) if lines else "• (пусто)"
 
 
-def format_daily_finale_stats_html(
+def _finale_player_block(index: int, r: dict[str, Any]) -> str:
+    mention = format_mention(r.get("username"), int(r["user_id"]))
+    br = format_type_breakdown_ru(r.get("by_type") or {})
+    words = format_top_words_line_ru(r)
+    return (
+        f"{index}. {mention} — сообщ. <b>{int(r.get('msg_total') or 0)}</b> "
+        f"({float(r.get('chat_share_pct') or 0):.1f}% чата), "
+        f"символов <b>{int(r.get('text_chars') or 0)}</b>, "
+        f"урон <b>{int(r.get('damage_total') or 0)}</b>\n"
+        f"   └ медиа: {br}\n"
+        f"   └ слова: {words}"
+    )
+
+
+def _finale_footer_lines(
     rows: list[dict[str, Any]],
     *,
-    chat_msg_total: int,
-    dungeon_name: str,
     mvp: dict[str, Any] | None,
     least: dict[str, Any] | None,
-) -> str:
-    lines = [
-        f"📊 <b>Итоги дневного похода</b> «{dungeon_name}»",
-        f"Всего сообщений в чате за день: <b>{int(chat_msg_total)}</b>",
-        "",
-    ]
-    ranked = sorted(rows, key=lambda r: float(r.get("score") or 0), reverse=True)
-    for i, r in enumerate(ranked, 1):
-        mention = format_mention(r.get("username"), int(r["user_id"]))
-        br = format_type_breakdown_ru(r.get("by_type") or {})
-        lines.append(
-            f"{i}. {mention} — сообщ. <b>{r['msg_total']}</b> "
-            f"({r['chat_share_pct']:.1f}% чата), урон <b>{r['damage_total']}</b>\n"
-            f"   └ {br}"
-        )
-    lines.append("")
+) -> list[str]:
+    lines: list[str] = [""]
     if mvp:
         lines.append(
             f"🏆 MVP: {format_mention(mvp.get('username'), int(mvp['user_id']))} "
@@ -129,7 +136,75 @@ def format_daily_finale_stats_html(
     if silent:
         names = ", ".join(format_mention(s.get("username"), int(s["user_id"])) for s in silent[:8])
         lines.append(f"😴 Без сообщений: {names}")
-    return "\n".join(lines)
+    return lines
+
+
+def format_daily_finale_stats_html(
+    rows: list[dict[str, Any]],
+    *,
+    chat_msg_total: int,
+    dungeon_name: str,
+    mvp: dict[str, Any] | None,
+    least: dict[str, Any] | None,
+) -> str:
+    return "\n\n".join(
+        build_daily_finale_html_chunks(
+            rows,
+            chat_msg_total=chat_msg_total,
+            dungeon_name=dungeon_name,
+            mvp=mvp,
+            least=least,
+        )
+    )
+
+
+def build_daily_finale_html_chunks(
+    rows: list[dict[str, Any]],
+    *,
+    chat_msg_total: int,
+    dungeon_name: str,
+    mvp: dict[str, Any] | None,
+    least: dict[str, Any] | None,
+    soft_limit: int = TELEGRAM_HTML_SOFT_LIMIT,
+    prefix: str = "",
+) -> list[str]:
+    """Build one or more Telegram HTML chunks (split on player block boundaries)."""
+    header_lines = [
+        f"📊 <b>Итоги дневного похода</b> «{dungeon_name}»",
+        f"Всего сообщений в чате за день: <b>{int(chat_msg_total)}</b>",
+        "",
+    ]
+    ranked = sort_rows_by_activity(rows)
+    player_blocks = [_finale_player_block(i, r) for i, r in enumerate(ranked, 1)]
+    footer = "\n".join(_finale_footer_lines(rows, mvp=mvp, least=least))
+
+    chunks: list[str] = []
+    current = (prefix.strip() + "\n\n" if prefix.strip() else "") + "\n".join(header_lines)
+
+    def _flush() -> None:
+        nonlocal current
+        text = current.rstrip()
+        if text:
+            chunks.append(text)
+        current = ""
+
+    for block in player_blocks:
+        candidate = (current + "\n" + block) if current else block
+        if current and len(candidate) > soft_limit:
+            _flush()
+            current = block
+        else:
+            current = candidate
+
+    if footer.strip():
+        candidate = (current + "\n" + footer) if current else footer
+        if current and len(candidate) > soft_limit:
+            _flush()
+            current = footer.lstrip("\n")
+        else:
+            current = candidate
+    _flush()
+    return chunks or ["📊 <b>Итоги дневного похода</b>"]
 
 
 def _ensure_intro_ends_with_sostave(intro: str) -> str:
@@ -189,16 +264,9 @@ async def finalize_daily_rewards_and_notify(
     tpl = await session.get(GDDungeonTemplate, cycle.dungeon_template_id)
     dungeon_name = tpl.name if tpl else "Подземелье"
 
-    ranked = sorted(rows, key=lambda r: float(r.get("score") or 0), reverse=True)
+    ranked = sort_rows_by_activity(rows)
     sum_msgs = sum(max(0, int(r.get("msg_total") or 0)) for r in ranked)
 
-    stats_html = format_daily_finale_stats_html(
-        rows,
-        chat_msg_total=chat_msg_total,
-        dungeon_name=dungeon_name,
-        mvp=mvp,
-        least=least,
-    )
     use_ai = cfg_int(cfg, "gd_daily_ai_finale", 1) == 1
     ai_block = ""
     if use_ai:
@@ -211,15 +279,21 @@ async def finalize_daily_rewards_and_notify(
             timeout_sec=timeout,
         )
 
-    finale_text = stats_html
-    if ai_block:
-        finale_text = f"{ai_block}\n\n{stats_html}"
+    chunks = build_daily_finale_html_chunks(
+        rows,
+        chat_msg_total=chat_msg_total,
+        dungeon_name=dungeon_name,
+        mvp=mvp,
+        least=least,
+        prefix=ai_block or "",
+    )
 
     if bot:
-        try:
-            await bot.send_message(chat_id=cycle.chat_id, text=finale_text, parse_mode="HTML")
-        except Exception:
-            logger.exception("GD daily finale text failed cycle=%s", cycle.id)
+        for chunk in chunks:
+            try:
+                await bot.send_message(chat_id=cycle.chat_id, text=chunk, parse_mode="HTML")
+            except Exception:
+                logger.exception("GD daily finale text failed cycle=%s", cycle.id)
 
         if cfg_int(cfg, "gd_daily_pie_enabled", 1) == 1 and rows:
             try:
@@ -353,6 +427,21 @@ async def run_gd_daily_finalize_tick(
             fresh = await session.get(GDCycle, cycle.id)
             if not fresh or fresh.status != "active":
                 continue
+
+            # Load phantom text + AI word stats BEFORE finish (which purges Redis).
+            word_stats: dict[int, dict[str, Any]] = {}
+            try:
+                phantom = await load_phantom_log(redis_client, fresh.id)
+                words_timeout = float(cfg.get("gd_daily_words_timeout_seconds") or "60")
+                word_stats = await analyze_day_word_stats(phantom, timeout_sec=words_timeout)
+            except Exception:
+                logger.exception("GD daily word stats failed cycle=%s", fresh.id)
+            finally:
+                try:
+                    await purge_phantom_log(redis_client, fresh.id)
+                except Exception:
+                    pass
+
             fin = await gd.finish_daily_cycle(session, fresh, reason="daily_end")
             if not fin.get("success"):
                 continue
@@ -363,6 +452,7 @@ async def run_gd_daily_finalize_tick(
             ).scalars().all()
             chat_total = int(fin.get("chat_msg_total") or 0)
             rows = build_player_summary_rows(list(regs), chat_msg_total=chat_total)
+            merge_word_stats_into_rows(rows, word_stats)
             mvp, least = pick_mvp_and_least(rows)
             await finalize_daily_rewards_and_notify(
                 session,

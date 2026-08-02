@@ -444,6 +444,8 @@ async def _group_message_damage_body(
                     msg_key=msg_key,
                     damage=dmg,
                     is_participant=is_participant,
+                    text_chars=int(msg_len or 0),
+                    ephemeral_text=message_text if is_participant else None,
                 )
                 from waifu_bot.services import guild_progress as guild_prog
 

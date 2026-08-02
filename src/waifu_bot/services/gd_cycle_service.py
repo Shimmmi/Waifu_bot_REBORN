@@ -772,9 +772,16 @@ class GDCycleService:
         msg_key: str,
         damage: int = 0,
         is_participant: bool = True,
+        text_chars: int = 0,
+        ephemeral_text: str | None = None,
     ) -> None:
-        """Accumulate day stats for a participant + chat-wide message counter."""
+        """Accumulate day stats for a participant + chat-wide message counter.
+
+        Aggregates (counts/chars/damage) go to day_stats_json. Message body may be
+        appended to the Redis phantom log for end-of-day word stats only — never DB.
+        """
         from waifu_bot.services.gd_daily_stats import apply_message_to_day_stats
+        from waifu_bot.services.gd_phantom_log import append_phantom_text
 
         # Chat-wide counter (all non-bot humans), Redis + battle_state backup
         state = dict(cycle.battle_state_json or {})
@@ -806,7 +813,10 @@ class GDCycleService:
             reg.day_stats_json,
             msg_key=msg_key,
             damage=max(0, int(damage)),
+            text_chars_delta=max(0, int(text_chars or 0)),
         )
+        if ephemeral_text and self.redis:
+            await append_phantom_text(self.redis, cycle.id, int(user_id), ephemeral_text)
 
     async def get_chat_msg_total(self, cycle: GDCycle) -> int:
         if self.redis:
@@ -978,8 +988,11 @@ class GDCycleService:
         await gd_active_cache_mod.invalidate_active_cycle_cache(self.redis, cycle.chat_id)
         if self.redis:
             try:
+                from waifu_bot.services.gd_phantom_log import purge_phantom_log
+
                 await self.redis.delete(self._daily_chat_key(cycle.id))
                 await self.redis.delete(_buf_key(cycle.id))
+                await purge_phantom_log(self.redis, cycle.id)
             except Exception:
                 logger.debug("GD daily finish redis cleanup failed", exc_info=True)
         return {

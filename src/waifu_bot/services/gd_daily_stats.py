@@ -26,6 +26,7 @@ def empty_day_stats() -> dict[str, Any]:
         "msg_total": 0,
         "by_type": {k: 0 for k in MSG_TYPE_KEYS},
         "damage_total": 0,
+        "text_chars": 0,
         "last_message_at": None,
     }
 
@@ -73,6 +74,7 @@ def normalize_day_stats(raw: dict[str, Any] | None) -> dict[str, Any]:
     base["by_type"] = by_type
     base["msg_total"] = max(0, int(raw.get("msg_total") or sum(by_type.values())))
     base["damage_total"] = max(0, int(raw.get("damage_total") or 0))
+    base["text_chars"] = max(0, int(raw.get("text_chars") or 0))
     base["last_message_at"] = raw.get("last_message_at")
     return base
 
@@ -82,6 +84,7 @@ def apply_message_to_day_stats(
     *,
     msg_key: str,
     damage: int = 0,
+    text_chars_delta: int = 0,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     out = normalize_day_stats(stats)
@@ -89,11 +92,49 @@ def apply_message_to_day_stats(
     out["by_type"][key] = int(out["by_type"].get(key) or 0) + 1
     out["msg_total"] = int(out["msg_total"] or 0) + 1
     out["damage_total"] = int(out["damage_total"] or 0) + max(0, int(damage))
+    out["text_chars"] = int(out["text_chars"] or 0) + max(0, int(text_chars_delta or 0))
     ts = now or datetime.now(timezone.utc)
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
     out["last_message_at"] = ts.isoformat()
     return out
+
+
+def sort_rows_by_activity(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Most active first: msg_total, then damage_total, then stable user_id."""
+    return sorted(
+        rows,
+        key=lambda r: (
+            -int(r.get("msg_total") or 0),
+            -int(r.get("damage_total") or 0),
+            int(r.get("user_id") or 0),
+        ),
+    )
+
+
+def format_top_words_line_ru(row: dict[str, Any]) -> str:
+    """Human-readable top-words line for finale HTML."""
+    if row.get("words_unavailable"):
+        return "топ слов недоступен"
+    if row.get("no_word_repeated"):
+        return "нет повторов слов"
+    words = row.get("top_words") or []
+    if not isinstance(words, list) or not words:
+        if int(row.get("msg_total") or 0) <= 0 and int(row.get("text_chars") or 0) <= 0:
+            return "—"
+        return "топ слов недоступен"
+    parts: list[str] = []
+    for item in words[:5]:
+        if isinstance(item, dict):
+            w = str(item.get("word") or "").strip()
+            c = int(item.get("count") or 0)
+            if w:
+                parts.append(f"{w} ({c})" if c > 0 else w)
+        else:
+            w = str(item).strip()
+            if w:
+                parts.append(w)
+    return ", ".join(parts) if parts else "топ слов недоступен"
 
 
 def calc_snapshot_message_damage(
@@ -186,6 +227,7 @@ def build_player_summary_rows(
                 "msg_total": int(stats["msg_total"]),
                 "by_type": dict(stats["by_type"]),
                 "damage_total": int(stats["damage_total"]),
+                "text_chars": int(stats["text_chars"]),
                 "chat_share_pct": share,
                 "score": score,
             }
