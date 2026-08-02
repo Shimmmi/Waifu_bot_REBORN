@@ -41,11 +41,19 @@ def tick_expedition_notify() -> None:
     _run_tick("expedition_notify", _expedition_notify_tick)
 
 
+@dramatiq.actor(queue_name="default", actor_name="tick_gd_daily_finalize", max_retries=1, time_limit=600_000)
+def tick_gd_daily_finalize() -> None:
+    from waifu_bot.services.background import _gd_daily_finalize_tick
+
+    _run_tick("gd_daily_finalize", _gd_daily_finalize_tick)
+
+
 @dramatiq.actor(queue_name="default", actor_name="tick_gd_v1_registration", max_retries=1, time_limit=600_000)
 def tick_gd_v1_registration() -> None:
-    from waifu_bot.services.background import _gd_v1_registration_tick
+    """Back-compat alias → daily finalize."""
+    from waifu_bot.services.background import _gd_daily_finalize_tick
 
-    _run_tick("gd_v1_registration", _gd_v1_registration_tick)
+    _run_tick("gd_daily_finalize", _gd_daily_finalize_tick)
 
 
 @dramatiq.actor(queue_name="default", actor_name="tick_guild_tick", max_retries=1, time_limit=600_000)
@@ -76,11 +84,19 @@ def tick_guild_war_narrative() -> None:
     _run_tick("guild_war_narrative", _guild_war_narrative_fn)
 
 
+@dramatiq.actor(queue_name="default", actor_name="tick_gd_daily_start", max_retries=1, time_limit=600_000)
+def tick_gd_daily_start() -> None:
+    from waifu_bot.services.background import _gd_daily_start_tick
+
+    _run_tick("gd_daily_start", _gd_daily_start_tick)
+
+
 @dramatiq.actor(queue_name="default", actor_name="tick_gd_v1_round", max_retries=1, time_limit=600_000)
 def tick_gd_v1_round() -> None:
-    from waifu_bot.services.background import _gd_v1_round_tick
+    """Back-compat alias → daily start."""
+    from waifu_bot.services.background import _gd_daily_start_tick
 
-    _run_tick("gd_v1_round", _gd_v1_round_tick)
+    _run_tick("gd_daily_start", _gd_daily_start_tick)
 
 
 @dramatiq.actor(queue_name="default", actor_name="tick_abyss_daily_reset", max_retries=1, time_limit=600_000)
@@ -121,11 +137,13 @@ def tick_chat_rewards_daily_claim() -> None:
 TICK_ACTORS: dict[str, dramatiq.Actor] = {
     "chat_rewards_flush": tick_chat_rewards_flush,
     "expedition_notify": tick_expedition_notify,
+    "gd_daily_finalize": tick_gd_daily_finalize,
     "gd_v1_registration": tick_gd_v1_registration,
     "guild_tick": tick_guild_tick,
     "guild_war_hourly": tick_guild_war_hourly,
     "expedition_tick": tick_expedition_tick,
     "guild_war_narrative": tick_guild_war_narrative,
+    "gd_daily_start": tick_gd_daily_start,
     "gd_v1_round": tick_gd_v1_round,
     "abyss_daily_reset": tick_abyss_daily_reset,
     "abyss_weekly_reset": tick_abyss_weekly_reset,
