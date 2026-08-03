@@ -2,6 +2,19 @@
 
 Отдельный трек после `MAX_LEVEL = 60`. Боевые бонусы постоянные и стакаются; золото/пыль/камни — разовые при выборе. Постоянный `exp_bonus_pct` в каталоге **нет**.
 
+## Эталонные листы L60
+
+Калибровка тиров относительно двух листов:
+
+| Лист | Статы (END/STR/…) | Реген/мин | Ориентир урона | Ориентир HP |
+|------|-------------------|-----------|----------------|-------------|
+| Mid | ~400–800 | ~400–800 | ~500–1200 | ~8k–20k |
+| High (IceFear-класс) | ~3000–6000+ | ~3000–6000+ | ~4k–8k+ | ~40k–80k |
+
+**Правило пика:** один permanent pick на тире T даёт заметный прирост на High (ориентир **~1–3%** к целевому пулу; primary/attack учитывают стакание многих picks). Instant — economy-бюджет. Соседние тиры ≤ ~1.6× (кроме осознанных early HP jumps).
+
+Пример (IceFear-regen): при базе ~5000 HP/мин pick T3 `+3% регена` → **+150 HP/мин** (~3%), а не плоские +2.
+
 ## Формула опыта
 
 ```text
@@ -24,23 +37,7 @@ need(L) = 8000 + 1800*(L-1) + 55*(L-1)^2 + 4000*((L-1)//10)
 | 59→60 | 325 655 | 8 119 550 | 19.5 |
 | 99→100 | 761 255 | ~29.6M | 45.6 |
 
-\*Оценка рана +10 ≈ 16 700 XP (10 мобов + босс, без % бонусов игрока).
-
-### Скорость фарма +10
-
-| Старт | Уровней за 1 ран +10 (с 0%) |
-|-------|------------------------------|
-| P1 | +1 (~58% к следующему) |
-| P5+ | 0 (частичный прогресс) |
-| P10 | ~47% к P11 |
-| P20 | ~23% к P21 |
-| P50 | ~7% к P51 |
-
-| Сложность | XP/ран | P1 уровней | P10 |
-|-----------|--------|------------|-----|
-| +1 | ~4 100 | 0 | 0 |
-| +5 | ~8 900 | 0 | 0 |
-| +10 | ~16 700 | 1 | 0 |
+\*Оценка рана +10 ≈ 16 700 XP.
 
 ## Тиры бонусов
 
@@ -50,30 +47,32 @@ need(L) = 8000 + 1800*(L-1) + 55*(L-1)^2 + 4000*((L-1)//10)
 
 | ID | Название | Тип | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |----|----------|-----|----|----|----|----|----|----|----|----|----|-----|
-| str/agi/int/end/chm/lck_flat | +стат | perm | 1 | 1 | 2 | 2 | 3 | 3 | 4 | 4 | 5 | 5 |
-| hp_flat | +HP | perm | 50 | 200 | 350 | 500 | 700 | 950 | 1200 | 1500 | 1900 | 2400 |
-| crit_chance_pct | Крит % | perm | 0.30 | 0.40 | 0.50 | 0.60 | 0.75 | 0.90 | 1.00 | 1.20 | 1.40 | 1.60 |
-| evade_pct | Уклон % | perm | 0.30 | 0.40 | 0.50 | 0.60 | 0.75 | 0.90 | 1.00 | 1.20 | 1.40 | 1.60 |
-| dmg_reduce_pct | DR % | perm | 0.25 | 0.35 | 0.45 | 0.55 | 0.65 | 0.80 | 0.90 | 1.10 | 1.30 | 1.50 |
-| hp_max_pct | Макс HP % | perm | 0.5 | 0.75 | 1.0 | 1.25 | 1.5 | 1.75 | 2.0 | 2.25 | 2.5 | 2.75 |
-| gold_bonus_pct | Золото % | perm | 1.0 | 1.5 | 2.0 | 2.5 | 3.0 | 3.5 | 4.0 | 4.5 | 5.0 | 5.5 |
-| melee/ranged/magic_damage_flat | Урон типа атаки | perm | 8 | 10 | 13 | 16 | 20 | 25 | 30 | 36 | 42 | 50 |
-| hp_regen_per_min | Реген HP/мин | perm | 1 | 1 | 2 | 2 | 3 | 3 | 4 | 4 | 5 | 5 |
-| gold_instant | Золото | instant | **5000** | 15000 | 25000 | 36000 | 47000 | 58000 | 69000 | 80000 | 90000 | **100000** |
-| dust_instant | Пыль | instant | 100 | 140 | 180 | 220 | 280 | 340 | 400 | 450 | 500 | 600 |
-| stone_instant | Камни | instant | 1 | 1 | 2 | 2 | 3 | 3 | 4 | 5 | 6 | 8 |
+| str/agi/int/end/chm/lck_flat | +стат | perm | 20 | 32 | 50 | 70 | 95 | 130 | 175 | 230 | 300 | 400 |
+| hp_flat | +HP | perm | 300 | 480 | 750 | 1200 | 1800 | 2600 | 3600 | 5000 | 7000 | 9500 |
+| crit_chance_pct | Крит % | perm | 0.70 | 0.90 | 1.15 | 1.40 | 1.70 | 2.00 | 2.35 | 2.70 | 3.10 | 3.50 |
+| evade_pct | Уклон % | perm | 0.70 | 0.90 | 1.15 | 1.40 | 1.70 | 2.00 | 2.35 | 2.70 | 3.10 | 3.50 |
+| dmg_reduce_pct | DR % | perm | 0.55 | 0.75 | 1.00 | 1.25 | 1.55 | 1.85 | 2.20 | 2.55 | 2.90 | 3.25 |
+| hp_max_pct | Макс HP % | perm | 1.0 | 1.3 | 1.7 | 2.1 | 2.6 | 3.1 | 3.5 | 3.9 | 4.3 | 4.8 |
+| gold_bonus_pct | Золото % | perm | 1.5 | 2.0 | 2.6 | 3.2 | 3.9 | 4.6 | 5.2 | 5.8 | 6.4 | 7.0 |
+| melee/ranged/magic_damage_flat | Урон типа | perm | 40 | 60 | 90 | 120 | 155 | 200 | 250 | 310 | 380 | 450 |
+| hp_regen_per_min | % регена от базы | perm | 2 | 2.5 | 3 | 3.5 | 4 | 5 | 6 | 7.5 | 9 | 11 |
+| gold_instant | Золото | instant | 10000 | 15000 | 23000 | 35000 | 50000 | 75000 | 110000 | 150000 | 200000 | 275000 |
+| dust_instant | Пыль | instant | 150 | 220 | 320 | 450 | 620 | 850 | 1150 | 1500 | 1900 | 2400 |
+| stone_instant | Камни | instant | 1 | 2 | 3 | 4 | 5 | 6 | 8 | 10 | 12 | 15 |
+
+Реген: `extra = round((5 + max(0, END−10)) × sum_pct)`. В totals хранится fraction (`0.03` = 3%).
 
 ### Situational (семья монстра / тип медиа)
 
 | ID pattern | Combat key | T1→T10 |
 |------------|------------|--------|
-| `dmg_vs_<family>` | `damage_vs_monster_type_percent:<family>` | 2, 2, 3, 3, 4, 4, 5, 6, 7, 8 |
-| `media_dmg_*` | `media_damage_*_percent` | 3, 3, 4, 4, 5, 5, 6, 7, 8, 10 |
+| `dmg_vs_<family>` | `damage_vs_monster_type_percent:<family>` | 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 |
+| `media_dmg_*` | `media_damage_*_percent` | 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 |
 
 Семьи: `beast`, `construct`, `demon`, `dragon`, `elemental`, `fae`, `humanoid`, `slime`, `undead`.  
 Медиа: text, sticker, photo, gif, audio, voice, video, link.
 
-**Хранение:** secondary `*_pct` (crit/evade/…) → fraction (`value/100`); `combat_pct` (семья/медиа) → целые % для damage pool; flats — абсолютные.
+**Хранение:** secondary `*_pct` и `%_regen` → fraction (`value/100`); `combat_pct` → целые %; flats — абсолютные.
 
 Милстоун каждые **10** уровней: `skill_point_plus_1` → `+1` к `players.skill_points`.
 
@@ -88,19 +87,22 @@ need(L) = 8000 + 1800*(L-1) + 55*(L-1)^2 + 4000*((L-1)//10)
 | hp | 12 | 10 |
 | secondary | 14 | 16 |
 | combat_dmg | 16 | 16 |
-| situational | 12 | 18 |
+| situational | 10 | 18 |
 
-Хард-капы на оффер:
+Хард-капы: **≤1** `resource`, **≤1** `situational`. После ≥3 выборов одного id вес ×0.5.
 
-- **≤1** карта `resource`
-- **≤1** карта `situational`
+## Миграция после ребаланса
 
-После ≥3 выборов одного `bonus_id` вес этого id ×0.5.
+`recompute_player_perfection_from_catalog` / `scripts/recompute_perfection_bonuses.py --apply` / alembic `0136`:
+
+1. Каждая строка history.value = `stored_value_for_bonus(id, perfection_level_gained)`
+2. `perfection_bonus_totals` = сумма permanent
+3. Pending `offer_json` пересобирается
+4. Уже выданные gold/dust/stones **не** откатываются
+5. `sync_waifu_stats` для затронутых игроков (в 0136 и в скрипте с `--apply`)
 
 ## Код
 
 - Каталог: `src/waifu_bot/game/perfection_catalog.py`
-- Формулы: `calculate_perfection_experience_for_level` в `formulas.py`
-- Константы: `PERFECTION_EXP_*` в `constants.py`
 - Сервис: `src/waifu_bot/services/perfection.py`
-- Бой: merge в `_get_effective_combat_profile` → `eff_bonuses`; реген через `extra_hp_per_min`
+- Реген: `regen_pct` × base в `energy.py` / `combat_regen.py`

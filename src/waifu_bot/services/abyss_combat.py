@@ -285,19 +285,27 @@ async def handle_abyss_attack(
     ps = await get_passive_skill_bonuses(session, player_id)
     hs = await get_hidden_skill_bonuses(session, player_id)
     hr_pm = max(0, int(round(float(hs.get("hp_regen_per_active_hour", 0) or 0))))
+    regen_pct = 0.0
     try:
         from waifu_bot.services.perfection import (
-            hp_regen_per_min_from_totals,
+            hp_regen_pct_from_totals,
             load_perfection_totals,
         )
 
-        hr_pm += hp_regen_per_min_from_totals(await load_perfection_totals(session, player_id))
+        regen_pct = hp_regen_pct_from_totals(
+            await load_perfection_totals(session, player_id)
+        )
     except Exception:
         pass
     now = datetime.now(timezone.utc)
     online = is_player_online(player, now=now)
     apply_hp_regen_for_context(
-        waifu, player, context="abyss", extra_hp_per_min=hr_pm, now=now
+        waifu,
+        player,
+        context="abyss",
+        extra_hp_per_min=hr_pm,
+        regen_pct=regen_pct,
+        now=now,
     )
     if player is not None:
         player.last_combat_action_at = now

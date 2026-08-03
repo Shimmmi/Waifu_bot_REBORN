@@ -26,17 +26,25 @@ def _normalize_ts(ts: datetime, fallback: datetime) -> datetime:
     return ts
 
 
+def base_hp_regen_per_min(endurance: int) -> int:
+    """Natural regen: 5 HP/min + max(0, END-10)."""
+    end_bonus = max(0, int(endurance or 0) - 10)
+    return int(HP_REGEN_PER_MIN) + int(end_bonus)
+
+
 def apply_regen(
     waifu: MainWaifu,
     now: datetime | None = None,
     *,
     extra_hp_per_min: int = 0,
+    regen_pct: float = 0.0,
     suppress: bool = False,
 ) -> bool:
     """
-    Regen HP (5/min + END bonus) in discrete minute ticks.
+    Regen HP (5/min + END bonus + extras) in discrete minute ticks.
     Returns True if waifu was modified (HP changed).
 
+    - regen_pct: fraction of natural base (perfection %_regen totals).
     - HP: cap at max_hp; if current_hp <= 0, skip (no revive from regen);
       if already at cap, only refresh hp_updated_at.
     - suppress: when True, grant NO HP but advance hp_updated_at to ``now`` so the
@@ -75,9 +83,9 @@ def apply_regen(
         delta = (now - last_hp).total_seconds() / 60
         minutes = int(delta)
         if minutes >= 1:
-            # Minimal END influence: +1 HP/min for each END above 10
-            end_bonus = max(0, int(getattr(waifu, "endurance", 0) or 0) - 10)
-            per_min = int(HP_REGEN_PER_MIN) + int(end_bonus) + max(0, int(extra_hp_per_min))
+            base = base_hp_regen_per_min(int(getattr(waifu, "endurance", 0) or 0))
+            pct_extra = max(0, int(round(base * max(0.0, float(regen_pct or 0.0)))))
+            per_min = base + max(0, int(extra_hp_per_min)) + pct_extra
             gain = min(minutes * per_min, waifu.max_hp - waifu.current_hp)
             waifu.current_hp = int(waifu.current_hp) + gain
             waifu.hp_updated_at = last_hp + timedelta(minutes=minutes)

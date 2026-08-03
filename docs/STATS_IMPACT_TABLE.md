@@ -24,7 +24,7 @@
 |  | “Урон маг.” во вкладке Info | `api/routes.py::_compute_details` | `_damage_bounds("magic", …)` |
 | **ВЫН (endurance)** | Максимальное HP | `game/formulas.py::calculate_max_hp` | `BASE_HP_PER_LEVEL`, `HP_K_COEFFICIENT` |
 |  | Защита во вкладке Info | `api/routes.py::_compute_details` | `base_defense = max(0, endurance-10)` |
-|  | **Реген HP** | `services/energy.py::apply_regen` | **5 HP/мин + max(0, ВЫН-10) HP/мин** |
+|  | **Реген HP** | `services/energy.py::apply_regen` | **5 HP/мин + max(0, ВЫН-10) HP/мин** + perfection `%_regen` × базы |
 | **ОБА (charm)** | Скидка у торговцев во вкладке Info | `api/routes.py::_compute_details` | `merchant_discount = clamp((charm-10)*1%, 0..50%) + item bonuses` |
 |  | Цена покупки в магазине | `game/formulas.py::calculate_shop_price` | **base * (1 - discount%)** |
 |  | Цена продажи (инвентарь → золото) | `game/formulas.py::calculate_shop_price` | `0.5..0.9` по той же скидке |
@@ -54,7 +54,7 @@
   `src/waifu_bot/game/formulas.py::calculate_max_hp`
 - **UI Info (защита)**: `max(0, endurance-10)` + бонусы  
   `src/waifu_bot/api/routes.py::_compute_details`
-- **Реген HP**: `5 HP/мин + max(0, ВЫН-10) HP/мин`  
+- **Реген HP**: `5 HP/мин + max(0, ВЫН-10) HP/мин` + perfection `%_regen` × этой базы  
   `src/waifu_bot/services/energy.py::apply_regen`
 
 ### ОБА (charm)

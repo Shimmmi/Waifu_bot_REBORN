@@ -675,19 +675,19 @@ class DungeonService:
             pre_m = int(waifu.max_hp or 0)
             await sync_waifu_max_hp(session, player_id, waifu)
             post_m = int(waifu.max_hp or 0)
-            regen_extra = 0
+            regen_pct = 0.0
             try:
                 from waifu_bot.services.perfection import (
-                    hp_regen_per_min_from_totals,
+                    hp_regen_pct_from_totals,
                     load_perfection_totals,
                 )
 
-                regen_extra = hp_regen_per_min_from_totals(
+                regen_pct = hp_regen_pct_from_totals(
                     await load_perfection_totals(session, player_id)
                 )
             except Exception:
                 pass
-            regen_changed = apply_regen(waifu, extra_hp_per_min=regen_extra)
+            regen_changed = apply_regen(waifu, regen_pct=regen_pct)
             # Entering a dungeon is a real gameplay action: mark online so the
             # first in-run hit counts and in-dungeon regen is allowed.
             from datetime import timezone as _tz

@@ -936,20 +936,20 @@ async def get_profile(
                 ).first()
                 if abyss_active is not None:
                     suppress_regen = not is_player_online(player)
-                regen_extra = 0
+                regen_pct = 0.0
                 try:
                     from waifu_bot.services.perfection import (
-                        hp_regen_per_min_from_totals,
+                        hp_regen_pct_from_totals,
                         perfection_totals_dict,
                     )
 
-                    regen_extra = hp_regen_per_min_from_totals(
-                        perfection_totals_dict(player)
-                    )
+                    regen_pct = hp_regen_pct_from_totals(perfection_totals_dict(player))
                 except Exception:
                     pass
                 regen_changed = apply_regen(
-                    main_waifu, suppress=suppress_regen, extra_hp_per_min=regen_extra
+                    main_waifu,
+                    suppress=suppress_regen,
+                    regen_pct=regen_pct,
                 )
                 if regen_changed or post_max != pre_max:
                     await session.commit()

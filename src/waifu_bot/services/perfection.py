@@ -354,12 +354,12 @@ def summarize_totals(totals: dict[str, float]) -> list[dict[str, Any]]:
             continue
         if bdef.unit == "%":
             display = f"+{v * 100:g}%"
+        elif bdef.unit == "%_regen":
+            display = f"+{v * 100:g}% регена"
         elif bdef.unit == "combat_pct":
             display = f"+{int(round(v))}%"
         elif bdef.unit == "HP":
             display = f"+{int(round(v))} HP"
-        elif bdef.unit == "HP/мин":
-            display = f"+{int(round(v))} HP/мин"
         else:
             display = f"+{int(round(v))}" if abs(v - round(v)) < 1e-9 else f"+{v:g}"
         out.append(
@@ -392,8 +392,24 @@ def combat_bonus_ints_from_totals(totals: dict[str, float]) -> dict[str, int]:
     return out
 
 
-def hp_regen_per_min_from_totals(totals: dict[str, float]) -> int:
-    return max(0, int(round(float((totals or {}).get("hp_regen_per_min", 0) or 0))))
+def hp_regen_pct_from_totals(totals: dict[str, float]) -> float:
+    """Fraction of natural regen from perfection (unit %_regen)."""
+    return max(0.0, float((totals or {}).get("hp_regen_per_min", 0) or 0))
+
+
+def hp_regen_per_min_from_totals(
+    totals: dict[str, float],
+    *,
+    endurance: int = 10,
+) -> int:
+    """Absolute HP/min from perfection %_regen against natural base for ``endurance``."""
+    from waifu_bot.services.energy import base_hp_regen_per_min
+
+    pct = hp_regen_pct_from_totals(totals)
+    if pct <= 0:
+        return 0
+    base = base_hp_regen_per_min(int(endurance or 0))
+    return max(0, int(round(base * pct)))
 
 
 async def get_state(session: AsyncSession, player: m.Player) -> dict[str, Any]:
@@ -498,12 +514,10 @@ async def choose_pending(
         try:
             from waifu_bot.services.waifu_hp import sync_waifu_stats
 
-            waifu = getattr(player, "main_waifu", None)
-            if waifu is None:
-                res = await session.execute(
-                    select(m.MainWaifu).where(m.MainWaifu.player_id == int(player.id))
-                )
-                waifu = res.scalar_one_or_none()
+            res = await session.execute(
+                select(m.MainWaifu).where(m.MainWaifu.player_id == int(player.id))
+            )
+            waifu = res.scalar_one_or_none()
             if waifu:
                 await sync_waifu_stats(session, int(player.id), waifu)
         except Exception:
@@ -580,3 +594,167 @@ def apply_perfection_primary_four(
         int(intelligence) + flats["intelligence"],
         int(luck) + flats["luck"],
     )
+
+
+def rebuild_offer_option(bonus_id: str, perfection_level: int) -> dict[str, Any]:
+    """Пересобрать одну карточку оффера по актуальному каталогу."""
+    if bonus_id == SKILL_POINT_BONUS_ID:
+        return {
+            "bonus_id": SKILL_POINT_BONUS_ID,
+            "title_ru": SKILL_POINT_TITLE_RU,
+            "kind": "instant",
+            "value": 1.0,
+            "display_value": "+1",
+            "display_raw": 1,
+            "unit": "ОПГ",
+            "tier": tier_number_for_level(perfection_level),
+            "label": "Сразу",
+        }
+    bdef = BONUS_BY_ID[bonus_id]
+    return {
+        "bonus_id": bdef.id,
+        "title_ru": bdef.title_ru,
+        "kind": bdef.kind,
+        "value": stored_value_for_bonus(bdef.id, perfection_level),
+        "display_value": format_offer_value(bdef.id, perfection_level),
+        "display_raw": value_for_bonus(bdef.id, perfection_level),
+        "unit": bdef.unit,
+        "tier": tier_number_for_level(perfection_level),
+        "label": "Навсегда" if bdef.kind == "permanent" else "Сразу",
+    }
+
+
+def recompute_totals_from_history(
+    rows: list[tuple[str, int, float]],
+) -> tuple[list[tuple[str, int, float]], dict[str, float]]:
+    """Пересчитать value строк истории и агрегаты permanent.
+
+    ``rows``: (bonus_id, perfection_level_gained, old_value)
+    Возвращает (new_rows_with_values, permanent_totals).
+    Instant rows получают новое catalog value (для аудита), но в totals не входят.
+    """
+    new_rows: list[tuple[str, int, float]] = []
+    totals: dict[str, float] = {}
+    for bonus_id, p_level, _old in rows:
+        bid = str(bonus_id)
+        lvl = int(p_level or 1)
+        if bid == SKILL_POINT_BONUS_ID:
+            new_rows.append((bid, lvl, 1.0))
+            continue
+        if bid not in BONUS_BY_ID:
+            new_rows.append((bid, lvl, float(_old or 0)))
+            continue
+        stored = float(stored_value_for_bonus(bid, lvl))
+        new_rows.append((bid, lvl, stored))
+        bdef = BONUS_BY_ID[bid]
+        if bdef.kind == "permanent":
+            totals[bid] = float(totals.get(bid, 0) or 0) + stored
+    return new_rows, totals
+
+
+async def recompute_player_perfection_from_catalog(
+    session: AsyncSession,
+    player: m.Player,
+    *,
+    sync_hp: bool = True,
+) -> dict[str, Any]:
+    """Пересчитать history values + totals + pending offers по текущему каталогу.
+
+    Уже выданные instant-ресурсы (gold/dust/stones) не откатываются.
+    """
+    old_totals = perfection_totals_dict(player)
+    res = await session.execute(
+        select(m.PlayerPerfectionBonus)
+        .where(m.PlayerPerfectionBonus.player_id == int(player.id))
+        .order_by(m.PlayerPerfectionBonus.id.asc())
+    )
+    history = list(res.scalars().all())
+    rows_in = [
+        (str(r.bonus_id), int(r.perfection_level_gained or 1), float(r.value or 0))
+        for r in history
+    ]
+    new_rows, new_totals = recompute_totals_from_history(rows_in)
+    for row, (_bid, _lvl, new_val) in zip(history, new_rows):
+        row.value = float(new_val)
+        row.tier_at_pick = tier_number_for_level(int(row.perfection_level_gained or 1))
+
+    player.perfection_bonus_totals = new_totals
+
+    pending_res = await session.execute(
+        select(m.PlayerPerfectionPending).where(
+            m.PlayerPerfectionPending.player_id == int(player.id)
+        )
+    )
+    pending_updated = 0
+    for pend in pending_res.scalars().all():
+        p_level = int(pend.perfection_level or 1)
+        if str(pend.kind) == "skill_point":
+            pend.offer_json = _skill_point_offer(p_level)
+            pending_updated += 1
+            continue
+        options = list(pend.offer_json or [])
+        rebuilt: list[dict[str, Any]] = []
+        for opt in options:
+            bid = str(opt.get("bonus_id") or "")
+            if not bid:
+                continue
+            try:
+                rebuilt.append(rebuild_offer_option(bid, p_level))
+            except KeyError:
+                rebuilt.append(opt)
+        pend.offer_json = rebuilt
+        pending_updated += 1
+
+    hp_synced = False
+    if sync_hp:
+        try:
+            from waifu_bot.services.waifu_hp import sync_waifu_stats
+
+            # Always explicit SELECT — avoid lazy main_waifu (MissingGreenlet in async).
+            wres = await session.execute(
+                select(m.MainWaifu).where(m.MainWaifu.player_id == int(player.id))
+            )
+            waifu = wres.scalar_one_or_none()
+            if waifu:
+                await sync_waifu_stats(session, int(player.id), waifu)
+                hp_synced = True
+        except Exception:
+            logger.warning(
+                "sync_waifu_stats after perfection recompute failed player_id=%s",
+                getattr(player, "id", None),
+                exc_info=True,
+            )
+
+    await session.flush()
+    return {
+        "player_id": int(player.id),
+        "history_rows": len(history),
+        "pending_updated": pending_updated,
+        "old_totals": old_totals,
+        "new_totals": new_totals,
+        "hp_synced": hp_synced,
+    }
+
+
+async def recompute_all_perfection_from_catalog(
+    session: AsyncSession,
+    *,
+    player_ids: list[int] | None = None,
+    sync_hp: bool = True,
+) -> list[dict[str, Any]]:
+    """Пересчитать совершенствование для всех (или выбранных) игроков с историей/totals."""
+    q = select(m.Player).where(
+        (m.Player.perfection_level > 0)
+        | (m.Player.perfection_bonus_totals.isnot(None))
+    )
+    if player_ids:
+        q = q.where(m.Player.id.in_([int(x) for x in player_ids]))
+    players = list((await session.execute(q)).scalars().all())
+    reports: list[dict[str, Any]] = []
+    for player in players:
+        reports.append(
+            await recompute_player_perfection_from_catalog(
+                session, player, sync_hp=sync_hp
+            )
+        )
+    return reports
