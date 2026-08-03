@@ -170,10 +170,10 @@ def test_podium_pillow_layouts_and_caption():
     ]
     top = top_active_rows(rows, limit=3)
     assert len(top) == 3
-    png3 = render_podium_pillow(top, avatars={}, title="Тест")
-    assert png3[:8] == b"\x89PNG\r\n\x1a\n"
-    png1 = render_podium_pillow(top[:1], avatars={1: None}, title="Один")
-    assert png1[:8] == b"\x89PNG\r\n\x1a\n"
+    webp3 = render_podium_pillow(top, avatars={}, title="Тест")
+    assert webp3[:4] == b"RIFF" and webp3[8:12] == b"WEBP"
+    webp1 = render_podium_pillow(top[:1], avatars={1: None}, title="Один")
+    assert webp1[:4] == b"RIFF" and webp1[8:12] == b"WEBP"
     cap = podium_caption_from_rows(rows)
     assert "@" not in cap
     assert "Альфа" in cap and "Бета" in cap
@@ -189,12 +189,14 @@ def test_send_photo_retries_without_regen():
                 raise ConnectionError("reset")
             return None
 
+    # Minimal valid-looking WEBP header + padding for compress path
+    tiny = b"RIFF" + (30).to_bytes(4, "little") + b"WEBP" + b"\x00" * 30
     ok = asyncio.run(
         send_photo_with_retries(
             _Bot(),
             chat_id=-100,
-            png=b"\x89PNG\r\n\x1a\n" + b"\x00" * 20,
-            filename="t.png",
+            png=tiny,
+            filename="t.webp",
             caption="cap",
             max_attempts=3,
         )

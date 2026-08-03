@@ -348,7 +348,7 @@ async def _send_podium_for_cycle(
         bot,
         chat_id=int(cycle.chat_id),
         png=png,
-        filename="gd_daily_podium.png",
+        filename="gd_daily_podium.webp",
         caption=caption,
     )
     if ok:

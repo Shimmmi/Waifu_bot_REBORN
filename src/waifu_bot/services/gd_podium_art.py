@@ -32,6 +32,29 @@ try:
 except Exception:  # pragma: no cover
     _extract_openrouter_image_b64 = None  # type: ignore[assignment,misc]
 
+
+def _image_bytes_to_webp(raw: bytes, *, quality: int = 88) -> bytes | None:
+    """Same pipeline as monster/item art: Pillow → WEBP quality=88 method=6."""
+    try:
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(raw))
+        if img.mode not in ("RGB", "RGBA", "P"):
+            img = img.convert("RGBA")
+        elif img.mode == "P":
+            img = img.convert("RGBA")
+        buf = io.BytesIO()
+        img.save(buf, format="WEBP", quality=int(quality), method=6)
+        out = buf.getvalue()
+        return out if out else None
+    except Exception:
+        logger.exception("[GD PODIUM] webp conversion failed")
+        return None
+
+
+def _is_webp(raw: bytes) -> bool:
+    return len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP"
+
 _MEME_CAPTIONS = (
     "и это всё ради плюшек",
     "легенда чата",
@@ -109,7 +132,7 @@ def render_podium_pillow(
     avatars: dict[int, bytes | None],
     title: str,
 ) -> bytes:
-    """Deterministic podium PNG: places 1/2/3 filled only when present."""
+    """Deterministic podium WEBP: places 1/2/3 filled only when present."""
     from PIL import Image, ImageDraw, ImageFont
 
     n = len(top_rows)
@@ -176,7 +199,7 @@ def render_podium_pillow(
         draw.text((cx - 90, ay - 22), meme, fill=(200, 206, 216), font=font_sm)
 
     buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
+    img.save(buf, format="WEBP", quality=88, method=6)
     return buf.getvalue()
 
 
@@ -269,7 +292,10 @@ async def generate_gd_daily_podium_png(
     avatars: dict[int, bytes | None] | None = None,
     title: str = "Пьедестал дневного похода",
 ) -> tuple[bytes, str] | None:
-    """Return (png_bytes, source) or None if no active players."""
+    """Return (webp_bytes, source) or None if no active players.
+
+    Name kept for call-site compatibility; payload is always WEBP (monster/item pipeline).
+    """
     top = top_active_rows(rows, limit=3)
     if not top:
         return None
@@ -280,23 +306,19 @@ async def generate_gd_daily_podium_png(
 
     ai = await generate_podium_routerai(top, avatars=av, title=title)
     if ai:
-        try:
-            from PIL import Image
+        webp = _image_bytes_to_webp(ai, quality=88)
+        if webp:
+            logger.info("podium_gen source=routerai format=webp bytes=%s", len(webp))
+            return webp, "routerai"
+        logger.warning("[GD PODIUM] routerai webp conversion failed; trying pillow")
 
-            im = Image.open(io.BytesIO(ai))
-            if im.mode not in ("RGB", "RGBA"):
-                im = im.convert("RGBA")
-            out = io.BytesIO()
-            im.save(out, format="PNG")
-            logger.info("podium_gen source=routerai")
-            return out.getvalue(), "routerai"
-        except Exception:
-            logger.info("podium_gen source=routerai")
-            return ai, "routerai"
-
-    png = render_podium_pillow(top, avatars=av, title=title)
-    logger.info("podium_gen source=pillow")
-    return png, "pillow"
+    webp = render_podium_pillow(top, avatars=av, title=title)
+    if not _is_webp(webp):
+        converted = _image_bytes_to_webp(webp, quality=88)
+        if converted:
+            webp = converted
+    logger.info("podium_gen source=pillow format=webp bytes=%s", len(webp))
+    return webp, "pillow"
 
 
 def podium_caption_from_rows(rows: list[dict[str, Any]]) -> str:
@@ -307,33 +329,40 @@ def podium_caption_from_rows(rows: list[dict[str, Any]]) -> str:
     return "Пьедестал активности: " + " · ".join(bits)
 
 
-def _compress_for_telegram(raw: bytes, *, max_bytes: int = 90_000) -> tuple[bytes, str]:
-    """Downscale/JPEG-compress large podium images for Cloudflare Bot API proxy stability."""
-    if len(raw) <= max_bytes and raw[:8] == b"\x89PNG\r\n\x1a\n":
-        return raw, "png"
+def _compress_for_telegram(raw: bytes, *, max_bytes: int = 32_000) -> tuple[bytes, str]:
+    """Keep WEBP under Cloudflare Bot API proxy-friendly size (~30KB works reliably)."""
+    data = raw
+    if not _is_webp(data):
+        converted = _image_bytes_to_webp(data, quality=88)
+        if converted:
+            data = converted
+    if len(data) <= max_bytes and _is_webp(data):
+        return data, "webp"
     try:
         from PIL import Image
 
-        im = Image.open(io.BytesIO(raw))
-        if im.mode not in ("RGB", "RGBA"):
-            im = im.convert("RGB")
-        elif im.mode == "RGBA":
-            bg = Image.new("RGB", im.size, (22, 26, 36))
-            bg.paste(im, mask=im.split()[-1])
-            im = bg
-        im.thumbnail((900, 750))
-        quality = 82
-        data = raw
-        for quality in (82, 70, 60):
-            out = io.BytesIO()
-            im.save(out, format="JPEG", quality=quality, optimize=True)
-            data = out.getvalue()
-            if len(data) <= max_bytes:
-                break
-        return data, "jpg"
+        im = Image.open(io.BytesIO(data))
+        if im.mode not in ("RGB", "RGBA", "P"):
+            im = im.convert("RGBA")
+        elif im.mode == "P":
+            im = im.convert("RGBA")
+        for max_side, qualities in (
+            (800, (70, 60, 50)),
+            (640, (60, 50, 40)),
+            (512, (50, 40, 35)),
+        ):
+            work = im.copy()
+            work.thumbnail((max_side, int(max_side * 0.85)))
+            for quality in qualities:
+                out = io.BytesIO()
+                work.save(out, format="WEBP", quality=quality, method=6)
+                data = out.getvalue()
+                if len(data) <= max_bytes:
+                    return data, "webp"
+        return data, "webp"
     except Exception:
-        logger.debug("podium compress failed; sending original", exc_info=True)
-        return raw, "png" if raw[:8] == b"\x89PNG\r\n\x1a\n" else "bin"
+        logger.debug("podium webp compress failed; sending original", exc_info=True)
+        return raw, "webp" if _is_webp(raw) else "bin"
 
 
 async def send_photo_with_retries(
@@ -341,16 +370,15 @@ async def send_photo_with_retries(
     *,
     chat_id: int,
     png: bytes,
-    filename: str,
+    filename: str = "gd_daily_podium.webp",
     caption: str,
     max_attempts: int = 3,
 ) -> bool:
-    """Send cached image with backoff; never regenerates the artwork."""
+    """Send cached WEBP with backoff; never regenerates the artwork."""
     from aiogram.types import BufferedInputFile
 
     payload, ext = _compress_for_telegram(png)
-    if not filename.lower().endswith(f".{ext}"):
-        filename = f"gd_daily_podium.{ext}"
+    filename = f"gd_daily_podium.{ext}"
     delays = (0.5, 1.0, 2.0)
     for attempt in range(max_attempts):
         try:
