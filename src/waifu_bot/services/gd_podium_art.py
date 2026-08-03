@@ -208,14 +208,21 @@ def _podium_prompt(top_rows: list[dict[str, Any]], *, title: str) -> str:
     for i, r in enumerate(top_rows, 1):
         lines.append(
             f"Place {i}: character «{format_waifu_plain(r.get('name'))}» "
-            f"({int(r.get('msg_total') or 0)} messages) — use the matching reference image."
+            f"({int(r.get('msg_total') or 0)} messages) — match face/hair/outfit identity "
+            f"from the reference, but invent a NEW random dynamic pose "
+            f"(not the reference stance; vary gesture/angle each time)."
         )
     return (
         "Create a grotesque meme Olympic podium illustration for a Telegram anime RPG. "
         f"Title vibe: «{title}». "
-        "Dark navy stage, ridiculous oversized medals, chaotic Russian internet meme energy, SFW. "
-        "Place the PROVIDED character artworks onto pedestals 1 (center tallest), 2 (left), 3 (right). "
-        "Keep faces/outfits recognizable from the references. "
+        "Dark navy stage, chaotic Russian internet meme energy, SFW. "
+        "Place characters on pedestals 1 (center tallest), 2 (left), 3 (right). "
+        "CRITICAL: Do NOT draw medals, medallions, badges, round award discs, or any "
+        "circular overlays on/over the characters — they must remain fully visible "
+        "with no objects covering torso, face, or outfit. "
+        "Use reference images ONLY for character identity (face, hair, body type, outfit colors). "
+        "Do NOT copy the paperdoll/portrait pose — each waifu must get a fresh random lively pose "
+        "(celebration, smug, chaotic, victory dance, etc.). "
         "No real-person photos, no usernames, no @handles, no UI chrome, no watermarks.\n"
         + "\n".join(lines)
     )
@@ -237,7 +244,16 @@ async def generate_podium_routerai(
         uid = int(r["user_id"])
         raw = avatars.get(uid)
         name = format_waifu_plain(r.get("name"))
-        content.append({"type": "text", "text": f"Reference for place {i} — {name}:"})
+        content.append(
+            {
+                "type": "text",
+                "text": (
+                    f"Identity reference for place {i} — {name}. "
+                    "Copy face/hair/outfit identity only; invent a new random pose; "
+                    "do not place medals over the character."
+                ),
+            }
+        )
         if raw:
             content.append({"type": "image_url", "image_url": {"url": _bytes_to_data_url(raw)}})
         else:
