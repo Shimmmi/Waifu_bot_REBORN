@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import select
@@ -18,7 +19,7 @@ from waifu_bot.db.models import (
     Player,
 )
 from waifu_bot.game.constants import MAX_LEVEL
-from waifu_bot.game.msk_time import gd_should_finalize_now, gd_should_start_now, msk_now
+from waifu_bot.game.msk_time import gd_should_start_now, msk_current_game_date, msk_now
 from waifu_bot.services.combat import apply_main_waifu_levelups
 from waifu_bot.services.game_config_service import cfg_int, get_game_config_map
 from waifu_bot.services.gd_cycle_service import GDCycleService, REDIS_GD_DAILY_LOCK
@@ -29,9 +30,9 @@ from waifu_bot.services.gd_daily_rewards import (
 )
 from waifu_bot.services.gd_daily_stats import (
     build_player_summary_rows,
-    format_mention,
     format_top_words_line_ru,
     format_type_breakdown_ru,
+    format_waifu_html,
     pick_mvp_and_least,
     sort_rows_by_activity,
 )
@@ -44,7 +45,15 @@ from waifu_bot.services.gd_narrative_ai import (
     generate_gd_daily_start_narrative,
 )
 from waifu_bot.services.gd_phantom_log import load_phantom_log, purge_phantom_log
-from waifu_bot.services.gd_pie_chart import generate_gd_daily_pie_png, pie_caption_from_rows
+from waifu_bot.services.gd_podium_art import (
+    count_active_players,
+    generate_gd_daily_podium_png,
+    load_player_avatar_bytes,
+    podium_caption_from_rows,
+    send_photo_with_retries,
+    should_generate_podium,
+    top_active_rows,
+)
 from waifu_bot.services.bot_group_chats import ACTIVE_STATUSES
 
 if TYPE_CHECKING:
@@ -87,32 +96,33 @@ def format_level_display(level: int, perfection_level: int = 0) -> str:
 def format_daily_start_roster_html(party: list[dict[str, Any]]) -> str:
     lines: list[str] = []
     for p in party:
-        uid = int(p.get("user_id") or 0)
-        mention = format_mention(p.get("username"), uid)
-        name = p.get("name") or "—"
+        name_html = format_waifu_html(p.get("name"))
         lvl_txt = format_level_display(
             int(p.get("level") or 1),
             int(p.get("perfection_level") or 0),
         )
         gs = int(p.get("gear_score") or 0)
-        lines.append(
-            f"• {mention} — <b>{name}</b>: {lvl_txt}, ур.шмота <b>{gs}</b>"
-        )
+        lines.append(f"• {name_html}: {lvl_txt}, ур.шмота <b>{gs}</b>")
     return "\n".join(lines) if lines else "• (пусто)"
 
 
 def _finale_player_block(index: int, r: dict[str, Any]) -> str:
-    mention = format_mention(r.get("username"), int(r["user_id"]))
-    br = format_type_breakdown_ru(r.get("by_type") or {})
-    words = format_top_words_line_ru(r)
-    return (
-        f"{index}. {mention} — сообщ. <b>{int(r.get('msg_total') or 0)}</b> "
+    name_html = format_waifu_html(r.get("name"))
+    msg_total = int(r.get("msg_total") or 0)
+    head = (
+        f"{index}. {name_html} — сообщ. <b>{msg_total}</b> "
         f"({float(r.get('chat_share_pct') or 0):.1f}% чата), "
         f"символов <b>{int(r.get('text_chars') or 0)}</b>, "
-        f"урон <b>{int(r.get('damage_total') or 0)}</b>\n"
-        f"   └ медиа: {br}\n"
-        f"   └ слова: {words}"
+        f"урон <b>{int(r.get('damage_total') or 0)}</b>"
     )
+    if msg_total <= 0:
+        return head
+    br = format_type_breakdown_ru(r.get("by_type") or {})
+    lines = [head, f"   └ медиа: {br}"]
+    words = format_top_words_line_ru(r)
+    if words:
+        lines.append(f"   └ слова: {words}")
+    return "\n".join(lines)
 
 
 def _finale_footer_lines(
@@ -121,21 +131,12 @@ def _finale_footer_lines(
     mvp: dict[str, Any] | None,
     least: dict[str, Any] | None,
 ) -> list[str]:
+    _ = rows
     lines: list[str] = [""]
     if mvp:
-        lines.append(
-            f"🏆 MVP: {format_mention(mvp.get('username'), int(mvp['user_id']))} "
-            f"({mvp.get('name')})"
-        )
+        lines.append(f"🏆 MVP: {format_waifu_html(mvp.get('name'))}")
     if least and (not mvp or least.get("user_id") != mvp.get("user_id")):
-        lines.append(
-            f"🪵 Малоактивный: {format_mention(least.get('username'), int(least['user_id']))} "
-            f"({least.get('name')})"
-        )
-    silent = [r for r in rows if int(r.get("msg_total") or 0) == 0]
-    if silent:
-        names = ", ".join(format_mention(s.get("username"), int(s["user_id"])) for s in silent[:8])
-        lines.append(f"😴 Без сообщений: {names}")
+        lines.append(f"🪵 Малоактивный: {format_waifu_html(least.get('name'))}")
     return lines
 
 
@@ -207,6 +208,65 @@ def build_daily_finale_html_chunks(
     return chunks or ["📊 <b>Итоги дневного похода</b>"]
 
 
+def _chunk_plain_text(text: str, soft_limit: int = TELEGRAM_HTML_SOFT_LIMIT) -> list[str]:
+    if len(text) <= soft_limit:
+        return [text]
+    parts = text.split("\n\n")
+    chunks: list[str] = []
+    cur = ""
+    for part in parts:
+        candidate = f"{cur}\n\n{part}" if cur else part
+        if cur and len(candidate) > soft_limit:
+            chunks.append(cur)
+            cur = part
+        else:
+            cur = candidate
+    if cur:
+        chunks.append(cur)
+    return chunks or [text[:soft_limit]]
+
+
+def format_aggregated_reward_dm(
+    *,
+    game_date: date,
+    parts: list[dict[str, Any]],
+) -> str:
+    """Build plain-text aggregated reward DM for one user/game_date."""
+    total_exp = sum(int(p.get("exp") or 0) for p in parts)
+    total_gold = sum(int(p.get("gold") or 0) for p in parts)
+    all_items: list[dict[str, Any]] = []
+    for p in parts:
+        for it in p.get("items") or []:
+            if isinstance(it, dict):
+                all_items.append(it)
+
+    lines = [
+        f"⚔️ Дневные походы за {game_date.isoformat()} завершены.",
+        f"Итого: {total_exp} опыта, {total_gold} золота.",
+    ]
+    if all_items:
+        lines.append(
+            "Предметы: "
+            + ", ".join(f"{it.get('name')} (ур. {it.get('level')})" for it in all_items)
+        )
+    lines.append("")
+    for p in parts:
+        item_bit = ""
+        items = p.get("items") or []
+        if items:
+            item_bit = "\n  Предметы: " + ", ".join(
+                f"{it.get('name')} (ур. {it.get('level')})" for it in items if isinstance(it, dict)
+            )
+        lines.append(
+            f"• «{p.get('dungeon_name') or 'Подземелье'}» — место {p.get('rank')}/{p.get('party_size')}\n"
+            f"  Сообщений: {p.get('msg_total')} (учтено {p.get('counted_msgs')}/500), "
+            f"урон {p.get('damage_total')}\n"
+            f"  Награда: {int(p.get('exp') or 0)} опыта, {int(p.get('gold') or 0)} золота."
+            f"{item_bit}"
+        )
+    return "\n".join(lines)
+
+
 def _ensure_intro_ends_with_sostave(intro: str) -> str:
     text = (intro or "").strip()
     if not text:
@@ -214,10 +274,15 @@ def _ensure_intro_ends_with_sostave(intro: str) -> str:
     low = text.rstrip().lower()
     if low.endswith("в составе:") or low.endswith("в составе："):
         return text.rstrip()
-    # Soft append if model forgot the cue
     if "в составе" in low:
         return text.rstrip().rstrip(".") + ":"
     return text.rstrip().rstrip(".") + " в составе:"
+
+
+def _finale_image_enabled(cfg: dict[str, str]) -> bool:
+    if "gd_daily_finale_image_enabled" in cfg:
+        return cfg_int(cfg, "gd_daily_finale_image_enabled", 1) == 1
+    return cfg_int(cfg, "gd_daily_pie_enabled", 1) == 1
 
 
 async def send_daily_start_message(
@@ -250,6 +315,58 @@ async def send_daily_start_message(
         logger.exception("GD daily start message failed chat_id=%s", cycle.chat_id)
 
 
+async def _send_podium_for_cycle(
+    session: AsyncSession,
+    bot: Any,
+    cycle: GDCycle,
+    rows: list[dict[str, Any]],
+    *,
+    dungeon_name: str,
+    cfg: dict[str, str],
+) -> None:
+    if not _finale_image_enabled(cfg):
+        return
+    active_count = count_active_players(rows)
+    if not should_generate_podium(rows):
+        logger.info(
+            "GD daily podium skipped cycle=%s active=%s (need >= 3)",
+            cycle.id,
+            active_count,
+        )
+        return
+    top = top_active_rows(rows, limit=3)
+    if not top:
+        return
+    avatars: dict[int, bytes | None] = {}
+    for r in top:
+        uid = int(r["user_id"])
+        waifu = (
+            await session.execute(select(MainWaifu).where(MainWaifu.player_id == uid))
+        ).scalar_one_or_none()
+        avatars[uid] = load_player_avatar_bytes(uid, waifu)
+
+    result = await generate_gd_daily_podium_png(
+        rows,
+        avatars=avatars,
+        title=f"{dungeon_name} — пьедестал",
+    )
+    if not result:
+        return
+    png, src = result
+    caption = podium_caption_from_rows(rows)
+    ok = await send_photo_with_retries(
+        bot,
+        chat_id=int(cycle.chat_id),
+        png=png,
+        filename="gd_daily_podium.webp",
+        caption=caption,
+    )
+    if ok:
+        logger.info("GD daily podium sent cycle=%s source=%s", cycle.id, src)
+    else:
+        logger.error("GD daily podium send failed cycle=%s source=%s", cycle.id, src)
+
+
 async def finalize_daily_rewards_and_notify(
     session: AsyncSession,
     cycle: GDCycle,
@@ -260,6 +377,7 @@ async def finalize_daily_rewards_and_notify(
     mvp: dict[str, Any] | None,
     least: dict[str, Any] | None,
 ) -> None:
+    """Pay rewards + group finale. DMs are flushed later via flush_daily_reward_dms."""
     cfg = await get_game_config_map(session)
     tpl = await session.get(GDDungeonTemplate, cycle.dungeon_template_id)
     dungeon_name = tpl.name if tpl else "Подземелье"
@@ -295,24 +413,12 @@ async def finalize_daily_rewards_and_notify(
             except Exception:
                 logger.exception("GD daily finale text failed cycle=%s", cycle.id)
 
-        if cfg_int(cfg, "gd_daily_pie_enabled", 1) == 1 and rows:
-            try:
-                from aiogram.types import BufferedInputFile
-
-                png, src = await generate_gd_daily_pie_png(
-                    rows,
-                    chat_msg_total=chat_msg_total,
-                    title=f"{dungeon_name} — активность",
-                )
-                caption = pie_caption_from_rows(rows, chat_msg_total=chat_msg_total)
-                await bot.send_photo(
-                    chat_id=cycle.chat_id,
-                    photo=BufferedInputFile(png, filename="gd_daily_pie.png"),
-                    caption=caption[:1024],
-                )
-                logger.info("GD daily pie sent cycle=%s source=%s", cycle.id, src)
-            except Exception:
-                logger.exception("GD daily pie send failed cycle=%s", cycle.id)
+        try:
+            await _send_podium_for_cycle(
+                session, bot, cycle, rows, dungeon_name=dungeon_name, cfg=cfg
+            )
+        except Exception:
+            logger.exception("GD daily podium failed cycle=%s", cycle.id)
 
     for i, r in enumerate(ranked):
         uid = int(r["user_id"])
@@ -360,36 +466,149 @@ async def finalize_daily_rewards_and_notify(
             waifu_pre.experience = (waifu_pre.experience or 0) + exp
             await apply_main_waifu_levelups(session, waifu_pre)
 
-        if not bot:
+
+async def _load_unsent_reward_parts(
+    session: AsyncSession,
+    game_dates: set[date],
+) -> dict[tuple[int, date], list[dict[str, Any]]]:
+    """Load unsent reward rows grouped by (user_id, game_date) with chat context."""
+    if not game_dates:
+        return {}
+    rows = (
+        await session.execute(
+            select(GDRewardRow, GDCycle)
+            .join(GDCycle, GDCycle.id == GDRewardRow.cycle_id)
+            .where(
+                GDRewardRow.dm_sent.is_(False),
+                GDCycle.status == "finished",
+                GDCycle.game_date.in_(tuple(game_dates)),
+            )
+            .order_by(GDRewardRow.id.asc())
+        )
+    ).all()
+    if not rows:
+        return {}
+
+    cycle_ids = {int(c.id) for _, c in rows}
+    regs = (
+        await session.execute(
+            select(GDRegistration).where(GDRegistration.cycle_id.in_(tuple(cycle_ids)))
+        )
+    ).scalars().all()
+    regs_by_cycle: dict[int, list[GDRegistration]] = defaultdict(list)
+    for reg in regs:
+        regs_by_cycle[int(reg.cycle_id)].append(reg)
+
+    tpl_ids = {int(c.dungeon_template_id) for _, c in rows if c.dungeon_template_id}
+    tpls = {}
+    if tpl_ids:
+        for tpl in (
+            await session.execute(
+                select(GDDungeonTemplate).where(GDDungeonTemplate.id.in_(tuple(tpl_ids)))
+            )
+        ).scalars().all():
+            tpls[int(tpl.id)] = tpl.name
+
+    cfg = await get_game_config_map(session)
+    out: dict[tuple[int, date], list[dict[str, Any]]] = defaultdict(list)
+
+    for rew, cycle in rows:
+        gdate = cycle.game_date
+        if gdate is None:
+            continue
+        cycle_regs = regs_by_cycle.get(int(cycle.id), [])
+        chat_total = int((cycle.battle_state_json or {}).get("chat_msg_total") or 0)
+        summary = build_player_summary_rows(cycle_regs, chat_msg_total=chat_total)
+        ranked = sort_rows_by_activity(summary)
+        rank_map = {int(r["user_id"]): i + 1 for i, r in enumerate(ranked)}
+        row_map = {int(r["user_id"]): r for r in ranked}
+        uid = int(rew.user_id)
+        rsum = row_map.get(uid) or {}
+        msg_total = int(rsum.get("msg_total") or 0)
+        payout = compute_daily_payout(msg_total=msg_total, waifu_level=int(rsum.get("level") or 1), cfg=cfg)
+        items = rew.items_json if isinstance(rew.items_json, list) else (rew.items_json or None)
+        if items is None:
+            items = []
+        out[(uid, gdate)].append(
+            {
+                "reward_id": int(rew.id),
+                "reward": rew,
+                "dungeon_name": tpls.get(int(cycle.dungeon_template_id), "Подземелье"),
+                "rank": rank_map.get(uid, "?"),
+                "party_size": len(ranked) or 1,
+                "msg_total": msg_total,
+                "counted_msgs": int(payout.get("counted_msgs") or 0),
+                "damage_total": int(rsum.get("damage_total") or 0),
+                "exp": int(rew.exp_earned or 0),
+                "gold": int(rew.gold_earned or 0),
+                "items": items,
+            }
+        )
+    return out
+
+
+async def flush_daily_reward_dms(
+    session: AsyncSession,
+    bot: Any | None,
+    game_dates: set[date] | None = None,
+) -> int:
+    """Send one aggregated DM per (user_id, game_date). Returns users messaged."""
+    if not bot:
+        return 0
+    today = msk_current_game_date()
+    dates = set(game_dates or set())
+    dates.add(today)
+    dates.add(today - timedelta(days=1))
+
+    grouped = await _load_unsent_reward_parts(session, dates)
+    if not grouped:
+        return 0
+
+    from waifu_bot.services.player_notification_prefs import should_send_dm
+
+    sent_users = 0
+    for (uid, gdate), parts in grouped.items():
+        total_exp = sum(int(p.get("exp") or 0) for p in parts)
+        total_gold = sum(int(p.get("gold") or 0) for p in parts)
+        has_items = any(p.get("items") for p in parts)
+        if total_exp <= 0 and total_gold <= 0 and not has_items:
             continue
         try:
-            from waifu_bot.services.player_notification_prefs import should_send_dm
-
             if not await should_send_dm(session, uid, "group_dungeon"):
                 continue
         except Exception:
             pass
-        rank = i + 1
-        item_bit = ""
-        if items:
-            item_bit = "\nПредметы: " + ", ".join(
-                f"{it.get('name')} (ур. {it.get('level')})" for it in items
-            )
-        counted = int(payout.get("counted_msgs") or 0)
-        dm = (
-            f"⚔️ Дневной поход «{dungeon_name}» завершён.\n"
-            f"Место: {rank}/{len(ranked)}\n"
-            f"Сообщений: {r['msg_total']} (учтено {counted}/500)\n"
-            f"Урон: {r['damage_total']}\n"
-            f"Награда: {exp} опыта, {gold} золота.{item_bit}"
-        )
-        for attempt in range(3):
-            try:
-                await bot.send_message(chat_id=uid, text=dm)
-                rew.dm_sent = True
+
+        text = format_aggregated_reward_dm(game_date=gdate, parts=parts)
+        ok = False
+        for chunk in _chunk_plain_text(text):
+            chunk_ok = False
+            for attempt in range(3):
+                try:
+                    await bot.send_message(chat_id=uid, text=chunk)
+                    chunk_ok = True
+                    break
+                except Exception:
+                    logger.warning(
+                        "GD daily reward DM attempt %s failed uid=%s date=%s",
+                        attempt,
+                        uid,
+                        gdate,
+                    )
+            if not chunk_ok:
+                ok = False
                 break
-            except Exception:
-                logger.warning("GD daily reward DM attempt %s failed uid=%s", attempt, uid)
+            ok = True
+        if not ok:
+            continue
+        for p in parts:
+            rew = p.get("reward")
+            if rew is not None:
+                rew.dm_sent = True
+        sent_users += 1
+    if sent_users:
+        await session.flush()
+    return sent_users
 
 
 async def run_gd_daily_finalize_tick(
@@ -402,8 +621,6 @@ async def run_gd_daily_finalize_tick(
     """Finalize due daily cycles. Returns number finalized."""
     gd = GDCycleService(redis_client)
     cfg = await get_game_config_map(session)
-    end_h = cfg_int(cfg, "gd_daily_end_hour_msk", 4)
-    end_m = cfg_int(cfg, "gd_daily_end_minute_msk", 0)
     now = datetime.now(timezone.utc)
 
     if force_cycle_id is not None:
@@ -412,13 +629,11 @@ async def run_gd_daily_finalize_tick(
         if c:
             cycles = [c]
     else:
-        if not gd_should_finalize_now(end_hour=end_h, end_minute=end_m, now=now):
-            # Also pick cycles past ends_at even outside morning window (catch-up)
-            cycles = await gd.list_active_daily_cycles_due(session, now=now)
-        else:
-            cycles = await gd.list_active_daily_cycles_due(session, now=now)
+        # Due cycles (ends_at elapsed); also outside the 04:00 window for catch-up.
+        cycles = await gd.list_active_daily_cycles_due(session, now=now)
 
     done = 0
+    touched_dates: set[date] = set()
     for cycle in cycles:
         lock_key = f"{REDIS_GD_DAILY_LOCK}fin:{cycle.id}"
         if not await _try_lock(redis_client, lock_key, ttl=180):
@@ -428,7 +643,6 @@ async def run_gd_daily_finalize_tick(
             if not fresh or fresh.status != "active":
                 continue
 
-            # Load phantom text + AI word stats BEFORE finish (which purges Redis).
             word_stats: dict[int, dict[str, Any]] = {}
             try:
                 phantom = await load_phantom_log(redis_client, fresh.id)
@@ -464,6 +678,8 @@ async def run_gd_daily_finalize_tick(
                 least=least,
             )
             await session.commit()
+            if fresh.game_date:
+                touched_dates.add(fresh.game_date)
             done += 1
             logger.info(
                 "GD daily finalized cycle_id=%s chat_id=%s party=%s",
@@ -476,6 +692,17 @@ async def run_gd_daily_finalize_tick(
             logger.exception("GD daily finalize failed cycle_id=%s", cycle.id)
         finally:
             await _unlock(redis_client, lock_key)
+
+    # Aggregated DMs for touched dates + today/yesterday recovery sweep
+    try:
+        n = await flush_daily_reward_dms(session, bot, touched_dates)
+        if n:
+            await session.commit()
+            logger.info("GD daily reward DMs flushed users=%s", n)
+    except Exception:
+        await session.rollback()
+        logger.exception("GD daily reward DM flush failed")
+
     return done
 
 

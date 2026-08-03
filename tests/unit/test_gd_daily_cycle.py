@@ -117,8 +117,8 @@ def test_start_and_finale_copy_readable():
         }
     ]
     roster = format_daily_start_roster_html(party)
-    assert "@hero" in roster
-    assert "Мира" in roster
+    assert "@hero" not in roster
+    assert "<b>Мира</b>" in roster
     assert ": 12," in roster
     assert "ур.шмота <b>440</b>" in roster
     assert "совершенствование" not in roster
@@ -132,6 +132,8 @@ def test_start_and_finale_copy_readable():
     assert "Итоги дневного похода" in html
     assert "50.0%" in html or "50%" in html
     assert "урон" in html.lower()
+    assert "@" not in html
+    assert "🏆 MVP: <b>Мира</b>" in html
 
 
 def test_pie_pillow_fallback_produces_png():

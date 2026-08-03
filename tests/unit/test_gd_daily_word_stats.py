@@ -222,23 +222,31 @@ def test_finale_html_includes_chars_damage_words_sorted():
     html = format_daily_finale_stats_html(
         rows, chat_msg_total=12, dungeon_name="Тест", mvp=rows[1], least=rows[0]
     )
-    # most active (user 2) first
-    pos_b = html.index("@bbb")
-    pos_a = html.index("@aaa")
+    # most active (B) first — waifu names only
+    pos_b = html.index("<b>B</b>")
+    pos_a = html.index("<b>A</b>")
     assert pos_b < pos_a
+    assert "@" not in html
     assert "символов <b>100</b>" in html
     assert "урон <b>40</b>" in html
     assert "кот (5)" in html
-    assert "нет повторов слов" in html
+    assert "нет повторов слов" not in html
     assert "медиа:" in html
 
 
 def test_format_top_words_line_variants():
-    assert format_top_words_line_ru({"words_unavailable": True}) == "топ слов недоступен"
-    assert format_top_words_line_ru({"no_word_repeated": True}) == "нет повторов слов"
-    assert format_top_words_line_ru({"msg_total": 0, "text_chars": 0}) == "—"
-    assert "а (3)" in format_top_words_line_ru(
-        {"top_words": [{"word": "а", "count": 3}], "no_word_repeated": False}
+    assert format_top_words_line_ru({"words_unavailable": True, "msg_total": 2}) is None
+    assert format_top_words_line_ru({"no_word_repeated": True, "msg_total": 2}) is None
+    assert format_top_words_line_ru({"msg_total": 0, "text_chars": 0}) is None
+    assert "а (3)" in (
+        format_top_words_line_ru(
+            {
+                "msg_total": 3,
+                "top_words": [{"word": "а", "count": 3}],
+                "no_word_repeated": False,
+            }
+        )
+        or ""
     )
 
 
@@ -276,4 +284,4 @@ def test_merge_word_stats_missing_user():
     rows = [{"user_id": 5, "text_chars": 0, "msg_total": 0}]
     merge_word_stats_into_rows(rows, {})
     assert rows[0]["words_unavailable"] is False
-    assert format_top_words_line_ru(rows[0]) == "—"
+    assert format_top_words_line_ru(rows[0]) is None

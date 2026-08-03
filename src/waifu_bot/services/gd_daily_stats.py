@@ -1,6 +1,7 @@
 """Daily GD: message/damage aggregation, MVP scoring, chat-wide percentages."""
 from __future__ import annotations
 
+import html
 from datetime import datetime, timezone
 from typing import Any
 
@@ -112,17 +113,34 @@ def sort_rows_by_activity(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
-def format_top_words_line_ru(row: dict[str, Any]) -> str:
-    """Human-readable top-words line for finale HTML."""
-    if row.get("words_unavailable"):
-        return "топ слов недоступен"
-    if row.get("no_word_repeated"):
-        return "нет повторов слов"
+def format_waifu_html(name: str | None) -> str:
+    """Bold escaped waifu name for Telegram HTML (no @username / tg links)."""
+    label = (name or "").strip().lstrip("@") or "—"
+    return f"<b>{html.escape(label)}</b>"
+
+
+def format_waifu_plain(name: str | None) -> str:
+    """Plain waifu name for captions / image labels (no @)."""
+    return (name or "").strip().lstrip("@") or "—"
+
+
+def should_omit_words_line(row: dict[str, Any]) -> bool:
+    """True when finale should not print the └ слова line."""
+    if int(row.get("msg_total") or 0) <= 0:
+        return True
+    if row.get("no_word_repeated") or row.get("words_unavailable"):
+        return True
     words = row.get("top_words") or []
     if not isinstance(words, list) or not words:
-        if int(row.get("msg_total") or 0) <= 0 and int(row.get("text_chars") or 0) <= 0:
-            return "—"
-        return "топ слов недоступен"
+        return True
+    return False
+
+
+def format_top_words_line_ru(row: dict[str, Any]) -> str | None:
+    """Top-words line body, or None when the line should be omitted entirely."""
+    if should_omit_words_line(row):
+        return None
+    words = row.get("top_words") or []
     parts: list[str] = []
     for item in words[:5]:
         if isinstance(item, dict):
@@ -134,7 +152,7 @@ def format_top_words_line_ru(row: dict[str, Any]) -> str:
             w = str(item).strip()
             if w:
                 parts.append(w)
-    return ", ".join(parts) if parts else "топ слов недоступен"
+    return ", ".join(parts) if parts else None
 
 
 def calc_snapshot_message_damage(
