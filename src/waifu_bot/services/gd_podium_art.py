@@ -307,6 +307,35 @@ def podium_caption_from_rows(rows: list[dict[str, Any]]) -> str:
     return "Пьедестал активности: " + " · ".join(bits)
 
 
+def _compress_for_telegram(raw: bytes, *, max_bytes: int = 90_000) -> tuple[bytes, str]:
+    """Downscale/JPEG-compress large podium images for Cloudflare Bot API proxy stability."""
+    if len(raw) <= max_bytes and raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return raw, "png"
+    try:
+        from PIL import Image
+
+        im = Image.open(io.BytesIO(raw))
+        if im.mode not in ("RGB", "RGBA"):
+            im = im.convert("RGB")
+        elif im.mode == "RGBA":
+            bg = Image.new("RGB", im.size, (22, 26, 36))
+            bg.paste(im, mask=im.split()[-1])
+            im = bg
+        im.thumbnail((900, 750))
+        quality = 82
+        data = raw
+        for quality in (82, 70, 60):
+            out = io.BytesIO()
+            im.save(out, format="JPEG", quality=quality, optimize=True)
+            data = out.getvalue()
+            if len(data) <= max_bytes:
+                break
+        return data, "jpg"
+    except Exception:
+        logger.debug("podium compress failed; sending original", exc_info=True)
+        return raw, "png" if raw[:8] == b"\x89PNG\r\n\x1a\n" else "bin"
+
+
 async def send_photo_with_retries(
     bot: Any,
     *,
@@ -316,18 +345,27 @@ async def send_photo_with_retries(
     caption: str,
     max_attempts: int = 3,
 ) -> bool:
-    """Send cached PNG with backoff; never regenerates the image."""
+    """Send cached image with backoff; never regenerates the artwork."""
     from aiogram.types import BufferedInputFile
 
+    payload, ext = _compress_for_telegram(png)
+    if not filename.lower().endswith(f".{ext}"):
+        filename = f"gd_daily_podium.{ext}"
     delays = (0.5, 1.0, 2.0)
     for attempt in range(max_attempts):
         try:
             await bot.send_photo(
                 chat_id=chat_id,
-                photo=BufferedInputFile(png, filename=filename),
+                photo=BufferedInputFile(payload, filename=filename),
                 caption=(caption or "")[:1024],
+                request_timeout=120,
             )
-            logger.info("podium_send ok attempt=%s chat_id=%s", attempt, chat_id)
+            logger.info(
+                "podium_send ok attempt=%s chat_id=%s bytes=%s",
+                attempt,
+                chat_id,
+                len(payload),
+            )
             return True
         except Exception:
             logger.warning(
