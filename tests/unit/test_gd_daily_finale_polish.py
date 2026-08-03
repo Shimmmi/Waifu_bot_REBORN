@@ -19,9 +19,11 @@ from waifu_bot.services.gd_daily_worker import (
     format_daily_start_roster_html,
 )
 from waifu_bot.services.gd_podium_art import (
+    count_active_players,
     podium_caption_from_rows,
     render_podium_pillow,
     send_photo_with_retries,
+    should_generate_podium,
     top_active_rows,
 )
 
@@ -159,6 +161,37 @@ def test_aggregated_dm_sums_two_chats():
     assert text.count("⚔️") == 1
     chunks = _chunk_plain_text(text, soft_limit=80)
     assert len(chunks) >= 1
+
+
+def test_should_generate_podium_activity_gate():
+    silent = [
+        {"user_id": 1, "name": "А", "msg_total": 0},
+        {"user_id": 2, "name": "Б", "msg_total": 0},
+    ]
+    assert count_active_players(silent) == 0
+    assert should_generate_podium(silent) is False
+    assert should_generate_podium([]) is False
+
+    one = [{"user_id": 1, "name": "А", "msg_total": 4}]
+    assert count_active_players(one) == 1
+    assert should_generate_podium(one) is False
+
+    two = [
+        {"user_id": 1, "name": "А", "msg_total": 4},
+        {"user_id": 2, "name": "Б", "msg_total": 3},
+        {"user_id": 3, "name": "Молчун", "msg_total": 0},
+    ]
+    assert count_active_players(two) == 2
+    assert should_generate_podium(two) is False
+
+    three = [
+        {"user_id": 1, "name": "А", "msg_total": 4},
+        {"user_id": 2, "name": "Б", "msg_total": 3},
+        {"user_id": 3, "name": "В", "msg_total": 1},
+        {"user_id": 4, "name": "Молчун", "msg_total": 0},
+    ]
+    assert count_active_players(three) == 3
+    assert should_generate_podium(three) is True
 
 
 def test_podium_pillow_layouts_and_caption():

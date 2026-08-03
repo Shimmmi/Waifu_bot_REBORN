@@ -64,9 +64,26 @@ _MEME_CAPTIONS = (
 )
 
 
+MIN_PODIUM_ACTIVE = 3
+
+
 def top_active_rows(rows: list[dict[str, Any]], *, limit: int = 3) -> list[dict[str, Any]]:
     active = [r for r in sort_rows_by_activity(rows) if int(r.get("msg_total") or 0) > 0]
     return active[: max(0, int(limit))]
+
+
+def count_active_players(rows: list[dict[str, Any]]) -> int:
+    """Players with at least one counted message (silent regs excluded)."""
+    return sum(1 for r in rows if int(r.get("msg_total") or 0) > 0)
+
+
+def should_generate_podium(
+    rows: list[dict[str, Any]],
+    *,
+    min_active: int = MIN_PODIUM_ACTIVE,
+) -> bool:
+    """Skip AI podium when chat has too few active players (saves image budget)."""
+    return count_active_players(rows) >= int(min_active)
 
 
 def load_player_avatar_bytes(player_id: int, main_waifu: Any | None = None) -> bytes | None:
@@ -312,6 +329,13 @@ async def generate_gd_daily_podium_png(
 
     Name kept for call-site compatibility; payload is always WEBP (monster/item pipeline).
     """
+    if not should_generate_podium(rows):
+        logger.info(
+            "podium_gen skipped active=%s min=%s",
+            count_active_players(rows),
+            MIN_PODIUM_ACTIVE,
+        )
+        return None
     top = top_active_rows(rows, limit=3)
     if not top:
         return None

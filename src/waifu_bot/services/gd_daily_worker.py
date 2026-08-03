@@ -46,10 +46,12 @@ from waifu_bot.services.gd_narrative_ai import (
 )
 from waifu_bot.services.gd_phantom_log import load_phantom_log, purge_phantom_log
 from waifu_bot.services.gd_podium_art import (
+    count_active_players,
     generate_gd_daily_podium_png,
     load_player_avatar_bytes,
     podium_caption_from_rows,
     send_photo_with_retries,
+    should_generate_podium,
     top_active_rows,
 )
 from waifu_bot.services.bot_group_chats import ACTIVE_STATUSES
@@ -323,6 +325,14 @@ async def _send_podium_for_cycle(
     cfg: dict[str, str],
 ) -> None:
     if not _finale_image_enabled(cfg):
+        return
+    active_count = count_active_players(rows)
+    if not should_generate_podium(rows):
+        logger.info(
+            "GD daily podium skipped cycle=%s active=%s (need >= 3)",
+            cycle.id,
+            active_count,
+        )
         return
     top = top_active_rows(rows, limit=3)
     if not top:
