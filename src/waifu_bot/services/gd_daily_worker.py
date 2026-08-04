@@ -50,9 +50,9 @@ from waifu_bot.services.gd_podium_art import (
     generate_gd_daily_podium_png,
     load_player_avatar_bytes,
     podium_caption_from_rows,
+    race_board_rows,
     send_photo_with_retries,
     should_generate_podium,
-    top_active_rows,
 )
 from waifu_bot.services.bot_group_chats import ACTIVE_STATUSES
 
@@ -298,17 +298,14 @@ async def send_daily_start_message(
     use_ai = cfg_int(cfg, "gd_daily_ai_start", 1) == 1
     roster = format_daily_start_roster_html(party)
     humor_top = "В опасное путешествие отправился наш бравый отряд домохозяек в составе:"
-    humor_bot = "Пишите в чат — статистика дня считает всё, кроме оправданий. Шмот уже в слепке до завтра."
     if use_ai:
         _, humor = await generate_gd_daily_start_narrative(timeout_sec=timeout)
         parts = [p.strip() for p in (humor or "").split("\n\n") if p.strip()]
-        if len(parts) >= 2:
-            humor_top, humor_bot = parts[0], parts[-1]
-        elif parts:
+        if parts:
             humor_top = parts[0]
     humor_top = _ensure_intro_ends_with_sostave(humor_top)
 
-    text = f"{humor_top}\n{roster}\n\n{humor_bot}"
+    text = f"{humor_top}\n{roster}"
     try:
         await bot.send_message(chat_id=cycle.chat_id, text=text, parse_mode="HTML")
     except Exception:
@@ -329,16 +326,16 @@ async def _send_podium_for_cycle(
     active_count = count_active_players(rows)
     if not should_generate_podium(rows):
         logger.info(
-            "GD daily podium skipped cycle=%s active=%s (need >= 3)",
+            "GD daily race board skipped cycle=%s active=%s (need >= 1)",
             cycle.id,
             active_count,
         )
         return
-    top = top_active_rows(rows, limit=3)
-    if not top:
+    board = race_board_rows(rows)
+    if not board:
         return
     avatars: dict[int, bytes | None] = {}
-    for r in top:
+    for r in board:
         uid = int(r["user_id"])
         waifu = (
             await session.execute(select(MainWaifu).where(MainWaifu.player_id == uid))
@@ -348,7 +345,7 @@ async def _send_podium_for_cycle(
     result = await generate_gd_daily_podium_png(
         rows,
         avatars=avatars,
-        title=f"{dungeon_name} — пьедестал",
+        title=f"{dungeon_name} — итоги забега",
     )
     if not result:
         return
@@ -358,13 +355,13 @@ async def _send_podium_for_cycle(
         bot,
         chat_id=int(cycle.chat_id),
         png=png,
-        filename="gd_daily_podium.webp",
+        filename="gd_daily_race_board.webp",
         caption=caption,
     )
     if ok:
-        logger.info("GD daily podium sent cycle=%s source=%s", cycle.id, src)
+        logger.info("GD daily race board sent cycle=%s source=%s", cycle.id, src)
     else:
-        logger.error("GD daily podium send failed cycle=%s source=%s", cycle.id, src)
+        logger.error("GD daily race board send failed cycle=%s source=%s", cycle.id, src)
 
 
 async def finalize_daily_rewards_and_notify(

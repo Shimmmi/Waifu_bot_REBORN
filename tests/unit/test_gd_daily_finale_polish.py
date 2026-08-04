@@ -22,9 +22,11 @@ from waifu_bot.services.gd_podium_art import (
     count_active_players,
     podium_caption_from_rows,
     render_podium_pillow,
+    render_race_leaderboard_pillow,
     send_photo_with_retries,
     should_generate_podium,
     top_active_rows,
+    _face_crop_from_avatar,
 )
 
 
@@ -174,7 +176,7 @@ def test_should_generate_podium_activity_gate():
 
     one = [{"user_id": 1, "name": "А", "msg_total": 4}]
     assert count_active_players(one) == 1
-    assert should_generate_podium(one) is False
+    assert should_generate_podium(one) is True
 
     two = [
         {"user_id": 1, "name": "А", "msg_total": 4},
@@ -182,16 +184,72 @@ def test_should_generate_podium_activity_gate():
         {"user_id": 3, "name": "Молчун", "msg_total": 0},
     ]
     assert count_active_players(two) == 2
-    assert should_generate_podium(two) is False
+    assert should_generate_podium(two) is True
 
-    three = [
-        {"user_id": 1, "name": "А", "msg_total": 4},
-        {"user_id": 2, "name": "Б", "msg_total": 3},
-        {"user_id": 3, "name": "В", "msg_total": 1},
-        {"user_id": 4, "name": "Молчун", "msg_total": 0},
+
+def test_race_leaderboard_pillow_and_face_crop():
+    from io import BytesIO
+
+    from PIL import Image
+
+    # Fake tall avatar for face crop
+    fake = Image.new("RGB", (200, 400), (180, 120, 140))
+    buf = BytesIO()
+    fake.save(buf, format="PNG")
+    raw = buf.getvalue()
+    face = _face_crop_from_avatar(raw, size=72)
+    assert face.size == (72, 72)
+    empty = _face_crop_from_avatar(None, size=64)
+    assert empty.size == (64, 64)
+
+    rows = [
+        {
+            "user_id": 1,
+            "name": "Альфа",
+            "msg_total": 9,
+            "text_chars": 120,
+            "chat_share_pct": 50.0,
+            "by_type": {"text": 7, "sticker": 2},
+        },
+        {
+            "user_id": 2,
+            "name": "Бета",
+            "msg_total": 5,
+            "text_chars": 40,
+            "chat_share_pct": 30.0,
+            "by_type": {"text": 3, "photo": 2},
+        },
+        {
+            "user_id": 3,
+            "name": "Гамма",
+            "msg_total": 3,
+            "text_chars": 10,
+            "chat_share_pct": 20.0,
+            "by_type": {"text": 3},
+        },
+        {"user_id": 4, "name": "Тишь", "msg_total": 0, "text_chars": 0, "chat_share_pct": 0.0},
     ]
-    assert count_active_players(three) == 3
-    assert should_generate_podium(three) is True
+    webp = render_race_leaderboard_pillow(
+        rows,
+        avatars={1: raw, 2: None},
+        title="Тест забега",
+    )
+    assert webp[:4] == b"RIFF" and webp[8:12] == b"WEBP"
+    cap = podium_caption_from_rows(rows)
+    assert "@" not in cap
+    assert "Альфа" in cap and "Бета" in cap
+    assert "Тишь" not in cap
+
+    # empty active → ValueError from renderer
+    try:
+        render_race_leaderboard_pillow(
+            [{"user_id": 9, "name": "X", "msg_total": 0}],
+            avatars={},
+            title="Пусто",
+        )
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
 
 
 def test_podium_pillow_layouts_and_caption():
@@ -207,9 +265,6 @@ def test_podium_pillow_layouts_and_caption():
     assert webp3[:4] == b"RIFF" and webp3[8:12] == b"WEBP"
     webp1 = render_podium_pillow(top[:1], avatars={1: None}, title="Один")
     assert webp1[:4] == b"RIFF" and webp1[8:12] == b"WEBP"
-    cap = podium_caption_from_rows(rows)
-    assert "@" not in cap
-    assert "Альфа" in cap and "Бета" in cap
 
 
 def test_send_photo_retries_without_regen():
