@@ -345,7 +345,7 @@ async def _send_podium_for_cycle(
     result = await generate_gd_daily_podium_png(
         rows,
         avatars=avatars,
-        title=f"{dungeon_name} — итоги забега",
+        title=f"{dungeon_name} — итоги подземелья",
     )
     if not result:
         return

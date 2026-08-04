@@ -151,7 +151,7 @@ Daily-путь (`generate_gd_daily_podium_png`) рендерит Uma Musume–st
 
 Макет/референсы: `info/race_leaderboard_editable.html`, `info/photo_2026-08-04_11-14-29.jpg`, `info/photo_2026-08-04_11-14-33.jpg`.
 
-`{title}` на проде: `{dungeon_name} — итоги забега`. Source в логах: `race_board`.  
+`{title}` на проде: `{dungeon_name} — итоги подземелья`. Source в логах: `race_board`.  
 Legacy RouterAI `_podium_prompt` / `generate_podium_routerai` остаются в файле, но **не** вызываются из daily-финала.
 
 ---

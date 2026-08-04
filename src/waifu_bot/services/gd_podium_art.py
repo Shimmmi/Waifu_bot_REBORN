@@ -33,18 +33,6 @@ try:
 except Exception:  # pragma: no cover
     _extract_openrouter_image_b64 = None  # type: ignore[assignment,misc]
 
-# Uma Musume waku / gate badge palette (from info/race_leaderboard_editable.html)
-WAKU_COLORS: list[dict[str, str]] = [
-    {"bg": "#ffffff", "text": "#5f5e5a", "border": "#b4b2a9"},
-    {"bg": "#2c2c2a", "text": "#ffffff", "border": "#2c2c2a"},
-    {"bg": "#E24B4A", "text": "#ffffff", "border": "#E24B4A"},
-    {"bg": "#378ADD", "text": "#ffffff", "border": "#378ADD"},
-    {"bg": "#EF9F27", "text": "#412402", "border": "#EF9F27"},
-    {"bg": "#639922", "text": "#ffffff", "border": "#639922"},
-    {"bg": "#D85A30", "text": "#ffffff", "border": "#D85A30"},
-    {"bg": "#D4537E", "text": "#ffffff", "border": "#D4537E"},
-]
-
 MAX_RACE_BOARD_ROWS = 12
 FACE_CROP_HEIGHT_RATIO = 0.52
 FACE_CROP_ASPECT = 1.0
@@ -113,11 +101,6 @@ def _ord_suffix(n: int) -> str:
     if 11 <= (n % 100) <= 13:
         return "th"
     return {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-
-
-def _hex_rgb(hex_color: str) -> tuple[int, int, int]:
-    h = hex_color.lstrip("#")
-    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
 
 
 def _media_count(row: dict[str, Any]) -> int:
@@ -287,18 +270,16 @@ def render_race_leaderboard_pillow(
         font_rank_suf = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
         font_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
         font_pill = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 13)
     except Exception:
         font_title = ImageFont.load_default()
         font_rank = font_title
         font_rank_suf = font_title
         font_name = font_title
         font_pill = font_title
-        font_badge = font_title
 
     draw.text(
         (pad_x, 22),
-        (title or "Итоги забега")[:56],
+        (title or "Итоги подземелья")[:56],
         fill=(92, 64, 51),
         font=font_title,
     )
@@ -347,33 +328,9 @@ def render_race_leaderboard_pillow(
         else:
             img.paste(face, (fx, fy))
 
-        # Colored place badge (waku)
-        waku = WAKU_COLORS[(place - 1) % len(WAKU_COLORS)]
-        bx, by = fx + face_size + 12, y0 + (row_h - 28) // 2
-        _rounded_rect(
-            draw,
-            (bx, by, bx + 28, by + 28),
-            fill=_hex_rgb(waku["bg"]),
-            outline=_hex_rgb(waku["border"]),
-            radius=6,
-            width=1,
-        )
-        badge_txt = str(place)
-        try:
-            bb = draw.textbbox((0, 0), badge_txt, font=font_badge)
-            tw, th = bb[2] - bb[0], bb[3] - bb[1]
-        except Exception:
-            tw, th = 8, 12
-        draw.text(
-            (bx + (28 - tw) // 2, by + (28 - th) // 2 - 1),
-            badge_txt,
-            fill=_hex_rgb(waku["text"]),
-            font=font_badge,
-        )
-
-        # Name
+        # Name (right after portrait; place already shown as 1st/2nd/…)
         name = format_waifu_plain(row.get("name"))[:28]
-        draw.text((bx + 36, y0 + 36), name, fill=(92, 64, 51), font=font_name)
+        draw.text((fx + face_size + 12, y0 + 36), name, fill=(92, 64, 51), font=font_name)
 
         # Right pills
         text_n = _text_count(row)
@@ -617,7 +574,7 @@ async def generate_gd_daily_podium_png(
     rows: list[dict[str, Any]],
     *,
     avatars: dict[int, bytes | None] | None = None,
-    title: str = "Итоги забега",
+    title: str = "Итоги подземелья",
 ) -> tuple[bytes, str] | None:
     """Return (webp_bytes, source) race board, or None if no active players.
 
@@ -650,9 +607,9 @@ async def generate_gd_daily_podium_png(
 def podium_caption_from_rows(rows: list[dict[str, Any]]) -> str:
     board = race_board_rows(rows)
     if not board:
-        return "Забег дня пуст — чат медитировал."
+        return "Итоги подземелья пусты — чат медитировал."
     bits = [f"{i}. {format_waifu_plain(r.get('name'))}" for i, r in enumerate(board, 1)]
-    return "Результаты забега: " + " · ".join(bits)
+    return "Результаты подземелья: " + " · ".join(bits)
 
 
 def _compress_for_telegram(raw: bytes, *, max_bytes: int = 32_000) -> tuple[bytes, str]:
