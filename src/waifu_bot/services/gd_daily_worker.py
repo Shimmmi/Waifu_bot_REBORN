@@ -544,14 +544,50 @@ async def _load_unsent_reward_parts(
     return out
 
 
+def _mark_parts_dm_sent(parts: list[dict[str, Any]]) -> None:
+    for p in parts:
+        rew = p.get("reward")
+        if rew is not None:
+            rew.dm_sent = True
+
+
+def _is_permanent_telegram_dm_error(exc: BaseException) -> bool:
+    """True when retrying cannot succeed (blocked bot, deleted user, no chat)."""
+    try:
+        from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+    except Exception:  # pragma: no cover
+        TelegramBadRequest = ()  # type: ignore[assignment,misc]
+        TelegramForbiddenError = ()  # type: ignore[assignment,misc]
+
+    if TelegramForbiddenError and isinstance(exc, TelegramForbiddenError):
+        return True
+    msg = str(exc or "").lower()
+    if "bot was blocked by the user" in msg or "user is deactivated" in msg:
+        return True
+    if "chat not found" in msg or "bot can't initiate conversation" in msg:
+        return True
+    if TelegramBadRequest and isinstance(exc, TelegramBadRequest):
+        return (
+            "chat not found" in msg
+            or "user is deactivated" in msg
+            or "bot can't initiate conversation" in msg
+            or "forbidden" in msg
+        )
+    return False
+
+
 async def flush_daily_reward_dms(
     session: AsyncSession,
     bot: Any | None,
     game_dates: set[date] | None = None,
-) -> int:
-    """Send one aggregated DM per (user_id, game_date). Returns users messaged."""
+) -> tuple[int, int]:
+    """Send one aggregated DM per (user_id, game_date).
+
+    Returns ``(users_messaged, users_marked_dm_sent)``. Marked includes
+    successful sends plus settled skips (Forbidden / prefs / zero reward).
+    """
     if not bot:
-        return 0
+        return 0, 0
     today = msk_current_game_date()
     dates = set(game_dates or set())
     dates.add(today)
@@ -559,25 +595,45 @@ async def flush_daily_reward_dms(
 
     grouped = await _load_unsent_reward_parts(session, dates)
     if not grouped:
-        return 0
+        return 0, 0
 
     from waifu_bot.services.player_notification_prefs import should_send_dm
 
     sent_users = 0
+    marked_users = 0
     for (uid, gdate), parts in grouped.items():
         total_exp = sum(int(p.get("exp") or 0) for p in parts)
         total_gold = sum(int(p.get("gold") or 0) for p in parts)
         has_items = any(p.get("items") for p in parts)
         if total_exp <= 0 and total_gold <= 0 and not has_items:
+            _mark_parts_dm_sent(parts)
+            marked_users += 1
+            logger.info(
+                "GD daily reward DM settled (zero reward) uid=%s date=%s",
+                uid,
+                gdate,
+            )
             continue
         try:
             if not await should_send_dm(session, uid, "group_dungeon"):
+                _mark_parts_dm_sent(parts)
+                marked_users += 1
+                logger.info(
+                    "GD daily reward DM settled (prefs off) uid=%s date=%s",
+                    uid,
+                    gdate,
+                )
                 continue
         except Exception:
-            pass
+            logger.debug(
+                "GD daily reward DM prefs check failed uid=%s; trying send",
+                uid,
+                exc_info=True,
+            )
 
         text = format_aggregated_reward_dm(game_date=gdate, parts=parts)
         ok = False
+        permanent_fail = False
         for chunk in _chunk_plain_text(text):
             chunk_ok = False
             for attempt in range(3):
@@ -585,27 +641,45 @@ async def flush_daily_reward_dms(
                     await bot.send_message(chat_id=uid, text=chunk)
                     chunk_ok = True
                     break
-                except Exception:
+                except Exception as e:
+                    if _is_permanent_telegram_dm_error(e):
+                        permanent_fail = True
+                        logger.warning(
+                            "GD daily reward DM permanent fail uid=%s date=%s err=%s: %s",
+                            uid,
+                            gdate,
+                            type(e).__name__,
+                            str(e)[:200],
+                        )
+                        break
                     logger.warning(
-                        "GD daily reward DM attempt %s failed uid=%s date=%s",
+                        "GD daily reward DM attempt %s failed uid=%s date=%s err=%s: %s",
                         attempt,
                         uid,
                         gdate,
+                        type(e).__name__,
+                        str(e)[:200],
                     )
+            if permanent_fail:
+                ok = False
+                break
             if not chunk_ok:
                 ok = False
                 break
             ok = True
+        if permanent_fail:
+            # Rewards already granted; stop retrying undeliverable DMs.
+            _mark_parts_dm_sent(parts)
+            marked_users += 1
+            continue
         if not ok:
             continue
-        for p in parts:
-            rew = p.get("reward")
-            if rew is not None:
-                rew.dm_sent = True
+        _mark_parts_dm_sent(parts)
+        marked_users += 1
         sent_users += 1
-    if sent_users:
+    if marked_users:
         await session.flush()
-    return sent_users
+    return sent_users, marked_users
 
 
 async def run_gd_daily_finalize_tick(
@@ -692,10 +766,14 @@ async def run_gd_daily_finalize_tick(
 
     # Aggregated DMs for touched dates + today/yesterday recovery sweep
     try:
-        n = await flush_daily_reward_dms(session, bot, touched_dates)
-        if n:
+        sent_n, marked_n = await flush_daily_reward_dms(session, bot, touched_dates)
+        if marked_n:
             await session.commit()
-            logger.info("GD daily reward DMs flushed users=%s", n)
+            logger.info(
+                "GD daily reward DMs flushed sent=%s settled=%s",
+                sent_n,
+                marked_n,
+            )
     except Exception:
         await session.rollback()
         logger.exception("GD daily reward DM flush failed")

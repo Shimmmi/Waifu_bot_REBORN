@@ -14,6 +14,8 @@ from waifu_bot.services.gd_daily_stats import (
 from waifu_bot.services.gd_daily_word_ai import merge_word_stats_into_rows
 from waifu_bot.services.gd_daily_worker import (
     _chunk_plain_text,
+    _is_permanent_telegram_dm_error,
+    flush_daily_reward_dms,
     format_aggregated_reward_dm,
     format_daily_finale_stats_html,
     format_daily_start_roster_html,
@@ -291,3 +293,112 @@ def test_send_photo_retries_without_regen():
     )
     assert ok is True
     assert calls["n"] == 3
+
+
+def test_is_permanent_telegram_dm_error():
+    from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+    from aiogram.methods import SendMessage
+
+    method = SendMessage(chat_id=1, text="x")
+    assert _is_permanent_telegram_dm_error(
+        TelegramForbiddenError(method=method, message="Forbidden: bot was blocked by the user")
+    )
+    assert _is_permanent_telegram_dm_error(
+        TelegramBadRequest(method=method, message="Bad Request: chat not found")
+    )
+    assert _is_permanent_telegram_dm_error(RuntimeError("user is deactivated")) is True
+    assert _is_permanent_telegram_dm_error(ConnectionError("reset by peer")) is False
+
+
+def test_flush_settles_forbidden_and_prefs_off(monkeypatch):
+    from aiogram.exceptions import TelegramForbiddenError
+    from aiogram.methods import SendMessage
+    from waifu_bot.services import gd_daily_worker as worker
+
+    class _Rew:
+        def __init__(self) -> None:
+            self.dm_sent = False
+
+    class _Session:
+        def __init__(self) -> None:
+            self.flushed = False
+
+        async def flush(self) -> None:
+            self.flushed = True
+
+    rew_forbidden = _Rew()
+    rew_prefs = _Rew()
+    rew_zero = _Rew()
+    gdate = date(2026, 8, 4)
+
+    async def fake_load(session: Any, dates: set[date]) -> dict:
+        return {
+            (101, gdate): [
+                {
+                    "reward": rew_forbidden,
+                    "exp": 10,
+                    "gold": 5,
+                    "items": [],
+                    "dungeon_name": "A",
+                    "rank": 1,
+                    "party_size": 1,
+                    "msg_total": 3,
+                    "counted_msgs": 3,
+                    "damage_total": 1,
+                }
+            ],
+            (102, gdate): [
+                {
+                    "reward": rew_prefs,
+                    "exp": 10,
+                    "gold": 5,
+                    "items": [],
+                    "dungeon_name": "B",
+                    "rank": 1,
+                    "party_size": 1,
+                    "msg_total": 2,
+                    "counted_msgs": 2,
+                    "damage_total": 1,
+                }
+            ],
+            (103, gdate): [
+                {
+                    "reward": rew_zero,
+                    "exp": 0,
+                    "gold": 0,
+                    "items": [],
+                    "dungeon_name": "C",
+                    "rank": 1,
+                    "party_size": 1,
+                    "msg_total": 0,
+                    "counted_msgs": 0,
+                    "damage_total": 0,
+                }
+            ],
+        }
+
+    async def fake_prefs(session: Any, uid: int, key: str) -> bool:
+        return uid != 102
+
+    class _Bot:
+        async def send_message(self, **kwargs: Any) -> None:
+            raise TelegramForbiddenError(
+                method=SendMessage(chat_id=kwargs["chat_id"], text=kwargs["text"]),
+                message="Forbidden: bot was blocked by the user",
+            )
+
+    monkeypatch.setattr(worker, "_load_unsent_reward_parts", fake_load)
+    monkeypatch.setattr(worker, "msk_current_game_date", lambda: gdate)
+    monkeypatch.setattr(
+        "waifu_bot.services.player_notification_prefs.should_send_dm",
+        fake_prefs,
+    )
+
+    session = _Session()
+    sent_n, marked_n = asyncio.run(flush_daily_reward_dms(session, _Bot(), {gdate}))
+    assert sent_n == 0
+    assert marked_n == 3
+    assert rew_forbidden.dm_sent is True
+    assert rew_prefs.dm_sent is True
+    assert rew_zero.dm_sent is True
+    assert session.flushed is True
