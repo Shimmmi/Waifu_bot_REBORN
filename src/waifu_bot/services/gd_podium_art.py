@@ -13,7 +13,11 @@ from typing import Any
 
 import httpx
 
-from waifu_bot.services.gd_daily_stats import format_waifu_plain, sort_rows_by_activity
+from waifu_bot.services.gd_daily_stats import (
+    format_waifu_plain,
+    sort_rows_by_activity,
+    top_word_chip_labels,
+)
 from waifu_bot.services.llm_client import (
     IMAGE_MODALITY_ATTEMPTS,
     get_image_model,
@@ -257,7 +261,8 @@ def render_race_leaderboard_pillow(
     canvas_w = 920
     pad_x = 24
     pad_top = 72
-    row_h = 96
+    # Extra height for optional 2-row word chips under the name (name font unchanged).
+    row_h = 114
     row_gap = 10
     canvas_h = pad_top + len(board) * (row_h + row_gap) + 28
     bg = (245, 241, 234)
@@ -270,16 +275,18 @@ def render_race_leaderboard_pillow(
         font_rank_suf = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
         font_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
         font_pill = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+        font_word = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
     except Exception:
         font_title = ImageFont.load_default()
         font_rank = font_title
         font_rank_suf = font_title
         font_name = font_title
         font_pill = font_title
+        font_word = font_title
 
     draw.text(
         (pad_x, 22),
-        (title or "Итоги подземелья")[:56],
+        (title or "Итоги дня")[:56],
         fill=(92, 64, 51),
         font=font_title,
     )
@@ -329,8 +336,11 @@ def render_race_leaderboard_pillow(
             img.paste(face, (fx, fy))
 
         # Name (right after portrait; place already shown as 1st/2nd/…)
+        # Keep name font size/position; word chips sit below without shifting name.
         name = format_waifu_plain(row.get("name"))[:28]
-        draw.text((fx + face_size + 12, y0 + 36), name, fill=(92, 64, 51), font=font_name)
+        name_x = fx + face_size + 12
+        name_y = y0 + 36
+        draw.text((name_x, name_y), name, fill=(92, 64, 51), font=font_name)
 
         # Right pills
         text_n = _text_count(row)
@@ -369,6 +379,51 @@ def render_race_leaderboard_pillow(
                 fill=(92, 64, 51),
                 font=font_pill,
             )
+
+        # Words of the day: up to 6 chips in 2 flex rows × 3 cells (between name and pills).
+        word_labels = top_word_chip_labels(row, limit=6)
+        if word_labels:
+            zone_left = name_x
+            zone_right = px - 10
+            zone_w = max(0, zone_right - zone_left)
+            chip_h = 16
+            chip_gap_x = 4
+            chip_gap_y = 3
+            chip_y0 = name_y + 26
+            for row_i in range(2):
+                chunk = word_labels[row_i * 3 : row_i * 3 + 3]
+                if not chunk or zone_w <= 0:
+                    continue
+                n = len(chunk)
+                cell_w = max(28, (zone_w - (n - 1) * chip_gap_x) // n)
+                yy = chip_y0 + row_i * (chip_h + chip_gap_y)
+                for col_i, label in enumerate(chunk):
+                    xx = zone_left + col_i * (cell_w + chip_gap_x)
+                    _rounded_rect(
+                        draw,
+                        (xx, yy, xx + cell_w, yy + chip_h),
+                        fill=(250, 246, 240),
+                        outline=(220, 214, 206),
+                        radius=7,
+                        width=1,
+                    )
+                    text = label
+                    try:
+                        while text and draw.textbbox((0, 0), text, font=font_word)[2] > cell_w - 6:
+                            text = text[:-1]
+                        if text != label and len(text) > 1:
+                            text = text[:-1] + "…"
+                        bb = draw.textbbox((0, 0), text, font=font_word)
+                        tw = bb[2] - bb[0]
+                    except Exception:
+                        text = label[:8]
+                        tw = 40
+                    draw.text(
+                        (xx + max(2, (cell_w - tw) // 2), yy + 1),
+                        text,
+                        fill=(92, 64, 51),
+                        font=font_word,
+                    )
 
     buf = io.BytesIO()
     img.save(buf, format="WEBP", quality=88, method=6)
@@ -574,7 +629,7 @@ async def generate_gd_daily_podium_png(
     rows: list[dict[str, Any]],
     *,
     avatars: dict[int, bytes | None] | None = None,
-    title: str = "Итоги подземелья",
+    title: str = "Итоги дня",
 ) -> tuple[bytes, str] | None:
     """Return (webp_bytes, source) race board, or None if no active players.
 
@@ -654,7 +709,7 @@ async def send_photo_with_retries(
     chat_id: int,
     png: bytes,
     filename: str = "gd_daily_podium.webp",
-    caption: str,
+    caption: str | None = None,
     max_attempts: int = 3,
 ) -> bool:
     """Send cached WEBP with backoff; never regenerates the artwork."""
@@ -664,14 +719,17 @@ async def send_photo_with_retries(
     stem = (filename or "gd_daily_race_board").rsplit(".", 1)[0] or "gd_daily_race_board"
     filename = f"{stem}.{ext}"
     delays = (0.5, 1.0, 2.0)
+    caption_text = (caption or "").strip()
+    send_kwargs: dict[str, Any] = {
+        "chat_id": chat_id,
+        "photo": BufferedInputFile(payload, filename=filename),
+        "request_timeout": 120,
+    }
+    if caption_text:
+        send_kwargs["caption"] = caption_text[:1024]
     for attempt in range(max_attempts):
         try:
-            await bot.send_photo(
-                chat_id=chat_id,
-                photo=BufferedInputFile(payload, filename=filename),
-                caption=(caption or "")[:1024],
-                request_timeout=120,
-            )
+            await bot.send_photo(**send_kwargs)
             logger.info(
                 "podium_send ok attempt=%s chat_id=%s bytes=%s",
                 attempt,

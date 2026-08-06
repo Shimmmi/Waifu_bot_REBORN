@@ -14,10 +14,10 @@
 Daily GD (04:30 start / 04:00 finale)
   gd_daily_worker
     ├─ generate_gd_daily_start_narrative     → text LLM (caller=gd-start)
-    ├─ generate_gd_daily_finale_narrative    → text LLM (caller=gd-finale)
     ├─ analyze_day_word_stats                → text LLM (caller=gd-daily-words)
-    └─ generate_gd_daily_podium_png          → image LLM (RouterAI multimodal)
-         └─ gate: should_generate_podium (≥3 active msg_total>0)
+    └─ generate_gd_daily_podium_png          → Pillow race board (no image LLM)
+         └─ gate: should_generate_podium (≥1 active msg_total>0)
+         └─ title «Итоги дня»; no group text finale / empty photo caption
 
 Classic GD v1 (раунды)
   gd_v1_worker / gd_cycle_service
@@ -111,30 +111,11 @@ party_wiped — монстр торжествует, отряд без созн�
 
 ---
 
-### 3.2 Финал дня — `generate_gd_daily_finale_narrative`
+### 3.2 Финал дня (в чат)
 
-Файл: `gd_narrative_ai.py` · caller: `gd-finale` · system: `GD_SYSTEM_PROMPT`
+Текстовый HTML/AI-финал в групповой чат **не отправляется**. Итог дня — только картинка таблицы забега (§3.3) + ЛС с наградами.
 
-**User prompt:**
-
-System для этого вызова: `GD_SYSTEM_PROMPT` + исключение, разрешающее лёгкий roast малоактивной вайфу.
-
-**User prompt:**
-
-```text
-Напиши 1 короткий абзац (2–4 предложения) на русском для Telegram HTML. Это шуточное обращение к игрокам по итогам дневного группового похода Waifu REBORN: похвали MVP и легко оскорби / подъёби самого малоактивного (дружеский roast, лёгкие оскорбления разрешены).
-ЗАПРЕЩЕНО: художественное описание подземелья/локации, лор, внешность/класс/раса вайфу, сырые цифры статистики, тяжёлая токсичность и угрозы.
-MVP (имя вайфу для обращения): {mvp_name}.
-Малоактивный (имя вайфу): {least_name}.
-```
-
-**Stub:**
-
-```text
-День закрыт, отряд разошёлся по своим чатикам. MVP — <b>{mvp_name}</b>, а <b>{least_name}</b> опять пропустила забег — классика.
-```
-
-Статистика/рейтинг уходят отдельным HTML-блоком (`format_daily_finale_stats_html`), не через этот промпт.
+Промпт `generate_gd_daily_finale_narrative` и хелперы `build_daily_finale_html_chunks` остаются в коде (тесты / legacy), но daily worker их в чат не шлёт.
 
 ---
 
@@ -146,12 +127,13 @@ Gate: `MIN_PODIUM_ACTIVE = 1` — skip только если никто не п�
 Daily-путь (`generate_gd_daily_podium_png`) рендерит Uma Musume–style race results board:
 
 - место (`1st`/`2nd`/…), цветные waku-badges, кроп лица с paperdoll→portrait;
-- имя основной вайфу;
+- имя основной вайфу (размер шрифта фиксирован);
+- слова дня: до 6 чипов в 2 ряда × 3 ячейки (flex-ширина) между именем и pills;
 - pills: `% чата`, `текст N`, `медиа N`, `симв. N`.
 
 Макет/референсы: `info/race_leaderboard_editable.html`, `info/photo_2026-08-04_11-14-29.jpg`, `info/photo_2026-08-04_11-14-33.jpg`.
 
-`{title}` на проде: `{dungeon_name} — итоги подземелья`. Source в логах: `race_board`.  
+`{title}` на проде: **`Итоги дня`**. Caption под фото: пустой (не передаётся). Source в логах: `race_board`.  
 Legacy RouterAI `_podium_prompt` / `generate_podium_routerai` остаются в файле, но **не** вызываются из daily-финала.
 
 ---
