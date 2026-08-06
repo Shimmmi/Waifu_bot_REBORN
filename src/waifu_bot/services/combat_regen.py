@@ -9,7 +9,7 @@ from typing import Literal
 from waifu_bot.db.models.player import Player
 from waifu_bot.db.models.waifu import MainWaifu
 from waifu_bot.game.constants import ONLINE_WINDOW_SECONDS
-from waifu_bot.services.energy import HP_REGEN_PER_MIN, apply_regen
+from waifu_bot.services.energy import apply_regen, base_hp_regen_per_min
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +44,17 @@ def is_player_online(
     return (now - prev) <= timedelta(seconds=int(window_seconds))
 
 
-def apply_abyss_regen(waifu: MainWaifu, *, extra_hp_per_min: int = 0, now: datetime | None = None) -> bool:
+def apply_abyss_regen(
+    waifu: MainWaifu,
+    *,
+    extra_hp_per_min: int = 0,
+    regen_pct: float = 0.0,
+    now: datetime | None = None,
+) -> bool:
     """Minute-tick HP regen in the Abyss; can revive from unconscious (0 HP)."""
     if not waifu:
         return False
     now = _utcnow() if now is None else _normalize_action_ts(now) or _utcnow()
-    modified = False
     last = getattr(waifu, "hp_updated_at", None)
     if last is None:
         waifu.hp_updated_at = now
@@ -63,8 +68,9 @@ def apply_abyss_regen(waifu: MainWaifu, *, extra_hp_per_min: int = 0, now: datet
     minutes = int((now - last).total_seconds() // 60)
     if minutes < 1:
         return False
-    end_bonus = max(0, int(getattr(waifu, "endurance", 0) or 0) - 10)
-    per_min = int(HP_REGEN_PER_MIN) + end_bonus + max(0, int(extra_hp_per_min))
+    base = base_hp_regen_per_min(int(getattr(waifu, "endurance", 0) or 0))
+    pct_extra = max(0, int(round(base * max(0.0, float(regen_pct or 0.0)))))
+    per_min = base + max(0, int(extra_hp_per_min)) + pct_extra
     gain = min(minutes * per_min, max_hp - max(0, cur))
     waifu.current_hp = max(0, cur) + gain
     waifu.hp_updated_at = last + timedelta(minutes=minutes)
@@ -77,6 +83,7 @@ def apply_hp_regen_for_context(
     *,
     context: RegenContext,
     extra_hp_per_min: int = 0,
+    regen_pct: float = 0.0,
     now: datetime | None = None,
 ) -> bool:
     """Apply HP regen according to dungeon context.
@@ -89,12 +96,26 @@ def apply_hp_regen_for_context(
     now = _utcnow() if now is None else _normalize_action_ts(now) or _utcnow()
 
     if context in ("solo", "town"):
-        return apply_regen(waifu, now=now, extra_hp_per_min=extra_hp_per_min, suppress=False)
+        return apply_regen(
+            waifu,
+            now=now,
+            extra_hp_per_min=extra_hp_per_min,
+            regen_pct=regen_pct,
+            suppress=False,
+        )
 
     if context == "abyss":
         if is_player_online(player, now=now):
-            return apply_abyss_regen(waifu, extra_hp_per_min=extra_hp_per_min, now=now)
-        return apply_regen(waifu, now=now, extra_hp_per_min=0, suppress=True)
+            return apply_abyss_regen(
+                waifu, extra_hp_per_min=extra_hp_per_min, regen_pct=regen_pct, now=now
+            )
+        return apply_regen(waifu, now=now, extra_hp_per_min=0, regen_pct=0.0, suppress=True)
 
     logger.warning("apply_hp_regen_for_context: unknown context=%s", context)
-    return apply_regen(waifu, now=now, extra_hp_per_min=extra_hp_per_min, suppress=False)
+    return apply_regen(
+        waifu,
+        now=now,
+        extra_hp_per_min=extra_hp_per_min,
+        regen_pct=regen_pct,
+        suppress=False,
+    )

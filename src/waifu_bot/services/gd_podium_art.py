@@ -1,6 +1,7 @@
-"""Daily GD top-3 podium art: RouterAI multimodal + Pillow fallback.
+"""Daily GD race-board art (Uma Musume–style Pillow) + legacy AI podium helpers.
 
-Privacy: labels/prompts use waifu display names only — never Telegram usernames or user ids.
+Privacy: labels use waifu display names only — never Telegram usernames or user ids.
+Daily finale image path uses Pillow race board (no image-API spend).
 """
 from __future__ import annotations
 
@@ -12,7 +13,11 @@ from typing import Any
 
 import httpx
 
-from waifu_bot.services.gd_daily_stats import format_waifu_plain, sort_rows_by_activity
+from waifu_bot.services.gd_daily_stats import (
+    format_waifu_plain,
+    sort_rows_by_activity,
+    top_word_chip_labels,
+)
 from waifu_bot.services.llm_client import (
     IMAGE_MODALITY_ATTEMPTS,
     get_image_model,
@@ -31,6 +36,10 @@ try:
     from waifu_bot.services.monster_art_generation import _extract_openrouter_image_b64
 except Exception:  # pragma: no cover
     _extract_openrouter_image_b64 = None  # type: ignore[assignment,misc]
+
+MAX_RACE_BOARD_ROWS = 12
+FACE_CROP_HEIGHT_RATIO = 0.52
+FACE_CROP_ASPECT = 1.0
 
 
 def _image_bytes_to_webp(raw: bytes, *, quality: int = 88) -> bytes | None:
@@ -64,12 +73,17 @@ _MEME_CAPTIONS = (
 )
 
 
-MIN_PODIUM_ACTIVE = 3
+MIN_PODIUM_ACTIVE = 1  # race board is free Pillow; skip only when nobody wrote
 
 
 def top_active_rows(rows: list[dict[str, Any]], *, limit: int = 3) -> list[dict[str, Any]]:
     active = [r for r in sort_rows_by_activity(rows) if int(r.get("msg_total") or 0) > 0]
     return active[: max(0, int(limit))]
+
+
+def race_board_rows(rows: list[dict[str, Any]], *, limit: int = MAX_RACE_BOARD_ROWS) -> list[dict[str, Any]]:
+    """Active players only, activity order, capped for image height."""
+    return top_active_rows(rows, limit=limit)
 
 
 def count_active_players(rows: list[dict[str, Any]]) -> int:
@@ -82,8 +96,34 @@ def should_generate_podium(
     *,
     min_active: int = MIN_PODIUM_ACTIVE,
 ) -> bool:
-    """Skip AI podium when chat has too few active players (saves image budget)."""
+    """Skip race board when chat has no active messengers."""
     return count_active_players(rows) >= int(min_active)
+
+
+def _ord_suffix(n: int) -> str:
+    n = abs(int(n))
+    if 11 <= (n % 100) <= 13:
+        return "th"
+    return {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+
+
+def _media_count(row: dict[str, Any]) -> int:
+    by_type = row.get("by_type") or {}
+    if isinstance(by_type, dict):
+        text_n = max(0, int(by_type.get("text") or 0))
+        total = max(0, int(row.get("msg_total") or 0))
+        media = total - text_n
+        if media >= 0:
+            return media
+        return sum(max(0, int(v or 0)) for k, v in by_type.items() if k != "text")
+    return max(0, int(row.get("msg_total") or 0) - 0)
+
+
+def _text_count(row: dict[str, Any]) -> int:
+    by_type = row.get("by_type") or {}
+    if isinstance(by_type, dict) and "text" in by_type:
+        return max(0, int(by_type.get("text") or 0))
+    return max(0, int(row.get("msg_total") or 0))
 
 
 def load_player_avatar_bytes(player_id: int, main_waifu: Any | None = None) -> bytes | None:
@@ -141,6 +181,253 @@ def _open_avatar(raw: bytes | None, size: tuple[int, int]) -> "Any":
             img = _placeholder_avatar(max(size))
     resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
     return img.resize(size, resample)
+
+
+def _face_crop_from_avatar(raw: bytes | None, size: int = 72) -> "Any":
+    """Upper-center face crop from paperdoll/portrait; no AI spend."""
+    from PIL import Image
+
+    resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
+    side = max(24, int(size))
+    if not raw:
+        return _placeholder_avatar(side).resize((side, side), resample)
+    try:
+        img = Image.open(io.BytesIO(raw))
+        img.load()
+        if img.mode == "P":
+            img = img.convert("RGBA")
+        elif img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGBA")
+    except Exception:
+        return _placeholder_avatar(side).resize((side, side), resample)
+
+    w, h = img.size
+    if w < 8 or h < 8:
+        return _placeholder_avatar(side).resize((side, side), resample)
+
+    crop_h = max(16, min(h, int(h * FACE_CROP_HEIGHT_RATIO)))
+    crop_w = max(16, min(w, int(crop_h * FACE_CROP_ASPECT)))
+    left = max(0, (w - crop_w) // 2)
+    box = (left, 0, left + crop_w, crop_h)
+    try:
+        cropped = img.crop(box)
+    except Exception:
+        cropped = img
+
+    if cropped.mode == "RGBA":
+        bg = Image.new("RGB", cropped.size, (245, 240, 230))
+        bg.paste(cropped, mask=cropped.split()[-1])
+        cropped = bg
+    elif cropped.mode != "RGB":
+        cropped = cropped.convert("RGB")
+    return cropped.resize((side, side), resample)
+
+
+def _rounded_rect(
+    draw: Any,
+    xy: tuple[int, int, int, int],
+    *,
+    fill: tuple[int, int, int],
+    outline: tuple[int, int, int] | None = None,
+    radius: int = 12,
+    width: int = 1,
+) -> None:
+    draw.rounded_rectangle(xy, radius=radius, fill=fill, outline=outline, width=width)
+
+
+def _place_rank_color(place: int) -> tuple[int, int, int]:
+    if place == 1:
+        return (196, 154, 58)  # gold
+    if place == 2:
+        return (140, 140, 148)  # silver
+    if place == 3:
+        return (176, 122, 82)  # bronze
+    return (92, 64, 51)  # #5C4033
+
+
+def render_race_leaderboard_pillow(
+    rows: list[dict[str, Any]],
+    *,
+    avatars: dict[int, bytes | None],
+    title: str,
+) -> bytes:
+    """Uma Musume–style race results board (WEBP). Active rows only."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    board = race_board_rows(rows, limit=MAX_RACE_BOARD_ROWS)
+    if not board:
+        raise ValueError("no active rows for race board")
+
+    canvas_w = 920
+    pad_x = 24
+    pad_top = 72
+    # Extra height for optional 2-row word chips under the name (name font unchanged).
+    row_h = 114
+    row_gap = 10
+    canvas_h = pad_top + len(board) * (row_h + row_gap) + 28
+    bg = (245, 241, 234)
+    img = Image.new("RGB", (canvas_w, canvas_h), bg)
+    draw = ImageDraw.Draw(img)
+
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        font_rank = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 34)
+        font_rank_suf = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+        font_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+        font_pill = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+        font_word = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
+    except Exception:
+        font_title = ImageFont.load_default()
+        font_rank = font_title
+        font_rank_suf = font_title
+        font_name = font_title
+        font_pill = font_title
+        font_word = font_title
+
+    draw.text(
+        (pad_x, 22),
+        (title or "Итоги дня")[:56],
+        fill=(92, 64, 51),
+        font=font_title,
+    )
+
+    face_size = 72
+    for idx, row in enumerate(board):
+        place = idx + 1
+        y0 = pad_top + idx * (row_h + row_gap)
+        x0, x1 = pad_x, canvas_w - pad_x
+        _rounded_rect(
+            draw,
+            (x0, y0, x1, y0 + row_h),
+            fill=(255, 255, 255),
+            outline=(210, 205, 198),
+            radius=14,
+            width=1,
+        )
+
+        # Rank
+        rank_color = _place_rank_color(place)
+        rank_num = str(place)
+        suf = _ord_suffix(place)
+        rx, ry = x0 + 14, y0 + 26
+        draw.text((rx, ry), rank_num, fill=rank_color, font=font_rank)
+        try:
+            num_box = draw.textbbox((rx, ry), rank_num, font=font_rank)
+            suf_x = num_box[2] + 2
+        except Exception:
+            suf_x = rx + 22
+        draw.text((suf_x, ry + 4), suf, fill=rank_color, font=font_rank_suf)
+
+        # Face
+        uid = int(row["user_id"])
+        face = _face_crop_from_avatar(avatars.get(uid), size=face_size)
+        fx, fy = x0 + 88, y0 + (row_h - face_size) // 2
+        # frame
+        draw.rounded_rectangle(
+            (fx - 2, fy - 2, fx + face_size + 2, fy + face_size + 2),
+            radius=8,
+            fill=(255, 255, 255),
+            outline=(200, 196, 190),
+            width=1,
+        )
+        if face.mode == "RGBA":
+            img.paste(face, (fx, fy), face)
+        else:
+            img.paste(face, (fx, fy))
+
+        # Name (right after portrait; place already shown as 1st/2nd/…)
+        # Keep name font size/position; word chips sit below without shifting name.
+        name = format_waifu_plain(row.get("name"))[:28]
+        name_x = fx + face_size + 12
+        name_y = y0 + 36
+        draw.text((name_x, name_y), name, fill=(92, 64, 51), font=font_name)
+
+        # Right pills
+        text_n = _text_count(row)
+        media_n = _media_count(row)
+        chars = max(0, int(row.get("text_chars") or 0))
+        pct = float(row.get("chat_share_pct") or 0.0)
+        pills = [
+            f"{pct:.1f}%",
+            f"текст {text_n}",
+            f"медиа {media_n}",
+            f"симв. {chars}",
+        ]
+        pill_w = 110
+        pill_h = 18
+        pill_gap = 3
+        total_h = len(pills) * pill_h + (len(pills) - 1) * pill_gap
+        py = y0 + (row_h - total_h) // 2
+        px = x1 - pill_w - 14
+        for i, label in enumerate(pills):
+            yy = py + i * (pill_h + pill_gap)
+            _rounded_rect(
+                draw,
+                (px, yy, px + pill_w, yy + pill_h),
+                fill=(242, 237, 233),
+                outline=None,
+                radius=9,
+            )
+            try:
+                bb = draw.textbbox((0, 0), label, font=font_pill)
+                tw = bb[2] - bb[0]
+            except Exception:
+                tw = 40
+            draw.text(
+                (px + (pill_w - tw) // 2, yy + 2),
+                label,
+                fill=(92, 64, 51),
+                font=font_pill,
+            )
+
+        # Words of the day: up to 6 chips in 2 flex rows × 3 cells (between name and pills).
+        word_labels = top_word_chip_labels(row, limit=6)
+        if word_labels:
+            zone_left = name_x
+            zone_right = px - 10
+            zone_w = max(0, zone_right - zone_left)
+            chip_h = 16
+            chip_gap_x = 4
+            chip_gap_y = 3
+            chip_y0 = name_y + 26
+            for row_i in range(2):
+                chunk = word_labels[row_i * 3 : row_i * 3 + 3]
+                if not chunk or zone_w <= 0:
+                    continue
+                n = len(chunk)
+                cell_w = max(28, (zone_w - (n - 1) * chip_gap_x) // n)
+                yy = chip_y0 + row_i * (chip_h + chip_gap_y)
+                for col_i, label in enumerate(chunk):
+                    xx = zone_left + col_i * (cell_w + chip_gap_x)
+                    _rounded_rect(
+                        draw,
+                        (xx, yy, xx + cell_w, yy + chip_h),
+                        fill=(250, 246, 240),
+                        outline=(220, 214, 206),
+                        radius=7,
+                        width=1,
+                    )
+                    text = label
+                    try:
+                        while text and draw.textbbox((0, 0), text, font=font_word)[2] > cell_w - 6:
+                            text = text[:-1]
+                        if text != label and len(text) > 1:
+                            text = text[:-1] + "…"
+                        bb = draw.textbbox((0, 0), text, font=font_word)
+                        tw = bb[2] - bb[0]
+                    except Exception:
+                        text = label[:8]
+                        tw = 40
+                    draw.text(
+                        (xx + max(2, (cell_w - tw) // 2), yy + 1),
+                        text,
+                        fill=(92, 64, 51),
+                        font=font_word,
+                    )
+
+    buf = io.BytesIO()
+    img.save(buf, format="WEBP", quality=88, method=6)
+    return buf.getvalue()
 
 
 def render_podium_pillow(
@@ -222,25 +509,36 @@ def render_podium_pillow(
 
 def _podium_prompt(top_rows: list[dict[str, Any]], *, title: str) -> str:
     lines = []
+    place_roles = {
+        1: "WINNER — center stage, tallest spotlight, triumphant finishing pose",
+        2: "2nd place — left side, proud runner-up pose",
+        3: "3rd place — right side, cheerful bronze / still-glowing pose",
+    }
     for i, r in enumerate(top_rows, 1):
+        role = place_roles.get(i, f"place {i}")
         lines.append(
-            f"Place {i}: character «{format_waifu_plain(r.get('name'))}» "
+            f"Place {i} ({role}): character «{format_waifu_plain(r.get('name'))}» "
             f"({int(r.get('msg_total') or 0)} messages) — match face/hair/outfit identity "
-            f"from the reference, but invent a NEW random dynamic pose "
+            f"from the reference, but invent a NEW dynamic victory-ceremony pose "
             f"(not the reference stance; vary gesture/angle each time)."
         )
     return (
-        "Create a grotesque meme Olympic podium illustration for a Telegram anime RPG. "
-        f"Title vibe: «{title}». "
-        "Dark navy stage, chaotic Russian internet meme energy, SFW. "
-        "Place characters on pedestals 1 (center tallest), 2 (left), 3 (right). "
+        "Create an Uma Musume–inspired winner-circle presentation illustration for a Telegram anime RPG. "
+        f"Event title vibe: «{title}». "
+        "Style: bright racetrack / Tracen Academy winner ceremony — stadium lights, confetti, "
+        "sparkles, flower garlands, colorful stage banners, energetic idol-racer energy, SFW. "
+        "Compose like a post-race winner presentation: place 1 center (main spotlight), "
+        "place 2 left, place 3 right. Characters stand on a ceremony stage / winner circle, "
+        "celebrating as race winners being introduced to the crowd. "
         "CRITICAL: Do NOT draw medals, medallions, badges, round award discs, or any "
         "circular overlays on/over the characters — they must remain fully visible "
-        "with no objects covering torso, face, or outfit. "
+        "with no objects covering torso, face, or outfit. Flower crowns / ribbons / stage props "
+        "are OK only if they do not cover the character body. "
         "Use reference images ONLY for character identity (face, hair, body type, outfit colors). "
-        "Do NOT copy the paperdoll/portrait pose — each waifu must get a fresh random lively pose "
-        "(celebration, smug, chaotic, victory dance, etc.). "
-        "No real-person photos, no usernames, no @handles, no UI chrome, no watermarks.\n"
+        "Do NOT copy the paperdoll/portrait pose — each waifu needs a fresh lively victory pose "
+        "(winner pose, peace sign, victory dance, proud bow, etc.). "
+        "No real-person photos, no usernames, no @handles, no UI chrome, no watermarks, "
+        "no horse bodies — keep them as anime girls in their outfits.\n"
         + "\n".join(lines)
     )
 
@@ -265,8 +563,8 @@ async def generate_podium_routerai(
             {
                 "type": "text",
                 "text": (
-                    f"Identity reference for place {i} — {name}. "
-                    "Copy face/hair/outfit identity only; invent a new random pose; "
+                    f"Identity reference for Uma Musume–style winner presentation, place {i} — {name}. "
+                    "Copy face/hair/outfit identity only; invent a new victory-ceremony pose; "
                     "do not place medals over the character."
                 ),
             }
@@ -274,7 +572,15 @@ async def generate_podium_routerai(
         if raw:
             content.append({"type": "image_url", "image_url": {"url": _bytes_to_data_url(raw)}})
         else:
-            content.append({"type": "text", "text": "(no portrait — invent a funny anonymous anime silhouette)"})
+            content.append(
+                {
+                    "type": "text",
+                    "text": (
+                        "(no portrait — invent a cute anonymous anime racer-girl silhouette "
+                        "for the winner circle)"
+                    ),
+                }
+            )
 
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
@@ -323,11 +629,11 @@ async def generate_gd_daily_podium_png(
     rows: list[dict[str, Any]],
     *,
     avatars: dict[int, bytes | None] | None = None,
-    title: str = "Пьедестал дневного похода",
+    title: str = "Итоги дня",
 ) -> tuple[bytes, str] | None:
-    """Return (webp_bytes, source) or None if no active players.
+    """Return (webp_bytes, source) race board, or None if no active players.
 
-    Name kept for call-site compatibility; payload is always WEBP (monster/item pipeline).
+    Name kept for call-site compatibility; daily path uses Pillow race board (no RouterAI).
     """
     if not should_generate_podium(rows):
         logger.info(
@@ -336,37 +642,29 @@ async def generate_gd_daily_podium_png(
             MIN_PODIUM_ACTIVE,
         )
         return None
-    top = top_active_rows(rows, limit=3)
-    if not top:
+    board = race_board_rows(rows)
+    if not board:
         return None
     av = dict(avatars or {})
-    for r in top:
+    for r in board:
         uid = int(r["user_id"])
         av.setdefault(uid, None)
 
-    ai = await generate_podium_routerai(top, avatars=av, title=title)
-    if ai:
-        webp = _image_bytes_to_webp(ai, quality=88)
-        if webp:
-            logger.info("podium_gen source=routerai format=webp bytes=%s", len(webp))
-            return webp, "routerai"
-        logger.warning("[GD PODIUM] routerai webp conversion failed; trying pillow")
-
-    webp = render_podium_pillow(top, avatars=av, title=title)
+    webp = render_race_leaderboard_pillow(board, avatars=av, title=title)
     if not _is_webp(webp):
         converted = _image_bytes_to_webp(webp, quality=88)
         if converted:
             webp = converted
-    logger.info("podium_gen source=pillow format=webp bytes=%s", len(webp))
-    return webp, "pillow"
+    logger.info("podium_gen source=race_board format=webp bytes=%s", len(webp))
+    return webp, "race_board"
 
 
 def podium_caption_from_rows(rows: list[dict[str, Any]]) -> str:
-    top = top_active_rows(rows, limit=3)
-    if not top:
-        return "Пьедестал дня пуст — чат медитировал."
-    bits = [f"{i}. {format_waifu_plain(r.get('name'))}" for i, r in enumerate(top, 1)]
-    return "Пьедестал активности: " + " · ".join(bits)
+    board = race_board_rows(rows)
+    if not board:
+        return "Итоги подземелья пусты — чат медитировал."
+    bits = [f"{i}. {format_waifu_plain(r.get('name'))}" for i, r in enumerate(board, 1)]
+    return "Результаты подземелья: " + " · ".join(bits)
 
 
 def _compress_for_telegram(raw: bytes, *, max_bytes: int = 32_000) -> tuple[bytes, str]:
@@ -411,23 +709,27 @@ async def send_photo_with_retries(
     chat_id: int,
     png: bytes,
     filename: str = "gd_daily_podium.webp",
-    caption: str,
+    caption: str | None = None,
     max_attempts: int = 3,
 ) -> bool:
     """Send cached WEBP with backoff; never regenerates the artwork."""
     from aiogram.types import BufferedInputFile
 
     payload, ext = _compress_for_telegram(png)
-    filename = f"gd_daily_podium.{ext}"
+    stem = (filename or "gd_daily_race_board").rsplit(".", 1)[0] or "gd_daily_race_board"
+    filename = f"{stem}.{ext}"
     delays = (0.5, 1.0, 2.0)
+    caption_text = (caption or "").strip()
+    send_kwargs: dict[str, Any] = {
+        "chat_id": chat_id,
+        "photo": BufferedInputFile(payload, filename=filename),
+        "request_timeout": 120,
+    }
+    if caption_text:
+        send_kwargs["caption"] = caption_text[:1024]
     for attempt in range(max_attempts):
         try:
-            await bot.send_photo(
-                chat_id=chat_id,
-                photo=BufferedInputFile(payload, filename=filename),
-                caption=(caption or "")[:1024],
-                request_timeout=120,
-            )
+            await bot.send_photo(**send_kwargs)
             logger.info(
                 "podium_send ok attempt=%s chat_id=%s bytes=%s",
                 attempt,

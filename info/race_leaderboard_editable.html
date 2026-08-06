@@ -1,0 +1,78 @@
+<div>
+<h2 class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;">Редактируемая таблица результатов забега с полями для места, номера дорожки, участника, стиля бега, отрыва и популярности</h2>
+<div id="rows"></div>
+<button id="addRow" style="margin-top:8px;font-size:13px;"><i class="ti ti-plus" style="font-size:16px;vertical-align:-3px;margin-right:4px;" aria-hidden="true"></i>Добавить строку</button>
+</div>
+<script>
+const wakuColors = [
+  {bg:'#ffffff', text:'#5f5e5a', border:'#b4b2a9'},
+  {bg:'#2c2c2a', text:'#ffffff', border:'#2c2c2a'},
+  {bg:'#E24B4A', text:'#ffffff', border:'#E24B4A'},
+  {bg:'#378ADD', text:'#ffffff', border:'#378ADD'},
+  {bg:'#EF9F27', text:'#412402', border:'#EF9F27'},
+  {bg:'#639922', text:'#ffffff', border:'#639922'},
+  {bg:'#D85A30', text:'#ffffff', border:'#D85A30'},
+  {bg:'#D4537E', text:'#ffffff', border:'#D4537E'}
+];
+
+let rows = [
+  {place:'1', gate:'1', name:'Поле 1', style:'Front', margin:'-', fav:'No. 1 Fav'},
+  {place:'2', gate:'6', name:'Поле 2', style:'Late', margin:'1/2 L', fav:'No. 3 Fav'},
+  {place:'3', gate:'4', name:'Поле 3', style:'Pace', margin:'3/4 L', fav:'No. 2 Fav'}
+];
+
+function ordSuffix(n){
+  n = parseInt(n)||0;
+  if (n % 100 >= 11 && n % 100 <= 13) return 'th';
+  switch(n % 10){case 1:return 'st';case 2:return 'nd';case 3:return 'rd';default:return 'th';}
+}
+
+function render(){
+  const container = document.getElementById('rows');
+  container.innerHTML = '';
+  rows.forEach((r, i) => {
+    const waku = wakuColors[(parseInt(r.gate)||1 - 1 + 8) % 8] || wakuColors[0];
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;margin-bottom:8px;';
+
+    row.innerHTML = `
+      <div contenteditable="true" data-i="${i}" data-f="place" style="font-size:26px;font-weight:500;color:var(--text-accent);min-width:52px;line-height:1;outline:none;">${r.place}<span style="font-size:13px;">${ordSuffix(r.place)}</span></div>
+      <div contenteditable="true" data-i="${i}" data-f="gate" style="width:26px;height:26px;flex-shrink:0;border-radius:6px;background:${waku.bg};border:1px solid ${waku.border};color:${waku.text};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;outline:none;">${r.gate}</div>
+      <div style="width:36px;height:36px;flex-shrink:0;border-radius:50%;background:var(--fill-control);display:flex;align-items:center;justify-content:center;">
+        <i class="ti ti-user" style="font-size:18px;color:var(--text-muted);" aria-hidden="true"></i>
+      </div>
+      <div contenteditable="true" data-i="${i}" data-f="name" style="flex:1;font-size:14px;font-weight:500;color:var(--text-primary);outline:none;min-width:0;">${r.name}</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:90px;">
+        <div contenteditable="true" data-i="${i}" data-f="style" style="font-size:11px;padding:2px 10px;border-radius:10px;background:var(--surface-1);color:var(--text-secondary);outline:none;">${r.style}</div>
+        <div contenteditable="true" data-i="${i}" data-f="margin" style="font-size:11px;color:var(--text-secondary);outline:none;">${r.margin}</div>
+        <div contenteditable="true" data-i="${i}" data-f="fav" style="font-size:11px;color:var(--text-muted);outline:none;">${r.fav}</div>
+      </div>
+      <button data-remove="${i}" aria-label="Удалить строку" style="width:28px;height:28px;padding:0;flex-shrink:0;"><i class="ti ti-x" style="font-size:14px;" aria-hidden="true"></i></button>
+    `;
+    container.appendChild(row);
+  });
+
+  container.querySelectorAll('[contenteditable]').forEach(el => {
+    el.addEventListener('blur', e => {
+      const i = +e.target.dataset.i, f = e.target.dataset.f;
+      let val = e.target.innerText.trim();
+      if (f === 'place') val = val.replace(/(st|nd|rd|th)$/i, '').trim();
+      rows[i][f] = val;
+      render();
+    });
+  });
+  container.querySelectorAll('[data-remove]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      rows.splice(+btn.dataset.remove, 1);
+      render();
+    });
+  });
+}
+
+document.getElementById('addRow').addEventListener('click', () => {
+  rows.push({place:String(rows.length+1), gate:'1', name:'Новый участник', style:'Late', margin:'-', fav:'No. - Fav'});
+  render();
+});
+
+render();
+</script>

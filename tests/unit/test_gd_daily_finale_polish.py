@@ -10,10 +10,13 @@ from waifu_bot.services.gd_daily_stats import (
     format_top_words_line_ru,
     format_waifu_html,
     should_omit_words_line,
+    top_word_chip_labels,
 )
 from waifu_bot.services.gd_daily_word_ai import merge_word_stats_into_rows
 from waifu_bot.services.gd_daily_worker import (
     _chunk_plain_text,
+    _is_permanent_telegram_dm_error,
+    flush_daily_reward_dms,
     format_aggregated_reward_dm,
     format_daily_finale_stats_html,
     format_daily_start_roster_html,
@@ -22,9 +25,11 @@ from waifu_bot.services.gd_podium_art import (
     count_active_players,
     podium_caption_from_rows,
     render_podium_pillow,
+    render_race_leaderboard_pillow,
     send_photo_with_retries,
     should_generate_podium,
     top_active_rows,
+    _face_crop_from_avatar,
 )
 
 
@@ -174,7 +179,7 @@ def test_should_generate_podium_activity_gate():
 
     one = [{"user_id": 1, "name": "А", "msg_total": 4}]
     assert count_active_players(one) == 1
-    assert should_generate_podium(one) is False
+    assert should_generate_podium(one) is True
 
     two = [
         {"user_id": 1, "name": "А", "msg_total": 4},
@@ -182,16 +187,86 @@ def test_should_generate_podium_activity_gate():
         {"user_id": 3, "name": "Молчун", "msg_total": 0},
     ]
     assert count_active_players(two) == 2
-    assert should_generate_podium(two) is False
+    assert should_generate_podium(two) is True
 
-    three = [
-        {"user_id": 1, "name": "А", "msg_total": 4},
-        {"user_id": 2, "name": "Б", "msg_total": 3},
-        {"user_id": 3, "name": "В", "msg_total": 1},
-        {"user_id": 4, "name": "Молчун", "msg_total": 0},
+
+def test_race_leaderboard_pillow_and_face_crop():
+    from io import BytesIO
+
+    from PIL import Image
+
+    # Fake tall avatar for face crop
+    fake = Image.new("RGB", (200, 400), (180, 120, 140))
+    buf = BytesIO()
+    fake.save(buf, format="PNG")
+    raw = buf.getvalue()
+    face = _face_crop_from_avatar(raw, size=72)
+    assert face.size == (72, 72)
+    empty = _face_crop_from_avatar(None, size=64)
+    assert empty.size == (64, 64)
+
+    rows = [
+        {
+            "user_id": 1,
+            "name": "Альфа",
+            "msg_total": 9,
+            "text_chars": 120,
+            "chat_share_pct": 50.0,
+            "by_type": {"text": 7, "sticker": 2},
+            "top_words": [
+                {"word": "кот", "count": 5},
+                {"word": "мир", "count": 4},
+                {"word": "игра", "count": 3},
+                {"word": "данж", "count": 3},
+                {"word": "лут", "count": 2},
+                {"word": "бег", "count": 2},
+            ],
+            "no_word_repeated": False,
+        },
+        {
+            "user_id": 2,
+            "name": "Бета",
+            "msg_total": 5,
+            "text_chars": 40,
+            "chat_share_pct": 30.0,
+            "by_type": {"text": 3, "photo": 2},
+            "top_words": [{"word": "стикер", "count": 3}],
+            "no_word_repeated": False,
+        },
+        {
+            "user_id": 3,
+            "name": "Гамма",
+            "msg_total": 3,
+            "text_chars": 10,
+            "chat_share_pct": 20.0,
+            "by_type": {"text": 3},
+            "no_word_repeated": True,
+            "top_words": [],
+        },
+        {"user_id": 4, "name": "Тишь", "msg_total": 0, "text_chars": 0, "chat_share_pct": 0.0},
     ]
-    assert count_active_players(three) == 3
-    assert should_generate_podium(three) is True
+    assert len(top_word_chip_labels(rows[0], limit=6)) == 6
+    webp = render_race_leaderboard_pillow(
+        rows,
+        avatars={1: raw, 2: None},
+        title="Итоги дня",
+    )
+    assert webp[:4] == b"RIFF" and webp[8:12] == b"WEBP"
+    cap = podium_caption_from_rows(rows)
+    assert "@" not in cap
+    assert "Альфа" in cap and "Бета" in cap
+    assert "Тишь" not in cap
+
+    # empty active → ValueError from renderer
+    try:
+        render_race_leaderboard_pillow(
+            [{"user_id": 9, "name": "X", "msg_total": 0}],
+            avatars={},
+            title="Пусто",
+        )
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
 
 
 def test_podium_pillow_layouts_and_caption():
@@ -207,9 +282,6 @@ def test_podium_pillow_layouts_and_caption():
     assert webp3[:4] == b"RIFF" and webp3[8:12] == b"WEBP"
     webp1 = render_podium_pillow(top[:1], avatars={1: None}, title="Один")
     assert webp1[:4] == b"RIFF" and webp1[8:12] == b"WEBP"
-    cap = podium_caption_from_rows(rows)
-    assert "@" not in cap
-    assert "Альфа" in cap and "Бета" in cap
 
 
 def test_send_photo_retries_without_regen():
@@ -236,3 +308,187 @@ def test_send_photo_retries_without_regen():
     )
     assert ok is True
     assert calls["n"] == 3
+
+
+def test_send_photo_omits_empty_caption():
+    seen: dict[str, Any] = {}
+
+    class _Bot:
+        async def send_photo(self, **kwargs: Any) -> None:
+            seen.update(kwargs)
+
+    tiny = b"RIFF" + (30).to_bytes(4, "little") + b"WEBP" + b"\x00" * 30
+    ok = asyncio.run(
+        send_photo_with_retries(
+            _Bot(),
+            chat_id=-100,
+            png=tiny,
+            filename="t.webp",
+            caption="",
+            max_attempts=1,
+        )
+    )
+    assert ok is True
+    assert "caption" not in seen
+
+
+def test_is_permanent_telegram_dm_error():
+    from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+    from aiogram.methods import SendMessage
+
+    method = SendMessage(chat_id=1, text="x")
+    assert _is_permanent_telegram_dm_error(
+        TelegramForbiddenError(method=method, message="Forbidden: bot was blocked by the user")
+    )
+    assert _is_permanent_telegram_dm_error(
+        TelegramBadRequest(method=method, message="Bad Request: chat not found")
+    )
+    assert _is_permanent_telegram_dm_error(RuntimeError("user is deactivated")) is True
+    assert _is_permanent_telegram_dm_error(ConnectionError("reset by peer")) is False
+
+
+def test_flush_settles_forbidden_and_zero_reward(monkeypatch):
+    from aiogram.exceptions import TelegramForbiddenError
+    from aiogram.methods import SendMessage
+    from waifu_bot.services import gd_daily_worker as worker
+
+    class _Rew:
+        def __init__(self) -> None:
+            self.dm_sent = False
+
+    class _Session:
+        def __init__(self) -> None:
+            self.flushed = False
+
+        async def flush(self) -> None:
+            self.flushed = True
+
+    rew_forbidden = _Rew()
+    rew_ok = _Rew()
+    rew_zero = _Rew()
+    gdate = date(2026, 8, 4)
+    sent_uids: list[int] = []
+
+    async def fake_load(session: Any, dates: set[date]) -> dict:
+        return {
+            (101, gdate): [
+                {
+                    "reward": rew_forbidden,
+                    "exp": 10,
+                    "gold": 5,
+                    "items": [],
+                    "dungeon_name": "A",
+                    "rank": 1,
+                    "party_size": 1,
+                    "msg_total": 3,
+                    "counted_msgs": 3,
+                    "damage_total": 1,
+                }
+            ],
+            (102, gdate): [
+                {
+                    "reward": rew_ok,
+                    "exp": 10,
+                    "gold": 5,
+                    "items": [],
+                    "dungeon_name": "B",
+                    "rank": 1,
+                    "party_size": 1,
+                    "msg_total": 2,
+                    "counted_msgs": 2,
+                    "damage_total": 1,
+                }
+            ],
+            (103, gdate): [
+                {
+                    "reward": rew_zero,
+                    "exp": 0,
+                    "gold": 0,
+                    "items": [],
+                    "dungeon_name": "C",
+                    "rank": 1,
+                    "party_size": 1,
+                    "msg_total": 0,
+                    "counted_msgs": 0,
+                    "damage_total": 0,
+                }
+            ],
+        }
+
+    class _Bot:
+        async def send_message(self, **kwargs: Any) -> None:
+            uid = int(kwargs["chat_id"])
+            if uid == 101:
+                raise TelegramForbiddenError(
+                    method=SendMessage(chat_id=uid, text=kwargs["text"]),
+                    message="Forbidden: bot was blocked by the user",
+                )
+            sent_uids.append(uid)
+
+    monkeypatch.setattr(worker, "_load_unsent_reward_parts", fake_load)
+    monkeypatch.setattr(worker, "msk_current_game_date", lambda: gdate)
+
+    session = _Session()
+    sent_n, marked_n = asyncio.run(flush_daily_reward_dms(session, _Bot(), {gdate}))
+    assert sent_n == 1
+    assert marked_n == 3
+    assert sent_uids == [102]
+    assert rew_forbidden.dm_sent is True
+    assert rew_ok.dm_sent is True
+    assert rew_zero.dm_sent is True
+    assert session.flushed is True
+
+
+def test_flush_ignores_group_dungeon_prefs(monkeypatch):
+    """Reward digest must send even when group_dungeon prefs are off."""
+    from waifu_bot.services import gd_daily_worker as worker
+
+    class _Rew:
+        def __init__(self) -> None:
+            self.dm_sent = False
+
+    class _Session:
+        async def flush(self) -> None:
+            return None
+
+    rew = _Rew()
+    gdate = date(2026, 8, 4)
+    sent: list[int] = []
+
+    async def fake_load(session: Any, dates: set[date]) -> dict:
+        return {
+            (305174198, gdate): [
+                {
+                    "reward": rew,
+                    "exp": 50,
+                    "gold": 20,
+                    "items": [],
+                    "dungeon_name": "X",
+                    "rank": 1,
+                    "party_size": 2,
+                    "msg_total": 5,
+                    "counted_msgs": 5,
+                    "damage_total": 10,
+                }
+            ]
+        }
+
+    async def prefs_always_off(session: Any, uid: int, key: str) -> bool:
+        return False
+
+    class _Bot:
+        async def send_message(self, **kwargs: Any) -> None:
+            sent.append(int(kwargs["chat_id"]))
+
+    monkeypatch.setattr(worker, "_load_unsent_reward_parts", fake_load)
+    monkeypatch.setattr(worker, "msk_current_game_date", lambda: gdate)
+    monkeypatch.setattr(
+        "waifu_bot.services.player_notification_prefs.should_send_dm",
+        prefs_always_off,
+    )
+
+    sent_n, marked_n = asyncio.run(flush_daily_reward_dms(_Session(), _Bot(), {gdate}))
+    assert sent_n == 1
+    assert marked_n == 1
+    assert sent == [305174198]
+    assert rew.dm_sent is True

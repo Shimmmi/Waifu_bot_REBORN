@@ -136,13 +136,13 @@ def should_omit_words_line(row: dict[str, Any]) -> bool:
     return False
 
 
-def format_top_words_line_ru(row: dict[str, Any]) -> str | None:
-    """Top-words line body, or None when the line should be omitted entirely."""
+def top_word_chip_labels(row: dict[str, Any], *, limit: int = 6) -> list[str]:
+    """Labels for race-board word chips, e.g. ``игра (5)``. Empty when omitted."""
     if should_omit_words_line(row):
-        return None
+        return []
     words = row.get("top_words") or []
     parts: list[str] = []
-    for item in words[:5]:
+    for item in words[: max(0, int(limit))]:
         if isinstance(item, dict):
             w = str(item.get("word") or "").strip()
             c = int(item.get("count") or 0)
@@ -152,6 +152,12 @@ def format_top_words_line_ru(row: dict[str, Any]) -> str | None:
             w = str(item).strip()
             if w:
                 parts.append(w)
+    return parts
+
+
+def format_top_words_line_ru(row: dict[str, Any]) -> str | None:
+    """Top-words line body, or None when the line should be omitted entirely."""
+    parts = top_word_chip_labels(row, limit=5)
     return ", ".join(parts) if parts else None
 
 

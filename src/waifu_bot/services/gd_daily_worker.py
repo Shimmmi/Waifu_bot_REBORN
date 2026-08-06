@@ -40,19 +40,15 @@ from waifu_bot.services.gd_daily_word_ai import (
     analyze_day_word_stats,
     merge_word_stats_into_rows,
 )
-from waifu_bot.services.gd_narrative_ai import (
-    generate_gd_daily_finale_narrative,
-    generate_gd_daily_start_narrative,
-)
+from waifu_bot.services.gd_narrative_ai import generate_gd_daily_start_narrative
 from waifu_bot.services.gd_phantom_log import load_phantom_log, purge_phantom_log
 from waifu_bot.services.gd_podium_art import (
     count_active_players,
     generate_gd_daily_podium_png,
     load_player_avatar_bytes,
-    podium_caption_from_rows,
+    race_board_rows,
     send_photo_with_retries,
     should_generate_podium,
-    top_active_rows,
 )
 from waifu_bot.services.bot_group_chats import ACTIVE_STATUSES
 
@@ -298,17 +294,14 @@ async def send_daily_start_message(
     use_ai = cfg_int(cfg, "gd_daily_ai_start", 1) == 1
     roster = format_daily_start_roster_html(party)
     humor_top = "В опасное путешествие отправился наш бравый отряд домохозяек в составе:"
-    humor_bot = "Пишите в чат — статистика дня считает всё, кроме оправданий. Шмот уже в слепке до завтра."
     if use_ai:
         _, humor = await generate_gd_daily_start_narrative(timeout_sec=timeout)
         parts = [p.strip() for p in (humor or "").split("\n\n") if p.strip()]
-        if len(parts) >= 2:
-            humor_top, humor_bot = parts[0], parts[-1]
-        elif parts:
+        if parts:
             humor_top = parts[0]
     humor_top = _ensure_intro_ends_with_sostave(humor_top)
 
-    text = f"{humor_top}\n{roster}\n\n{humor_bot}"
+    text = f"{humor_top}\n{roster}"
     try:
         await bot.send_message(chat_id=cycle.chat_id, text=text, parse_mode="HTML")
     except Exception:
@@ -324,21 +317,22 @@ async def _send_podium_for_cycle(
     dungeon_name: str,
     cfg: dict[str, str],
 ) -> None:
+    _ = dungeon_name  # title is fixed «Итоги дня»; kept for call-site compat
     if not _finale_image_enabled(cfg):
         return
     active_count = count_active_players(rows)
     if not should_generate_podium(rows):
         logger.info(
-            "GD daily podium skipped cycle=%s active=%s (need >= 3)",
+            "GD daily race board skipped cycle=%s active=%s (need >= 1)",
             cycle.id,
             active_count,
         )
         return
-    top = top_active_rows(rows, limit=3)
-    if not top:
+    board = race_board_rows(rows)
+    if not board:
         return
     avatars: dict[int, bytes | None] = {}
-    for r in top:
+    for r in board:
         uid = int(r["user_id"])
         waifu = (
             await session.execute(select(MainWaifu).where(MainWaifu.player_id == uid))
@@ -348,23 +342,22 @@ async def _send_podium_for_cycle(
     result = await generate_gd_daily_podium_png(
         rows,
         avatars=avatars,
-        title=f"{dungeon_name} — пьедестал",
+        title="Итоги дня",
     )
     if not result:
         return
     png, src = result
-    caption = podium_caption_from_rows(rows)
     ok = await send_photo_with_retries(
         bot,
         chat_id=int(cycle.chat_id),
         png=png,
-        filename="gd_daily_podium.webp",
-        caption=caption,
+        filename="gd_daily_race_board.webp",
+        caption="",
     )
     if ok:
-        logger.info("GD daily podium sent cycle=%s source=%s", cycle.id, src)
+        logger.info("GD daily race board sent cycle=%s source=%s", cycle.id, src)
     else:
-        logger.error("GD daily podium send failed cycle=%s source=%s", cycle.id, src)
+        logger.error("GD daily race board send failed cycle=%s source=%s", cycle.id, src)
 
 
 async def finalize_daily_rewards_and_notify(
@@ -377,7 +370,10 @@ async def finalize_daily_rewards_and_notify(
     mvp: dict[str, Any] | None,
     least: dict[str, Any] | None,
 ) -> None:
-    """Pay rewards + group finale. DMs are flushed later via flush_daily_reward_dms."""
+    """Pay rewards + race-board image. DMs are flushed later via flush_daily_reward_dms.
+
+    Group-chat text finale (HTML/AI) is intentionally not sent — board image only.
+    """
     cfg = await get_game_config_map(session)
     tpl = await session.get(GDDungeonTemplate, cycle.dungeon_template_id)
     dungeon_name = tpl.name if tpl else "Подземелье"
@@ -385,34 +381,7 @@ async def finalize_daily_rewards_and_notify(
     ranked = sort_rows_by_activity(rows)
     sum_msgs = sum(max(0, int(r.get("msg_total") or 0)) for r in ranked)
 
-    use_ai = cfg_int(cfg, "gd_daily_ai_finale", 1) == 1
-    ai_block = ""
-    if use_ai:
-        timeout = float(cfg.get("gd_ai_timeout_seconds") or "20")
-        _, ai_block = await generate_gd_daily_finale_narrative(
-            {
-                "mvp": mvp,
-                "least": least,
-            },
-            timeout_sec=timeout,
-        )
-
-    chunks = build_daily_finale_html_chunks(
-        rows,
-        chat_msg_total=chat_msg_total,
-        dungeon_name=dungeon_name,
-        mvp=mvp,
-        least=least,
-        prefix=ai_block or "",
-    )
-
     if bot:
-        for chunk in chunks:
-            try:
-                await bot.send_message(chat_id=cycle.chat_id, text=chunk, parse_mode="HTML")
-            except Exception:
-                logger.exception("GD daily finale text failed cycle=%s", cycle.id)
-
         try:
             await _send_podium_for_cycle(
                 session, bot, cycle, rows, dungeon_name=dungeon_name, cfg=cfg
@@ -547,14 +516,51 @@ async def _load_unsent_reward_parts(
     return out
 
 
+def _mark_parts_dm_sent(parts: list[dict[str, Any]]) -> None:
+    for p in parts:
+        rew = p.get("reward")
+        if rew is not None:
+            rew.dm_sent = True
+
+
+def _is_permanent_telegram_dm_error(exc: BaseException) -> bool:
+    """True when retrying cannot succeed (blocked bot, deleted user, no chat)."""
+    try:
+        from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+    except Exception:  # pragma: no cover
+        TelegramBadRequest = ()  # type: ignore[assignment,misc]
+        TelegramForbiddenError = ()  # type: ignore[assignment,misc]
+
+    if TelegramForbiddenError and isinstance(exc, TelegramForbiddenError):
+        return True
+    msg = str(exc or "").lower()
+    if "bot was blocked by the user" in msg or "user is deactivated" in msg:
+        return True
+    if "chat not found" in msg or "bot can't initiate conversation" in msg:
+        return True
+    if TelegramBadRequest and isinstance(exc, TelegramBadRequest):
+        return (
+            "chat not found" in msg
+            or "user is deactivated" in msg
+            or "bot can't initiate conversation" in msg
+            or "forbidden" in msg
+        )
+    return False
+
+
 async def flush_daily_reward_dms(
     session: AsyncSession,
     bot: Any | None,
     game_dates: set[date] | None = None,
-) -> int:
-    """Send one aggregated DM per (user_id, game_date). Returns users messaged."""
+) -> tuple[int, int]:
+    """Send one aggregated DM per (user_id, game_date).
+
+    Returns ``(users_messaged, users_marked_dm_sent)``. Marked includes
+    successful sends plus settled skips (Forbidden / zero reward).
+    Reward digests are always attempted (not gated by group_dungeon prefs).
+    """
     if not bot:
-        return 0
+        return 0, 0
     today = msk_current_game_date()
     dates = set(game_dates or set())
     dates.add(today)
@@ -562,25 +568,27 @@ async def flush_daily_reward_dms(
 
     grouped = await _load_unsent_reward_parts(session, dates)
     if not grouped:
-        return 0
-
-    from waifu_bot.services.player_notification_prefs import should_send_dm
+        return 0, 0
 
     sent_users = 0
+    marked_users = 0
     for (uid, gdate), parts in grouped.items():
         total_exp = sum(int(p.get("exp") or 0) for p in parts)
         total_gold = sum(int(p.get("gold") or 0) for p in parts)
         has_items = any(p.get("items") for p in parts)
         if total_exp <= 0 and total_gold <= 0 and not has_items:
+            _mark_parts_dm_sent(parts)
+            marked_users += 1
+            logger.info(
+                "GD daily reward DM settled (zero reward) uid=%s date=%s",
+                uid,
+                gdate,
+            )
             continue
-        try:
-            if not await should_send_dm(session, uid, "group_dungeon"):
-                continue
-        except Exception:
-            pass
 
         text = format_aggregated_reward_dm(game_date=gdate, parts=parts)
         ok = False
+        permanent_fail = False
         for chunk in _chunk_plain_text(text):
             chunk_ok = False
             for attempt in range(3):
@@ -588,27 +596,46 @@ async def flush_daily_reward_dms(
                     await bot.send_message(chat_id=uid, text=chunk)
                     chunk_ok = True
                     break
-                except Exception:
+                except Exception as e:
+                    if _is_permanent_telegram_dm_error(e):
+                        permanent_fail = True
+                        logger.warning(
+                            "GD daily reward DM permanent fail uid=%s date=%s err=%s: %s",
+                            uid,
+                            gdate,
+                            type(e).__name__,
+                            str(e)[:200],
+                        )
+                        break
                     logger.warning(
-                        "GD daily reward DM attempt %s failed uid=%s date=%s",
+                        "GD daily reward DM attempt %s failed uid=%s date=%s err=%s: %s",
                         attempt,
                         uid,
                         gdate,
+                        type(e).__name__,
+                        str(e)[:200],
                     )
+            if permanent_fail:
+                ok = False
+                break
             if not chunk_ok:
                 ok = False
                 break
             ok = True
+        if permanent_fail:
+            # Rewards already granted; stop retrying undeliverable DMs.
+            _mark_parts_dm_sent(parts)
+            marked_users += 1
+            continue
         if not ok:
             continue
-        for p in parts:
-            rew = p.get("reward")
-            if rew is not None:
-                rew.dm_sent = True
+        _mark_parts_dm_sent(parts)
+        marked_users += 1
         sent_users += 1
-    if sent_users:
+        logger.info("GD daily reward DM sent uid=%s date=%s", uid, gdate)
+    if marked_users:
         await session.flush()
-    return sent_users
+    return sent_users, marked_users
 
 
 async def run_gd_daily_finalize_tick(
@@ -695,10 +722,14 @@ async def run_gd_daily_finalize_tick(
 
     # Aggregated DMs for touched dates + today/yesterday recovery sweep
     try:
-        n = await flush_daily_reward_dms(session, bot, touched_dates)
-        if n:
+        sent_n, marked_n = await flush_daily_reward_dms(session, bot, touched_dates)
+        if marked_n:
             await session.commit()
-            logger.info("GD daily reward DMs flushed users=%s", n)
+            logger.info(
+                "GD daily reward DMs flushed sent=%s settled=%s",
+                sent_n,
+                marked_n,
+            )
     except Exception:
         await session.rollback()
         logger.exception("GD daily reward DM flush failed")

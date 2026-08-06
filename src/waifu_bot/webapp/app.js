@@ -953,7 +953,7 @@ const PROFILE_STAT_TOOLTIPS = {
   strength: "Урон ближнего боя (+1,2 за пункт), +3 HP за пункт и множитель крита (1,5 + 0,01×СИЛ).",
   agility: "Урон дальнего боя (+1,2 за пункт), уклонение 0,1%/пункт (потолок 40%) и крит 0,1%/пункт.",
   intelligence: "Магический урон и медиа-навыки (+1,2 за пункт), бонус EXP 0,1%/пункт.",
-  endurance: "Макс. HP (+12 за пункт) и снижение входящего урона 0,08%/пункт (потолок 35% от ВЫН).",
+  endurance: "Макс. HP (+12 за пункт), снижение входящего урона 0,08%/пункт (потолок 35% от ВЫН) и реген HP: 5/мин + max(0, ВЫН−10)/мин. Совершенствование даёт % к этой базе.",
   charm: "Улучшает торговлю и снижает стоимость найма и тренировок.",
   luck: "Крит 0,1%/пункт, шанс добычи, золото с монстров и Magic Find.",
 };
@@ -1040,9 +1040,8 @@ function getProfileIndicators(waifu, details = null) {
   const hireDiscount = d ? safeNumber(d.hire_discount, charm * 0.1) : charm * 0.1;
   const trainingDiscount = d ? safeNumber(d.training_discount, charm * 0.15) : charm * 0.15;
   const damageReduction = d ? safeNumber(d.damage_reduction, Math.min(35, endurance * 0.08)) : Math.min(35, endurance * 0.08);
-  // HP regen per hour (in dungeon): HP_max × (1 − e^(−END/100)) %
-  const hpRegenRatePct = hpMax > 0 ? hpMax * (1 - Math.exp(-endurance / 100)) : 0;
-  const hpRegenOutPct = hpRegenRatePct * 5;
+  // Live regen: 5 HP/min + max(0, END-10); perfection adds % of this base.
+  const hpRegenPerMin = 5 + Math.max(0, Math.floor(endurance) - 10);
   const merchantDiscount = safeNumber(d?.merchant_discount, 0);
   // Торговля: покупка 100%/(1 + charm/100), продажа 50% + charm*0.1%
   const buyPct = merchantDiscount > 0
@@ -1066,7 +1065,7 @@ function getProfileIndicators(waifu, details = null) {
     hireDiscount: profileFormatPercent(hireDiscount, 1),
     trainingDiscount: profileFormatPercent(trainingDiscount, 1),
     merchant: `покупка ${buyPct}% · продажа ${sellPct}%`,
-    hpRegen: `реген ${Math.round(hpRegenOutPct)}/час`,
+    hpRegen: `${hpRegenPerMin} HP/мин`,
     armor: safeNumber(d?.armor, 0),
     incomingReduction: profileFormatPercent(damageReduction, 1),
   };
@@ -1094,13 +1093,11 @@ function profileStatBonusLines(statKey, waifu, details = null) {
         `+${profileFormatPercent(total * 0.1, 1)} к получаемому опыту`,
       ];
     case "endurance": {
-      const maxHp = Math.max(safeNumber(details?.hp_max, 0), safeNumber(waifu?.max_hp, 0));
-      const regenInDungeon = maxHp > 0 ? (maxHp * (1 - Math.exp(-total / 100))).toFixed(0) : "—";
-      const regenOut = maxHp > 0 ? (maxHp * (1 - Math.exp(-total / 100)) * 5).toFixed(0) : "—";
+      const regenPerMin = 5 + Math.max(0, Math.floor(total) - 10);
       return [
         `+${total * 12} к максимальному HP`,
         `-${profileFormatPercent(Math.min(35, total * 0.08), 1)} к получаемому урону (потолок 35%)`,
-        `Реген HP: ~${regenInDungeon}/час в бою, ~${regenOut}/час вне боя`,
+        `Реген HP: ${regenPerMin}/мин (5 + max(0, ВЫН−10); совершенствование — % к базе)`,
       ];
     }
     case "charm": {
@@ -6809,7 +6806,11 @@ function renderProfileIndicators(waifu, details = null) {
     ["Бонус золота", indicators.goldBonus],
     ["Скидка найма", indicators.hireDiscount],
     ["Скидка трен.", indicators.trainingDiscount],
-    ["Реген HP", indicators.hpRegen],
+    [
+      "Реген HP",
+      indicators.hpRegen,
+      "База: 5 HP/мин + max(0, ВЫН−10) HP/мин. Бонусы совершенствования дают процент к этой базе (не плоские HP/мин). Показатель без % совершенства.",
+    ],
   ];
 
   const cells = rows
@@ -13446,6 +13447,7 @@ function statsGuideContentHtml() {
     <p><strong>Основные характеристики</strong> — база персонажа + раса/класс + экипировка + плоский бонус «Трансценд.»; затем множители «+% ко всем статам» (СИЛ/ЛОВ/ИНТ/УДЧ) с предметов и пассивов. ВЫН и ОБА в этот % не входят.</p>
     <p><strong>Урон</strong> — ближний (СИЛ), дальний (ЛОВ), магический (ИНТ): каждая единица даёт <strong>+1,2</strong> плоского урона к линии. Для медиа (не TEXT/LINK) ИНТ даёт ещё +1,2 к базе навыка. Пассивы одного типа <em>суммируются</em>.</p>
     <p><strong>HP</strong> — 20×уровень + ВЫН×12 + СИЛ×3, затем бонусы предметов/пассивов/совершенствования.</p>
+    <p><strong>Реген HP</strong> — <strong>5 HP/мин + max(0, ВЫН−10)</strong>. Совершенствование даёт <strong>% к этой базе</strong> (не плоские HP/мин). Скрытые навыки могут добавлять плоский доп. реген в бою.</p>
     <p><strong>Уклонение</strong> (строка в профиле) — один общий шанс: ЛОВ × 0,1% + вторички на предметах + пассивы вроде «Проворство». Потолок 40%. Удача в уклонение не входит.</p>
     <p><strong>Полное уклонение</strong> — отдельная строка и отдельный бросок в бою (например «Шаг тени»). Срабатывает после обычного уклонения, если оно не сработало.</p>
     <p><strong>Снижение урона</strong> — ВЫН даёт 0,08%/пункт (потолок 35% от ВЫН); затем вторички и броня складываются в один пул (до 90%).</p>
@@ -13469,7 +13471,7 @@ function libraryMechanicsSectionHtml(subtabId) {
   if (id === "waifu") {
     return `
       <h3>Характеристики</h3>
-      <p>СИЛ, ЛОВ, ИНТ, ВЫН, ОБА и УДЧ влияют на урон, защиту, крит и награды. Итоговые значения видны в профиле основной вайфу.</p>
+      <p>СИЛ, ЛОВ, ИНТ, ВЫН, ОБА и УДЧ влияют на урон, защиту, крит, реген HP и награды. Итоговые значения видны в профиле основной вайфу.</p>
       <h3 id="lib-stats-guide">Как считаются статы</h3>
       <div class="lib-stats-guide-body">${statsGuideContentHtml()}</div>
       <h3>Бестиарий и кодекс</h3>
