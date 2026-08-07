@@ -13,6 +13,7 @@ from waifu_bot.services.gd_daily_stats import (
     sort_rows_by_activity,
 )
 from waifu_bot.services.gd_daily_word_ai import (
+    analyze_day_word_stats,
     local_top_words_for_user,
     merge_word_stats_into_rows,
     parse_word_stats_response,
@@ -111,12 +112,37 @@ def test_local_top_words_and_no_repeat():
     )
     assert stats["no_word_repeated"] is False
     words = [w["word"] for w in stats["top_words"]]
-    assert "котики" in words
+    # Lemmatized: котики/котиков → котик
+    assert "котик" in words
     assert "и" not in words and "для" not in words
 
     uniq = local_top_words_for_user(["один два три", "четыре пять"])
     assert uniq["no_word_repeated"] is True
     assert uniq["top_words"] == []
+
+
+def test_local_top_words_lemmas_case_forms_and_no_censor():
+    """Different cases/numbers merge; profanity is counted (no blocklist)."""
+    stats = local_top_words_for_user(["пидор", "пидора"])
+    assert stats["no_word_repeated"] is False
+    assert stats["words_unavailable"] is False
+    assert stats["top_words"][0] == {"word": "пидор", "count": 2}
+
+    cats = local_top_words_for_user(["котик бежал", "видел котика", "много котики"])
+    by_word = {x["word"]: x["count"] for x in cats["top_words"]}
+    assert by_word.get("котик", 0) >= 3
+    assert "и" not in by_word and "для" not in by_word
+
+
+def test_analyze_day_word_stats_is_local_only():
+    out = asyncio.run(
+        analyze_day_word_stats(
+            {7: ["пидор", "пидора", "и", "для"]},
+            timeout_sec=1.0,
+        )
+    )
+    assert out[7]["top_words"][0] == {"word": "пидор", "count": 2}
+    assert out[7]["no_word_repeated"] is False
 
 
 def test_parse_word_stats_response_json():
