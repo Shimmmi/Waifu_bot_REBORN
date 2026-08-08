@@ -16,6 +16,7 @@ from waifu_bot.services.gd_daily_word_ai import (
     analyze_day_word_stats,
     local_top_words_for_user,
     merge_word_stats_into_rows,
+    message_has_url,
     parse_word_stats_response,
 )
 from waifu_bot.services.gd_daily_worker import (
@@ -143,6 +144,32 @@ def test_analyze_day_word_stats_is_local_only():
     )
     assert out[7]["top_words"][0] == {"word": "пидор", "count": 2}
     assert out[7]["no_word_repeated"] is False
+
+
+def test_message_has_url_and_skip_link_messages():
+    assert message_has_url("смотри https://www.youtube.com/shorts/abc123")
+    assert message_has_url("www.example.com/foo")
+    assert message_has_url("t.me/somechannel")
+    assert message_has_url("youtube.com/shorts/xyz")
+    assert not message_has_url("просто текст без ссылок играть")
+
+    stats = local_top_words_for_user(
+        [
+            "https://www.youtube.com/shorts/abc https://www.youtube.com/shorts/def",
+            "www.youtube.com/watch?v=1",
+            "пидор",
+            "пидора",
+            "игра игра",
+        ]
+    )
+    words = {x["word"]: x["count"] for x in stats["top_words"]}
+    assert "https" not in words
+    assert "www" not in words
+    assert "youtube" not in words
+    assert "com" not in words
+    assert "shorts" not in words
+    assert words.get("пидор") == 2
+    assert words.get("игра") == 2
 
 
 def test_parse_word_stats_response_json():

@@ -9,9 +9,9 @@ from waifu_bot.services.gd_daily_rewards import (
     smoothstep,
 )
 from waifu_bot.services.gd_daily_worker import (
+    DAILY_START_INTRO,
     format_daily_start_roster_html,
     format_level_display,
-    _ensure_intro_ends_with_sostave,
 )
 
 
@@ -49,9 +49,8 @@ def test_roster_html_format():
     assert "совершенствование" not in html
 
 
-def test_intro_ends_with_sostave():
-    assert _ensure_intro_ends_with_sostave("Отряд вышел").endswith("в составе:")
-    assert _ensure_intro_ends_with_sostave("бравый отряд в составе:").endswith("в составе:")
+def test_daily_start_intro_fixed():
+    assert DAILY_START_INTRO == "Отряд наших вайфу:"
 
 
 def test_zero_msgs_no_reward():

@@ -40,7 +40,6 @@ from waifu_bot.services.gd_daily_word_ai import (
     analyze_day_word_stats,
     merge_word_stats_into_rows,
 )
-from waifu_bot.services.gd_narrative_ai import generate_gd_daily_start_narrative
 from waifu_bot.services.gd_phantom_log import load_phantom_log, purge_phantom_log
 from waifu_bot.services.gd_podium_art import (
     count_active_players,
@@ -263,16 +262,7 @@ def format_aggregated_reward_dm(
     return "\n".join(lines)
 
 
-def _ensure_intro_ends_with_sostave(intro: str) -> str:
-    text = (intro or "").strip()
-    if not text:
-        return "В опасное путешествие отправился наш бравый отряд домохозяек в составе:"
-    low = text.rstrip().lower()
-    if low.endswith("в составе:") or low.endswith("в составе："):
-        return text.rstrip()
-    if "в составе" in low:
-        return text.rstrip().rstrip(".") + ":"
-    return text.rstrip().rstrip(".") + " в составе:"
+DAILY_START_INTRO = "Отряд наших вайфу:"
 
 
 def _finale_image_enabled(cfg: dict[str, str]) -> bool:
@@ -288,20 +278,9 @@ async def send_daily_start_message(
     party: list[dict[str, Any]],
     dungeon_name: str,
 ) -> None:
-    _ = dungeon_name
-    cfg = await get_game_config_map(session)
-    timeout = float(cfg.get("gd_ai_timeout_seconds") or "18")
-    use_ai = cfg_int(cfg, "gd_daily_ai_start", 1) == 1
+    _ = (session, dungeon_name)
     roster = format_daily_start_roster_html(party)
-    humor_top = "В опасное путешествие отправился наш бравый отряд домохозяек в составе:"
-    if use_ai:
-        _, humor = await generate_gd_daily_start_narrative(timeout_sec=timeout)
-        parts = [p.strip() for p in (humor or "").split("\n\n") if p.strip()]
-        if parts:
-            humor_top = parts[0]
-    humor_top = _ensure_intro_ends_with_sostave(humor_top)
-
-    text = f"{humor_top}\n{roster}"
+    text = f"{DAILY_START_INTRO}\n{roster}"
     try:
         await bot.send_message(chat_id=cycle.chat_id, text=text, parse_mode="HTML")
     except Exception:

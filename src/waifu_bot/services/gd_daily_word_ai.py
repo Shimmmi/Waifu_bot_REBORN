@@ -16,6 +16,16 @@ logger = logging.getLogger(__name__)
 
 _WORD_RE = re.compile(r"[a-zA-Zа-яА-ЯёЁ]{2,}", re.UNICODE)
 
+# Whole messages matching this are skipped for top-words (avoids http/www/youtube/com…).
+_URL_RE = re.compile(
+    r"(?i)(?:"
+    r"https?://"
+    r"|www\."
+    r"|t\.me/"
+    r"|(?:[a-z0-9-]+\.)+(?:com|ru|org|net|io|tv|me|gg|info|xyz|app|short)\b"
+    r")"
+)
+
 # Russian prepositions / conjunctions / particles (and common English fillers).
 _STOPWORDS = frozenset(
     {
@@ -176,10 +186,21 @@ def _lemma(token: str) -> str:
     return w
 
 
+def message_has_url(text: str | None) -> bool:
+    """True if the message looks like it contains a link / bare domain."""
+    return bool(text and _URL_RE.search(text))
+
+
 def local_top_words_for_user(messages: list[str], *, top_n: int = 5) -> dict[str, Any]:
-    """Frequency stats: lemmatized tokens, stopwords dropped. No profanity filter."""
+    """Frequency stats: lemmatized tokens, stopwords dropped. No profanity filter.
+
+    Messages containing URLs are skipped entirely (so http/www/tld fragments
+    do not dominate the day top).
+    """
     counts: Counter[str] = Counter()
     for msg in messages or []:
+        if message_has_url(msg):
+            continue
         for tok in _WORD_RE.findall(msg or ""):
             w = _lemma(tok)
             if not w or w in _STOPWORDS:
