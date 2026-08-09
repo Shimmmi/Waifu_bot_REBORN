@@ -19,6 +19,9 @@ fi
 echo "== npm ci =="
 npm ci
 
+# Next build number (0 → 0.0001, then 0.0002 …) before packaging.
+node scripts/bump_build_version.js --bump
+
 node scripts/write_capacitor_config.js
 node scripts/sync-web-placeholder.js
 node scripts/inject_bridge_into_www.js
@@ -39,7 +42,10 @@ if [[ ! -f "$APK" ]]; then
   exit 1
 fi
 
+VER="$(node -e "const v=require('./build_version.json');console.log(v.versionName+' (code '+v.versionCode+')')")"
 echo
 echo "[OK] Debug APK: $APK"
+echo "[OK] App version: $VER"
 echo "Install: ./scripts/install_debug_apk.sh"
+echo "On login screen look for: APK build ${VER%% *}"
 ls -lh "$APK"

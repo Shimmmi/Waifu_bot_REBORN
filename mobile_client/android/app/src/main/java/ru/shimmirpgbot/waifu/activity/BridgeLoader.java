@@ -28,6 +28,7 @@ public final class BridgeLoader {
         + "var api={"
         + "__nativeReady:false,__hasCapacitor:false,__hasPlugin:false,"
         + "getDesktopSessionToken:rs,setDesktopSessionToken:ws,"
+        + "getAppVersion:function(){return\"0.0001\"},"
         + "getStepSnapshot:async function(){var plugin=resolvePlugin();markReady(!!plugin);"
         + "if(!plugin||typeof plugin.getSnapshot!=='function'){"
         + "return{total:total,deltaSinceLastClaim:0,pendingDelta:0,permission:'unavailable',sensor:'none'};}"

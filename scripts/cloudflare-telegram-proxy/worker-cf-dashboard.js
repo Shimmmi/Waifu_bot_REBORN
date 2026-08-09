@@ -11,10 +11,15 @@
  *   (без слэша в конце; TELEGRAM_BOT_PROXY не задавать)
  */
 
-const OAUTH_UPSTREAM = {
+const OAUTH_GET_UPSTREAM = {
   "/oauth/.well-known/jwks.json": "https://oauth.telegram.org/.well-known/jwks.json",
   "/oauth/.well-known/openid-configuration":
     "https://oauth.telegram.org/.well-known/openid-configuration",
+};
+
+/** POST (and GET) proxies — token exchange for mobile authorization_code + PKCE. */
+const OAUTH_POST_UPSTREAM = {
+  "/oauth/token": "https://oauth.telegram.org/token",
 };
 
 export default {
@@ -37,6 +42,7 @@ async function handleRequest(request, env) {
         service: "telegram-api-proxy",
         hint: "Set ALLOWED_TOKENS; use TELEGRAM_API_BASE_URL=https://this-host",
         oauth_jwks: "/oauth/.well-known/jwks.json",
+        oauth_token: "/oauth/token",
       }),
       {
         headers: { "Content-Type": "application/json", ...corsHeaders() },
@@ -45,13 +51,13 @@ async function handleRequest(request, env) {
   }
 
   const pathname = url.pathname;
-  const oauthTarget = OAUTH_UPSTREAM[pathname];
-  if (oauthTarget) {
+  const oauthGetTarget = OAUTH_GET_UPSTREAM[pathname];
+  if (oauthGetTarget) {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return jsonError(405, "Method not allowed");
     }
     try {
-      const response = await fetch(oauthTarget, {
+      const response = await fetch(oauthGetTarget, {
         method: request.method,
         redirect: "manual",
       });
@@ -66,6 +72,32 @@ async function handleRequest(request, env) {
       });
     } catch (err) {
       return jsonError(502, "Failed to proxy OIDC", err.message);
+    }
+  }
+
+  const oauthPostTarget = OAUTH_POST_UPSTREAM[pathname];
+  if (oauthPostTarget) {
+    if (request.method !== "POST") {
+      return jsonError(405, "Method not allowed");
+    }
+    try {
+      const response = await fetch(oauthPostTarget, {
+        method: "POST",
+        headers: filterHeaders(request.headers),
+        body: request.body,
+        redirect: "manual",
+      });
+      const responseHeaders = new Headers(response.headers);
+      for (const [k, v] of Object.entries(corsHeaders())) {
+        responseHeaders.set(k, v);
+      }
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+      });
+    } catch (err) {
+      return jsonError(502, "Failed to proxy OIDC token", err.message);
     }
   }
 

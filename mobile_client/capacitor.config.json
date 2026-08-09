@@ -3,10 +3,12 @@
   "appName": "Waifu Activity",
   "webDir": "www",
   "server": {
-    "url": "https://shimmirpgbot.ru/webapp/activity.html?mobileClient=1&economy=activity",
+    "url": "https://stage.shimmirpgbot.ru/webapp/mobile/login.html?mobileClient=1",
     "cleartext": false,
     "allowNavigation": [
-      "shimmirpgbot.ru",
+      "stage.shimmirpgbot.ru",
+      "oauth.telegram.org",
+      "telegram.org",
       "localhost",
       "10.0.2.2"
     ]

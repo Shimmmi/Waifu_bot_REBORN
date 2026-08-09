@@ -19,6 +19,7 @@ fi
 
 ./scripts/check_android_dev_env.sh
 npm ci
+node scripts/bump_build_version.js --bump
 node scripts/inject_bridge_into_www.js
 npx cap sync android
 

@@ -314,9 +314,11 @@ adb shell am start -n ru.shimmirpgbot.waifu.activity/.MainActivity
 
 ```bash
 export WAIFU_MOBILE_BACKEND_URL="https://<staging-host>"
-export WAIFU_LINK_CODE="<from POST /api/auth/link_code>"
+export WAIFU_LINK_CODE="<код из профиля TG → «Код для Mobile / Steam»>"
 npm run android:api-smoke
 ```
+
+Основной вход в APK: кнопка **Войти через Telegram** на `/webapp/mobile/login.html` (нужен Redirect URI в BotFather). Подробно: [MOBILE_TELEGRAM_LOGIN.md](MOBILE_TELEGRAM_LOGIN.md).
 
 Полный checklist: [MOBILE_ANDROID_SMOKE.md](MOBILE_ANDROID_SMOKE.md).
 
@@ -341,8 +343,10 @@ npm run android:api-smoke
 
 | Method | Path | Notes |
 |--------|------|-------|
-| POST | `/api/auth/link_code` | Telegram → one-time code |
-| POST | `/api/auth/mobile/google` | Google login + optional link_code |
+| POST | `/api/auth/link_code` | Telegram → one-time code (профиль / settings) |
+| GET | `/api/auth/desktop/login-url?client=mobile` | OIDC client_id + suggested redirect |
+| POST | `/api/auth/desktop/telegram` | Telegram OIDC → desktop session |
+| POST | `/api/auth/mobile/google` | Stage Google/dev login + optional link_code |
 | GET | `/api/activity/status` | buffer, min_chars, starter dagger |
 | POST | `/api/activity/input/claim` | steps/clicks → TEXT hits |
 | POST | `/api/dungeons/{id}/start?economy=activity` | activity run |

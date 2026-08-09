@@ -6,7 +6,9 @@ import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
@@ -34,6 +36,16 @@ from waifu_bot.services.desktop_session import (
 )
 from waifu_bot.services.player_ban import is_player_banned
 
+TELEGRAM_OIDC_TOKEN_URL = "https://oauth.telegram.org/token"
+
+
+def _telegram_oidc_token_url() -> str:
+    """Prefer Cloudflare Worker proxy when VPS cannot reach oauth.telegram.org."""
+    base = (settings.telegram_api_base_url or "").strip().rstrip("/")
+    if base:
+        return f"{base}/oauth/token"
+    return TELEGRAM_OIDC_TOKEN_URL
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth/desktop", tags=["auth-desktop"])
@@ -49,6 +61,12 @@ class EmailAuthBody(BaseModel):
 
 class TelegramAuthBody(BaseModel):
     id_token: str = Field(min_length=10)
+
+
+class TelegramCodeAuthBody(BaseModel):
+    code: str = Field(min_length=1, max_length=2048)
+    redirect_uri: str = Field(min_length=8, max_length=2048)
+    code_verifier: str = Field(min_length=43, max_length=128)
 
 
 class DesktopSessionOut(BaseModel):
@@ -209,8 +227,9 @@ def _require_telegram_client_id() -> str:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="telegram_bot_not_configured",
         )
-    # Common local stub from docker-compose smoke tests — Telegram rejects it.
-    if client_id in {"123456", "000000", "111111"}:
+    # Dummy staging/dev tokens (e.g. 0000000000:STAGING_...) — Telegram OIDC
+    # answers "bot id required". Prefer TELEGRAM_OIDC_CLIENT_ID with the real bot id.
+    if client_id in {"123456", "000000", "111111"} or set(client_id) == {"0"}:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="telegram_bot_not_configured",
@@ -219,12 +238,18 @@ def _require_telegram_client_id() -> str:
 
 
 @router.get("/login-url")
-async def desktop_login_url():
-    """OIDC config for Electron steam/login.html Telegram popup."""
+async def desktop_login_url(client: str | None = None):
+    """OIDC config for desktop/steam or mobile Telegram Login popup."""
     client_id = _require_telegram_client_id()
     origin = _public_origin()
-    suggested = f"{origin}/webapp/steam/login.html"
-    override = (settings.desktop_oidc_redirect_uri or "").strip() or None
+    client_key = (client or "").strip().lower()
+    if client_key == "mobile":
+        suggested = f"{origin}/webapp/mobile/login.html"
+        # Steam-oriented DESKTOP_OIDC_REDIRECT_URI must not override mobile page URI.
+        override = None
+    else:
+        suggested = f"{origin}/webapp/steam/login.html"
+        override = (settings.desktop_oidc_redirect_uri or "").strip() or None
     payload: dict[str, str] = {
         "client_id": client_id,
         "origin": origin,
@@ -361,17 +386,94 @@ async def desktop_login(
     return await _issue_session(redis, int(cred.player_id), auth_provider=EMAIL_PROVIDER)
 
 
-@router.post("/telegram", response_model=DesktopSessionOut)
-async def desktop_telegram(
-    request: Request,
-    body: TelegramAuthBody,
-    session: AsyncSession = Depends(get_db),
-    redis=Depends(get_redis),
-):
-    await rate_limit_by_ip(redis, request, "desktop_telegram", 10)
-    client_id = _require_telegram_client_id()
-    validated = validate_telegram_id_token(body.id_token, client_id)
-    replay_key = hashlib.sha256(body.id_token.encode()).hexdigest()
+def _require_telegram_client_secret() -> str:
+    secret = (settings.telegram_oidc_client_secret or "").strip()
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="telegram_oidc_client_secret_not_configured",
+        )
+    return secret
+
+
+def _assert_redirect_uri_allowed(redirect_uri: str) -> str:
+    """Return redirect_uri without query/hash; must match BotFather + authorize request."""
+    uri = (redirect_uri or "").strip().split("#", 1)[0]
+    if not uri:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing redirect_uri")
+    base = uri.split("?", 1)[0]
+    parsed = urlparse(base)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_redirect_uri")
+    origin = _public_origin()
+    same_origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/") == origin
+    path = parsed.path or ""
+    allowed = (
+        path == "/webapp/mobile/login.html"
+        or path == "/webapp/steam/login.html"
+        or path == "/armory/login"
+    )
+    if not same_origin or not allowed:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="redirect_uri_not_allowed")
+    return base
+
+
+async def _exchange_telegram_auth_code(
+    *, code: str, redirect_uri: str, code_verifier: str, client_id: str, client_secret: str
+) -> str:
+    try:
+        token_url = _telegram_oidc_token_url()
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                token_url,
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code_verifier": code_verifier,
+                },
+                headers={"Accept": "application/json"},
+            )
+    except httpx.TimeoutException as exc:
+        logger.warning("telegram oidc token exchange timeout url=%s: %s", _telegram_oidc_token_url(), exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="telegram_token_exchange_timeout",
+        ) from exc
+    except httpx.HTTPError as exc:
+        logger.warning("telegram oidc token exchange failed url=%s: %s", _telegram_oidc_token_url(), exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="telegram_token_exchange_failed"
+        ) from exc
+
+    try:
+        payload = resp.json()
+    except Exception:
+        payload = {}
+    if resp.status_code >= 400:
+        err = payload.get("error") if isinstance(payload, dict) else None
+        desc = payload.get("error_description") if isinstance(payload, dict) else None
+        detail = str(desc or err or f"telegram_token_http_{resp.status_code}")
+        logger.warning("telegram oidc token error: %s", detail)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+
+    id_token = payload.get("id_token") if isinstance(payload, dict) else None
+    if not isinstance(id_token, str) or len(id_token) < 10:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing id_token")
+    return id_token
+
+
+async def _complete_telegram_desktop_login(
+    *,
+    session: AsyncSession,
+    redis: Any,
+    id_token: str,
+    client_id: str,
+) -> DesktopSessionOut:
+    validated = validate_telegram_id_token(id_token, client_id)
+    replay_key = hashlib.sha256(id_token.encode()).hexdigest()
     if await mark_telegram_login_hash_used(redis, f"desktop:{replay_key}"):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="login_replay")
 
@@ -414,6 +516,50 @@ async def desktop_telegram(
 
     await session.commit()
     return await _issue_session(redis, tg_id, auth_provider=TELEGRAM_PROVIDER)
+
+
+@router.post("/telegram", response_model=DesktopSessionOut)
+async def desktop_telegram(
+    request: Request,
+    body: TelegramAuthBody,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    await rate_limit_by_ip(redis, request, "desktop_telegram", 10)
+    client_id = _require_telegram_client_id()
+    return await _complete_telegram_desktop_login(
+        session=session,
+        redis=redis,
+        id_token=body.id_token,
+        client_id=client_id,
+    )
+
+
+@router.post("/telegram/code", response_model=DesktopSessionOut)
+async def desktop_telegram_code(
+    request: Request,
+    body: TelegramCodeAuthBody,
+    session: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    """Mobile Capacitor path: authorization_code + PKCE → desktop session."""
+    await rate_limit_by_ip(redis, request, "desktop_telegram_code", 10)
+    client_id = _require_telegram_client_id()
+    client_secret = _require_telegram_client_secret()
+    redirect_uri = _assert_redirect_uri_allowed(body.redirect_uri)
+    id_token = await _exchange_telegram_auth_code(
+        code=body.code.strip(),
+        redirect_uri=redirect_uri,
+        code_verifier=body.code_verifier.strip(),
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    return await _complete_telegram_desktop_login(
+        session=session,
+        redis=redis,
+        id_token=id_token,
+        client_id=client_id,
+    )
 
 
 @router.post("/logout")

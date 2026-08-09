@@ -10,27 +10,76 @@
 <body>
   <div style="padding:16px;max-width:480px;margin:0 auto">
     <h1>Код привязки</h1>
-    <p class="muted">Откройте в Telegram WebApp. Код действует 10 минут — введите его в APK (экран входа).</p>
+    <p class="muted">
+      Откройте в Telegram WebApp. Основной путь: профиль → меню ☰ → «Код для Mobile / Steam»
+      или Настройки игрока. Код действует 10 минут — введите его в APK / Steam на экране входа
+      (запасной способ, если «Войти через Telegram» недоступен).
+    </p>
     <button type="button" id="btn-code" class="btn">Получить код</button>
-    <p id="code-out" style="font-size:1.6rem;letter-spacing:0.12em;margin-top:16px"></p>
+    <button type="button" id="btn-copy" class="btn secondary" disabled>Скопировать</button>
+    <p id="code-out" class="settings-link-code-value" style="margin-top:16px">—</p>
+    <p id="code-ttl" class="muted"></p>
     <p id="code-err" class="muted"></p>
-    <p><a href="./index.html">← Назад</a></p>
+    <p><a href="./player.html#settings">← Настройки</a> · <a href="./profile.html">Профиль</a></p>
   </div>
   <script src="/webapp/app.js"></script>
   <script>
-    document.getElementById("btn-code").addEventListener("click", async () => {
+    (function () {
       const out = document.getElementById("code-out");
+      const ttl = document.getElementById("code-ttl");
       const err = document.getElementById("code-err");
-      out.textContent = "";
-      err.textContent = "";
-      try {
-        const data = await WaifuApp.apiFetch("/auth/link_code", { method: "POST" });
-        out.textContent = data.code || "—";
-        err.textContent = `TTL: ${data.ttl_seconds || 600}s`;
-      } catch (e) {
-        err.textContent = String(e.message || e);
+      const copyBtn = document.getElementById("btn-copy");
+      let lastCode = "";
+
+      async function copyText(text) {
+        if (!text) return false;
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+          }
+        } catch (_) {}
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.setAttribute("readonly", "");
+          ta.style.position = "fixed";
+          ta.style.left = "-9999px";
+          document.body.appendChild(ta);
+          ta.select();
+          const ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+          return ok;
+        } catch (_) {
+          return false;
+        }
       }
-    });
+
+      document.getElementById("btn-code").addEventListener("click", async () => {
+        out.textContent = "…";
+        ttl.textContent = "";
+        err.textContent = "";
+        copyBtn.disabled = true;
+        lastCode = "";
+        try {
+          const data = await WaifuApp.apiFetch("/auth/link_code", { method: "POST" });
+          lastCode = String(data.code || "").trim();
+          out.textContent = lastCode || "—";
+          const sec = Number(data.ttl_seconds || 600);
+          ttl.textContent = Number.isFinite(sec) ? `Действует ~${Math.round(sec / 60)} мин (${sec}s)` : "";
+          copyBtn.disabled = !lastCode;
+        } catch (e) {
+          out.textContent = "—";
+          err.textContent = String(e.message || e);
+        }
+      });
+
+      copyBtn.addEventListener("click", async () => {
+        if (!lastCode) return;
+        const ok = await copyText(lastCode);
+        err.textContent = ok ? "Скопировано" : "Не удалось скопировать — выделите код вручную";
+      });
+    })();
   </script>
 </body>
 </html>

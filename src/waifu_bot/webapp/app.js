@@ -3389,11 +3389,189 @@ function closeSettingsNotifyModal() {
   }
 }
 
+const linkCodeModalState = {
+  code: "",
+  backHandler: null,
+  readyAt: 0,
+};
+
+async function copyTextToClipboard(text) {
+  const value = String(text || "").trim();
+  if (!value) return false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch (_) {
+    /* fall through */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch (_) {
+    return false;
+  }
+}
+
+function ensureLinkCodeModal() {
+  let modal = document.getElementById("settings-link-code-modal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "settings-link-code-modal";
+  modal.className = "modal settings-notify-modal";
+  modal.style.display = "none";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "settings-link-code-title");
+  modal.innerHTML = `
+      <div class="modal-content settings-notify-panel">
+        <div class="modal-head">
+          <div class="modal-title" id="settings-link-code-title">Код для Mobile / Steam</div>
+          <button type="button" class="secondary" id="settings-link-code-close" aria-label="Закрыть">✖</button>
+        </div>
+        <div class="modal-body settings-notify-body">
+          <p class="muted tiny settings-notify-hint">
+            Введите код в приложении Mobile (APK) или Steam на экране входа. Код одноразовый, действует несколько минут.
+          </p>
+          <p id="settings-link-code-value" class="settings-link-code-value" aria-live="polite">—</p>
+          <p id="settings-link-code-ttl" class="muted tiny"></p>
+          <p id="settings-link-code-err" class="muted tiny" role="status"></p>
+        </div>
+        <div class="modal-footer" style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn primary" id="settings-link-code-issue">Получить код</button>
+          <button type="button" class="btn secondary" id="settings-link-code-copy" disabled>Скопировать</button>
+          <button type="button" class="btn secondary" id="settings-link-code-done">Готово</button>
+        </div>
+      </div>`;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function resetLinkCodeModalDom() {
+  const modal = document.getElementById("settings-link-code-modal");
+  if (!modal) return;
+  linkCodeModalState.code = "";
+  const valueEl = document.getElementById("settings-link-code-value");
+  const ttlEl = document.getElementById("settings-link-code-ttl");
+  const errEl = document.getElementById("settings-link-code-err");
+  const copyBtn = document.getElementById("settings-link-code-copy");
+  if (valueEl) valueEl.textContent = "—";
+  if (ttlEl) ttlEl.textContent = "";
+  if (errEl) errEl.textContent = "";
+  if (copyBtn) copyBtn.disabled = true;
+}
+
+function openLinkCodeModal() {
+  if (Date.now() < linkCodeModalState.readyAt) return;
+  const modal = ensureLinkCodeModal();
+  bindLinkCodeModalControls(modal);
+  resetLinkCodeModalDom();
+  modal.style.display = "";
+  modal.classList.add("settings-notify-modal--open");
+  if (tg?.BackButton) {
+    if (!linkCodeModalState.backHandler) {
+      linkCodeModalState.backHandler = () => closeLinkCodeModal();
+    }
+    tg.BackButton.onClick(linkCodeModalState.backHandler);
+    tg.BackButton.show();
+  }
+}
+
+function closeLinkCodeModal() {
+  const modal = document.getElementById("settings-link-code-modal");
+  if (!modal) return;
+  modal.classList.remove("settings-notify-modal--open");
+  modal.style.display = "none";
+  if (tg?.BackButton && linkCodeModalState.backHandler) {
+    tg.BackButton.offClick(linkCodeModalState.backHandler);
+    tg.BackButton.hide();
+  }
+}
+
+async function issueLinkCodeFromModal() {
+  const valueEl = document.getElementById("settings-link-code-value");
+  const ttlEl = document.getElementById("settings-link-code-ttl");
+  const errEl = document.getElementById("settings-link-code-err");
+  const copyBtn = document.getElementById("settings-link-code-copy");
+  if (valueEl) valueEl.textContent = "…";
+  if (ttlEl) ttlEl.textContent = "";
+  if (errEl) errEl.textContent = "";
+  if (copyBtn) copyBtn.disabled = true;
+  linkCodeModalState.code = "";
+  try {
+    const data = await apiFetch("/auth/link_code", { method: "POST" });
+    const code = String(data?.code || "").trim();
+    linkCodeModalState.code = code;
+    if (valueEl) valueEl.textContent = code || "—";
+    const sec = Number(data?.ttl_seconds || 600);
+    if (ttlEl) {
+      ttlEl.textContent = Number.isFinite(sec)
+        ? `Действует ~${Math.round(sec / 60)} мин (${sec}s)`
+        : "";
+    }
+    if (copyBtn) copyBtn.disabled = !code;
+  } catch (e) {
+    if (valueEl) valueEl.textContent = "—";
+    if (errEl) errEl.textContent = String(e?.message || e);
+  }
+}
+
+async function copyLinkCodeFromModal() {
+  const errEl = document.getElementById("settings-link-code-err");
+  const ok = await copyTextToClipboard(linkCodeModalState.code);
+  if (errEl) {
+    errEl.textContent = ok ? "Скопировано" : "Не удалось скопировать — выделите код вручную";
+  }
+  if (ok && typeof showToast === "function") {
+    try {
+      showToast("Код скопирован", "success");
+    } catch (_) {
+      /* ignore */
+    }
+  }
+}
+
+function bindLinkCodeModalControls(modal) {
+  if (!modal || modal.__waifuLinkCodeBound) return;
+  modal.__waifuLinkCodeBound = true;
+  modal.addEventListener("click", (ev) => {
+    if (ev.target === modal) closeLinkCodeModal();
+  });
+  modal.querySelector(".settings-notify-panel")?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+  });
+  document.getElementById("settings-link-code-close")?.addEventListener("click", () => {
+    closeLinkCodeModal();
+  });
+  document.getElementById("settings-link-code-done")?.addEventListener("click", () => {
+    closeLinkCodeModal();
+  });
+  document.getElementById("settings-link-code-issue")?.addEventListener("click", () => {
+    void issueLinkCodeFromModal();
+  });
+  document.getElementById("settings-link-code-copy")?.addEventListener("click", () => {
+    void copyLinkCodeFromModal();
+  });
+}
+
 function initSettingsPageBindings() {
   resetSettingsNotifyModalDom();
   closeSettingsNotifyModal();
   resetSettingsSoloAutoModalDom();
   closeSettingsSoloAutoModal();
+  if (document.getElementById("settings-link-code-modal")) {
+    resetLinkCodeModalDom();
+    closeLinkCodeModal();
+  }
 
   if (!window.__waifuSettingsPageshowBound) {
     window.__waifuSettingsPageshowBound = true;
@@ -3404,6 +3582,7 @@ function initSettingsPageBindings() {
       ) {
         closeSettingsNotifyModal();
         closeSettingsSoloAutoModal();
+        closeLinkCodeModal();
       }
     });
   }
@@ -3422,6 +3601,12 @@ function initSettingsPageBindings() {
       if (soloModal?.classList.contains("settings-notify-modal--open")) {
         ev.preventDefault();
         closeSettingsSoloAutoModal();
+        return;
+      }
+      const linkModal = document.getElementById("settings-link-code-modal");
+      if (linkModal?.classList.contains("settings-notify-modal--open")) {
+        ev.preventDefault();
+        closeLinkCodeModal();
       }
     });
   }
@@ -3513,8 +3698,17 @@ function initSettingsPageBindings() {
       });
   }
 
+  const openLinkBtn = document.getElementById("settings-open-link-code");
+  if (openLinkBtn && !openLinkBtn.__waifuBound) {
+    openLinkBtn.__waifuBound = true;
+    openLinkBtn.addEventListener("click", () => openLinkCodeModal());
+  }
+  const linkModal = document.getElementById("settings-link-code-modal");
+  if (linkModal) bindLinkCodeModalControls(linkModal);
+
   settingsState.notifyModalReadyAt = Date.now() + 300;
   settingsState.soloAutoModalReadyAt = Date.now() + 300;
+  linkCodeModalState.readyAt = Date.now() + 300;
 }
 
 async function initSettingsPage() {
@@ -3591,6 +3785,12 @@ function initAtticMenu() {
   const btn = document.getElementById("attic-menu-btn");
   const menu = document.getElementById("attic-menu");
   if (!btn || !menu) return;
+  const closeMenu = () => {
+    if (!menu.hidden) {
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+    }
+  };
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     const open = menu.hidden;
@@ -3599,18 +3799,24 @@ function initAtticMenu() {
   });
   menu.addEventListener("click", (e) => e.stopPropagation());
   document.addEventListener("click", () => {
-    if (!menu.hidden) {
-      menu.hidden = true;
-      btn.setAttribute("aria-expanded", "false");
-    }
+    closeMenu();
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !menu.hidden) {
-      menu.hidden = true;
-      btn.setAttribute("aria-expanded", "false");
+      closeMenu();
       btn.focus();
     }
   });
+  const linkCodeBtn = document.getElementById("attic-menu-link-code");
+  if (linkCodeBtn && !linkCodeBtn.__waifuBound) {
+    linkCodeBtn.__waifuBound = true;
+    linkCodeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeMenu();
+      openLinkCodeModal();
+    });
+  }
 }
 
 function registerWaifuServiceWorker() {
@@ -15564,6 +15770,8 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   initSettingsPage,
   openSettingsNotifyModal,
   closeSettingsNotifyModal,
+  openLinkCodeModal,
+  closeLinkCodeModal,
   isAdminUiEnabled,
   syncAdminUiVisibility,
   setAdminUiEnabled,

@@ -16,7 +16,8 @@ const config = {
   server: {
     url: `${backend}/webapp/mobile/login.html?mobileClient=1`,
     cleartext: false,
-    allowNavigation: [host, "localhost", "10.0.2.2"],
+    // Keep OAuth inside the WebView so code+PKCE redirect returns to the APK.
+    allowNavigation: [host, "oauth.telegram.org", "telegram.org", "localhost", "10.0.2.2"],
   },
   android: {
     allowMixedContent: false,

@@ -145,7 +145,9 @@ class Settings(BaseSettings):
     armory_oidc_redirect_uri: str | None = Field(None, alias="ARMORY_OIDC_REDIRECT_URI")
     bot_username: str | None = Field(None, alias="BOT_USERNAME")
     telegram_oidc_client_id: str | None = Field(None, alias="TELEGRAM_OIDC_CLIENT_ID")
-
+    # BotFather → Web Login Client Secret (NOT bot token). Required for mobile
+    # authorization_code + PKCE exchange; unused by desktop post_message popup.
+    telegram_oidc_client_secret: str | None = Field(None, alias="TELEGRAM_OIDC_CLIENT_SECRET")
 
     # Desktop Electron interim auth (email/Telegram JWT via X-Desktop-Session)
     desktop_session_secret: str | None = Field(None, alias="DESKTOP_SESSION_SECRET")

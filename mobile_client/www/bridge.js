@@ -59,6 +59,9 @@
     getDesktopSessionToken() {
       return readSession();
     },
+    getAppVersion() {
+      return "0.0001";
+    },
     setDesktopSessionToken(token) {
       writeSession(token);
     },

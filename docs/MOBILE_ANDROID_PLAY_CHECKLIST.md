@@ -18,7 +18,7 @@
 
 ## Functional
 
-- [ ] Link Telegram via `/api/auth/link_code` + Google login
+- [ ] Link Telegram: APK «Войти через Telegram» (OIDC) или код из профиля TG + stage login
 - [ ] Starter dagger `attack_speed=3` granted in activity bag
 - [ ] Start dungeon with `economy=activity`
 - [ ] 2 steps → no hit; 3 steps → 1 TEXT hit

@@ -16,11 +16,13 @@ npm run android:smoke
 Device DoD:
 
 1. App opens; deny activity permission → no crash.
-2. Dev login (`google_sub_dev` + link_code) → session stored.
+2. Login: primary **Войти через Telegram** (OIDC) → session stored; fallback = код из профиля TG + stage `google_sub_dev`.
 3. Activity starter dagger present (`GET /api/activity/status`).
 4. Start dungeon `economy=activity`.
 5. Grant permission, walk, claim → hits when buffer ≥ min_chars.
 6. Telegram WebApp on same player: telegram inventory/run unchanged.
+
+См. также [MOBILE_TELEGRAM_LOGIN.md](MOBILE_TELEGRAM_LOGIN.md) (BotFather redirect URI).
 
 ## B. Backend-only (any machine with curl)
 
