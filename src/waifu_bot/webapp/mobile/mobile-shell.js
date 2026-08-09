@@ -1,10 +1,12 @@
 /**
- * Mobile shell: auth gate, swipe pager, steps claim, profile/inventory.
+ * Mobile shell: auth gate, swipe pager, TG page iframes, steps claim.
  */
 (function () {
   const qs = "mobileClient=1";
   const pager = document.getElementById("mobile-pager");
   const tabs = Array.from(document.querySelectorAll(".mobile-tabbar button"));
+  let cachedProfile = null;
+  const framesLoaded = new Set();
 
   function hasSession() {
     try {
@@ -25,18 +27,29 @@
 
   if (!requireSession()) return;
 
+  function ensureFrame(id) {
+    const frame = document.getElementById(id);
+    if (!frame || framesLoaded.has(id)) return;
+    const src = frame.getAttribute("data-src");
+    if (!src) return;
+    frame.src = src;
+    framesLoaded.add(id);
+  }
+
   function setTab(i) {
     const idx = Math.max(0, Math.min(3, i | 0));
     const page = pager.children[idx];
     if (page) page.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
     tabs.forEach((b, j) => b.classList.toggle("active", j === idx));
+    if (idx === 0) ensureFrame("frame-profile");
+    if (idx === 1) ensureFrame("frame-dungeons");
+    if (idx === 3) ensureFrame("frame-inventory");
   }
 
   tabs.forEach((btn) => {
     btn.addEventListener("click", () => setTab(Number(btn.getAttribute("data-goto") || 0)));
   });
 
-  // Sync tab highlight on scroll snap
   let scrollT = null;
   pager.addEventListener(
     "scroll",
@@ -46,12 +59,13 @@
         const w = pager.clientWidth || 1;
         const i = Math.round(pager.scrollLeft / w);
         tabs.forEach((b, j) => b.classList.toggle("active", j === i));
+        if (i === 0) ensureFrame("frame-profile");
+        if (i === 1) ensureFrame("frame-dungeons");
+        if (i === 3) ensureFrame("frame-inventory");
       }, 80);
     },
     { passive: true }
   );
-
-  // Axis-lock hint: native horizontal pager; vertical scroll stays inside .mobile-page
 
   document.getElementById("btn-logout")?.addEventListener("click", () => {
     try {
@@ -61,7 +75,6 @@
     window.location.replace(`/webapp/mobile/login.html?${qs}`);
   });
 
-  // Tutorial once
   const tut = document.getElementById("mobile-tutorial");
   try {
     if (!localStorage.getItem("waifuMobileTutorialV1") && tut) {
@@ -79,31 +92,50 @@
   async function waitBridge(ms) {
     const deadline = Date.now() + (ms || 5000);
     while (Date.now() < deadline) {
-      if (window.waifuMobile?.getStepSnapshot) return window.waifuMobile;
+      const b = window.waifuMobile;
+      if (b?.getStepSnapshot && (b.__nativeReady || b.__hasPlugin || b.requestActivityPermission)) {
+        return b;
+      }
+      if (b?.getStepSnapshot) return b;
       await new Promise((r) => setTimeout(r, 200));
     }
     return window.waifuMobile || null;
   }
 
+  function setOnboardVisible(show) {
+    const el = document.getElementById("waifu-onboard");
+    if (el) el.hidden = !show;
+  }
+
   async function refreshHub() {
     try {
       const p = await WaifuApp.apiFetch("/profile");
-      document.getElementById("hub-player").textContent = p?.player_id ?? p?.id ?? "—";
-      document.getElementById("hub-waifu").textContent = p?.main_waifu?.name || p?.waifu_name || "—";
+      cachedProfile = p;
+      const pid = p?.player_id ?? p?.id ?? "—";
+      document.getElementById("hub-player").textContent = String(pid);
+      const mw = p?.main_waifu;
+      document.getElementById("hub-waifu").textContent = mw?.name || "—";
       document.getElementById("hub-level").textContent =
-        p?.main_waifu?.level ?? p?.level ?? "—";
+        mw?.level != null ? String(mw.level) : "—";
+      setOnboardVisible(!mw);
+      return p;
     } catch (e) {
       document.getElementById("hub-player").textContent = String(e.message || e);
+      setOnboardVisible(false);
+      return null;
     }
   }
 
-  async function refreshDungeons() {
-    const el = document.getElementById("dungeon-list");
+  /** Fallback list if iframe fails; keeps ?act= for API contract. */
+  async function refreshDungeonsFallback() {
+    const el = document.getElementById("dungeon-list-fallback");
+    if (!el) return;
     try {
-      const data = await WaifuApp.apiFetch("/dungeons");
+      const act = Math.max(1, Math.min(5, Number(cachedProfile?.act || cachedProfile?.max_act || 1) || 1));
+      const data = await WaifuApp.apiFetch(`/dungeons?act=${act}`);
       const list = data?.dungeons || data || [];
       if (!Array.isArray(list) || !list.length) {
-        el.textContent = "Нет доступных данжей (или другой формат API).";
+        el.textContent = "Нет доступных данжей.";
         return;
       }
       el.innerHTML = list
@@ -133,44 +165,11 @@
   }
 
   async function refreshInventory() {
-    const el = document.getElementById("inv-list");
-    const eq = document.getElementById("profile-equip");
-    const note = document.getElementById("remap-note");
+    /* Inventory tab uses TG profile iframe; keep API warm for channel remap. */
     try {
-      // client=mobile triggers ensure_channel_overlays + resolved view
-      const data = await WaifuApp.apiFetch("/inventory?limit=50&offset=0&client=mobile");
-      const items = data?.items || data || [];
-      if (data?.channel_remap) {
-        note.textContent = data.channel_remap.message || "Бонусы чата адаптированы под mobile (sticky).";
-      } else {
-        note.textContent = "";
-      }
-      if (!Array.isArray(items) || !items.length) {
-        el.textContent = "Инвентарь пуст";
-        eq.textContent = "Нет экипа";
-        return;
-      }
-      el.innerHTML = items
-        .slice(0, 30)
-        .map((it) => {
-          const name = it.name || it.item_name || `#${it.id}`;
-          const ch = it.resolved_channel || "mobile";
-          const bonus = (it.resolved_bonuses || it.affixes || [])
-            .slice(0, 3)
-            .map((a) => a.name || a.stat || a.effect_key || "?")
-            .join(", ");
-          return `<div style="margin:8px 0;padding-bottom:8px;border-bottom:1px solid #2a3344">
-            <strong>${name}</strong> <span class="muted">[${ch}]</span><br/>
-            <span class="muted">${bonus || "база без канальных бонусов"}</span></div>`;
-        })
-        .join("");
-      const equipped = items.filter((it) => it.equipment_slot > 0);
-      eq.innerHTML = equipped.length
-        ? equipped.map((it) => it.name || `#${it.id}`).join(", ")
-        : "Ничего не надето";
-    } catch (e) {
-      el.textContent = String(e.message || e);
-      eq.textContent = "—";
+      await WaifuApp.apiFetch("/inventory?limit=1&offset=0&economy=activity&client=mobile");
+    } catch (_) {
+      /* ignore */
     }
   }
 
@@ -185,6 +184,7 @@
       total: snap?.total != null ? Number(snap.total) : null,
       permission: snap?.permission,
       sensor: snap?.sensor,
+      ready: !!(bridge.__nativeReady || bridge.__hasPlugin),
     };
   }
 
@@ -194,10 +194,16 @@
     document.getElementById("act-total").textContent = snap.total != null ? String(snap.total) : "—";
     document.getElementById("act-pending").textContent =
       snap.permission === "unavailable" ? "—" : String(snap.units);
-    if (snap.permission === "granted") el.textContent = `Шагомер: OK (${snap.sensor || "sensor"})`;
-    else if (snap.permission === "denied") el.textContent = "Шагомер: отказано";
-    else if (snap.permission === "unavailable") el.textContent = "Шагомер: plugin недоступен — обновите APK";
-    else el.textContent = "Шагомер: нужно разрешение";
+    if (snap.permission === "granted") {
+      el.textContent = `Шагомер: OK (${snap.sensor || "sensor"})`;
+    } else if (snap.permission === "denied") {
+      el.textContent = "Шагомер: отказано — включите в настройках Android";
+    } else if (snap.permission === "unavailable") {
+      el.textContent =
+        "Шагомер: plugin недоступен — сверните и снова откройте приложение (или пересоберите APK)";
+    } else {
+      el.textContent = "Шагомер: нужно разрешение";
+    }
   }
 
   async function refreshStatus() {
@@ -212,7 +218,7 @@
       if (soft) {
         soft.textContent =
           today >= 10000
-            ? `Сегодня ${today} ед. — soft-cap зона (отдача ниже, см. баланс).`
+            ? `Сегодня ${today} ед. — soft-cap зона (отдача ниже).`
             : `Дневной soft-cap ориентир ~10k шагов (сейчас ${today}).`;
       }
     } catch (e) {
@@ -221,8 +227,29 @@
   }
 
   document.getElementById("act-perm-btn")?.addEventListener("click", async () => {
-    await waitBridge(5000);
-    await window.waifuMobile?.requestActivityPermission?.();
+    const hint = document.getElementById("activity-hint");
+    const bridge = await waitBridge(6000);
+    if (!bridge?.requestActivityPermission) {
+      if (hint) {
+        hint.textContent =
+          "Мост шагомера не подключён. Сверните приложение и откройте снова — или переустановите APK.";
+      }
+      await updatePerm();
+      return;
+    }
+    try {
+      const r = await bridge.requestActivityPermission();
+      if (hint) {
+        hint.textContent =
+          r?.permission === "granted"
+            ? "Доступ к шагомеру выдан"
+            : r?.permission === "denied"
+              ? "Доступ отклонён"
+              : `Статус: ${r?.permission || "unknown"}`;
+      }
+    } catch (e) {
+      if (hint) hint.textContent = String(e.message || e);
+    }
     await updatePerm();
   });
 
@@ -230,25 +257,32 @@
     const btn = document.getElementById("act-claim");
     btn.disabled = true;
     try {
-      await waitBridge(2000);
-      const snap = await readSteps();
+      const bridge = await waitBridge(3000);
+      if (!bridge?.getStepSnapshot) {
+        document.getElementById("activity-hint").textContent =
+          "Нет native-моста — нельзя забрать шаги. Сверните/откройте приложение.";
+        return;
+      }
+      let snap = await readSteps();
+      let units = Math.max(0, snap.units);
+      let total = snap.total;
+      if (units <= 0 && bridge.consumePendingSteps) {
+        const c = await bridge.consumePendingSteps();
+        units = Number(c?.units || 0);
+        total = c?.total ?? total;
+      }
       const body = {
         source: "mobile_steps",
-        units: Math.max(0, snap.units),
-        client_counter_total: snap.total,
+        units,
+        client_counter_total: total,
       };
-      if (body.units <= 0 && window.waifuMobile?.consumePendingSteps) {
-        const c = await window.waifuMobile.consumePendingSteps();
-        body.units = Number(c?.units || 0);
-        body.client_counter_total = c?.total ?? body.client_counter_total;
-      }
       const out = await WaifuApp.apiFetch("/activity/input/claim", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (body.units > 0 && window.waifuMobile?.consumePendingSteps) {
-        await window.waifuMobile.consumePendingSteps();
+      if (units > 0 && bridge.consumePendingSteps) {
+        await bridge.consumePendingSteps();
       }
       document.getElementById("activity-hint").textContent = out.hits_applied
         ? `Ударов: ${out.hits_applied}. Буфер: ${out.buffer_left}`
@@ -271,7 +305,16 @@
 
   (async function boot() {
     await waitBridge(4000);
-    await Promise.all([refreshHub(), refreshDungeons(), refreshInventory(), refreshStatus(), updatePerm()]);
+    const profile = await refreshHub();
+    ensureFrame("frame-profile");
+    await Promise.all([refreshInventory(), refreshStatus(), updatePerm()]);
+    // Warm dungeons API with correct act (iframe uses full TG page).
+    try {
+      const act = Math.max(1, Math.min(5, Number(profile?.act || profile?.max_act || 1) || 1));
+      await WaifuApp.apiFetch(`/dungeons?act=${act}`);
+    } catch (_) {
+      await refreshDungeonsFallback();
+    }
     setInterval(() => {
       if (document.visibilityState === "visible") updatePerm();
     }, 2500);

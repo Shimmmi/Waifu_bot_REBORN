@@ -109,11 +109,20 @@ function mobileRelativePage(page) {
     document.body?.classList?.contains("page-mobile-shell") ||
     document.body?.classList?.contains("page-mobile-login");
   if (isMobileClient() && !inMobileDir) {
+    if (page === "login") return `/webapp/mobile/login.html?mobileClient=1`;
+    // Keep TG pages navigable inside shell iframes (profile/dungeons/etc.).
     if (page === "activity" || page === "index" || page === "home") {
       return `/webapp/mobile/shell.html?mobileClient=1`;
     }
-    if (page === "login") return `/webapp/mobile/login.html?mobileClient=1`;
-    return `/webapp/mobile/shell.html?mobileClient=1`;
+    const map = {
+      profile: `/webapp/profile.html?mobileClient=1`,
+      dungeons: `/webapp/dungeons.html?mobileClient=1&economy=activity`,
+      inventory: `/webapp/profile.html?mobileClient=1&tab=inventory`,
+      player: `/webapp/player.html?mobileClient=1`,
+      waifu_generator: `/webapp/waifu_generator.html?mobileClient=1`,
+    };
+    if (map[page]) return map[page];
+    return `./${page}`;
   }
   return `./${page}`;
 }

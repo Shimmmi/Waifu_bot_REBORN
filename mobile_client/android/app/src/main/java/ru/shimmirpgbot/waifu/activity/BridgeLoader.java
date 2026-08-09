@@ -5,14 +5,11 @@ import android.webkit.WebView;
 /**
  * Injects window.waifuMobile into the Capacitor WebView (remote server.url pages).
  * Waits for Capacitor and resolves WaifuStepCounter via Plugins or registerPlugin.
+ * Keep in sync with mobile_client/src/bridge.js.
  */
 public final class BridgeLoader {
     private BridgeLoader() {}
 
-    /**
-     * Full bridge body (keep in sync with mobile_client/src/bridge.js).
-     * Always reassigns window.waifuMobile so a late Capacitor load upgrades a cold stub.
-     */
     public static final String INLINE_STUB =
         "(function(g){"
         + "var last=null,total=0,perm='prompt',pluginRef=null;"
@@ -33,7 +30,8 @@ public final class BridgeLoader {
         + "if(!plugin||typeof plugin.getSnapshot!=='function'){"
         + "return{total:total,deltaSinceLastClaim:0,pendingDelta:0,permission:'unavailable',sensor:'none'};}"
         + "var snap=await plugin.getSnapshot();total=Number(snap.total||0);perm=snap.permission||perm;"
-        + "var d=last==null?0:Math.max(0,total-last);"
+        + "if(last==null&&isFinite(total)){last=total;}"
+        + "var d=Math.max(0,total-Number(last||0));"
         + "return{total:total,deltaSinceLastClaim:d,pendingDelta:d,permission:perm,sensor:snap.sensor||null};},"
         + "consumePendingSteps:async function(){var snap=await g.waifuMobile.getStepSnapshot();"
         + "var u=Number(snap.deltaSinceLastClaim||0);if(snap.total!=null)last=Number(snap.total);"
