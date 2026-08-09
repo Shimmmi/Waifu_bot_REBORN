@@ -172,6 +172,13 @@
             >
               Автовход в подземелье
             </button>
+            <button
+              type="button"
+              class="list-item settings-list-btn settings-list-btn--chevron"
+              id="settings-open-link-code"
+            >
+              Код для Mobile / Steam
+            </button>
             <div class="list-item settings-toggle-row" id="settings-admin-row" style="display: none">
               <span class="settings-toggle-label">Админ</span>
               <label class="settings-switch">
@@ -351,6 +358,35 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn primary" id="settings-solo-auto-done">Готово</button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="settings-link-code-modal"
+      class="modal settings-notify-modal"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-link-code-title"
+    >
+      <div class="modal-content settings-notify-panel">
+        <div class="modal-head">
+          <div class="modal-title" id="settings-link-code-title">Код для Mobile / Steam</div>
+          <button type="button" class="secondary" id="settings-link-code-close" aria-label="Закрыть">✖</button>
+        </div>
+        <div class="modal-body settings-notify-body">
+          <p class="muted tiny settings-notify-hint">
+            Введите код в приложении Mobile (APK) или Steam на экране входа. Код одноразовый, действует несколько минут.
+          </p>
+          <p id="settings-link-code-value" class="settings-link-code-value" aria-live="polite">—</p>
+          <p id="settings-link-code-ttl" class="muted tiny"></p>
+          <p id="settings-link-code-err" class="muted tiny" role="status"></p>
+        </div>
+        <div class="modal-footer" style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn primary" id="settings-link-code-issue">Получить код</button>
+          <button type="button" class="btn secondary" id="settings-link-code-copy" disabled>Скопировать</button>
+          <button type="button" class="btn secondary" id="settings-link-code-done">Готово</button>
         </div>
       </div>
     </div>

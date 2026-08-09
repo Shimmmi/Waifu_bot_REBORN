@@ -1,0 +1,53 @@
+#!/usr/bin/env node
+/**
+ * Ensure www/ ships bridge.js and a bootstrap index that defines window.waifuMobile
+ * before any remote/local app scripts. Used for bundled builds; remote server.url
+ * loads still need the Android WebView to inject the bridge (see setup_android_project).
+ */
+const fs = require("fs");
+const path = require("path");
+
+const root = path.join(__dirname, "..");
+const www = path.join(root, "www");
+const bridgeSrc = path.join(root, "src", "bridge.js");
+const bridgeDst = path.join(www, "bridge.js");
+
+if (!fs.existsSync(www)) fs.mkdirSync(www, { recursive: true });
+fs.copyFileSync(bridgeSrc, bridgeDst);
+
+const indexPath = path.join(www, "index.html");
+const html = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Waifu Activity</title>
+  <script src="./bridge.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 2rem; background: #12141a; color: #f5f0e6; }
+    a { color: #f0c565; }
+    code { background: #1e2430; padding: 0.15rem 0.35rem; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Waifu Activity</h1>
+  <p>Bundled shell. Dev builds usually load the remote WebApp via <code>capacitor.config.ts</code> <code>server.url</code>.</p>
+  <p><code>window.waifuMobile</code> is defined by <code>bridge.js</code>.</p>
+  <p><a id="go" href="#">Open activity UI</a></p>
+  <script>
+    (function () {
+      var base = (window.WAIFU_MOBILE_BACKEND_URL || "").replace(/\\/$/, "");
+      var a = document.getElementById("go");
+      if (base) {
+        a.href = base + "/webapp/activity.html?mobileClient=1&economy=activity";
+      } else {
+        a.textContent = "Set WAIFU_MOBILE_BACKEND_URL or use Capacitor server.url";
+        a.removeAttribute("href");
+      }
+    })();
+  </script>
+</body>
+</html>
+`;
+fs.writeFileSync(indexPath, html);
+console.log("Injected bridge into www/ (" + bridgeDst + ")");

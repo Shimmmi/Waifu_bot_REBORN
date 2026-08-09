@@ -1,0 +1,165 @@
+/*
+ * Steam desktop client (Electron) theming overrides.
+ *
+ * Loaded ONLY when app.js detects window.waifuDesktop / ?desktopClient=1
+ * (see applyDesktopClientTheme() in app.js), which adds the `desktop-client`
+ * class to <html>. Every rule below is scoped under that class, so this file
+ * has zero effect on the Telegram WebApp / browser flows — no HTML pages are
+ * duplicated for the Steam client, only this stylesheet differs (see plan
+ * §2.4: shared HTML+JS, CSS theming only).
+ *
+ * Two window "modes" are distinguished via a second class the Electron shell
+ * sets on <html> (desktop_client/renderer/overlay-bootstrap.js):
+ *   - `desktop-client desktop-window`  -> normal draggable/tabbed windows
+ *     (shop, tavern, guild hall, ...), opaque background, regular chrome.
+ *   - `desktop-client desktop-overlay` -> the always-on-top corner overlay
+ *     showing the main waifu (Bongo-Cat-style); fully transparent background
+ *     so only the waifu sprite + minimal HUD is visible over the desktop.
+ */
+
+html.desktop-client.desktop-overlay,
+html.desktop-client.desktop-overlay body,
+html.desktop-client.desktop-overlay .screen {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+/* Overlay shows only the player's waifu card from battle.html (id="waifu-image"
+   inside .battle-waifu) — everything else on that page (attic header, enemy
+   card, battle log, controls, bottom nav) is hidden. Selectors match the
+   real battle.html structure (see webapp/battle.html), no markup was added. */
+html.desktop-client.desktop-overlay header.attic,
+html.desktop-client.desktop-overlay .battle-header,
+html.desktop-client.desktop-overlay .battle-enemy,
+html.desktop-client.desktop-overlay .battle-log,
+html.desktop-client.desktop-overlay .battle-controls,
+html.desktop-client.desktop-overlay .battle-story-narrative,
+html.desktop-client.desktop-overlay nav.basement {
+  display: none !important;
+}
+
+html.desktop-client.desktop-overlay .battle-screen {
+  padding: 0;
+  gap: 0;
+}
+
+html.desktop-client.desktop-overlay .battle-waifu,
+html.desktop-client.desktop-overlay .waifu-card {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Whole overlay window is draggable (it is frameless, see
+   desktop_client/src/windows/overlayWindow.js) so the user can move the
+   corner waifu anywhere on screen, Bongo-Cat-style. Buttons/links inside
+   still work — Electron only treats plain background drags as window moves. */
+html.desktop-client.desktop-overlay body {
+  -webkit-app-region: drag;
+}
+
+html.desktop-client.desktop-overlay button,
+html.desktop-client.desktop-overlay a,
+html.desktop-client.desktop-overlay input,
+html.desktop-client.desktop-overlay [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
+/* Tab windows (420×420, frameless): fixed viewport + top drag strip + close ×. */
+html.desktop-client.desktop-window,
+html.desktop-client.desktop-window body {
+  width: 420px !important;
+  height: 420px !important;
+  min-width: 420px !important;
+  max-width: 420px !important;
+  min-height: 420px !important;
+  max-height: 420px !important;
+  overflow: hidden;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+html.desktop-client.desktop-window body {
+  padding-bottom: 0 !important;
+  position: relative;
+}
+
+html.desktop-client.desktop-window body[class*="page-"] {
+  min-height: 420px !important;
+  max-height: 420px !important;
+  height: 420px !important;
+}
+
+html.desktop-client.desktop-window header.attic,
+html.desktop-client.desktop-window nav.basement {
+  display: none !important;
+}
+
+html.desktop-client.desktop-window .desktop-titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 28px;
+  z-index: 100001;
+  pointer-events: auto;
+  -webkit-app-region: drag;
+  box-sizing: border-box;
+}
+
+html.desktop-client.desktop-window .desktop-close-btn {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  width: 28px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(30, 32, 48, 0.92);
+  color: #e8e8f0;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+html.desktop-client.desktop-window .desktop-close-btn:hover {
+  background: rgba(180, 60, 60, 0.92);
+  color: #fff;
+}
+
+html.desktop-client.desktop-window #steam-viewport {
+  width: 100%;
+  height: calc(420px - 28px);
+  margin-top: 28px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+html.desktop-client.desktop-window #steam-viewport .shop-stage-bg,
+html.desktop-client.desktop-window #steam-viewport .title-screen-bg {
+  pointer-events: none;
+}
+
+html.desktop-client.desktop-window button,
+html.desktop-client.desktop-window a,
+html.desktop-client.desktop-window input,
+html.desktop-client.desktop-window textarea,
+html.desktop-client.desktop-window select,
+html.desktop-client.desktop-window [role="button"],
+html.desktop-client.desktop-window [contenteditable],
+html.desktop-client.desktop-window [onclick],
+html.desktop-client.desktop-window .dungeon-tile,
+html.desktop-client.desktop-window .shop-item-card {
+  -webkit-app-region: no-drag;
+}
+
+/* Auth notice: identical layout to the Telegram one, just themed to match
+   the frameless dark window instead of assuming a Telegram in-app browser. */
+html.desktop-client .webapp-auth-notice {
+  margin: 48px auto;
+  max-width: 420px;
+}

@@ -17,3 +17,5 @@ dramatiq[redis]>=1.17.0
 httpx>=0.27.0
 PyYAML>=6.0.0
 
+bcrypt>=4.0.0,<5
+Pillow==10.2.0

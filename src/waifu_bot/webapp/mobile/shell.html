@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ru" class="mobile-client">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Waifu Mobile</title>
+  <link rel="stylesheet" href="/webapp/mobile-theme.css" />
+  <link rel="stylesheet" href="/webapp/mobile/mobile-shell.css" />
+  <script src="/webapp/vendor/telegram-web-app.js"></script>
+</head>
+<body class="page-mobile-shell">
+  <div id="mobile-tutorial" class="mobile-tutorial" hidden>
+    <div class="mobile-tutorial-card">
+      <h2>Добро пожаловать</h2>
+      <p class="muted" id="tutorial-text">1) Разрешите шагомер · 2) Пройдите ~100 шагов · 3) Заберите урон. Бонусы чата на предметах адаптируются под шаги после привязки аккаунта.</p>
+      <button type="button" id="tutorial-next">Понятно</button>
+    </div>
+  </div>
+
+  <div class="mobile-pager" id="mobile-pager">
+    <section class="mobile-page" data-tab="0" id="tab-hubs">
+      <div class="mobile-banner">Общий профиль с Telegram/Steam после привязки. Инвентарь общий; бонусы — по каналу клиента.</div>
+      <div class="mobile-card">
+        <h2>Хабы</h2>
+        <p class="muted">Свайп влево/вправо или нижние вкладки. Player: <strong id="hub-player">—</strong></p>
+        <p class="muted">Вайфу: <strong id="hub-waifu">—</strong> · ур. <strong id="hub-level">—</strong></p>
+        <button type="button" class="mobile-btn secondary" id="btn-logout">Выйти (сбросить сессию)</button>
+      </div>
+    </section>
+
+    <section class="mobile-page" data-tab="1" id="tab-dungeons">
+      <div class="mobile-card">
+        <h2>Данжи</h2>
+        <p class="muted">Старт с economy=activity (бой от шагов). Список:</p>
+        <div id="dungeon-list" class="muted">Загрузка…</div>
+      </div>
+    </section>
+
+    <section class="mobile-page" data-tab="2" id="tab-steps">
+      <div class="mobile-card" id="activity-card">
+        <h2>Шаги → удар</h2>
+        <p class="muted" id="activity-hint">Каждый шаг = 1 символ. Скорость оружия = min_chars.</p>
+        <div class="mobile-meter"><span>Буфер: <strong id="act-buffer">0</strong></span><span>До удара: <strong id="act-need">—</strong></span></div>
+        <div class="mobile-meter"><span>Мин. символов: <strong id="act-min">3</strong></span><span>Сегодня: <strong id="act-today">0</strong></span></div>
+        <div class="mobile-meter"><span>Шаги: <strong id="act-total">—</strong></span><span>С забора: <strong id="act-pending">—</strong></span></div>
+        <p class="muted" id="act-softcap">Дневной soft-cap: после ~10k шагов отдача снижается (см. баланс).</p>
+        <p class="muted" id="act-perm">Разрешение: проверка…</p>
+        <button type="button" class="mobile-btn primary" id="act-claim">Забрать урон за шаги</button>
+        <button type="button" class="mobile-btn secondary" id="act-perm-btn">Запросить доступ к шагомеру</button>
+      </div>
+    </section>
+
+    <section class="mobile-page" data-tab="3" id="tab-profile">
+      <div class="mobile-card">
+        <h2>Профиль</h2>
+        <p class="muted">Экип (resolved для mobile — common + m_bonus):</p>
+        <div id="profile-equip" class="muted">Загрузка…</div>
+        <p class="muted" id="remap-note"></p>
+      </div>
+      <div class="mobile-card">
+        <h2>Инвентарь</h2>
+        <div id="inv-list" class="muted">Загрузка…</div>
+      </div>
+    </section>
+  </div>
+
+  <nav class="mobile-tabbar" aria-label="Навигация">
+    <button type="button" data-goto="0" class="active">Хабы</button>
+    <button type="button" data-goto="1">Данжи</button>
+    <button type="button" data-goto="2">Шаги</button>
+    <button type="button" data-goto="3">Профиль</button>
+  </nav>
+
+  <script src="/webapp/app.js"></script>
+  <script src="/webapp/mobile/mobile-shell.js"></script>
+</body>
+</html>

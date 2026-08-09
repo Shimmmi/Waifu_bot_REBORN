@@ -102,6 +102,10 @@ from waifu_bot.api.library_routes import router as library_router
 from waifu_bot.api.abyss_routes import router as abyss_router
 from waifu_bot.api.perfection_routes import router as perfection_router
 from waifu_bot.api.solo_dungeon_auto_routes import router as solo_dungeon_auto_router
+from waifu_bot.api.auth_routes import router as auth_router
+from waifu_bot.api.desktop_auth_routes import router as desktop_auth_router
+from waifu_bot.api.pc_client_routes import router as pc_client_router
+from waifu_bot.api.activity_routes import router as activity_router
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +128,10 @@ router.include_router(library_router)
 router.include_router(abyss_router)
 router.include_router(perfection_router)
 router.include_router(solo_dungeon_auto_router)
+router.include_router(auth_router)
+router.include_router(desktop_auth_router)
+router.include_router(pc_client_router)
+router.include_router(activity_router)
 
 # Вторичные бонусы с предметов (шаблон + зачарование) и аффиксы с effect_key *_pct.
 # Значение в аффиксе — целое число в сотых долях процента: 150 => 1.50% => +0.015 к сумме.
@@ -1376,6 +1384,9 @@ async def equip_item(
     if not equip_check.can_equip:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="; ".join(equip_check.errors))
 
+    # Unequip only within the same economy (telegram vs activity bags are independent).
+    item_economy = getattr(inv, "economy", None) or "telegram"
+
     # Для двуручного оружия (weapon_2h) освобождаем оба слота
     if inv.slot_type == "weapon_2h":
         for s in [1, 2]:
@@ -1383,6 +1394,7 @@ async def equip_item(
                 select(m.InventoryItem).where(
                     m.InventoryItem.player_id == player_id,
                     m.InventoryItem.equipment_slot == s,
+                    m.InventoryItem.economy == item_economy,
                 )
             )
             for it in existing.scalars().all():
@@ -1394,6 +1406,7 @@ async def equip_item(
             select(m.InventoryItem).where(
                 m.InventoryItem.player_id == player_id,
                 m.InventoryItem.equipment_slot == slot,
+                m.InventoryItem.economy == item_economy,
             )
         )
         for it in existing.scalars().all():

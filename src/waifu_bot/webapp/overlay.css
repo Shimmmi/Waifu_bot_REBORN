@@ -1,0 +1,830 @@
+/*
+ * Steam desktop client companion overlay (overlay.html + pages/overlay.js).
+ *
+ * Standalone stylesheet — intentionally not part of styles.css: the overlay
+ * window is transparent and always-on-top, so everything here is designed
+ * around "floating HUD over the desktop" rather than a normal page.
+ *
+ * Animation states (classes on #ov-root, managed by pages/overlay.js):
+ *   state-sleep          AFK, no dungeon   — dimmed portrait, breathing, Zzz
+ *   state-sleep-dungeon  AFK, in dungeon   — same + monster dimmed with Zzz
+ *   state-battle         active, dungeon   — .lunge on portrait per click
+ *   state-idle           active, no dungeon— sway + random micro-emotes
+ *   state-dead           waifu HP = 0      — grayscale + halo (top priority)
+ *   is-lowhp             HP < 25%          — red pulse (additive modifier)
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  user-select: none;
+  height: 100%;
+}
+
+/* Whole window is a drag region (frameless Electron window); interactive
+   controls opt out below. */
+body {
+  -webkit-app-region: drag;
+}
+
+button {
+  -webkit-app-region: no-drag;
+}
+
+#ov-root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 6px;
+  gap: 4px;
+}
+
+/* ── Bottom bar: resources + menu ──────────────────────────────────────── */
+.ov-bottombar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ov-resources {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ov-res {
+  background: rgba(20, 22, 34, 0.85);
+  color: #ffd76a;
+  border-radius: 10px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+#ov-menu-btn {
+  background: rgba(20, 22, 34, 0.85);
+  color: #e8e8f0;
+  border: none;
+  border-radius: 10px;
+  width: 30px;
+  height: 26px;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+#ov-menu-btn:hover {
+  background: rgba(50, 54, 78, 0.95);
+}
+
+/* ── Dropdown menu ─────────────────────────────────────────────────────── */
+#ov-menu {
+  position: absolute;
+  bottom: 38px;
+  right: 6px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: rgba(20, 22, 34, 0.97);
+  border: 1px solid rgba(120, 130, 180, 0.35);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+}
+
+#ov-menu.hidden {
+  display: none;
+}
+
+#ov-menu button {
+  background: transparent;
+  border: none;
+  color: #e8e8f0;
+  text-align: left;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#ov-menu button:hover {
+  background: rgba(90, 100, 160, 0.35);
+}
+
+#ov-menu button.ov-menu-danger {
+  color: #f0c0a8;
+  border-top: 1px solid rgba(120, 130, 180, 0.25);
+}
+
+#ov-menu button.ov-menu-danger:hover {
+  background: rgba(140, 60, 50, 0.45);
+  color: #ffe8dc;
+}
+
+#ov-menu button.hidden,
+#ov-menu button[hidden] {
+  display: none;
+}
+
+/* ── Monster strip ─────────────────────────────────────────────────────── */
+.ov-monster {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(20, 22, 34, 0.85);
+  border-radius: 10px;
+  padding: 4px 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.ov-monster.hidden {
+  display: none;
+}
+
+.ov-monster-visual {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: none;
+}
+
+#ov-monster-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.ov-monster-zzz {
+  display: none;
+  position: absolute;
+  top: -6px;
+  right: -4px;
+  font-size: 13px;
+}
+
+.ov-monster-hitfx {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(circle, rgba(255, 235, 130, 0.95) 0%, rgba(255, 90, 60, 0.5) 55%, transparent 75%);
+}
+
+.ov-monster-hitfx.flash {
+  animation: ovHitFlash 0.22s ease-out;
+}
+
+@keyframes ovHitFlash {
+  0% { opacity: 1; transform: scale(0.7); }
+  100% { opacity: 0; transform: scale(1.25); }
+}
+
+.ov-monster-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ov-monster-name {
+  color: #f3b0b0;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+/* ── HP bars ───────────────────────────────────────────────────────────── */
+.ov-bar {
+  position: relative;
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.ov-bar-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 7px;
+  transition: width 0.25s ease-out;
+}
+
+.ov-bar-waifu .ov-bar-fill {
+  background: linear-gradient(90deg, #35c46f, #7ee08f);
+}
+
+.ov-bar-enemy .ov-bar-fill {
+  background: linear-gradient(90deg, #d8434f, #f08a5f);
+}
+
+.ov-bar-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* ── Waifu scene ───────────────────────────────────────────────────────── */
+.ov-scene {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.ov-stage {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.ov-portrait-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transform-origin: 50% 90%;
+}
+
+.ov-paperdoll {
+  position: relative;
+  width: min(100%, 160px);
+  height: min(100%, 160px);
+  aspect-ratio: 1;
+  transform-origin: 50% 90%;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+}
+
+.ov-paperdoll[hidden] {
+  display: none !important;
+}
+
+.ov-paperdoll.ov-paperdoll--active ~ #ov-portrait,
+.ov-paperdoll.ov-paperdoll--active ~ .ov-portrait-fallback {
+  display: none !important;
+}
+
+.ov-bone,
+.ov-attach {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 70%;
+  pointer-events: none;
+}
+
+.ov-bone[data-bone="root"] {
+  inset: 0;
+}
+
+.ov-bone[data-bone="hip"] {
+  transform-origin: 50% 78%;
+}
+
+.ov-bone[data-bone="torso"] {
+  transform-origin: 50% 55%;
+}
+
+.ov-bone[data-bone="head"] {
+  transform-origin: 50% 28%;
+}
+
+.ov-bone[data-bone="arm_r"] {
+  transform-origin: 62% 42%;
+}
+
+.ov-bone[data-bone="arm_l"] {
+  transform-origin: 38% 42%;
+}
+
+.ov-attach[data-attach="hand_r"] {
+  transform-origin: 72% 58%;
+}
+
+.ov-attach[data-attach="hand_l"] {
+  transform-origin: 28% 58%;
+}
+
+.ov-paperdoll-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.ov-paperdoll-layer[data-layer="equip_weapon"],
+.ov-paperdoll-layer[data-layer="equip_offhand"] {
+  z-index: 8;
+}
+
+.ov-paperdoll-layer[data-layer="hair"],
+.ov-paperdoll-layer[data-layer="eyes"],
+.ov-paperdoll-layer[data-layer="accessory"] {
+  z-index: 6;
+}
+
+.ov-paperdoll-layer[data-layer="equip_costume"] {
+  z-index: 4;
+}
+
+.ov-paperdoll-layer[data-layer="outfit"] {
+  z-index: 3;
+}
+
+.ov-paperdoll-layer[data-layer="race_feature"] {
+  z-index: 2;
+}
+
+.ov-paperdoll-layer[data-layer="base"] {
+  z-index: 1;
+}
+
+/* When RO paperdoll is active, bone runtime owns idle motion — dampen wrap sway */
+.ov-portrait-wrap:has(.ov-paperdoll--active) {
+  animation: none !important;
+}
+
+.state-idle .ov-portrait-wrap:has(.ov-paperdoll--active) {
+  animation: none !important;
+}
+
+.ov-monster-target {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.ov-monster-target.hidden {
+  display: none;
+}
+
+#ov-monster-target-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.55));
+}
+
+.ov-monster-target .ov-monster-hitfx {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.ov-monster-target .ov-monster-hitfx.flash {
+  animation: ovHitFlash 0.22s ease-out;
+}
+
+#ov-root.has-combat-target .ov-monster-visual {
+  display: none;
+}
+
+.ov-status-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 38%;
+  transform: translateX(-50%);
+  max-width: 92%;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(20, 22, 36, 0.88);
+  color: #b8bdd4;
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 20;
+}
+
+.ov-status-toast.visible {
+  opacity: 1;
+}
+
+#ov-portrait {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 14px;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+  transition: filter 0.6s ease;
+}
+
+.ov-portrait-fallback {
+  font-size: 84px;
+  line-height: 1;
+  opacity: 0.75;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+}
+
+/* Floating FX layer (damage numbers) */
+.ov-fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.ov-dmg {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  transform: translateX(-50%);
+  font-size: 18px;
+  font-weight: 800;
+  color: #ffec8a;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  animation: ovDmgFloat 1.2s ease-out forwards;
+}
+
+.ov-dmg.crit {
+  font-size: 24px;
+  color: #ff7a5c;
+}
+
+@keyframes ovDmgFloat {
+  0% { opacity: 0; transform: translate(-50%, 10px) scale(0.7); }
+  15% { opacity: 1; transform: translate(-50%, 0) scale(1.1); }
+  100% { opacity: 0; transform: translate(-50%, -46px) scale(1); }
+}
+
+/* Zzz bubbles (sleep states) */
+.ov-zzz {
+  display: none;
+  position: absolute;
+  top: 4%;
+  right: 12%;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.ov-zzz span {
+  display: block;
+  position: absolute;
+  right: 0;
+  font-size: 16px;
+  opacity: 0;
+  animation: ovZzz 3.6s ease-in-out infinite;
+}
+
+.ov-zzz span:nth-child(2) {
+  font-size: 13px;
+  animation-delay: 1.2s;
+}
+
+.ov-zzz span:nth-child(3) {
+  font-size: 10px;
+  animation-delay: 2.4s;
+}
+
+@keyframes ovZzz {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.8); }
+  25% { opacity: 0.9; }
+  100% { opacity: 0; transform: translate(-14px, -30px) scale(1.25); }
+}
+
+/* Halo (dead state) */
+.ov-halo {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  font-size: 22px;
+  pointer-events: none;
+  animation: ovHalo 2.4s ease-in-out infinite;
+}
+
+@keyframes ovHalo {
+  0%, 100% { transform: translate(-50%, 0); }
+  50% { transform: translate(-50%, -5px); }
+}
+
+/* Idle emote bubble */
+.ov-idle-emote {
+  position: absolute;
+  top: 8%;
+  left: 16%;
+  z-index: 5;
+  font-size: 20px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ov-idle-emote.play {
+  animation: ovEmote 2.2s ease-out forwards;
+}
+
+@keyframes ovEmote {
+  0% { opacity: 0; transform: translateY(6px) scale(0.6); }
+  20% { opacity: 1; transform: translateY(0) scale(1.1); }
+  70% { opacity: 1; transform: translateY(-8px) scale(1); }
+  100% { opacity: 0; transform: translateY(-18px) scale(0.9); }
+}
+
+/* ── Waifu HUD (name + HP + status) ────────────────────────────────────── */
+.ov-waifu-hud {
+  background: rgba(20, 22, 34, 0.85);
+  border-radius: 10px;
+  padding: 5px 8px 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.ov-waifu-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 3px;
+  min-width: 0;
+}
+
+.ov-waifu-name {
+  color: #e8e8f0;
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.ov-waifu-level {
+  color: #9aa0b8;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ov-waifu-level:empty {
+  display: none;
+}
+
+/* Attack charge bar (clicks toward next strike, driven by weapon attack_speed) */
+.ov-attack-charge {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.45);
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.ov-attack-charge[aria-hidden="true"] {
+  display: none;
+}
+
+.ov-attack-charge-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #ffd76a, #ff9f43);
+  transition: width 0.08s linear;
+}
+
+.state-battle .ov-attack-charge {
+  display: block;
+}
+
+.state-battle .ov-portrait-wrap.charging {
+  filter: brightness(1.08);
+}
+
+/* Monster counter-attack placeholder FX on waifu portrait */
+.ov-monster-attack-fx {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  border-radius: 14px;
+  background: radial-gradient(circle at 50% 20%, rgba(255, 70, 70, 0.55) 0%, transparent 65%);
+  opacity: 0;
+}
+
+.ov-monster-attack-fx.play {
+  display: block;
+  animation: ovMonsterAttack 0.35s ease-out forwards;
+}
+
+@keyframes ovMonsterAttack {
+  0% { opacity: 0.85; transform: scale(0.95); }
+  100% { opacity: 0; transform: scale(1.05); }
+}
+
+/* ══ STATE: sleep (AFK) ════════════════════════════════════════════════ */
+.state-sleep #ov-portrait,
+.state-sleep .ov-portrait-fallback,
+.state-sleep .ov-paperdoll,
+.state-sleep-dungeon #ov-portrait,
+.state-sleep-dungeon .ov-portrait-fallback,
+.state-sleep-dungeon .ov-paperdoll {
+  filter: brightness(0.55) saturate(0.7) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+}
+
+.state-sleep .ov-portrait-wrap,
+.state-sleep-dungeon .ov-portrait-wrap {
+  animation: ovBreath 5s ease-in-out infinite;
+}
+
+@keyframes ovBreath {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.015) translateY(1px); }
+}
+
+.state-sleep .ov-zzz,
+.state-sleep-dungeon .ov-zzz {
+  display: block;
+}
+
+/* AFK in dungeon: the monster naps too */
+.state-sleep-dungeon #ov-monster-img,
+.state-sleep-dungeon #ov-monster-target-img {
+  filter: brightness(0.55) saturate(0.7);
+}
+
+.state-sleep-dungeon .ov-monster-zzz {
+  display: block;
+  animation: ovZzz 3.6s ease-in-out infinite;
+}
+
+/* ══ STATE: battle (active + dungeon) ══════════════════════════════════ */
+.state-battle .ov-portrait-wrap.lunge,
+.state-battle .ov-portrait-wrap.attack-play {
+  animation: ovLunge 0.16s ease-out;
+}
+
+@keyframes ovLunge {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  40% { transform: translate(14px, -5px) rotate(2.5deg) scale(1.03); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+.state-battle .ov-portrait-wrap[data-attack-type="ranged"].attack-play {
+  animation: ovRangedAttack 0.2s ease-out;
+}
+
+@keyframes ovRangedAttack {
+  0% { transform: translate(-4px, 0) scale(0.98); }
+  35% { transform: translate(12px, -4px) scale(1.02); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+.state-battle .ov-portrait-wrap[data-attack-type="magic"].attack-play {
+  animation: ovMagicAttack 0.24s ease-out;
+  filter: brightness(1.15) drop-shadow(0 0 8px rgba(160, 120, 255, 0.65));
+}
+
+@keyframes ovMagicAttack {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.04) translate(6px, -2px); }
+  100% { transform: scale(1); }
+}
+
+/* ══ STATE: idle (active, no dungeon) ══════════════════════════════════ */
+.state-idle .ov-portrait-wrap {
+  animation: ovSway 6s ease-in-out infinite;
+}
+
+@keyframes ovSway {
+  0%, 100% { transform: rotate(-0.7deg); }
+  50% { transform: rotate(0.7deg); }
+}
+
+.state-idle .ov-portrait-wrap.hop {
+  animation: ovHop 0.5s ease-out;
+}
+
+.state-idle .ov-portrait-wrap[data-idle-action="stretch"] {
+  animation: ovIdleStretch 1.4s ease-in-out;
+}
+
+.state-idle .ov-portrait-wrap[data-idle-action="yawn"] {
+  animation: ovIdleYawn 1.6s ease-in-out;
+}
+
+.state-idle .ov-portrait-wrap[data-idle-action="wave"] {
+  animation: ovIdleWave 1.2s ease-in-out;
+}
+
+.state-idle .ov-portrait-wrap[data-idle-action="read"] {
+  animation: ovIdleRead 2s ease-in-out;
+}
+
+.state-idle .ov-portrait-wrap[data-idle-action="tea"] {
+  animation: ovIdleTea 1.8s ease-in-out;
+}
+
+@keyframes ovIdleStretch {
+  0%, 100% { transform: scale(1) translateY(0); }
+  40% { transform: scale(1.03) translateY(-6px); }
+}
+
+@keyframes ovIdleYawn {
+  0%, 100% { transform: rotate(0deg); }
+  30% { transform: rotate(-3deg) scale(1.02); }
+  60% { transform: rotate(2deg); }
+}
+
+@keyframes ovIdleWave {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-8deg); }
+  50% { transform: rotate(8deg); }
+  75% { transform: rotate(-4deg); }
+}
+
+@keyframes ovIdleRead {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px) rotate(-1deg); }
+}
+
+@keyframes ovIdleTea {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-2px) rotate(2deg); }
+  70% { transform: translateY(-1px); }
+}
+
+@keyframes ovHop {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-9px); }
+  70% { transform: translateY(0); }
+  85% { transform: translateY(-3px); }
+}
+
+/* ══ STATE: dead (HP = 0) ══════════════════════════════════════════════ */
+.state-dead #ov-portrait,
+.state-dead .ov-portrait-fallback,
+.state-dead .ov-paperdoll {
+  filter: grayscale(1) brightness(0.7) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+}
+
+.state-dead .ov-halo {
+  display: block;
+}
+
+.state-dead .ov-bar-waifu .ov-bar-fill {
+  background: #555;
+}
+
+/* ══ MODIFIER: low HP (< 25%) ══════════════════════════════════════════ */
+.is-lowhp .ov-bar-waifu {
+  animation: ovLowHp 1.2s ease-in-out infinite;
+}
+
+.is-lowhp .ov-bar-waifu .ov-bar-fill {
+  background: linear-gradient(90deg, #d8434f, #f06a5f);
+}
+
+@keyframes ovLowHp {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(230, 60, 60, 0); }
+  50% { box-shadow: 0 0 8px 2px rgba(230, 60, 60, 0.8); }
+}
+
+/* ══ STATE: loading ════════════════════════════════════════════════════ */
+.state-loading .ov-portrait-wrap {
+  opacity: 0.6;
+  animation: ovBreath 2.4s ease-in-out infinite;
+}

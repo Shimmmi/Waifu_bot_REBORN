@@ -1,0 +1,19 @@
+{
+  "appId": "ru.shimmirpgbot.waifu.activity",
+  "appName": "Waifu Activity",
+  "webDir": "www",
+  "server": {
+    "url": "https://stage.shimmirpgbot.ru/webapp/mobile/login.html?mobileClient=1",
+    "cleartext": false,
+    "allowNavigation": [
+      "stage.shimmirpgbot.ru",
+      "oauth.telegram.org",
+      "telegram.org",
+      "localhost",
+      "10.0.2.2"
+    ]
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

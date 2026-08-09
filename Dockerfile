@@ -16,6 +16,14 @@ COPY alembic.ini .
 COPY alembic ./alembic
 COPY src ./src
 COPY scripts ./scripts
+# Seed SQL used by scripts/import_item_base_templates.py (and related imports).
+# Without this, `docker compose exec api python -m scripts.import_item_base_templates`
+# fails with FileNotFoundError: /app/info/item_base_templates_import.sql.
+COPY info ./info
+# Committed game art (nav icons, monsters, bosses, ...) served at /static
+# (see main.py static mount). Runtime-generated files (waifu portraits etc.)
+# are also written here; they re-sync from DB blobs after container recreate.
+COPY static ./static
 
 RUN useradd -m -u 10001 appuser && chown -R appuser:appuser /app
 USER appuser

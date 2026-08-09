@@ -5,10 +5,14 @@
  * SECRET_PREFIX — wrangler secret (см. README).
  */
 
-const OAUTH_UPSTREAM = {
+const OAUTH_GET_UPSTREAM = {
   "/oauth/.well-known/jwks.json": "https://oauth.telegram.org/.well-known/jwks.json",
   "/oauth/.well-known/openid-configuration":
     "https://oauth.telegram.org/.well-known/openid-configuration",
+};
+
+const OAUTH_POST_UPSTREAM = {
+  "/oauth/token": "https://oauth.telegram.org/token",
 };
 
 export default {
@@ -25,12 +29,30 @@ export default {
     }
 
     const upstreamPath = url.pathname.slice(expected.length);
-    const oauthTarget = OAUTH_UPSTREAM[upstreamPath];
-    if (oauthTarget) {
+    const oauthGetTarget = OAUTH_GET_UPSTREAM[upstreamPath];
+    if (oauthGetTarget) {
       if (request.method !== "GET" && request.method !== "HEAD") {
         return new Response("Method not allowed", { status: 405 });
       }
-      return fetch(oauthTarget, { method: request.method, redirect: "manual" });
+      return fetch(oauthGetTarget, { method: request.method, redirect: "manual" });
+    }
+
+    const oauthPostTarget = OAUTH_POST_UPSTREAM[upstreamPath];
+    if (oauthPostTarget) {
+      if (request.method !== "POST") {
+        return new Response("Method not allowed", { status: 405 });
+      }
+      const headers = new Headers();
+      for (const [key, value] of request.headers) {
+        if (key.toLowerCase() === "host") continue;
+        headers.append(key, value);
+      }
+      return fetch(oauthPostTarget, {
+        method: "POST",
+        headers,
+        body: request.body,
+        redirect: "manual",
+      });
     }
 
     if (

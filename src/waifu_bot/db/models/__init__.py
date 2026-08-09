@@ -5,6 +5,8 @@ from waifu_bot.db.models.chat_reward import (
     PlayerChatRewardWallet,
 )
 from waifu_bot.db.models.player import Player
+from waifu_bot.db.models.player_identity_link import PlayerIdentityLink
+from waifu_bot.db.models.email_credential import EmailCredential
 from waifu_bot.db.models.player_mail import PlayerMail, PlayerMailStatus
 from waifu_bot.db.models.hidden_skill import HiddenSkillDefinition, PlayerHiddenSkill
 from waifu_bot.db.models.passive_skill import PassiveSkillNode, PlayerPassiveSkill
@@ -121,6 +123,7 @@ from waifu_bot.db.models.abyss import (
     AbyssShardsShopItem,
 )
 from waifu_bot.db.models.perfection import PlayerPerfectionBonus, PlayerPerfectionPending
+from waifu_bot.db.models.activity import ActivityInputState, ActivityItemTemplate
 
 __all__ = [
     "PlayerEventLog",
@@ -128,6 +131,8 @@ __all__ = [
     "BotGroupChat",
     "PlayerBan",
     "Player",
+    "PlayerIdentityLink",
+    "EmailCredential",
     "PlayerChatRewardWallet",
     "PlayerChatActivityDaily",
     "PlayerChatActivityTotal",
@@ -241,4 +246,6 @@ __all__ = [
     "AbyssShardsShopItem",
     "PlayerPerfectionBonus",
     "PlayerPerfectionPending",
+    "ActivityInputState",
+    "ActivityItemTemplate",
 ]
