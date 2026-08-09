@@ -35,17 +35,25 @@ chmod +x gradlew 2>/dev/null || true
 ./gradlew assembleDebug
 cd "$ROOT"
 
-APK="$ROOT/android/app/build/outputs/apk/debug/app-debug.apk"
+OUT_DIR="$ROOT/android/app/build/outputs/apk/debug"
+APK="$OUT_DIR/app-debug.apk"
 if [[ ! -f "$APK" ]]; then
   echo "[FAIL] APK not found at $APK"
   find "$ROOT/android/app/build/outputs" -name '*.apk' 2>/dev/null || true
   exit 1
 fi
 
-VER="$(node -e "const v=require('./build_version.json');console.log(v.versionName+' (code '+v.versionCode+')')")"
+VER_NAME="$(node -e "console.log(require('./build_version.json').versionName)")"
+VER_CODE="$(node -e "console.log(require('./build_version.json').versionCode)")"
+# Keep Gradle's app-debug.apk as "latest" for install scripts; archive a versioned copy.
+ARCHIVED="$OUT_DIR/waifu-activity-debug-${VER_NAME}.apk"
+cp -f "$APK" "$ARCHIVED"
+
 echo
-echo "[OK] Debug APK: $APK"
-echo "[OK] App version: $VER"
+echo "[OK] App version: ${VER_NAME} (code ${VER_CODE})"
+echo "[OK] Latest (install): $APK"
+echo "[OK] Archived:         $ARCHIVED"
 echo "Install: ./scripts/install_debug_apk.sh"
-echo "On login screen look for: APK build ${VER%% *}"
-ls -lh "$APK"
+echo "On login screen look for: APK build ${VER_NAME}"
+ls -lht "$OUT_DIR"/*.apk 2>/dev/null | head -20
+
