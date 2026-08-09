@@ -6,6 +6,16 @@ html.mobile-client body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Shell already has its own tabbar — hide TG basement inside iframes. */
+html.mobile-client .nav.basement {
+  display: none !important;
+}
+
+html.mobile-client body {
+  /* Room for shell tabbar when page is standalone; iframes inherit shell padding. */
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0));
+}
+
 html.mobile-client .nav.basement a {
   min-height: 48px;
   min-width: 48px;

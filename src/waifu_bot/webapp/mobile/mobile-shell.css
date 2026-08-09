@@ -128,6 +128,61 @@ body.page-mobile-shell {
   box-sizing: border-box;
 }
 
+.mobile-page--frame {
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 calc(56px + env(safe-area-inset-bottom));
+  overflow: hidden;
+}
+
+.mobile-hub-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  background: #1c2230;
+  border-bottom: 1px solid #3a4558;
+  font-size: 0.8rem;
+  color: #9aa3b5;
+  flex: 0 0 auto;
+}
+
+.mobile-hub-strip strong {
+  color: #e8c56a;
+}
+
+.mobile-hub-logout {
+  margin-left: auto;
+  border: 0;
+  background: #3a4558;
+  color: #f5f0e6;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.mobile-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  border: 0;
+  background: #0f131a;
+  min-height: 0;
+}
+
+.mobile-onboard {
+  margin: 0;
+  border-radius: 0;
+  z-index: 15;
+}
+
+.mobile-onboard-link {
+  color: #fff;
+  font-weight: 700;
+  margin-left: 8px;
+}
+
 .mobile-tabbar {
   position: fixed;
   left: 0;

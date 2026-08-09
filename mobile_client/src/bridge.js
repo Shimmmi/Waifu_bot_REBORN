@@ -80,8 +80,11 @@
       const snap = await plugin.getSnapshot();
       cachedTotal = Number(snap.total || 0);
       permission = snap.permission || permission;
-      const delta =
-        lastClaimedTotal == null ? 0 : Math.max(0, cachedTotal - lastClaimedTotal);
+      // Prime baseline on first reading so UI shows 0 until new steps arrive.
+      if (lastClaimedTotal == null && Number.isFinite(cachedTotal)) {
+        lastClaimedTotal = cachedTotal;
+      }
+      const delta = Math.max(0, cachedTotal - Number(lastClaimedTotal || 0));
       return {
         total: cachedTotal,
         deltaSinceLastClaim: delta,

@@ -12,28 +12,41 @@
   <div id="mobile-tutorial" class="mobile-tutorial" hidden>
     <div class="mobile-tutorial-card">
       <h2>Добро пожаловать</h2>
-      <p class="muted" id="tutorial-text">1) Разрешите шагомер · 2) Пройдите ~100 шагов · 3) Заберите урон. Бонусы чата на предметах адаптируются под шаги после привязки аккаунта.</p>
+      <p class="muted" id="tutorial-text">1) Разрешите шагомер · 2) Пройдите шаги · 3) Заберите урон во вкладке «Шаги». Профиль и данжи — как в Telegram WebApp.</p>
       <button type="button" id="tutorial-next">Понятно</button>
     </div>
   </div>
 
+  <div id="waifu-onboard" class="mobile-banner mobile-onboard" hidden>
+    Нет основной вайфу.
+    <a class="mobile-onboard-link" id="waifu-onboard-link" href="/webapp/waifu_generator.html?mobileClient=1">Создать персонажа</a>
+  </div>
+
   <div class="mobile-pager" id="mobile-pager">
-    <section class="mobile-page" data-tab="0" id="tab-hubs">
-      <div class="mobile-banner">Общий профиль с Telegram/Steam после привязки. Инвентарь общий; бонусы — по каналу клиента.</div>
-      <div class="mobile-card">
-        <h2>Хабы</h2>
-        <p class="muted">Свайп влево/вправо или нижние вкладки. Player: <strong id="hub-player">—</strong></p>
-        <p class="muted">Вайфу: <strong id="hub-waifu">—</strong> · ур. <strong id="hub-level">—</strong></p>
-        <button type="button" class="mobile-btn secondary" id="btn-logout">Выйти (сбросить сессию)</button>
+    <section class="mobile-page mobile-page--frame" data-tab="0" id="tab-hubs">
+      <div class="mobile-hub-strip">
+        <span>ID <strong id="hub-player">—</strong></span>
+        <span>Вайфу <strong id="hub-waifu">—</strong></span>
+        <span>ур. <strong id="hub-level">—</strong></span>
+        <button type="button" class="mobile-hub-logout" id="btn-logout">Выйти</button>
       </div>
+      <iframe
+        class="mobile-frame"
+        id="frame-profile"
+        title="Профиль"
+        data-src="/webapp/profile.html?mobileClient=1"
+        loading="lazy"
+      ></iframe>
     </section>
 
-    <section class="mobile-page" data-tab="1" id="tab-dungeons">
-      <div class="mobile-card">
-        <h2>Данжи</h2>
-        <p class="muted">Старт с economy=activity (бой от шагов). Список:</p>
-        <div id="dungeon-list" class="muted">Загрузка…</div>
-      </div>
+    <section class="mobile-page mobile-page--frame" data-tab="1" id="tab-dungeons">
+      <iframe
+        class="mobile-frame"
+        id="frame-dungeons"
+        title="Данжи"
+        data-src="/webapp/dungeons.html?mobileClient=1&economy=activity"
+        loading="lazy"
+      ></iframe>
     </section>
 
     <section class="mobile-page" data-tab="2" id="tab-steps">
@@ -43,32 +56,33 @@
         <div class="mobile-meter"><span>Буфер: <strong id="act-buffer">0</strong></span><span>До удара: <strong id="act-need">—</strong></span></div>
         <div class="mobile-meter"><span>Мин. символов: <strong id="act-min">3</strong></span><span>Сегодня: <strong id="act-today">0</strong></span></div>
         <div class="mobile-meter"><span>Шаги: <strong id="act-total">—</strong></span><span>С забора: <strong id="act-pending">—</strong></span></div>
-        <p class="muted" id="act-softcap">Дневной soft-cap: после ~10k шагов отдача снижается (см. баланс).</p>
+        <p class="muted" id="act-softcap">Дневной soft-cap: после ~10k шагов отдача снижается.</p>
         <p class="muted" id="act-perm">Разрешение: проверка…</p>
         <button type="button" class="mobile-btn primary" id="act-claim">Забрать урон за шаги</button>
         <button type="button" class="mobile-btn secondary" id="act-perm-btn">Запросить доступ к шагомеру</button>
+        <p class="muted small" style="margin-top:10px">
+          Полный activity-экран:
+          <a href="/webapp/activity.html?mobileClient=1&economy=activity">открыть</a>
+        </p>
       </div>
     </section>
 
-    <section class="mobile-page" data-tab="3" id="tab-profile">
-      <div class="mobile-card">
-        <h2>Профиль</h2>
-        <p class="muted">Экип (resolved для mobile — common + m_bonus):</p>
-        <div id="profile-equip" class="muted">Загрузка…</div>
-        <p class="muted" id="remap-note"></p>
-      </div>
-      <div class="mobile-card">
-        <h2>Инвентарь</h2>
-        <div id="inv-list" class="muted">Загрузка…</div>
-      </div>
+    <section class="mobile-page mobile-page--frame" data-tab="3" id="tab-profile">
+      <iframe
+        class="mobile-frame"
+        id="frame-inventory"
+        title="Инвентарь"
+        data-src="/webapp/profile.html?mobileClient=1&tab=inventory"
+        loading="lazy"
+      ></iframe>
     </section>
   </div>
 
   <nav class="mobile-tabbar" aria-label="Навигация">
-    <button type="button" data-goto="0" class="active">Хабы</button>
+    <button type="button" data-goto="0" class="active">Профиль</button>
     <button type="button" data-goto="1">Данжи</button>
     <button type="button" data-goto="2">Шаги</button>
-    <button type="button" data-goto="3">Профиль</button>
+    <button type="button" data-goto="3">Инвентарь</button>
   </nav>
 
   <script src="/webapp/app.js"></script>
