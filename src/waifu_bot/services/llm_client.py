@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 FALLBACK_HTTP_STATUSES: tuple[int, ...] = (402,)
 DEFAULT_IMAGE_MODEL = "google/gemini-3.1-flash-lite-image"
+# Gemini image models expect both modalities; image-only often returns empty message.images.
+IMAGE_MODALITY_ATTEMPTS: tuple[tuple[str, ...], ...] = (("image", "text"), ("image",))
 _LLM_MAX_CONCURRENT = 2
 _FUSION_MAX_CONCURRENT = 1
 _llm_sem: asyncio.Semaphore | None = None

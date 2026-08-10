@@ -206,7 +206,8 @@ async def apply_raid_message_damage(
     media_types: list[str] | None,
     text_preview: str | None = None,
 ) -> dict:
-    """v2: log chat for narrative; v1 legacy: HP damage (deprecated)."""
+    """v2: log chat metadata for narrative; v1 legacy: HP damage (deprecated)."""
+    del text_preview  # privacy: never forward chat fragments
     from waifu_bot.services.guild_raid_v2_service import log_raid_chat_event
 
     logged = await log_raid_chat_event(
@@ -215,7 +216,6 @@ async def apply_raid_message_damage(
         player_id,
         message_length=message_length,
         media_types=media_types,
-        text_preview=text_preview,
     )
     if logged.get("ok"):
         return {"logged": True}

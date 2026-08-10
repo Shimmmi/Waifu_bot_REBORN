@@ -1084,31 +1084,20 @@ class ItemService:
             return None
         return random.choices(candidates, weights=weights, k=1)[0]
 
-    async def _get_diablo_candidates(
+    def _filter_diablo_candidate_rows(
         self,
-        session: AsyncSession,
+        rows: list[tuple[m.AffixFamilyTier, m.AffixFamily]],
         base: m.ItemBase,
-        tier_cap: int,
         target_total_level: int,
         *,
         item_rarity: int = 5,
     ) -> list[tuple[m.AffixFamily, m.AffixFamilyTier]]:
-        stmt = (
-            select(m.AffixFamilyTier, m.AffixFamily)
-            .join(m.AffixFamily, m.AffixFamilyTier.family_id == m.AffixFamily.id)
-            .where(
-                m.AffixFamilyTier.affix_tier <= int(tier_cap),
-                m.AffixFamilyTier.min_total_level <= int(target_total_level),
-                m.AffixFamilyTier.max_total_level >= int(target_total_level),
-            )
-        )
-        res = await session.execute(stmt)
         pairs: list[tuple[m.AffixFamily, m.AffixFamilyTier]] = []
         rar = int(item_rarity)
         slot_t = getattr(base, "slot_type", None)
         atk_t = getattr(base, "attack_type", None)
         wpn_t = getattr(base, "weapon_type", None)
-        for tier_row, fam in res.all():
+        for tier_row, fam in rows:
             ek = str(getattr(fam, "effect_key", "") or "")
             if rar < 5 and self._effect_key_requires_legendary(ek):
                 continue
@@ -1120,6 +1109,54 @@ class ItemService:
                 continue
             pairs.append((fam, tier_row))
         return pairs
+
+    async def _get_diablo_candidates(
+        self,
+        session: AsyncSession,
+        base: m.ItemBase,
+        tier_cap: int,
+        target_total_level: int,
+        *,
+        item_rarity: int = 5,
+    ) -> list[tuple[m.AffixFamily, m.AffixFamilyTier]]:
+        tgt = int(target_total_level)
+        cap = int(tier_cap)
+        stmt = (
+            select(m.AffixFamilyTier, m.AffixFamily)
+            .join(m.AffixFamily, m.AffixFamilyTier.family_id == m.AffixFamily.id)
+            .where(
+                m.AffixFamilyTier.affix_tier <= cap,
+                m.AffixFamilyTier.min_total_level <= tgt,
+                m.AffixFamilyTier.max_total_level >= tgt,
+            )
+        )
+        res = await session.execute(stmt)
+        pairs = self._filter_diablo_candidate_rows(
+            list(res.all()), base, tgt, item_rarity=int(item_rarity)
+        )
+        if pairs:
+            return pairs
+
+        # Fallback when ilvl is above seed bands (e.g. historical A10 max=50):
+        # keep the highest affix_tier per family that is still eligible by min_level/cap.
+        fb_stmt = (
+            select(m.AffixFamilyTier, m.AffixFamily)
+            .join(m.AffixFamily, m.AffixFamilyTier.family_id == m.AffixFamily.id)
+            .where(
+                m.AffixFamilyTier.affix_tier <= cap,
+                m.AffixFamilyTier.min_total_level <= tgt,
+            )
+            .order_by(m.AffixFamilyTier.affix_tier.desc())
+        )
+        fb_res = await session.execute(fb_stmt)
+        best_by_family: dict[int, tuple[m.AffixFamilyTier, m.AffixFamily]] = {}
+        for tier_row, fam in fb_res.all():
+            fid = int(fam.id)
+            if fid not in best_by_family:
+                best_by_family[fid] = (tier_row, fam)
+        return self._filter_diablo_candidate_rows(
+            list(best_by_family.values()), base, tgt, item_rarity=int(item_rarity)
+        )
 
     async def _generate_inventory_item_diablo(
         self,

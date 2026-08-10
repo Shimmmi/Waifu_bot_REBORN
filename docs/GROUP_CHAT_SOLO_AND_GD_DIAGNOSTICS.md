@@ -54,6 +54,8 @@ flowchart TD
 
 Для Waifu_bot [@shimmi_gacha_bot](https://t.me/shimmi_gacha_bot) зафиксировано: **privacy mode / Group Privacy выключены** ([описание режима](https://core.telegram.org/bots/features#privacy-mode)). Значит отсутствие апдейтов с обычным текстом **нельзя** списать на стандартное поведение privacy для этого бота.
 
+**Конфиденциальность контента:** при выключенном Group Privacy бот *получает* текст групп; сервер **не логирует и не персистит** тела сообщений (только длина / media meta). См. [`info/LOGGING.md`](../info/LOGGING.md) § «Конфиденциальность сообщений».
+
 **Если в логах нет `webhook update received` с `has_text=True` на обычный текст**, искать другое: неверный чат/другой бот в группе, webhook/secret, фильтры на стороне прокси, не тот `chat_id` (другая группа), либо редкие типы сообщений (не `message.text` / `caption` — см. фильтр хендлера).
 
 **Справочно для других инстансов / форков:** при **включённом** Group Privacy бот в группе не получает обычные сообщения; тогда симптом «есть `/help`, нет текста» совпадает с privacy — проверка BotFather → Group Privacy → Turn off.

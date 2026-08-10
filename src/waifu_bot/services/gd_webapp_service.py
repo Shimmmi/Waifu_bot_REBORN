@@ -266,7 +266,23 @@ async def muster_gd_in_chat(
     gd: GDCycleService,
     bot: Any | None,
 ) -> dict[str, Any]:
-    """Open (or reuse) registration and post one invite to the group."""
+    """Deprecated: daily GD auto-starts at 04:30 MSK — no manual muster."""
+    _ = (session, player_id, chat_id, gd, bot)
+    return {
+        "error": "daily_auto",
+        "message": "Сбор отряда вручную отключён. Дневной поход стартует автоматически "
+        "в 04:30 МСК для игроков с основной вайфу, которых бот уже видел в чате.",
+    }
+
+
+async def _muster_gd_in_chat_legacy(
+    session: AsyncSession,
+    player_id: int,
+    chat_id: int,
+    gd: GDCycleService,
+    bot: Any | None,
+) -> dict[str, Any]:
+    """Legacy weekly muster (unused)."""
     cid = int(chat_id)
     if not await player_has_active_bot_chat(session, player_id, cid):
         return {
@@ -398,25 +414,13 @@ async def join_gd_from_webapp_or_dm(
     *,
     require_membership: bool = True,
 ) -> dict[str, Any]:
-    """Membership-checked join (registration or late). Optionally announce late join in group."""
-    cid = int(chat_id)
-    if require_membership and not await player_has_active_bot_chat(session, player_id, cid):
-        return {
-            "error": "forbidden",
-            "message": "Чат недоступен: напишите сообщение в группе с ботом, затем повторите.",
-        }
-    result = await gd.join_chat(session, cid, player_id)
-    if result.get("success") and result.get("late_join") and bot:
-        name = result.get("name") or "Вайфу"
-        try:
-            pct = int(round(100 * float(result.get("reward_stage_mult") or 1)))
-            await bot.send_message(
-                chat_id=cid,
-                text=f"➕ {name} присоединилась к отряду (награда ~{pct}% от полного похода).",
-            )
-        except Exception:
-            logger.debug("late join announce failed", exc_info=True)
-    return result
+    """Deprecated under daily GD — auto-enroll at 04:30 MSK."""
+    _ = (session, player_id, chat_id, gd, bot, require_membership)
+    return {
+        "error": "daily_auto",
+        "message": "Ручная запись отключена. Дневной поход стартует автоматически в 04:30 МСК "
+        "для игроков с основной вайфу, которых бот уже видел в чате.",
+    }
 
 
 async def stop_gd_for_player(

@@ -37,6 +37,8 @@ logger = logging.getLogger(__name__)
 
 MSK = ZoneInfo("Europe/Moscow")
 REDIS_GD_V1_BUF = "gd_v1_buf:"
+REDIS_GD_DAILY_CHAT = "gd_daily_chat:"
+REDIS_GD_DAILY_LOCK = "gd_daily_lock:"
 
 
 def next_monday_0600_msk_utc(after: datetime) -> datetime:
@@ -107,7 +109,7 @@ def coalesce_round_action(
 
 
 async def build_waifu_snapshot(session: AsyncSession, player_id: int) -> dict[str, Any] | None:
-    """Snapshot for GD combat: effective stats (gear + passives + perfection), not raw base only."""
+    """Snapshot for GD: effective stats (gear + passives + perfection), frozen at enroll time."""
     from waifu_bot.core.redis import get_redis
     from waifu_bot.game.formulas import calculate_max_hp
     from waifu_bot.services.combat import CombatService
@@ -117,6 +119,7 @@ async def build_waifu_snapshot(session: AsyncSession, player_id: int) -> dict[st
     ).scalar_one_or_none()
     if not w:
         return None
+    player = await session.get(Player, player_id)
     combat = CombatService(get_redis())
     try:
         eff = await combat._get_effective_combat_profile(session, player_id, w)
@@ -155,12 +158,29 @@ async def build_waifu_snapshot(session: AsyncSession, player_id: int) -> dict[st
         weapon_damage = max(1, 5 + level // 2)
     else:
         weapon_damage = max(1, int(weapon_damage))
+    username = None
+    if player and getattr(player, "username", None):
+        username = str(player.username).strip().lstrip("@") or None
+    perfection_level = int(getattr(player, "perfection_level", 0) or 0) if player else 0
+    gear_score = int(getattr(player, "gear_score", 0) or 0) if player else 0
+    if gear_score <= 0:
+        gear_score = int(getattr(w, "gear_score_cache", 0) or 0)
+    attack_type = "melee"
+    try:
+        at = eff.get("attack_type")
+        if at:
+            attack_type = str(at)
+    except Exception:
+        pass
     return {
         "user_id": player_id,
         "name": w.name,
+        "username": username,
         "class_id": int(w.class_),
         "race_id": int(w.race),
         "level": level,
+        "perfection_level": perfection_level,
+        "gear_score": gear_score,
         "strength": strength,
         "agility": agility,
         "intelligence": intelligence,
@@ -168,6 +188,7 @@ async def build_waifu_snapshot(session: AsyncSession, player_id: int) -> dict[st
         "charm": int(w.charm or 10),
         "luck": luck,
         "weapon_damage": weapon_damage,
+        "attack_type": attack_type,
         "current_hp": current_hp,
         "max_hp": max_hp,
         "gear_aware": True,
@@ -712,14 +733,271 @@ class GDCycleService:
             return {}
 
     async def process_due_registration_closures(self, session: AsyncSession) -> list[GDCycle]:
-        now = datetime.now(timezone.utc)
-        q = await session.execute(
+        """Legacy weekly registration closer — no-op under daily GD (kept for import compat)."""
+        return []
+
+    def _daily_chat_key(self, cycle_id: int) -> str:
+        return f"{REDIS_GD_DAILY_CHAT}{int(cycle_id)}"
+
+    async def get_cycle_for_game_date(
+        self, session: AsyncSession, chat_id: int, game_date
+    ) -> GDCycle | None:
+        r = await session.execute(
+            select(GDCycle)
+            .where(GDCycle.chat_id == chat_id, GDCycle.game_date == game_date)
+            .order_by(GDCycle.id.desc())
+            .limit(1)
+        )
+        return r.scalar_one_or_none()
+
+    async def list_active_daily_cycles_due(
+        self, session: AsyncSession, *, now: datetime | None = None
+    ) -> list[GDCycle]:
+        now = now or datetime.now(timezone.utc)
+        r = await session.execute(
             select(GDCycle).where(
-                GDCycle.status == "registration",
-                GDCycle.registration_closes <= now,
+                GDCycle.status == "active",
+                GDCycle.ends_at.isnot(None),
+                GDCycle.ends_at <= now,
             )
         )
-        out = list(q.scalars().all())
-        for c in out:
-            await self.close_registration_and_maybe_start(session, c)
-        return out
+        return list(r.scalars().all())
+
+    async def record_daily_message(
+        self,
+        session: AsyncSession,
+        cycle: GDCycle,
+        user_id: int,
+        *,
+        msg_key: str,
+        damage: int = 0,
+        is_participant: bool = True,
+        text_chars: int = 0,
+        ephemeral_text: str | None = None,
+    ) -> None:
+        """Accumulate day stats for a participant + chat-wide message counter.
+
+        Aggregates (counts/chars/damage) go to day_stats_json. Message body may be
+        appended to the Redis phantom log for end-of-day word stats only — never DB.
+        """
+        from waifu_bot.services.gd_daily_stats import apply_message_to_day_stats
+        from waifu_bot.services.gd_phantom_log import append_phantom_text
+
+        # Chat-wide counter (all non-bot humans), Redis + battle_state backup
+        state = dict(cycle.battle_state_json or {})
+        chat_total = int(state.get("chat_msg_total") or 0) + 1
+        state["chat_msg_total"] = chat_total
+        cycle.battle_state_json = state
+
+        if self.redis:
+            try:
+                await self.redis.incr(self._daily_chat_key(cycle.id))
+                await self.redis.expire(self._daily_chat_key(cycle.id), 86400 * 3)
+            except Exception:
+                logger.debug("GD daily chat incr failed cycle=%s", cycle.id, exc_info=True)
+
+        if not is_participant:
+            return
+
+        reg = (
+            await session.execute(
+                select(GDRegistration).where(
+                    GDRegistration.cycle_id == cycle.id,
+                    GDRegistration.user_id == int(user_id),
+                )
+            )
+        ).scalar_one_or_none()
+        if not reg:
+            return
+        reg.day_stats_json = apply_message_to_day_stats(
+            reg.day_stats_json,
+            msg_key=msg_key,
+            damage=max(0, int(damage)),
+            text_chars_delta=max(0, int(text_chars or 0)),
+        )
+        if ephemeral_text and self.redis:
+            await append_phantom_text(self.redis, cycle.id, int(user_id), ephemeral_text)
+
+    async def get_chat_msg_total(self, cycle: GDCycle) -> int:
+        if self.redis:
+            try:
+                raw = await self.redis.get(self._daily_chat_key(cycle.id))
+                if raw is not None:
+                    return max(0, int(raw))
+            except Exception:
+                pass
+        return max(0, int((cycle.battle_state_json or {}).get("chat_msg_total") or 0))
+
+    async def start_daily_cycle_for_chat(
+        self,
+        session: AsyncSession,
+        chat_id: int,
+        *,
+        force: bool = False,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Auto-enroll known players with MainWaifu and open a day-long active cycle."""
+        from datetime import date as date_cls
+
+        from waifu_bot.game.msk_time import (
+            gd_daily_game_date_for_start,
+            msk_next_datetime,
+            msk_now,
+        )
+        from waifu_bot.services.gd_daily_stats import empty_day_stats
+        from waifu_bot.services.player_chats import players_seen_in_group_chat
+        from waifu_bot.services.bot_group_chats import ACTIVE_STATUSES
+        from waifu_bot.db.models import BotGroupChat
+
+        now = now or datetime.now(timezone.utc)
+        cfg = await get_game_config_map(session)
+        start_h = cfg_int(cfg, "gd_daily_start_hour_msk", 4)
+        start_m = cfg_int(cfg, "gd_daily_start_minute_msk", 30)
+        end_h = cfg_int(cfg, "gd_daily_end_hour_msk", 4)
+        end_m = cfg_int(cfg, "gd_daily_end_minute_msk", 0)
+
+        local = msk_now(now)
+        if not force:
+            minutes = local.hour * 60 + local.minute
+            start_mark = start_h * 60 + start_m
+            if minutes < start_mark:
+                return {"error": "too_early", "message": "Ещё не 04:30 МСК."}
+
+        game_date = gd_daily_game_date_for_start(now)
+        existing = await self.get_cycle_for_game_date(session, chat_id, game_date)
+        if existing and existing.status in ("active", "finished", "cancelled"):
+            return {
+                "error": "already",
+                "cycle_id": existing.id,
+                "status": existing.status,
+                "game_date": str(game_date),
+            }
+
+        active = await self.get_active_v1_cycle(session, chat_id)
+        if active:
+            # Retire leftover weekly/round cycles so daily auto-start is not blocked forever.
+            state = dict(active.battle_state_json or {})
+            is_daily = str(state.get("mode") or "") == "daily" or getattr(active, "game_date", None)
+            if is_daily and active.status == "active":
+                return {
+                    "error": "active",
+                    "cycle_id": active.id,
+                    "message": "В чате уже есть активный дневной поход.",
+                }
+            active.status = "cancelled"
+            active.finished_at = now
+            active.round_deadline_at = None
+            state["cancel_reason"] = "replaced_by_daily_gd"
+            active.battle_state_json = state
+            await session.flush()
+            await gd_active_cache_mod.invalidate_active_cycle_cache(self.redis, chat_id)
+
+        chat_row = await session.get(BotGroupChat, int(chat_id))
+        if chat_row and str(chat_row.status) not in ACTIVE_STATUSES and not force:
+            return {"error": "chat_inactive", "message": "Бот не активен в этом чате."}
+
+        templates = (await session.execute(select(GDDungeonTemplate))).scalars().all()
+        if not templates:
+            return {
+                "error": "no_templates",
+                "message": "Нет шаблонов GD — выполните seed_gd_content.py.",
+            }
+        tpl = random.choice(templates)
+
+        candidate_ids = await players_seen_in_group_chat(session, int(chat_id))
+        party: list[dict[str, Any]] = []
+        regs_created = 0
+        for uid in candidate_ids:
+            snap = await build_waifu_snapshot(session, int(uid))
+            if not snap:
+                continue
+            snap["user_id"] = int(uid)
+            snap.setdefault("fallen", False)
+            party.append(snap)
+            regs_created += 1
+
+        ends_at = msk_next_datetime(end_h, end_m, after=now)
+        # If we started at 04:30, next 04:00 is tomorrow — msk_next_datetime already handles that.
+        # registration_closes kept non-null for legacy column constraint: set to started_at.
+        cycle = GDCycle(
+            chat_id=int(chat_id),
+            dungeon_template_id=tpl.id,
+            status="active" if party else "cancelled",
+            registration_closes=now,
+            started_at=now if party else None,
+            finished_at=now if not party else None,
+            game_date=game_date if isinstance(game_date, date_cls) else game_date,
+            ends_at=ends_at if party else now,
+            current_round_number=0,
+            total_rounds=1,
+            battle_state_json={
+                "mode": "daily",
+                "party": party,
+                "chat_msg_total": 0,
+                "wave": "daily",
+                "collecting_for_round": 1,
+            },
+        )
+        session.add(cycle)
+        await session.flush()
+
+        for snap in party:
+            session.add(
+                GDRegistration(
+                    cycle_id=cycle.id,
+                    user_id=int(snap["user_id"]),
+                    waifu_snapshot=snap,
+                    joined_at_round=1,
+                    day_stats_json=empty_day_stats(),
+                )
+            )
+        await session.flush()
+
+        if party:
+            await gd_active_cache_mod.set_active_cycle_cache(self.redis, chat_id, cycle.id)
+        else:
+            await gd_active_cache_mod.invalidate_active_cycle_cache(self.redis, chat_id)
+
+        return {
+            "success": True,
+            "cycle_id": cycle.id,
+            "status": cycle.status,
+            "game_date": str(game_date),
+            "party_count": regs_created,
+            "dungeon_name": tpl.name,
+            "dungeon_template_id": tpl.id,
+            "ends_at": ends_at.isoformat() if party else None,
+            "party": party,
+        }
+
+    async def finish_daily_cycle(
+        self, session: AsyncSession, cycle: GDCycle, *, reason: str = "daily_end"
+    ) -> dict[str, Any]:
+        if cycle.status != "active":
+            return {"error": "not_active", "cycle_id": cycle.id}
+        state = dict(cycle.battle_state_json or {})
+        state["finish_reason"] = reason
+        # Sync chat total from Redis if available
+        chat_total = await self.get_chat_msg_total(cycle)
+        state["chat_msg_total"] = chat_total
+        cycle.battle_state_json = state
+        cycle.status = "finished"
+        cycle.finished_at = datetime.now(timezone.utc)
+        cycle.round_deadline_at = None
+        await session.flush()
+        await gd_active_cache_mod.invalidate_active_cycle_cache(self.redis, cycle.chat_id)
+        if self.redis:
+            try:
+                from waifu_bot.services.gd_phantom_log import purge_phantom_log
+
+                await self.redis.delete(self._daily_chat_key(cycle.id))
+                await self.redis.delete(_buf_key(cycle.id))
+                await purge_phantom_log(self.redis, cycle.id)
+            except Exception:
+                logger.debug("GD daily finish redis cleanup failed", exc_info=True)
+        return {
+            "success": True,
+            "cycle_id": cycle.id,
+            "chat_msg_total": chat_total,
+            "reason": reason,
+        }

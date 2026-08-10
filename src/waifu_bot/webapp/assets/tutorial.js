@@ -856,7 +856,7 @@
           id: "dungeons_tabs",
           target: "[data-tutorial='dungeon-tabs']",
           image: "explaining",
-          text: "Одиночные — соло-прогресс, Экспедиции — длительные походы, Групповые — кооп, Бездна — эндгейм.",
+          text: "Одиночные — соло-прогресс, Операции — IDLE-контракты наёмниц, Групповые — кооп, Бездна — эндгейм.",
         },
         {
           id: "dungeons_list",
@@ -881,7 +881,7 @@
           id: "exp_welcome",
           target: null,
           image: "greeting",
-          text: "Экспедиции — длительные походы с отрядом наёмниц. Награды приходят по таймеру.",
+          text: "Операции — контракты с отрядом наёмниц. Награды по таймеру + merc coins.",
           beforeShow: () => {
             if (window.WaifuApp && typeof window.WaifuApp.showTab === "function") {
               window.WaifuApp.showTab("expedition");
@@ -893,8 +893,8 @@
           target: "#dungeon-tabs .tab[data-tab='expedition']",
           image: "explaining",
           mode: "action",
-          hint: "Открой «Экспедиции»",
-          text: "Вкладка «Экспедиции» — здесь активные походы и свободные слоты.",
+          hint: "Открой «Операции»",
+          text: "Вкладка «Операции» — активные контракты и свободные слоты.",
         },
         {
           id: "exp_slot",

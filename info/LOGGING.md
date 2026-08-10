@@ -187,7 +187,21 @@ journalctl -u waifu-bot --since "1 min ago" | grep "update mode"
 | Переменная | По умолчанию | Описание |
 |---|---|---|
 | `TELEGRAM_UPDATE_MODE` | `webhook` | `webhook` или `polling` |
-| `TELEGRAM_TRACE_LOG` | `true` | Подробные логи каждого update |
-| `TELEGRAM_COMMAND_DEBUG_DM` | `false` | Эхо команд в ЛС админам |
+| `TELEGRAM_TRACE_LOG` | `false` | Метаданные update (ids, lengths). **Тела сообщений никогда не логируются.** |
+| `TELEGRAM_COMMAND_DEBUG_DM` | `false` | Метаданные команд в ЛС админам (без текста). В `APP_ENV=prod` всегда выключено. |
 | `WEBHOOK_DROP_PENDING` | `true` | Отбросить pending при старте |
 | `APP_ENV` | `dev` | `prod` = регистрация webhook/polling |
+
+### Конфиденциальность сообщений (prod checklist)
+
+Бот с выключенным Telegram Group Privacy **получает** текст групповых сообщений; конфиденциальность = **не хранить и не логировать** тела.
+
+После деплоя:
+
+1. `APP_ENV=prod` → `TELEGRAM_COMMAND_DEBUG_DM` принудительно `false`.
+2. `TELEGRAM_TRACE_LOG` держать `false` (или true только для метаданных — тела всё равно не пишутся).
+3. Применить миграции `0126` + `0127` (purge + drop `battle_logs.message_text`; purge `guild_raid_chat_events.text_preview`).
+4. Ротация journald/логов хоста: старые записи с `text_preview=` останутся на диске до ротации.
+5. Бэкапы Postgres до миграции могут содержать старый текст — выдержать политику хранения бэкапов.
+
+Код: [`message_privacy.py`](../src/waifu_bot/services/message_privacy.py), legendary `text_content` — только эфемерно в памяти на время удара.

@@ -10,6 +10,7 @@ import {
   STAT_FULL_LABELS,
   STAT_ICONS,
   STAT_ORDER,
+  formatLevelWithPerfection,
 } from '../utils/items'
 
 const props = defineProps<{
@@ -19,6 +20,7 @@ const props = defineProps<{
   gearScore: number
   gold: number
   currentAct: number
+  perfectionLevel?: number
   adminMode?: boolean
   guild?: { id?: number; name: string; tag: string; level: number } | null
 }>()
@@ -120,7 +122,9 @@ function fmt(n: number): string {
           <div class="profile-portrait-meta">
             {{ character.race_label }} · {{ character.class_label }}
           </div>
-          <div class="profile-portrait-level">Уровень {{ character.level }}</div>
+          <div class="profile-portrait-level">
+            Уровень {{ formatLevelWithPerfection(character.level, perfectionLevel) }}
+          </div>
           <div v-if="guild" class="profile-portrait-guild">
             <RouterLink v-if="guild.id" :to="`/g/${guild.id}`">
               {{ META_ICONS.guild }} [{{ guild.tag }}] {{ guild.name }}

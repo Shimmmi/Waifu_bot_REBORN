@@ -66,18 +66,28 @@ def _gd_v1_dungeon_card_dict(
     *,
     registration: m.GDRegistration | None = None,
 ) -> dict:
-    """Payload for WebApp group-dungeon cards (GD v1 cycles)."""
+    """Payload for WebApp group-dungeon cards (daily GD cycles)."""
     state = cycle.battle_state_json or {}
+    is_daily = str(state.get("mode") or "") == "daily" or getattr(cycle, "game_date", None) is not None
     contrib = (state.get("contribution") or {}).get(str(int(player_id)), {}) or {}
+    day_stats = {}
+    if registration is not None and getattr(registration, "day_stats_json", None):
+        day_stats = dict(registration.day_stats_json or {})
     try:
-        total_damage = int(contrib.get("text") or 0) + int(contrib.get("skill") or 0)
+        if is_daily:
+            total_damage = int(day_stats.get("damage_total") or 0)
+        else:
+            total_damage = int(contrib.get("text") or 0) + int(contrib.get("skill") or 0)
     except (TypeError, ValueError):
         total_damage = 0
     try:
         contrib_rounds = int(contrib.get("rounds") or 0)
     except (TypeError, ValueError):
         contrib_rounds = 0
-    monster_name, hp_cur, hp_max, hp_pct = _gd_v1_monster_hp_display(state, cycle.status)
+    if is_daily:
+        monster_name, hp_cur, hp_max, hp_pct = "Дневной поход", 1, 1, 100
+    else:
+        monster_name, hp_cur, hp_max, hp_pct = _gd_v1_monster_hp_display(state, cycle.status)
     duration = 0
     if cycle.started_at:
         start = cycle.started_at
@@ -131,6 +141,7 @@ def _gd_v1_dungeon_card_dict(
         wipe_pct = 100
     return {
         "v1": True,
+        "daily": bool(is_daily),
         "id": cycle.id,
         "chat_id": int(cycle.chat_id),
         "dungeon_name": template_name,
@@ -139,11 +150,15 @@ def _gd_v1_dungeon_card_dict(
         "collecting_for_round": collecting,
         "wave": wave,
         "round_deadline_at": deadline_iso,
+        "game_date": cycle.game_date.isoformat() if getattr(cycle, "game_date", None) else None,
+        "ends_at": cycle.ends_at.isoformat() if getattr(cycle, "ends_at", None) else None,
         "monster_name": monster_name,
         "hp_current": hp_cur,
         "hp_max": hp_max,
         "hp_percent": hp_pct,
         "total_damage": total_damage,
+        "day_msg_total": int(day_stats.get("msg_total") or 0) if is_daily else None,
+        "chat_msg_total": int(state.get("chat_msg_total") or 0) if is_daily else None,
         "contrib_rounds": contrib_rounds,
         "power_score": int(power),
         "presence_score": int(presence),
@@ -739,17 +754,26 @@ async def exit_dungeon(
 async def battle_message(
     media_type: int = Query(..., ge=1, le=8),
     message_text: Optional[str] = None,
+    message_length: Optional[int] = Query(None, ge=0, le=4096),
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
+    """WebApp attack. Prefer message_length; message_text is ephemeral for legendary text_content only."""
     from waifu_bot.game.constants import MediaType
 
+    msg_len = int(
+        message_length
+        if message_length is not None
+        else (len(message_text) if message_text else 0)
+    )
+    # Ephemeral text for legendary bonuses only — never persisted by combat service.
+    ephemeral = message_text if message_text else None
     return schemas.BattleMessageResponse(
         **await combat_service.process_message_damage(
             session,
             player_id,
             MediaType(media_type),
-            message_text=message_text,
-            message_length=len(message_text) if message_text else 0,
+            message_text=ephemeral,
+            message_length=msg_len,
         )
     )

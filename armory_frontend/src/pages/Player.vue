@@ -14,6 +14,7 @@ import AchievementList from '../components/AchievementList.vue'
 import ProfileHero from '../components/ProfileHero.vue'
 import ProfileStatsPanel from '../components/ProfileStatsPanel.vue'
 import ProfileTabBar from '../components/ProfileTabBar.vue'
+import PerfectionBonusList from '../components/PerfectionBonusList.vue'
 import ItemDetailModal from '../components/ItemDetailModal.vue'
 
 const props = defineProps<{ id: string }>()
@@ -21,7 +22,7 @@ const props = defineProps<{ id: string }>()
 const auth = useAuthStore()
 const isAdmin = computed(() => !!auth.user?.is_admin)
 
-type ProfileTab = 'stats' | 'achievements' | 'events' | 'dungeons' | 'inventory'
+type ProfileTab = 'stats' | 'perfection' | 'achievements' | 'events' | 'dungeons' | 'inventory'
 
 const summary = ref<PlayerSummary | null>(null)
 const inventory = ref<ArmoryItem[]>([])
@@ -40,9 +41,17 @@ const isOwner = computed(
     summary.value?.viewer_access_level === 'admin',
 )
 
+const perfectionBonuses = computed(() => summary.value?.perfection_bonuses_summary ?? [])
+const perfectionLevel = computed(() => Number(summary.value?.perfection_level ?? 0))
+
 const tabs = computed(() => {
   const items: Array<{ id: ProfileTab; label: string; count?: number }> = [
     { id: 'stats', label: 'Характеристики' },
+    {
+      id: 'perfection',
+      label: 'Совершенствование',
+      count: perfectionBonuses.value.length || undefined,
+    },
     { id: 'achievements', label: 'Достижения', count: achievements.value.length },
     { id: 'events', label: 'История', count: events.value.length },
     { id: 'dungeons', label: 'Данжи', count: dungeons.value.length },
@@ -116,6 +125,7 @@ onMounted(() => loadSummary().then(loadExtra))
       :gear-score="summary.gear_score"
       :gold="summary.gold"
       :current-act="summary.current_act"
+      :perfection-level="perfectionLevel"
       :guild="summary.guild"
       :admin-mode="isAdmin"
       @item-click="openModal"
@@ -136,6 +146,13 @@ onMounted(() => loadSummary().then(loadExtra))
           :active="activeTab === 'stats'"
         />
         <p v-else class="empty-hint">Нет данных о характеристиках</p>
+      </div>
+
+      <div v-show="activeTab === 'perfection'">
+        <PerfectionBonusList
+          :perfection-level="perfectionLevel"
+          :bonuses="perfectionBonuses"
+        />
       </div>
 
       <div v-show="activeTab === 'achievements'">

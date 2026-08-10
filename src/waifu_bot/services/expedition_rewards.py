@@ -16,6 +16,7 @@ from waifu_bot.game.constants import (
 )
 from waifu_bot.game.expedition_overhaul import (
     MIXED_REWARD_PENALTY,
+    OPS_REWARD_TYPES,
     base_reward_amount,
     depth_tier_by_id,
     validate_reward_type,
@@ -59,6 +60,18 @@ async def grant_expedition_rewards(
     if rt == "gold":
         gold_gained = max(0, int(round(base * mult["gold"])))
         player.gold += gold_gained
+    elif rt in OPS_REWARD_TYPES:
+        # Ops bias: no player gold; light hired EXP + merc economy via grant_ops_rewards
+        merc_exp_gained = max(0, int(round(base * mult["exp"] * 0.55)))
+        if squad_ids and merc_exp_gained:
+            per = max(1, merc_exp_gained // len(squad_ids))
+            for wid in squad_ids:
+                w = await session.get(HiredWaifu, wid)
+                if w and w.player_id == player.id:
+                    leveled, _ = _apply_exp_to_hired_unit(w, per)
+                    if leveled:
+                        leveled_up_ids.append(w.id)
+        exp_gained = merc_exp_gained
     elif rt == "waifu_exp":
         waifu_exp_gained = max(0, int(round(base * mult["exp"])))
         mw = await session.scalar(select(MainWaifu).where(MainWaifu.player_id == int(player.id)))

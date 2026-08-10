@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from waifu_bot.game.expedition_narrative_catalog import archetype_for_id
 from waifu_bot.services.expedition_events_ai import _extract_openrouter_image_b64
 from waifu_bot.services.llm_client import (
+    IMAGE_MODALITY_ATTEMPTS,
     get_image_model,
     has_image_llm_configured,
     post_chat_completions,
@@ -110,7 +111,7 @@ async def generate_expedition_archetype_art_webp(
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
+            attempts: tuple[tuple[str, ...], ...] = IMAGE_MODALITY_ATTEMPTS
             last_message: dict = {}
             for modalities in attempts:
                 body = {

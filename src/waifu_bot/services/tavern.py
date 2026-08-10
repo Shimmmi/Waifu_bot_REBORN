@@ -28,7 +28,7 @@ from waifu_bot.game.constants import (
     TAVERN_HIRE_COST,
     TAVERN_SLOTS_PER_DAY,
 )
-from waifu_bot.game.expedition_redesign import pick_perk_id_for_class
+from waifu_bot.game.merc_perks import PERK_BY_ID as MERC_PERK_BY_ID
 from waifu_bot.game.expedition_data import PERK_BY_ID, PERKS
 from waifu_bot.services.expedition_events_ai import (
     generate_hire_waifu_name_and_bio,
@@ -38,6 +38,7 @@ from waifu_bot.services.passive_skills import (
     apply_passive_hire_cost,
     compute_tavern_hire_price,
 )
+from waifu_bot.services import merc_systems as merc_sys
 
 
 async def is_first_hire_free(session: AsyncSession, player_id: int) -> bool:
@@ -176,7 +177,13 @@ class TavernService:
 
         hire_cost = await compute_effective_tavern_hire_price(session, player_id)
         first_hire_free = hire_cost == 0
-        # Check gold (skip for the first free hire)
+        state = await merc_sys.get_or_create_tavern_state(session, player_id)
+        pay_with_contract = False
+        # Prefer merc contracts for paid hires when available (plan §12.5)
+        if hire_cost > 0 and int(getattr(state, "merc_contracts", 0) or 0) > 0:
+            pay_with_contract = True
+            hire_cost = 0
+        # Check gold (skip for free / contract)
         if hire_cost > 0 and player.gold < hire_cost:
             return {
                 "error": "insufficient_gold",
@@ -184,15 +191,11 @@ class TavernService:
                 "have": player.gold,
             }
 
-        # Единый пул наёмниц (ТЗ v1.3)
-        total_hired = int(
-            await session.scalar(
-                select(func.count()).select_from(HiredWaifu).where(HiredWaifu.player_id == player_id)
-            )
-            or 0
-        )
-        if total_hired >= HIRED_WAIFU_POOL_MAX:
-            return {"error": "reserve_full"}
+        # Bench cap by main waifu level
+        cap = await merc_sys.bench_cap(session, player_id)
+        total_hired = await merc_sys.pool_count(session, player_id)
+        if total_hired >= cap:
+            return {"error": "reserve_full", "cap": cap}
 
         # Consume a daily hire slot
         today = self._moscow_today()
@@ -213,33 +216,58 @@ class TavernService:
         if chosen.hired_at is not None:
             return {"error": "slot_taken", "slot": int(chosen.slot)}
 
-        waifu = await self._generate_waifu(session, player_id)
+        waifu_or = await self._generate_waifu(session, player_id)
+        if isinstance(waifu_or, dict):
+            # Duplicate legendary → crest only (still consumes slot)
+            chosen.hired_at = datetime.now(tz=timezone.utc)
+            if pay_with_contract:
+                state.merc_contracts = max(0, int(state.merc_contracts or 0) - 1)
+            elif hire_cost > 0:
+                player.gold -= hire_cost
+            await session.commit()
+            return {
+                "success": True,
+                "duplicate_legendary": True,
+                **waifu_or,
+                "pity": merc_sys.pity_status(state),
+                "gold_remaining": player.gold,
+                "hire_cost": 0 if pay_with_contract else hire_cost,
+                "paid_with_contract": pay_with_contract,
+                "slot": int(chosen.slot),
+            }
+        waifu = waifu_or
         chosen.hired_waifu_id = waifu.id
         chosen.hired_at = datetime.now(tz=timezone.utc)
 
-        # Deduct gold (first hire is free)
-        if hire_cost > 0:
+        # Deduct gold / contract
+        if pay_with_contract:
+            state.merc_contracts = max(0, int(state.merc_contracts or 0) - 1)
+        elif hire_cost > 0:
             player.gold -= hire_cost
 
-        # Имя и био: OpenRouter возвращает JSON {name, bio}; при недоступности — fallback по расе + шаблон
-        _, race_ru, class_ru, level, perk_names = self._waifu_bio_inputs(waifu)
-        name_bio = await generate_hire_waifu_name_and_bio(race_ru, class_ru, level, perk_names)
-        if name_bio:
-            waifu.name = name_bio[0]
-            bio = name_bio[1]
+        # Legendary from template already has name/bio
+        if getattr(waifu, "template_id", None):
+            bio = waifu.bio or ""
         else:
-            waifu.name = _fallback_name_by_race(int(waifu.race or 1))
-            bio = _template_bio(waifu)
-        waifu.bio = bio
+            # Имя и био: OpenRouter возвращает JSON {name, bio}; при недоступности — fallback по расе + шаблон
+            _, race_ru, class_ru, level, perk_names = self._waifu_bio_inputs(waifu)
+            name_bio = await generate_hire_waifu_name_and_bio(race_ru, class_ru, level, perk_names)
+            if name_bio:
+                waifu.name = name_bio[0]
+                bio = name_bio[1]
+            else:
+                waifu.name = _fallback_name_by_race(int(waifu.race or 1))
+                bio = _template_bio(waifu)
+            waifu.bio = bio
 
-        # Портрет через RouterAI image API (cursor_plan_7): modalities ["image"], ответ в message.images[]
-        image_b64 = await generate_hire_waifu_image(
-            race_ru, class_ru, bio, waifu.name, perk_ids=waifu.perks
-        )
-        if image_b64:
-            waifu.image_data = image_b64
-            waifu.image_mime = "image/webp"
-            waifu.image_generated_at = datetime.now(tz=timezone.utc)
+            # Портрет через RouterAI image API
+            image_b64 = await generate_hire_waifu_image(
+                race_ru, class_ru, bio, waifu.name, perk_ids=waifu.perks
+            )
+            if image_b64:
+                waifu.image_data = image_b64
+                waifu.image_mime = "image/webp"
+                waifu.image_generated_at = datetime.now(tz=timezone.utc)
 
         from waifu_bot.services.event_log import log_event
 
@@ -247,8 +275,9 @@ class TavernService:
             session,
             player_id,
             "tavern_hired",
-            {"waifu_name": waifu.name, "rarity": waifu.rarity},
+            {"waifu_name": waifu.name, "rarity": waifu.rarity, "template_id": getattr(waifu, "template_id", None)},
         )
+
         await session.commit()
         image_url = None
         if getattr(waifu, "image_data", None):
@@ -263,8 +292,12 @@ class TavernService:
             "slot": int(chosen.slot),
             "bio": bio,
             "image_url": image_url,
-            "hire_cost": hire_cost,
+            "hire_cost": 0 if pay_with_contract else hire_cost,
             "first_hire_free": first_hire_free,
+            "paid_with_contract": pay_with_contract,
+            "pity": merc_sys.pity_status(state),
+            "template_id": getattr(waifu, "template_id", None),
+            "perks": list(waifu.perks or []),
         }
         if not first_hire_free:
             try:
@@ -479,7 +512,7 @@ class TavernService:
     ) -> dict:
         """
         Уволить наёмницу (удалить навсегда). Доступно из отряда или запаса; не в экспедиции.
-        Уровень уволенной сохраняется в TavernState; следующая нанятая вайфу получит его (ТЗ).
+        Опыт уволенной суммируется в TavernState.pending_hired_exp; следующая нанятая получит пул.
         Используется узкий SELECT (без power/perks), чтобы не падать на старых БД без этих колонок.
         """
         stmt = select(
@@ -487,6 +520,7 @@ class TavernService:
             HiredWaifu.player_id,
             HiredWaifu.squad_position,
             HiredWaifu.level,
+            HiredWaifu.exp_current,
             HiredWaifu.expedition_id,
         ).where(HiredWaifu.id == waifu_id)
         row = (await session.execute(stmt)).one_or_none()
@@ -495,7 +529,16 @@ class TavernService:
         if getattr(row, "expedition_id", None) is not None:
             return {"error": "waifu_on_expedition", "hint": "Дождитесь возвращения из экспедиции."}
 
-        level_to_transfer = max(1, int(row.level or 1))
+        from waifu_bot.services.expedition import (
+            hired_level_from_total_exp,
+            hired_total_exp,
+        )
+
+        level = max(1, int(row.level or 1))
+        exp_current = max(0, int(getattr(row, "exp_current", 0) or 0))
+        exp_added = hired_total_exp(level, exp_current)
+        pending_exp = exp_added
+        level_preview = 1
 
         # Обнулить ссылки в слотах найма, иначе FK блокирует удаление
         await session.execute(
@@ -511,16 +554,27 @@ class TavernService:
 
         try:
             state = await self._get_or_create_tavern_state(session, player_id)
-            state.last_dismissed_level = level_to_transfer
+            pending_exp = max(0, int(getattr(state, "pending_hired_exp", 0) or 0)) + exp_added
+            state.pending_hired_exp = pending_exp
+            level_preview, _ = hired_level_from_total_exp(pending_exp)
         except SQLAlchemyError:
             pass
 
         await session.commit()
+        if pending_exp > 0:
+            hint = (
+                f"Опыт сохранён (+{exp_added}). Следующая наёмница получит "
+                f"накопленный опыт (~ур. {level_preview})."
+            )
+        else:
+            hint = "Наёмница уволена."
         return {
             "success": True,
             "waifu_id": waifu_id,
-            "level_saved": level_to_transfer,
-            "hint": "Следующая нанятая в таверне вайфу получит этот уровень.",
+            "exp_added": exp_added,
+            "pending_exp": pending_exp,
+            "level_preview": level_preview,
+            "hint": hint,
         }
 
     async def _get_or_create_tavern_state(
@@ -536,64 +590,9 @@ class TavernService:
 
     async def _generate_waifu(
         self, session: AsyncSession, player_id: int
-    ) -> HiredWaifu:
-        """Generate a random hired waifu. Level = 1 or last_dismissed_level (ТЗ)."""
-        import random
-
-        start_level = 1
-        state = await self._get_or_create_tavern_state(session, player_id)
-        if getattr(state, "last_dismissed_level", None) is not None:
-            start_level = max(1, int(state.last_dismissed_level))
-            state.last_dismissed_level = None  # один раз передаём уровень
-
-        # Roll rarity (weights: Common 50%, Uncommon 30%, Rare 15%, Epic 5%)
-        rarity_roll = random.random()
-        if rarity_roll < 0.5:
-            rarity = WaifuRarity.COMMON
-        elif rarity_roll < 0.8:
-            rarity = WaifuRarity.UNCOMMON
-        elif rarity_roll < 0.95:
-            rarity = WaifuRarity.RARE
-        else:
-            rarity = WaifuRarity.EPIC
-
-        # Random race and class
-        race = WaifuRace(random.randint(1, 7))
-        class_ = WaifuClass(random.randint(1, 7))
-
-        from waifu_bot.game.expedition_overhaul import compute_hired_power
-
-        power = compute_hired_power(start_level, int(rarity.value))
-        perk_count = {WaifuRarity.COMMON: 1, WaifuRarity.UNCOMMON: 2, WaifuRarity.RARE: 2, WaifuRarity.EPIC: 3, WaifuRarity.LEGENDARY: 4}
-        max_perks = perk_count.get(rarity, 1)
-        perk_ids: list[str] = []
-        tries = 0
-        while len(perk_ids) < max_perks and tries < 80:
-            tries += 1
-            pid = pick_perk_id_for_class(int(class_.value))
-            if pid not in perk_ids:
-                perk_ids.append(pid)
-
-        max_hp = 50 + start_level * 15
-        now_utc = datetime.now(timezone.utc)
-        waifu = HiredWaifu(
-            player_id=player_id,
-            name="Наёмница",  # будет заменено на имя от ИИ или fallback по расе
-            race=race.value,
-            class_=class_.value,
-            rarity=rarity.value,
-            level=start_level,
-            power=power,
-            perks=perk_ids,
-            squad_position=None,
-            max_hp=max_hp,
-            current_hp=max_hp,
-            hp_updated_at=now_utc,
-        )
-
-        session.add(waifu)
-        await session.flush()
-        return waifu
+    ) -> HiredWaifu | dict:
+        """Generate hired waifu with pity / legendary templates (merc overhaul)."""
+        return await merc_sys.generate_hired_with_pity(session, player_id)
 
     def _waifu_bio_inputs(self, waifu: HiredWaifu) -> tuple[str, str, str, int, list[str]]:
         """Имя, раса (RU), класс (RU), уровень, список названий перков для промпта OpenRouter."""
@@ -605,7 +604,9 @@ class TavernService:
         perk_names = []
         for pid in perk_ids:
             p_id = pid if isinstance(pid, str) else str(pid)
-            if p_id in PERK_BY_ID:
+            if p_id in MERC_PERK_BY_ID:
+                perk_names.append(MERC_PERK_BY_ID[p_id].name_ru)
+            elif p_id in PERK_BY_ID:
                 perk_names.append(PERK_BY_ID[p_id].name)
         return name, race_ru, class_ru, level, perk_names
 
@@ -670,46 +671,19 @@ class TavernService:
         waifu_id: int,
         perk_id: str,
     ) -> dict:
-        """Spend perk_upgrade_points to raise a perk level by 1.
+        """Alias: spend one T1 note for this perk type (soft/hard caps from ★)."""
+        from waifu_bot.services import merc_systems as merc_sys
 
-        Cost formula: current_level points (1→2 costs 1 pt, 2→3 costs 2 pts, ...).
-        Maximum perk level is 5.
-        """
-        waifu = await session.get(HiredWaifu, waifu_id)
-        if waifu is None or waifu.player_id != player_id:
-            return {"error": "waifu_not_found"}
-
-        perks = list(waifu.perks or [])
-        perk_id_str = str(perk_id)
-        if perk_id_str not in perks:
-            return {"error": "perk_not_owned"}
-
-        if perk_id_str not in PERK_BY_ID:
-            return {"error": "perk_unknown"}
-
-        perk_levels: dict = dict(getattr(waifu, "perk_levels", None) or {})
-        current_level = int(perk_levels.get(perk_id_str, 1))
-        max_perk_level = 5
-        if current_level >= max_perk_level:
-            return {"error": "perk_max_level", "level": current_level}
-
-        cost = current_level  # points cost to go current_level → current_level + 1
-        available_points = int(getattr(waifu, "perk_upgrade_points", 0) or 0)
-        if available_points < cost:
-            return {
-                "error": "insufficient_points",
-                "have": available_points,
-                "need": cost,
-            }
-
-        perk_levels[perk_id_str] = current_level + 1
-        waifu.perk_levels = perk_levels
-        waifu.perk_upgrade_points = available_points - cost
-        await session.flush()
+        result = await merc_sys.apply_manual_to_perk(
+            session, player_id, waifu_id=waifu_id, perk_id=str(perk_id), tier=1
+        )
+        if result.get("error"):
+            return result
         await session.commit()
         return {
             "ok": True,
-            "perk_id": perk_id_str,
-            "new_level": current_level + 1,
-            "points_remaining": waifu.perk_upgrade_points,
+            "perk_id": result.get("perk_id"),
+            "new_level": result.get("level"),
+            "tier": 1,
+            "points_remaining": 0,
         }

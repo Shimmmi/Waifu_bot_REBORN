@@ -261,15 +261,21 @@ class LegendaryCombatBridge:
 
 
 def persist_battle_state(run: DungeonRun, patch: dict[str, Any]) -> None:
+    from waifu_bot.services.message_privacy import strip_forbidden_text_keys
+
     clear = patch.pop("__clear_debuffs__", None)
     if clear:
         run.active_waifu_debuffs = []
-    run.battle_state = merge_battle_state(getattr(run, "battle_state", None) or {}, patch)
+    safe_patch = strip_forbidden_text_keys(patch)
+    run.battle_state = merge_battle_state(getattr(run, "battle_state", None) or {}, safe_patch)
 
 
 def persist_progress_battle_state(progress: Any, patch: dict[str, Any]) -> None:
     """Persist battle_state on abyss_progress (JSONB)."""
-    progress.battle_state = merge_battle_state(getattr(progress, "battle_state", None) or {}, patch)
+    from waifu_bot.services.message_privacy import strip_forbidden_text_keys
+
+    safe_patch = strip_forbidden_text_keys(patch)
+    progress.battle_state = merge_battle_state(getattr(progress, "battle_state", None) or {}, safe_patch)
     flag_modified(progress, "battle_state")
 
 

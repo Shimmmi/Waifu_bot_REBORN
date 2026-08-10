@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterable
 
 from waifu_bot.db.models.waifu import WaifuRarity
 
@@ -16,6 +16,19 @@ REWARD_TYPES: tuple[str, ...] = (
     "mixed",
 )
 
+# Ops board biases stored on ActiveExpedition.reward_type (accepted by validate; not in catalog UI)
+OPS_REWARD_TYPES: tuple[str, ...] = (
+    "merc_coins",
+    "merc_dust",
+    "contracts",
+    "tickets",
+)
+
+# No player gold from grant_expedition_rewards for these
+MERC_NO_GOLD_REWARD_TYPES: frozenset[str] = frozenset(
+    (*OPS_REWARD_TYPES, "merc_exp")
+)
+
 REWARD_TYPE_LABELS_RU: dict[str, str] = {
     "gold": "Золото",
     "waifu_exp": "Опыт основной вайфу",
@@ -23,17 +36,19 @@ REWARD_TYPE_LABELS_RU: dict[str, str] = {
     "enchant": "Камни заточки",
     "merc_exp": "Опыт наёмниц",
     "mixed": "Смешанная добыча",
+    "merc_coins": "Merc Coins",
+    "merc_dust": "Пыль",
+    "contracts": "Контракты найма",
+    "tickets": "Тикеты арены",
 }
 
-# База мощи по редкости + рост за уровень
-POWER_RARITY_BASE: dict[int, int] = {
-    int(WaifuRarity.COMMON): 40,
-    int(WaifuRarity.UNCOMMON): 55,
-    int(WaifuRarity.RARE): 75,
-    int(WaifuRarity.EPIC): 95,
-    int(WaifuRarity.LEGENDARY): 120,
-}
-POWER_PER_LEVEL = 3
+# CR / мощь — канон в merc_combat_rating (реэкспорт для совместимости)
+from waifu_bot.game.merc_combat_rating import (  # noqa: E402
+    POWER_PER_LEVEL,
+    POWER_RARITY_BASE,
+    compute_hired_cr,
+    compute_hired_power,
+)
 
 
 @dataclass(frozen=True)
@@ -57,14 +72,6 @@ DEPTH_TIERS: tuple[DepthTier, ...] = (
 )
 
 MIXED_REWARD_PENALTY = 0.55  # каждая часть смешанной награды
-
-
-def compute_hired_power(level: int, rarity: int) -> int:
-    """Мощь наёмницы: база редкости + рост с уровнем."""
-    lv = max(1, int(level or 1))
-    r = int(rarity or int(WaifuRarity.COMMON))
-    base = POWER_RARITY_BASE.get(r, 40)
-    return base + (lv - 1) * POWER_PER_LEVEL
 
 
 def squad_power_total(units: list[Any]) -> int:
@@ -111,9 +118,9 @@ def reward_type_catalog() -> list[dict[str, str]]:
 
 def validate_reward_type(reward_type: str | None) -> str | None:
     rt = str(reward_type or "").strip().lower()
-    if rt not in REWARD_TYPES:
-        return None
-    return rt
+    if rt in REWARD_TYPES or rt in OPS_REWARD_TYPES:
+        return rt
+    return None
 
 
 def base_reward_amount(reward_type: str, *, depth: DepthTier, player_level: int = 10) -> int:
@@ -131,6 +138,9 @@ def base_reward_amount(reward_type: str, *, depth: DepthTier, player_level: int 
         return max(40, int(50 + lv * 2) * depth.reward_mult)
     if reward_type == "mixed":
         return max(40, int(60 + lv * 2) * depth.reward_mult * MIXED_REWARD_PENALTY)
+    # Ops merc biases: no player-gold base; merc_exp still uses its formula above
+    if reward_type in OPS_REWARD_TYPES:
+        return max(40, int(50 + lv * 2) * depth.reward_mult)
     return 0
 
 
@@ -199,6 +209,7 @@ def gate_log_entry(
     active_tags: list[str] | None = None,
     covered_tags: list[str] | None = None,
     coverage: float | None = None,
+    affix_names: list[str] | None = None,
 ) -> dict[str, Any]:
     from waifu_bot.game.expedition_difficulty_tags import DIFFICULTY_TAG_LABEL_RU
 
@@ -235,12 +246,41 @@ def gate_log_entry(
         entry["covered_tags"] = list(covered_tags)
     if coverage is not None:
         entry["coverage"] = round(float(coverage), 3)
+    if affix_names is not None:
+        entry["affix_names"] = [str(n) for n in affix_names if str(n).strip()]
     return entry
 
 
-def pick_procedural_affixes(all_affixes: list[Any], rng: random.Random, count: int = 2) -> list[Any]:
-    """Случайный набор аффиксов для процедурной экспедиции."""
+def tick_affix_count(depth_tier: int | None) -> int:
+    """Сколько аффиксов роллить на один тик v2 (1–3 по тиру глубины)."""
+    tier = max(1, int(depth_tier or 1))
+    return min(3, 1 + tier // 2)
+
+
+def pick_procedural_affixes(
+    all_affixes: list[Any],
+    rng: random.Random,
+    count: int = 2,
+    *,
+    exclude_ids: Iterable[int] | None = None,
+) -> list[Any]:
+    """Случайный набор аффиксов для процедурной экспедиции / тика.
+
+    ``exclude_ids`` — не повторять аффиксы прошлого тика, если в пуле хватает
+    альтернатив; иначе берём из полного пула.
+    """
     if not all_affixes:
         return []
-    n = max(1, min(count, len(all_affixes)))
-    return rng.sample(list(all_affixes), k=n)
+    n = max(1, min(int(count), len(all_affixes)))
+    exclude = {int(x) for x in (exclude_ids or []) if x is not None}
+    pool = all_affixes
+    if exclude:
+        filtered = [
+            a
+            for a in all_affixes
+            if getattr(a, "id", None) is None or int(a.id) not in exclude
+        ]
+        if len(filtered) >= n:
+            pool = filtered
+    n = max(1, min(n, len(pool)))
+    return rng.sample(list(pool), k=n)

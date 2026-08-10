@@ -183,7 +183,7 @@ function resolveWebappShellVersion() {
       /* ignore */
     }
   }
-  return "waifu-webapp-v45";
+  return "waifu-webapp-v82";
 }
 
 const WAIFU_WEBAPP_VERSION = resolveWebappShellVersion();
@@ -250,6 +250,7 @@ const TAVERN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/tavern`;
 const NAV_STATIC_BASE = `${GAME_STATIC_BASE}/ui/nav`;
 const EXPEDITION_BIOMES_BASE = `${GAME_STATIC_BASE}/expeditions/biomes`;
 const EXPEDITION_ARCHETYPES_BASE = `${GAME_STATIC_BASE}/expeditions/archetypes`;
+const EXPEDITION_PERKS_WEBP_BASE = `${GAME_STATIC_BASE}/expeditions/perks/webp`;
 /** Cache-bust для свежесгенерированных артов архетипов (archetype_id -> v). */
 const expeditionArchetypeArtVersion = {};
 /** Имена файлов в `static/game/ui/tavern/audio/` (добавьте MP3 на сервер). */
@@ -657,59 +658,117 @@ const STAT_META = {
   def: { icon: "🛡️", short: "Защита" },
 };
 
-// Описания перков экспедиций (id из expedition_data.PERKS). Кратко — что даёт в экспедиции.
-const PERK_DESCS = {
-  gas_mask: "Снижает штраф от вони и ядовитого воздуха",
-  diver: "Снижает штраф в затопленных локациях",
-  fireproof: "Снижает штраф в жарких локациях",
-  frostproof: "Снижает штраф в ледяных локациях",
-  navigator: "Снижает штраф в тумане и шторме",
-  desert_walker: "Снижает штраф в пыли и зыбучих песках",
-  gas_filter: "Снижает штраф от ядовитого воздуха",
-  snow_warrior: "Снижает штраф в снежной буре",
-  acid_proof: "Снижает штраф от кислотного дождя",
-  wind_walker: "Снижает штраф в штормовых локациях",
-  elf_slayer: "Бонус против злых эльфов",
-  orc_hunter: "Бонус против орков-берсеркеров",
-  priest: "Бонус против нежити",
-  demon_slayer: "Бонус против демонов",
-  dragonslayer: "Бонус против драконов",
-  goblin_shaker: "Бонус против гоблинов",
-  troll_slayer: "Бонус против троллей",
-  vampire_hunter: "Бонус против вампиров",
-  entomologist: "Бонус против гигантских насекомых",
-  bat_hunter: "Бонус против летучих мышей",
-  mushroom_expert: "Снижает штраф от ядовитых грибов",
-  scout: "Снижает штраф от ловушек",
-  archaeologist: "Снижает штраф от проклятых артефактов",
-  swamp_walker: "Снижает штраф от зыбучих песков",
-  spider_hunter: "Снижает штраф от паутины",
-  chemist: "Снижает штраф от кислотных луж",
-  magic_researcher: "Снижает штраф от магических аномалий",
-  exorcist: "Снижает штраф от призрачных явлений",
-  mountain_engineer: "Снижает штраф от обвалов",
-  anti_magnet: "Снижает штраф от магнитных аномалий",
-  curse_removal: "Снижает штраф от проклятий",
-  anti_mage: "Снижает штраф от зачарований",
-  spatial_mage: "Снижает штраф от искажений",
-  light_protection: "Снижает штраф от ослепления",
-  magic_resistance: "Снижает штраф от паралича",
-  chronomancer: "Снижает штраф от замедления времени",
-  accelerator: "Снижает штраф от ускорения времени",
-  spatial_navigator: "Снижает штраф от искажения пространства",
-  mana_shield: "Снижает штраф от магического истощения",
-  lucky: "Снижает штраф от проклятия удачи",
-  mental_shield: "Снижает штраф от ментальных атак",
-  strong_spirit: "Снижает штраф от навязчивых страхов",
-  mental_clarity: "Снижает штраф от галлюцинаций",
-  sleepless: "Снижает штраф от магического сна",
-  trusting: "Снижает штраф от паранойи",
-  photographic_memory: "Снижает штраф от амнезии",
-  calm: "Снижает штраф от мании преследования",
-  optimist: "Снижает штраф от депрессии",
-  anger_control: "Снижает штраф от агрессии",
-  passionate: "Снижает штраф от апатии",
+// Гэговые описания перков (sync с expedition_data.PERKS.flavor_ru).
+const PERK_FLAVOR = {
+  gas_mask: "Дышит через фильтр «Премиум-Капуста» и называет вони «сложным букетом».",
+  diver: "Ныряет с важным видом, будто так и надо было начинать квест с лужи.",
+  fireproof: "Жарит маршмеллоу на лаве и жалуется, что «слабо подсолили».",
+  frostproof: "Лижет сосульку ради науки и утверждает, что это «ледяной смузи».",
+  navigator: "Ведёт отряд по компасу, который показывает «куда-нибудь не сюда».",
+  desert_walker: "Считает песок личным врагом и ведёт с ним долгие переговоры.",
+  gas_filter: "Носит запасной фильтр «на удачу» и иногда дышит им в качестве ароматерапии.",
+  snow_warrior: "Строит снежную крепость быстрее, чем отряд успевает замёрзнуть морально.",
+  acid_proof: "Под кислотным дождём распускает зонтик и шепчет: «погода — это настроение».",
+  wind_walker: "Ловит ураган как попутку и просит не ронять причёску истории.",
+  elf_slayer: "Специализируется на высокомерных ушастых и их токсичных комментариях о моде.",
+  orc_hunter: "Знает семнадцать способов сказать «спокойно, зелёный» до того, как начнётся драка.",
+  priest: "Кропит нежить святой водой и спрашивает, не записались ли они на отпевание.",
+  demon_slayer: "Говорит демонам «не сегодня» таким тоном, будто отменяет подписку.",
+  dragonslayer: "Коллекционирует чешую как стикеры и мечтает о полном альбоме.",
+  goblin_shaker: "Трясёт гоблинов за уши, пока не выпадет мелочь и самооценка.",
+  troll_slayer: "Бьёт троллей дубиной и мемами — что окажется больнее, неизвестно.",
+  vampire_hunter: "Носит колья как зубочистки и предлагает вампирам «дневной спа».",
+  entomologist: "Любит жуков professionally и лично — особенно когда они размером с диван.",
+  bat_hunter: "Свистит ультразвуком и спорит с летучими мышами о расписании.",
+  mushroom_expert: "Различает «можно» и «похороны» по запаху и уровню самоуверенности.",
+  scout: "Находит ловушки взглядом «я же говорил» ещё до того, как кто-то наступит.",
+  archaeologist: "Гладит проклятый кубок тряпочкой и шепчет: «ты просто недопонятый».",
+  swamp_walker: "Идёт по трясине так, будто это красная дорожка на болотном балу.",
+  spider_hunter: "Снимает паутину с лица как шарф и делает вид, что так и задумано.",
+  chemist: "Нюхает кислотные лужи «для пробы» и записывает рецепт в блокнот ужасов.",
+  magic_researcher: "Тыкает аномалию палочкой и говорит «интересный баг» вместо «беги».",
+  exorcist: "Выгоняет призраков вежливо, как незваных родственников с дивана.",
+  mountain_engineer: "Подпирает потолок киркой и обещает, что «это временно, как ремонт».",
+  anti_magnet: "Отталкивает аномалии харизмой и медью — наука пока не разобралась чем именно.",
+  curse_removal: "Снимает проклятия как старые стикеры: с характерным звуком и лёгким «упс».",
+  anti_mage: "Гасит чужие чары взглядом «я не в настроении для спецэффектов».",
+  spatial_mage: "Складывает пространство оригами и теряет ключи в соседнем измерении.",
+  light_protection: "Носит очки «от судьбы» и считает блики личным оскорблением.",
+  magic_resistance: "Паралич обходит стороной: слишком занята спором с заклинанием.",
+  chronomancer: "Замедляет время, чтобы успеть допить чай до конца кат-сцены.",
+  accelerator: "Ускоряет всё вокруг, кроме очереди за лутом — там свои законы.",
+  spatial_navigator: "Читает карту вселенной вверх ногами и всё равно приходит первой.",
+  mana_shield: "Держит щит из маны и мемов; истощение стучится — не пускаем.",
+  lucky: "Роняет клевер и всё равно выигрывает — вселенная устала спорить.",
+  mental_shield: "В голове стоит «не беспокоить» — ментальные атаки оставляют визитку.",
+  strong_spirit: "Боится только недосыпа и пустого инвентаря — остальное по расписанию.",
+  mental_clarity: "Видит галлюцинации, но вежливо просит их подождать в очереди.",
+  sleepless: "Не спит принципиально: вдруг сон окажется платным DLC.",
+  trusting: "Доверяет всем, включая подозрительный куст — и как-то это работает.",
+  photographic_memory: "Помнит всё, кроме где оставила ключи от подземелья — это нормально.",
+  calm: "Даже если за ней гонятся, она делает вид, что это флешмоб.",
+  optimist: "В любой яме видит «углублённый уровень» и бонус к характеру.",
+  anger_control: "Считает до десяти… на драконьем, чтобы злость успела устать.",
+  passionate: "Горит энтузиазмом так ярко, что апатия просит огнетушитель.",
 };
+
+// Механический эффект перка (sync с expedition_data.PERKS.effect_ru).
+/** Эффект перка: «Снижает штраф» + точные имена препятствий (синхрон с expedition_data.format_perk_effect_ru). */
+const PERK_EFFECTS = {
+  gas_mask: "Снижает штраф: Вонючий, Ядовитый воздух",
+  diver: "Снижает штраф: Затопленный",
+  fireproof: "Снижает штраф: Жаркий",
+  frostproof: "Снижает штраф: Ледяной",
+  navigator: "Снижает штраф: Туманный, Штормовой",
+  desert_walker: "Снижает штраф: Пыльный, Зыбучие пески",
+  gas_filter: "Снижает штраф: Ядовитый воздух",
+  snow_warrior: "Снижает штраф: Снежная буря",
+  acid_proof: "Снижает штраф: Кислотный дождь",
+  wind_walker: "Снижает штраф: Штормовой",
+  elf_slayer: "Снижает штраф: Злые эльфы",
+  orc_hunter: "Снижает штраф: Орки-берсеркеры",
+  priest: "Снижает штраф: Нежить",
+  demon_slayer: "Снижает штраф: Демоны",
+  dragonslayer: "Снижает штраф: Драконы",
+  goblin_shaker: "Снижает штраф: Гоблины",
+  troll_slayer: "Снижает штраф: Тролли",
+  vampire_hunter: "Снижает штраф: Вампиры",
+  entomologist: "Снижает штраф: Гигантские насекомые",
+  bat_hunter: "Снижает штраф: Летучие мыши",
+  mushroom_expert: "Снижает штраф: Ядовитые грибы",
+  scout: "Снижает штраф: Ловушки",
+  archaeologist: "Снижает штраф: Проклятые артефакты",
+  swamp_walker: "Снижает штраф: Зыбучие пески",
+  spider_hunter: "Снижает штраф: Паутина",
+  chemist: "Снижает штраф: Кислотные лужи",
+  magic_researcher: "Снижает штраф: Магические аномалии",
+  exorcist: "Снижает штраф: Призрачные явления",
+  mountain_engineer: "Снижает штраф: Обвалы",
+  anti_magnet: "Снижает штраф: Магнитные аномалии",
+  curse_removal: "Снижает штраф: Проклятый",
+  anti_mage: "Снижает штраф: Зачарованный",
+  spatial_mage: "Снижает штраф: Искаженный",
+  light_protection: "Снижает штраф: Ослепляющий",
+  magic_resistance: "Снижает штраф: Парализующий",
+  chronomancer: "Снижает штраф: Замедление времени",
+  accelerator: "Снижает штраф: Ускорение времени",
+  spatial_navigator: "Снижает штраф: Искажение пространства",
+  mana_shield: "Снижает штраф: Магическое истощение",
+  lucky: "Снижает штраф: Проклятие удачи",
+  mental_shield: "Снижает штраф: Ментальные атаки",
+  strong_spirit: "Снижает штраф: Навязчивые страхи",
+  mental_clarity: "Снижает штраф: Галлюцинации",
+  sleepless: "Снижает штраф: Магический сон",
+  trusting: "Снижает штраф: Паранойя",
+  photographic_memory: "Снижает штраф: Амнезия",
+  calm: "Снижает штраф: Мания преследования",
+  optimist: "Снижает штраф: Депрессия",
+  anger_control: "Снижает штраф: Агрессия",
+  passionate: "Снижает штраф: Апатия",
+};
+
+/** @deprecated use PERK_FLAVOR — kept as alias for older call sites */
+const PERK_DESCS = PERK_FLAVOR;
 
 // Русские названия перков (синхрон с expedition_data.PERKS) — для таверны без payload perks в API.
 const PERK_NAMES = {
@@ -819,9 +878,43 @@ const PERK_ICONS = {
   passionate: "❤️",
 };
 
-/** Пояснение, как перк связан со сложностью экспедиций (слоты 1–5, сумма аффиксов). */
-const PERK_EXPEDITION_COUNTER_HINT =
-  "Перк помогает в экспедициях, если закрывает тип сложности слота (Монстры, Нежить…). Эффективность = min(100%, уровень_перка ÷ уровень_препятствия I–V). Прокачка перков — вкладка ⬆ LVL в таверне (очки за лвлап после экспедиции).";
+function perkNameRu(pid) {
+  const id = String(pid || "").trim();
+  if (!id) return "";
+  return PERK_NAMES[id] || id;
+}
+
+function perkFlavorRu(pid) {
+  const id = String(pid || "").trim();
+  const merc = window.__mercPerksCatalog?.[id];
+  if (merc?.flavor) return merc.flavor;
+  return PERK_FLAVOR[id] || PERK_DESCS[id] || "Специальное умение для операций.";
+}
+
+function perkEffectRu(pid) {
+  const id = String(pid || "").trim();
+  return PERK_EFFECTS[id] || "";
+}
+
+function perkArtUrl(pid) {
+  const id = String(pid || "").trim();
+  if (!id) return "";
+  return `${EXPEDITION_PERKS_WEBP_BASE}/${encodeURIComponent(id)}.webp`;
+}
+
+/** WebP icon with emoji fallback (PERK_ICONS). */
+function perkIconHtml(pid, opts = {}) {
+  const id = String(pid || "").trim();
+  const emoji = PERK_ICONS[id] || "✦";
+  const cls = opts.className ? String(opts.className) : "perk-ico-img";
+  const title = opts.title != null ? String(opts.title) : perkNameRu(id);
+  const url = perkArtUrl(id);
+  if (!url) {
+    return `<span class="perk-ico-emoji" aria-hidden="true">${emoji}</span>`;
+  }
+  const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+  return `<img class="${escapeHtml(cls)}" src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async"${titleAttr} data-perk-emoji="${escapeHtml(emoji)}" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'perk-ico-emoji',textContent:this.dataset.perkEmoji||'✦',ariaHidden:'true'}))" />`;
+}
 
 function safeInt(x, fallback = 0) {
   const v = Number.parseInt(String(x), 10);
@@ -861,15 +954,17 @@ function formatApiErrorDetail(detail) {
 
 function parseHttpErrorDetail(err) {
   const msg = String(err?.message || err || "");
+  const statusMatch = msg.match(/HTTP\s+(\d{3})/i);
+  const status = statusMatch ? Number(statusMatch[1]) : null;
   const idx = msg.indexOf(":");
-  if (idx === -1) return { raw: msg, detail: msg };
+  if (idx === -1) return { raw: msg, detail: msg, status };
   const tail = msg.slice(idx + 1).trim();
   try {
     const obj = JSON.parse(tail);
     const detail = obj?.detail != null ? formatApiErrorDetail(obj.detail) : tail;
-    return { raw: msg, detail };
+    return { raw: msg, detail, status };
   } catch {
-    return { raw: msg, detail: tail || msg };
+    return { raw: msg, detail: tail || msg, status };
   }
 }
 
@@ -919,6 +1014,19 @@ function rarityLabel(r) {
       4: "Эпический",
       5: "Легендарный",
     }[v] || `Rarity ${v || "—"}`
+  );
+}
+
+function rarityShortLabel(r) {
+  const v = Number(r);
+  return (
+    {
+      1: "Об",
+      2: "Необ",
+      3: "Ред",
+      4: "Эпик",
+      5: "Лег",
+    }[v] || "—"
   );
 }
 
@@ -1159,12 +1267,12 @@ const PROFILE_STAT_LABELS = {
 };
 
 const PROFILE_STAT_TOOLTIPS = {
-  strength: "Увеличивает урон ближнего боя, запас HP и силу критических атак.",
-  agility: "Повышает урон дальнего боя, шанс уклонения и шанс критической атаки.",
-  intelligence: "Усиливает магический урон, активные навыки и бонус к получаемому опыту.",
-  endurance: "Даёт больше максимального HP и снижает входящий урон.",
+  strength: "Урон ближнего боя (+1,2 за пункт), +3 HP за пункт и множитель крита (1,5 + 0,01×СИЛ).",
+  agility: "Урон дальнего боя (+1,2 за пункт), уклонение 0,1%/пункт (потолок 40%) и крит 0,1%/пункт.",
+  intelligence: "Магический урон и медиа-навыки (+1,2 за пункт), бонус EXP 0,1%/пункт.",
+  endurance: "Макс. HP (+12 за пункт), снижение входящего урона 0,08%/пункт (потолок 35% от ВЫН) и реген HP: 5/мин + max(0, ВЫН−10)/мин. Совершенствование даёт % к этой базе.",
   charm: "Улучшает торговлю и снижает стоимость найма и тренировок.",
-  luck: "Повышает шанс критов, шанс добычи предметов и количество золота с монстров.",
+  luck: "Крит 0,1%/пункт, шанс добычи, золото с монстров и Magic Find.",
 };
 
 function profileStatValue(waifu, statKey) {
@@ -1235,7 +1343,8 @@ function getProfileIndicators(waifu, details = null) {
   const intelligence = profileStatValue(waifu, "intelligence");
   const agility = profileStatValue(waifu, "agility");
 
-  const hpMax = safeNumber(d?.hp_max ?? waifu?.max_hp, 0);
+  // Prefer synced waifu.max_hp when details omit guild/paragon HP
+  const hpMax = Math.max(1, safeNumber(d?.hp_max, 0), safeNumber(waifu?.max_hp, 0));
   const melee = safeNumber(d?.melee_damage, 0);
   const ranged = safeNumber(d?.ranged_damage, 0);
   const magic = safeNumber(d?.magic_damage, 0);
@@ -1248,9 +1357,8 @@ function getProfileIndicators(waifu, details = null) {
   const hireDiscount = d ? safeNumber(d.hire_discount, charm * 0.1) : charm * 0.1;
   const trainingDiscount = d ? safeNumber(d.training_discount, charm * 0.15) : charm * 0.15;
   const damageReduction = d ? safeNumber(d.damage_reduction, Math.min(35, endurance * 0.08)) : Math.min(35, endurance * 0.08);
-  // HP regen per hour (in dungeon): HP_max × (1 − e^(−END/100)) %
-  const hpRegenRatePct = hpMax > 0 ? hpMax * (1 - Math.exp(-endurance / 100)) : 0;
-  const hpRegenOutPct = hpRegenRatePct * 5;
+  // Live regen: 5 HP/min + max(0, END-10); perfection adds % of this base.
+  const hpRegenPerMin = 5 + Math.max(0, Math.floor(endurance) - 10);
   const merchantDiscount = safeNumber(d?.merchant_discount, 0);
   // Торговля: покупка 100%/(1 + charm/100), продажа 50% + charm*0.1%
   const buyPct = merchantDiscount > 0
@@ -1274,7 +1382,7 @@ function getProfileIndicators(waifu, details = null) {
     hireDiscount: profileFormatPercent(hireDiscount, 1),
     trainingDiscount: profileFormatPercent(trainingDiscount, 1),
     merchant: `покупка ${buyPct}% · продажа ${sellPct}%`,
-    hpRegen: `реген ${Math.round(hpRegenOutPct)}/час`,
+    hpRegen: `${hpRegenPerMin} HP/мин`,
     armor: safeNumber(d?.armor, 0),
     incomingReduction: profileFormatPercent(damageReduction, 1),
   };
@@ -1285,30 +1393,28 @@ function profileStatBonusLines(statKey, waifu, details = null) {
   switch (statKey) {
     case "strength":
       return [
-        `+${(total * 0.5).toFixed(1)} к урону ближнего боя`,
-        `+${total * 2} к HP`,
-        `×${(1.5 + total * 0.005).toFixed(2)} множитель крит. урона`,
+        `+${(total * 1.2).toFixed(1)} к урону ближнего боя`,
+        `+${total * 3} к HP`,
+        `×${(1.5 + total * 0.01).toFixed(2)} множитель крит. урона`,
       ];
     case "agility":
       return [
-        `+${(total * 0.5).toFixed(1)} к урону дальнего боя`,
+        `+${(total * 1.2).toFixed(1)} к урону дальнего боя`,
         `+${profileFormatPercent(total * 0.1, 1)} к шансу уклонения (потолок 40%)`,
-        `+${profileFormatPercent(total * 0.05, 2)} к шансу крит. атаки`,
+        `+${profileFormatPercent(total * 0.1, 2)} к шансу крит. атаки`,
       ];
     case "intelligence":
       return [
-        `+${(total * 0.5).toFixed(1)} к урону магических атак`,
-        `+${(total * 0.3).toFixed(1)} к урону активных навыков`,
+        `+${(total * 1.2).toFixed(1)} к урону магических атак`,
+        `+${(total * 1.2).toFixed(1)} к урону активных навыков (не TEXT/LINK)`,
         `+${profileFormatPercent(total * 0.1, 1)} к получаемому опыту`,
       ];
     case "endurance": {
-      const maxHp = details?.hp_max ?? (waifu?.max_hp ?? 0);
-      const regenInDungeon = maxHp > 0 ? (maxHp * (1 - Math.exp(-total / 100))).toFixed(0) : "—";
-      const regenOut = maxHp > 0 ? (maxHp * (1 - Math.exp(-total / 100)) * 5).toFixed(0) : "—";
+      const regenPerMin = 5 + Math.max(0, Math.floor(total) - 10);
       return [
-        `+${total * 5} к максимальному HP`,
+        `+${total * 12} к максимальному HP`,
         `-${profileFormatPercent(Math.min(35, total * 0.08), 1)} к получаемому урону (потолок 35%)`,
-        `Реген HP: ~${regenInDungeon}/час в бою, ~${regenOut}/час вне боя`,
+        `Реген HP: ${regenPerMin}/мин (5 + max(0, ВЫН−10); совершенствование — % к базе)`,
       ];
     }
     case "charm": {
@@ -3215,7 +3321,13 @@ function setAdminUiEnabled(on) {
 
 function syncAdminUiVisibility() {
   const show = isAdminUiEnabled();
+  document.body.classList.toggle("is-admin", show);
   document.querySelectorAll(".admin-only").forEach((el) => {
+    if (el.classList.contains("ops-art-gen-btn")) {
+      // CSS body.is-admin gate; skip inline display so !important rules work
+      el.style.removeProperty("display");
+      return;
+    }
     el.style.display = show ? "" : "none";
   });
 }
@@ -3831,9 +3943,33 @@ function initAtticChipClicks() {
   const expChip = document.getElementById("attic-exp-chip");
   if (expChip) {
     expChip.addEventListener("click", () => {
-      window.location.href = "./dungeons.html?tab=expedition";
+      window.location.href = "./dungeons.html?tab=operations";
     });
     expChip.style.cursor = "pointer";
+    expChip.title = "Операции";
+  }
+  // Arena chip (merc overhaul) — inject next to ops chip if missing
+  let arenaChip = document.getElementById("attic-arena-chip");
+  if (!arenaChip && expChip && expChip.parentElement) {
+    arenaChip = document.createElement("div");
+    arenaChip.className = "chip attic-arena-chip";
+    arenaChip.id = "attic-arena-chip";
+    arenaChip.title = "Арена";
+    arenaChip.innerHTML = `<span id="attic-arena-tickets">⚔ —</span>`;
+    expChip.parentElement.insertBefore(arenaChip, expChip.nextSibling);
+  }
+  if (arenaChip) {
+    arenaChip.addEventListener("click", () => {
+      window.location.href = "./tavern.html?tab=arena";
+    });
+    arenaChip.style.cursor = "pointer";
+    fetch("/api/arena/status", { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const el = document.getElementById("attic-arena-tickets");
+        if (el && data) el.textContent = `⚔ ${data.arena_tickets ?? 0}`;
+      })
+      .catch(() => {});
   }
   if (document.getElementById("attic-exp-cells")) {
     renderAtticExpeditions([], 3);
@@ -4267,7 +4403,7 @@ async function bootstrapTavernPage() {
 
   try {
     const tavernTab = new URLSearchParams(window.location.search).get("tab");
-    if (tavernTab && ["hire", "squad", "heal", "upgrade"].includes(tavernTab)) {
+    if (tavernTab && ["hire", "squad", "arena", "exchange", "inventory"].includes(tavernTab)) {
       window.WaifuApp?.switchTavernTab?.(tavernTab);
     }
   } catch {
@@ -4739,6 +4875,9 @@ const expeditionSend = {
   squadSlots: [null, null, null],
   rewardType: "gold",
   depthTier: 1,
+  opsContractId: null,
+  threatTags: [],
+  rewardBias: null,
 };
 
 function switchShopTab(name) {
@@ -5411,6 +5550,7 @@ function closeShopModal() {
     m.classList.remove("shop-modal--open");
     m.style.display = "none";
   }
+  resetItemModalFlip("shop-offer-modal");
   shopState.selectedSlot = null;
   shopState.selectedOffer = null;
   const grid = document.getElementById("shop-items") || document.getElementById("shop-buy-grid");
@@ -5428,21 +5568,27 @@ function openShopOffer(slot) {
   const m = document.getElementById("shop-modal");
   if (!m) return;
 
-  const contentEl = document.getElementById("shop-offer-modal-content");
-  const nameEl = document.getElementById("shop-offer-modal-name");
-  const subEl = document.getElementById("shop-offer-modal-subline");
-  const rpill = document.getElementById("shop-offer-modal-rpill");
-  const upHint = document.getElementById("shop-offer-modal-upgrade-hint");
-  const art = document.getElementById("shop-offer-modal-art");
-  const body = document.getElementById("shop-offer-modal-body");
+  const prefix = "shop-offer-modal";
+  const contentEl = document.getElementById(`${prefix}-content`);
+  const nameEl = document.getElementById(`${prefix}-name`);
+  const subEl = document.getElementById(`${prefix}-subline`);
+  const rpill = document.getElementById(`${prefix}-rpill`);
+  const upHint = document.getElementById(`${prefix}-upgrade-hint`);
+  const art = document.getElementById(`${prefix}-art`);
+  const artFrame = document.getElementById(`${prefix}-art-frame`);
+  const body = document.getElementById(`${prefix}-body`);
+  const enchRow = document.getElementById(`${prefix}-ench`);
   const buyBtn = document.getElementById("shop-modal-buy");
+  const reqFoot = document.getElementById(`${prefix}-requirements`);
+  const reqSec = document.getElementById(`${prefix}-req-section`);
+  const descEl = document.getElementById(`${prefix}-desc`);
 
   if (!offer) {
     if (nameEl) nameEl.textContent = `Слот ${slot}`;
     if (subEl) subEl.textContent = "";
     if (rpill) {
       rpill.textContent = "—";
-      rpill.className = "item-modal-v2-rpill";
+      rpill.className = "item-modal-v2-rarity-chip";
     }
     if (upHint) {
       upHint.style.display = "none";
@@ -5450,24 +5596,28 @@ function openShopOffer(slot) {
       upHint.setAttribute("aria-hidden", "true");
     }
     if (art) art.innerHTML = "—";
+    if (enchRow) enchRow.innerHTML = "";
     if (body) body.innerHTML = `<div class="muted tiny" style="padding:8px 0;">Пустой слот.</div>`;
-    const reqSec = document.getElementById("shop-offer-modal-req-section");
-    const reqFoot = document.getElementById("shop-offer-modal-requirements");
     if (reqFoot) reqFoot.innerHTML = "";
     if (reqSec) reqSec.style.display = "none";
-    const descEl = document.getElementById("shop-offer-modal-desc");
     if (descEl) {
-      descEl.style.display = "none";
-      descEl.innerHTML = "";
+      descEl.textContent = "Описание отсутствует";
+      descEl.classList.add("is-empty");
+      descEl.style.display = "";
     }
+    fillItemModalHeroPrimaryStats(null, prefix);
     if (buyBtn) {
       buyBtn.disabled = true;
       buyBtn.textContent = "—";
     }
     if (contentEl) {
-      ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) => contentEl.classList.remove(c));
+      ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) =>
+        contentEl.classList.remove(c)
+      );
       contentEl.classList.add("rarity-common");
     }
+    wireItemModalFlip(prefix);
+    resetItemModalFlip(prefix);
     m.classList.add("shop-modal--open");
     m.style.display = "grid";
     return;
@@ -5482,8 +5632,8 @@ function openShopOffer(slot) {
   }
   if (subEl) subEl.textContent = buildItemModalMetaLine(offer);
   if (rpill) {
-    rpill.textContent = rarityLabel(offer?.rarity);
-    rpill.className = `item-modal-v2-rpill ${rarityPillModifierClass(offer?.rarity)}`.trim();
+    rpill.textContent = rarityShortLabel(offer?.rarity);
+    rpill.className = `item-modal-v2-rarity-chip ${rarityPillModifierClass(offer?.rarity)}`.trim();
   }
   if (upHint) {
     upHint.style.display = "none";
@@ -5491,9 +5641,17 @@ function openShopOffer(slot) {
     upHint.setAttribute("aria-hidden", "true");
   }
   if (art) art.innerHTML = itemArtHtml(offer, { adminGen: true });
+  if (artFrame) {
+    artFrame.querySelectorAll(".item-enchant-overlay").forEach((el) => el.remove());
+    const overlayHtml = itemEnchantOverlayHtml(offer, "modal");
+    if (overlayHtml) artFrame.insertAdjacentHTML("beforeend", overlayHtml);
+  }
+  if (enchRow) enchRow.innerHTML = buildItemModalEnchantRowHtml(offer);
 
   if (contentEl) {
-    ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) => contentEl.classList.remove(c));
+    ["rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic", "rarity-legendary"].forEach((c) =>
+      contentEl.classList.remove(c)
+    );
     contentEl.classList.add(offer?.rarity != null ? rarityClass(offer.rarity) : "rarity-common");
   }
 
@@ -5515,22 +5673,24 @@ function openShopOffer(slot) {
     }
   }
 
+  fillItemModalHeroPrimaryStats(offer?.sold ? null : offer, prefix);
+  wireItemModalFlip(prefix);
+  resetItemModalFlip(prefix);
+
   const mw = profileState.currentProfile?.main_waifu || null;
-  const reqFoot = document.getElementById("shop-offer-modal-requirements");
-  const reqSec = document.getElementById("shop-offer-modal-req-section");
   const pillsHtml = buildItemModalRequirementsPillsHtml(offer, mw);
   if (reqFoot) reqFoot.innerHTML = pillsHtml;
   if (reqSec) reqSec.style.display = pillsHtml && !offer?.sold ? "" : "none";
 
-  const descEl = document.getElementById("shop-offer-modal-desc");
-  const descText = String(offer?.description || "").trim();
+  const descText = String(offer?.description || offer?.flavor_ru || "").trim();
   if (descEl) {
+    descEl.style.display = "";
     if (descText && !offer?.sold) {
-      descEl.style.display = "";
       descEl.textContent = `"${descText}"`;
+      descEl.classList.remove("is-empty");
     } else {
-      descEl.style.display = "none";
-      descEl.innerHTML = "";
+      descEl.textContent = offer?.sold ? "Продано" : "Описание отсутствует";
+      descEl.classList.add("is-empty");
     }
   }
 
@@ -6113,6 +6273,33 @@ function openItemEquipRingOverlay() {
   ov.setAttribute("aria-hidden", "false");
 }
 
+function resetItemModalFlip(prefix = "item-modal") {
+  const inner = document.getElementById(`${prefix}-flip-inner`);
+  if (inner) inner.classList.remove("is-flipped");
+}
+
+function toggleItemModalFlip(prefix = "item-modal") {
+  const inner = document.getElementById(`${prefix}-flip-inner`);
+  if (inner) inner.classList.toggle("is-flipped");
+}
+
+function wireItemModalFlip(prefix = "item-modal") {
+  const scene = document.getElementById(`${prefix}-flip-scene`);
+  if (!scene || scene.dataset.flipWired === "1") return;
+  scene.dataset.flipWired = "1";
+  scene.addEventListener("click", (e) => {
+    if (e.target.closest(".item-art-generate-btn")) return;
+    e.preventDefault();
+    toggleItemModalFlip(prefix);
+  });
+  scene.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleItemModalFlip(prefix);
+    }
+  });
+}
+
 function closeItemModal() {
   const m = document.getElementById("item-modal");
   if (m) {
@@ -6120,6 +6307,7 @@ function closeItemModal() {
     m.style.removeProperty("--attic-bar-height");
     m.style.display = "none";
   }
+  resetItemModalFlip();
   closeItemSellConfirmOverlay();
   closeItemDismantleConfirmOverlay();
   closeItemEquipRingOverlay();
@@ -6378,6 +6566,13 @@ function initItemArtGenerateDelegated() {
   const onActivate = (e) => {
     const el = e.target.closest(".item-art-generate-btn");
     if (!el || !document.body.contains(el)) return;
+    // Hired-waifu portrait uses a different endpoint; do not hijack.
+    if (
+      el.classList.contains("hired-waifu-art-generate-btn") ||
+      (el.getAttribute("data-waifu-id") && !el.getAttribute("data-art-key"))
+    ) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     handleItemArtGenerateClick(el);
@@ -6387,6 +6582,12 @@ function initItemArtGenerateDelegated() {
     if (e.key !== "Enter" && e.key !== " ") return;
     const el = e.target.closest(".item-art-generate-btn");
     if (!el || !document.body.contains(el)) return;
+    if (
+      el.classList.contains("hired-waifu-art-generate-btn") ||
+      (el.getAttribute("data-waifu-id") && !el.getAttribute("data-art-key"))
+    ) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     handleItemArtGenerateClick(el);
@@ -6594,47 +6795,91 @@ function renderItemModalV2LegendaryBlockHtml(bonuses) {
   return entries;
 }
 
+function fillItemModalHeroPrimaryStats(item, prefix = "item-modal") {
+  const left = document.getElementById(`${prefix}-hero-left`);
+  const right = document.getElementById(`${prefix}-hero-right`);
+  if (!left || !right) return;
+
+  left.innerHTML = "";
+  right.innerHTML = "";
+
+  if (!item) return;
+
+  const st = String(item?.slot_type || "").toLowerCase();
+  const isWeapon = st.includes("weapon");
+  const isAccessory = st.includes("ring") || st.includes("amulet");
+
+  if (isWeapon) {
+    const dmgMinE =
+      item?.damage_min_effective != null ? Number(item.damage_min_effective) : Number(item?.damage_min ?? NaN);
+    const dmgMaxE =
+      item?.damage_max_effective != null ? Number(item.damage_max_effective) : Number(item?.damage_max ?? NaN);
+    if (Number.isFinite(dmgMinE) && Number.isFinite(dmgMaxE)) {
+      left.innerHTML = `<div class="item-modal-v2-hero-stat-lbl">Урон</div>
+        <div class="item-modal-v2-hero-dmg" aria-label="Урон ${dmgMinE}–${dmgMaxE}">
+          <span class="item-modal-v2-hero-dmg-line">${escapeHtml(String(dmgMinE))}</span>
+          <span class="item-modal-v2-hero-dmg-sep">–</span>
+          <span class="item-modal-v2-hero-dmg-line">${escapeHtml(String(dmgMaxE))}</span>
+        </div>`;
+    }
+    const speed = item?.attack_speed != null ? Number(item.attack_speed) : null;
+    if (speed != null && Number.isFinite(speed)) {
+      right.innerHTML = `<div class="item-modal-v2-hero-stat-lbl">Скор.</div>
+        <div class="item-modal-v2-hero-stat-val item-modal-v2-hero-stat-val--spd">${escapeHtml(String(speed))}</div>`;
+    }
+    return;
+  }
+
+  if (!isAccessory) {
+    const armorEff =
+      item?.armor_effective != null
+        ? safeNumber(item.armor_effective, safeNumber(item?.armor_base, 0))
+        : safeNumber(item?.armor_base, 0);
+    if (armorEff > 0) {
+      left.innerHTML = `<div class="item-modal-v2-hero-stat-lbl">Броня</div>
+        <div class="item-modal-v2-hero-stat-val item-modal-v2-hero-stat-val--arm">${escapeHtml(String(armorEff))}</div>`;
+    }
+  }
+}
+
 function renderItemModalV2CharacteristicsHtml(item) {
   if (!item) return "";
   itemModalV2NextIcon._i = 0;
   const baseRows = [];
   const otherRows = [];
 
-  const armorEff =
-    item?.armor_effective != null
-      ? safeNumber(item.armor_effective, safeNumber(item?.armor_base, 0))
-      : safeNumber(item?.armor_base, 0);
-  const dmgMinE = item?.damage_min_effective != null ? Number(item.damage_min_effective) : Number(item?.damage_min ?? NaN);
-  const dmgMaxE = item?.damage_max_effective != null ? Number(item.damage_max_effective) : Number(item?.damage_max ?? NaN);
-  const speed = item?.attack_speed != null ? Number(item.attack_speed) : null;
-  const st = String(item?.slot_type || "").toLowerCase();
-  const isWeapon = st.includes("weapon");
-  const isAccessory = st.includes("ring") || st.includes("amulet");
+  // Урон / скорость / броня — в боковых колонках арта (fillItemModalHeroPrimaryStats).
 
-  if (!isWeapon && !isAccessory && armorEff > 0) {
-    baseRows.push(
-      itemModalV2StatRow("Броня", escapeHtml(String(armorEff)), "item-modal-v2-sv-te", null)
-    );
-  }
-  if (isWeapon && Number.isFinite(dmgMinE) && Number.isFinite(dmgMaxE)) {
-    baseRows.push(
-      itemModalV2StatRow("Урон", escapeHtml(`${dmgMinE}–${dmgMaxE}`), "item-modal-v2-sv-re", null)
-    );
-  }
-  if (isWeapon && speed != null) {
-    baseRows.push(
-      itemModalV2StatRow("Скорость атаки", escapeHtml(String(speed)), "item-modal-v2-sv-go", null)
-    );
-  }
+  const mergeMap = new Map();
+  const addMergedStat = (stat, rawValue, isPercentFlag) => {
+    const sk = String(stat || "").trim();
+    const skl = sk.toLowerCase();
+    if (!skl) return false;
+    if (
+      skl.startsWith("passive_node_level_add:") ||
+      skl.startsWith("passive_branch_level_add:") ||
+      skl === "passive_all_nodes_level_add"
+    ) {
+      return false;
+    }
+    const isPct =
+      Boolean(isPercentFlag) ||
+      skl.endsWith("_pct") ||
+      skl.endsWith("_percent") ||
+      skl.includes("chance_percent");
+    const key = `${skl}|${isPct ? 1 : 0}`;
+    const n = safeNumber(rawValue, 0);
+    const prev = mergeMap.get(key);
+    if (prev) {
+      prev.value += n;
+    } else {
+      mergeMap.set(key, { stat: skl, isPercent: isPct, value: n });
+    }
+    return true;
+  };
 
   if (item.base_stat && item.base_stat_value != null) {
-    const m = statMeta(item.base_stat);
-    const v = formatBonusValue(item.base_stat, item.base_stat_value);
-    const cls =
-      String(item.base_stat).includes("strength") || String(item.base_stat).includes("damage")
-        ? "item-modal-v2-sv-re"
-        : "item-modal-v2-sv-pu";
-    otherRows.push(itemModalV2StatRow(m.short, escapeHtml(v), cls, null, true));
+    addMergedStat(item.base_stat, item.base_stat_value, false);
   }
 
   const t = String(item?.secondary_bonus_type || "").trim();
@@ -6676,17 +6921,33 @@ function renderItemModalV2CharacteristicsHtml(item) {
   aff.forEach((a) => {
     const sk = String(a.stat || "").trim();
     const skl = sk.toLowerCase();
-    const label = resolveAffixCharacteristicLabel(a);
-    let v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
     if (
       skl.startsWith("passive_node_level_add:") ||
       skl.startsWith("passive_branch_level_add:") ||
       skl === "passive_all_nodes_level_add"
     ) {
+      const label = resolveAffixCharacteristicLabel(a);
+      let v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
       v = `${v} ур.`;
+      otherRows.push(itemModalV2StatRow(label, escapeHtml(v), "item-modal-v2-sv-pu", null, true));
+      return;
     }
-    otherRows.push(itemModalV2StatRow(label, escapeHtml(v), "item-modal-v2-sv-pu", null, true));
+    if (!addMergedStat(sk, a.value, a?.is_percent)) {
+      const label = resolveAffixCharacteristicLabel(a);
+      const v = formatAffixCharacteristicValue(sk, a.value, a?.is_percent);
+      otherRows.push(itemModalV2StatRow(label, escapeHtml(v), "item-modal-v2-sv-pu", null, true));
+    }
   });
+
+  for (const entry of mergeMap.values()) {
+    const label = resolveAffixCharacteristicLabel({ stat: entry.stat });
+    const v = formatAffixCharacteristicValue(entry.stat, entry.value, entry.isPercent);
+    const cls =
+      entry.stat.includes("strength") || entry.stat.includes("damage")
+        ? "item-modal-v2-sv-re"
+        : "item-modal-v2-sv-pu";
+    otherRows.push(itemModalV2StatRow(label, escapeHtml(v), cls, null, true));
+  }
 
   const leg = Array.isArray(item.legendary_bonuses) ? item.legendary_bonuses : [];
   const basePanel = itemModalV2Subpanel("item-modal-v2-subpanel--base", baseRows.join(""));
@@ -6960,8 +7221,10 @@ function renderProfilePortrait(waifu, profile = null) {
 function renderProfileHeroBars(waifu, details = null, profile = null) {
   const d = details || profileState.currentDetails || null;
   const p = profile || profileState.currentProfile || null;
-  const hpCur = safeNumber(d?.hp_current ?? waifu?.current_hp, 0);
-  const hpMax = Math.max(1, safeNumber(d?.hp_max ?? waifu?.max_hp, 1));
+  // Synced waifu.max_hp is canonical (guild + paragon); details alone can understate max
+  const hpMax = Math.max(1, safeNumber(d?.hp_max, 0), safeNumber(waifu?.max_hp, 0));
+  const hpCurRaw = safeNumber(d?.hp_current ?? waifu?.current_hp, 0);
+  const hpCur = Math.min(hpCurRaw, hpMax);
   setText("profile-hp-text", `${hpCur}/${hpMax}`);
   const hpFill = document.getElementById("profile-hp-fill");
   if (hpFill) hpFill.style.width = `${Math.round(clamp01(hpCur / hpMax) * 100)}%`;
@@ -7035,10 +7298,26 @@ function renderProfileIndicators(waifu, details = null) {
   const rows = [
     ["HP макс.", indicators.hpMax],
     ["Броня", indicators.armor],
-    ["Сниж. ур. (ВЫН)", indicators.damageReduction],
-    ["Урон ближний", indicators.meleeRange],
-    ["Урон дальний", indicators.rangedRange],
-    ["Урон магич.", indicators.magicRange],
+    [
+      "Сниж. ур. (ВЫН)",
+      indicators.damageReduction,
+      "Снижение входящего урона от ВЫН: 0,08% за пункт (потолок 35%), плюс вторички и броня в общем пуле до 90%.",
+    ],
+    [
+      "Урон ближний",
+      indicators.meleeRange,
+      "База навыка/оружия + СИЛ × 1,2 (+ плоские бонусы экипировки).",
+    ],
+    [
+      "Урон дальний",
+      indicators.rangedRange,
+      "База навыка/оружия + ЛОВ × 1,2 (+ плоские бонусы экипировки).",
+    ],
+    [
+      "Урон магич.",
+      indicators.magicRange,
+      "База навыка/оружия + ИНТ × 1,2 (+ плоские бонусы экипировки).",
+    ],
     ["Крит", indicators.critChance],
     [
       "Уклонение",
@@ -7054,7 +7333,11 @@ function renderProfileIndicators(waifu, details = null) {
     ["Бонус золота", indicators.goldBonus],
     ["Скидка найма", indicators.hireDiscount],
     ["Скидка трен.", indicators.trainingDiscount],
-    ["Реген HP", indicators.hpRegen],
+    [
+      "Реген HP",
+      indicators.hpRegen,
+      "База: 5 HP/мин + max(0, ВЫН−10) HP/мин. Бонусы совершенствования дают процент к этой базе (не плоские HP/мин). Показатель без % совершенства.",
+    ],
   ];
 
   const cells = rows
@@ -8184,8 +8467,8 @@ function openItemModal(item) {
 
   const rpill = document.getElementById("item-modal-rpill");
   if (rpill) {
-    rpill.textContent = rarityLabel(item?.rarity);
-    rpill.className = `item-modal-v2-rpill ${rarityPillModifierClass(item?.rarity)}`.trim();
+    rpill.textContent = rarityShortLabel(item?.rarity);
+    rpill.className = `item-modal-v2-rarity-chip ${rarityPillModifierClass(item?.rarity)}`.trim();
   }
 
   const art = document.getElementById("item-modal-art");
@@ -8227,6 +8510,8 @@ function openItemModal(item) {
       upHintEl.setAttribute("aria-hidden", "true");
     }
   }
+  const descText = String(item?.description || item?.flavor_ru || "").trim();
+
   let charHtml = renderItemModalV2CharacteristicsHtml(item);
   if (!charHtml) {
     const statsInner = [weaponStatsHtml, combinedBonusesHtml].filter(Boolean).join("");
@@ -8237,15 +8522,19 @@ function openItemModal(item) {
 
   body.innerHTML = charHtml;
 
+  fillItemModalHeroPrimaryStats(item);
+  wireItemModalFlip();
+  resetItemModalFlip();
+
   const descEl = document.getElementById("item-modal-desc");
-  const descText = String(item?.description || "").trim();
   if (descEl) {
+    descEl.style.display = "";
     if (descText) {
-      descEl.style.display = "";
       descEl.textContent = `"${descText}"`;
+      descEl.classList.remove("is-empty");
     } else {
-      descEl.style.display = "none";
-      descEl.innerHTML = "";
+      descEl.textContent = "Описание отсутствует";
+      descEl.classList.add("is-empty");
     }
   }
 
@@ -13772,11 +14061,13 @@ function libraryBuildDetailStats(e) {
 
 function statsGuideContentHtml() {
   return `
-    <p><strong>Основные характеристики</strong> — база персонажа + раса/класс + экипировка + плоский бонус «Трансценд.»; затем множители «+% ко всем статам» с предметов и пассивов.</p>
-    <p><strong>Урон</strong> — отдельно ближний (СИЛ), дальний (ЛОВ), магический (ИНТ); пассивы с одинаковым типом эффекта <em>суммируются</em>, разные типы — перемножаются по цепочке боя.</p>
+    <p><strong>Основные характеристики</strong> — база персонажа + раса/класс + экипировка + плоский бонус «Трансценд.»; затем множители «+% ко всем статам» (СИЛ/ЛОВ/ИНТ/УДЧ) с предметов и пассивов. ВЫН и ОБА в этот % не входят.</p>
+    <p><strong>Урон</strong> — ближний (СИЛ), дальний (ЛОВ), магический (ИНТ): каждая единица даёт <strong>+1,2</strong> плоского урона к линии. Для медиа (не TEXT/LINK) ИНТ даёт ещё +1,2 к базе навыка. Пассивы одного типа <em>суммируются</em>.</p>
+    <p><strong>HP</strong> — 20×уровень + ВЫН×12 + СИЛ×3, затем бонусы предметов/пассивов/совершенствования.</p>
+    <p><strong>Реген HP</strong> — <strong>5 HP/мин + max(0, ВЫН−10)</strong>. Совершенствование даёт <strong>% к этой базе</strong> (не плоские HP/мин). Скрытые навыки могут добавлять плоский доп. реген в бою.</p>
     <p><strong>Уклонение</strong> (строка в профиле) — один общий шанс: ЛОВ × 0,1% + вторички на предметах + пассивы вроде «Проворство». Потолок 40%. Удача в уклонение не входит.</p>
     <p><strong>Полное уклонение</strong> — отдельная строка и отдельный бросок в бою (например «Шаг тени»). Срабатывает после обычного уклонения, если оно не сработало.</p>
-    <p><strong>Снижение урона</strong> — ВЫН + вторички + броня складываются в один пул (до 90%).</p>
+    <p><strong>Снижение урона</strong> — ВЫН даёт 0,08%/пункт (потолок 35% от ВЫН); затем вторички и броня складываются в один пул (до 90%).</p>
     <p><strong>Пассивы с предметов</strong> — «+N к уровню навыка» повышает эффективный уровень. Для части навыков (полное уклонение, instakill и др.) эффект не растёт выше максимума таблицы — смотрите предупреждение в модалке навыка.</p>
     <p><strong>Заточка</strong> — усиливает урон/броню на оружии и доспехах; на аксессуарах — вторичные бонусы (крит, уклонение…). Предметы с бонусом к пассивному навыку заточкой не усиливаются.</p>`;
 }
@@ -13797,7 +14088,7 @@ function libraryMechanicsSectionHtml(subtabId) {
   if (id === "waifu") {
     return `
       <h3>Характеристики</h3>
-      <p>СИЛ, ЛОВ, ИНТ, ВЫН, ОБА и УДЧ влияют на урон, защиту, крит и награды. Итоговые значения видны в профиле основной вайфу.</p>
+      <p>СИЛ, ЛОВ, ИНТ, ВЫН, ОБА и УДЧ влияют на урон, защиту, крит, реген HP и награды. Итоговые значения видны в профиле основной вайфу.</p>
       <h3 id="lib-stats-guide">Как считаются статы</h3>
       <div class="lib-stats-guide-body">${statsGuideContentHtml()}</div>
       <h3>Бестиарий и кодекс</h3>
@@ -13809,7 +14100,7 @@ function libraryMechanicsSectionHtml(subtabId) {
       <p>Атакуйте монстра сообщениями в чате. Урон зависит от статов, оружия и пассивов. Монстр отвечает, когда его HP падает ниже порога.</p>
       <h3>Типы урона</h3>
       <p>Физический, магический и чистый урон по-разному взаимодействуют с защитой и аффиксами элитных монстров.</p>
-      <h3>Экспедиции</h3>
+      <h3>Операции</h3>
       <p>Отправляйте отряд на слот экспедиции: сложность, теги препятствий и аффиксы слота влияют на шанс успеха и награды. Перки наёмниц могут перекрывать теги.</p>
       <h3>Групповые подземелья</h3>
       <p>В групповом чате игроки бьют общего монстра раундами. Награды и прогресс зависят от вклада и настроек цикла.</p>
@@ -15768,12 +16059,19 @@ function exportWebAppShellGlobals() {
     TAVERN_STATIC_BASE,
     EXPEDITION_BIOMES_BASE,
     EXPEDITION_ARCHETYPES_BASE,
+    EXPEDITION_PERKS_WEBP_BASE,
     TAVERN_BGM_TRACKS,
     expeditionArchetypeArtVersion,
     PERK_ICONS,
     PERK_DESCS,
+    PERK_FLAVOR,
+    PERK_EFFECTS,
     PERK_NAMES,
-    PERK_EXPEDITION_COUNTER_HINT,
+    perkNameRu,
+    perkFlavorRu,
+    perkEffectRu,
+    perkArtUrl,
+    perkIconHtml,
     WAIFU_RACES,
     WAIFU_CLASSES,
     apiFetch,
@@ -15820,6 +16118,9 @@ function exportWebAppShellGlobals() {
     openItemModal,
     isAdminUser,
     isAdminUiEnabled,
+    syncAdminUiVisibility,
+    setItemArtGenBusy,
+    ITEM_ART_GEN_SVG,
     profileState,
     tg,
     className,
@@ -15928,6 +16229,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   openLinkCodeModal,
   closeLinkCodeModal,
   isAdminUiEnabled,
+  setItemArtGenBusy,
   syncAdminUiVisibility,
   setAdminUiEnabled,
   waifuGenGoStep1,

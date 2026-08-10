@@ -9,6 +9,7 @@ import httpx
 
 from waifu_bot.services.llm_client import (
     DEFAULT_IMAGE_MODEL,
+    IMAGE_MODALITY_ATTEMPTS,
     get_image_model,
     has_image_llm_configured,
     image_provider_chain,
@@ -17,6 +18,10 @@ from waifu_bot.services.llm_client import (
 
 
 class TestLlmImageModel(unittest.TestCase):
+    def test_image_modality_attempts_prefer_image_and_text(self) -> None:
+        self.assertEqual(IMAGE_MODALITY_ATTEMPTS[0], ("image", "text"))
+        self.assertIn(("image",), IMAGE_MODALITY_ATTEMPTS)
+
     def test_get_image_model_from_routerai_env(self) -> None:
         with patch("waifu_bot.services.llm_client.settings") as mock_settings:
             mock_settings.routerai_model_image = "google/gemini-3.1-flash-lite-image"

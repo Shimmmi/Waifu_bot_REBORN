@@ -51,31 +51,38 @@ async def _loop(
 # ---------------------------------------------------------------------------
 
 async def _gd_v1_registration_tick() -> None:
+    """Legacy name: now runs daily GD finalize (04:00 MSK / due ends_at)."""
     from waifu_bot.db.session import get_session, init_engine
     from waifu_bot.core import redis as redis_core
-    from waifu_bot.services.gd_cycle_service import GDCycleService
-    from waifu_bot.services.gd_v1_worker import process_gd_registration_deadlines
+    from waifu_bot.services.gd_daily_worker import run_gd_daily_finalize_tick
     from waifu_bot.services.webhook import get_bot
 
     init_engine()
     async for session in get_session():
-        await process_gd_registration_deadlines(
-            session, GDCycleService(redis_core.get_redis()), get_bot()
-        )
+        await run_gd_daily_finalize_tick(session, get_bot(), redis_core.get_redis())
         break
 
 
 async def _gd_v1_round_tick() -> None:
+    """Legacy name: now runs daily GD auto-start (04:30 MSK)."""
     from waifu_bot.db.session import get_session, init_engine
     from waifu_bot.core import redis as redis_core
-    from waifu_bot.services.gd_v1_worker import run_gd_v1_round_tick_poll
+    from waifu_bot.services.gd_daily_worker import run_gd_daily_start_tick
     from waifu_bot.services.webhook import get_bot
 
     init_engine()
     redis_client = redis_core.get_redis()
     async for session in get_session():
-        await run_gd_v1_round_tick_poll(session, get_bot(), redis_client)
+        await run_gd_daily_start_tick(session, get_bot(), redis_client)
         break
+
+
+async def _gd_daily_finalize_tick() -> None:
+    await _gd_v1_registration_tick()
+
+
+async def _gd_daily_start_tick() -> None:
+    await _gd_v1_round_tick()
 
 
 async def _expedition_notify_tick() -> None:

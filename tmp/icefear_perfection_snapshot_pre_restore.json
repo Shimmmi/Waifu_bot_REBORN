@@ -1,0 +1,170 @@
+{
+  "taken_at": "2026-07-17T17:22:43.142000+00:00",
+  "player": {
+    "id": 524710129,
+    "username": "IceFear",
+    "perfection_level": 16,
+    "perfection_experience": 40314,
+    "perfection_bonus_totals": {
+      "hp_flat": 150.0,
+      "chm_flat": 1.0,
+      "end_flat": 1.0,
+      "int_flat": 1.0,
+      "lck_flat": 3.0,
+      "str_flat": 2.0,
+      "evade_pct": 0.004,
+      "hp_max_pct": 0.0125,
+      "dmg_reduce_pct": 0.0034999999999999996,
+      "media_dmg_text": 3.0
+    },
+    "skill_points": 0,
+    "bonuses": 16,
+    "pending": 0
+  },
+  "bonuses": [
+    {
+      "id": 1,
+      "player_id": 524710129,
+      "bonus_id": "hp_max_pct",
+      "tier_at_pick": 1,
+      "value": 0.005,
+      "perfection_level_gained": 1,
+      "created_at": "2026-07-12T15:52:21.887527+00:00"
+    },
+    {
+      "id": 2,
+      "player_id": 524710129,
+      "bonus_id": "hp_flat",
+      "tier_at_pick": 1,
+      "value": 50.0,
+      "perfection_level_gained": 2,
+      "created_at": "2026-07-12T15:52:27.641498+00:00"
+    },
+    {
+      "id": 3,
+      "player_id": 524710129,
+      "bonus_id": "str_flat",
+      "tier_at_pick": 1,
+      "value": 1.0,
+      "perfection_level_gained": 3,
+      "created_at": "2026-07-12T15:52:36.840884+00:00"
+    },
+    {
+      "id": 4,
+      "player_id": 524710129,
+      "bonus_id": "lck_flat",
+      "tier_at_pick": 1,
+      "value": 1.0,
+      "perfection_level_gained": 4,
+      "created_at": "2026-07-12T15:52:41.872457+00:00"
+    },
+    {
+      "id": 5,
+      "player_id": 524710129,
+      "bonus_id": "str_flat",
+      "tier_at_pick": 1,
+      "value": 1.0,
+      "perfection_level_gained": 5,
+      "created_at": "2026-07-12T15:52:46.221486+00:00"
+    },
+    {
+      "id": 6,
+      "player_id": 524710129,
+      "bonus_id": "int_flat",
+      "tier_at_pick": 1,
+      "value": 1.0,
+      "perfection_level_gained": 6,
+      "created_at": "2026-07-12T15:53:00.556267+00:00"
+    },
+    {
+      "id": 7,
+      "player_id": 524710129,
+      "bonus_id": "hp_flat",
+      "tier_at_pick": 1,
+      "value": 50.0,
+      "perfection_level_gained": 7,
+      "created_at": "2026-07-12T15:53:05.122434+00:00"
+    },
+    {
+      "id": 8,
+      "player_id": 524710129,
+      "bonus_id": "lck_flat",
+      "tier_at_pick": 1,
+      "value": 1.0,
+      "perfection_level_gained": 8,
+      "created_at": "2026-07-12T15:53:11.783994+00:00"
+    },
+    {
+      "id": 9,
+      "player_id": 524710129,
+      "bonus_id": "hp_flat",
+      "tier_at_pick": 1,
+      "value": 50.0,
+      "perfection_level_gained": 9,
+      "created_at": "2026-07-12T15:53:15.384945+00:00"
+    },
+    {
+      "id": 10,
+      "player_id": 524710129,
+      "bonus_id": "chm_flat",
+      "tier_at_pick": 1,
+      "value": 1.0,
+      "perfection_level_gained": 10,
+      "created_at": "2026-07-12T15:57:05.019765+00:00"
+    },
+    {
+      "id": 11,
+      "player_id": 524710129,
+      "bonus_id": "hp_max_pct",
+      "tier_at_pick": 2,
+      "value": 0.0075,
+      "perfection_level_gained": 11,
+      "created_at": "2026-07-13T13:44:10.942325+00:00"
+    },
+    {
+      "id": 12,
+      "player_id": 524710129,
+      "bonus_id": "media_dmg_text",
+      "tier_at_pick": 2,
+      "value": 3.0,
+      "perfection_level_gained": 12,
+      "created_at": "2026-07-14T06:47:10.731234+00:00"
+    },
+    {
+      "id": 13,
+      "player_id": 524710129,
+      "bonus_id": "evade_pct",
+      "tier_at_pick": 2,
+      "value": 0.004,
+      "perfection_level_gained": 13,
+      "created_at": "2026-07-16T12:54:09.760747+00:00"
+    },
+    {
+      "id": 14,
+      "player_id": 524710129,
+      "bonus_id": "end_flat",
+      "tier_at_pick": 2,
+      "value": 1.0,
+      "perfection_level_gained": 14,
+      "created_at": "2026-07-16T12:54:13.877827+00:00"
+    },
+    {
+      "id": 15,
+      "player_id": 524710129,
+      "bonus_id": "dmg_reduce_pct",
+      "tier_at_pick": 2,
+      "value": 0.0034999999999999996,
+      "perfection_level_gained": 15,
+      "created_at": "2026-07-17T08:00:25.250152+00:00"
+    },
+    {
+      "id": 16,
+      "player_id": 524710129,
+      "bonus_id": "lck_flat",
+      "tier_at_pick": 2,
+      "value": 1.0,
+      "perfection_level_gained": 16,
+      "created_at": "2026-07-17T12:45:41.429331+00:00"
+    }
+  ]
+}

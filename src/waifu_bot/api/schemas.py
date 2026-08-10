@@ -83,11 +83,23 @@ class TavernAvailableResponse(BaseModel):
     price: int
     first_hire_free: bool = False
     perks: Optional[List["ExpeditionPerkOut"]] = None  # для UI таверны, чтобы не вызывать /expeditions/perks
+    # Merc overhaul extras (optional for backward compat)
+    pity_legendary: int = 0
+    pity_legendary_hard: int = 50
+    pity_epic: int = 0
+    pity_epic_hard: int = 20
+    debut_legendary_done: bool = False
+    merc_contracts: int = 0
+    bench_cap: int = 10
+    bench_count: int = 0
 
 
 class TavernListResponse(BaseModel):
     waifus: List["HiredWaifuOut"]
     count: int
+    lineup: Optional[dict] = None
+    bench_cap: Optional[int] = None
+    bench_count: Optional[int] = None
 
 
 class DungeonListResponse(BaseModel):
@@ -275,6 +287,7 @@ class HiredWaifuOut(BaseModel):
     level: int
     experience: int
     power: int | None = None
+    combat_rating: int | None = None
     perks: list[str] | None = None
     bio: Optional[str] = None
     perk_upgrade_points: int = 0
@@ -282,15 +295,28 @@ class HiredWaifuOut(BaseModel):
     exp_to_next: int = 0
     perk_levels: dict = Field(default_factory=dict)
     squad_position: Optional[int] = None
+    atk_slot: Optional[int] = None
+    def_slot: Optional[int] = None
+    potential_stars: int = 0
+    template_id: Optional[str] = None
+    archetype_id: Optional[str] = None
+    archetype_name: Optional[str] = None
+    stance: Optional[str] = None
     expedition_id: Optional[int] = None
     in_squad: bool = False
-    status: Literal["expedition", "wounded", "squad", "ready", "healing"] = "ready"
+    status: Literal["expedition", "wounded", "squad", "ready", "healing", "resting"] = "ready"
     image_url: Optional[str] = None  # data URL портрета (cursor_plan_7)
     current_hp: int = 65
     max_hp: int = 65
     healing: bool = False
+    resting: bool = False
+    can_arena: bool = True
     heal_complete_at: Optional[str] = None
     eligible: bool = True
+    gear_weapon: Optional[dict] = None
+    gear_charm: Optional[dict] = None
+    gear_relic: Optional[dict] = None
+    gear_score_cache: int = 0
 
     @model_serializer(mode="wrap")
     def _serialize_hired_waifu(self, handler):
@@ -304,6 +330,14 @@ class HiredWaifuOut(BaseModel):
         out["expCurrent"] = data.get("exp_current", 0)
         out["expToNext"] = data.get("exp_to_next", 0)
         out["perkLevels"] = data.get("perk_levels") or {}
+        out["gearWeapon"] = data.get("gear_weapon")
+        out["gearCharm"] = data.get("gear_charm")
+        out["gearRelic"] = data.get("gear_relic")
+        out["gearScore"] = data.get("gear_score_cache", 0)
+        out["combatRating"] = data.get("combat_rating") or data.get("power")
+        out["atkSlot"] = data.get("atk_slot")
+        out["defSlot"] = data.get("def_slot")
+        out["potentialStars"] = data.get("potential_stars", 0)
         return out
 
 
@@ -458,6 +492,7 @@ class GearItemOut(BaseModel):
     slot: str
     name: str
     display_name: Optional[str] = None
+    description: Optional[str] = None
     rarity: int
     level: Optional[int] = None
     tier: Optional[int] = None
@@ -801,6 +836,8 @@ class ExpeditionPerkOut(BaseModel):
     name: str
     counters: List[str] = []
     category: str
+    flavor_ru: str = ""
+    effect_ru: str = ""
 
 
 class ExpeditionLegacyAffixOut(BaseModel):
@@ -992,12 +1029,17 @@ class ExpeditionStartRequest(BaseModel):
     slot_id: Optional[int] = None
     unit_ids: Optional[List[int]] = None
 
+    ops_contract_id: Optional[str] = None
+    contract_id: Optional[str] = None  # alias
+
     model_config = {"populate_by_name": True}
 
     @model_validator(mode="after")
     def _merge_aliases(self):
         if self.expedition_slot_id is None and self.slot_id is not None:
             object.__setattr__(self, "expedition_slot_id", self.slot_id)
+        if not self.ops_contract_id and self.contract_id:
+            object.__setattr__(self, "ops_contract_id", self.contract_id)
         if not self.squad_waifu_ids and self.unit_ids:
             object.__setattr__(self, "squad_waifu_ids", list(self.unit_ids))
         return self

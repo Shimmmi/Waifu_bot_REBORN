@@ -133,6 +133,15 @@ export interface PlayerCharacter {
   paperdoll_url?: string
 }
 
+export interface PerfectionBonusSummary {
+  bonus_id: string
+  title_ru: string
+  value: number
+  display_value: string
+  kind: string
+  label: string
+}
+
 export interface PlayerSummary {
   telegram_id: number
   username?: string
@@ -147,6 +156,8 @@ export interface PlayerSummary {
   stats_effective?: Record<string, number>
   guild?: { id: number; name: string; tag: string; level: number; is_leader?: boolean; is_officer?: boolean }
   recent_dungeons?: Array<{ dungeon_name: string; status: string; plus_level: number }>
+  perfection_level?: number
+  perfection_bonuses_summary?: PerfectionBonusSummary[]
 }
 
 export interface PlayerStatistics {

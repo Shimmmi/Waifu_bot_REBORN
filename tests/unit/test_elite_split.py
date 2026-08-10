@@ -15,11 +15,12 @@ from waifu_bot.services.combat import (
 )
 
 
-def test_solo_message_too_short_summary_includes_preview() -> None:
+def test_solo_message_too_short_summary_length_only() -> None:
     s = _solo_message_too_short_summary_ru(6, 5, "пуха?")
     assert "≥6" in s
     assert "5" in s
-    assert "пуха?" in s
+    assert "пуха?" not in s
+    assert "«" not in s
 
 
 def test_solo_message_too_short_summary_without_text() -> None:

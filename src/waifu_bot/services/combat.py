@@ -153,7 +153,8 @@ async def log_solo_combat_processing_error(
     player_id: int,
     *,
     media_type: MediaType,
-    message_text: str | None,
+    message_text: str | None = None,
+    message_length: int | None = None,
     error_summary: str,
     source_chat_id: int | None = None,
     source_message_id: int | None = None,
@@ -170,6 +171,11 @@ async def log_solo_combat_processing_error(
         return
     _lmk = media_type_to_log_media_key(media_type)
     summary = (error_summary or "ошибка обработки удара").strip()[:200]
+    msg_len = int(
+        message_length
+        if message_length is not None
+        else (len(message_text) if message_text else 0)
+    )
     battle_log = BattleLog(
         player_id=int(player_id),
         dungeon_id=int(run.dungeon_id),
@@ -179,10 +185,11 @@ async def log_solo_combat_processing_error(
             "summary_ru": f"Атака не обработана: {summary}",
             "log_media_key": _lmk,
             "media_type": media_type.value,
+            "message_length": msg_len,
             "source_chat_id": source_chat_id,
             "source_message_id": source_message_id,
         },
-        message_text=message_text,
+        message_length=msg_len,
     )
     await append_solo_battle_log(session, battle_log)
     await session.commit()
@@ -225,16 +232,10 @@ async def shift_run_monster_positions_for_split(
 def _solo_message_too_short_summary_ru(
     min_chars: int,
     msg_len: int,
-    message_text: str | None,
+    message_text: str | None = None,
 ) -> str:
-    preview = (message_text or "").strip()
-    if len(preview) > 40:
-        preview = preview[:40] + "…"
-    if preview:
-        return (
-            f"Атака отменена: для оружия нужно ≥{min_chars} симв., "
-            f"в сообщении {msg_len} («{preview}»)."
-        )
+    """Length-only summary — never quote user message text (privacy)."""
+    del message_text  # accepted for call-site compat; intentionally unused
     return f"Атака отменена: для оружия нужно ≥{min_chars} симв., в сообщении {msg_len}."
 
 
@@ -829,13 +830,16 @@ class CombatService:
         ps = await get_passive_skill_bonuses(session, player_id)
         hs = await get_hidden_skill_bonuses(session, player_id)
         hr_pm = max(0, int(round(float(hs.get("hp_regen_per_active_hour", 0) or 0))))
+        regen_pct = 0.0
         try:
             from waifu_bot.services.perfection import (
-                hp_regen_per_min_from_totals,
+                hp_regen_pct_from_totals,
                 load_perfection_totals,
             )
 
-            hr_pm += hp_regen_per_min_from_totals(await load_perfection_totals(session, player_id))
+            regen_pct = hp_regen_pct_from_totals(
+                await load_perfection_totals(session, player_id)
+            )
         except Exception:
             pass
         from datetime import timezone as _tz
@@ -845,7 +849,12 @@ class CombatService:
         _now = datetime.now(_tz.utc)
         combat_player = await session.get(Player, player_id)
         regen_changed = apply_hp_regen_for_context(
-            waifu, combat_player, context="solo", extra_hp_per_min=hr_pm, now=_now
+            waifu,
+            combat_player,
+            context="solo",
+            extra_hp_per_min=hr_pm,
+            regen_pct=regen_pct,
+            now=_now,
         )
         if combat_player is not None:
             combat_player.last_combat_action_at = _now
@@ -940,12 +949,12 @@ class CombatService:
                     "source_chat_type": source_chat_type,
                     "source_message_id": source_message_id,
                     "summary_ru": _solo_message_too_short_summary_ru(
-                        min_chars, msg_len, message_text
+                        min_chars, msg_len
                     ),
                 },
                 monster_hp_before=(run_monster.current_hp if run and run_monster else (progress.current_monster_hp or monster.max_hp)),
                 monster_hp_after=(run_monster.current_hp if run and run_monster else (progress.current_monster_hp or monster.max_hp)),
-                message_text=message_text,
+                message_length=msg_len,
             )
             await append_solo_battle_log(session, battle_log)
             await session.commit()
@@ -1298,9 +1307,10 @@ class CombatService:
                 sec_r = await self._get_waifu_armor_and_secondary(session, int(player_id))
                 armor_tr = max(0, int(sec_r.get("armor_total", 0.0) or 0.0))
                 msf_blk_r = int(ps.get("main_stats_flat", 0) or 0)
-                end_reduce_r = float(
-                    calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_blk_r)
+                end_for_dr_r = await self._endurance_for_damage_reduction(
+                    session, int(player_id), waifu, msf_blk_r
                 )
+                end_reduce_r = float(calculate_damage_reduction(end_for_dr_r))
                 sec_reduce_r = float(sec_r.get("dmg_reduce_pct", 0.0) or 0.0)
                 _, total_reduce_r, reflect_damage_taken = compute_incoming_damage_after_mitigation(
                     raw_refl,
@@ -1407,9 +1417,10 @@ class CombatService:
                 sec = await self._get_waifu_armor_and_secondary(session, int(player_id))
                 armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
                 msf_blk = int(ps.get("main_stats_flat", 0) or 0)
-                end_reduce = float(
-                    calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_blk)
+                end_for_dr = await self._endurance_for_damage_reduction(
+                    session, int(player_id), waifu, msf_blk
                 )
+                end_reduce = float(calculate_damage_reduction(end_for_dr))
                 sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
                 raw_in = self._compute_raw_retaliation_incoming(
                     run,
@@ -1498,7 +1509,7 @@ class CombatService:
             },
             monster_hp_before=monster_hp_before,
             monster_hp_after=monster_hp_after,
-            message_text=message_text,
+            message_length=msg_len,
         )
         await append_solo_battle_log(session, battle_log)
 
@@ -1641,6 +1652,27 @@ class CombatService:
         pl = int(getattr(run_row, "plus_level", 0) or 0) if run_row else 0
         bonus = elite_spawn_bonus_for_plus_level(pl)
         return await roll_monster_elite(session, run_monster, elite_chance_bonus=bonus)
+
+    async def _endurance_for_damage_reduction(
+        self,
+        session: AsyncSession,
+        player_id: int,
+        waifu: MainWaifu,
+        main_stats_flat: int = 0,
+    ) -> int:
+        """ВЫН для DR: база + main_stats_flat + Paragon end_flat."""
+        end = int(getattr(waifu, "endurance", 10) or 10) + int(main_stats_flat or 0)
+        try:
+            from waifu_bot.services.perfection import (
+                load_perfection_totals,
+                primary_flat_from_totals,
+            )
+
+            pt = await load_perfection_totals(session, int(player_id))
+            end += int(primary_flat_from_totals(pt).get("endurance", 0) or 0)
+        except Exception:
+            pass
+        return end
 
     async def _get_effective_combat_profile(
         self,
@@ -2058,7 +2090,10 @@ class CombatService:
         armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
         ps_cl = await get_passive_skill_bonuses(session, int(waifu.player_id))
         msf_cl = int(ps_cl.get("main_stats_flat", 0) or 0)
-        end_reduce = float(calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_cl))
+        end_for_dr = await self._endurance_for_damage_reduction(
+            session, int(waifu.player_id), waifu, msf_cl
+        )
+        end_reduce = float(calculate_damage_reduction(end_for_dr))
         sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
 
         hs_cl = await get_hidden_skill_bonuses(session, int(waifu.player_id))
@@ -2602,7 +2637,8 @@ class CombatService:
         ps_run = await get_passive_skill_bonuses(session, pid)
         armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
         msf_run = int(ps_run.get("main_stats_flat", 0) or 0)
-        end_reduce = float(calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf_run))
+        end_for_dr = await self._endurance_for_damage_reduction(session, pid, waifu, msf_run)
+        end_reduce = float(calculate_damage_reduction(end_for_dr))
         sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
 
         hs = await get_hidden_skill_bonuses(session, pid)
@@ -3572,9 +3608,8 @@ class CombatService:
             ps = await get_passive_skill_bonuses(session, pid)
             hs = await get_hidden_skill_bonuses(session, pid)
             msf = int(ps.get("main_stats_flat", 0) or 0)
-            end_reduce = float(
-                calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf)
-            )
+            end_for_dr = await self._endurance_for_damage_reduction(session, pid, waifu, msf)
+            end_reduce = float(calculate_damage_reduction(end_for_dr))
             sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
             armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
             raw_in = int(run_monster.damage or 0)
@@ -3636,9 +3671,8 @@ class CombatService:
             ps = await get_passive_skill_bonuses(session, pid)
             hs = await get_hidden_skill_bonuses(session, pid)
             msf = int(ps.get("main_stats_flat", 0) or 0)
-            end_reduce = float(
-                calculate_damage_reduction(int(getattr(waifu, "endurance", 10) or 10) + msf)
-            )
+            end_for_dr = await self._endurance_for_damage_reduction(session, pid, waifu, msf)
+            end_reduce = float(calculate_damage_reduction(end_for_dr))
             sec_reduce = float(sec.get("dmg_reduce_pct", 0.0) or 0.0)
             armor_total = max(0, int(sec.get("armor_total", 0.0) or 0.0))
             raw_in = int(monster.damage or 0)

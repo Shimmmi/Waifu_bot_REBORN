@@ -89,6 +89,7 @@ from waifu_bot.services.inventory_payload import enrich_inventory_items_with_tem
 from waifu_bot.api.guild_routes import router as guild_router
 from waifu_bot.api.shop_routes import router as shop_router
 from waifu_bot.api.tavern_routes import router as tavern_router
+from waifu_bot.api.merc_routes import router as merc_router
 from waifu_bot.api.dungeon_routes import router as dungeon_router
 from waifu_bot.api.skill_routes import router as skill_router
 from waifu_bot.api.mail_routes import router as mail_router
@@ -115,6 +116,7 @@ router.include_router(inventory_router)
 router.include_router(guild_router)
 router.include_router(shop_router)
 router.include_router(tavern_router)
+router.include_router(merc_router)
 router.include_router(dungeon_router)
 router.include_router(skill_router)
 router.include_router(mail_router)
@@ -248,17 +250,30 @@ def _apply_fraction_secondary_to_total(
         total_bonuses[mapped] = float(total_bonuses.get(mapped, 0.0) or 0.0) + float(sec_eff or 0.0)
 
 
+def align_profile_hp_details(raw_d: dict, waifu: m.MainWaifu) -> dict:
+    """Align profile details HP with synced waifu.max_hp / current_hp.
+
+    ``_compute_details`` omits guild max_hp_pct and Paragon HP; sync already includes them.
+    """
+    out = raw_d if isinstance(raw_d, dict) else {}
+    out["hp_max"] = int(getattr(waifu, "max_hp", 0) or 0)
+    out["hp_current"] = int(getattr(waifu, "current_hp", 0) or 0)
+    return out
+
+
 def _compute_details(
     main: m.MainWaifu,
     equipped_items: list[m.InventoryItem] | None = None,
     *,
     main_stats_flat: int = 0,
     effective_primary_four: tuple[int, int, int, int] | None = None,
+    extra_bonuses: dict | None = None,
 ) -> dict:
     """Compute aggregated stats with equipment bonuses.
 
     effective_primary_four: STR, AGI, INT, LUK после экипа, main_stats_pct и all_stats_pct (как в соло-бое).
     Для HP используется СИЛ без all_stats_pct (согласовано с waifu_hp).
+    extra_bonuses: доп. плоские бонусы (напр. урон от совершенствования) до расчёта индикаторов.
     """
     # Базовые статы вайфу
     strength = main.strength or 0
@@ -323,6 +338,22 @@ def _compute_details(
                     0 if bool(inv.is_broken) else int(inv.enchant_level or 0)
                 )
                 _apply_fraction_secondary_to_total(total_bonuses, legacy_type, sec_eff)
+
+    if extra_bonuses:
+        for key in (
+            "melee_damage_flat",
+            "ranged_damage_flat",
+            "magic_damage_flat",
+            "damage_flat",
+        ):
+            if key not in extra_bonuses:
+                continue
+            try:
+                total_bonuses[key] = int(total_bonuses.get(key, 0) or 0) + int(
+                    extra_bonuses.get(key, 0) or 0
+                )
+            except (TypeError, ValueError):
+                continue
 
     # Применяем бонусы к статам
     strength += total_bonuses["strength"]
@@ -427,7 +458,7 @@ def _compute_details(
         merchant_discount = merchant_discount * (1 + total_bonuses["merchant_discount_percent"] / 100)
     merchant_discount = min(50.0, merchant_discount)
 
-    # HP с учётом ВЫН × 10 + СИЛ × 3 + item bonuses
+    # HP с учётом ВЫН × HP_K_COEFFICIENT + СИЛ × STR_HP_COEFFICIENT + item bonuses
     from waifu_bot.game.formulas import calculate_max_hp
     hp_max = calculate_max_hp(int(main.level or 1), int(endurance), int(str_for_hp))
     hp_max = int(hp_max + total_bonuses["hp_flat"])
@@ -631,11 +662,16 @@ def _to_gear_item(
     resolved = getattr(inv, "_resolved_secondaries", None) or resolve_item_secondaries(inv, None)
     frac_type, frac_val = effective_fraction_combat(inv, resolved)
     eff = get_effective_params(inv, armor_base=armor_b, secondary_bonus_value=frac_val or 0.0)
+    flavor = getattr(inv, "_flavor_ru", None)
+    if not flavor and inv.item is not None:
+        flavor = getattr(inv.item, "description", None)
+    description = str(flavor).strip() if flavor else None
     return schemas.GearItemOut(
         id=inv.id,
         slot=slot,
         name=base_name,
         display_name=display_name,
+        description=description or None,
         rarity=inv.rarity or (inv.item.rarity if inv.item else 1),
         level=inv.level or (inv.item.level if inv.item else None),
         tier=inv.tier or (inv.item.tier if inv.item else None),
@@ -910,20 +946,20 @@ async def get_profile(
                 ).first()
                 if abyss_active is not None:
                     suppress_regen = not is_player_online(player)
-                regen_extra = 0
+                regen_pct = 0.0
                 try:
                     from waifu_bot.services.perfection import (
-                        hp_regen_per_min_from_totals,
+                        hp_regen_pct_from_totals,
                         perfection_totals_dict,
                     )
 
-                    regen_extra = hp_regen_per_min_from_totals(
-                        perfection_totals_dict(player)
-                    )
+                    regen_pct = hp_regen_pct_from_totals(perfection_totals_dict(player))
                 except Exception:
                     pass
                 regen_changed = apply_regen(
-                    main_waifu, suppress=suppress_regen, extra_hp_per_min=regen_extra
+                    main_waifu,
+                    suppress=suppress_regen,
+                    regen_pct=regen_pct,
                 )
                 if regen_changed or post_max != pre_max:
                     await session.commit()
@@ -999,6 +1035,15 @@ async def get_profile(
                     logger.exception("resolve_solo_combat_primary_four in /profile player_id=%s", player_id)
 
                 try:
+                    perf_damage_flats: dict[str, int] = {}
+                    try:
+                        from waifu_bot.services.perfection import combat_bonus_ints_from_totals
+
+                        perf_damage_flats = combat_bonus_ints_from_totals(
+                            perfection_state.get("bonus_totals") or {}
+                        )
+                    except Exception:
+                        perf_damage_flats = {}
                     if eff_four is not None:
                         prim = (
                             eff_four.strength,
@@ -1011,6 +1056,7 @@ async def get_profile(
                             equipped_items,
                             main_stats_flat=stat_flat,
                             effective_primary_four=prim,
+                            extra_bonuses=perf_damage_flats,
                         )
                         raw_d = merge_passive_into_profile_details(
                             raw_d,
@@ -1022,6 +1068,7 @@ async def get_profile(
                             main_waifu,
                             equipped_items,
                             main_stats_flat=stat_flat,
+                            extra_bonuses=perf_damage_flats,
                         )
                         raw_d = merge_passive_into_profile_details(raw_d, psb_profile)
                     raw_d = enrich_profile_reward_bonus_pcts(
@@ -1053,13 +1100,10 @@ async def get_profile(
                             raw_d["gold_bonus"] = round(
                                 float(raw_d.get("gold_bonus", 0) or 0) + gb * 100.0, 2
                             )
-                        hp_pct = float(perf_sec.get("hp_max_pct", 0) or 0)
-                        # hp already synced via waifu_hp; keep details hp_max aligned if present
-                        if hp_pct and "hp_max" in raw_d:
-                            # already in compute_effective_max_hp; no double-apply here
-                            pass
                     except Exception:
                         pass
+                    # Канонический max HP уже в waifu (парагон + гильдия); details не дублируем формулой
+                    raw_d = align_profile_hp_details(raw_d, main_waifu)
                     main_details = schemas.MainWaifuDetails(**raw_d)
                 except Exception:
                     logger.exception("main_waifu_details build failed player_id=%s", player_id)
@@ -2352,6 +2396,70 @@ async def expeditions_catalog(session: AsyncSession = Depends(get_db)):
     }
 
 
+@router.get("/operations/catalog", tags=["operations"])
+async def operations_catalog(session: AsyncSession = Depends(get_db)):
+    """Alias of /expeditions/catalog (merc overhaul)."""
+    data = await expeditions_catalog(session)
+    # Attach weekly board hint key for FE
+    data["label"] = "Операции"
+    return data
+
+
+@router.get("/operations/active", response_model=schemas.ExpeditionActiveResponse, tags=["operations"])
+async def operations_active(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    return await expeditions_active(player_id=player_id, session=session)
+
+
+@router.post("/operations/preview", response_model=schemas.ExpeditionPreviewOut, tags=["operations"])
+async def operations_preview(
+    payload: schemas.ExpeditionPreviewRequest,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    return await expeditions_preview(payload=payload, player_id=player_id, session=session)
+
+
+async def _apply_ops_contract_to_start_payload(
+    session, player_id: int, payload: schemas.ExpeditionStartRequest
+) -> None:
+    """Resolve weekly board contract → reward_bias + depth (authoritative)."""
+    if not getattr(payload, "ops_contract_id", None):
+        return
+    from waifu_bot.services import merc_systems as merc_sys
+
+    board = await merc_sys.get_or_create_ops_board(session, player_id)
+    contracts = list(getattr(board, "contracts_json", None) or [])
+    hit = next((c for c in contracts if str(c.get("id")) == str(payload.ops_contract_id)), None)
+    if not hit:
+        return
+    bias = str(hit.get("reward_bias") or "mixed")
+    depth = int(hit.get("depth_tier") or hit.get("star") or payload.depth_tier or 1)
+    object.__setattr__(payload, "reward_type", bias)
+    object.__setattr__(payload, "depth_tier", depth)
+
+
+@router.post("/operations/start", tags=["operations"])
+async def operations_start(
+    payload: schemas.ExpeditionStartRequest,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    await _apply_ops_contract_to_start_payload(session, player_id, payload)
+    return await expeditions_start(payload=payload, player_id=player_id, session=session)
+
+
+@router.post("/operations/claim", tags=["operations"])
+async def operations_claim(
+    active_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    return await expeditions_claim(active_id=active_id, player_id=player_id, session=session)
+
+
 @router.get("/expeditions/roster", tags=["expeditions"])
 async def expeditions_roster(
     player_id: int = Depends(get_player_id),
@@ -2622,11 +2730,19 @@ async def expeditions_start(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
+    await _apply_ops_contract_to_start_payload(session, player_id, payload)
+    squad_ids = list(payload.squad_waifu_ids or [])
+    # Merc overhaul: default Ops squad = ATK lineup when client sends empty
+    if not squad_ids:
+        from waifu_bot.services import merc_systems as merc_sys
+
+        lu = await merc_sys.get_lineup(session, player_id)
+        squad_ids = [int(x) for x in (lu.get("atk") or []) if x]
     result = await expedition_service.start(
         session,
         player_id,
         payload.expedition_slot_id,
-        payload.squad_waifu_ids,
+        squad_ids,
         payload.duration_minutes,
         reward_type=payload.reward_type,
         depth_tier=payload.depth_tier,
@@ -2823,18 +2939,21 @@ async def expeditions_claim_by_id(
             "heal_forecast_minutes": heal_mins,
         })
 
+    merc_rewards = result.get("merc_rewards") or {}
     return {
         "expedition_name": expedition_name,
         "outcome": result.get("outcome") or "failure",
         "ai_narrative": result.get("event_text") or "Отряд вернулся из экспедиции.",
         "gate_log": result.get("gate_log") or [],
         "reward_type": result.get("reward_type"),
+        "reward_bias": merc_rewards.get("reward_bias") or result.get("reward_type"),
         "gold_earned": result.get("gold_gained", 0),
         "exp_earned": result.get("experience_gained", 0),
         "waifu_exp_gained": result.get("waifu_exp_gained", 0),
         "enchant_stones": result.get("enchant_stones", 0),
         "squad_state": squad_state,
         "items_earned": result.get("items_earned") or [],
+        "merc_rewards": merc_rewards,
     }
 
 
@@ -2849,6 +2968,8 @@ async def expeditions_perks():
                 name=p.name,
                 counters=list(p.counters),
                 category=p.category,
+                flavor_ru=p.flavor_ru,
+                effect_ru=p.effect_ru,
             )
             for p in PERKS
         ],

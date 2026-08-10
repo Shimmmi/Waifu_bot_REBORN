@@ -19,6 +19,11 @@ from waifu_bot.game.expedition_difficulty_tags import (
     union_affix_tags,
     union_legacy_affix_tags,
 )
+from waifu_bot.game.expedition_overhaul import (
+    gate_log_entry,
+    pick_procedural_affixes,
+    tick_affix_count,
+)
 from waifu_bot.game.expedition_redesign import (
     AFFIX_LEVEL_BASE_HP_PCT,
     PERK_CHALLENGE_CATEGORIES,
@@ -155,15 +160,14 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
     Один тик (одно событие). Возвращает ok, narrative, telegram_narrative, telegram_status,
     telegram_text (склейка для совместимости), skip_damage.
     """
-    if not active.affix_level or not active.affix_template_id:
+    is_v2 = getattr(active, "depth_tier", None) is not None
+    if not active.affix_level:
+        return {"ok": False, "error": "not_v13"}
+    if not is_v2 and not active.affix_template_id:
         return {"ok": False, "error": "not_v13"}
     affix_level = int(active.affix_level)
     if affix_level not in AFFIX_LEVEL_BASE_HP_PCT:
         return {"ok": False, "error": "bad_affix_level"}
-
-    affix_row = await session.get(ExpeditionAffix, int(active.affix_template_id))
-    if not affix_row:
-        return {"ok": False, "error": "affix_not_found"}
 
     squad_ids = list(active.squad_waifu_ids or [])
     squad: list[HiredWaifu] = []
@@ -174,20 +178,73 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
     if not squad:
         return {"ok": False, "error": "no_squad"}
 
-    primary = _db_category_to_challenge_categories(getattr(affix_row, "category", None))
+    ts_pre = dict(active.tick_state or {})
+    rng = random.Random((active.id << 8) + int(active.events_done or 0))
+
+    affix_row: ExpeditionAffix | None = None
     slot: ExpeditionSlot | None = None
     slot_affix_rows: list = []
-    sid = getattr(active, "expedition_slot_id", None)
-    if sid:
-        slot = await session.get(ExpeditionSlot, int(sid))
-        slot_aids = list(getattr(slot, "affix_ids", None) or []) if slot else []
-        if slot_aids:
-            stmt_sa = select(ExpeditionAffix).where(ExpeditionAffix.id.in_(slot_aids))
-            slot_affix_rows = list((await session.execute(stmt_sa)).scalars().all())
-            if slot_affix_rows:
-                primary = union_challenge_categories_from_db_affix_rows(slot_affix_rows)
+    tick_affix_rows: list = []
+    tick_affix_names: list[str] = []
 
-    active_tags = _active_tags_for_run(active, slot, slot_affix_rows, affix_row)
+    if is_v2:
+        # Каждый тик v2 — новый набор препятствий из пула аффиксов.
+        affix_pool = list(
+            (await session.execute(select(ExpeditionAffix).order_by(ExpeditionAffix.id))).scalars().all()
+        )
+        exclude_ids = [
+            int(x)
+            for x in (ts_pre.get("last_tick_affix_ids") or [])
+            if x is not None
+        ]
+        tick_affix_rows = pick_procedural_affixes(
+            affix_pool,
+            rng,
+            count=tick_affix_count(int(active.depth_tier or 1)),
+            exclude_ids=exclude_ids,
+        )
+        affix_row = tick_affix_rows[0] if tick_affix_rows else None
+        if affix_row is None and active.affix_template_id:
+            affix_row = await session.get(ExpeditionAffix, int(active.affix_template_id))
+        if affix_row is None:
+            return {"ok": False, "error": "affix_not_found"}
+        if tick_affix_rows:
+            primary = union_challenge_categories_from_db_affix_rows(tick_affix_rows)
+            active_tags = union_affix_tags(tick_affix_rows)
+        else:
+            primary = _db_category_to_challenge_categories(getattr(affix_row, "category", None))
+            active_tags = union_affix_tags([affix_row])
+        tick_affix_names = [
+            str(getattr(a, "name", "") or "").strip()
+            for a in tick_affix_rows
+            if str(getattr(a, "name", "") or "").strip()
+        ]
+        slot_affix_rows = list(tick_affix_rows)
+    else:
+        affix_row = await session.get(ExpeditionAffix, int(active.affix_template_id))
+        if not affix_row:
+            return {"ok": False, "error": "affix_not_found"}
+
+        primary = _db_category_to_challenge_categories(getattr(affix_row, "category", None))
+        sid = getattr(active, "expedition_slot_id", None)
+        if sid:
+            slot = await session.get(ExpeditionSlot, int(sid))
+            slot_aids = list(getattr(slot, "affix_ids", None) or []) if slot else []
+            if slot_aids:
+                stmt_sa = select(ExpeditionAffix).where(ExpeditionAffix.id.in_(slot_aids))
+                slot_affix_rows = list((await session.execute(stmt_sa)).scalars().all())
+                if slot_affix_rows:
+                    primary = union_challenge_categories_from_db_affix_rows(slot_affix_rows)
+
+        active_tags = _active_tags_for_run(active, slot, slot_affix_rows, affix_row)
+        tick_affix_names = [
+            str(getattr(a, "name", "") or "").strip()
+            for a in slot_affix_rows
+            if str(getattr(a, "name", "") or "").strip()
+        ]
+        if not tick_affix_names and getattr(affix_row, "name", None):
+            tick_affix_names = [str(affix_row.name).strip()]
+
     covered_tags = squad_covered_tags(squad)
     tag_boost = challenge_categories_boosted_by_tags(active_tags)
 
@@ -195,7 +252,6 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
     for u in squad:
         squad_cats = squad_cats | squad_perk_challenge_categories(u.perks or [])
 
-    rng = random.Random((active.id << 8) + int(active.events_done or 0))
     challenge_cat = weighted_challenge_category(
         primary_categories=primary,
         squad_categories=squad_cats,
@@ -258,18 +314,18 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
     else:
         active.next_tick_at = None
 
-    ts = dict(active.tick_state or {})
+    ts = ts_pre
     prev = ts.get("last_narrative") or ""
     loc = active.display_base_location or "Локация"
     roman = ("I", "II", "III", "IV", "V")[affix_level - 1]
-    affix_name = getattr(affix_row, "name", "") or ""
-    challenge_label = f"{affix_name.strip()} {roman}".strip()
+    primary_affix_name = (tick_affix_names[0] if tick_affix_names else "") or (
+        str(getattr(affix_row, "name", "") or "").strip()
+    )
+    challenge_label = f"{primary_affix_name} {roman}".strip() if primary_affix_name else roman
 
     uncovered_tags = active_tags - covered_tags
     squad_prepared = not (uncovered_tags & active_tags)
     outcome = _roll_narrative_outcome(rng, squad_prepared=squad_prepared)
-
-    from waifu_bot.game.expedition_overhaul import gate_log_entry
 
     gate_log = list(ts.get("gate_log") or [])
     actual_dmg = 0 if skip_damage else int(total_dmg)
@@ -296,9 +352,17 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
             active_tags=sorted(list(active_tags)),
             covered_tags=sorted(list(active_tags & covered_tags)),
             coverage=coverage_ratio,
+            affix_names=tick_affix_names or None,
         )
     )
     ts["gate_log"] = gate_log
+    if is_v2 and tick_affix_rows:
+        ts["last_tick_affix_ids"] = [int(a.id) for a in tick_affix_rows if getattr(a, "id", None) is not None]
+        seen = list(ts.get("seen_tags") or [])
+        for t in sorted(active_tags):
+            if t not in seen:
+                seen.append(t)
+        ts["seen_tags"] = seen
 
     if silent:
         narrative = "…"
@@ -326,13 +390,6 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
             tag_mult=float(tag_mult),
             uncovered_count=len(uncovered_tags & active_tags),
         )
-        slot_affix_names = [
-            str(getattr(a, "name", "") or "").strip()
-            for a in slot_affix_rows
-            if str(getattr(a, "name", "") or "").strip()
-        ]
-        if not slot_affix_names and affix_name:
-            slot_affix_names = [affix_name.strip()]
         expedition_context = {
             "title": (brief.get("title") if isinstance(brief, dict) else None) or loc,
             "mode": mode.name_ru if mode else "",
@@ -349,7 +406,7 @@ async def run_one_tick(session: AsyncSession, active: ActiveExpedition, *, silen
             "difficulty_tags_ru": tag_labels[:6],
             "tick_pressure": tick_pressure,
             "threats": {
-                "slot_affixes_ru": slot_affix_names[:6],
+                "slot_affixes_ru": tick_affix_names[:6],
                 "active_tags_ru": _tag_labels(active_tags),
                 "covered_tags_ru": _tag_labels(covered_on_active),
                 "uncovered_tags_ru": _tag_labels(uncovered_tags & active_tags),

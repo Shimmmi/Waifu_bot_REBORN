@@ -1527,7 +1527,7 @@ const TavernPage = (() => {
 
   function dismissUnit() {
     if (!selectedUnit) return;
-    if (!confirm(`Уволить ${selectedUnit.name}? Уровень передастся следующей нанятой наёмнице.`)) return;
+    if (!confirm(`Уволить ${selectedUnit.name}? Опыт накопится и передастся следующей нанятой наёмнице.`)) return;
     roster = roster.filter(u => u.id !== selectedUnit.id);
     closeUnitDetail();
     updateSquadGrid();

@@ -657,6 +657,7 @@ async def log_raid_chat_event(
     media_types: list[str] | None,
     text_preview: str | None = None,
 ) -> dict[str, Any]:
+    del text_preview  # privacy: never persist chat fragments
     g = (
         await session.execute(select(Guild).where(Guild.telegram_chat_id == int(chat_id)))
     ).scalar_one_or_none()
@@ -682,7 +683,7 @@ async def log_raid_chat_event(
             event_ts=_utc_now(),
             message_length=int(message_length or 0),
             media_types_json=list(media_types or []),
-            text_preview=(text_preview or "")[:512] or None,
+            text_preview=None,
         )
     )
     part.message_count = int(part.message_count or 0) + 1
@@ -721,6 +722,7 @@ async def aggregate_chat_slot(
     min_event_ts: datetime | None = None,
     max_previews_per_slot: int = 5,
 ) -> dict[str, Any]:
+    del max_previews_per_slot  # privacy: chat fragments no longer aggregated
     slot_start = _slot_start_msk(for_date, slot_index).astimezone(timezone.utc)
     slot_end = _slot_end_msk(for_date, slot_index).astimezone(timezone.utc)
     if min_event_ts is not None and min_event_ts > slot_start:
@@ -745,20 +747,16 @@ async def aggregate_chat_slot(
     for p in raid.party_snapshot_json or [] if raid else []:
         player_names[int(p.get("player_id") or 0)] = str(p.get("name") or "")
     by_player: dict[int, int] = {}
-    previews: list[str] = []
     for ev in events:
         by_player[int(ev.player_id)] = by_player.get(int(ev.player_id), 0) + 1
         beat["rest"] = False
         beat["messages"] = int(beat["messages"]) + 1
-        preview = (ev.text_preview or "").strip()
-        if preview and len(previews) < max_previews_per_slot:
-            previews.append(preview)
     active = []
     for pid, cnt in sorted(by_player.items(), key=lambda x: -x[1]):
         nm = player_names.get(pid) or f"Игрок {pid}"
         active.append(f"{nm} ({cnt})")
     beat["active_players"] = active
-    beat["previews"] = previews
+    beat["previews"] = []
     return beat
 
 
@@ -770,6 +768,7 @@ async def aggregate_chat_slots(
     min_event_ts: datetime | None = None,
     max_previews_per_slot: int = 5,
 ) -> list[dict[str, Any]]:
+    del max_previews_per_slot  # privacy: chat fragments no longer aggregated
     day_start = datetime(for_date.year, for_date.month, for_date.day, tzinfo=_MSK).astimezone(timezone.utc)
     day_end = day_start + timedelta(days=1)
     filters = [
@@ -800,15 +799,11 @@ async def aggregate_chat_slots(
         player_names[int(p.get("player_id") or 0)] = str(p.get("name") or "")
 
     by_slot: dict[int, dict[int, int]] = {i: {} for i in range(RAID_V2_SLOT_COUNT)}
-    previews_by_slot: dict[int, list[str]] = {i: [] for i in range(RAID_V2_SLOT_COUNT)}
     for ev in events:
         si = _msk_slot_index(ev.event_ts)
         by_slot[si][int(ev.player_id)] = by_slot[si].get(int(ev.player_id), 0) + 1
         slots[si]["rest"] = False
         slots[si]["messages"] = int(slots[si]["messages"]) + 1
-        preview = (ev.text_preview or "").strip()
-        if preview and len(previews_by_slot[si]) < max_previews_per_slot:
-            previews_by_slot[si].append(preview)
 
     for idx in range(RAID_V2_SLOT_COUNT):
         active = []
@@ -816,7 +811,7 @@ async def aggregate_chat_slots(
             nm = player_names.get(pid) or f"Игрок {pid}"
             active.append(f"{nm} ({cnt})")
         slots[idx]["active_players"] = active
-        slots[idx]["previews"] = previews_by_slot[idx]
+        slots[idx]["previews"] = []
     return slots
 
 

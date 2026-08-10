@@ -22,6 +22,7 @@ from waifu_bot.db.models.waifu import (
     WaifuClass,
     WaifuRarity,
 )
+from waifu_bot.db.models.merc_meta import MercOpsBoard, MercArenaMatch
 from waifu_bot.db.models.item import (
     Item,
     InventoryItem,
@@ -149,6 +150,8 @@ __all__ = [
     "MainWaifuPortraitDraft",
     "MainWaifuPortraitVariant",
     "MainWaifuPaperdollVariant",
+    "MercOpsBoard",
+    "MercArenaMatch",
     "HiredWaifu",
     "WaifuRace",
     "WaifuClass",

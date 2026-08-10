@@ -46,16 +46,20 @@ class TelegramUpdateTraceMiddleware(BaseMiddleware):
         )
         if event.message:
             m = event.message
-            preview = (m.text or m.caption or "")[:400]
+            text = m.text or ""
+            caption = m.caption or ""
             logger.info(
                 "telegram.trace message detail update_id=%s chat_id=%s chat_type=%s "
-                "from_user_id=%s message_id=%s text_preview=%r",
+                "from_user_id=%s message_id=%s has_text=%s text_len=%s has_caption=%s caption_len=%s",
                 uid,
                 m.chat.id if m.chat else None,
                 m.chat.type if m.chat else None,
                 m.from_user.id if m.from_user else None,
                 m.message_id,
-                preview,
+                bool(text),
+                len(text),
+                bool(caption),
+                len(caption),
             )
 
         try:

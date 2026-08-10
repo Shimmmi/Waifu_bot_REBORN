@@ -31,6 +31,7 @@ from waifu_bot.game.expedition_narrative_catalog import (
 from waifu_bot.services.ai_narrative_rewrite import rhythm_rewrite_narrative
 from waifu_bot.services.ai_service import generate as ai_generate
 from waifu_bot.services.llm_client import (
+    IMAGE_MODALITY_ATTEMPTS,
     get_image_model,
     has_image_llm_configured,
     has_llm_configured,
@@ -246,8 +247,10 @@ async def generate_expedition_narrative_brief(
         "Сеттинг должен соответствовать архетипу локации и режиму экспедиции. "
         f"event_beats — ровно {int(events_total)} коротких строк (одна на эпизод), "
         "логичная арка от начала до финала. "
-        "Каждый event_beat должен логично включать угрозы из affixes "
-        "(если есть «с пауками» — паутина/пауки в нужном эпизоде, «с нежитью» — нежить и т.д.). "
+        "event_beats задают атмосферу и сюжетный поворот эпизода; "
+        "affixes в контексте — лишь примерный колорит старта, НЕ фиксируй всю экспедицию на них: "
+        "конкретные препятствия каждого тика определятся позже, поэтому биты должны быть гибкими "
+        "(место/настроение/цель), без жёсткой привязки к одному типу врагов. "
         "intro_narrative — 3–5 предложений: брифинг перед выходом, сбор отряда, что впереди; "
         "БЕЗ боевого действия, без урона, без «они уже сражаются» — это вступление, не первый эпизод. "
         "title — короткое кодовое имя миссии (2–5 слов), абсурдный гротескный юмор; "
@@ -393,8 +396,9 @@ async def generate_expedition_tick_narrative(
             "не перескакивай к другим эпизодам."
         )
     threat_rules = (
-        " Обязательно отрази в сцене конкретные угрозы из expedition.threats.slot_affixes_ru "
-        "и expedition.threats.uncovered_tags_ru (например «с пауками» → паутина, клыки). "
+        " Обязательно отрази в сцене угрозы ИМЕННО этого тика из expedition.threats.slot_affixes_ru "
+        "и expedition.threats.uncovered_tags_ru (например «с пауками» → паутина, клыки) — "
+        "это препятствия текущего эпизода, не всей экспедиции. "
         "Не называй механики и проценты — покажи через действие и атмосферу. "
         "Подготовка отряда (expedition.threats.squad_prepared): "
         "если true и outcome triumph — уверенное противодействие, наёмница с relevant_perk_names блеснёт; "
@@ -1095,6 +1099,84 @@ _MAIN_WAIFU_RACE_VISUAL_EN: dict[int, str] = {
     6: "demon girl, small curved horns, dark aura",
     7: "fairy girl, small iridescent wings, magical glow",
 }
+# Extra constraints so the model does not invent traits absent from the portrait crop.
+_MAIN_WAIFU_RACE_NEGATIVE_EN: dict[int, str] = {
+    4: "no demon horns, no demonic features",
+}
+_PAPERDOLL_IDENTITY_IMAGE_CAPTION = (
+    "Identity reference — tight head/upper-neck crop ONLY (no arms or hands visible). "
+    "Copy face, hair, eye color(s) exactly as shown, ears, and only racial features visible in this crop; "
+    "IGNORE any limb pose hints:"
+)
+
+
+def _paperdoll_race_constraint_en(race_id: int) -> str:
+    """Short race-specific negatives for paperdoll identity fidelity."""
+    specific = _MAIN_WAIFU_RACE_NEGATIVE_EN.get(int(race_id))
+    if specific:
+        return specific
+    return "do not invent horns unless visible in the identity reference"
+
+
+def _build_main_waifu_paperdoll_prompt(
+    *,
+    race_id: int,
+    class_id: int,
+    pose_en: str,
+    identity_cropped: bool,
+    equipment_prompt_en: str | None = None,
+    equipment_ref_count: int = 0,
+    avg_equipment_tier: float = 1.0,
+) -> str:
+    """Build the text prompt for main-waifu paperdoll generation (testable)."""
+    race_en = _MAIN_WAIFU_RACE_VISUAL_EN.get(int(race_id), "human girl")
+    class_en = _MAIN_WAIFU_CLASS_VISUAL_EN.get(int(class_id), "female adventurer")
+    raw_eq = str(equipment_prompt_en or "").strip()
+    equip_extra = "\n\n" + raw_eq if raw_eq else ""
+    bg_en = _paperdoll_background_for_avg_tier(avg_equipment_tier)
+    gear_ref_note = ""
+    if equipment_ref_count > 0:
+        gear_ref_note = (
+            f"\nAttached after the identity portrait: {int(equipment_ref_count)} reference image(s) of equipped gear — "
+            "integrate each item's design onto the character in the matching slot."
+        )
+    identity_ref_note = (
+        "The attached identity image is a tight head-and-upper-neck crop only — it intentionally contains NO arms, "
+        "hands, torso below the collarbone, or full-body pose. Do not hallucinate extra arms from any other source."
+        if identity_cropped
+        else (
+            "The attached identity image must be used for face and hair only — ignore any visible arms or hands in it "
+            "and draw a completely new body pose."
+        )
+    )
+    race_constraint = _paperdoll_race_constraint_en(race_id)
+    return (
+        "Generate a single JRPG-style 2D full-color illustration of a fantasy heroine with the SAME identity as the "
+        "attached identity reference, but in a completely NEW full waist-up pose drawn from scratch."
+        f"\n{identity_ref_note}"
+        "\nDo NOT continue, edit, or restyle any previous full-body paperdoll image — none is attached. "
+        "The ONLY identity source is the attached portrait crop; pose and body are drawn from scratch."
+        "\nIdentity (copy from identity reference ONLY): same face, facial features, exact eye color(s) as shown "
+        "(if both eyes match on the reference, keep them the same — do not invent heterochromia), "
+        "nose, mouth shape, hairstyle, hair color, skin tone, ears, and only racial features that are visible "
+        "on the identity crop (e.g. horns/animal ears/wings only if present there). "
+        "Do not add horns, a second eye color, wings, halo, or other traits absent from the identity crop. "
+        "Do not redesign the face."
+        f"\nRace constraint: {race_constraint}."
+        "\nDraw ALL arms, hands, and fingers ONLY from the Pose requirement below — never copy limb positions from any reference."
+        "\nAnatomy (mandatory): exactly two arms and two hands total in the final image; anatomically correct; "
+        "each hand holds at most one item; no duplicate arms, no merged limbs, no third arm, no extra floating hands."
+        f"\nPose (mandatory — sole source for limb layout): {pose_en}"
+        f"\nCharacter flavor: {race_en}, {class_en}."
+        f"{equip_extra}"
+        f"{gear_ref_note}"
+        "\nArt style: soft cel-shading, clean line art, not photorealistic, not 3D render, fantasy JRPG character art. "
+        "Safe for work, 1girl."
+        "\nCanvas: vertical portrait orientation only — image must be taller than wide (3:4 aspect ratio)."
+        f"\n{bg_en}"
+    )
+
+
 _MAIN_WAIFU_CLASS_VISUAL_EN: dict[int, str] = {
     1: "female knight, sword",
     2: "female warrior, armor",
@@ -1217,8 +1299,60 @@ def _b64_from_data_image_url(url: str) -> Optional[str]:
         return None
     m = re.match(r"^data:image/[\w.+-]+;base64,(.+)$", url.strip(), re.DOTALL)
     if m:
-        return m.group(1).strip()
+        return re.sub(r"\s+", "", m.group(1))
     return None
+
+
+def _summarize_image_choice_for_log(choice: dict, *, limit: int = 1800) -> str:
+    """Compact choice dump for parse-miss logs (no multi-MB base64 / reasoning blobs)."""
+
+    def _short(obj: Any, depth: int = 0) -> Any:
+        if isinstance(obj, dict):
+            out: dict[str, Any] = {}
+            for k, v in obj.items():
+                if k in ("url", "b64_json", "signature", "data") and isinstance(v, str) and len(v) > 96:
+                    out[k] = f"<str len={len(v)} prefix={v[:48]!r}>"
+                elif k == "reasoning_details" and isinstance(v, list):
+                    out[k] = f"<list len={len(v)}>"
+                else:
+                    out[k] = _short(v, depth + 1)
+            return out
+        if isinstance(obj, list):
+            head = [_short(x, depth + 1) for x in obj[:2]]
+            if len(obj) > 2:
+                head.append(f"...+{len(obj) - 2}")
+            return head
+        if isinstance(obj, str) and len(obj) > 240:
+            return f"<str len={len(obj)}>"
+        return obj
+
+    payload = {
+        "finish_reason": choice.get("finish_reason"),
+        "native_finish_reason": choice.get("native_finish_reason"),
+        "choice_keys": list(choice.keys()),
+        "message": _short(choice.get("message") if isinstance(choice.get("message"), dict) else {}),
+    }
+    return json.dumps(payload, ensure_ascii=False)[:limit]
+
+
+def _log_image_parse_miss(
+    tag: str,
+    *,
+    modalities: Sequence[str],
+    choice: dict | None,
+    usage: Any = None,
+) -> None:
+    choice_dict = choice if isinstance(choice, dict) else {}
+    msg = choice_dict.get("message") if isinstance(choice_dict.get("message"), dict) else {}
+    logger.info(
+        "[%s] parse miss modalities=%s message_keys=%s finish_reason=%s usage=%s choice=%s",
+        tag,
+        modalities,
+        list(msg.keys()) if isinstance(msg, dict) else [],
+        choice_dict.get("finish_reason"),
+        usage,
+        _summarize_image_choice_for_log(choice_dict),
+    )
 
 
 def _image_url_block_url(block: object) -> str:
@@ -1387,9 +1521,8 @@ async def generate_main_waifu_portrait(
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
-            last_message: dict = {}
-            for modalities in attempts:
+            last_choice: dict = {}
+            for modalities in IMAGE_MODALITY_ATTEMPTS:
                 body = {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
@@ -1420,19 +1553,21 @@ async def generate_main_waifu_portrait(
                 first = choices[0]
                 if not isinstance(first, dict):
                     continue
+                last_choice = first
                 message = first.get("message") or {}
-                last_message = message if isinstance(message, dict) else {}
-                b64_out = await _extract_openrouter_image_b64(last_message, client)
+                message = message if isinstance(message, dict) else {}
+                b64_out = await _extract_openrouter_image_b64(message, client)
                 if b64_out:
                     return b64_out
-                logger.info(
-                    "[MAIN OV IMAGE] no image in message modalities=%s keys=%s",
-                    modalities,
-                    list(last_message.keys()),
+                _log_image_parse_miss(
+                    "MAIN OV IMAGE",
+                    modalities=modalities,
+                    choice=first,
+                    usage=data.get("usage"),
                 )
             logger.warning(
-                "[MAIN OV IMAGE] no base64 after attempts; last_message=%s",
-                json.dumps(last_message, ensure_ascii=False)[:700],
+                "[MAIN OV IMAGE] no base64 after attempts; last_choice=%s",
+                _summarize_image_choice_for_log(last_choice),
             )
             return None
     except httpx.TimeoutException:
@@ -1682,45 +1817,17 @@ async def generate_main_waifu_paperdoll_from_portrait(
     data_url = f"data:{mime};base64,{identity_b64}"
 
     model = get_image_model()
-    race_en = _MAIN_WAIFU_RACE_VISUAL_EN.get(int(race_id), "human girl")
-    class_en = _MAIN_WAIFU_CLASS_VISUAL_EN.get(int(class_id), "female adventurer")
     raw_eq = str(equipment_prompt_en or "").strip()
-    equip_extra = "\n\n" + raw_eq if raw_eq else ""
     pose_en = str(pose_hint_en or "").strip() or random.choice(_PAPERDOLL_POSES_NEUTRAL_EN)
-    bg_en = _paperdoll_background_for_avg_tier(avg_equipment_tier)
-    gear_ref_note = ""
     refs = equipment_references or []
-    if refs:
-        gear_ref_note = (
-            f"\nAttached after the identity portrait: {len(refs)} reference image(s) of equipped gear — "
-            "integrate each item's design onto the character in the matching slot."
-        )
-    identity_ref_note = (
-        "The attached identity image is a tight head-and-upper-neck crop only — it intentionally contains NO arms, "
-        "hands, torso below the collarbone, or full-body pose. Do not hallucinate extra arms from any other source."
-        if identity_cropped
-        else (
-            "The attached identity image must be used for face and hair only — ignore any visible arms or hands in it "
-            "and draw a completely new body pose."
-        )
-    )
-    prompt = (
-        "Generate a single JRPG-style 2D full-color illustration of a fantasy heroine with the SAME identity as the "
-        "attached identity reference, but in a completely NEW full waist-up pose drawn from scratch."
-        f"\n{identity_ref_note}"
-        "\nIdentity (copy from identity reference ONLY): same face, facial features, eye colors (including heterochromia), "
-        "nose, mouth shape, hairstyle, hair color, skin tone, horns, ears, and general body type. Do not redesign the face."
-        "\nDraw ALL arms, hands, and fingers ONLY from the Pose requirement below — never copy limb positions from any reference."
-        "\nAnatomy (mandatory): exactly two arms and two hands total in the final image; anatomically correct; "
-        "each hand holds at most one item; no duplicate arms, no merged limbs, no third arm, no extra floating hands."
-        f"\nPose (mandatory — sole source for limb layout): {pose_en}"
-        f"\nCharacter flavor: {race_en}, {class_en}."
-        f"{equip_extra}"
-        f"{gear_ref_note}"
-        "\nArt style: soft cel-shading, clean line art, not photorealistic, not 3D render, fantasy JRPG character art. "
-        "Safe for work, 1girl."
-        "\nCanvas: vertical portrait orientation only — image must be taller than wide (3:4 aspect ratio)."
-        f"\n{bg_en}"
+    prompt = _build_main_waifu_paperdoll_prompt(
+        race_id=int(race_id),
+        class_id=int(class_id),
+        pose_en=pose_en,
+        identity_cropped=identity_cropped,
+        equipment_prompt_en=raw_eq or None,
+        equipment_ref_count=len(refs),
+        avg_equipment_tier=avg_equipment_tier,
     )
     logger.info(
         "[MAIN OV PAPERDOLL] model=%s race=%s class=%s equip_chars=%s refs=%s avg_tier=%.2f pose=%s",
@@ -1737,10 +1844,7 @@ async def generate_main_waifu_paperdoll_from_portrait(
         {"type": "text", "text": prompt},
         {
             "type": "text",
-            "text": (
-                "Identity reference — tight head/upper-neck crop ONLY (no arms or hands visible). "
-                "Copy face, hair, horns, ears, eye colors; IGNORE any limb pose hints:"
-            ),
+            "text": _PAPERDOLL_IDENTITY_IMAGE_CAPTION,
         },
         {"type": "image_url", "image_url": {"url": data_url}},
     ]
@@ -1756,11 +1860,10 @@ async def generate_main_waifu_paperdoll_from_portrait(
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            modality_attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
             last_message: dict = {}
             for gen_attempt in range(_PAPERDOLL_GENERATION_MAX_ATTEMPTS):
                 landscape_retry = False
-                for modalities in modality_attempts:
+                for modalities in IMAGE_MODALITY_ATTEMPTS:
                     body = {
                         "model": model,
                         "messages": [{"role": "user", "content": user_content}],
@@ -1951,9 +2054,9 @@ async def generate_hire_waifu_image(
                 chosen_perk_id,
             )
     base_tail = (
-        "fantasy RPG character, upper body, detailed face, "
-        "dark atmospheric background, dramatic lighting, "
-        "high quality illustration, 1girl"
+        "absurd comedy anime, surreal gag energy, oddly specific funny detail, "
+        "lighthearted chaos, clean soft lighting, upper body, detailed face, "
+        "high quality illustration, 1girl, wholesome chaos not horror"
     )
     parts: list[str] = [
         "anime style portrait",
@@ -1973,9 +2076,8 @@ async def generate_hire_waifu_image(
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            attempts: tuple[tuple[str, ...], ...] = (("image",), ("image", "text"))
-            last_message: dict = {}
-            for modalities in attempts:
+            last_choice: dict = {}
+            for modalities in IMAGE_MODALITY_ATTEMPTS:
                 body = {
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
@@ -2009,17 +2111,23 @@ async def generate_hire_waifu_image(
                 if not isinstance(first, dict):
                     logger.warning("[IMAGE GEN] choices[0] is not dict: %s", type(first))
                     continue
+                last_choice = first
                 message = first.get("message") or {}
-                last_message = message if isinstance(message, dict) else {}
-                logger.info("[IMAGE GEN] Response keys: %s", list(last_message.keys()))
-                b64_out = await _extract_openrouter_image_b64(last_message, client)
+                message = message if isinstance(message, dict) else {}
+                logger.info("[IMAGE GEN] Response keys: %s", list(message.keys()))
+                b64_out = await _extract_openrouter_image_b64(message, client)
                 if b64_out:
                     return b64_out
-                logger.info("[IMAGE GEN] parse miss modalities=%s", modalities)
+                _log_image_parse_miss(
+                    "IMAGE GEN",
+                    modalities=modalities,
+                    choice=first,
+                    usage=data.get("usage"),
+                )
 
             logger.warning(
-                "[IMAGE GEN] Image not found. last_message=%s",
-                json.dumps(last_message, ensure_ascii=False)[:700],
+                "[IMAGE GEN] Image not found. last_choice=%s",
+                _summarize_image_choice_for_log(last_choice),
             )
             return None
     except httpx.TimeoutException:

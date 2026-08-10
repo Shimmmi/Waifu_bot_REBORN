@@ -1,0 +1,17 @@
+{
+	"appId": "ru.shimmirpgbot.waifu.activity",
+	"appName": "Waifu Activity",
+	"webDir": "www",
+	"server": {
+		"url": "https://shimmirpgbot.ru/webapp/activity.html?mobileClient=1&economy=activity",
+		"cleartext": false,
+		"allowNavigation": [
+			"shimmirpgbot.ru",
+			"localhost",
+			"10.0.2.2"
+		]
+	},
+	"android": {
+		"allowMixedContent": false
+	}
+}

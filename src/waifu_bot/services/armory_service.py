@@ -21,6 +21,7 @@ from waifu_bot.db.models.guild_extended import GuildRaidStatus, GuildWarRowStatu
 from waifu_bot.services.armory_access import PUBLIC_EVENT_TYPES, armory_access_level
 from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
 from waifu_bot.services.passive_skills import get_passive_skill_bonuses
+from waifu_bot.services.perfection import perfection_totals_dict, summarize_totals
 from waifu_bot.services.player_ban import is_player_banned
 from waifu_bot.services.inventory_payload import build_inventory_payloads
 from waifu_bot.services.paperdoll_quota import paperdoll_generations_remaining
@@ -32,7 +33,16 @@ _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
 # Unicode "control pictures" (U+2400–U+243F) and other format/control chars
 _CONTROL_PICTURES_RE = re.compile(r"[\u2400-\u243f]")
 
-LEADERBOARD_KINDS = frozenset({"level", "gold", "gear_score", "dungeon_plus", "guild", "abyss"})
+LEADERBOARD_KINDS = frozenset({
+    "level",
+    "gold",
+    "gear_score",
+    "dungeon_plus",
+    "guild",
+    "abyss",
+    "merc_arena",
+    "merc_collection",
+})
 
 
 def sanitize_display_name(
@@ -227,6 +237,7 @@ async def build_public_summary(
         for run, name in recent_runs_q.all()
     ]
 
+    perfection_level = int(getattr(player, "perfection_level", 0) or 0)
     out: dict[str, Any] = {
         "telegram_id": tg_id,
         "username": player.username,
@@ -242,6 +253,10 @@ async def build_public_summary(
         "guild": guild_info,
         "recent_dungeons": recent_dungeons,
         "has_character": waifu is not None,
+        "perfection_level": perfection_level,
+        "perfection_bonuses_summary": (
+            summarize_totals(perfection_totals_dict(player)) if perfection_level > 0 else []
+        ),
     }
 
     if waifu:
@@ -667,6 +682,65 @@ async def build_leaderboard(session: AsyncSession, kind: str, limit: int = 50) -
                 "value": lvl,
             }
             for gid, name, tag, lvl, xp, trophies, mc in rows
+        ]
+
+    if kind == "merc_arena":
+        from waifu_bot.db.models.tavern import TavernState
+
+        q = (
+            select(
+                TavernState.player_id,
+                TavernState.arena_rating,
+                m.Player.username,
+                m.Player.first_name,
+            )
+            .join(m.Player, m.Player.id == TavernState.player_id)
+            .order_by(TavernState.arena_rating.desc(), TavernState.player_id.asc())
+            .limit(limit)
+        )
+        rows = (await session.execute(q)).all()
+        return [
+            {
+                "player_id": pid,
+                "username": un,
+                "name": name,
+                "value": int(rating or 1000),
+                "arena_rating": int(rating or 1000),
+            }
+            for pid, rating, un, name in rows
+        ]
+
+    if kind == "merc_collection":
+        from waifu_bot.db.models.tavern import TavernState
+        from sqlalchemy import cast, Integer
+        from sqlalchemy.sql import func as sqfunc
+
+        # Rank by number of unlocked legendary codex ids (JSON array length best-effort)
+        q = (
+            select(
+                TavernState.player_id,
+                TavernState.codex_legendary_ids,
+                m.Player.username,
+                m.Player.first_name,
+            )
+            .join(m.Player, m.Player.id == TavernState.player_id)
+            .limit(limit * 3)
+        )
+        rows = (await session.execute(q)).all()
+        scored = []
+        for pid, codex, un, name in rows:
+            n = len(codex or []) if isinstance(codex, list) else 0
+            scored.append((n, pid, un, name))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        return [
+            {
+                "player_id": pid,
+                "username": un,
+                "name": name,
+                "value": n,
+                "codex_count": n,
+            }
+            for n, pid, un, name in scored[:limit]
         ]
 
     return []

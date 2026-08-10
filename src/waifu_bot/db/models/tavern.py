@@ -4,7 +4,18 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from waifu_bot.db.base import Base
@@ -52,8 +63,25 @@ class TavernState(Base):
     experience: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     daily_experience: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_exp_day: Mapped[date | None] = mapped_column(Date, nullable=True)
-    # Уровень последней уволенной вайфу — передаётся следующей нанятой при переполненном резерве (ТЗ)
-    last_dismissed_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Суммарный опыт уволенных наёмниц — передаётся следующей нанятой (накопительно)
+    pending_hired_exp: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Merc overhaul v7
+    pity_legendary: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    pity_epic: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    debut_legendary_done: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    merc_coins: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    merc_contracts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    merc_dust: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    legendary_crests: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    drill_manuals: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    merc_gear_bag: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    codex_legendary_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    arena_rating: Mapped[int] = mapped_column(Integer, default=1000, nullable=False)
+    arena_tickets: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    arena_tickets_day: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    arena_attacks_today: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    guild_assist_day: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)

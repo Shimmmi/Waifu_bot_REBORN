@@ -178,7 +178,7 @@ flowchart LR
 | goblins | Гоблины | goblin_shaker | Монстры |
 | trolls | Тролли | troll_slayer | Монстры |
 | vampires | Вампиры | vampire_hunter | Монстры, Нежить |
-| giant_insects | Насекомые-гиганты | entomologist | Монстры |
+| giant_insects | Гигантские насекомые | entomologist | Монстры |
 | bats | Летучие мыши | bat_hunter | Монстры |
 
 #### location (10)

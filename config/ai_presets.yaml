@@ -10,14 +10,14 @@ defaults:
 presets:
   fast:
     mode: single
-    model: google/gemini-3.1-flash-lite
+    model: google/gemini-3.5-flash-lite
     post_process: rhythm_rewrite
 
   expert:
     mode: fusion
     parallel_experts: true
     experts:
-      - google/gemini-3.1-flash-lite
+      - google/gemini-3.5-flash-lite
       - z-ai/glm-5.2
     judge: z-ai/glm-5.2
     judge_prompt: |
@@ -33,7 +33,7 @@ presets:
         model: z-ai/glm-5.2
         system: "Ты ведущий разработчик. Найди проблемы в архитектуре."
       gemini-flash:
-        model: google/gemini-3.1-flash-lite
+        model: google/gemini-3.5-flash-lite
         system: "Ты QA-инженер. Найди уязвимости и слабые места."
     judge:
       model: z-ai/glm-5.2
@@ -42,6 +42,6 @@ presets:
   # Group dungeon (GD v1) only — wired via AI_PRESET_GD
   gd_narrative:
     mode: single
-    model: google/gemini-3.1-flash-lite
-    fallback_model: google/gemini-3.1-flash-lite
+    model: google/gemini-3.5-flash-lite
+    fallback_model: google/gemini-3.5-flash-lite
     post_process: none

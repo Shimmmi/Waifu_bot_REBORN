@@ -409,6 +409,32 @@ def exp_to_next_level_hired(level: int) -> int:
     return HIRED_EXP_LEVEL_BASE + n * HIRED_EXP_LEVEL_LINEAR + (n * n) * HIRED_EXP_LEVEL_SQUARE
 
 
+def hired_total_exp(level: int, exp_current: int = 0) -> int:
+    """Суммарный опыт наёмницы: пороги 1..(level-1) + прогресс текущего уровня."""
+    lvl = max(1, int(level or 1))
+    cur = max(0, int(exp_current or 0))
+    total = 0
+    for L in range(1, min(lvl, HIRED_MAX_LEVEL)):
+        total += exp_to_next_level_hired(L)
+    if lvl >= HIRED_MAX_LEVEL:
+        return total + min(cur, exp_to_next_level_hired(HIRED_MAX_LEVEL))
+    return total + cur
+
+
+def hired_level_from_total_exp(total_exp: int) -> tuple[int, int]:
+    """Разложить суммарный опыт в (level, exp_current) с clamp до HIRED_MAX_LEVEL."""
+    remaining = max(0, int(total_exp or 0))
+    level = 1
+    while level < HIRED_MAX_LEVEL:
+        need = exp_to_next_level_hired(level)
+        if remaining < need:
+            return level, remaining
+        remaining -= need
+        level += 1
+    cap = exp_to_next_level_hired(HIRED_MAX_LEVEL)
+    return HIRED_MAX_LEVEL, min(remaining, cap)
+
+
 def calculate_unit_chance(
     unit: HiredWaifu,
     slot_level: int,
@@ -1253,11 +1279,36 @@ class ExpeditionService:
 
         await self._unlock_squad_expedition(session, squad_ids)
 
+        # Merc overhaul: exclusive rewards + auto-Rest (blocks Ops, not Arena)
+        merc_bonus: dict = {}
+        try:
+            from waifu_bot.services.hired_waifu_state import start_heal_over_time
+            from waifu_bot.services import merc_systems as merc_sys
+
+            star = int(getattr(active, "depth_tier", None) or getattr(active, "affix_level", None) or 1)
+            bias = str(getattr(active, "reward_type", None) or "mixed")
+            merc_bonus = await merc_sys.grant_ops_rewards(
+                session,
+                player_id,
+                outcome=str(outcome),
+                star=star,
+                reward_bias=bias,
+            )
+            for wid in squad_ids:
+                w = await session.get(HiredWaifu, wid)
+                if w and w.player_id == player_id:
+                    cur = int(getattr(w, "current_hp", 0) or 0)
+                    mx = int(getattr(w, "max_hp", 1) or 1)
+                    if cur < mx:
+                        start_heal_over_time(w, now)
+        except Exception:
+            logger.exception("merc ops reward/rest failed exp=%s", active.id)
+
         slot = active.expedition_slot
         expedition_name = (
             (active.display_base_location or "").strip()
             or (slot.name if slot else None)
-            or "Экспедиция"
+            or "Операция"
         )
         event_text = (getattr(active, "event_text", None) or "").strip()
         if not event_text:
@@ -1314,6 +1365,7 @@ class ExpeditionService:
             "gate_log": gate_log,
             "enchant_stones": int(reward_summary.get("enchant_stones") or 0),
             "waifu_exp_gained": int(reward_summary.get("waifu_exp_gained") or 0),
+            "merc_rewards": merc_bonus,
         }
 
     async def get_finished_unnotified(
