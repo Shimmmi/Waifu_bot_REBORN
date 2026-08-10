@@ -79,10 +79,24 @@ Deep-link: `/webapp/mobile_link.html`.
 
 API: `POST /api/auth/link_code` → на stage `POST /api/auth/mobile/google` с `link_code` + `google_sub_dev`.
 
+## Account parity checklist (staging)
+
+- `Player.id` для Telegram = Telegram user id (например `305174198`). Это нормально.
+- Staging Postgres **отдельная** от prod: OIDC создаёт/находит player на stage, но `main_waifus` появляется только после создания персонажа **на stage** (генератор) или явного seed.
+- Проверка: `GET /api/debug/account/{player_id}` (только `APP_ENV=stage|dev`) — `has_main_waifu`, identity links, inventory counts.
+- Mobile/Steam читают **общий** `economy=telegram` bag (как TG WebApp). Legacy `economy=activity` остаётся в схеме.
+- Лёгкий hub: `GET /api/client-snapshot`.
+- Если `/profile` вернул `profile_error` — это сбой сборки ответа, не «нет вайфу».
+
+Диагностика 2026-08-10 для `305174198` на staging: player + telegram identity link есть, `main_waifus` пусто → нужен генератор на stage.
+
 ## Краткий DoD
 
 - [ ] Trusted Origin + Redirect URI + Client Secret настроены
 - [ ] Stage API с `TELEGRAM_OIDC_CLIENT_SECRET`, пересобран
-- [ ] APK пересобран/переустановлен (allowNavigation + intent-filters)
+- [ ] APK пересобран/переустановлен (allowNavigation + intent-filters + FGS)
 - [ ] Из APK: confirm в Telegram → возврат в приложение → shell
 - [ ] Код-path на stage всё ещё работает
+- [ ] После логина на stage с вайфу: профиль показывает main_waifu; без вайфу — онбординг/генератор
+- [ ] Свайп по хабам TG (profile…menu); шаги в чердаке профиля
+- [ ] Cold start: pending steps из server_last_counter + FGS

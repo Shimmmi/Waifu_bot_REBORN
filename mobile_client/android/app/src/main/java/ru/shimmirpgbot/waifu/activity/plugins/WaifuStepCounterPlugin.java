@@ -19,6 +19,8 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
+import ru.shimmirpgbot.waifu.activity.StepCounterForegroundService;
+
 /**
  * Pedometer for activity combat (1 step = 1 char).
  * Prefers TYPE_STEP_COUNTER; falls back to TYPE_STEP_DETECTOR.
@@ -53,6 +55,11 @@ public class WaifuStepCounterPlugin extends Plugin implements SensorEventListene
         }
         if (isPermissionGranted()) {
             startSensorListening();
+            try {
+                StepCounterForegroundService.start(getContext());
+            } catch (Exception ignored) {
+                /* OEM may block FGS until user interacts */
+            }
         }
     }
 
@@ -72,6 +79,7 @@ public class WaifuStepCounterPlugin extends Plugin implements SensorEventListene
             permissionAsked = true;
             permissionDenied = false;
             startSensorListening();
+            StepCounterForegroundService.start(getContext());
             JSObject ret = new JSObject();
             ret.put("permission", "granted");
             ret.put("sensor", activeSensor);
@@ -82,6 +90,7 @@ public class WaifuStepCounterPlugin extends Plugin implements SensorEventListene
             permissionAsked = true;
             permissionDenied = false;
             startSensorListening();
+            StepCounterForegroundService.start(getContext());
             JSObject ret = new JSObject();
             ret.put("permission", "granted");
             ret.put("sensor", activeSensor);
@@ -98,12 +107,39 @@ public class WaifuStepCounterPlugin extends Plugin implements SensorEventListene
         permissionDenied = !granted;
         if (granted) {
             startSensorListening();
+            StepCounterForegroundService.start(getContext());
         } else {
             stopSensorListening();
+            StepCounterForegroundService.stop(getContext());
         }
         JSObject ret = new JSObject();
         ret.put("permission", currentPermission());
         ret.put("sensor", activeSensor);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void startBackgroundTracking(PluginCall call) {
+        if (!isPermissionGranted()) {
+            JSObject ret = new JSObject();
+            ret.put("ok", false);
+            ret.put("reason", "permission_denied");
+            call.resolve(ret);
+            return;
+        }
+        startSensorListening();
+        StepCounterForegroundService.start(getContext());
+        JSObject ret = new JSObject();
+        ret.put("ok", true);
+        ret.put("sensor", activeSensor);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void stopBackgroundTracking(PluginCall call) {
+        StepCounterForegroundService.stop(getContext());
+        JSObject ret = new JSObject();
+        ret.put("ok", true);
         call.resolve(ret);
     }
 

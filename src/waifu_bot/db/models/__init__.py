@@ -124,6 +124,7 @@ from waifu_bot.db.models.abyss import (
 )
 from waifu_bot.db.models.perfection import PlayerPerfectionBonus, PlayerPerfectionPending
 from waifu_bot.db.models.activity import ActivityInputState, ActivityItemTemplate
+from waifu_bot.db.models.client_snapshot import PlayerClientSnapshot
 
 __all__ = [
     "PlayerEventLog",
@@ -132,6 +133,7 @@ __all__ = [
     "PlayerBan",
     "Player",
     "PlayerIdentityLink",
+    "PlayerClientSnapshot",
     "EmailCredential",
     "PlayerChatRewardWallet",
     "PlayerChatActivityDaily",

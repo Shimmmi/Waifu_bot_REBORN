@@ -32,7 +32,7 @@ class ActivityClaimOut(BaseModel):
     units_to_next_hit: int = 0
     results: list[dict] = Field(default_factory=list)
     source: str | None = None
-    economy: str = "activity"
+    economy: str = "telegram"
 
 
 @router.get("/status")
