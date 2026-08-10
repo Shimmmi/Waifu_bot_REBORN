@@ -1,4 +1,4 @@
-"""Grant activity-economy starter gear (shared Steam / Mobile catalog)."""
+"""Grant starter weapon into the shared telegram bag when the player has none."""
 from __future__ import annotations
 
 import logging
@@ -7,24 +7,27 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
-from waifu_bot.game.economy import ECONOMY_ACTIVITY
+from waifu_bot.game.economy import ECONOMY_TELEGRAM
 
 logger = logging.getLogger(__name__)
 
 STARTER_SLUG = "activity_starter_dagger"
+_STARTER_ECONOMY = ECONOMY_TELEGRAM
 
 
 async def ensure_activity_starter_gear(session: AsyncSession, player_id: int) -> m.InventoryItem | None:
     """
-    Ensure the player has the activity starter dagger equipped in slot 1.
-    Idempotent: if any activity weapon already exists, do nothing.
+    Ensure the player has a weapon equipped for step/click combat.
+    Uses the shared telegram bag (account parity). Idempotent if any weapon exists.
     """
     existing = await session.execute(
-        select(m.InventoryItem).where(
+        select(m.InventoryItem)
+        .where(
             m.InventoryItem.player_id == player_id,
-            m.InventoryItem.economy == ECONOMY_ACTIVITY,
+            m.InventoryItem.economy == _STARTER_ECONOMY,
             m.InventoryItem.slot_type.in_(("weapon_1h", "weapon_2h")),
-        ).limit(1)
+        )
+        .limit(1)
     )
     if existing.scalar_one_or_none():
         return None
@@ -38,14 +41,13 @@ async def ensure_activity_starter_gear(session: AsyncSession, player_id: int) ->
         logger.warning("activity starter template %s missing — run migrations", STARTER_SLUG)
         return None
 
-    # Need a placeholder Item row for FK; reuse/create a catalog stub.
     item_row = (
         await session.execute(select(m.Item).where(m.Item.name == tmpl.name).limit(1))
     ).scalar_one_or_none()
     if not item_row:
         item_row = m.Item(
             name=tmpl.name,
-            description="Стартовое оружие режима Activity (шаги / клики).",
+            description="Стартовое оружие для шагов / кликов (общий инвентарь с Telegram).",
             rarity=1,
             tier=1,
             level=1,
@@ -61,11 +63,10 @@ async def ensure_activity_starter_gear(session: AsyncSession, player_id: int) ->
         session.add(item_row)
         await session.flush()
 
-    # Unequip any activity item already in slot 1 (should be none for new players).
     slot1 = await session.execute(
         select(m.InventoryItem).where(
             m.InventoryItem.player_id == player_id,
-            m.InventoryItem.economy == ECONOMY_ACTIVITY,
+            m.InventoryItem.economy == _STARTER_ECONOMY,
             m.InventoryItem.equipment_slot == 1,
         )
     )
@@ -92,10 +93,10 @@ async def ensure_activity_starter_gear(session: AsyncSession, player_id: int) ->
         base_stat_value=tmpl.base_stat_value,
         slot_type=tmpl.slot_type,
         equipment_slot=1,
-        economy=ECONOMY_ACTIVITY,
+        economy=_STARTER_ECONOMY,
         requirements={"level": int(tmpl.required_level)},
     )
     session.add(inv)
     await session.flush()
-    logger.info("Granted activity starter gear to player %s (inv=%s)", player_id, inv.id)
+    logger.info("Granted telegram-bag starter gear to player %s (inv=%s)", player_id, inv.id)
     return inv

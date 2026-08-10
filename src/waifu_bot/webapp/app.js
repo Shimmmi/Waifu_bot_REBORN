@@ -49,10 +49,11 @@ function isMobileClient() {
 }
 
 function getClientEconomy() {
-  if (isMobileClient() || isDesktopClient()) return "activity";
+  // Shared telegram bag for TG / Mobile / Steam account parity (staging policy).
+  // Explicit ?economy=activity still opts into the legacy dual bag.
   try {
     const eco = new URLSearchParams(window.location.search).get("economy");
-    if (eco === "activity") return "activity";
+    if (eco === "activity" || eco === "telegram") return eco;
   } catch {
     /* ignore */
   }
@@ -103,6 +104,18 @@ function steamRelativePage(page) {
   return `./${page}`;
 }
 
+/** Hub keys used by mobile shell swipe pager (mirrors TG basement). */
+const MOBILE_SHELL_HUBS = [
+  "profile",
+  "dungeons",
+  "shop",
+  "tavern",
+  "caravan",
+  "guild",
+  "training",
+  "menu",
+];
+
 /** Mobile dedicated pages under webapp/mobile/. */
 function mobileRelativePage(page) {
   const inMobileDir =
@@ -110,13 +123,34 @@ function mobileRelativePage(page) {
     document.body?.classList?.contains("page-mobile-login");
   if (isMobileClient() && !inMobileDir) {
     if (page === "login") return `/webapp/mobile/login.html?mobileClient=1`;
-    // Keep TG pages navigable inside shell iframes (profile/dungeons/etc.).
-    if (page === "activity" || page === "index" || page === "home") {
-      return `/webapp/mobile/shell.html?mobileClient=1`;
+    // Ask parent shell to swipe instead of navigating away from the iframe.
+    if (MOBILE_SHELL_HUBS.includes(page) && window.parent && window.parent !== window) {
+      try {
+        window.parent.postMessage({ type: "waifuMobileNavigate", page }, window.location.origin);
+        return `#mobile-shell-${page}`;
+      } catch {
+        /* fall through to URL */
+      }
+    }
+    if (page === "activity" || page === "index" || page === "home" || page === "menu") {
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ type: "waifuMobileNavigate", page: "menu" }, window.location.origin);
+          return "#mobile-shell-menu";
+        } catch {
+          /* fall through */
+        }
+      }
+      return `/webapp/mobile/shell.html?mobileClient=1&hub=menu`;
     }
     const map = {
       profile: `/webapp/profile.html?mobileClient=1`,
-      dungeons: `/webapp/dungeons.html?mobileClient=1&economy=activity`,
+      dungeons: `/webapp/dungeons.html?mobileClient=1`,
+      shop: `/webapp/shop.html?mobileClient=1`,
+      tavern: `/webapp/tavern.html?mobileClient=1`,
+      caravan: `/webapp/caravan.html?mobileClient=1`,
+      guild: `/webapp/guild_hall.html?mobileClient=1`,
+      training: `/webapp/training_hall.html?mobileClient=1`,
       inventory: `/webapp/profile.html?mobileClient=1&tab=inventory`,
       player: `/webapp/player.html?mobileClient=1`,
       waifu_generator: `/webapp/waifu_generator.html?mobileClient=1`,
@@ -183,7 +217,9 @@ if (typeof window !== "undefined") {
 (function applyMobileClientTheme() {
   if (typeof document === "undefined" || !isMobileClient()) return;
   document.documentElement.classList.add("mobile-client");
-  document.documentElement.classList.add("economy-activity");
+  document.documentElement.classList.add(
+    getClientEconomy() === "activity" ? "economy-activity" : "economy-telegram"
+  );
   try {
     if (!document.querySelector("link[data-mobile-theme]")) {
       const link = document.createElement("link");
@@ -197,8 +233,8 @@ if (typeof window !== "undefined") {
   }
 })();
 
-// Mobile auth gate (after helpers below are defined — deferred microtask)
-queueMicrotask(() => {
+// Mobile auth gate (after helpers below are defined — deferred)
+setTimeout(() => {
   try {
     if (typeof requireMobileSessionOrRedirect === "function") {
       requireMobileSessionOrRedirect();
@@ -206,7 +242,7 @@ queueMicrotask(() => {
   } catch {
     /* ignore */
   }
-});
+}, 0);
 const CARAVAN_STATIC_BASE = `${GAME_STATIC_BASE}/ui/caravan`;
 const DUNGEONS_STATIC_BASE = `${GAME_STATIC_BASE}/dungeons`;
 const SHOP_STATIC_BASE = `${GAME_STATIC_BASE}/ui/shop`;
@@ -255,6 +291,22 @@ function initNavIcons() {
       link.appendChild(img);
     }
     img.src = `${NAV_STATIC_BASE}/${page}.webp?v=${WAIFU_WEBAPP_VERSION}`;
+    // Inside mobile shell iframe: basement clicks swipe the parent pager.
+    if (isMobileClient() && window.parent && window.parent !== window) {
+      link.addEventListener(
+        "click",
+        (ev) => {
+          if (!MOBILE_SHELL_HUBS.includes(page)) return;
+          ev.preventDefault();
+          try {
+            window.parent.postMessage({ type: "waifuMobileNavigate", page }, window.location.origin);
+          } catch {
+            /* ignore */
+          }
+        },
+        true
+      );
+    }
   });
 }
 
@@ -7595,12 +7647,96 @@ async function reloadProfileEquipment() {
   await ensureProfileEquipmentLoaded();
 }
 
+let _mobileStepsAtticBound = false;
+
+async function initMobileStepsAttic() {
+  if (!isMobileClient()) return;
+  const card = document.getElementById("mobile-steps-attic");
+  const menuBtn = document.getElementById("attic-menu-steps");
+  if (menuBtn) menuBtn.hidden = false;
+  if (!card) return;
+
+  async function refresh() {
+    try {
+      const status = await apiFetch("/activity/status?ensure_starter=true");
+      setText("ms-buffer", String(status?.buffer_units ?? 0));
+      setText("ms-need", String(status?.units_to_next_hit ?? "—"));
+      setText("ms-today", String(status?.units_accepted_today ?? 0));
+      const bridge = window.waifuMobile;
+      if (bridge?.syncBaselineFromServer) {
+        await bridge.syncBaselineFromServer(
+          status?.server_last_counter != null ? Number(status.server_last_counter) : null
+        );
+      }
+      const snap = bridge?.getStepSnapshot
+        ? await bridge.getStepSnapshot()
+        : { pendingDelta: 0, permission: "unavailable" };
+      setText("ms-pending", String(snap?.deltaSinceLastClaim ?? snap?.pendingDelta ?? 0));
+      const permEl = document.getElementById("ms-perm");
+      if (permEl) {
+        permEl.textContent =
+          snap?.permission === "granted"
+            ? `Шагомер: OK (${snap.sensor || "sensor"})`
+            : `Разрешение: ${snap?.permission || "—"}`;
+      }
+    } catch (e) {
+      const permEl = document.getElementById("ms-perm");
+      if (permEl) permEl.textContent = String(e.message || e);
+    }
+  }
+
+  if (!_mobileStepsAtticBound) {
+    _mobileStepsAtticBound = true;
+    menuBtn?.addEventListener("click", () => {
+      card.hidden = !card.hidden;
+      const menu = document.getElementById("attic-menu");
+      if (menu) menu.hidden = true;
+    });
+    document.getElementById("ms-perm-btn")?.addEventListener("click", async () => {
+      try {
+        await window.waifuMobile?.requestActivityPermission?.();
+        await window.waifuMobile?.startBackgroundTracking?.();
+        await refresh();
+      } catch (e) {
+        alert(String(e.message || e));
+      }
+    });
+    document.getElementById("ms-claim")?.addEventListener("click", async () => {
+      try {
+        const snap = (await window.waifuMobile?.getStepSnapshot?.()) || {};
+        const units = Number(snap.deltaSinceLastClaim || snap.pendingDelta || 0) || 0;
+        await apiFetch("/activity/input/claim", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            source: "mobile_steps",
+            units,
+            client_counter_total: snap.total != null ? Number(snap.total) : null,
+          }),
+        });
+        await window.waifuMobile?.consumePendingSteps?.();
+        await refresh();
+      } catch (e) {
+        alert(String(e.message || e));
+      }
+    });
+  }
+
+  card.hidden = false;
+  await refresh();
+}
+
 async function populateProfile(profile) {
   let p = profile;
   if (!isProfilePage()) {
     if (!p) p = await loadProfile({ lite: true });
   } else if (!p) {
     p = await loadProfile({ lite: false });
+  }
+  try {
+    await initMobileStepsAttic();
+  } catch {
+    /* ignore */
   }
   const w = p?.main_waifu;
   const mainEl = document.querySelector("main.profile-layout");
@@ -7609,7 +7745,13 @@ async function populateProfile(profile) {
 
   if (!hasMw) {
     mainEl?.classList.add("profile-layout--no-mw");
-    if (missEl) missEl.hidden = false;
+    if (missEl) {
+      missEl.hidden = false;
+      if (isMobileClient()) {
+        const gen = missEl.querySelector('a[href*="waifu_generator"]');
+        if (gen) gen.setAttribute("href", "/webapp/waifu_generator.html?mobileClient=1");
+      }
+    }
     return;
   }
 
@@ -15635,6 +15777,10 @@ function exportWebAppShellGlobals() {
     WAIFU_RACES,
     WAIFU_CLASSES,
     apiFetch,
+    getClientEconomy,
+    getClientChannel,
+    isMobileClient,
+    isDesktopClient,
     loadProfile,
     safeNumber,
     safeInt,

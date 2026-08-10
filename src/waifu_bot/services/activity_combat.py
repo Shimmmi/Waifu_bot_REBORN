@@ -11,12 +11,15 @@ from waifu_bot.db import models as m
 from waifu_bot.game.constants import MediaType
 from waifu_bot.game.economy import (
     ACTIVITY_LENGTH_CAP,
-    ECONOMY_ACTIVITY,
+    ECONOMY_TELEGRAM,
     SOURCE_MOBILE_STEPS,
     SOURCE_STEAM_CLICKS,
     VALID_ACTIVITY_SOURCES,
     normalize_economy,
 )
+
+# Shared bag with Telegram WebApp (account parity). Dual activity bag remains in schema for legacy.
+_ACTIVITY_COMBAT_ECONOMY = ECONOMY_TELEGRAM
 from waifu_bot.game.effective_stats import fetch_equipped_inventory_items, resolve_main_weapon_attack_speed
 from waifu_bot.services.combat import CombatService
 from waifu_bot.services.game_config_service import cfg_int, get_game_config_map
@@ -131,7 +134,7 @@ async def claim_activity_input(
     state.last_claim_at = now
 
     equipped = await fetch_equipped_inventory_items(
-        session, player_id, economy=ECONOMY_ACTIVITY
+        session, player_id, economy=_ACTIVITY_COMBAT_ECONOMY
     )
     min_chars = int(resolve_main_weapon_attack_speed(equipped) or 1)
     min_chars = max(1, min(10, min_chars))
@@ -157,7 +160,7 @@ async def claim_activity_input(
             message_text=None,
             message_length=spend,
             skip_spam_check=False,
-            economy=ECONOMY_ACTIVITY,
+            economy=_ACTIVITY_COMBAT_ECONOMY,
         )
         if result.get("error"):
             # message_too_short shouldn't happen if we gated; keep buffer
@@ -193,7 +196,7 @@ async def claim_activity_input(
         "units_to_next_hit": max(0, min_chars - int(state.buffer_units or 0)),
         "results": results,
         "source": source,
-        "economy": normalize_economy(ECONOMY_ACTIVITY),
+        "economy": normalize_economy(_ACTIVITY_COMBAT_ECONOMY),
         "client_window_ms": client_window_ms,
     }
 
@@ -201,12 +204,13 @@ async def claim_activity_input(
 async def get_activity_status(session: AsyncSession, player_id: int) -> dict:
     state = await session.get(m.ActivityInputState, player_id)
     equipped = await fetch_equipped_inventory_items(
-        session, player_id, economy=ECONOMY_ACTIVITY
+        session, player_id, economy=_ACTIVITY_COMBAT_ECONOMY
     )
     min_chars = max(1, min(10, int(resolve_main_weapon_attack_speed(equipped) or 1)))
     buffer = int(state.buffer_units or 0) if state else 0
+    last_counter = int(state.last_counter) if state and state.last_counter is not None else None
     return {
-        "economy": ECONOMY_ACTIVITY,
+        "economy": _ACTIVITY_COMBAT_ECONOMY,
         "buffer_units": buffer,
         "min_chars": min_chars,
         "units_to_next_hit": max(0, min_chars - buffer),
@@ -214,4 +218,6 @@ async def get_activity_status(session: AsyncSession, player_id: int) -> dict:
         "hits_applied_today": int(state.hits_applied_today or 0) if state else 0,
         "day_utc": state.day_utc if state else _utc_day(),
         "has_activity_weapon": bool(equipped),
+        "server_last_counter": last_counter,
+        "recommended_claim_units": 0,
     }

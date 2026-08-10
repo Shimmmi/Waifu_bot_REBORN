@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Waifu Mobile</title>
+  <link rel="stylesheet" href="/webapp/styles.css" />
   <link rel="stylesheet" href="/webapp/mobile-theme.css" />
   <link rel="stylesheet" href="/webapp/mobile/mobile-shell.css" />
   <script src="/webapp/vendor/telegram-web-app.js"></script>
@@ -12,77 +13,56 @@
   <div id="mobile-tutorial" class="mobile-tutorial" hidden>
     <div class="mobile-tutorial-card">
       <h2>Добро пожаловать</h2>
-      <p class="muted" id="tutorial-text">1) Разрешите шагомер · 2) Пройдите шаги · 3) Заберите урон во вкладке «Шаги». Профиль и данжи — как в Telegram WebApp.</p>
+      <p class="muted" id="tutorial-text">Те же разделы, что в Telegram WebApp. Листайте хабы свайпом. Если персонажа ещё нет на staging — создайте его в генераторе.</p>
       <button type="button" id="tutorial-next">Понятно</button>
     </div>
   </div>
 
   <div id="waifu-onboard" class="mobile-banner mobile-onboard" hidden>
-    Нет основной вайфу.
+    Нет основной вайфу на этом сервере (staging).
     <a class="mobile-onboard-link" id="waifu-onboard-link" href="/webapp/waifu_generator.html?mobileClient=1">Создать персонажа</a>
   </div>
+  <div id="profile-error-banner" class="mobile-banner mobile-error" hidden></div>
+
+  <div class="mobile-edge-zone mobile-edge-zone--left" id="edge-left" aria-hidden="true"></div>
+  <div class="mobile-edge-zone mobile-edge-zone--right" id="edge-right" aria-hidden="true"></div>
 
   <div class="mobile-pager" id="mobile-pager">
-    <section class="mobile-page mobile-page--frame" data-tab="0" id="tab-hubs">
-      <div class="mobile-hub-strip">
-        <span>ID <strong id="hub-player">—</strong></span>
-        <span>Вайфу <strong id="hub-waifu">—</strong></span>
-        <span>ур. <strong id="hub-level">—</strong></span>
-        <button type="button" class="mobile-hub-logout" id="btn-logout">Выйти</button>
-      </div>
-      <iframe
-        class="mobile-frame"
-        id="frame-profile"
-        title="Профиль"
-        data-src="/webapp/profile.html?mobileClient=1"
-        loading="lazy"
-      ></iframe>
+    <section class="mobile-page mobile-page--frame" data-hub="profile">
+      <iframe class="mobile-frame" id="frame-profile" title="Профиль" data-src="/webapp/profile.html?mobileClient=1" loading="lazy"></iframe>
     </section>
-
-    <section class="mobile-page mobile-page--frame" data-tab="1" id="tab-dungeons">
-      <iframe
-        class="mobile-frame"
-        id="frame-dungeons"
-        title="Данжи"
-        data-src="/webapp/dungeons.html?mobileClient=1&economy=activity"
-        loading="lazy"
-      ></iframe>
+    <section class="mobile-page mobile-page--frame" data-hub="dungeons">
+      <iframe class="mobile-frame" id="frame-dungeons" title="Подземелья" data-src="/webapp/dungeons.html?mobileClient=1" loading="lazy"></iframe>
     </section>
-
-    <section class="mobile-page" data-tab="2" id="tab-steps">
-      <div class="mobile-card" id="activity-card">
-        <h2>Шаги → удар</h2>
-        <p class="muted" id="activity-hint">Каждый шаг = 1 символ. Скорость оружия = min_chars.</p>
-        <div class="mobile-meter"><span>Буфер: <strong id="act-buffer">0</strong></span><span>До удара: <strong id="act-need">—</strong></span></div>
-        <div class="mobile-meter"><span>Мин. символов: <strong id="act-min">3</strong></span><span>Сегодня: <strong id="act-today">0</strong></span></div>
-        <div class="mobile-meter"><span>Шаги: <strong id="act-total">—</strong></span><span>С забора: <strong id="act-pending">—</strong></span></div>
-        <p class="muted" id="act-softcap">Дневной soft-cap: после ~10k шагов отдача снижается.</p>
-        <p class="muted" id="act-perm">Разрешение: проверка…</p>
-        <button type="button" class="mobile-btn primary" id="act-claim">Забрать урон за шаги</button>
-        <button type="button" class="mobile-btn secondary" id="act-perm-btn">Запросить доступ к шагомеру</button>
-        <p class="muted small" style="margin-top:10px">
-          Полный activity-экран:
-          <a href="/webapp/activity.html?mobileClient=1&economy=activity">открыть</a>
-        </p>
-      </div>
+    <section class="mobile-page mobile-page--frame" data-hub="shop">
+      <iframe class="mobile-frame" id="frame-shop" title="Магазин" data-src="/webapp/shop.html?mobileClient=1" loading="lazy"></iframe>
     </section>
-
-    <section class="mobile-page mobile-page--frame" data-tab="3" id="tab-profile">
-      <iframe
-        class="mobile-frame"
-        id="frame-inventory"
-        title="Инвентарь"
-        data-src="/webapp/profile.html?mobileClient=1&tab=inventory"
-        loading="lazy"
-      ></iframe>
+    <section class="mobile-page mobile-page--frame" data-hub="tavern">
+      <iframe class="mobile-frame" id="frame-tavern" title="Таверна" data-src="/webapp/tavern.html?mobileClient=1" loading="lazy"></iframe>
+    </section>
+    <section class="mobile-page mobile-page--frame" data-hub="caravan">
+      <iframe class="mobile-frame" id="frame-caravan" title="Караван" data-src="/webapp/caravan.html?mobileClient=1" loading="lazy"></iframe>
+    </section>
+    <section class="mobile-page mobile-page--frame" data-hub="guild">
+      <iframe class="mobile-frame" id="frame-guild" title="Гильдия" data-src="/webapp/guild_hall.html?mobileClient=1" loading="lazy"></iframe>
+    </section>
+    <section class="mobile-page mobile-page--frame" data-hub="training">
+      <iframe class="mobile-frame" id="frame-training" title="Тренировочный зал" data-src="/webapp/training_hall.html?mobileClient=1" loading="lazy"></iframe>
+    </section>
+    <section class="mobile-page mobile-page--frame" data-hub="menu">
+      <iframe class="mobile-frame" id="frame-menu" title="Главное меню" data-src="/webapp/index.html?mobileClient=1" loading="lazy"></iframe>
     </section>
   </div>
 
-  <nav class="mobile-tabbar" aria-label="Навигация">
-    <button type="button" data-goto="0" class="active">Профиль</button>
-    <button type="button" data-goto="1">Данжи</button>
-    <button type="button" data-goto="2">Шаги</button>
-    <button type="button" data-goto="3">Инвентарь</button>
+  <nav class="mobile-tabbar nav basement" aria-label="Навигация">
+    <button type="button" data-hub="profile" class="active" title="Профиль" aria-label="Профиль"></button>
+    <button type="button" data-hub="dungeons" title="Подземелья" aria-label="Подземелья"></button>
+    <button type="button" data-hub="shop" title="Магазин" aria-label="Магазин"></button>
+    <button type="button" data-hub="tavern" title="Таверна" aria-label="Таверна"></button>
+    <button type="button" data-hub="caravan" title="Караван" aria-label="Караван"></button>
+    <button type="button" data-hub="guild" title="Гильдия" aria-label="Гильдия"></button>
+    <button type="button" data-hub="training" title="Тренировочный зал" aria-label="Тренировочный зал"></button>
+    <button type="button" data-hub="menu" title="Главное меню" aria-label="Главное меню"></button>
   </nav>
 
   <script src="/webapp/app.js"></script>

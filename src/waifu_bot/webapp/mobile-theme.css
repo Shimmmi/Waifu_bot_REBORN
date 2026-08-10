@@ -11,6 +11,15 @@ html.mobile-client .nav.basement {
   display: none !important;
 }
 
+/* Shell page owns the real tabbar (also classed .nav.basement). */
+body.page-mobile-shell > nav.mobile-tabbar.nav.basement {
+  display: grid !important;
+}
+
+html:not(.mobile-client) .mobile-only-attic {
+  display: none !important;
+}
+
 html.mobile-client body {
   /* Room for shell tabbar when page is standalone; iframes inherit shell padding. */
   padding-bottom: max(12px, env(safe-area-inset-bottom, 0));
