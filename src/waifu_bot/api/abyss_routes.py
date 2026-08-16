@@ -189,11 +189,26 @@ async def abyss_shop_buy(
         await session.commit()
         return {"success": False, "error": "INSUFFICIENT_SHARDS"}
 
-    progress.abyss_shards = int(progress.abyss_shards or 0) - int(item.cost_shards)
+    from waifu_bot.services import wallet as wallet_svc
+    from waifu_bot.services.wallet import InsufficientCurrency
+
+    try:
+        await wallet_svc.spend(
+            session,
+            int(player_id),
+            "abyss_shards",
+            int(item.cost_shards),
+            source="abyss_shop",
+            ref_type="abyss_shop_item",
+            ref_id=int(item.id),
+        )
+    except InsufficientCurrency:
+        await session.commit()
+        return {"success": False, "error": "INSUFFICIENT_SHARDS"}
     await session.commit()
     return {
         "success": True,
-        "abyss_shards": int(progress.abyss_shards or 0),
+        "abyss_shards": await wallet_svc.get_amount(session, int(player_id), "abyss_shards"),
         "purchased": {"id": item.id, "name": item.name, "item_type": item.item_type},
     }
 
@@ -222,11 +237,23 @@ async def abyss_revive(
         return {"success": False, "error": "LIMIT_REACHED"}
 
     cost = cfg_int(cfg, "abyss_revive_scroll_cost", 50)
-    if int(progress.abyss_shards or 0) < cost:
+    from waifu_bot.services import wallet as wallet_svc
+    from waifu_bot.services.wallet import InsufficientCurrency
+
+    try:
+        await wallet_svc.spend(
+            session,
+            int(player_id),
+            "abyss_shards",
+            int(cost),
+            source="abyss_revive",
+            ref_type="abyss_session",
+            ref_id=int(progress.session_nonce or 0),
+        )
+    except InsufficientCurrency:
         await session.commit()
         return {"success": False, "error": "INSUFFICIENT_SHARDS", "cost": cost}
 
-    progress.abyss_shards = int(progress.abyss_shards or 0) - cost
     progress.revive_scrolls_used_this_block = int(progress.revive_scrolls_used_this_block or 0) + 1
     from datetime import datetime, timezone
 
@@ -235,7 +262,7 @@ async def abyss_revive(
     await session.commit()
     return {
         "success": True,
-        "abyss_shards": int(progress.abyss_shards or 0),
+        "abyss_shards": await wallet_svc.get_amount(session, int(player_id), "abyss_shards"),
         "waifu_hp": int(waifu.current_hp or 0),
         "waifu_max_hp": int(waifu.max_hp or 0),
     }

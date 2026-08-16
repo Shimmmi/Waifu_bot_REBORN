@@ -520,7 +520,11 @@ async def claim_wallet(session: AsyncSession, redis: Any, player_id: int) -> Cla
     br = await resolve_multipliers(session, player_id)
 
     if gold > 0:
-        player.gold = int(player.gold or 0) + gold
+        from waifu_bot.services import wallet as wallet_svc
+
+        await wallet_svc.add_gold(
+            session, player, int(gold), source="chat_claim", ref_type="chat_wallet", ref_id=int(player_id)
+        )
     if exp_amt > 0:
         waifu.experience = int(waifu.experience or 0) + exp_amt
         from waifu_bot.services.combat import apply_main_waifu_levelups

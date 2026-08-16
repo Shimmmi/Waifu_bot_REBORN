@@ -59,7 +59,17 @@ async def grant_expedition_rewards(
 
     if rt == "gold":
         gold_gained = max(0, int(round(base * mult["gold"])))
-        player.gold += gold_gained
+        from waifu_bot.services import wallet as wallet_svc
+
+        if gold_gained > 0:
+            await wallet_svc.add_gold(
+                session,
+                player,
+                int(gold_gained),
+                source="expedition",
+                ref_type="expedition_reward",
+                ref_id="gold",
+            )
     elif rt in OPS_REWARD_TYPES:
         # Ops bias: no player gold; light hired EXP + merc economy via grant_ops_rewards
         merc_exp_gained = max(0, int(round(base * mult["exp"] * 0.55)))
@@ -108,7 +118,17 @@ async def grant_expedition_rewards(
     elif rt == "mixed":
         part = MIXED_REWARD_PENALTY
         gold_gained = max(0, int(round(base * mult["gold"] * part)))
-        player.gold += gold_gained
+        from waifu_bot.services import wallet as wallet_svc
+
+        if gold_gained > 0:
+            await wallet_svc.add_gold(
+                session,
+                player,
+                int(gold_gained),
+                source="expedition",
+                ref_type="expedition_reward",
+                ref_id="mixed",
+            )
         waifu_exp_gained = max(0, int(round(base * mult["exp"] * part * 0.6)))
         mw = await session.scalar(select(MainWaifu).where(MainWaifu.player_id == int(player.id)))
         if mw and waifu_exp_gained:

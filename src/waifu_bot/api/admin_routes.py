@@ -67,7 +67,14 @@ async def admin_add_gold(
     player = await session.get(m.Player, player_id)
     if not player:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
-    player.gold += amount
+    grant = m.AdminGrant(player_id=int(player_id), currency_key="gold", amount=int(amount))
+    session.add(grant)
+    await session.flush()
+    from waifu_bot.services import wallet as wallet_svc
+
+    await wallet_svc.add_gold(
+        session, player, int(amount), source="admin", ref_type="admin_grant", ref_id=int(grant.id)
+    )
     await session.commit()
     return {"success": True, "gold_added": amount, "gold_total": player.gold}
 
@@ -409,6 +416,18 @@ async def admin_clear_all_items(
     )
     await session.commit()
     return {"ok": True}
+
+
+@router.post("/admin/challenges/regenerate", tags=["admin"])
+async def admin_regenerate_challenges(
+    player_id: int = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.challenge import regenerate_today
+    from waifu_bot.services.game_config_service import invalidate_game_config_cache
+
+    invalidate_game_config_cache()
+    return await regenerate_today(session)
 
 
 @router.post("/admin/player/reset-new-game", tags=["admin"])

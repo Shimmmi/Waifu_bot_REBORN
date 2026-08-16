@@ -266,9 +266,23 @@ class DungeonRun(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    run_kind: Mapped[str] = mapped_column(String(16), default="solo", nullable=False, server_default="solo")
+    challenge_instance_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("daily_challenge_instances.id"), nullable=True
+    )
+
     dungeon: Mapped["Dungeon"] = relationship("Dungeon")
     monsters: Mapped[list["DungeonRunMonster"]] = relationship(
         "DungeonRunMonster", back_populates="run", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint("run_kind IN ('solo','challenge')", name="ck_dungeon_runs_run_kind"),
+        CheckConstraint(
+            "(run_kind = 'solo' AND challenge_instance_id IS NULL) OR "
+            "(run_kind = 'challenge' AND challenge_instance_id IS NOT NULL AND plus_level = 0)",
+            name="ck_dungeon_runs_challenge_fk",
+        ),
     )
 
 

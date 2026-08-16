@@ -127,7 +127,18 @@ async def buy_protection_stone(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"insufficient_gold need {price} have {int(player.gold or 0)}",
         )
-    player.gold = int(player.gold or 0) - price
+    from waifu_bot.services import wallet as wallet_svc
+    from waifu_bot.services.wallet import InsufficientCurrency
+
+    try:
+        await wallet_svc.spend_gold(
+            session, player, price, source="shop_buy", ref_type="protection_stone", ref_id=int(player_id)
+        )
+    except InsufficientCurrency as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"insufficient_gold need {price} have {exc.have}",
+        )
     player.protection_stones = int(getattr(player, "protection_stones", 0) or 0) + 1
     await session.commit()
     return {

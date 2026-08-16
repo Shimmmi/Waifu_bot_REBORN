@@ -751,7 +751,14 @@ async def admin_grant_gold(
     player = await session.get(m.Player, tg_id)
     if not player:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="player not found")
-    player.gold += body.amount
+    grant = m.AdminGrant(player_id=int(tg_id), currency_key="gold", amount=int(body.amount))
+    session.add(grant)
+    await session.flush()
+    from waifu_bot.services import wallet as wallet_svc
+
+    await wallet_svc.add_gold(
+        session, player, int(body.amount), source="admin", ref_type="admin_grant", ref_id=int(grant.id)
+    )
     await _admin_audit(session, request, admin_id, "grant_gold", tg_id, {"amount": body.amount})
     await session.commit()
     return {"success": True, "gold_total": player.gold}

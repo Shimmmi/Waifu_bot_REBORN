@@ -28,6 +28,7 @@ def get_background_tick_registry() -> list[BackgroundTickSpec]:
         GUILD_WAR_HOUR,
         _abyss_daily_reset_fn,
         _abyss_weekly_reset_fn,
+        _challenge_day_tick_fn,
         _guild_quest_daily_reset_fn,
         _guild_quest_weekly_reset_fn,
         _chat_rewards_daily_claim_fn,
@@ -97,6 +98,11 @@ def get_background_tick_registry() -> list[BackgroundTickSpec]:
             "abyss_daily_reset",
             ABYSS_RESET_POLL_INTERVAL,
             _abyss_daily_reset_fn,
+        ),
+        BackgroundTickSpec(
+            "challenge_day",
+            ABYSS_RESET_POLL_INTERVAL,
+            _challenge_day_tick_fn,
         ),
         BackgroundTickSpec(
             "abyss_weekly_reset",

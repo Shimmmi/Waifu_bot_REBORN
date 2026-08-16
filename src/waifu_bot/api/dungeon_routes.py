@@ -740,6 +740,39 @@ async def exit_dungeon(
     return result
 
 
+@router.get("/dungeons/challenges/today", tags=["dungeon"])
+async def challenges_today(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.challenge import list_today
+
+    data = await list_today(session, player_id)
+    await session.commit()
+    return data
+
+
+@router.post("/dungeons/challenges/{instance_id}/start", tags=["dungeon"])
+async def start_challenge_route(
+    instance_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.challenge import start_challenge
+
+    result = await start_challenge(session, player_id, instance_id)
+    err = result.get("error")
+    if err == "not_found":
+        raise HTTPException(status_code=404, detail=err)
+    if err == "dungeon_already_active":
+        raise HTTPException(status_code=409, detail=err)
+    if err == "gate_locked":
+        raise HTTPException(status_code=400, detail=result)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Battle endpoint
 # ---------------------------------------------------------------------------

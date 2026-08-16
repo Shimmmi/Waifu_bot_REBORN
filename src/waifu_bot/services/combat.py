@@ -305,6 +305,11 @@ async def roll_monster_elite(
     if run_monster.applied_affix_ids is not None:
         return None  # already rolled
 
+    run = await session.get(DungeonRun, int(run_monster.run_id))
+    if run is not None and str(getattr(run, "run_kind", "solo") or "solo") == "challenge":
+        run_monster.applied_affix_ids = list(run_monster.applied_affix_ids or [])
+        return None
+
     max_affixes_cap = 4
     if run_monster.template_id:
         tmpl = await session.get(MonsterTemplate, run_monster.template_id)
@@ -412,6 +417,60 @@ async def roll_monster_elite(
     }
 
 
+async def apply_monster_affix_ids(
+    session: AsyncSession,
+    run_monster: DungeonRunMonster,
+    ids: list[int],
+) -> None:
+    """Apply a predetermined affix list (challenge spawn). Empty list → not elite."""
+    ids = [int(x) for x in (ids or [])]
+    if not ids:
+        run_monster.applied_affix_ids = []
+        return
+    aff_q = await session.execute(select(MonsterAffix).where(MonsterAffix.id.in_(ids)))
+    by_id = {int(a.id): a for a in aff_q.scalars().all()}
+    chosen = [by_id[i] for i in ids if i in by_id]
+    if not chosen:
+        run_monster.applied_affix_ids = []
+        return
+    level_bonus = 0
+    hp_mult = 1.0
+    dmg_mult = 1.0
+    gold_mult = 1.0
+    exp_mult = 1.0
+    for a in chosen:
+        level_bonus += int(a.level_add or 0)
+        if a.hp_mult:
+            hp_mult *= float(a.hp_mult)
+        if a.dmg_mult:
+            dmg_mult *= float(a.dmg_mult)
+        if a.gold_mult:
+            gold_mult *= float(a.gold_mult)
+        if a.exp_mult:
+            exp_mult *= float(a.exp_mult)
+    run_monster.level = int(run_monster.level or 1) + level_bonus
+    new_max_hp = max(1, int(round(int(run_monster.max_hp or 1) * hp_mult)))
+    run_monster.max_hp = new_max_hp
+    run_monster.current_hp = new_max_hp
+    run_monster.damage = max(1, int(round(int(run_monster.damage or 1) * dmg_mult)))
+    run_monster.gold_reward = max(0, int(round(int(run_monster.gold_reward or 0) * gold_mult)))
+    run_monster.exp_reward = max(0, int(round(int(run_monster.exp_reward or 0) * exp_mult)))
+    prefixes = [a.name for a in chosen if a.type == "prefix"]
+    suffixes = [a.name for a in chosen if a.type == "suffix"]
+    base_name = run_monster.name or ""
+    boss_prefix = ""
+    if base_name.startswith("Босс: "):
+        boss_prefix = "Босс: "
+        base_name = base_name[6:]
+    new_name = (" ".join(prefixes + [base_name])).strip() if prefixes else base_name
+    if suffixes:
+        new_name += "".join(suffixes)
+    run_monster.name = boss_prefix + new_name
+    run_monster.is_elite = True
+    run_monster.elite_color = "blue"
+    run_monster.applied_affix_ids = [a.id for a in chosen]
+
+
 def _pick_monster_affixes(eligible: list, n: int) -> list:
     """Pick up to n affixes from the eligible pool respecting all compatibility rules.
 
@@ -447,6 +506,11 @@ def _pick_monster_affixes(eligible: list, n: int) -> list:
 
         # None of the already-chosen affixes may list this group in their incompatible_with
         if any(a.affix_group in (other.incompatible_with or []) for other in chosen):
+            continue
+
+        cap = int(getattr(a, "max_per_monster", 1) or 1)
+        already = sum(1 for x in chosen if int(getattr(x, "id", 0) or 0) == int(getattr(a, "id", 0) or 0))
+        if already >= cap:
             continue
 
         chosen.append(a)
@@ -2234,7 +2298,17 @@ class CombatService:
                 mk = float(ps_cl.get("media_kill_reward_pct", 0) or ps_cl.get("media_kill_gold_pct", 0) or 0)
                 if mk > 0:
                     gold_gain = max(0, int(round(gold_gain * (1.0 + mk))))
-            player.gold += gold_gain
+            if gold_gain > 0:
+                from waifu_bot.services import wallet as wallet_svc
+
+                await wallet_svc.add_gold(
+                    session,
+                    player,
+                    int(gold_gain),
+                    source="solo_base",
+                    ref_type="legacy_kill",
+                    ref_id=int(getattr(progress, "id", 0) or 0),
+                )
             if gold_gain > 0:
                 await _guild_quest_record(
                     session, int(waifu.player_id), "gold_earned", int(gold_gain)
@@ -2257,8 +2331,21 @@ class CombatService:
             charm = int(getattr(waifu, "charm", 10) or 10) + int(ps_cl.get("main_stats_flat", 0) or 0)
             penalty = max(0.0, CHM_DEATH_GOLD_PENALTY_BASE - charm * CHM_DEATH_GOLD_PENALTY_COEFF)
             penalized_gold = max(0, int(gold_gain * (1.0 - penalty)))
-            if player:
-                player.gold = max(0, (player.gold or 0) - gold_gain + penalized_gold)
+            if player and gold_gain > penalized_gold:
+                from waifu_bot.services import wallet as wallet_svc
+                from waifu_bot.services.wallet import InsufficientCurrency
+
+                try:
+                    await wallet_svc.spend_gold(
+                        session,
+                        player,
+                        int(gold_gain - penalized_gold),
+                        source="solo_base",
+                        ref_type="legacy_death_penalty",
+                        ref_id=int(getattr(progress, "id", 0) or 0),
+                    )
+                except InsufficientCurrency:
+                    player.gold = 0
             waifu.current_hp = 1
             await session.commit()
             from waifu_bot.services.dungeon_notify import notify_solo_dungeon_outcome
@@ -2514,6 +2601,7 @@ class CombatService:
         pid = int(run.player_id)
         if player is None:
             player = await session.get(Player, pid)
+        is_challenge_run = str(getattr(run, "run_kind", "solo") or "solo") == "challenge"
 
         run.status = "failed"
         run.ended_at = datetime.utcnow()
@@ -2527,14 +2615,25 @@ class CombatService:
             )
         )
         progress = prog_q.scalar_one_or_none()
-        if progress:
+        if progress and not is_challenge_run:
             progress.is_active = False
-        if player:
+        if player and not is_challenge_run:
             player.perfect_dungeon_streak = 0
 
         settled_exp, settled_gold, penalty_pct = await settle_solo_run_rewards(
             session, run, waifu, player, "failed", redis=self.redis
         )
+        if is_challenge_run:
+            from waifu_bot.db.models.endgame import DailyChallengeProgress
+            from waifu_bot.services.challenge import settle_challenge_run
+
+            ch_prog = await session.scalar(
+                select(DailyChallengeProgress).where(
+                    DailyChallengeProgress.player_id == pid,
+                    DailyChallengeProgress.instance_id == int(run.challenge_instance_id or 0),
+                )
+            )
+            await settle_challenge_run(session, run, ch_prog, "failed")
 
         fail_dungeon = await session.get(Dungeon, run.dungeon_id)
         fail_name = getattr(fail_dungeon, "name", None) if fail_dungeon else None
@@ -2627,6 +2726,7 @@ class CombatService:
         except Exception:
             bestiary_dmg_taken_pct = 0.0
 
+        is_challenge_run = str(getattr(run, "run_kind", "solo") or "solo") == "challenge"
         prev_completed_runs = await session.scalar(
             select(func.count())
             .select_from(DungeonRun)
@@ -2634,10 +2734,12 @@ class CombatService:
                 DungeonRun.player_id == pid,
                 DungeonRun.dungeon_id == run.dungeon_id,
                 DungeonRun.status == "completed",
+                DungeonRun.run_kind != "challenge",
             )
         )
         apply_first_clear = (
-            int(run.current_position or 0) >= int(run.total_monsters or 0)
+            (not is_challenge_run)
+            and int(run.current_position or 0) >= int(run.total_monsters or 0)
             and int(prev_completed_runs or 0) == 0
         )
 
@@ -2651,7 +2753,7 @@ class CombatService:
             hs=hs,
             ctx=SoloRewardPctContext(
                 is_boss=bool(run_monster.is_boss),
-                is_elite=bool(run_monster.is_elite),
+                is_elite=False if is_challenge_run else bool(run_monster.is_elite),
                 bestiary_exp_pct=bestiary_exp_pct,
                 bestiary_gold_pct=bestiary_gold_pct,
                 apply_first_clear=apply_first_clear,
@@ -2661,7 +2763,7 @@ class CombatService:
         eff_luck_rw = await self._effective_luck_for_rewards(
             session, pid, waifu, cached_psb=ps_run, cached_hs=hs
         )
-        plus_mult = dungeon_plus_reward_mult(int(getattr(run, "plus_level", 0) or 0))
+        plus_mult = 1.0 if is_challenge_run else dungeon_plus_reward_mult(int(getattr(run, "plus_level", 0) or 0))
         lb_st = run.battle_state if isinstance(getattr(run, "battle_state", None), dict) else {}
         legendary_gold_mult = float(lb_st.get("_legendary_gold_mult", 1.0) or 1.0)
 
@@ -2713,7 +2815,7 @@ class CombatService:
                     )
                 except Exception:
                     pass
-        if run_monster.is_elite:
+        if run_monster.is_elite and not is_challenge_run:
             await increment_skill_counter(session, pid, "elite_kill", 1)
             await _guild_quest_record(session, pid, "elites_killed", 1)
         mc = int(run_monster.messages_on_monster or 0)
@@ -2740,6 +2842,27 @@ class CombatService:
         from waifu_bot.services.solo_run_rewards import accrue_solo_kill_rewards, settle_solo_run_rewards
 
         accrue_solo_kill_rewards(run, exp_gain, gold_gain)
+        if (not is_challenge_run) and int(getattr(run, "plus_level", 0) or 0) >= 6:
+            try:
+                from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
+                from waifu_bot.services import wallet as wallet_svc
+
+                cfg_mat = await get_game_config_map(session)
+                core_p = cfg_float(cfg_mat, "refine.dungeon_plus_core_kill", 0.02)
+                if run_monster.is_boss:
+                    core_p *= cfg_float(cfg_mat, "refine.dungeon_plus_core_boss_mult", 4.0)
+                if random.random() < core_p:
+                    await wallet_svc.add(
+                        session,
+                        pid,
+                        "refine_core",
+                        1,
+                        source="dungeon_mat",
+                        ref_type="dungeon_run_kill",
+                        ref_id=f"{int(run.id)}:{int(run_monster.position or 0)}",
+                    )
+            except Exception:
+                pass
 
         guild_bonus = await _log_solo_monster_reward(
             session,
@@ -2946,6 +3069,35 @@ class CombatService:
 
         # Advance or complete
         if run.current_position >= run.total_monsters:
+            if is_challenge_run:
+                from waifu_bot.services.challenge import close_challenge_run
+
+                player = player or await session.get(Player, pid)
+                dungeon = await session.get(Dungeon, run.dungeon_id)
+                _, _, extra = await close_challenge_run(
+                    session, run, waifu, player, "completed", redis=self.redis
+                )
+                try:
+                    from waifu_bot.core import redis as redis_core
+                    from waifu_bot.services import solo_active_cache as solo_active_cache_mod
+
+                    await solo_active_cache_mod.clear_solo_active(redis_core.get_redis(), pid)
+                except Exception:
+                    pass
+                await session.commit()
+                item_payload = extra.get("item") if isinstance(extra, dict) else None
+                return {
+                    "monster_defeated": True,
+                    "dungeon_completed": True,
+                    "experience_gained": exp_gain,
+                    "gold_gained": gold_gain,
+                    "total_experience_gained": int(run.total_exp_gained or 0),
+                    "total_gold_gained": int(run.total_gold_gained or 0),
+                    "damage_taken": dmg_taken,
+                    "item_dropped": item_payload,
+                    "challenge": extra,
+                }
+
             run.status = "completed"
             run.ended_at = datetime.utcnow()
             waifu.last_dungeon_failed = False
@@ -2963,6 +3115,7 @@ class CombatService:
                         DungeonRun.player_id == pid,
                         DungeonRun.dungeon_id == run.dungeon_id,
                         DungeonRun.status == "completed",
+                        DungeonRun.run_kind != "challenge",
                     )
                 )
                 is_first_completion = (prev_for_first or 0) == 0
@@ -2991,6 +3144,7 @@ class CombatService:
                     DungeonRun.player_id == pid,
                     DungeonRun.dungeon_id == run.dungeon_id,
                     DungeonRun.status == "completed",
+                    DungeonRun.run_kind != "challenge",
                 )
             )
             if prev_completed == 0:

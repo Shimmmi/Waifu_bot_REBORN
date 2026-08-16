@@ -35,6 +35,107 @@ async function loadDungeons(act) {
   return data;
 }
 
+let challengeTodayCache = null;
+
+async function renderChallengeStrip() {
+  const host = document.getElementById("challenge-day-strip");
+  if (!host) return;
+  const data = await apiFetch("/dungeons/challenges/today").catch(() => null);
+  challengeTodayCache = data;
+  if (!data || !data.open || !Array.isArray(data.chips) || !data.chips.length) {
+    host.hidden = true;
+    host.innerHTML = "";
+    return;
+  }
+  host.hidden = false;
+  const chips = data.chips
+    .map((c) => {
+      const st = String(c.state || "locked");
+      const label = escapeHtml(c.label || String(c.tier));
+      const lock = st === "locked" ? "🔒" : st === "in_combat" ? "⚔" : st === "cleared" ? "✓" : "";
+      return `<button type="button" class="challenge-chip is-${escapeHtml(st)}" data-instance="${c.instance_id}" onclick="WaifuApp.openChallengeModal(${c.instance_id})">${lock} ${label}</button>`;
+    })
+    .join("");
+  const allCleared = data.chips.every((c) => c.first_cleared);
+  const emptyNote = allCleared
+    ? `<div class="muted tiny">Испытания дня пройдены. Новые в 00:00 МСК. Повтор — без премии.</div>`
+    : "";
+  host.innerHTML = `
+    <div class="challenge-strip-title">Испытание дня</div>
+    <div class="challenge-strip-sub muted tiny">1 полный приз в сутки · до 00:00 МСК · это не сложность +</div>
+    <div class="challenge-chips">${chips}</div>
+    ${emptyNote}
+  `;
+  maybeFtueChallenge().catch(() => {});
+}
+
+async function maybeFtueChallenge() {
+  const fn = window.maybeShowFtue;
+  if (typeof fn === "function") {
+    await fn(
+      "challenge_strip",
+      "Это испытание дня — не сложность +. Полный приз один раз в сутки. Плюс на плитке данжа — отдельная лестница."
+    );
+  }
+}
+
+function openChallengeModal(instanceId) {
+  const data = challengeTodayCache;
+  const chip = (data?.chips || []).find((c) => Number(c.instance_id) === Number(instanceId));
+  const modal = document.getElementById("challenge-modal");
+  const body = document.getElementById("challenge-modal-body");
+  const foot = document.getElementById("challenge-modal-foot");
+  const title = document.getElementById("challenge-modal-title");
+  if (!modal || !body || !chip) return;
+  if (title) title.textContent = `Испытание ${chip.label || chip.tier}`;
+  const names = Array.isArray(chip.affix_names) ? chip.affix_names : [];
+  const affHtml = names.length
+    ? `<div class="muted tiny">Свойства: ${names.map((n) => escapeHtml(n)).join(", ")}</div>`
+    : "";
+  let reward = "";
+  if (!chip.first_cleared) {
+    reward = `<div>Награда дня: ${chip.stipend_gold} 🪙${chip.dust_bonus ? ` · ${chip.dust_bonus} пыли` : ""}</div>`;
+  } else {
+    reward = `<div class="banner">Награда дня уже получена. Повтор без премии — войти?</div>`;
+  }
+  const gate = `Нужно: Совершенствование ${chip.gate_perfection} или средний ур. экипировки ${chip.gate_ilvl}. Сейчас: С ${chip.perfection_now} · экип. ${chip.ilvl_now}. Считаются все 6 слотов. Пустой слот = 0. Двуруч занимает оба слота оружия.`;
+  body.innerHTML = `
+    <p>Отдельный забег. Лестница +N этого данжа не растёт.</p>
+    ${affHtml}
+    <p>Сильнее обычного забега, слабее высокого +N.</p>
+    <details class="muted tiny"><summary>Подробнее</summary>HP ×${chip.hp_mult} · урон ×${chip.dmg_mult}</details>
+    ${reward}
+    <p class="muted tiny">${escapeHtml(gate)}</p>
+  `;
+  const locked = chip.state === "locked";
+  const combat = chip.state === "in_combat";
+  if (locked) {
+    foot.innerHTML = `<button type="button" class="primary" onclick="WaifuApp.closeChallengeModal()">Понятно</button>`;
+  } else if (combat) {
+    foot.innerHTML = `<button type="button" class="primary" onclick="WaifuApp.closeChallengeModal(); WaifuApp.continueActiveDungeon && WaifuApp.continueActiveDungeon()">Продолжить</button><button type="button" class="secondary" onclick="WaifuApp.closeChallengeModal()">Закрыть</button>`;
+  } else {
+    foot.innerHTML = `<button type="button" class="primary" onclick="WaifuApp.startChallengeInstance(${chip.instance_id})">Войти</button><button type="button" class="secondary" onclick="WaifuApp.closeChallengeModal()">Закрыть</button>`;
+  }
+  modal.style.display = "grid";
+}
+
+function closeChallengeModal() {
+  const modal = document.getElementById("challenge-modal");
+  if (modal) modal.style.display = "none";
+}
+
+async function startChallengeInstance(instanceId) {
+  try {
+    await apiFetch(`/dungeons/challenges/${instanceId}/start`, { method: "POST" });
+    closeChallengeModal();
+    if (typeof loadActiveDungeon === "function") await loadActiveDungeon();
+    else window.location.reload();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail ? parseHttpErrorDetail(e) : { detail: e?.message };
+    showToast(detail || "Не удалось начать испытание", "error");
+  }
+}
+
 function dungeonThemeByNumber(dungeonNumber) {
   const n = Number(dungeonNumber);
   return (
@@ -219,6 +320,7 @@ async function renderSoloDungeonsForAct(profile) {
       </div>
     </div>
   `;
+  renderChallengeStrip().catch(() => {});
 }
 
 function buildStageDots(pos, total) {
@@ -2118,7 +2220,7 @@ function renderOpsBoardStrip() {
   const adminBtn = typeof isAdminUser === "function" && isAdminUser();
   host.style.display = "";
   host.innerHTML =
-    `<div class="exp-sec-header" style="margin-bottom:6px;"><span class="exp-sec-title">Недельная доска · ${escapeHtml(String(board.week_key || ""))}</span></div>` +
+    `<div class="exp-sec-header" style="margin-bottom:6px;"><span class="exp-sec-title">Ежедневная доска · ${escapeHtml(String(board.day_key || board.week_key || ""))}</span></div>` +
     `<div class="ops-board-grid">` +
     contracts
       .map((c) => {
@@ -3711,7 +3813,7 @@ function expeditionHelpHtml() {
       </tbody></table>`;
 
   return `
-    <p><strong>Операции.</strong> Недельная доска контрактов + до 3 активных одновременно. Состав по умолчанию — ATK из таверны (1–3).</p>
+    <p><strong>Операции.</strong> Ежедневная доска контрактов + до 3 активных одновременно. Состав по умолчанию — ATK из таверны (1–3).</p>
     <p><strong>Доска.</strong> Карточки ★ / длительность / threat-tags / рекомендуемый архетип / bias наград. Тап открывает отправку.</p>
     <p><strong>Отдых (Rest).</strong> После claim раненые уходят в отдых автоматически. Rest блокирует <em>новый</em> старт Ops, но не Арену.</p>
     <p><strong>Тиры глубины I–V.</strong> Длительность, события, рекоменд. CR и урон за тик.</p>
@@ -4503,6 +4605,10 @@ function showTab(name) {
 
 Object.assign(window.WaifuApp, {
   loadMonsterImage,
+  renderChallengeStrip,
+  openChallengeModal,
+  closeChallengeModal,
+  startChallengeInstance,
   buildMonsterImageUrls,
   monsterArtCacheBust,
   loadDungeons,

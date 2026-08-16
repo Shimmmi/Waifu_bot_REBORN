@@ -185,7 +185,20 @@ class ShopService:
         if player.gold < price:
             return {"error": "insufficient_gold", "required": price, "have": player.gold}
 
-        player.gold -= price
+        from waifu_bot.services import wallet as wallet_svc
+        from waifu_bot.services.wallet import InsufficientCurrency
+
+        try:
+            await wallet_svc.spend_gold(
+                session,
+                player,
+                price,
+                source="shop_buy",
+                ref_type="shop_offer",
+                ref_id=int(offer.id),
+            )
+        except InsufficientCurrency as exc:
+            return {"error": "insufficient_gold", "required": price, "have": exc.have}
         await record_hidden_gold_spend(player_id)
         inv.player_id = player_id  # transfer ownership
         offer.purchased = True
@@ -226,8 +239,16 @@ class ShopService:
         # Calculate sell price (эффективный ОБА + пассивки, доля от «цены выкупа»)
         price = await compute_player_shop_sell_price(session, player_id, int(item.base_value))
 
-        # Add gold
-        player.gold += price
+        from waifu_bot.services import wallet as wallet_svc
+
+        await wallet_svc.add_gold(
+            session,
+            player,
+            price,
+            source="shop_sell",
+            ref_type="inventory_item",
+            ref_id=int(inventory_item.id),
+        )
 
         # Remove from inventory
         await session.delete(inventory_item)
@@ -266,8 +287,20 @@ class ShopService:
         if player.gold < price:
             return {"error": "insufficient_gold", "required": price, "have": player.gold}
 
-        # Deduct gold
-        player.gold -= price
+        from waifu_bot.services import wallet as wallet_svc
+        from waifu_bot.services.wallet import InsufficientCurrency
+
+        try:
+            await wallet_svc.spend_gold(
+                session,
+                player,
+                price,
+                source="gamble",
+                ref_type="player",
+                ref_id=int(player_id),
+            )
+        except InsufficientCurrency as exc:
+            return {"error": "insufficient_gold", "required": price, "have": exc.have}
         await record_hidden_gold_spend(player_id)
 
         rarity = None

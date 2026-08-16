@@ -193,7 +193,15 @@ class GambleService:
         if not inv:
             return {"error": "not_found"}
 
-        player.gold = int(player.gold or 0) - price
+        from waifu_bot.services import wallet as wallet_svc
+        from waifu_bot.services.wallet import InsufficientCurrency
+
+        try:
+            await wallet_svc.spend_gold(
+                session, player, int(price), source="gamble", ref_type="gamble_offer", ref_id=int(offer.id)
+            )
+        except InsufficientCurrency as exc:
+            return {"error": "insufficient_gold", "required": price, "have": exc.have}
         await record_hidden_gold_spend(player_id)
         inv.player_id = player_id
         offer.purchased = True

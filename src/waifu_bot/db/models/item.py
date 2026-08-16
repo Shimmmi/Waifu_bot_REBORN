@@ -145,6 +145,13 @@ class InventoryItem(Base):
         ARRAY(Integer), nullable=False, default=list
     )
 
+    refined_grade: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    base_template_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("item_base_templates.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    temper_reroll_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    reforge_reroll_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+
     # Relationships
     player: Mapped["Player"] = relationship("Player", back_populates="inventory_items")
     item: Mapped["Item"] = relationship("Item")
@@ -163,6 +170,10 @@ class InventoryItem(Base):
         CheckConstraint(
             "equipment_slot IS NULL OR (equipment_slot >= 0 AND equipment_slot <= 6)",
             name="check_equipment_slot",
+        ),
+        CheckConstraint(
+            "refined_grade >= 0 AND refined_grade <= 2",
+            name="ck_inventory_refined_grade",
         ),
     )
 
@@ -313,4 +324,32 @@ class ShopOffer(Base):
     )
 
     inventory_item: Mapped["InventoryItem"] = relationship("InventoryItem")
+
+
+class ItemBaseTemplate(Base):
+    """Canonical item template rows (item_base_templates)."""
+
+    __tablename__ = "item_base_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    item_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    subtype: Mapped[str] = mapped_column(String(32), nullable=False)
+    attack_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    tier: Mapped[int] = mapped_column(Integer, nullable=False)
+    level_min: Mapped[int] = mapped_column(Integer, nullable=False)
+    level_max: Mapped[int] = mapped_column(Integer, nullable=False)
+    dmg_min: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    dmg_max: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    attack_speed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    armor_base: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    stat1_type: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    stat1_value: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    stat2_type: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    stat2_value: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    base_price: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    boss_allowed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    weight: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    base_grade: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    family_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
 

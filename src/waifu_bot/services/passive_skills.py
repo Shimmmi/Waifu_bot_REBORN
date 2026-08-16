@@ -1023,7 +1023,15 @@ async def learn_passive_node(session: AsyncSession, player_id: int, node_id: str
 
     new_lvl = cur + 1
     player.skill_points = int(getattr(player, "skill_points", 0) or 0) - 1
-    player.gold = int(player.gold or 0) - cost
+    from waifu_bot.services import wallet as wallet_svc
+    from waifu_bot.services.wallet import InsufficientCurrency
+
+    try:
+        await wallet_svc.spend_gold(
+            session, player, int(cost), source="skill_reset", ref_type="passive_learn", ref_id=int(node_id)
+        )
+    except InsufficientCurrency as exc:
+        return {"ok": False, "error": "insufficient_gold", "required": cost, "have": exc.have}
 
     if row:
         row.level = new_lvl
@@ -1081,7 +1089,15 @@ async def reset_passive_branch(session: AsyncSession, player_id: int, branch: st
         )
 
     player.skill_points = int(getattr(player, "skill_points", 0) or 0) + total_points
-    player.gold = int(player.gold or 0) - reset_cost
+    from waifu_bot.services import wallet as wallet_svc
+    from waifu_bot.services.wallet import InsufficientCurrency
+
+    try:
+        await wallet_svc.spend_gold(
+            session, player, int(reset_cost), source="skill_reset", ref_type="passive_branch", ref_id=str(branch)
+        )
+    except InsufficientCurrency as exc:
+        return {"ok": False, "error": "insufficient_gold", "required": reset_cost, "have": exc.have}
 
     mw = await session.scalar(select(MainWaifu).where(MainWaifu.player_id == int(player_id)))
     if mw:

@@ -527,6 +527,9 @@ class GuildService:
         )
         session.add(inv_item)
         await session.flush()
+        from waifu_bot.services.refine import stamp_template_grade
+
+        await stamp_template_grade(session, inv_item)
 
         raw_aff = getattr(item_row, "affixes", None)
         if isinstance(raw_aff, list):

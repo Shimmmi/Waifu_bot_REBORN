@@ -66,8 +66,15 @@ class SkillService:
         if skill.required_level and waifu.level < skill.required_level:
             return {"error": "level_requirement_not_met"}
 
-        # Deduct gold
-        player.gold -= cost
+        from waifu_bot.services import wallet as wallet_svc
+        from waifu_bot.services.wallet import InsufficientCurrency
+
+        try:
+            await wallet_svc.spend_gold(
+                session, player, int(cost), source="skill_reset", ref_type="waifu_skill", ref_id=int(skill_id)
+            )
+        except InsufficientCurrency:
+            return {"error": "insufficient_gold"}
 
         # Upgrade skill
         if waifu_skill:

@@ -135,7 +135,12 @@ async def sell_inventory_items(
         total += price
         await session.delete(inv)
 
-    player.gold += total
+    from waifu_bot.services import wallet as wallet_svc
+
+    if total > 0:
+        await wallet_svc.add_gold(
+            session, player, int(total), source="shop_sell", ref_type="bulk_sell", ref_id=int(player_id)
+        )
     await session.commit()
     return {"success": True, "gold_received": total, "gold_remaining": player.gold}
 
@@ -261,4 +266,200 @@ async def post_inventory_craft_enchant(
     if err in ("fraction_already_exists", "no_fraction_to_modify", "invalid_operation", "invalid_target"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
     return result
+
+
+class TemperStartBody(BaseModel):
+    affix_row_id: int
+    ack: bool = False
+
+
+class TemperApplyBody(BaseModel):
+    option_index: int | None = None
+    keep: bool = False
+    burn: bool = False
+
+
+class ReforgeApplyBody(BaseModel):
+    option_index: int | None = None
+    keep: bool = False
+    burn: bool = False
+
+
+def _smith_error(result: dict):
+    err = result.get("error")
+    if not err:
+        return result
+    if err == "not_found":
+        raise HTTPException(status_code=404, detail=err)
+    if err in ("open_pending", "respec_already_rolled"):
+        raise HTTPException(status_code=409, detail=result if err == "open_pending" else err)
+    if err == "raid_forbidden":
+        raise HTTPException(status_code=400, detail=err)
+    if err == "insufficient":
+        raise HTTPException(status_code=409, detail=result)
+    raise HTTPException(status_code=400, detail=err)
+
+
+@router.get("/wallet", tags=["inventory"])
+async def get_wallet(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services import wallet as wallet_svc
+
+    snap = await wallet_svc.wallet_snapshot(session, player_id)
+    player = await session.get(m.Player, int(player_id))
+    tp = player.tutorial_progress if player and isinstance(player.tutorial_progress, dict) else {}
+    return {
+        "gold": int(getattr(player, "gold", 0) or 0) if player else 0,
+        "wallet": snap,
+        "tutorial_progress": tp,
+        "protection_stones": int(getattr(player, "protection_stones", 0) or 0) if player else 0,
+    }
+
+
+@router.post("/wallet/ftue-seen", tags=["inventory"])
+async def post_ftue_seen(
+    key: str = Query(...),
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    player = await session.get(m.Player, int(player_id))
+    if not player:
+        raise HTTPException(status_code=404, detail="not_found")
+    tp = dict(player.tutorial_progress) if isinstance(player.tutorial_progress, dict) else {}
+    seen = dict(tp.get("seen") or {})
+    seen[str(key)] = True
+    tp["seen"] = seen
+    player.tutorial_progress = tp
+    await session.commit()
+    return {"ok": True, "seen": seen}
+
+
+@router.get("/inventory/{item_id}/temper-quote", tags=["inventory"])
+async def get_temper_quote(
+    item_id: int,
+    affix_row_id: int = Query(...),
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services import temper as temper_svc
+
+    return _smith_error(await temper_svc.quote(session, player_id, item_id, affix_row_id))
+
+
+@router.post("/inventory/{item_id}/temper/ack", tags=["inventory"])
+async def post_temper_ack(
+    item_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services import temper as temper_svc
+
+    return await temper_svc.ack_paid(session, player_id)
+
+
+@router.post("/inventory/{item_id}/temper/roll", tags=["inventory"])
+async def post_temper_roll(
+    item_id: int,
+    body: TemperStartBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services import temper as temper_svc
+
+    if body.ack:
+        await temper_svc.ack_paid(session, player_id)
+    return _smith_error(await temper_svc.start_roll(session, player_id, item_id, int(body.affix_row_id)))
+
+
+@router.post("/inventory/{item_id}/temper/apply", tags=["inventory"])
+async def post_temper_apply(
+    item_id: int,
+    body: TemperApplyBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services import temper as temper_svc
+
+    if body.burn:
+        return _smith_error(await temper_svc.burn_pending(session, player_id, item_id))
+    return _smith_error(
+        await temper_svc.apply_choice(
+            session, player_id, item_id, option_index=body.option_index, keep=bool(body.keep)
+        )
+    )
+
+
+@router.get("/inventory/{item_id}/refine-preview", tags=["inventory"])
+async def get_refine_preview(
+    item_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services import refine as refine_svc
+
+    return _smith_error(await refine_svc.preview(session, player_id, item_id))
+
+
+@router.post("/inventory/{item_id}/refine", tags=["inventory"])
+async def post_refine(
+    item_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services import refine as refine_svc
+
+    return _smith_error(await refine_svc.apply_refine(session, player_id, item_id))
+
+
+@router.get("/inventory/{item_id}/reforge-quote", tags=["inventory"])
+async def get_reforge_quote(
+    item_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services import reforge as reforge_svc
+
+    return _smith_error(await reforge_svc.quote(session, player_id, item_id))
+
+
+@router.post("/inventory/{item_id}/reforge/ack", tags=["inventory"])
+async def post_reforge_ack(
+    item_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services import reforge as reforge_svc
+
+    return await reforge_svc.ack_paid(session, player_id)
+
+
+@router.post("/inventory/{item_id}/reforge/roll", tags=["inventory"])
+async def post_reforge_roll(
+    item_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services import reforge as reforge_svc
+
+    return _smith_error(await reforge_svc.start_roll(session, player_id, item_id))
+
+
+@router.post("/inventory/{item_id}/reforge/apply", tags=["inventory"])
+async def post_reforge_apply(
+    item_id: int,
+    body: ReforgeApplyBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services import reforge as reforge_svc
+
+    if body.burn:
+        return _smith_error(await reforge_svc.burn_pending(session, player_id, item_id))
+    return _smith_error(
+        await reforge_svc.apply_choice(
+            session, player_id, item_id, option_index=body.option_index, keep=bool(body.keep)
+        )
+    )
 

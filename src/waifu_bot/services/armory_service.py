@@ -89,6 +89,7 @@ def compute_gear_score(equipped_items: list[m.InventoryItem]) -> int:
         score += tier * 10 + rarity * 5
         affixes = getattr(inv, "affixes", None) or []
         score += len(affixes) * 2
+        score += 3 * int(getattr(inv, "refined_grade", 0) or 0)
     return score
 
 
