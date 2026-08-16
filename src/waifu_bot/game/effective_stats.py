@@ -119,17 +119,51 @@ def apply_main_stats_flat_to_four(
     )
 
 
-async def fetch_equipped_inventory_items(session: AsyncSession, player_id: int) -> list[InventoryItem]:
+async def fetch_equipped_inventory_items(
+    session: AsyncSession,
+    player_id: int,
+    *,
+    economy: str = "telegram",
+) -> list[InventoryItem]:
     """Экипированные предметы с affixes (для согласованного расчёта с боем)."""
+    from waifu_bot.game.economy import normalize_economy
+
+    eco = normalize_economy(economy)
     try:
         q = await session.execute(
             select(InventoryItem)
             .options(selectinload(InventoryItem.affixes))
-            .where(InventoryItem.player_id == player_id, InventoryItem.equipment_slot.isnot(None))
+            .where(
+                InventoryItem.player_id == player_id,
+                InventoryItem.equipment_slot.isnot(None),
+                InventoryItem.economy == eco,
+            )
         )
         return list(q.scalars().all())
     except Exception:
         return []
+
+
+def resolve_main_weapon_attack_speed(equipped: list[InventoryItem]) -> int:
+    """
+    Clicks/steps needed for one attack (1–10).
+    Same weapon priority as roll_weapon_damage_and_meta / combat min_chars.
+    """
+    mainhand = None
+    offhand = None
+    for inv in equipped:
+        slot = int(getattr(inv, "equipment_slot", 0) or 0)
+        if slot == 1:
+            mainhand = inv
+        elif slot == 2:
+            offhand = inv
+    weapon = mainhand if mainhand is not None else offhand
+    if weapon is None:
+        return 1
+    try:
+        return max(1, min(10, int(getattr(weapon, "attack_speed", 1) or 1)))
+    except (TypeError, ValueError):
+        return 1
 
 
 @dataclass

@@ -10,6 +10,7 @@ if _src.exists() and str(_src) not in sys.path:
 
 from logging.config import fileConfig
 
+import sqlalchemy as sa
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
@@ -98,7 +99,28 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _ensure_wide_version_column(connection: Connection) -> None:
+    """Alembic's default `alembic_version.version_num` column is VARCHAR(32),
+    but several revision ids in this project's history are longer than that
+    (e.g. "0061_guild_war_narrative_and_paperdoll_variants", 47 chars). On a
+    fresh database this makes `alembic upgrade head` fail partway through
+    with StringDataRightTruncationError. Pre-create the table (if missing)
+    with a wide column, and widen it if it already exists but is narrower —
+    both are no-ops on databases that already have a wide-enough column.
+    """
+    connection.execute(sa.text(
+        "CREATE TABLE IF NOT EXISTS alembic_version ("
+        "version_num VARCHAR(255) NOT NULL, "
+        "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+    ))
+    connection.execute(sa.text(
+        "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)"
+    ))
+    connection.commit()
+
+
 def do_run_migrations(connection: Connection) -> None:
+    _ensure_wide_version_column(connection)
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():

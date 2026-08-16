@@ -7,6 +7,5 @@ __pycache__
 armory_frontend/node_modules
 static/armory
 .cursor
-info
 tests
 docs

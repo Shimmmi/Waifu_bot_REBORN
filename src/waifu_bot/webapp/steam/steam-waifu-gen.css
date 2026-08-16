@@ -1,0 +1,189 @@
+/*
+ * Steam desktop waifu generator — RO-style paperdoll step (420×420 tab friendly).
+ */
+
+html.desktop-client.desktop-window body.page-steam-waifu-gen {
+  overflow: hidden !important;
+  padding-bottom: 0 !important;
+  max-height: 420px;
+}
+
+body.page-steam-waifu-gen .waifu-gen-layout {
+  max-height: calc(420px - 88px);
+  overflow: auto;
+  padding-bottom: 4px;
+}
+
+body.page-steam-waifu-gen .waifu-gen-sticky {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+}
+
+/* display:flex must not override [hidden] — otherwise step 2 leaks onto step 1 */
+body.page-steam-waifu-gen #waifu-step-2[hidden],
+body.page-steam-waifu-gen #waifu-gen-sticky-step2[hidden] {
+  display: none !important;
+}
+
+body.page-steam-waifu-gen #waifu-step-2.steam-step2-ro:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+body.page-steam-waifu-gen .waifu-gen-stats-text {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 8px;
+  margin: 6px 0 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(24, 22, 34, 0.72);
+}
+
+body.page-steam-waifu-gen .waifu-gen-stat-cell {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: #c8cce0;
+}
+
+body.page-steam-waifu-gen .waifu-gen-stat-cell .stat-label {
+  color: #9aa0b8;
+  font-size: 11px;
+}
+
+body.page-steam-waifu-gen .waifu-gen-stat-cell .stat-value {
+  font-weight: 600;
+  color: #eef0f8;
+  font-variant-numeric: tabular-nums;
+}
+
+.steam-paperdoll-wrap {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: flex-start;
+  min-height: 0;
+}
+
+#steam-paperdoll-stage {
+  position: relative;
+  width: 140px;
+  height: 180px;
+  flex: none;
+  background: rgba(20, 18, 28, 0.6);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.steam-paperdoll-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  pointer-events: none;
+}
+
+.steam-paperdoll-layer[data-layer="base"] {
+  z-index: 1;
+}
+.steam-paperdoll-layer[data-layer="race_feature"] {
+  z-index: 2;
+}
+.steam-paperdoll-layer[data-layer="outfit"] {
+  z-index: 3;
+}
+.steam-paperdoll-layer[data-layer="hair"] {
+  z-index: 4;
+}
+.steam-paperdoll-layer[data-layer="eyes"] {
+  z-index: 5;
+}
+.steam-paperdoll-layer[data-layer="accessory"] {
+  z-index: 6;
+}
+
+#steam-paperdoll-rows {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.steam-pd-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(30, 26, 40, 0.85);
+  border-radius: 8px;
+  padding: 2px 4px;
+}
+
+.steam-pd-row-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.steam-pd-row-title {
+  font-size: 10px;
+  color: #9aa0b8;
+  line-height: 1.2;
+}
+
+.steam-pd-row-value {
+  font-size: 11px;
+  color: #e8e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.steam-pd-arrow {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(80, 70, 120, 0.5);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.steam-pd-arrow:hover {
+  background: rgba(120, 100, 180, 0.65);
+}
+
+body.page-steam-waifu-gen .steam-portrait-block {
+  margin-top: 6px;
+}
+
+body.page-steam-waifu-gen .waifu-gen-portrait-frame {
+  max-height: 120px;
+}
+
+body.page-steam-waifu-gen .waifu-gen-variants {
+  margin-top: 4px;
+}
+
+body.page-steam-waifu-gen .steam-dev-reset-btn {
+  margin: 4px 12px 0;
+  font-size: 11px;
+  -webkit-app-region: no-drag;
+}

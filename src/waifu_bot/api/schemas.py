@@ -611,6 +611,8 @@ class ProfileResponse(BaseModel):
     perfection_xp_to_next: int = 0
     perfection_pending_count: int = 0
     perfection_bonuses_summary: List[dict] = Field(default_factory=list)
+    # Set when /profile hit an internal error; main_waifu=None then must NOT be read as "no waifu".
+    profile_error: Optional[str] = None
 
 
 class GuildMemberMainWaifuPreviewOut(BaseModel):

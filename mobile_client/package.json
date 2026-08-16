@@ -1,0 +1,28 @@
+{
+  "name": "waifu-mobile-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Android Capacitor shell for Waifu Bot activity economy (steps = chars)",
+  "scripts": {
+    "android:env": "bash scripts/check_android_dev_env.sh",
+    "android:setup": "bash scripts/setup_android_project.sh",
+    "android:sync": "node scripts/inject_bridge_into_www.js && npx cap sync android",
+    "android:apk": "bash scripts/build_debug_apk.sh",
+    "android:install": "bash scripts/install_debug_apk.sh",
+    "android:smoke": "bash scripts/run_smoke_device.sh",
+    "android:api-smoke": "bash scripts/api_smoke_staging.sh",
+    "android:smoke-report": "bash scripts/smoke_report.sh",
+    "android:release": "bash scripts/build_release_apk.sh",
+    "android:release:aab": "bash scripts/build_release_apk.sh bundle",
+    "android:signing": "bash scripts/apply_release_signing.sh",
+    "build:web": "node scripts/sync-web-placeholder.js && node scripts/inject_bridge_into_www.js"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/core": "^6.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0"
+  }
+}

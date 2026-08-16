@@ -14,6 +14,7 @@ from sqlalchemy import (
     JSON,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from waifu_bot.db.base import Base
@@ -134,6 +135,9 @@ class MainWaifu(Base):
     )
     portrait_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     paperdoll_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # RO paperdoll cosmetics snapshot from Steam character creator (overlay layers)
+    paperdoll_cosmetics: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     bio: Mapped[str | None] = mapped_column(Text(), nullable=True)
 

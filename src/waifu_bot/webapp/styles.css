@@ -1732,6 +1732,24 @@ header.attic,
   font-size: 13px;
 }
 
+button.attic-menu-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-link-code-value {
+  font-size: 1.55rem;
+  letter-spacing: 0.14em;
+  text-align: center;
+  margin: 12px 0 4px;
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}
+
 .attic-menu-item:hover,
 .attic-menu-item:focus-visible {
   background: rgba(200, 146, 42, 0.12);

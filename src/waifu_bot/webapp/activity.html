@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Activity — шаги</title>
+  <link rel="stylesheet" href="/webapp/styles.css" />
+  <script src="/webapp/vendor/telegram-web-app.js"></script>
+</head>
+<body class="page-activity">
+  <div class="activity-banner">Режим Activity (Steam / Mobile): урон от шагов и кликов. Инвентарь и походы отделены от Telegram.</div>
+  <div class="activity-steps-card" id="activity-card">
+    <h2>Шаги → удар</h2>
+    <p class="muted" id="activity-hint">Каждый шаг = 1 символ. Для кинжала со скоростью 3 нужно ≥3 шага.</p>
+    <div class="activity-meter">
+      <span>Буфер: <strong id="act-buffer">0</strong></span>
+      <span>До удара: <strong id="act-need">—</strong></span>
+    </div>
+    <div class="activity-meter">
+      <span>Мин. символов: <strong id="act-min">3</strong></span>
+      <span>Сегодня: <strong id="act-today">0</strong></span>
+    </div>
+    <div class="activity-meter">
+      <span>Шаги (устройство): <strong id="act-total">—</strong></span>
+      <span>С прошлого забора: <strong id="act-pending">—</strong></span>
+    </div>
+    <p class="muted" id="act-perm">Разрешение на активность: проверка…</p>
+    <button type="button" id="act-claim">Забрать урон за шаги</button>
+    <button type="button" id="act-perm-btn" style="margin-top:8px;background:#3a4558;color:#f5f0e6;">Запросить доступ к шагомеру</button>
+  </div>
+  <nav class="nav basement" aria-label="Навигация">
+    <a href="./index.html?mobileClient=1&economy=activity" data-page="home" title="Хаб">Хабы</a>
+    <a href="./dungeons.html?mobileClient=1&economy=activity" data-page="dungeons" title="Данжи">Данжи</a>
+    <a href="./activity.html?mobileClient=1&economy=activity" data-page="activity" class="active" title="Шаги">Шаги</a>
+    <a href="./profile.html?mobileClient=1&economy=activity" data-page="profile" title="Профиль">Профиль</a>
+  </nav>
+  <script src="/webapp/app.js"></script>
+  <script>
+    (function () {
+      // Prefer dedicated mobile shell; keep this page as fallback.
+      try {
+        if (window.WaifuApp?.isMobileClient?.() || new URLSearchParams(location.search).get("mobileClient") === "1") {
+          if (!localStorage.getItem("waifuDesktopSession") && !window.waifuMobile?.getDesktopSessionToken?.()) {
+            location.replace("/webapp/mobile/login.html?mobileClient=1");
+            return;
+          }
+        }
+      } catch (_) {}
+      const $ = (id) => document.getElementById(id);
+      let pollTimer = null;
+
+      function sleep(ms) {
+        return new Promise((r) => setTimeout(r, ms));
+      }
+
+      async function waitForBridge(maxMs) {
+        const deadline = Date.now() + (maxMs || 5000);
+        while (Date.now() < deadline) {
+          const m = window.waifuMobile;
+          if (m && typeof m.getStepSnapshot === "function") {
+            if (m.__nativeReady || m.__hasPlugin) return m;
+            // Bridge present but plugin still attaching — keep waiting a bit
+            if (window.Capacitor) {
+              await sleep(200);
+              if (m.__nativeReady || m.__hasPlugin) return m;
+            }
+          }
+          await sleep(200);
+        }
+        return window.waifuMobile || null;
+      }
+
+      async function refreshStatus() {
+        try {
+          const st = await WaifuApp.apiFetch("/activity/status");
+          $("act-buffer").textContent = st.buffer_units ?? 0;
+          $("act-min").textContent = st.min_chars ?? 3;
+          $("act-need").textContent = st.units_to_next_hit ?? 0;
+          $("act-today").textContent = st.units_accepted_today ?? 0;
+        } catch (e) {
+          console.warn("activity status", e);
+        }
+      }
+
+      async function readStepsDelta() {
+        const bridge = window.waifuMobile;
+        if (bridge?.getStepSnapshot) {
+          const snap = await bridge.getStepSnapshot();
+          return {
+            units: Number(snap?.deltaSinceLastClaim || snap?.pendingDelta || 0) || 0,
+            total: snap?.total != null ? Number(snap.total) : null,
+            permission: snap?.permission,
+            sensor: snap?.sensor,
+          };
+        }
+        return { units: 0, total: null, permission: "unavailable", sensor: "none" };
+      }
+
+      async function updatePermLabel() {
+        const snap = await readStepsDelta();
+        const el = $("act-perm");
+        const bridge = window.waifuMobile;
+        const hasCap = !!(window.Capacitor || bridge?.__hasCapacitor);
+        const hasPlugin = !!(bridge?.__hasPlugin || bridge?.__nativeReady);
+
+        if (snap.total != null) $("act-total").textContent = String(snap.total);
+        else $("act-total").textContent = "—";
+        $("act-pending").textContent = snap.permission === "unavailable" ? "—" : String(snap.units);
+
+        if (snap.permission === "granted") {
+          const sensor = snap.sensor && snap.sensor !== "none" ? ` (${snap.sensor})` : "";
+          el.textContent = "Шагомер: доступ разрешён" + sensor;
+        } else if (snap.permission === "denied") {
+          el.textContent = "Шагомер: отказано — разрешите «Физическая активность» в настройках приложения";
+        } else if (snap.permission === "unavailable") {
+          if (!hasCap) {
+            el.textContent = "Шагомер: Capacitor bridge не найден (переустановите APK / откройте из приложения)";
+          } else if (!hasPlugin) {
+            el.textContent = "Шагомер: native plugin не загрузился (обновите APK)";
+          } else {
+            el.textContent = "Шагомер недоступен (нет датчика шагов на устройстве)";
+          }
+        } else {
+          el.textContent = "Шагомер: требуется разрешение — нажмите кнопку ниже";
+        }
+      }
+
+      $("act-claim").addEventListener("click", async () => {
+        const btn = $("act-claim");
+        btn.disabled = true;
+        try {
+          await waitForBridge(2000);
+          const snap = await readStepsDelta();
+          const body = {
+            source: "mobile_steps",
+            units: Math.max(0, snap.units),
+            client_counter_total: snap.total,
+          };
+          if (body.units <= 0 && window.waifuMobile?.consumePendingSteps) {
+            const consumed = await window.waifuMobile.consumePendingSteps();
+            body.units = Number(consumed?.units || 0);
+            body.client_counter_total = consumed?.total ?? body.client_counter_total;
+          }
+          const out = await WaifuApp.apiFetch("/activity/input/claim", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          // Advance pedometer baseline only after server accepted the claim payload
+          if (body.units > 0 && window.waifuMobile?.consumePendingSteps) {
+            await window.waifuMobile.consumePendingSteps();
+          }
+          if (out.hits_applied > 0) {
+            $("activity-hint").textContent = `Нанесено ударов: ${out.hits_applied}. Буфер: ${out.buffer_left}`;
+          } else if (out.rejected_reason) {
+            $("activity-hint").textContent = `Нет удара: ${out.rejected_reason}. Буфер: ${out.buffer_left}`;
+          } else {
+            $("activity-hint").textContent = `Шаги приняты (${out.accepted_units}). До удара: ${out.units_to_next_hit}`;
+          }
+          await refreshStatus();
+          await updatePermLabel();
+        } catch (e) {
+          $("activity-hint").textContent = String(e?.message || e);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      $("act-perm-btn").addEventListener("click", async () => {
+        const btn = $("act-perm-btn");
+        btn.disabled = true;
+        try {
+          await waitForBridge(5000);
+          if (window.waifuMobile?.requestActivityPermission) {
+            const r = await window.waifuMobile.requestActivityPermission();
+            if (r?.permission === "unavailable") {
+              $("act-perm").textContent = "Шагомер: native plugin не загрузился (обновите APK)";
+            }
+          }
+          await updatePermLabel();
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+          refreshStatus();
+          updatePermLabel();
+        }
+      });
+
+      function startLocalPoll() {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(() => {
+          if (document.visibilityState === "visible") {
+            updatePermLabel();
+          }
+        }, 2500);
+      }
+
+      window.WaifuApp = window.WaifuApp || {};
+      (async function boot() {
+        await waitForBridge(5000);
+        await refreshStatus();
+        await updatePermLabel();
+        startLocalPoll();
+      })();
+    })();
+  </script>
+</body>
+</html>

@@ -28,6 +28,15 @@ curl -sS "https://<host>/oauth/.well-known/jwks.json" | head
 
 Ожидается JSON с `"keys": [...]`. После деплоя Worker бэкенд автоматически использует этот URL, если задан `TELEGRAM_API_BASE_URL` (или явно `TELEGRAM_OIDC_JWKS_URL`).
 
+Проверка OIDC token (mobile APK authorization_code):
+
+```bash
+curl -sS -X POST "https://<host>/oauth/token" \
+  -d 'grant_type=authorization_code&code=x&client_id=1&client_secret=x&redirect_uri=https://example.com&code_verifier=0123456789012345678901234567890123456789012'
+```
+
+Ожидается ответ от Telegram (обычно `invalid_grant` / `invalid_client`), **не** `Invalid path` и не timeout. Health после деплоя содержит `"oauth_token":"/oauth/token"`.
+
 ## Безопасность (Wrangler / SECRET_PREFIX)
 
 Задайте **SECRET_PREFIX** — длинную случайную строку (например 32+ символа). URL вида `https://<worker>.workers.dev/<SECRET_PREFIX>` не должен угадываться. Без секрета Worker превратился бы в открытый прокси к Bot API.

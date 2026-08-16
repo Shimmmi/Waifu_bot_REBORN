@@ -1,0 +1,14 @@
+{
+  "backendUrl": "http://127.0.0.1:18000",
+  "steamTicketDev": null,
+  "overlay": {
+    "width": 300,
+    "height": 420,
+    "page": "overlay.html"
+  },
+  "mainWindow": {
+    "width": 480,
+    "height": 820,
+    "page": "index.html"
+  }
+}

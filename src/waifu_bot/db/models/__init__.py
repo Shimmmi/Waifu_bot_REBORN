@@ -5,6 +5,8 @@ from waifu_bot.db.models.chat_reward import (
     PlayerChatRewardWallet,
 )
 from waifu_bot.db.models.player import Player
+from waifu_bot.db.models.player_identity_link import PlayerIdentityLink
+from waifu_bot.db.models.email_credential import EmailCredential
 from waifu_bot.db.models.player_mail import PlayerMail, PlayerMailStatus
 from waifu_bot.db.models.hidden_skill import HiddenSkillDefinition, PlayerHiddenSkill
 from waifu_bot.db.models.passive_skill import PassiveSkillNode, PlayerPassiveSkill
@@ -138,6 +140,8 @@ from waifu_bot.db.models.endgame import (
     TemperPending,
     TemperTransaction,
 )
+from waifu_bot.db.models.activity import ActivityInputState, ActivityItemTemplate
+from waifu_bot.db.models.client_snapshot import PlayerClientSnapshot
 
 __all__ = [
     "PlayerEventLog",
@@ -145,6 +149,9 @@ __all__ = [
     "BotGroupChat",
     "PlayerBan",
     "Player",
+    "PlayerIdentityLink",
+    "PlayerClientSnapshot",
+    "EmailCredential",
     "PlayerChatRewardWallet",
     "PlayerChatActivityDaily",
     "PlayerChatActivityTotal",
@@ -275,4 +282,6 @@ __all__ = [
     "PerfectionRespecDailyLock",
     "PerfectionRespecLog",
     "AbyssKillMatRoll",
+    "ActivityInputState",
+    "ActivityItemTemplate",
 ]

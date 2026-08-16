@@ -1338,6 +1338,17 @@
         <a class="attic-menu-item" href="./tavern.html?tab=exchange" role="menuitem">🏪 Обмен</a>
         <a class="attic-menu-item" href="#" role="menuitem" onclick="event.preventDefault();(function(){var m=document.getElementById('attic-menu');var b=document.getElementById('attic-menu-btn');if(m)m.hidden=true;if(b)b.setAttribute('aria-expanded','false');WaifuApp.openLibrary();})()">📖 Библиотека</a>
         <a class="attic-menu-item" href="./player.html#settings" role="menuitem">⚙ Настройки</a>
+        <button type="button" class="attic-menu-item" id="attic-menu-link-code" role="menuitem">📱 Код для Mobile / Steam</button>
+        <button type="button" class="attic-menu-item mobile-only-attic" id="attic-menu-steps" role="menuitem" hidden>👟 Шаги (Mobile)</button>
+      </div>
+      <div id="mobile-steps-attic" class="activity-steps-card mobile-only-attic" hidden>
+        <h2>Шаги</h2>
+        <p class="muted">Шаги копятся в фоне (если разрешён шагомер). Заберите урон в общий инвентарь с Telegram.</p>
+        <div class="activity-meter"><span>Буфер: <strong id="ms-buffer">0</strong></span><span>До удара: <strong id="ms-need">—</strong></span></div>
+        <div class="activity-meter"><span>С забора: <strong id="ms-pending">—</strong></span><span>Сегодня: <strong id="ms-today">0</strong></span></div>
+        <p class="muted" id="ms-perm">Разрешение: …</p>
+        <button type="button" id="ms-claim">Забрать урон за шаги</button>
+        <button type="button" id="ms-perm-btn" style="margin-top:8px;background:#3a4558;color:#f5f0e6">Доступ к шагомеру</button>
       </div>
     </header>
 

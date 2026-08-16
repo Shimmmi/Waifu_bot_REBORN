@@ -102,6 +102,11 @@ from waifu_bot.api.library_routes import router as library_router
 from waifu_bot.api.abyss_routes import router as abyss_router
 from waifu_bot.api.perfection_routes import router as perfection_router
 from waifu_bot.api.solo_dungeon_auto_routes import router as solo_dungeon_auto_router
+from waifu_bot.api.auth_routes import router as auth_router
+from waifu_bot.api.desktop_auth_routes import router as desktop_auth_router
+from waifu_bot.api.pc_client_routes import router as pc_client_router
+from waifu_bot.api.activity_routes import router as activity_router
+from waifu_bot.api.client_snapshot_routes import router as client_snapshot_router
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +129,11 @@ router.include_router(library_router)
 router.include_router(abyss_router)
 router.include_router(perfection_router)
 router.include_router(solo_dungeon_auto_router)
+router.include_router(auth_router)
+router.include_router(desktop_auth_router)
+router.include_router(pc_client_router)
+router.include_router(activity_router)
+router.include_router(client_snapshot_router)
 
 # Вторичные бонусы с предметов (шаблон + зачарование) и аффиксы с effect_key *_pct.
 # Значение в аффиксе — целое число в сотых долях процента: 150 => 1.50% => +0.015 к сумме.
@@ -1257,21 +1267,55 @@ async def get_profile(
             perfection_xp_to_next=int(perfection_state.get("perfection_xp_to_next") or 0),
             perfection_pending_count=int(perfection_state.get("pending_count") or 0),
             perfection_bonuses_summary=list(perfection_state.get("bonuses_summary") or []),
+            profile_error=None,
         )
     except Exception as e:
         logger.exception("Failed /profile for player_id=%s: %s", player_id, e)
+        # Do not masquerade a server error as "no main waifu". Clients must check profile_error.
+        err_name = type(e).__name__
+        fallback_mw = None
+        act, max_act, gold = 1, 1, 0
+        try:
+            # Best-effort: if ORM player was loaded before the failure, keep core fields.
+            if "player" in locals() and player is not None:
+                act = int(getattr(player, "current_act", 1) or 1)
+                max_act = int(getattr(player, "max_act", 1) or 1)
+                gold = int(getattr(player, "gold", 0) or 0)
+                mw = getattr(player, "main_waifu", None)
+                if mw is not None:
+                    fallback_mw = schemas.MainWaifuProfile(
+                        id=mw.id,
+                        name=mw.name,
+                        race=mw.race,
+                        class_=mw.class_,
+                        level=mw.level,
+                        experience=mw.experience,
+                        strength=mw.strength,
+                        agility=mw.agility,
+                        intelligence=mw.intelligence,
+                        endurance=mw.endurance,
+                        charm=mw.charm,
+                        luck=mw.luck,
+                        stat_points=int(getattr(mw, "stat_points", 0) or 0),
+                        current_hp=mw.current_hp,
+                        max_hp=mw.max_hp,
+                        bio=getattr(mw, "bio", None),
+                    )
+        except Exception:
+            logger.exception("Failed /profile fallback extract player_id=%s", player_id)
         return schemas.ProfileResponse(
             player_id=player_id,
-            act=1,
-            max_act=1,
-            gold=0,
+            act=act,
+            max_act=max_act,
+            gold=gold,
             skill_points=0,
             protection_stones=0,
             enchant_dust=0,
             caravan_travel_costs=list(CARAVAN_TRAVEL_GOLD_TO_ACT),
-            main_waifu=None,
+            main_waifu=fallback_mw,
             main_waifu_details=None,
             equipment=[],
+            profile_error=f"profile_build_failed:{err_name}",
         )
 
 
@@ -1376,6 +1420,9 @@ async def equip_item(
     if not equip_check.can_equip:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="; ".join(equip_check.errors))
 
+    # Unequip only within the same economy (telegram vs activity bags are independent).
+    item_economy = getattr(inv, "economy", None) or "telegram"
+
     # Для двуручного оружия (weapon_2h) освобождаем оба слота
     if inv.slot_type == "weapon_2h":
         for s in [1, 2]:
@@ -1383,6 +1430,7 @@ async def equip_item(
                 select(m.InventoryItem).where(
                     m.InventoryItem.player_id == player_id,
                     m.InventoryItem.equipment_slot == s,
+                    m.InventoryItem.economy == item_economy,
                 )
             )
             for it in existing.scalars().all():
@@ -1394,6 +1442,7 @@ async def equip_item(
             select(m.InventoryItem).where(
                 m.InventoryItem.player_id == player_id,
                 m.InventoryItem.equipment_slot == slot,
+                m.InventoryItem.economy == item_economy,
             )
         )
         for it in existing.scalars().all():
