@@ -58,7 +58,21 @@ async def travel_to_act(session: AsyncSession, player: Player, act: int) -> Trav
             gold_remaining=gold_now,
         )
 
-    player.gold = gold_now - cost
+    from waifu_bot.services import wallet as wallet_svc
+    from waifu_bot.services.wallet import InsufficientCurrency
+
+    try:
+        await wallet_svc.spend_gold(
+            session, player, int(cost), source="caravan", ref_type="act", ref_id=int(target)
+        )
+    except InsufficientCurrency:
+        return TravelResult(
+            status="insufficient_gold",
+            act=current,
+            required_gold=cost,
+            current_gold=gold_now,
+            gold_remaining=gold_now,
+        )
     player.current_act = target
     await session.flush()
     return TravelResult(

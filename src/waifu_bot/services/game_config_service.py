@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+import json
 from typing import Any
 
 from sqlalchemy import select
@@ -53,3 +54,22 @@ def cfg_bool(cfg: dict[str, str], key: str, default: bool = False) -> bool:
     if raw is None:
         return default
     return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def cfg_str(cfg: dict[str, str], key: str, default: str = "") -> str:
+    raw = cfg.get(key)
+    if raw is None:
+        return default
+    return str(raw)
+
+
+def cfg_json(cfg: dict[str, str], key: str, default: Any = None) -> Any:
+    import json
+
+    raw = cfg.get(key)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return default

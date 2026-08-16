@@ -1,6 +1,8 @@
-"""End-of-day top-5 word stats via RouterAI (+ local fallback).
+"""End-of-day top-5 word stats via local Russian morphology (pymorphy3).
 
 Consumes the phantom Redis log only; never persists raw message bodies.
+LLM helpers below are kept for unit tests / legacy; analyze_day_word_stats
+uses local counting only.
 """
 from __future__ import annotations
 
@@ -10,13 +12,19 @@ import re
 from collections import Counter
 from typing import Any
 
-from waifu_bot.core.config import settings
-from waifu_bot.services.ai_service import generate as ai_generate
-from waifu_bot.services.llm_client import has_text_llm_configured
-
 logger = logging.getLogger(__name__)
 
 _WORD_RE = re.compile(r"[a-zA-Zа-яА-ЯёЁ]{2,}", re.UNICODE)
+
+# Whole messages matching this are skipped for top-words (avoids http/www/youtube/com…).
+_URL_RE = re.compile(
+    r"(?i)(?:"
+    r"https?://"
+    r"|www\."
+    r"|t\.me/"
+    r"|(?:[a-z0-9-]+\.)+(?:com|ru|org|net|io|tv|me|gg|info|xyz|app|short)\b"
+    r")"
+)
 
 # Russian prepositions / conjunctions / particles (and common English fillers).
 _STOPWORDS = frozenset(
@@ -148,14 +156,54 @@ _STOPWORDS = frozenset(
 
 _BATCH_USERS = 10
 
+_morph: Any | None = None
+
+
+def _get_morph() -> Any:
+    """Lazy singleton MorphAnalyzer (expensive to construct)."""
+    global _morph
+    if _morph is None:
+        import pymorphy3
+
+        _morph = pymorphy3.MorphAnalyzer()
+    return _morph
+
+
+def _lemma(token: str) -> str:
+    """Lowercase + ё→е + Russian lemma (surface form if morph fails)."""
+    w = (token or "").lower().replace("ё", "е")
+    if not w:
+        return w
+    # Latin / mixed tokens: morphology is RU-only; keep surface.
+    if not any("а" <= ch <= "я" for ch in w):
+        return w
+    try:
+        parsed = _get_morph().parse(w)
+        if parsed:
+            return str(parsed[0].normal_form).lower().replace("ё", "е")
+    except Exception:
+        logger.debug("pymorphy3 lemma failed for %r", w, exc_info=True)
+    return w
+
+
+def message_has_url(text: str | None) -> bool:
+    """True if the message looks like it contains a link / bare domain."""
+    return bool(text and _URL_RE.search(text))
+
 
 def local_top_words_for_user(messages: list[str], *, top_n: int = 5) -> dict[str, Any]:
-    """Naive frequency fallback: lowercased tokens, stopwords dropped, no morphology."""
+    """Frequency stats: lemmatized tokens, stopwords dropped. No profanity filter.
+
+    Messages containing URLs are skipped entirely (so http/www/tld fragments
+    do not dominate the day top).
+    """
     counts: Counter[str] = Counter()
     for msg in messages or []:
+        if message_has_url(msg):
+            continue
         for tok in _WORD_RE.findall(msg or ""):
-            w = tok.lower().replace("ё", "е")
-            if w in _STOPWORDS:
+            w = _lemma(tok)
+            if not w or w in _STOPWORDS:
                 continue
             counts[w] += 1
     if not counts:
@@ -171,7 +219,10 @@ def local_word_stats(log_by_user: dict[int, list[str]]) -> dict[int, dict[str, A
 
 
 def parse_word_stats_response(raw: str | None, expected_uids: set[int]) -> dict[int, dict[str, Any]]:
-    """Parse RouterAI JSON into per-user word stats. Invalid/missing users omitted."""
+    """Parse RouterAI JSON into per-user word stats. Invalid/missing users omitted.
+
+    Kept for unit tests / legacy; production analyze_day_word_stats is local-only.
+    """
     out: dict[int, dict[str, Any]] = {}
     if not raw or not str(raw).strip():
         return out
@@ -252,6 +303,7 @@ def _chunk_users(log_by_user: dict[int, list[str]], size: int = _BATCH_USERS) ->
 
 
 def _build_prompt(batch: dict[int, list[str]]) -> str:
+    """Legacy LLM prompt (unused by analyze_day_word_stats)."""
     payload = {str(uid): msgs for uid, msgs in batch.items()}
     return (
         "Проанализируй тексты сообщений игроков за день. Для каждого user_id верни топ-5 самых частых слов.\n"
@@ -271,53 +323,11 @@ async def analyze_day_word_stats(
     *,
     timeout_sec: float = 60.0,
 ) -> dict[int, dict[str, Any]]:
-    """RouterAI word stats with local fallback for missing/failed users."""
+    """Local morph-aware word stats (no LLM). ``timeout_sec`` kept for call-site compat."""
+    _ = timeout_sec
     if not log_by_user:
         return {}
-    fallback = local_word_stats(log_by_user)
-    if not has_text_llm_configured():
-        return fallback
-
-    merged: dict[int, dict[str, Any]] = {}
-    for batch in _chunk_users(log_by_user):
-        expected = set(batch.keys())
-        try:
-            text = await ai_generate(
-                _build_prompt(batch),
-                system=(
-                    "Ты аналитик частоты слов. Отвечай только JSON. "
-                    "Не цитируй сообщения целиком, не добавляй комментарии."
-                ),
-                preset=settings.ai_preset_gd,
-                caller="gd-daily-words",
-                timeout_sec=timeout_sec,
-                max_tokens=1200,
-                temperature=0.2,
-                post_process_rhythm=False,
-            )
-            parsed = parse_word_stats_response(text, expected)
-            for uid in expected:
-                merged[uid] = parsed.get(uid) or fallback.get(uid) or {
-                    "top_words": [],
-                    "no_word_repeated": False,
-                    "words_unavailable": True,
-                }
-        except Exception:
-            logger.exception("GD daily word AI batch failed; using local fallback")
-            for uid in expected:
-                merged[uid] = fallback.get(uid) or {
-                    "top_words": [],
-                    "no_word_repeated": False,
-                    "words_unavailable": True,
-                }
-    # Users with empty logs
-    for uid in log_by_user:
-        merged.setdefault(
-            int(uid),
-            fallback.get(int(uid))
-            or {"top_words": [], "no_word_repeated": False, "words_unavailable": True},
-        )
-    return merged
+    return local_word_stats(log_by_user)
 
 
 def merge_word_stats_into_rows(

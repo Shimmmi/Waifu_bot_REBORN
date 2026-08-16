@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Магазин</title>
-  <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v83" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
+  <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v84" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
   <style>
     :root {
       --ink: #0d0a08; /* основной фон */
@@ -1182,7 +1182,7 @@
   <link rel="stylesheet" href="./assets/tutorial.css" />
   <script defer src="./vendor/telegram-web-app.js"></script>
   <script defer src="./assets/tutorial.js"></script>
-  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v83" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
+  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v84" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
 </head>
 <body class="page-shop">
   <header class="attic">
@@ -1332,13 +1332,18 @@
       <div class="shop-tab-panel" id="tab-smith" style="display:none;">
         <div class="shop-smith-toolbar">
           <div class="shop-smith-resources muted tiny" aria-label="Ресурсы кузницы">
-            <span class="shop-smith-res-item">✨ <strong id="shop-smith-dust-hint">—</strong> пыли</span>
+            <button type="button" class="shop-smith-res-item" id="shop-smith-res-dust" onclick="WaifuApp.openSmithResSheet('dust')" title="Пыль">✨ <strong id="shop-smith-dust-hint">—</strong></button>
             <span class="shop-smith-res-sep" aria-hidden="true"></span>
-            <span class="shop-smith-res-item">🛡 <strong id="shop-smith-stones">0</strong> камней</span>
+            <button type="button" class="shop-smith-res-item" id="shop-smith-res-stone" onclick="WaifuApp.openSmithResSheet('stone')" title="Камни">🛡 <strong id="shop-smith-stones">0</strong></button>
+            <span class="shop-smith-res-sep" aria-hidden="true"></span>
+            <button type="button" class="shop-smith-res-item" id="shop-smith-res-core" onclick="WaifuApp.openSmithResSheet('core')" title="Ядра">◆ <strong id="shop-smith-cores"></strong></button>
+            <button type="button" class="shop-smith-res-item" id="shop-smith-res-essence" onclick="WaifuApp.openSmithResSheet('essence')" title="Эссенция">▲ <strong id="shop-smith-essence"></strong></button>
+            <button type="button" class="shop-smith-res-item" id="shop-smith-res-ember" onclick="WaifuApp.openSmithResSheet('ember')" title="Угли">🔥 <strong id="shop-smith-ember"></strong></button>
           </div>
           <div class="shop-smith-subtabs">
             <button type="button" class="shop-btab active" id="shop-smith-subtab-sharpen" onclick="ShopPage.switchSmithSubTab('sharpen')">Заточка</button>
             <button type="button" class="shop-btab" id="shop-smith-subtab-craft" onclick="ShopPage.switchSmithSubTab('craft')">Зачарование</button>
+            <button type="button" class="shop-btab" id="shop-smith-subtab-enhance" onclick="ShopPage.switchSmithSubTab('enhance')">Усиление</button>
           </div>
           <button type="button" class="shop-smith-help-btn" id="shop-smith-help-btn" onclick="WaifuApp.openSmithHelpModal()" title="Как работает кузница" aria-label="Справка о кузнице">?</button>
         </div>
@@ -1353,6 +1358,9 @@
             </div>
             <div id="shop-smith-panel-craft" class="shop-smith-info-panel" style="display:none;">
               <div id="shop-smith-craft-preview" class="shop-smith-card muted tiny">Выберите предмет для зачарования пылью.</div>
+            </div>
+            <div id="shop-smith-panel-enhance" class="shop-smith-info-panel" style="display:none;">
+              <div id="shop-smith-enhance-preview" class="shop-smith-card muted tiny">Выберите предмет. Здесь появятся закалка, доводка или перековка.</div>
             </div>
           </div>
           <div id="shop-smith-controls-sharpen" class="shop-smith-controls-sharpen">
@@ -1371,6 +1379,7 @@
             <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-craft-reroll" onclick="WaifuApp.smithTryCraftEnchant('reroll')" disabled title="Другой тип и сила вторички">Сменить бонус</button>
             <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-craft-upgrade" onclick="WaifuApp.smithTryCraftEnchant('upgrade')" disabled title="+шаг к текущей вторичке">Усилить бонус</button>
           </div>
+          <div id="shop-smith-controls-enhance" class="shop-smith-controls-row" style="display:none;"></div>
         </div>
       </div>
     </section>
@@ -1572,7 +1581,7 @@
             <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
               <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip" type="button" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Надеть</button>
               <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
-              <button class="item-modal-v2-btn item-modal-v2-btn--ench item-modal-v2-btn--icon" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;" aria-label="Заточить" title="Заточить">⚒</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--ench item-modal-v2-btn--icon" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;" aria-label="Кузница" title="Кузница">⚒</button>
               <button class="item-modal-v2-btn item-modal-v2-btn--neutral item-modal-v2-btn--icon" id="item-modal-dismantle" type="button" onclick="WaifuApp.openItemDismantleConfirmOverlay()" style="display:none;" aria-label="Распылить" title="Распылить">✨</button>
               <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
               <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
@@ -1672,8 +1681,13 @@
           fn(name);
           return;
         }
-        const tab = name === "craft" ? "craft" : "sharpen";
-        ["sharpen", "craft"].forEach((t) => {
+        const tab =
+          name === "enhance" || name === "temper" || name === "refine" || name === "reforge"
+            ? "enhance"
+            : name === "craft"
+              ? "craft"
+              : "sharpen";
+        ["sharpen", "craft", "enhance"].forEach((t) => {
           const btn = document.getElementById(`shop-smith-subtab-${t}`);
           if (btn) btn.classList.toggle("active", t === tab);
           const panel = document.getElementById(`shop-smith-panel-${t}`);
@@ -1684,7 +1698,9 @@
         const refresh =
           tab === "craft"
             ? window.WaifuApp && window.WaifuApp.refreshSmithCraftPreview
-            : window.WaifuApp && window.WaifuApp.refreshSmithPreview;
+            : tab === "enhance"
+              ? window.WaifuApp && window.WaifuApp.refreshSmithEnhancePreview
+              : window.WaifuApp && window.WaifuApp.refreshSmithPreview;
         if (typeof refresh === "function") {
           refresh().catch(console.error);
         }

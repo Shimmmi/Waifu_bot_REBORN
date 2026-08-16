@@ -232,6 +232,13 @@ _last_guild_quest_weekly_reset = None
 _last_chat_rewards_daily_claim = None
 
 
+async def _challenge_day_tick_fn() -> None:
+    """Always ensure today's challenge instances exist (do not skip on first tick)."""
+    from waifu_bot.services.challenge import challenge_day_tick
+
+    await challenge_day_tick()
+
+
 async def _abyss_daily_reset_fn() -> None:
     """Reset the per-player daily checkpoint counter at MSK midnight."""
     global _last_abyss_daily_reset
@@ -308,7 +315,17 @@ async def _abyss_weekly_reset_fn() -> None:
                     select(AbyssProgress).where(AbyssProgress.player_id == row.player_id)
                 )
                 if progress is not None and shards > 0:
-                    progress.abyss_shards = int(progress.abyss_shards or 0) + shards
+                    from waifu_bot.services import wallet as wallet_svc
+
+                    await wallet_svc.add(
+                        session,
+                        int(row.player_id),
+                        "abyss_shards",
+                        int(shards),
+                        source="abyss_weekly",
+                        ref_type="abyss_week",
+                        ref_id=str(row.week_start),
+                    )
                 row.reward_claimed = True
                 try:
                     await bot.send_message(

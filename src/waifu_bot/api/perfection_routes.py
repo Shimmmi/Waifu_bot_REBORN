@@ -74,3 +74,54 @@ async def choose_perfection(
         await session.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="choose_failed")
     return state
+
+
+class RespecPreviewBody(BaseModel):
+    bonus_row_id: int
+
+
+class RespecConfirmBody(BaseModel):
+    bonus_row_id: int
+    option_index: int | str = "keep"
+
+
+@router.post("/perfection/respec/preview")
+async def respec_preview(
+    body: RespecPreviewBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    player = await session.get(m.Player, int(player_id))
+    if not player:
+        raise HTTPException(status_code=404, detail="player_not_found")
+    result = await perfection_svc.respec_preview(session, player, int(body.bonus_row_id))
+    err = result.get("error")
+    if err == "respec_already_rolled":
+        raise HTTPException(status_code=409, detail="respec_already_rolled")
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    await session.commit()
+    return result
+
+
+@router.post("/perfection/respec/confirm")
+async def respec_confirm(
+    body: RespecConfirmBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    player = await session.get(m.Player, int(player_id))
+    if not player:
+        raise HTTPException(status_code=404, detail="player_not_found")
+    result = await perfection_svc.respec_confirm(
+        session, player, int(body.bonus_row_id), body.option_index
+    )
+    err = result.get("error")
+    if err == "respec_already_rolled":
+        raise HTTPException(status_code=409, detail="respec_already_rolled")
+    if err == "expired":
+        raise HTTPException(status_code=409, detail="expired")
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    await session.commit()
+    return result

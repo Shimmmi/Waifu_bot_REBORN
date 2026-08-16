@@ -98,7 +98,19 @@ async def settle_solo_run_rewards(
         await apply_main_waifu_levelups(session, waifu)
 
     if player is not None and gold_credit > 0:
-        player.gold = int(player.gold or 0) + int(gold_credit)
+        from waifu_bot.services import wallet as wallet_svc
+
+        src = "solo_plus" if int(getattr(run, "plus_level", 0) or 0) > 0 else "solo_base"
+        if str(getattr(run, "run_kind", "solo") or "solo") == "challenge":
+            src = "challenge_repeat"
+        await wallet_svc.add_gold(
+            session,
+            player,
+            int(gold_credit),
+            source=src,
+            ref_type="dungeon_run",
+            ref_id=int(run.id),
+        )
         try:
             from waifu_bot.services.combat import _guild_quest_record
             from waifu_bot.services.hidden_skills import try_hoarder_saving_streak

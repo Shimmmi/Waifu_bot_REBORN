@@ -82,6 +82,8 @@ def _roll_three_bonuses(
     pick_counts: dict[str, int],
     *,
     rng: random.Random | None = None,
+    kinds: set[str] | None = None,
+    exclude_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """3 уникальных бонуса; ≤1 resource и ≤1 situational на оффер."""
     rng = rng or random
@@ -89,7 +91,7 @@ def _roll_three_bonuses(
     weights_by_class = weight_table_for_tier(tier_idx)
     pool = list(PERFECTION_BONUSES)
     chosen: list[dict[str, Any]] = []
-    used: set[str] = set()
+    used: set[str] = set(exclude_ids or ())
     resource_count = 0
     situational_count = 0
 
@@ -97,6 +99,8 @@ def _roll_three_bonuses(
         candidates: list[tuple[Any, float]] = []
         for bdef in pool:
             if bdef.id in used:
+                continue
+            if kinds is not None and str(bdef.kind) not in kinds:
                 continue
             if bdef.weight_class == "resource" and resource_count >= 1:
                 continue
@@ -419,6 +423,34 @@ async def get_state(session: AsyncSession, player: m.Player) -> dict[str, Any]:
     totals = perfection_totals_dict(player)
     head = await get_head_pending(session, int(player.id)) if lvl > 0 else None
     pcount = await pending_count(session, int(player.id)) if lvl > 0 else 0
+    history = []
+    if lvl > 0:
+        rows = list(
+            (
+                await session.execute(
+                    select(m.PlayerPerfectionBonus)
+                    .where(m.PlayerPerfectionBonus.player_id == int(player.id))
+                    .order_by(m.PlayerPerfectionBonus.id.asc())
+                )
+            ).scalars().all()
+        )
+        for r in rows:
+            bdef = BONUS_BY_ID.get(str(r.bonus_id))
+            if not bdef or bdef.kind != "permanent":
+                continue
+            history.append(
+                {
+                    "row_id": int(r.id),
+                    "bonus_id": str(r.bonus_id),
+                    "title_ru": bdef.title_ru,
+                    "kind": "permanent",
+                    "value": float(r.value or 0),
+                    "display_value": format_offer_value(str(r.bonus_id), int(r.perfection_level_gained or 1)),
+                    "perfection_level_gained": int(r.perfection_level_gained or 1),
+                    "tier_at_pick": int(r.tier_at_pick or 1),
+                    "can_respec": True,
+                }
+            )
     return {
         "unlocked": lvl > 0,
         "perfection_level": lvl,
@@ -429,6 +461,7 @@ async def get_state(session: AsyncSession, player: m.Player) -> dict[str, Any]:
         "pending": _serialize_pending(head),
         "bonuses_summary": summarize_totals(totals),
         "bonus_totals": totals,
+        "permanent_history": history,
         "tier": tier_number_for_level(lvl) if lvl > 0 else 0,
     }
 
@@ -532,10 +565,27 @@ async def _apply_instant(
     session: AsyncSession, player: m.Player, bonus_id: str, value: float
 ) -> None:
     amt = int(round(value))
+    from waifu_bot.services import wallet as wallet_svc
+
     if bonus_id == "gold_instant":
-        player.gold = int(getattr(player, "gold", 0) or 0) + max(0, amt)
+        await wallet_svc.add_gold(
+            session,
+            player,
+            max(0, amt),
+            source="perfection_instant",
+            ref_type="perfection_bonus",
+            ref_id=f"{player.id}:{bonus_id}:{amt}",
+        )
     elif bonus_id == "dust_instant":
-        player.enchant_dust = int(getattr(player, "enchant_dust", 0) or 0) + max(0, amt)
+        await wallet_svc.add(
+            session,
+            int(player.id),
+            "enchant_dust",
+            max(0, amt),
+            source="perfection_instant",
+            ref_type="perfection_bonus",
+            ref_id=f"{player.id}:dust:{amt}",
+        )
     elif bonus_id == "stone_instant":
         player.protection_stones = int(getattr(player, "protection_stones", 0) or 0) + max(
             0, amt
@@ -758,3 +808,234 @@ async def recompute_all_perfection_from_catalog(
             )
         )
     return reports
+
+
+RESPEC_TTL_SEC = 600
+
+
+def _respec_cost(player: m.Player, cfg: dict[str, str]) -> int:
+    from waifu_bot.services.game_config_service import cfg_int
+
+    base = cfg_int(cfg, "perfection.respec_base_gold", 6000)
+    return int(base) * max(1, int(getattr(player, "perfection_level", 1) or 1))
+
+
+async def respec_preview(session: AsyncSession, player: m.Player, bonus_row_id: int) -> dict[str, Any]:
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from waifu_bot.game.msk_time import msk_current_game_date
+    from waifu_bot.services.game_config_service import get_game_config_map
+    from waifu_bot.services.wallet import lock_player
+
+    await lock_player(session, int(player.id))
+    bonus = await session.scalar(
+        select(m.PlayerPerfectionBonus)
+        .where(
+            m.PlayerPerfectionBonus.id == int(bonus_row_id),
+            m.PlayerPerfectionBonus.player_id == int(player.id),
+        )
+        .with_for_update()
+    )
+    if bonus is None:
+        return {"error": "not_found"}
+    bdef = BONUS_BY_ID.get(str(bonus.bonus_id))
+    if not bdef or bdef.kind != "permanent":
+        return {"error": "not_permanent"}
+    open_p = await session.scalar(
+        select(m.PerfectionRespecPending).where(
+            m.PerfectionRespecPending.player_perfection_bonus_id == int(bonus.id),
+            m.PerfectionRespecPending.status == "open",
+        )
+    )
+    now = datetime.now(timezone.utc)
+    if open_p is not None:
+        if open_p.expires_at and open_p.expires_at <= now:
+            await session.delete(open_p)
+            await session.flush()
+        else:
+            cfg = await get_game_config_map(session)
+            return {
+                "pending": _serialize_respec_pending(open_p, bonus, player, cfg),
+                "resumed": True,
+            }
+    today = msk_current_game_date()
+    ins = await session.execute(
+        pg_insert(m.PerfectionRespecDailyLock)
+        .values(player_perfection_bonus_id=int(bonus.id), msk_date=today)
+        .on_conflict_do_nothing()
+        .returning(m.PerfectionRespecDailyLock.player_perfection_bonus_id)
+    )
+    if ins.first() is None:
+        return {"error": "respec_already_rolled"}
+    pick_counts = await _count_bonus_picks(session, int(player.id))
+    p_lvl = int(bonus.perfection_level_gained or 1)
+    exclude = {str(bonus.bonus_id)}
+    options = _roll_three_bonuses(
+        p_lvl,
+        pick_counts,
+        kinds={"permanent"},
+        exclude_ids=exclude,
+    )
+    guard = 0
+    while len(options) < 3 and guard < 8:
+        guard += 1
+        extra = _roll_three_bonuses(
+            p_lvl,
+            pick_counts,
+            kinds={"permanent"},
+            exclude_ids=exclude | {str(x["bonus_id"]) for x in options},
+        )
+        for o in extra:
+            if o["bonus_id"] in {x["bonus_id"] for x in options}:
+                continue
+            options.append(o)
+            if len(options) >= 3:
+                break
+    options = options[:3]
+    cfg = await get_game_config_map(session)
+    gold = _respec_cost(player, cfg)
+    pending = m.PerfectionRespecPending(
+        player_id=int(player.id),
+        player_perfection_bonus_id=int(bonus.id),
+        status="open",
+        options_json=options,
+        gold_cost=int(gold),
+        expires_at=now + timedelta(seconds=RESPEC_TTL_SEC),
+    )
+    session.add(pending)
+    await session.flush()
+    return {"pending": _serialize_respec_pending(pending, bonus, player, cfg), "resumed": False}
+
+
+def _serialize_respec_pending(pending, bonus, player, cfg) -> dict[str, Any]:
+    from datetime import datetime, timezone
+
+    bdef = BONUS_BY_ID.get(str(bonus.bonus_id))
+    remain = 0
+    if pending.expires_at:
+        remain = max(0, int((pending.expires_at - datetime.now(timezone.utc)).total_seconds()))
+    return {
+        "id": int(pending.id),
+        "bonus_row_id": int(bonus.id),
+        "current": {
+            "bonus_id": str(bonus.bonus_id),
+            "title_ru": bdef.title_ru if bdef else str(bonus.bonus_id),
+            "display_value": format_offer_value(str(bonus.bonus_id), int(bonus.perfection_level_gained or 1)),
+            "perfection_level_gained": int(bonus.perfection_level_gained or 1),
+        },
+        "options": list(pending.options_json or []),
+        "gold_cost": int(pending.gold_cost or 0),
+        "expires_in_sec": remain,
+    }
+
+
+async def respec_confirm(
+    session: AsyncSession,
+    player: m.Player,
+    bonus_row_id: int,
+    option_index: int | str,
+) -> dict[str, Any]:
+    from datetime import datetime, timezone
+
+    from waifu_bot.services.game_config_service import get_game_config_map
+    from waifu_bot.services.wallet import InsufficientCurrency, lock_player
+
+    await lock_player(session, int(player.id))
+    bonus = await session.scalar(
+        select(m.PlayerPerfectionBonus)
+        .where(
+            m.PlayerPerfectionBonus.id == int(bonus_row_id),
+            m.PlayerPerfectionBonus.player_id == int(player.id),
+        )
+        .with_for_update()
+    )
+    if bonus is None:
+        return {"error": "not_found"}
+    pending = await session.scalar(
+        select(m.PerfectionRespecPending)
+        .where(
+            m.PerfectionRespecPending.player_perfection_bonus_id == int(bonus.id),
+            m.PerfectionRespecPending.status == "open",
+        )
+        .with_for_update()
+    )
+    if pending is None:
+        return {"error": "no_pending"}
+    now = datetime.now(timezone.utc)
+    if pending.expires_at and pending.expires_at <= now:
+        await session.delete(pending)
+        await session.flush()
+        return {"error": "expired"}
+    keep = str(option_index) == "keep"
+    if keep:
+        await session.delete(pending)
+        await session.flush()
+        state = await get_state(session, player)
+        state["kept"] = True
+        return state
+    try:
+        idx = int(option_index)
+    except (TypeError, ValueError):
+        return {"error": "invalid_option"}
+    opts = list(pending.options_json or [])
+    if idx < 0 or idx >= len(opts):
+        return {"error": "invalid_option"}
+    chosen = opts[idx]
+    new_id = str(chosen.get("bonus_id") or "")
+    if new_id not in BONUS_BY_ID:
+        return {"error": "unknown_bonus"}
+    nb = BONUS_BY_ID[new_id]
+    if nb.kind != "permanent":
+        return {"error": "not_permanent"}
+    gold = int(pending.gold_cost or 0)
+    log = m.PerfectionRespecLog(
+        player_id=int(player.id),
+        old_bonus_id=str(bonus.bonus_id),
+        new_bonus_id=new_id,
+        gold_spent=gold,
+    )
+    session.add(log)
+    await session.flush()
+    from waifu_bot.services import wallet as wallet_svc
+
+    try:
+        await wallet_svc.spend_gold(
+            session,
+            player,
+            gold,
+            source="respec",
+            ref_type="respec_log",
+            ref_id=int(log.id),
+        )
+    except InsufficientCurrency as exc:
+        return {"error": "insufficient", "currency": exc.currency_key, "have": exc.have, "need": exc.need}
+
+    old_id = str(bonus.bonus_id)
+    p_level = int(bonus.perfection_level_gained or 1)
+    tier_at = int(bonus.tier_at_pick or 1)
+    await session.delete(bonus)
+    await session.delete(pending)
+    await session.flush()
+    stored = float(stored_value_for_bonus(new_id, p_level))
+    session.add(
+        m.PlayerPerfectionBonus(
+            player_id=int(player.id),
+            bonus_id=new_id,
+            tier_at_pick=tier_at,
+            value=stored,
+            perfection_level_gained=p_level,
+        )
+    )
+    await session.flush()
+    await recompute_player_perfection_from_catalog(session, player, sync_hp=True)
+    state = await get_state(session, player)
+    state["applied"] = {
+        "old_bonus_id": old_id,
+        "bonus_id": new_id,
+        "title_ru": nb.title_ru,
+        "display_value": format_offer_value(new_id, p_level),
+    }
+    return state
+

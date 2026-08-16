@@ -1250,7 +1250,17 @@ class ExpeditionService:
             leveled_up_ids = list(reward_summary.get("leveled_up_ids") or [])
             items_earned = list(reward_summary.get("items_earned") or [])
         else:
-            player.gold += gold
+            if gold:
+                from waifu_bot.services import wallet as wallet_svc
+
+                await wallet_svc.add_gold(
+                    session,
+                    player,
+                    int(gold),
+                    source="expedition",
+                    ref_type="expedition_legacy",
+                    ref_id=int(player.id),
+                )
             if exp and squad_ids:
                 per_waifu = max(0, exp // len(squad_ids))
                 for wid in squad_ids:

@@ -752,8 +752,10 @@ class AbyssService:
         return out
 
     async def enter(self, session: AsyncSession, player_id: int) -> dict:
+        from waifu_bot.services.wallet import lock_player
+
         cfg = await get_game_config_map(session)
-        player = await session.get(Player, player_id)
+        player = await lock_player(session, player_id)
         waifu = await get_waifu(session, player_id)
         progress = await get_progress_for_update(session, player_id)
         if progress is None:
@@ -763,7 +765,7 @@ class AbyssService:
         await maybe_timeout_session(session, cfg, progress)
         reset_daily_if_needed(progress)
 
-        # Already in a session → idempotent: just report current floor.
+        # Already in a session → idempotent: just report current floor. Do not bump nonce.
         if progress.session_active:
             await session.commit()
             return await self._enter_payload(session, progress, already=True)
@@ -777,6 +779,7 @@ class AbyssService:
             return {"success": False, "error": "UNCONSCIOUS"}
 
         begin_floor = int(progress.current_floor or 0) + 1
+        progress.session_nonce = int(progress.session_nonce or 0) + 1
         progress.session_active = True
         progress.session_started_at = datetime.now(timezone.utc)
         progress.revive_scrolls_used_this_block = 0

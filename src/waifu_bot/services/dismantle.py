@@ -80,11 +80,22 @@ async def dismantle_inventory_item(
         return {"error": "not_found"}
 
     dust = await preview_dismantle_dust(session, inv)
+    inv_id = int(inv.id)
     await session.delete(inv)
-    player.enchant_dust = int(getattr(player, "enchant_dust", 0) or 0) + dust
+    from waifu_bot.services import wallet as wallet_svc
+
+    await wallet_svc.add(
+        session,
+        int(player_id),
+        "enchant_dust",
+        dust,
+        source="dismantle",
+        ref_type="inventory_item",
+        ref_id=inv_id,
+    )
     await session.commit()
     return {
         "success": True,
         "dust_received": dust,
-        "enchant_dust": int(player.enchant_dust or 0),
+        "enchant_dust": await wallet_svc.get_amount(session, int(player_id), "enchant_dust"),
     }

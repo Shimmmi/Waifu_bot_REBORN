@@ -13,8 +13,8 @@
 ```text
 Daily GD (04:30 start / 04:00 finale)
   gd_daily_worker
-    ├─ generate_gd_daily_start_narrative     → text LLM (caller=gd-start)
-    ├─ analyze_day_word_stats                → text LLM (caller=gd-daily-words)
+    ├─ send_daily_start_message              → fixed «Отряд наших вайфу:» + roster (no LLM)
+    ├─ analyze_day_word_stats                → local pymorphy3 (no LLM; skip URL msgs)
     └─ generate_gd_daily_podium_png          → Pillow race board (no image LLM)
          └─ gate: should_generate_podium (≥1 active msg_total>0)
          └─ title «Итоги дня»; no group text finale / empty photo caption
@@ -79,35 +79,25 @@ ongoing — стычка не закончена. НЕ убивай монстр
 party_wiped — монстр торжествует, отряд без сознания, намёк на возвращение.
 ```
 
-Используется как `system=` для: daily start/finale, classic start/round/finale.  
-Топ-слова дня используют **свой** system (см. §3.4).
+Используется как `system=` для: classic start/round/finale (и legacy daily narrative helpers).  
+Daily start / топ-слова дня — **без LLM**.
 
 ---
 
 ## 3. Daily GD
 
-### 3.1 Старт дня — `generate_gd_daily_start_narrative`
+### 3.1 Старт дня — `send_daily_start_message`
 
-Файл: `gd_narrative_ai.py` · caller: `gd-start` · system: `GD_SYSTEM_PROMPT`  
-`dungeon_name` / `party` намеренно **не** передаются в модель.
+Файл: `gd_daily_worker.py` · **без LLM**.
 
-**User prompt (дословно):**
-
-```text
-Сгенерируй РОВНО один короткий абзац (1–2 предложения) на русском для Telegram (HTML: только <b> при необходимости).
-
-Юмористическое обращение к ИГРОКАМ про дневной групповой поход, в духе «В опасное путешествие отправился наш бравый отряд домохозяек в составе:». Абзац ОБЯЗАН заканчиваться на «в составе:» (с двоеточием). Не перечисляй игроков и вайфу — список состава добавит код сразу после этой фразы.
-
-ЗАПРЕЩЕНО: второй абзац, концовка про активность/экипировку, описание локации/атмосферы подземелья, лор, внешность/класс/раса вайфу, имена персонажей, цифры, списки.
-```
-
-**Stub (fallback без LLM):**
+Фиксированное интро + roster:
 
 ```text
-В опасное путешествие отправился наш бравый отряд домохозяек в составе:
+Отряд наших вайфу:
+{format_daily_start_roster_html(party)}
 ```
 
-Список состава (вайфу, уровни) подставляется кодом в HTML-сообщение сразу после интро (`format_daily_start_roster_html`). Итоговый текст: `{intro}\n{roster}` — без второго абзаца.
+Промпт `generate_gd_daily_start_narrative` остаётся в `gd_narrative_ai.py` (legacy), но daily worker его не вызывает.
 
 ---
 
@@ -140,30 +130,18 @@ Legacy RouterAI `_podium_prompt` / `generate_podium_routerai` остаются �
 
 ### 3.4 Топ-слова дня — `analyze_day_word_stats`
 
-Файл: `gd_daily_word_ai.py` · caller: `gd-daily-words`
+Файл: `gd_daily_word_ai.py` · **без LLM** (локальный подсчёт).
 
-**System:**
+Источник: Redis phantom log → `local_word_stats` / `local_top_words_for_user`:
 
-```text
-Ты аналитик частоты слов. Отвечай только JSON. Не цитируй сообщения целиком, не добавляй комментарии.
-```
+- сообщения со ссылками (`http(s)://`, `www.`, `t.me/`, домен `.tld/...`) **целиком пропускаются**;
+- токены `[a-zA-Zа-яА-ЯёЁ]{2,}`;
+- lower + `ё→е`;
+- лемма через **pymorphy3** (падежи/числа сливаются);
+- drop stopwords (предлоги/союзы/частицы; **не** блоклист мата);
+- в топ попадают только слова с `count > 1` (иначе `no_word_repeated=true`, чипы скрыты).
 
-**User (`_build_prompt`):**
-
-```text
-Проанализируй тексты сообщений игроков за день. Для каждого user_id верни топ-5 самых частых слов.
-Правила:
-- Исключи предлоги, союзы, частицы и служебные слова.
-- Приведи слова к именительному падежу (лемма), нижний регистр.
-- Если ни одно слово не встречалось более 1 раза: no_word_repeated=true и top_words=[].
-- Иначе no_word_repeated=false и top_words: до 5 элементов {"word","count"}, по убыванию count.
-- Ответ ТОЛЬКО валидный JSON без markdown:
-{"users":[{"user_id":123,"top_words":[{"word":"игра","count":5}],"no_word_repeated":false}]}
-Данные:
-{json: user_id → [messages…]}
-```
-
-При ошибке LLM — локальный fallback `local_word_stats`.
+Legacy `_build_prompt` / `parse_word_stats_response` остаются в файле для тестов, но `analyze_day_word_stats` их не вызывает.
 
 ---
 
@@ -405,10 +383,9 @@ DATA (must match exactly):
 |---|---|---|---|---|
 | System narrative | `gd_narrative_ai.py` | `GD_SYSTEM_PROMPT` | text system | — |
 | HTML formatting | `constants.py` | `GD_NARRATIVE_FORMATTING_RU` | вставка в system | — |
-| Daily start | `gd_narrative_ai.py` | `generate_gd_daily_start_narrative` | text user | `gd-start` |
+| Daily start | `gd_daily_worker.py` | `send_daily_start_message` / `DAILY_START_INTRO` | fixed text | — |
 | Daily finale | `gd_narrative_ai.py` | `generate_gd_daily_finale_narrative` | text user | `gd-finale` |
-| Daily words system | `gd_daily_word_ai.py` | `analyze_day_word_stats` | text system | `gd-daily-words` |
-| Daily words user | `gd_daily_word_ai.py` | `_build_prompt` | text user | `gd-daily-words` |
+| Daily words | `gd_daily_word_ai.py` | `analyze_day_word_stats` / `local_top_words_for_user` | local pymorphy3 | — |
 | Podium main | `gd_podium_art.py` | `_podium_prompt` | image text | `get_image_model()` |
 | Podium ref caption | `gd_podium_art.py` | `generate_podium_routerai` | image text+image | `get_image_model()` |
 | Classic start | `gd_narrative_ai.py` | `build_user_prompt_start` | text user | `gd-start` |

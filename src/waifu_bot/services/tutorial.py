@@ -114,7 +114,16 @@ async def complete_tutorial_step(
     gold_reward: int | None = None
     if step_id == "intro" and not state.get("intro_reward_claimed"):
         gold_reward = INTRO_TUTORIAL_GOLD_REWARD
-        player.gold = int(player.gold or 0) + gold_reward
+        from waifu_bot.services import wallet as wallet_svc
+
+        await wallet_svc.add_gold(
+            session,
+            player,
+            gold_reward,
+            source="tutorial",
+            ref_type="tutorial_step",
+            ref_id="intro",
+        )
         state["intro_reward_claimed"] = True
 
     player.tutorial_progress = state
@@ -235,6 +244,9 @@ async def _create_junk_inventory_item(session: AsyncSession, player_id: int) -> 
     )
     session.add(inv)
     await session.flush()
+    from waifu_bot.services.refine import stamp_template_grade
+
+    await stamp_template_grade(session, inv)
     return inv
 
 
@@ -271,13 +283,30 @@ async def provision_tutorial_kit(
     need_gold = max(buy_price + SHOP_KIT_GOLD_BUFFER, SHOP_KIT_GOLD_BUFFER)
     have_gold = int(player.gold or 0)
     gold_granted = max(0, need_gold - have_gold)
-    if gold_granted:
-        player.gold = have_gold + gold_granted
+    from waifu_bot.services import wallet as wallet_svc
 
-    have_dust = int(getattr(player, "enchant_dust", 0) or 0)
+    if gold_granted:
+        await wallet_svc.add_gold(
+            session,
+            player,
+            gold_granted,
+            source="tutorial",
+            ref_type="tutorial_step",
+            ref_id="shop_kit_gold",
+        )
+
+    have_dust = await wallet_svc.get_amount(session, int(player_id), "enchant_dust")
     dust_granted = max(0, SHOP_KIT_MIN_DUST - have_dust)
     if dust_granted:
-        player.enchant_dust = have_dust + dust_granted
+        await wallet_svc.add(
+            session,
+            int(player_id),
+            "enchant_dust",
+            dust_granted,
+            source="tutorial",
+            ref_type="tutorial_step",
+            ref_id="shop_kit_dust",
+        )
 
     junk = await _create_junk_inventory_item(session, player_id)
 

@@ -110,7 +110,10 @@ async def craft_enchant_inventory_item(
         return {"error": "invalid_operation"}
 
     dust_cost = craft_operation_cost_dust(operation, tier, cfg)
-    have = int(getattr(player, "enchant_dust", 0) or 0)
+    from waifu_bot.services import wallet as wallet_svc
+    from waifu_bot.services.wallet import InsufficientCurrency
+
+    have = await wallet_svc.get_amount(session, int(player_id), "enchant_dust")
     if have < dust_cost:
         return {"error": "insufficient_dust", "required": dust_cost, "have": have}
 
@@ -128,7 +131,18 @@ async def craft_enchant_inventory_item(
         new_val = min(cap, float(inv.secondary_fraction_value or 0) + step)
         inv.secondary_fraction_value = round(new_val, 4)
 
-    player.enchant_dust = have - dust_cost
+    try:
+        await wallet_svc.spend(
+            session,
+            int(player_id),
+            "enchant_dust",
+            dust_cost,
+            source="craft_enchant",
+            ref_type="inventory_item",
+            ref_id=int(inv.id),
+        )
+    except InsufficientCurrency as exc:
+        return {"error": "insufficient_dust", "required": dust_cost, "have": exc.have}
     await recalculate_enchant_steps(session, inv)
     await session.commit()
 
@@ -138,6 +152,6 @@ async def craft_enchant_inventory_item(
         "secondary_fraction_type": inv.secondary_fraction_type,
         "secondary_fraction_value": float(inv.secondary_fraction_value or 0),
         "dust_spent": dust_cost,
-        "enchant_dust": int(player.enchant_dust or 0),
+        "enchant_dust": await wallet_svc.get_amount(session, int(player_id), "enchant_dust"),
         "enchant_sec_step": float(inv.enchant_sec_step or 0.0),
     }

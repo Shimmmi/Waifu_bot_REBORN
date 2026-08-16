@@ -372,7 +372,20 @@ async def enchant_inventory_item(
         if target < 8:
             return {"error": "stone_not_needed"}
 
-    player.gold = int(player.gold or 0) - cost
+    from waifu_bot.services import wallet as wallet_svc
+    from waifu_bot.services.wallet import InsufficientCurrency
+
+    try:
+        await wallet_svc.spend_gold(
+            session,
+            player,
+            cost,
+            source="sharpen",
+            ref_type="inventory_item",
+            ref_id=int(inv.id),
+        )
+    except InsufficientCurrency as exc:
+        return {"error": "insufficient_gold", "required": cost, "have": exc.have}
     await record_hidden_gold_spend(player_id)
 
     if cur < safe_max:

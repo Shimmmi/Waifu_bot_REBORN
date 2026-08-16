@@ -2103,7 +2103,18 @@ async def set_player_act(
             status_code=400,
             detail=f"Недостаточно золота для переезда (нужно {cost}, есть {gold_now})",
         )
-    player.gold = gold_now - cost
+    from waifu_bot.services import wallet as wallet_svc
+    from waifu_bot.services.wallet import InsufficientCurrency
+
+    try:
+        await wallet_svc.spend_gold(
+            session, player, int(cost), source="caravan", ref_type="act", ref_id=int(act)
+        )
+    except InsufficientCurrency as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Недостаточно золота для переезда (нужно {cost}, есть {exc.have})",
+        )
     player.current_act = act
     await session.commit()
     return {
@@ -2425,7 +2436,7 @@ async def operations_preview(
 async def _apply_ops_contract_to_start_payload(
     session, player_id: int, payload: schemas.ExpeditionStartRequest
 ) -> None:
-    """Resolve weekly board contract → reward_bias + depth (authoritative)."""
+    """Resolve daily board contract → reward_bias + depth (authoritative)."""
     if not getattr(payload, "ops_contract_id", None):
         return
     from waifu_bot.services import merc_systems as merc_sys

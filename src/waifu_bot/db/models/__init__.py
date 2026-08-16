@@ -29,6 +29,7 @@ from waifu_bot.db.models.item import (
     ItemRarity,
     ItemType,
     ItemTemplate,
+    ItemBaseTemplate,
     Affix,
     InventoryAffix,
     PlayerItemCodex,
@@ -123,6 +124,22 @@ from waifu_bot.db.models.abyss import (
     AbyssShardsShopItem,
 )
 from waifu_bot.db.models.perfection import PlayerPerfectionBonus, PlayerPerfectionPending
+from waifu_bot.db.models.wallet import AdminGrant, EconomyLedger, PlayerWalletBalance
+from waifu_bot.db.models.endgame import (
+    AbyssKillMatRoll,
+    DailyChallengeInstance,
+    DailyChallengeMonsterAffix,
+    DailyChallengeProgress,
+    DailyChallengeSeed,
+    PerfectionRespecDailyLock,
+    PerfectionRespecLog,
+    PerfectionRespecPending,
+    RefineTransaction,
+    ReforgePending,
+    ReforgeTransaction,
+    TemperPending,
+    TemperTransaction,
+)
 from waifu_bot.db.models.activity import ActivityInputState, ActivityItemTemplate
 from waifu_bot.db.models.client_snapshot import PlayerClientSnapshot
 
@@ -161,6 +178,7 @@ __all__ = [
     "ItemRarity",
     "ItemType",
     "ItemTemplate",
+    "ItemBaseTemplate",
     "Affix",
     "InventoryAffix",
     "PlayerItemCodex",
@@ -248,6 +266,22 @@ __all__ = [
     "AbyssShardsShopItem",
     "PlayerPerfectionBonus",
     "PlayerPerfectionPending",
+    "PlayerWalletBalance",
+    "EconomyLedger",
+    "AdminGrant",
+    "DailyChallengeSeed",
+    "DailyChallengeInstance",
+    "DailyChallengeMonsterAffix",
+    "DailyChallengeProgress",
+    "TemperPending",
+    "TemperTransaction",
+    "ReforgePending",
+    "ReforgeTransaction",
+    "RefineTransaction",
+    "PerfectionRespecPending",
+    "PerfectionRespecDailyLock",
+    "PerfectionRespecLog",
+    "AbyssKillMatRoll",
     "ActivityInputState",
     "ActivityItemTemplate",
 ]

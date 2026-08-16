@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from waifu_bot.db.models import (
     BattleLog,
@@ -680,10 +680,10 @@ class DungeonService:
     ) -> dict:
         """Start a dungeon."""
         from waifu_bot.game.economy import ECONOMY_ACTIVITY, normalize_economy
+        from waifu_bot.services.wallet import lock_player
 
         economy = normalize_economy(economy)
-        # Get player and dungeon
-        player = await session.get(Player, player_id)
+        player = await lock_player(session, player_id)
         dungeon = await session.get(Dungeon, dungeon_id)
 
         if not player or not dungeon:
@@ -715,8 +715,7 @@ class DungeonService:
             from datetime import timezone as _tz
 
             player.last_combat_action_at = datetime.now(_tz.utc)
-            if post_m != pre_m or regen_changed:
-                await session.commit()
+            # Do not commit here: FOR UPDATE player lock must hold until run INSERT.
 
         # Unlock rules:
         # - Can't start dungeons beyond the highest act unlocked (max_act)
@@ -809,7 +808,11 @@ class DungeonService:
                     battle_state=initial_battle_state(first_daily_dungeon=first_daily),
                 )
                 session.add(run)
-                await session.flush()
+                try:
+                    async with session.begin_nested():
+                        await session.flush()
+                except IntegrityError:
+                    return {"error": "dungeon_already_active"}
 
                 # Split budget; last one is boss.
                 if pl > 0 and params is not None:
@@ -1412,6 +1415,17 @@ class DungeonService:
                 )
                 run.status = "abandoned"
                 run.ended_at = datetime.utcnow()
+                if str(getattr(run, "run_kind", "solo") or "solo") == "challenge":
+                    from waifu_bot.db.models.endgame import DailyChallengeProgress
+                    from waifu_bot.services.challenge import settle_challenge_run
+
+                    ch_prog = await session.scalar(
+                        select(DailyChallengeProgress).where(
+                            DailyChallengeProgress.player_id == int(player_id),
+                            DailyChallengeProgress.instance_id == int(run.challenge_instance_id or 0),
+                        )
+                    )
+                    await settle_challenge_run(session, run, ch_prog, "abandoned")
                 progress = await self._get_active_progress(session, player_id)
                 if progress:
                     progress.is_active = False

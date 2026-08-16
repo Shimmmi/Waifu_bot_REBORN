@@ -161,7 +161,8 @@ def run_outgoing_handlers(
     skip = skip_keys or frozenset()
     results: list[BonusResult] = []
     contributions: list[LegendaryBonusContrib] = []
-    working_state = dict(ctx_base.battle_state or {})
+    frozen_tick_state = dict(ctx_base.battle_state or {})
+    consume_patch: dict[str, Any] = {}
     for row in active_rows:
         key = str(row.get("bonus_key") or "")
         if not key or key in skip or key in DEATH_HANDLERS:
@@ -196,7 +197,7 @@ def run_outgoing_handlers(
             waifu_level=ctx_base.waifu_level,
             waifu_stats=dict(ctx_base.waifu_stats),
             waifu_last_dungeon_knocked_out=ctx_base.waifu_last_dungeon_knocked_out,
-            battle_state=working_state,
+            battle_state=dict(frozen_tick_state),
             item_id=int(row.get("inventory_item_id") or 0),
             bonus_key=key,
             bonus_params=dict(row.get("params") or {}),
@@ -217,13 +218,13 @@ def run_outgoing_handlers(
             lc = _contrib_from_result(row, res)
             if lc is not None:
                 contributions.append(lc)
-        working_state = merge_battle_state(working_state, res.battle_state_patch or {})
+        consume_patch = merge_battle_state(consume_patch, res.battle_state_patch or {})
     agg = _aggregate(results, max_mult=max_mult if phase != "pre_crit" else 999.0)
     agg.contributions = contributions
     if phase == "full":
-        agg.battle_state_patch = merge_battle_state(ctx_base.battle_state, working_state)
+        agg.battle_state_patch = merge_battle_state(ctx_base.battle_state, consume_patch)
     else:
-        agg.battle_state_patch = merge_battle_state({}, working_state)
+        agg.battle_state_patch = merge_battle_state({}, consume_patch)
     return agg
 
 

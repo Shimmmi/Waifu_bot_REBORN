@@ -126,6 +126,10 @@ class AbyssProgress(Base):
 
     # Currency
     abyss_shards: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    session_nonce: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    ember_pity_paid_checkpoints: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default="0"
+    )
 
     # Per-block state
     revive_scrolls_used_this_block: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

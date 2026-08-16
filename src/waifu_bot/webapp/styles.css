@@ -2278,6 +2278,33 @@ body.page-dungeons #item-modal.modal.item-modal-root.item-modal-v2-wrap.item-mod
   background: rgba(180, 180, 180, 0.08);
   color: #b0b0b0;
 }
+.grade-mark {
+  font-size: 9px;
+  margin-left: 3px;
+  line-height: 1;
+  vertical-align: super;
+}
+.grade-mark--1 { color: #5eead4; }
+.grade-mark--2 { color: #e8b84b; }
+.item-modal-v2-ench-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.item-modal-v2-grade {
+  font-size: 11px;
+  color: #5eead4;
+}
+.item-modal-v2-grade--2 { color: #e8b84b; }
+.smith-block-flash {
+  outline: 2px solid #e8b84b;
+  animation: smith-block-flash-kf 1.5s ease;
+}
+@keyframes smith-block-flash-kf {
+  from { outline-color: #e8b84b; }
+  to { outline-color: transparent; }
+}
 .item-modal-v2-rpill--uncommon {
   background: rgba(74, 222, 128, 0.12);
   color: #86efac;

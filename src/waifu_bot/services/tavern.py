@@ -223,7 +223,20 @@ class TavernService:
             if pay_with_contract:
                 state.merc_contracts = max(0, int(state.merc_contracts or 0) - 1)
             elif hire_cost > 0:
-                player.gold -= hire_cost
+                from waifu_bot.services import wallet as wallet_svc
+                from waifu_bot.services.wallet import InsufficientCurrency
+
+                try:
+                    await wallet_svc.spend_gold(
+                        session,
+                        player,
+                        int(hire_cost),
+                        source="tavern_hire",
+                        ref_type="hire_slot",
+                        ref_id=int(chosen.slot),
+                    )
+                except InsufficientCurrency:
+                    return {"error": "not_enough_gold", "required": hire_cost, "gold": player.gold}
             await session.commit()
             return {
                 "success": True,
@@ -243,7 +256,20 @@ class TavernService:
         if pay_with_contract:
             state.merc_contracts = max(0, int(state.merc_contracts or 0) - 1)
         elif hire_cost > 0:
-            player.gold -= hire_cost
+            from waifu_bot.services import wallet as wallet_svc
+            from waifu_bot.services.wallet import InsufficientCurrency
+
+            try:
+                await wallet_svc.spend_gold(
+                    session,
+                    player,
+                    int(hire_cost),
+                    source="tavern_hire",
+                    ref_type="hire_slot",
+                    ref_id=int(chosen.slot),
+                )
+            except InsufficientCurrency:
+                return {"error": "not_enough_gold", "required": hire_cost, "gold": player.gold}
 
         # Legendary from template already has name/bio
         if getattr(waifu, "template_id", None):
@@ -438,7 +464,15 @@ class TavernService:
             pass
         if player.gold < cost:
             return {"error": "not_enough_gold", "required": cost, "gold": player.gold}
-        player.gold -= cost
+        from waifu_bot.services import wallet as wallet_svc
+        from waifu_bot.services.wallet import InsufficientCurrency
+
+        try:
+            await wallet_svc.spend_gold(
+                session, player, int(cost), source="tavern_heal", ref_type="player", ref_id=int(player_id)
+            )
+        except InsufficientCurrency as exc:
+            return {"error": "not_enough_gold", "required": cost, "gold": exc.have}
         waifu.current_hp = current_hp
         minutes = start_heal_over_time(waifu, now)
         await session.commit()

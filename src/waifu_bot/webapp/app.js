@@ -183,7 +183,7 @@ function resolveWebappShellVersion() {
       /* ignore */
     }
   }
-  return "waifu-webapp-v82";
+  return "waifu-webapp-v84";
 }
 
 const WAIFU_WEBAPP_VERSION = resolveWebappShellVersion();
@@ -962,7 +962,7 @@ function parseHttpErrorDetail(err) {
   try {
     const obj = JSON.parse(tail);
     const detail = obj?.detail != null ? formatApiErrorDetail(obj.detail) : tail;
-    return { raw: msg, detail, status };
+    return { raw: msg, detail, status, payload: obj, detailObj: obj?.detail };
   } catch {
     return { raw: msg, detail: tail || msg, status };
   }
@@ -4212,6 +4212,18 @@ function renderPerfectionPanel(state) {
   const pct = need > 0 ? Math.round(clamp01(xp / need) * 100) : 0;
   const pendingCount = Number(state.pending_count || 0);
   const summary = Array.isArray(state.bonuses_summary) ? state.bonuses_summary : [];
+  const history = Array.isArray(state.permanent_history) ? state.permanent_history : [];
+  const historyHtml = history.length
+    ? `<ul class="perfection-bonus-list">${history
+        .map(
+          (b) =>
+            `<li><span>${escapeHtml(b.title_ru || b.bonus_id)}</span><strong>${escapeHtml(
+              b.display_value || ""
+            )}</strong><em class="perfection-bonus-tag">ур. ${escapeHtml(String(b.perfection_level_gained || ""))}</em>
+            <button type="button" class="btn tiny" onclick="WaifuApp.openPerfectionRespec(${b.row_id})">Переназначить</button></li>`
+        )
+        .join("")}</ul>`
+    : `<p class="muted tiny">Постоянных бонусов пока нет.</p>`;
   const summaryHtml = summary.length
     ? `<ul class="perfection-bonus-list">${summary
         .map(
@@ -4221,7 +4233,7 @@ function renderPerfectionPanel(state) {
             )}</strong><em class="perfection-bonus-tag">${escapeHtml(b.label || "Навсегда")}</em></li>`
         )
         .join("")}</ul>`
-    : `<p class="muted tiny">Постоянных бонусов пока нет — выберите первый оффер.</p>`;
+    : "";
   root.innerHTML = `
     <div class="perfection-header">
       <div class="perfection-level-line">Совершенствование <strong>${lvl}</strong> · тир ${Number(state.tier || 1)}</div>
@@ -4235,6 +4247,8 @@ function renderPerfectionPanel(state) {
     </div>
     <h3 class="section-head">Текущие бонусы</h3>
     ${summaryHtml}
+    <h3 class="section-head">Постоянные</h3>
+    ${historyHtml}
   `;
   const btn = document.getElementById("perfection-open-choose");
   if (btn && pendingCount > 0) {
@@ -4277,23 +4291,116 @@ async function choosePerfectionOption(pendingId, optionIndex) {
   }
 }
 
+async function openPerfectionRespec(rowId) {
+  try {
+    const data = await apiFetch("/perfection/respec/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bonus_row_id: Number(rowId) }),
+    });
+    const p = data.pending || data;
+    const modal = document.getElementById("perfection-choose-modal");
+    const body = document.getElementById("perfection-choose-body");
+    const title = document.getElementById("perfection-choose-title");
+    if (!modal || !body) return;
+    if (title) title.textContent = "Переназначить бонус";
+    const cur = p.current || {};
+    const opts = (p.options || [])
+      .map(
+        (o, idx) =>
+          `<button type="button" class="perfection-choose-card" onclick="WaifuApp.confirmPerfectionRespec(${rowId},${idx},${p.gold_cost || 0},${cur.perfection_level_gained || 1})">
+            <strong class="perfection-choose-name">${escapeHtml(o.title_ru || o.bonus_id)}</strong>
+            <span class="perfection-choose-value">${escapeHtml(o.display_value || "")}</span>
+          </button>`
+      )
+      .join("");
+    body.innerHTML = `
+      <div class="muted tiny">Сейчас: ${escapeHtml(cur.title_ru || "")} · ${escapeHtml(cur.display_value || "")}</div>
+      <div class="perfection-choose-grid">${opts}</div>
+      <div>${p.gold_cost || 0} 🪙</div>
+      <button type="button" class="secondary" onclick="WaifuApp.confirmPerfectionRespec(${rowId},'keep',0,0)">Оставить как есть — бесплатно</button>
+    `;
+    modal.style.display = "flex";
+    maybeShowFtue(
+      "respec",
+      "Мгновенные награды и очки навыков переназначить нельзя. Платите только за новый бонус."
+    ).catch(() => {});
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    if (detail === "respec_already_rolled") {
+      showToast("Сегодня этот бонус уже переназначали. Новые варианты — после 00:00 МСК.", "error");
+      return;
+    }
+    showToast(detail || "Не удалось открыть переназначение", "error");
+  }
+}
+
+async function confirmPerfectionRespec(rowId, optionIndex, gold, pLevel) {
+  if (optionIndex !== "keep") {
+    const ok = await confirmAction(
+      `Заменить бонус за ${gold} 🪙?\nСила как при получении (ур. ${pLevel}), не текущий тир.`
+    );
+    if (!ok) return;
+  }
+  try {
+    const state = await apiFetch("/perfection/respec/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bonus_row_id: Number(rowId), option_index: optionIndex }),
+    });
+    closePerfectionChooseModal();
+    renderPerfectionPanel(state);
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    if (detail === "expired") {
+      showToast("Варианты сгорели. Золото не брали. Сегодня этот бонус уже открывали — новые после 00:00 МСК.", "error");
+      return;
+    }
+    showToast(detail || "Не удалось заменить", "error");
+  }
+}
+
+let _ftueShownThisSession = false;
+
+async function maybeShowFtue(key, message) {
+  if (_ftueShownThisSession) return;
+  try {
+    const w = await apiFetch("/wallet").catch(() => null);
+    const seen = w?.tutorial_progress?.seen || {};
+    if (seen[key]) return;
+    _ftueShownThisSession = true;
+    showToast(message, "info");
+    await apiFetch(`/wallet/ftue-seen?key=${encodeURIComponent(key)}`, { method: "POST" }).catch(() => {});
+  } catch (e) {
+    /* ignore */
+  }
+}
+window.maybeShowFtue = maybeShowFtue;
+
 function consumeShopSmithIntent() {
   let openSmith = false;
   let smithItemId = null;
+  let work = null;
   try {
     const t = sessionStorage.getItem("waifu_shop_intent_tab");
     const raw = sessionStorage.getItem("waifu_shop_smith_item_id");
+    const w = sessionStorage.getItem("waifu_shop_smith_work");
     sessionStorage.removeItem("waifu_shop_intent_tab");
     sessionStorage.removeItem("waifu_shop_smith_item_id");
+    sessionStorage.removeItem("waifu_shop_smith_work");
     openSmith = t === "smith";
     if (raw != null) {
       const n = Number(raw);
       if (Number.isFinite(n) && n > 0) smithItemId = n;
     }
+    if (w) work = String(w);
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("tab") === "smith") openSmith = true;
+    if (params.get("work")) work = params.get("work");
   } catch (e) {
     /* ignore */
   }
-  return { openSmith, smithItemId };
+  return { openSmith, smithItemId, work };
 }
 
 async function applyShopSmithNavigationIntent(intent) {
@@ -4304,10 +4411,16 @@ async function applyShopSmithNavigationIntent(intent) {
   switchShopTab("smith");
   await loadSmithTab();
   const sid = intent.smithItemId;
+  if (intent.work) shopState.smithWork = intent.work;
   if (sid != null && shopState.smithItems.some((x) => x.id === sid)) {
     shopState.smithSelectedId = sid;
     updateSmithSelectionUI();
     await refreshSmithPreview();
+  }
+  if (intent.work && intent.work !== "sharpen" && intent.work !== "craft") {
+    switchSmithSubTab(intent.work);
+  } else if (intent.work === "craft") {
+    switchSmithSubTab("craft");
   }
 }
 
@@ -4962,8 +5075,9 @@ function updateSmithMetaFromProfile(pr) {
   if (!pr) return;
   const stEl = document.getElementById("shop-smith-stones");
   const dEl = document.getElementById("shop-smith-dust-hint");
-  if (stEl) stEl.textContent = String(pr.protection_stones ?? 0);
-  if (dEl) dEl.textContent = String(pr.enchant_dust ?? 0);
+  if (stEl) stEl.textContent = Number(pr.protection_stones || 0) > 0 ? String(pr.protection_stones) : "";
+  if (dEl) dEl.textContent = Number(pr.enchant_dust || 0) > 0 ? String(pr.enchant_dust) : "";
+  refreshSmithWalletIcons().catch(() => {});
 }
 
 function syncSmithEnchantBadge(level, visible) {
@@ -4988,9 +5102,14 @@ function setSmithSharpenControlsDisabled(disabled) {
 }
 
 function switchSmithSubTab(name) {
-  const tab = name === "craft" ? "craft" : "sharpen";
+  const tab = name === "enhance" || name === "temper" || name === "refine" || name === "reforge"
+    ? "enhance"
+    : name === "craft"
+      ? "craft"
+      : "sharpen";
   shopState.smithSubTab = tab;
-  ["sharpen", "craft"].forEach((t) => {
+  shopState.smithWork = name === "temper" || name === "refine" || name === "reforge" ? name : shopState.smithWork;
+  ["sharpen", "craft", "enhance"].forEach((t) => {
     const btn = document.getElementById(`shop-smith-subtab-${t}`);
     if (btn) btn.classList.toggle("active", t === tab);
     const panel = document.getElementById(`shop-smith-panel-${t}`);
@@ -5000,6 +5119,8 @@ function switchSmithSubTab(name) {
   });
   if (tab === "craft") {
     refreshSmithCraftPreview().catch(console.error);
+  } else if (tab === "enhance") {
+    refreshSmithEnhancePreview().catch(console.error);
   } else {
     refreshSmithPreview().catch(console.error);
   }
@@ -5007,6 +5128,406 @@ function switchSmithSubTab(name) {
 
 window.WaifuApp = window.WaifuApp || {};
 window.WaifuApp.switchSmithSubTab = switchSmithSubTab;
+
+async function refreshSmithWalletIcons() {
+  const w = await apiFetch("/wallet").catch(() => null);
+  if (!w) return;
+  shopState.wallet = w;
+  const setIcon = (id, amount) => {
+    const el = document.getElementById(id);
+    const wrap = el && el.closest(".shop-smith-res-item");
+    const n = Number(amount || 0);
+    if (el) el.textContent = n > 0 ? String(n) : "";
+    if (wrap) wrap.style.opacity = n > 0 ? "1" : "0.4";
+  };
+  setIcon("shop-smith-dust-hint", w.wallet?.enchant_dust ?? w.gold);
+  if (document.getElementById("shop-smith-dust-hint") && w.wallet) {
+    document.getElementById("shop-smith-dust-hint").textContent =
+      Number(w.wallet.enchant_dust || 0) > 0 ? String(w.wallet.enchant_dust) : "";
+  }
+  setIcon("shop-smith-cores", w.wallet?.refine_core);
+  setIcon("shop-smith-essence", w.wallet?.refine_essence);
+  setIcon("shop-smith-ember", w.wallet?.legendary_ember);
+}
+
+function openSmithResSheet(kind) {
+  const w = shopState.wallet || {};
+  const wallet = w.wallet || {};
+  const lines = {
+    dust: {
+      title: "Пыль",
+      qty: wallet.enchant_dust || 0,
+      use: "Зачарование и закалка (общий пул).",
+      src: "Распыл в инвентаре. Продажа пыль не даёт. Испытание III–V — бонус первого клира.",
+      cta: ["К инвентарю", "./profile.html"],
+    },
+    stone: {
+      title: "Камни защиты",
+      qty: w.protection_stones || 0,
+      use: "Заточка +8 и выше.",
+      src: "Магазин кузницы.",
+      cta: null,
+    },
+    core: {
+      title: "Ядра",
+      qty: wallet.refine_core || 0,
+      use: "Доводка до «Продвинутый».",
+      src: "Сложность +6 и выше, Бездна, испытание III–V (первый клир).",
+      cta: ["К подземельям", "./dungeons.html"],
+    },
+    essence: {
+      title: "Эссенция",
+      qty: wallet.refine_essence || 0,
+      use: "Доводка до «Великолепный».",
+      src: "Только Бездна, этаж 30+.",
+      cta: ["В Бездну", "./dungeons.html?tab=abyss"],
+    },
+    ember: {
+      title: "Угли",
+      qty: wallet.legendary_ember || 0,
+      use: "Перековка уникального бонуса легендарки.",
+      src: "Только Бездна, этаж 50+.",
+      cta: ["В Бездну", "./dungeons.html?tab=abyss"],
+    },
+  };
+  const info = lines[kind];
+  if (!info) return;
+  let sheet = document.getElementById("smith-res-sheet");
+  if (!sheet) {
+    sheet = document.createElement("div");
+    sheet.id = "smith-res-sheet";
+    sheet.className = "modal";
+    sheet.style.display = "none";
+    sheet.onclick = (ev) => {
+      if (ev.target === sheet) sheet.style.display = "none";
+    };
+    document.body.appendChild(sheet);
+  }
+  const cta =
+    info.qty <= 0 && info.cta
+      ? `<button type="button" class="primary" onclick="location.href='${info.cta[1]}'">${info.cta[0]}</button>`
+      : "";
+  sheet.innerHTML = `<div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-head"><div class="modal-title">${escapeHtml(info.title)}</div>
+      <button type="button" class="secondary" onclick="document.getElementById('smith-res-sheet').style.display='none'">✖</button></div>
+    <p>${escapeHtml(info.title)} · ${info.qty} · ${escapeHtml(info.use)}</p>
+    <p class="muted tiny">${escapeHtml(info.src)}</p>
+    ${cta}
+  </div>`;
+  sheet.style.display = "grid";
+}
+
+function itemGradeMarkHtml(item) {
+  const g = Number(item?.refined_grade || 0);
+  if (g === 1) return `<span class="grade-mark grade-mark--1" title="Продвинутый">▲</span>`;
+  if (g === 2) return `<span class="grade-mark grade-mark--2" title="Великолепный">◆</span>`;
+  return "";
+}
+
+function smithWorkForItem(item) {
+  const r = Number(item?.rarity || 0);
+  if (r >= 6) return "enhance";
+  if (r === 5) return "reforge";
+  if (r === 3 || r === 4) return "temper";
+  return "refine";
+}
+
+async function refreshSmithEnhancePreview() {
+  const box = document.getElementById("shop-smith-enhance-preview");
+  if (!box) return;
+  const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
+  const item = id ? (shopState.smithItems || []).find((x) => x.id === id) : null;
+  if (!item) {
+    box.innerHTML = `<div class="muted tiny">Выберите предмет. Здесь появятся закалка, доводка или перековка.</div>`;
+    return;
+  }
+  const r = Number(item.rarity || 0);
+  if (r >= 6) {
+    box.innerHTML = `<div class="muted tiny">Этот предмет нельзя закаливать, доводить и перековывать.</div>`;
+    return;
+  }
+  const work = shopState.smithWork || smithWorkForItem(item);
+  const blocks = [];
+  if (r === 3 || r === 4) {
+    const aff = Array.isArray(item.affixes) ? item.affixes.filter((a) => a.kind === "affix" || a.kind === "suffix") : [];
+    let temperInner = aff.length
+      ? aff
+          .map(
+            (a) =>
+              `<div class="shop-smith-enhance-row"><span>${escapeHtml(a.name || "")} · ${escapeHtml(String(a.value || ""))}</span><button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.smithTemperQuote(${item.id},${a.id})">Закалить</button></div>`
+          )
+          .join("")
+      : `<div class="muted tiny">Нечего закаливать.</div>`;
+    blocks.push(collapsibleSmithBlock("temper", "Закалка", temperInner, work === "temper"));
+    blocks.push(collapsibleSmithBlock("refine", "Доводка", await smithRefineBlockHtml(item), work === "refine"));
+  } else if (r === 5) {
+    blocks.push(`<div class="muted tiny">Свойства легендарки не закаливают — меняется уникальный бонус.</div>`);
+    blocks.push(collapsibleSmithBlock("reforge", "Перековка", await smithReforgeBlockHtml(item), work === "reforge"));
+  } else {
+    blocks.push(`<div class="muted tiny">Только редкие и эпические.</div>`);
+    blocks.push(collapsibleSmithBlock("refine", "Доводка", await smithRefineBlockHtml(item), true));
+  }
+  box.innerHTML = blocks.join("");
+  if (work) {
+    const el = document.getElementById(`smith-block-${work}`);
+    if (el) {
+      el.open = true;
+      el.classList.add("smith-block-flash");
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setTimeout(() => el.classList.remove("smith-block-flash"), 1500);
+    }
+  }
+}
+
+function collapsibleSmithBlock(id, title, inner, open) {
+  return `<details id="smith-block-${id}" class="shop-smith-enhance-block" ${open ? "open" : ""}><summary>${escapeHtml(title)}</summary>${inner}</details>`;
+}
+
+async function smithRefineBlockHtml(item) {
+  const r = Number(item.rarity || 0);
+  if (r >= 5) return "";
+  const g = Number(item.refined_grade || 0);
+  if (g >= 2) return `<div class="muted tiny">Максимум. Дальше заточка и зачарование.</div>`;
+  const prev = await apiFetch(`/inventory/${item.id}/refine-preview`).catch(() => null);
+  if (prev?.error === "template_unresolved") return `<div class="muted tiny">Шаблон не найден.</div>`;
+  if (prev?.error === "refine_max") return `<div class="muted tiny">Максимум. Дальше заточка и зачарование.</div>`;
+  if (prev?.error) return `<div class="muted tiny">${escapeHtml(String(prev.error))}</div>`;
+  const label = prev.to_grade === 2 ? "Великолепный" : "Продвинутый";
+  const from = prev.from_grade === 1 ? "Продвинутый" : "Сейчас без доводки";
+  const needCore = Number(prev.cores || 0);
+  const needEss = Number(prev.essence || 0);
+  let farm = "";
+  if (needCore && Number(prev.have_cores || 0) < needCore) {
+    farm = `<div class="muted tiny">${escapeHtml(prev.farm_cores || "")}</div><button type="button" class="shop-smith-ctrl-btn" onclick="location.href='./dungeons.html'">К подземельям</button>`;
+  } else if (needEss && Number(prev.have_essence || 0) < needEss) {
+    farm = `<div class="muted tiny">${escapeHtml(prev.farm_essence || "")}</div><button type="button" class="shop-smith-ctrl-btn" onclick="location.href='./dungeons.html?tab=abyss'">В Бездну</button>`;
+  }
+  const dmg = prev.before?.damage_min != null
+    ? `Было ${prev.before.damage_min}–${prev.before.damage_max} → станет ${prev.after.damage_min}–${prev.after.damage_max}`
+    : "";
+  return `<div>
+    <div>Довести до «${label}»?</div>
+    <div class="muted tiny">${from} → ${label}</div>
+    <div class="muted tiny">${escapeHtml(dmg)}</div>
+    <div>${needCore ? `${needCore} ядер` : `${needEss} эссенций`} + ${prev.gold} 🪙</div>
+    <div class="muted tiny">Обратно откатить нельзя.</div>
+    ${farm}
+    ${farm ? "" : `<button type="button" class="shop-smith-ctrl-btn shop-smith-ctrl-btn--primary" onclick="WaifuApp.smithRefineApply(${item.id})">Довести</button>`}
+  </div>`;
+}
+
+async function smithReforgeBlockHtml(item) {
+  const q = await apiFetch(`/inventory/${item.id}/reforge-quote`).catch(() => null);
+  if (q?.error === "raid_forbidden") return `<div class="muted tiny">Этот предмет нельзя закаливать, доводить и перековывать.</div>`;
+  if (q?.error === "not_legendary") return "";
+  if (q?.open_pending) {
+    return `<div>Незавершённая перековка · ${fmtMmSs(q.open_pending.expires_in_sec)} · <button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.smithReforgeResume(${item.id})">Продолжить</button></div>`;
+  }
+  const ember = Number(q?.ember || 1);
+  const have = Number(shopState.wallet?.wallet?.legendary_ember || 0);
+  if (have < ember) {
+    return `<div class="muted tiny">Углей нет. Только Бездна, этаж 50+.</div><button type="button" class="shop-smith-ctrl-btn" onclick="location.href='./dungeons.html?tab=abyss'">В Бездну</button>`;
+  }
+  const cur = (q?.current || []).map((b) => escapeHtml(b.name || b.bonus_key || "")).join(", ");
+  return `<div>
+    <div>Перековать уникальный бонус?</div>
+    <div class="muted tiny">Сейчас: ${cur || "—"}</div>
+    <div class="muted tiny">Перековка №${q.roll_index} из 8 (лестница углей 1/2/3, золото не растёт)</div>
+    <div>${ember} углей + ${q.gold} золота</div>
+    <div class="muted tiny">Угли только с Бездны, этаж 50+.</div>
+    <div class="muted tiny">Плата за ролл. Возврата не будет. Можно оставить бонус как есть.</div>
+    <label><input type="checkbox" id="reforge-ack-box" ${q.ack ? "checked" : ""} onchange="document.getElementById('reforge-pay-btn').disabled=!this.checked"/> Понимаю: угли и золото не вернут.</label>
+    <button type="button" class="shop-smith-ctrl-btn shop-smith-ctrl-btn--primary" id="reforge-pay-btn" ${q.ack ? "" : "disabled"} onclick="WaifuApp.smithReforgeRoll(${item.id})">Заплатить и увидеть варианты</button>
+  </div>`;
+}
+
+function fmtMmSs(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
+
+async function smithTemperQuote(itemId, affixRowId) {
+  const q = await apiFetch(`/inventory/${itemId}/temper-quote?affix_row_id=${affixRowId}`).catch((e) => e);
+  if (q?.error === "open_pending" || q?.open_pending) {
+    return smithTemperShowOptions(itemId, q.pending || q.open_pending);
+  }
+  if (q?.error) {
+    showToast(q.error === "raid_forbidden" ? "Этот предмет нельзя закаливать, доводить и перековывать." : String(q.error), "error");
+    return;
+  }
+  const box = document.getElementById("shop-smith-enhance-preview");
+  if (!box) return;
+  const haveDust = Number(shopState.wallet?.wallet?.enchant_dust || 0);
+  const needDust = Number(q.dust || 0);
+  const farm =
+    needDust > 0 && haveDust < needDust
+      ? `<div class="muted tiny">Пыли нет. Добыча: распыл в инвентаре. Продажа пыль не даёт.</div><button type="button" class="shop-smith-ctrl-btn" onclick="location.href='./profile.html'">К инвентарю</button>`
+      : "";
+  box.innerHTML = `<div>
+    <div>Закалить свойство?</div>
+    <div>Сейчас: ${escapeHtml(q.current?.name || "")} · ${escapeHtml(String(q.current?.value || ""))}</div>
+    <div>Закалка №${q.roll_index} из 8 (дальше цена не растёт)</div>
+    <div>${q.dust} пыли + ${q.gold} золота</div>
+    <div class="muted tiny">Плата за ролл. Возврата не будет. Можно оставить свойство как есть.</div>
+    ${farm}
+    <label><input type="checkbox" id="temper-ack-box" ${q.ack ? "checked" : ""} onchange="document.getElementById('temper-pay-btn').disabled=!this.checked"/> Понимаю: пыль и золото не вернут.</label>
+    <button type="button" class="shop-smith-ctrl-btn shop-smith-ctrl-btn--primary" id="temper-pay-btn" ${q.ack && !farm ? "" : "disabled"} onclick="WaifuApp.smithTemperRoll(${itemId},${affixRowId})">Заплатить и увидеть варианты</button>
+    <button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.refreshSmithEnhancePreview()">Отмена</button>
+  </div>`;
+}
+
+async function smithTemperRoll(itemId, affixRowId) {
+  const ack = Boolean(document.getElementById("temper-ack-box")?.checked);
+  try {
+    if (ack) await apiFetch(`/inventory/${itemId}/temper/ack`, { method: "POST" });
+    const res = await apiFetch(`/inventory/${itemId}/temper/roll`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ affix_row_id: affixRowId, ack }),
+    });
+    if (res.error === "open_pending") return smithTemperShowOptions(itemId, res.pending);
+    smithTemperShowOptions(itemId, res.pending);
+  } catch (e) {
+    const parsed = parseHttpErrorDetail(e);
+    const pending = parsed.detailObj?.pending || parsed.payload?.detail?.pending;
+    if (parsed.status === 409 && (pending || String(parsed.detail || "").includes("open_pending"))) {
+      return smithTemperShowOptions(itemId, pending);
+    }
+    if (String(parsed.detail || "").includes("preview") || String(parsed.detail || "").includes("pending")) {
+      showToast("Не удалось закалить", "error");
+      return;
+    }
+    showToast(parsed.detail || "Не удалось закалить", "error");
+  }
+}
+
+function smithTemperShowOptions(itemId, pending) {
+  const box = document.getElementById("shop-smith-enhance-preview");
+  if (!box || !pending) return;
+  const opts = (pending.options || [])
+    .map(
+      (o, i) =>
+        `<button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.smithTemperApply(${itemId},${i})">${escapeHtml(o.name || "")} · ${escapeHtml(String(o.value || ""))}</button>`
+    )
+    .join("");
+  box.innerHTML = `<div>
+    <div>Выберите свойство</div>
+    <div class="muted tiny">Осталось ${fmtMmSs(pending.expires_in_sec)}</div>
+    ${opts}
+    <button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.smithTemperApply(${itemId},null,true)">Оставить как есть</button>
+    <button type="button" class="shop-smith-ctrl-btn" onclick="if(confirm('Варианты сгорят без возврата. Свойство останется прежним.')) WaifuApp.smithTemperBurn(${itemId})">Сжечь ролл</button>
+  </div>`;
+}
+
+async function smithTemperApply(itemId, optionIndex, keep) {
+  try {
+    await apiFetch(`/inventory/${itemId}/temper/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ option_index: optionIndex, keep: Boolean(keep) }),
+    });
+    showToast(keep ? "Свойство прежнее" : "Свойство заменено", "success");
+    await loadSmithTab();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail === "expired" ? "Ролл сгорел. Пыль и золото не вернулись. Свойство прежнее." : (detail || "Ошибка"), "error");
+    await refreshSmithEnhancePreview();
+  }
+}
+
+async function smithTemperBurn(itemId) {
+  await apiFetch(`/inventory/${itemId}/temper/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ burn: true }),
+  }).catch(() => {});
+  showToast("Варианты сгорели без возврата. Свойство прежнее.", "info");
+  await refreshSmithEnhancePreview();
+}
+
+async function smithRefineApply(itemId) {
+  try {
+    const res = await apiFetch(`/inventory/${itemId}/refine`, { method: "POST" });
+    showToast(res.art_note || "Доведено", "success");
+    await loadSmithTab();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось довести", "error");
+  }
+}
+
+async function smithReforgeRoll(itemId) {
+  const ack = Boolean(document.getElementById("reforge-ack-box")?.checked);
+  try {
+    if (ack) await apiFetch(`/inventory/${itemId}/reforge/ack`, { method: "POST" });
+    const res = await apiFetch(`/inventory/${itemId}/reforge/roll`, { method: "POST" });
+    smithReforgeShowOptions(itemId, res.pending || res);
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail || "Не удалось перековать", "error");
+  }
+}
+
+function smithReforgeShowOptions(itemId, pending) {
+  const box = document.getElementById("shop-smith-enhance-preview");
+  if (!box || !pending) return;
+  const opts = (pending.options || [])
+    .map(
+      (o, i) =>
+        `<button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.smithReforgeApply(${itemId},${i})">${escapeHtml(o.bonus_key || o.name || ("бонус " + (i + 1)))}</button>`
+    )
+    .join("");
+  box.innerHTML = `<div>
+    <div>Выберите уникальный бонус</div>
+    <div class="muted tiny">Осталось ${fmtMmSs(pending.expires_in_sec)}</div>
+    ${opts}
+    <button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.smithReforgeApply(${itemId},null,true)">Оставить как есть</button>
+    <button type="button" class="shop-smith-ctrl-btn" onclick="if(confirm('Варианты сгорят без возврата. Уникальный бонус останется прежним.')) WaifuApp.smithReforgeBurn(${itemId})">Сжечь ролл</button>
+  </div>`;
+}
+
+async function smithReforgeApply(itemId, optionIndex, keep) {
+  try {
+    await apiFetch(`/inventory/${itemId}/reforge/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ option_index: optionIndex, keep: Boolean(keep) }),
+    });
+    showToast(keep ? "Бонус прежний" : "Уникальный бонус заменён", "success");
+    await loadSmithTab();
+  } catch (e) {
+    const { detail } = parseHttpErrorDetail(e);
+    showToast(detail === "expired" ? "Ролл сгорел. Угли и золото не вернулись. Бонус прежний." : (detail || "Ошибка"), "error");
+  }
+}
+
+async function smithReforgeBurn(itemId) {
+  await apiFetch(`/inventory/${itemId}/reforge/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ burn: true }),
+  }).catch(() => {});
+  await refreshSmithEnhancePreview();
+}
+
+async function smithReforgeResume(itemId) {
+  const q = await apiFetch(`/inventory/${itemId}/reforge-quote`).catch(() => null);
+  if (q?.open_pending) smithReforgeShowOptions(itemId, q.open_pending);
+}
+
+window.WaifuApp.refreshSmithEnhancePreview = refreshSmithEnhancePreview;
+window.WaifuApp.smithTemperQuote = smithTemperQuote;
+window.WaifuApp.smithTemperRoll = smithTemperRoll;
+window.WaifuApp.smithTemperApply = smithTemperApply;
+window.WaifuApp.smithTemperBurn = smithTemperBurn;
+window.WaifuApp.smithRefineApply = smithRefineApply;
+window.WaifuApp.smithReforgeRoll = smithReforgeRoll;
+window.WaifuApp.smithReforgeApply = smithReforgeApply;
+window.WaifuApp.smithReforgeBurn = smithReforgeBurn;
+window.WaifuApp.smithReforgeResume = smithReforgeResume;
+window.WaifuApp.openSmithResSheet = openSmithResSheet;
 
 function updateSmithSelectionUI() {
   const id = shopState.smithSelectedId;
@@ -5142,6 +5663,7 @@ function pickSmithItem(id) {
   updateSmithSelectionUI();
   refreshSmithPreview().catch(console.error);
   refreshSmithCraftPreview().catch(console.error);
+  refreshSmithEnhancePreview().catch(console.error);
 }
 
 async function loadSmithTab() {
@@ -5161,6 +5683,8 @@ async function loadSmithTab() {
   updateSmithSelectionUI();
   await refreshSmithPreview();
   await refreshSmithCraftPreview();
+  await refreshSmithEnhancePreview();
+  await refreshSmithWalletIcons();
 }
 
 async function refreshSmithPreview() {
@@ -6754,8 +7278,8 @@ function itemEnchantOverlayHtml(item, context = "bag") {
   if (br) {
     return `<span class="item-enchant-overlay item-enchant-overlay--${ctx} item-enchant-overlay--broken" title="Сломан">—</span>`;
   }
-  if (en <= 0) return "";
-  return `<span class="item-enchant-overlay item-enchant-overlay--${ctx}">+${en}</span>`;
+  if (en <= 0) return itemGradeMarkHtml(item);
+  return `<span class="item-enchant-overlay item-enchant-overlay--${ctx}">+${en}${itemGradeMarkHtml(item)}</span>`;
 }
 
 function buildItemModalEnchantRowHtml(item) {
@@ -6767,7 +7291,14 @@ function buildItemModalEnchantRowHtml(item) {
     const cls = mxf ? " item-modal-v2-pip--mx" : f ? " item-modal-v2-pip--f" : "";
     return `<div class="item-modal-v2-pip${cls}" aria-hidden="true"></div>`;
   }).join("");
-  return `<div class="item-modal-v2-pips">${pips}</div>`;
+  const g = Number(item?.refined_grade || 0);
+  const grade =
+    g === 1
+      ? `<span class="item-modal-v2-grade">Продвинутый</span>`
+      : g === 2
+        ? `<span class="item-modal-v2-grade item-modal-v2-grade--2">Великолепный</span>`
+        : "";
+  return `<div class="item-modal-v2-ench-row"><div class="item-modal-v2-pips">${pips}</div>${grade}</div>`;
 }
 
 function itemModalV2Subpanel(modifierClass, innerHtml) {
@@ -6962,11 +7493,12 @@ function renderItemModalV2CharacteristicsHtml(item) {
   return [basePanel, legendaryPanel, otherHtml].filter(Boolean).join("");
 }
 
-function goShopSmithEnchant(inventoryItemId) {
+function goShopSmithEnchant(inventoryItemId, work) {
   const id = Number(inventoryItemId);
   if (!Number.isFinite(id) || id <= 0) return;
   const onShop =
     typeof window !== "undefined" && String(window.location.pathname || "").endsWith("/shop.html");
+  const workKey = work || "sharpen";
   if (onShop) {
     closeItemModal();
     void (async () => {
@@ -6974,8 +7506,9 @@ function goShopSmithEnchant(inventoryItemId) {
       await loadSmithTab();
       if (shopState.smithItems.some((x) => x.id === id)) {
         shopState.smithSelectedId = id;
+        shopState.smithWork = workKey;
         updateSmithSelectionUI();
-        await refreshSmithPreview();
+        switchSmithSubTab(workKey);
       } else {
         showToast("Предмет не найден в инвентаре", "error");
       }
@@ -6985,16 +7518,17 @@ function goShopSmithEnchant(inventoryItemId) {
   try {
     sessionStorage.setItem("waifu_shop_intent_tab", "smith");
     sessionStorage.setItem("waifu_shop_smith_item_id", String(id));
+    sessionStorage.setItem("waifu_shop_smith_work", workKey);
   } catch (e) {
     /* ignore */
   }
-  window.location.href = "./shop.html";
+  window.location.href = `./shop.html?tab=smith&work=${encodeURIComponent(workKey)}`;
 }
 
 function goShopSmithEnchantFromModal() {
   const it = profileState.selectedItem;
   if (!it?.id) return;
-  goShopSmithEnchant(it.id);
+  goShopSmithEnchant(it.id, smithWorkForItem(it));
 }
 
 function renderWeaponStatsHtml(item) {
@@ -8564,6 +9098,8 @@ function openItemModal(item) {
     const showEnch = canSmith;
     enchBtn.style.display = showEnch ? "" : "none";
     enchBtn.disabled = false;
+    enchBtn.setAttribute("aria-label", "Кузница");
+    enchBtn.setAttribute("title", "Кузница");
   }
 
   let visibleFooter = 0;
@@ -16030,6 +16566,12 @@ const SMITH_HELP_HTML = `
   <p>Оплачивается пылью. Можно выдать, сменить (другой тип и значение) или усилить вторичный бонус на любом предмете. Пассивный бонус предмета зачарованием не меняется.</p>
   <h4>Пыль</h4>
   <p>Получается распылением предметов в инвентаре. Продажа предметов пыль не даёт.</p>
+  <h4>Закалка</h4>
+  <p>Платный ролл свойства на редком/эпическом. Пыль общая с зачарованием.</p>
+  <h4>Доводка</h4>
+  <p>Ядра из +6 и Бездны; эссенция только с 30+ Бездны.</p>
+  <h4>Перековка</h4>
+  <p>Угли с 50+ Бездны. Уникальный бонус легендарки, не имя и не заточка.</p>
   <h4>Ресурсы</h4>
   <p>Золото отображается в чердаке. Пыль и камни защиты — в строке над кузницей.</p>
 `;
@@ -16087,6 +16629,7 @@ function exportWebAppShellGlobals() {
     setText,
     setHTML,
     showToast,
+    maybeShowFtue,
     parseHttpErrorDetail,
     confirmAction,
     getPlusLevelForDungeon,
@@ -16145,6 +16688,8 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   closeHiddenSkillModal,
   closePerfectionChooseModal,
   loadPerfectionPanel,
+  openPerfectionRespec,
+  confirmPerfectionRespec,
   loadProfile,
   renderAtticDungeon,
   renderAtticLevelCircle,
@@ -16161,6 +16706,7 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   smithAutoSafeEnchant,
   smithTryCraftEnchant,
   refreshSmithCraftPreview,
+  refreshSmithEnhancePreview,
   openSmithHelpModal,
   closeSmithHelpModal,
   openSmithPickModal,

@@ -99,6 +99,13 @@ def tick_gd_v1_round() -> None:
     _run_tick("gd_daily_start", _gd_daily_start_tick)
 
 
+@dramatiq.actor(queue_name="default", actor_name="tick_challenge_day", max_retries=1, time_limit=600_000)
+def tick_challenge_day() -> None:
+    from waifu_bot.services.background import _challenge_day_tick_fn
+
+    _run_tick("challenge_day", _challenge_day_tick_fn)
+
+
 @dramatiq.actor(queue_name="default", actor_name="tick_abyss_daily_reset", max_retries=1, time_limit=600_000)
 def tick_abyss_daily_reset() -> None:
     from waifu_bot.services.background import _abyss_daily_reset_fn
@@ -146,6 +153,7 @@ TICK_ACTORS: dict[str, dramatiq.Actor] = {
     "gd_daily_start": tick_gd_daily_start,
     "gd_v1_round": tick_gd_v1_round,
     "abyss_daily_reset": tick_abyss_daily_reset,
+    "challenge_day": tick_challenge_day,
     "abyss_weekly_reset": tick_abyss_weekly_reset,
     "guild_quest_daily_reset": tick_guild_quest_daily_reset,
     "guild_quest_weekly_reset": tick_guild_quest_weekly_reset,

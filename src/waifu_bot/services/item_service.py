@@ -554,6 +554,9 @@ class ItemService:
         )
         session.add(inv)
         await session.flush()
+        from waifu_bot.services.refine import stamp_template_grade
+
+        await stamp_template_grade(session, inv, base if isinstance(base, dict) else None)
 
         min_a, max_a = AFFIX_COUNT.get(int(rarity), (0, 0))
         count = random.randint(min_a, max_a)
@@ -790,6 +793,9 @@ class ItemService:
         )
         session.add(inv)
         await session.flush()
+        from waifu_bot.services.refine import stamp_template_grade
+
+        await stamp_template_grade(session, inv, base if isinstance(base, dict) else None)
 
         if int(rarity) >= 5:
             await self._apply_legendary_static_affixes(
@@ -1246,6 +1252,9 @@ class ItemService:
         )
         session.add(inv)
         await session.flush()
+        from waifu_bot.services.refine import stamp_template_grade
+
+        await stamp_template_grade(session, inv, base if isinstance(base, dict) else None)
 
         min_a, max_a = AFFIX_COUNT.get(int(rarity), (0, 0))
         count = random.randint(min_a, max_a)
@@ -1473,6 +1482,9 @@ class ItemService:
         )
         session.add(inv)
         await session.flush()
+        from waifu_bot.services.refine import stamp_template_grade
+
+        await stamp_template_grade(session, inv, None)
 
         min_a, max_a = AFFIX_COUNT.get(rarity, (0, 0))
         count = random.randint(min_a, max_a)
@@ -1982,6 +1994,9 @@ class ItemService:
         )
         session.add(inv)
         await session.flush()
+        from waifu_bot.services.refine import stamp_template_grade
+
+        await stamp_template_grade(session, inv, base if isinstance(base, dict) else None)
 
         if int(eff_rarity) >= 5:
             await self._apply_legendary_static_affixes(

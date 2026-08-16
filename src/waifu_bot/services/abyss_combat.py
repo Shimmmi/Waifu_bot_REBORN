@@ -570,6 +570,7 @@ async def handle_abyss_attack(
     rewards = await _award_monster(
         session, player_id, waifu, monster, floor, modifier, grace, eff, cfg, rng,
         is_checkpoint_boss=is_cp,
+        progress=progress,
     )
 
     # Between-monster regen (only if still conscious; ANTI_REGEN affix blocks it).
@@ -739,6 +740,7 @@ async def _award_monster(
     rng: random.Random,
     *,
     is_checkpoint_boss: bool,
+    progress=None,
 ) -> dict:
     # Gold.
     gold = rng.randint(int(monster.get("gold_min") or 1), int(monster.get("gold_max") or 1))
@@ -755,8 +757,17 @@ async def _award_monster(
         exp = round(exp * float(grace.effect_value or 1.0))
 
     player = await session.get(Player, player_id)
-    if player is not None:
-        player.gold = int(player.gold or 0) + int(gold)
+    if player is not None and int(gold) > 0:
+        from waifu_bot.services import wallet as wallet_svc
+
+        await wallet_svc.add_gold(
+            session,
+            player,
+            int(gold),
+            source="abyss_kill",
+            ref_type="abyss_floor",
+            ref_id=int(floor),
+        )
     waifu.experience = int(waifu.experience or 0) + int(exp)
 
     # Item drop (skipped for checkpoint boss — handled separately, and skipped
@@ -769,7 +780,8 @@ async def _award_monster(
         if rng.random() < drop_chance:
             item = await _generate_drop(session, player_id, floor, rarity=None)
 
-    return {"gold": int(gold), "exp": int(exp), "item": item}
+    mats = await _roll_abyss_kill_mats(session, player_id, floor, cfg, rng, progress)
+    return {"gold": int(gold), "exp": int(exp), "item": item, **mats}
 
 
 async def _award_checkpoint(
@@ -786,17 +798,96 @@ async def _award_checkpoint(
     item = None
     if under_limit:
         shards = ar.calc_checkpoint_shards(cfg, floor)
-        progress.abyss_shards = int(progress.abyss_shards or 0) + shards
+        from waifu_bot.services import wallet as wallet_svc
+
+        if shards > 0:
+            await wallet_svc.add(
+                session,
+                int(player_id),
+                "abyss_shards",
+                int(shards),
+                source="abyss_checkpoint",
+                ref_type="abyss_floor",
+                ref_id=int(floor),
+            )
         progress.checkpoints_today = int(progress.checkpoints_today or 0) + 1
         progress.last_checkpoint_date = absvc.msk_today()
         if cfg_int(cfg, "abyss_checkpoint_item_guaranteed", 1) == 1:
             rarity = rng.choices([2, 3, 4, 5], weights=[30, 40, 20, 10])[0]
             item = await _generate_drop(session, player_id, floor, rarity=rarity)
+        mats = await _roll_abyss_checkpoint_mats(session, player_id, floor, cfg, progress, rng)
+    else:
+        mats = {"essence": 0, "ember": 0, "pity": int(getattr(progress, "ember_pity_paid_checkpoints", 0) or 0)}
     return {
         "shards": int(shards),
         "item": item,
         "limit_reached": (not under_limit),
+        **mats,
     }
+
+
+async def _roll_abyss_kill_mats(session, player_id, floor, cfg, rng, progress) -> dict:
+    from sqlalchemy.exc import IntegrityError
+
+    from waifu_bot.db.models.endgame import AbyssKillMatRoll
+    from waifu_bot.services import wallet as wallet_svc
+    from waifu_bot.services.game_config_service import cfg_float as _cf
+
+    out = {"core": 0, "essence": 0}
+    if progress is None:
+        return out
+    nonce = int(getattr(progress, "session_nonce", 0) or 0)
+    roll = AbyssKillMatRoll(player_id=int(player_id), session_nonce=nonce, floor=int(floor))
+    session.add(roll)
+    try:
+        async with session.begin_nested():
+            await session.flush()
+    except IntegrityError:
+        return out
+    if rng.random() < _cf(cfg, "refine.abyss_core_kill", 0.04):
+        await wallet_svc.add(
+            session, int(player_id), "refine_core", 1,
+            source="abyss_kill", ref_type="abyss_kill_mat", ref_id=int(roll.id),
+        )
+        out["core"] = 1
+    ess_floor = int(float(cfg.get("refine.abyss_essence_kill_floor", "30") or 30))
+    if int(floor) >= ess_floor and rng.random() < _cf(cfg, "refine.abyss_essence_kill", 0.02):
+        await wallet_svc.add(
+            session, int(player_id), "refine_essence", 1,
+            source="abyss_kill", ref_type="abyss_kill_ess", ref_id=int(roll.id),
+        )
+        out["essence"] = 1
+    return out
+
+
+async def _roll_abyss_checkpoint_mats(session, player_id, floor, cfg, progress, rng) -> dict:
+    from waifu_bot.services import wallet as wallet_svc
+    from waifu_bot.services.game_config_service import cfg_float as _cf, cfg_int as _ci
+
+    out = {"essence": 0, "ember": 0, "pity": int(getattr(progress, "ember_pity_paid_checkpoints", 0) or 0)}
+    ess_floor = _ci(cfg, "refine.abyss_essence_kill_floor", 30)
+    if int(floor) >= ess_floor and rng.random() < _cf(cfg, "refine.abyss_essence_checkpoint", 0.08):
+        await wallet_svc.add(
+            session, int(player_id), "refine_essence", 1,
+            source="abyss_checkpoint", ref_type="abyss_cp_ess", ref_id=int(floor),
+        )
+        out["essence"] = 1
+    ember_floor = _ci(cfg, "refine.abyss_ember_checkpoint_floor", 50)
+    pity_n = _ci(cfg, "reforge.abyss_ember_pity_n", 8)
+    if int(floor) >= ember_floor:
+        progress.ember_pity_paid_checkpoints = int(progress.ember_pity_paid_checkpoints or 0) + 1
+        grant = rng.random() < _cf(cfg, "refine.abyss_ember_checkpoint", 0.05)
+        if int(progress.ember_pity_paid_checkpoints or 0) >= pity_n:
+            grant = True
+        if grant:
+            await wallet_svc.add(
+                session, int(player_id), "legendary_ember", 1,
+                source="abyss_checkpoint", ref_type="abyss_cp_ember", ref_id=int(floor),
+            )
+            progress.ember_pity_paid_checkpoints = 0
+            out["ember"] = 1
+        out["pity"] = int(progress.ember_pity_paid_checkpoints or 0)
+    return out
 
 
 async def _generate_drop(
