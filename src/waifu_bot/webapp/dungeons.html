@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Подземелья</title>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v84" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
-    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v84" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v88" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
+    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v88" />
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v84" onerror="console.warn('combat island skipped')"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v84" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
-    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v84" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v64'"></script>
+    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v88" onerror="console.warn('combat island skipped')"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v88" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
+    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v88" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v64'"></script>
     <style>
       .hp-fill-monster.monster-hp-fill--unknown {
         opacity: 0.35;
@@ -48,6 +48,12 @@
       #monster-visual { position: relative; }
       /* ОЧ — палитра как в магазине / таверне, читаемый текст */
       body.page-dungeons {
+        --bg: #0d0a08;
+        --card: #1a1410;
+        --text: #e8dcc8;
+        --muted: #9a8a7a;
+        --accent: #e8b84b;
+        --border: rgba(200, 146, 42, 0.28);
         background: #0d0a08;
         color: #e8dcc8;
         overflow: hidden;
@@ -367,15 +373,22 @@
       }
       .page-dungeons .challenge-strip {
         margin: 0 0 12px;
-        padding: 8px 4px 4px;
+        padding: 10px 12px;
+        background: rgba(18, 14, 10, 0.92);
+        border: 1px solid rgba(200, 146, 42, 0.22);
+        border-radius: 14px;
+        color: #e8dcc8;
       }
       .page-dungeons .challenge-strip-title {
         font-size: 14px;
         font-weight: 700;
+        color: #e8b84b;
+        font-family: Cinzel, serif;
       }
       .page-dungeons .challenge-strip-sub {
         margin: 2px 0 8px;
         font-size: 11px;
+        color: #9a8a7a;
       }
       .page-dungeons .challenge-chips {
         display: flex;
@@ -383,19 +396,57 @@
         flex-wrap: wrap;
       }
       .page-dungeons .challenge-chip {
+        appearance: none;
+        -webkit-appearance: none;
         min-width: 42px;
         height: 36px;
-        border-radius: 999px;
-        border: 1px solid rgba(180, 160, 130, 0.35);
-        background: rgba(20, 14, 10, 0.55);
-        color: #f5ebe0;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(200, 146, 42, 0.28);
+        background: rgba(26, 20, 14, 0.92);
+        color: #e8dcc8;
         font-weight: 700;
         cursor: pointer;
       }
       .page-dungeons .challenge-chip.is-locked { opacity: 0.55; }
-      .page-dungeons .challenge-chip.is-cleared { border-color: #5eead4; }
-      .page-dungeons .challenge-chip.is-combat { border-color: #e8b84b; }
+      .page-dungeons .challenge-chip.is-cleared { border-color: #5eead4; color: #5eead4; }
+      .page-dungeons .challenge-chip.is-combat { border-color: #e8b84b; color: #e8b84b; }
       .page-dungeons .challenge-chip.is-retry { border-style: dashed; }
+      #challenge-modal {
+        background: rgba(0, 0, 0, 0.78);
+        z-index: 1050;
+      }
+      #challenge-modal .modal-content {
+        background: linear-gradient(165deg, #221c16 0%, #1a1410 55%, #15100c 100%);
+        border: 1px solid rgba(200, 146, 42, 0.35);
+        color: #e8dcc8;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+      }
+      #challenge-modal .modal-title {
+        color: #e8b84b;
+        font-family: Cinzel, serif;
+      }
+      #challenge-modal .modal-head .secondary,
+      #challenge-modal .modal-foot .secondary {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(200, 146, 42, 0.25);
+        color: #c8922a;
+      }
+      #challenge-modal .modal-foot .primary {
+        background: linear-gradient(180deg, rgba(200, 146, 42, 0.55), rgba(160, 110, 30, 0.65));
+        border: 1px solid rgba(232, 184, 75, 0.6);
+        color: #fff8ee;
+      }
+      #challenge-modal .modal-body,
+      #challenge-modal .muted,
+      #challenge-modal details {
+        color: #e8dcc8;
+      }
+      #challenge-modal .banner {
+        background: rgba(200, 146, 42, 0.12);
+        border-color: rgba(200, 146, 42, 0.28);
+        color: #e8dcc8;
+      }
       .page-dungeons .grade-mark { font-size: 9px; margin-left: 3px; }
       .page-dungeons .grade-mark--1 { color: #5eead4; }
       .page-dungeons .grade-mark--2 { color: #e8b84b; }

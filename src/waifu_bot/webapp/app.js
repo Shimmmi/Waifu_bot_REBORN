@@ -183,7 +183,7 @@ function resolveWebappShellVersion() {
       /* ignore */
     }
   }
-  return "waifu-webapp-v84";
+  return "waifu-webapp-v88";
 }
 
 const WAIFU_WEBAPP_VERSION = resolveWebappShellVersion();
@@ -4411,6 +4411,7 @@ async function applyShopSmithNavigationIntent(intent) {
   switchShopTab("smith");
   await loadSmithTab();
   const sid = intent.smithItemId;
+  if (intent.work) shopState.smithOpenWork = intent.work;
   if (intent.work) shopState.smithWork = intent.work;
   if (sid != null && shopState.smithItems.some((x) => x.id === sid)) {
     shopState.smithSelectedId = sid;
@@ -5075,8 +5076,14 @@ function updateSmithMetaFromProfile(pr) {
   if (!pr) return;
   const stEl = document.getElementById("shop-smith-stones");
   const dEl = document.getElementById("shop-smith-dust-hint");
-  if (stEl) stEl.textContent = Number(pr.protection_stones || 0) > 0 ? String(pr.protection_stones) : "";
-  if (dEl) dEl.textContent = Number(pr.enchant_dust || 0) > 0 ? String(pr.enchant_dust) : "";
+  const stones = Number(pr.protection_stones || 0);
+  const dust = Number(pr.enchant_dust || 0);
+  if (stEl) {
+    stEl.textContent = String(stones);
+    const wrap = stEl.closest(".shop-smith-res-item");
+    if (wrap) wrap.style.opacity = stones > 0 ? "1" : "0.45";
+  }
+  if (dEl) dEl.textContent = String(dust);
   refreshSmithWalletIcons().catch(() => {});
 }
 
@@ -5137,14 +5144,11 @@ async function refreshSmithWalletIcons() {
     const el = document.getElementById(id);
     const wrap = el && el.closest(".shop-smith-res-item");
     const n = Number(amount || 0);
-    if (el) el.textContent = n > 0 ? String(n) : "";
-    if (wrap) wrap.style.opacity = n > 0 ? "1" : "0.4";
+    if (el) el.textContent = String(n);
+    if (wrap) wrap.style.opacity = n > 0 ? "1" : "0.45";
   };
-  setIcon("shop-smith-dust-hint", w.wallet?.enchant_dust ?? w.gold);
-  if (document.getElementById("shop-smith-dust-hint") && w.wallet) {
-    document.getElementById("shop-smith-dust-hint").textContent =
-      Number(w.wallet.enchant_dust || 0) > 0 ? String(w.wallet.enchant_dust) : "";
-  }
+  setIcon("shop-smith-dust-hint", w.wallet?.enchant_dust);
+  setIcon("shop-smith-stones", w.protection_stones);
   setIcon("shop-smith-cores", w.wallet?.refine_core);
   setIcon("shop-smith-essence", w.wallet?.refine_essence);
   setIcon("shop-smith-ember", w.wallet?.legendary_ember);
@@ -5232,13 +5236,168 @@ function smithWorkForItem(item) {
   return "refine";
 }
 
+const smithWorkUi = {
+  lastFocus: null,
+  timerId: null,
+  expiresAtMs: 0,
+  temper: { itemId: 0, affixId: 0, quote: null, pending: null, confirmBurn: false, busy: false, ack: false },
+  refine: { itemId: 0, preview: null, busy: false, ack: false },
+};
+
+function smithSelectedItem() {
+  const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
+  return id ? (shopState.smithItems || []).find((x) => x.id === id) || null : null;
+}
+
+function smithTemperAffixes(item) {
+  return Array.isArray(item?.affixes)
+    ? item.affixes.filter((a) => a.kind === "affix" || a.kind === "suffix")
+    : [];
+}
+
+function smithFmtAmt(n) {
+  return String(Math.trunc(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, "\u00a0");
+}
+
+function smithErrText(err) {
+  const map = {
+    raid_forbidden: "Этот предмет нельзя закаливать, доводить и перековывать.",
+    legendary_no_temper: "Свойства легендарки не закаливают — меняется уникальный бонус.",
+    legendary_no_refine: "Легендарку не доводят — только перековка.",
+    rarity_not_temperable: "Закалка только для редких и эпических.",
+    refine_max: "Максимум доводки. Дальше заточка и зачарование.",
+    template_unresolved: "Шаблон предмета не найден.",
+    affix_not_found: "Свойство не найдено.",
+    insufficient: "Не хватает ресурсов.",
+    expired: "Ролл сгорел. Пыль и золото не вернулись. Свойство прежнее.",
+    not_found: "Предмет не найден.",
+  };
+  return map[err] || String(err || "Ошибка");
+}
+
+async function smithFetchJson(url, opts) {
+  try {
+    return await apiFetch(url, opts);
+  } catch (e) {
+    const p = parseHttpErrorDetail(e);
+    const d = p.detailObj;
+    if (d && typeof d === "object") return { ...d, status: p.status };
+    return { error: String(p.detail || e?.message || "error"), status: p.status };
+  }
+}
+
+function smithWorkHave() {
+  const w = shopState.wallet || {};
+  return {
+    dust: Number(w.wallet?.enchant_dust || 0),
+    gold: Number(w.gold || 0),
+    cores: Number(w.wallet?.refine_core || 0),
+    essence: Number(w.wallet?.refine_essence || 0),
+  };
+}
+
+function swmCostChip(label, need, have) {
+  const n = Number(need || 0);
+  const h = Number(have || 0);
+  const short = n > 0 && h < n;
+  return `<span class="swm-cost${short ? " is-short" : ""}">${escapeHtml(label)} <b>${smithFmtAmt(n)}</b> <span>/ ${smithFmtAmt(h)}</span></span>`;
+}
+
+function swmItemChipHtml(item) {
+  if (!item) return "";
+  const name = escapeHtml(itemArtDisplayLabel(item) || "Предмет");
+  const rare = escapeHtml(rarityLabel(item.rarity));
+  const lv = Number(item.total_level || item.level || 0);
+  const ench = Number(item.enchant_level || 0);
+  const bits = [rare];
+  if (lv) bits.push(`ур. ${lv}`);
+  if (ench) bits.push(`+${ench}`);
+  return `<div class="swm-item">
+    <div class="swm-item-art">${itemArtHtml(item)}</div>
+    <div>
+      <div class="swm-item-name">${name} ${itemGradeMarkHtml(item)}</div>
+      <div class="swm-item-sub">${bits.join(" · ")}</div>
+    </div>
+  </div>`;
+}
+
+function smithWorkSetOpen(id, open) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.hidden = !open;
+  el.style.display = open ? "grid" : "none";
+  el.setAttribute("aria-hidden", open ? "false" : "true");
+  if (open) {
+    smithWorkBindEsc();
+    smithWorkUi.lastFocus = document.activeElement;
+    const closeBtn = el.querySelector(".swm-close");
+    if (closeBtn && typeof closeBtn.focus === "function") closeBtn.focus();
+  } else if (smithWorkUi.lastFocus && typeof smithWorkUi.lastFocus.focus === "function") {
+    try {
+      smithWorkUi.lastFocus.focus();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+}
+
+function smithWorkIsOpen(id) {
+  const el = document.getElementById(id);
+  return Boolean(el && el.style.display === "grid" && !el.hidden);
+}
+
+function smithWorkStopTimer() {
+  if (smithWorkUi.timerId) {
+    clearInterval(smithWorkUi.timerId);
+    smithWorkUi.timerId = null;
+  }
+}
+
+function smithWorkStartTimer(expiresInSec, elId) {
+  smithWorkStopTimer();
+  smithWorkUi.expiresAtMs = Date.now() + Math.max(0, Number(expiresInSec) || 0) * 1000;
+  const tick = () => {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const left = Math.max(0, Math.floor((smithWorkUi.expiresAtMs - Date.now()) / 1000));
+    el.textContent = fmtMmSs(left);
+    el.classList.toggle("is-expired", left <= 0);
+    if (left <= 0) smithWorkStopTimer();
+  };
+  tick();
+  smithWorkUi.timerId = setInterval(tick, 250);
+}
+
+function smithSetEnhanceButtons(item) {
+  const temperBtn = document.getElementById("shop-smith-btn-temper");
+  const refineBtn = document.getElementById("shop-smith-btn-refine");
+  const badge = document.getElementById("shop-smith-btn-temper-badge");
+  const r = Number(item?.rarity || 0);
+  const hideEnhanceActs = Boolean(item) && r >= 5;
+  const canTemper = Boolean(item) && (r === 3 || r === 4);
+  const canRefine = Boolean(item) && r < 5;
+  if (temperBtn) {
+    temperBtn.hidden = hideEnhanceActs;
+    temperBtn.disabled = !canTemper;
+    temperBtn.title = canTemper ? "Закалить свойство за пыль и золото" : item ? "Закалка только для редких и эпических" : "Сначала выберите предмет";
+  }
+  if (refineBtn) {
+    refineBtn.hidden = hideEnhanceActs;
+    refineBtn.disabled = !canRefine;
+    refineBtn.title = canRefine ? "Довести предмет ядрами или эссенцией" : item ? "Этот предмет нельзя довести" : "Сначала выберите предмет";
+  }
+  if (badge && !canTemper) badge.hidden = true;
+}
+
 async function refreshSmithEnhancePreview() {
   const box = document.getElementById("shop-smith-enhance-preview");
   if (!box) return;
-  const id = shopState.smithSelectedId ? Number(shopState.smithSelectedId) : 0;
-  const item = id ? (shopState.smithItems || []).find((x) => x.id === id) : null;
+  const item = smithSelectedItem();
+  smithSetEnhanceButtons(item);
+  const badge = document.getElementById("shop-smith-btn-temper-badge");
+  if (badge) badge.hidden = true;
   if (!item) {
-    box.innerHTML = `<div class="muted tiny">Выберите предмет. Здесь появятся закалка, доводка или перековка.</div>`;
+    box.innerHTML = `<div class="muted tiny">Выберите предмет. Закалка и доводка откроются кнопками ниже.</div>`;
     return;
   }
   const r = Number(item.rarity || 0);
@@ -5246,74 +5405,36 @@ async function refreshSmithEnhancePreview() {
     box.innerHTML = `<div class="muted tiny">Этот предмет нельзя закаливать, доводить и перековывать.</div>`;
     return;
   }
-  const work = shopState.smithWork || smithWorkForItem(item);
-  const blocks = [];
-  if (r === 3 || r === 4) {
-    const aff = Array.isArray(item.affixes) ? item.affixes.filter((a) => a.kind === "affix" || a.kind === "suffix") : [];
-    let temperInner = aff.length
-      ? aff
-          .map(
-            (a) =>
-              `<div class="shop-smith-enhance-row"><span>${escapeHtml(a.name || "")} · ${escapeHtml(String(a.value || ""))}</span><button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.smithTemperQuote(${item.id},${a.id})">Закалить</button></div>`
-          )
-          .join("")
-      : `<div class="muted tiny">Нечего закаливать.</div>`;
-    blocks.push(collapsibleSmithBlock("temper", "Закалка", temperInner, work === "temper"));
-    blocks.push(collapsibleSmithBlock("refine", "Доводка", await smithRefineBlockHtml(item), work === "refine"));
-  } else if (r === 5) {
-    blocks.push(`<div class="muted tiny">Свойства легендарки не закаливают — меняется уникальный бонус.</div>`);
-    blocks.push(collapsibleSmithBlock("reforge", "Перековка", await smithReforgeBlockHtml(item), work === "reforge"));
-  } else {
-    blocks.push(`<div class="muted tiny">Только редкие и эпические.</div>`);
-    blocks.push(collapsibleSmithBlock("refine", "Доводка", await smithRefineBlockHtml(item), true));
+  if (r === 5) {
+    box.innerHTML = `<div class="shop-smith-enhance-sum"><div class="shop-smith-enhance-sum-title">Перековка</div><div class="muted tiny">Свойства легендарки не закаливают — меняется уникальный бонус.</div>${await smithReforgeBlockHtml(item)}</div>`;
+    return;
   }
-  box.innerHTML = blocks.join("");
-  if (work) {
-    const el = document.getElementById(`smith-block-${work}`);
-    if (el) {
-      el.open = true;
-      el.classList.add("smith-block-flash");
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      setTimeout(() => el.classList.remove("smith-block-flash"), 1500);
-    }
+  const aff = smithTemperAffixes(item);
+  const g = Number(item.refined_grade || 0);
+  const gradeLine = g === 2 ? "Великолепный" : g === 1 ? "Продвинутый" : "Без доводки";
+  const affHtml = aff.length
+    ? aff
+        .map((a) => `<li>${escapeHtml(a.name || "Свойство")} · <strong>${escapeHtml(String(a.value || "—"))}</strong></li>`)
+        .join("")
+    : `<li class="muted">Свойств для закалки нет</li>`;
+  const temperHint = r === 3 || r === 4 ? "Закалка: выберите свойство в окне." : "Закалка недоступна для этой редкости.";
+  box.innerHTML = `<div class="shop-smith-enhance-sum">
+    <div class="shop-smith-enhance-sum-title">${escapeHtml(gradeLine)}</div>
+    <ul class="shop-smith-enhance-sum-list">${affHtml}</ul>
+    <div class="muted tiny">${escapeHtml(temperHint)}</div>
+  </div>`;
+  if ((r === 3 || r === 4) && aff[0]) {
+    const q = await smithFetchJson(`/inventory/${item.id}/temper-quote?affix_row_id=${aff[0].id}`);
+    if (q?.open_pending && badge) badge.hidden = false;
   }
+  const openWork = shopState.smithOpenWork;
+  shopState.smithOpenWork = null;
+  if (openWork === "temper") void openSmithTemperModal();
+  else if (openWork === "refine") void openSmithRefineModal();
 }
 
 function collapsibleSmithBlock(id, title, inner, open) {
   return `<details id="smith-block-${id}" class="shop-smith-enhance-block" ${open ? "open" : ""}><summary>${escapeHtml(title)}</summary>${inner}</details>`;
-}
-
-async function smithRefineBlockHtml(item) {
-  const r = Number(item.rarity || 0);
-  if (r >= 5) return "";
-  const g = Number(item.refined_grade || 0);
-  if (g >= 2) return `<div class="muted tiny">Максимум. Дальше заточка и зачарование.</div>`;
-  const prev = await apiFetch(`/inventory/${item.id}/refine-preview`).catch(() => null);
-  if (prev?.error === "template_unresolved") return `<div class="muted tiny">Шаблон не найден.</div>`;
-  if (prev?.error === "refine_max") return `<div class="muted tiny">Максимум. Дальше заточка и зачарование.</div>`;
-  if (prev?.error) return `<div class="muted tiny">${escapeHtml(String(prev.error))}</div>`;
-  const label = prev.to_grade === 2 ? "Великолепный" : "Продвинутый";
-  const from = prev.from_grade === 1 ? "Продвинутый" : "Сейчас без доводки";
-  const needCore = Number(prev.cores || 0);
-  const needEss = Number(prev.essence || 0);
-  let farm = "";
-  if (needCore && Number(prev.have_cores || 0) < needCore) {
-    farm = `<div class="muted tiny">${escapeHtml(prev.farm_cores || "")}</div><button type="button" class="shop-smith-ctrl-btn" onclick="location.href='./dungeons.html'">К подземельям</button>`;
-  } else if (needEss && Number(prev.have_essence || 0) < needEss) {
-    farm = `<div class="muted tiny">${escapeHtml(prev.farm_essence || "")}</div><button type="button" class="shop-smith-ctrl-btn" onclick="location.href='./dungeons.html?tab=abyss'">В Бездну</button>`;
-  }
-  const dmg = prev.before?.damage_min != null
-    ? `Было ${prev.before.damage_min}–${prev.before.damage_max} → станет ${prev.after.damage_min}–${prev.after.damage_max}`
-    : "";
-  return `<div>
-    <div>Довести до «${label}»?</div>
-    <div class="muted tiny">${from} → ${label}</div>
-    <div class="muted tiny">${escapeHtml(dmg)}</div>
-    <div>${needCore ? `${needCore} ядер` : `${needEss} эссенций`} + ${prev.gold} 🪙</div>
-    <div class="muted tiny">Обратно откатить нельзя.</div>
-    ${farm}
-    ${farm ? "" : `<button type="button" class="shop-smith-ctrl-btn shop-smith-ctrl-btn--primary" onclick="WaifuApp.smithRefineApply(${item.id})">Довести</button>`}
-  </div>`;
 }
 
 async function smithReforgeBlockHtml(item) {
@@ -5348,113 +5469,458 @@ function fmtMmSs(sec) {
   return `${m}:${String(r).padStart(2, "0")}`;
 }
 
-async function smithTemperQuote(itemId, affixRowId) {
-  const q = await apiFetch(`/inventory/${itemId}/temper-quote?affix_row_id=${affixRowId}`).catch((e) => e);
-  if (q?.error === "open_pending" || q?.open_pending) {
-    return smithTemperShowOptions(itemId, q.pending || q.open_pending);
-  }
-  if (q?.error) {
-    showToast(q.error === "raid_forbidden" ? "Этот предмет нельзя закаливать, доводить и перековывать." : String(q.error), "error");
+function smithTemperFootBtn(label, onclick, extraClass, disabled) {
+  return `<button type="button" class="shop-smith-ctrl-btn${extraClass ? ` ${extraClass}` : ""}" ${disabled ? "disabled" : ""} onclick="${onclick}">${label}</button>`;
+}
+
+function renderSmithTemperModal() {
+  const item = smithSelectedItem();
+  const itemBox = document.getElementById("shop-smith-temper-item");
+  const body = document.getElementById("shop-smith-temper-body");
+  const foot = document.getElementById("shop-smith-temper-foot");
+  if (!itemBox || !body || !foot) return;
+  itemBox.innerHTML = swmItemChipHtml(item);
+  const st = smithWorkUi.temper;
+  if (!item) {
+    body.innerHTML = `<div class="swm-empty">Сначала выберите предмет на наковальне.</div>`;
+    foot.innerHTML = smithTemperFootBtn("Закрыть", "WaifuApp.closeSmithTemperModal()");
     return;
   }
-  const box = document.getElementById("shop-smith-enhance-preview");
-  if (!box) return;
-  const haveDust = Number(shopState.wallet?.wallet?.enchant_dust || 0);
-  const needDust = Number(q.dust || 0);
-  const farm =
-    needDust > 0 && haveDust < needDust
-      ? `<div class="muted tiny">Пыли нет. Добыча: распыл в инвентаре. Продажа пыль не даёт.</div><button type="button" class="shop-smith-ctrl-btn" onclick="location.href='./profile.html'">К инвентарю</button>`
-      : "";
-  box.innerHTML = `<div>
-    <div>Закалить свойство?</div>
-    <div>Сейчас: ${escapeHtml(q.current?.name || "")} · ${escapeHtml(String(q.current?.value || ""))}</div>
-    <div>Закалка №${q.roll_index} из 8 (дальше цена не растёт)</div>
-    <div>${q.dust} пыли + ${q.gold} золота</div>
-    <div class="muted tiny">Плата за ролл. Возврата не будет. Можно оставить свойство как есть.</div>
-    ${farm}
-    <label><input type="checkbox" id="temper-ack-box" ${q.ack ? "checked" : ""} onchange="document.getElementById('temper-pay-btn').disabled=!this.checked"/> Понимаю: пыль и золото не вернут.</label>
-    <button type="button" class="shop-smith-ctrl-btn shop-smith-ctrl-btn--primary" id="temper-pay-btn" ${q.ack && !farm ? "" : "disabled"} onclick="WaifuApp.smithTemperRoll(${itemId},${affixRowId})">Заплатить и увидеть варианты</button>
-    <button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.refreshSmithEnhancePreview()">Отмена</button>
-  </div>`;
+  if (st.busy && !st.pending) {
+    body.innerHTML = `<div class="swm-load">Кузница считает варианты…</div>`;
+    foot.innerHTML = smithTemperFootBtn("Закрыть", "WaifuApp.closeSmithTemperModal()", "", true);
+    return;
+  }
+  if (st.pending) {
+    const pending = st.pending;
+    const expired = smithWorkUi.expiresAtMs && Date.now() >= smithWorkUi.expiresAtMs;
+    const keep = pending.keep || {};
+    const opts = (pending.options || [])
+      .map(
+        (o, i) =>
+          `<button type="button" class="swm-opt" ${expired || st.busy ? "disabled" : ""} onclick="WaifuApp.smithTemperApply(${item.id},${i})">
+            <div class="swm-opt-k">Вариант ${i + 1}</div>
+            <div class="swm-opt-v">${escapeHtml(o.name || "Свойство")} · ${escapeHtml(String(o.value || "—"))}</div>
+          </button>`
+      )
+      .join("");
+    body.innerHTML = `
+      <p class="swm-sec">Выберите свойство</p>
+      <p class="swm-note">Пыль и золото уже списаны. Можно оставить текущее свойство.</p>
+      <p class="swm-timer${expired ? " is-expired" : ""}">Осталось <span id="shop-smith-temper-timer">${fmtMmSs(pending.expires_in_sec)}</span></p>
+      ${expired ? `<p class="swm-warn">Время вышло. Свойство останется прежним, плата не вернётся.</p>` : ""}
+      ${opts}
+      <button type="button" class="swm-opt swm-keep" ${expired || st.busy ? "disabled" : ""} onclick="WaifuApp.smithTemperApply(${item.id},null,true)">
+        <div class="swm-opt-k">Оставить как есть</div>
+        <div class="swm-opt-v">${escapeHtml(keep.name || "Текущее")} · ${escapeHtml(String(keep.value || "—"))}</div>
+      </button>`;
+    if (st.confirmBurn) {
+      foot.innerHTML =
+        smithTemperFootBtn("Назад", "WaifuApp.smithTemperCancelBurn()") +
+        smithTemperFootBtn("Точно сжечь", `WaifuApp.smithTemperBurn(${item.id})`, "shop-smith-ctrl-btn--primary", st.busy);
+    } else {
+      foot.innerHTML =
+        smithTemperFootBtn("Закрыть", "WaifuApp.closeSmithTemperModal()") +
+        smithTemperFootBtn("Сжечь ролл", "WaifuApp.smithTemperAskBurn()", "", expired || st.busy);
+    }
+    if (!smithWorkUi.timerId) smithWorkStartTimer(pending.expires_in_sec, "shop-smith-temper-timer");
+    else {
+      const tel = document.getElementById("shop-smith-temper-timer");
+      if (tel) {
+        const left = Math.max(0, Math.floor((smithWorkUi.expiresAtMs - Date.now()) / 1000));
+        tel.textContent = fmtMmSs(left);
+        tel.classList.toggle("is-expired", left <= 0);
+      }
+    }
+    return;
+  }
+  const aff = smithTemperAffixes(item);
+  if (!aff.length) {
+    body.innerHTML = `<div class="swm-empty">На этом предмете нечего закаливать.</div>`;
+    foot.innerHTML = smithTemperFootBtn("Закрыть", "WaifuApp.closeSmithTemperModal()");
+    return;
+  }
+  const have = smithWorkHave();
+  const q = st.quote;
+  const affixHtml = aff
+    .map((a) => {
+      const on = Number(st.affixId) === Number(a.id);
+      return `<button type="button" class="swm-affix${on ? " is-on" : ""}" onclick="WaifuApp.smithTemperSelectAffix(${item.id},${a.id})">
+        <span class="swm-affix-name">${escapeHtml(a.name || "Свойство")}</span>
+        <span class="swm-affix-val">${escapeHtml(String(a.value || "—"))}</span>
+      </button>`;
+    })
+    .join("");
+  let quoteHtml = `<p class="swm-note">Выберите свойство, чтобы увидеть цену ролла.</p>`;
+  let canPay = false;
+  if (q && !q.error) {
+    const cap = Number(q.cap || 8);
+    const idx = Math.min(cap, Math.max(1, Number(q.roll_index || 1)));
+    const pips = Array.from({ length: cap }, (_, i) => `<span class="swm-pip${i < idx ? " is-on" : ""}"></span>`).join("");
+    const dustShort = Number(q.dust || 0) > have.dust;
+    const goldShort = Number(q.gold || 0) > have.gold;
+    const farm = dustShort
+      ? `<p class="swm-warn">Пыли нет. Добыча: распыл в инвентаре. Продажа пыль не даёт.</p>`
+      : goldShort
+        ? `<p class="swm-warn">Не хватает золота.</p>`
+        : "";
+    canPay = Boolean(st.ack) && !dustShort && !goldShort && !st.busy;
+    quoteHtml = `<div class="swm-quote">
+      <p class="swm-sec">Ролл</p>
+      <div>Сейчас: <strong>${escapeHtml(q.current?.name || "")} · ${escapeHtml(String(q.current?.value || ""))}</strong></div>
+      <div class="muted tiny" style="margin-top:4px">Закалка ${idx} из ${cap}${idx >= cap ? " · дальше цена не растёт" : ""}</div>
+      <div class="swm-pips" aria-hidden="true">${pips}</div>
+      <div class="swm-costs">${swmCostChip("Пыль", q.dust, have.dust)}${swmCostChip("Золото", q.gold, have.gold)}</div>
+      <p class="swm-note">Плата за ролл. Возврата не будет. После оплаты можно оставить свойство как есть.</p>
+      ${farm}
+      <label class="swm-ack"><input type="checkbox" id="temper-ack-box" ${st.ack ? "checked" : ""} onchange="WaifuApp.smithTemperSetAck(this.checked)"/> Понимаю: пыль и золото не вернут.</label>
+    </div>`;
+  } else if (q?.error) {
+    quoteHtml = `<p class="swm-warn">${escapeHtml(smithErrText(q.error))}</p>`;
+  }
+  body.innerHTML = `<p class="swm-sec">Свойство</p>${affixHtml}${quoteHtml}`;
+  const payDisabled = !canPay;
+  foot.innerHTML =
+    smithTemperFootBtn("Закрыть", "WaifuApp.closeSmithTemperModal()") +
+    (q && !q.error && Number(q.dust || 0) > have.dust
+      ? smithTemperFootBtn("К инвентарю", "location.href='./profile.html'", "shop-smith-ctrl-btn--primary")
+      : smithTemperFootBtn("Заплатить и увидеть", `WaifuApp.smithTemperRoll(${item.id},${st.affixId})`, "shop-smith-ctrl-btn--primary", payDisabled || !st.affixId));
+}
+
+async function openSmithTemperModal() {
+  const item = smithSelectedItem();
+  if (!item) {
+    showToast("Сначала выберите предмет", "info");
+    return;
+  }
+  const r = Number(item.rarity || 0);
+  if (r !== 3 && r !== 4) {
+    showToast(smithErrText(r >= 6 ? "raid_forbidden" : r >= 5 ? "legendary_no_temper" : "rarity_not_temperable"), "error");
+    return;
+  }
+  closeSmithRefineModal();
+  smithWorkUi.temper = { itemId: item.id, affixId: 0, quote: null, pending: null, confirmBurn: false, busy: false, ack: false };
+  smithWorkSetOpen("shop-smith-temper-modal", true);
+  renderSmithTemperModal();
+  await refreshSmithWalletIcons().catch(() => {});
+  const aff = smithTemperAffixes(item);
+  if (!aff.length) {
+    renderSmithTemperModal();
+    return;
+  }
+  const probe = await smithFetchJson(`/inventory/${item.id}/temper-quote?affix_row_id=${aff[0].id}`);
+  if (probe?.open_pending) {
+    smithWorkStopTimer();
+    smithWorkUi.temper.pending = probe.open_pending;
+    smithWorkUi.temper.affixId = Number(probe.open_pending.affix_row_id || aff[0].id);
+    renderSmithTemperModal();
+    return;
+  }
+  await smithTemperSelectAffix(item.id, aff[0].id);
+}
+
+function closeSmithTemperModal() {
+  smithWorkStopTimer();
+  smithWorkUi.temper.busy = false;
+  smithWorkUi.temper.confirmBurn = false;
+  smithWorkSetOpen("shop-smith-temper-modal", false);
+}
+
+async function smithTemperSelectAffix(itemId, affixRowId) {
+  smithWorkUi.temper.affixId = Number(affixRowId);
+  smithWorkUi.temper.pending = null;
+  const q = await smithFetchJson(`/inventory/${itemId}/temper-quote?affix_row_id=${affixRowId}`);
+  if (q?.open_pending) {
+    smithWorkStopTimer();
+    smithWorkUi.temper.pending = q.open_pending || q.pending;
+    renderSmithTemperModal();
+    return;
+  }
+  smithWorkUi.temper.quote = q;
+  smithWorkUi.temper.ack = Boolean(q?.ack);
+  renderSmithTemperModal();
+}
+
+function smithTemperSetAck(checked) {
+  smithWorkUi.temper.ack = Boolean(checked);
+  const pay = document.querySelector("#shop-smith-temper-foot .shop-smith-ctrl-btn--primary");
+  const q = smithWorkUi.temper.quote;
+  const have = smithWorkHave();
+  if (!pay || !q || q.error) return;
+  const short = Number(q.dust || 0) > have.dust || Number(q.gold || 0) > have.gold;
+  pay.disabled = !checked || short || smithWorkUi.temper.busy || !smithWorkUi.temper.affixId;
+}
+
+function smithTemperAskBurn() {
+  smithWorkUi.temper.confirmBurn = true;
+  renderSmithTemperModal();
+}
+
+function smithTemperCancelBurn() {
+  smithWorkUi.temper.confirmBurn = false;
+  renderSmithTemperModal();
+}
+
+async function smithTemperQuote(itemId, affixRowId) {
+  await openSmithTemperModal();
+  if (affixRowId) await smithTemperSelectAffix(itemId, affixRowId);
 }
 
 async function smithTemperRoll(itemId, affixRowId) {
-  const ack = Boolean(document.getElementById("temper-ack-box")?.checked);
+  if (smithWorkUi.temper.busy) return;
+  const ack = Boolean(smithWorkUi.temper.ack || document.getElementById("temper-ack-box")?.checked);
+  if (!ack) {
+    showToast("Подтвердите, что плата не вернётся", "info");
+    return;
+  }
+  smithWorkUi.temper.busy = true;
+  smithWorkUi.temper.ack = ack;
+  renderSmithTemperModal();
   try {
-    if (ack) await apiFetch(`/inventory/${itemId}/temper/ack`, { method: "POST" });
-    const res = await apiFetch(`/inventory/${itemId}/temper/roll`, {
+    if (ack) await smithFetchJson(`/inventory/${itemId}/temper/ack`, { method: "POST" });
+    const res = await smithFetchJson(`/inventory/${itemId}/temper/roll`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ affix_row_id: affixRowId, ack }),
     });
-    if (res.error === "open_pending") return smithTemperShowOptions(itemId, res.pending);
-    smithTemperShowOptions(itemId, res.pending);
+    smithWorkUi.temper.busy = false;
+    if (res?.error === "open_pending" || res?.open_pending || res?.pending) {
+      smithWorkStopTimer();
+      smithWorkUi.temper.pending = res.pending || res.open_pending;
+      renderSmithTemperModal();
+      await refreshSmithWalletIcons().catch(() => {});
+      return;
+    }
+    if (res?.error) {
+      showToast(smithErrText(res.error), "error");
+      renderSmithTemperModal();
+      return;
+    }
+    smithWorkStopTimer();
+    smithWorkUi.temper.pending = res.pending || res;
+    await refreshSmithWalletIcons().catch(() => {});
+    renderSmithTemperModal();
   } catch (e) {
+    smithWorkUi.temper.busy = false;
     const parsed = parseHttpErrorDetail(e);
     const pending = parsed.detailObj?.pending || parsed.payload?.detail?.pending;
     if (parsed.status === 409 && (pending || String(parsed.detail || "").includes("open_pending"))) {
-      return smithTemperShowOptions(itemId, pending);
-    }
-    if (String(parsed.detail || "").includes("preview") || String(parsed.detail || "").includes("pending")) {
-      showToast("Не удалось закалить", "error");
+      smithWorkStopTimer();
+      smithWorkUi.temper.pending = pending;
+      renderSmithTemperModal();
       return;
     }
     showToast(parsed.detail || "Не удалось закалить", "error");
+    renderSmithTemperModal();
   }
 }
 
 function smithTemperShowOptions(itemId, pending) {
-  const box = document.getElementById("shop-smith-enhance-preview");
-  if (!box || !pending) return;
-  const opts = (pending.options || [])
-    .map(
-      (o, i) =>
-        `<button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.smithTemperApply(${itemId},${i})">${escapeHtml(o.name || "")} · ${escapeHtml(String(o.value || ""))}</button>`
-    )
-    .join("");
-  box.innerHTML = `<div>
-    <div>Выберите свойство</div>
-    <div class="muted tiny">Осталось ${fmtMmSs(pending.expires_in_sec)}</div>
-    ${opts}
-    <button type="button" class="shop-smith-ctrl-btn" onclick="WaifuApp.smithTemperApply(${itemId},null,true)">Оставить как есть</button>
-    <button type="button" class="shop-smith-ctrl-btn" onclick="if(confirm('Варианты сгорят без возврата. Свойство останется прежним.')) WaifuApp.smithTemperBurn(${itemId})">Сжечь ролл</button>
-  </div>`;
+  smithWorkStopTimer();
+  smithWorkUi.temper.itemId = itemId;
+  smithWorkUi.temper.pending = pending;
+  if (!smithWorkIsOpen("shop-smith-temper-modal")) smithWorkSetOpen("shop-smith-temper-modal", true);
+  renderSmithTemperModal();
 }
 
 async function smithTemperApply(itemId, optionIndex, keep) {
+  if (smithWorkUi.temper.busy) return;
+  smithWorkUi.temper.busy = true;
+  renderSmithTemperModal();
   try {
     await apiFetch(`/inventory/${itemId}/temper/apply`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ option_index: optionIndex, keep: Boolean(keep) }),
     });
+    smithWorkUi.temper.busy = false;
+    smithWorkUi.temper.pending = null;
     showToast(keep ? "Свойство прежнее" : "Свойство заменено", "success");
+    closeSmithTemperModal();
     await loadSmithTab();
   } catch (e) {
+    smithWorkUi.temper.busy = false;
     const { detail } = parseHttpErrorDetail(e);
-    showToast(detail === "expired" ? "Ролл сгорел. Пыль и золото не вернулись. Свойство прежнее." : (detail || "Ошибка"), "error");
+    showToast(detail === "expired" ? smithErrText("expired") : (detail || "Ошибка"), "error");
+    if (detail === "expired") {
+      smithWorkUi.temper.pending = null;
+      closeSmithTemperModal();
+    } else {
+      renderSmithTemperModal();
+    }
     await refreshSmithEnhancePreview();
   }
 }
 
 async function smithTemperBurn(itemId) {
+  if (smithWorkUi.temper.busy) return;
+  smithWorkUi.temper.busy = true;
+  renderSmithTemperModal();
   await apiFetch(`/inventory/${itemId}/temper/apply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ burn: true }),
   }).catch(() => {});
+  smithWorkUi.temper.busy = false;
+  smithWorkUi.temper.pending = null;
+  smithWorkUi.temper.confirmBurn = false;
   showToast("Варианты сгорели без возврата. Свойство прежнее.", "info");
+  closeSmithTemperModal();
   await refreshSmithEnhancePreview();
 }
 
+function renderSmithRefineModal() {
+  const item = smithSelectedItem();
+  const itemBox = document.getElementById("shop-smith-refine-item");
+  const body = document.getElementById("shop-smith-refine-body");
+  const foot = document.getElementById("shop-smith-refine-foot");
+  if (!itemBox || !body || !foot) return;
+  itemBox.innerHTML = swmItemChipHtml(item);
+  const st = smithWorkUi.refine;
+  if (!item) {
+    body.innerHTML = `<div class="swm-empty">Сначала выберите предмет на наковальне.</div>`;
+    foot.innerHTML = smithTemperFootBtn("Закрыть", "WaifuApp.closeSmithRefineModal()");
+    return;
+  }
+  if (st.busy) {
+    body.innerHTML = `<div class="swm-load">Доводим предмет…</div>`;
+    foot.innerHTML = smithTemperFootBtn("Закрыть", "WaifuApp.closeSmithRefineModal()", "", true);
+    return;
+  }
+  const prev = st.preview;
+  if (!prev) {
+    body.innerHTML = `<div class="swm-load">Считаем доводку…</div>`;
+    foot.innerHTML = smithTemperFootBtn("Закрыть", "WaifuApp.closeSmithRefineModal()");
+    return;
+  }
+  if (prev.error) {
+    const farm =
+      prev.error === "legendary_no_refine"
+        ? ""
+        : prev.error === "refine_max"
+          ? `<p class="swm-note">Дальше доступны заточка и зачарование.</p>`
+          : "";
+    body.innerHTML = `<div class="swm-empty">${escapeHtml(smithErrText(prev.error))}</div>${farm}`;
+    foot.innerHTML = smithTemperFootBtn("Закрыть", "WaifuApp.closeSmithRefineModal()");
+    return;
+  }
+  const toLabel = prev.to_label || (prev.to_grade === 2 ? "Великолепный" : "Продвинутый");
+  const fromLabel = prev.from_label || (prev.from_grade === 1 ? "Продвинутый" : "Без доводки");
+  const have = smithWorkHave();
+  const needCore = Number(prev.cores || 0);
+  const needEss = Number(prev.essence || 0);
+  const needGold = Number(prev.gold || 0);
+  const haveCore = Number(prev.have_cores ?? have.cores);
+  const haveEss = Number(prev.have_essence ?? have.essence);
+  const haveGold = Number(prev.have_gold ?? have.gold);
+  const dmgBefore = prev.before?.damage_min != null ? `${prev.before.damage_min}–${prev.before.damage_max}` : "";
+  const dmgAfter = prev.after?.damage_min != null ? `${prev.after.damage_min}–${prev.after.damage_max}` : "";
+  const statBefore = prev.before?.base_stat_value != null ? String(prev.before.base_stat_value) : "";
+  const statAfter = prev.after?.base_stat_value != null ? String(prev.after.base_stat_value) : "";
+  const mult = Number(prev.mult || 0);
+  const multLine = mult ? `+${Math.round((mult - 1) * 100)}% к базе` : "";
+  let farm = "";
+  let farmCta = "";
+  if (needCore && haveCore < needCore) {
+    farm = `<p class="swm-warn">${escapeHtml(prev.farm_cores || "Не хватает ядер.")}</p>`;
+    farmCta = "./dungeons.html";
+  } else if (needEss && haveEss < needEss) {
+    farm = `<p class="swm-warn">${escapeHtml(prev.farm_essence || "Не хватает эссенции.")}</p>`;
+    farmCta = "./dungeons.html?tab=abyss";
+  } else if (needGold && haveGold < needGold) {
+    farm = `<p class="swm-warn">Не хватает золота.</p>`;
+  }
+  const canApply = !farm && st.ack && !st.busy;
+  body.innerHTML = `
+    <p class="swm-sec">Ступень</p>
+    <div class="swm-compare">
+      <div class="swm-col">
+        <div class="swm-col-lbl">Сейчас</div>
+        <div class="swm-col-val">${escapeHtml(fromLabel)}</div>
+        ${dmgBefore ? `<div class="muted tiny" style="margin-top:6px">Урон ${escapeHtml(dmgBefore)}</div>` : ""}
+        ${!dmgBefore && statBefore ? `<div class="muted tiny" style="margin-top:6px">${escapeHtml(statBefore)}</div>` : ""}
+      </div>
+      <div class="swm-arrow" aria-hidden="true">→</div>
+      <div class="swm-col is-next">
+        <div class="swm-col-lbl">Станет</div>
+        <div class="swm-col-val">${escapeHtml(toLabel)}</div>
+        ${dmgAfter ? `<div class="muted tiny" style="margin-top:6px">Урон ${escapeHtml(dmgAfter)}</div>` : ""}
+        ${!dmgAfter && statAfter ? `<div class="muted tiny" style="margin-top:6px">${escapeHtml(statAfter)}</div>` : ""}
+      </div>
+    </div>
+    ${multLine ? `<p class="swm-note">${escapeHtml(multLine)}</p>` : ""}
+    <p class="swm-sec">Стоимость</p>
+    <div class="swm-costs">
+      ${needCore ? swmCostChip("Ядра", needCore, haveCore) : ""}
+      ${needEss ? swmCostChip("Эссенция", needEss, haveEss) : ""}
+      ${swmCostChip("Золото", needGold, haveGold)}
+    </div>
+    <p class="swm-warn">Обратно откатить нельзя. Доводка меняет силу предмета навсегда.</p>
+    ${farm}
+    <label class="swm-ack"><input type="checkbox" id="refine-ack-box" ${st.ack ? "checked" : ""} onchange="WaifuApp.smithRefineSetAck(this.checked)"/> Понимаю: доводку нельзя откатить.</label>`;
+  if (farmCta) {
+    foot.innerHTML =
+      smithTemperFootBtn("Закрыть", "WaifuApp.closeSmithRefineModal()") +
+      smithTemperFootBtn(needEss ? "В Бездну" : "К подземельям", `location.href='${farmCta}'`, "shop-smith-ctrl-btn--primary");
+  } else {
+    foot.innerHTML =
+      smithTemperFootBtn("Закрыть", "WaifuApp.closeSmithRefineModal()") +
+      smithTemperFootBtn("Довести", `WaifuApp.smithRefineApply(${item.id})`, "shop-smith-ctrl-btn--primary", !canApply);
+  }
+}
+
+async function openSmithRefineModal() {
+  const item = smithSelectedItem();
+  if (!item) {
+    showToast("Сначала выберите предмет", "info");
+    return;
+  }
+  const r = Number(item.rarity || 0);
+  if (r >= 5) {
+    showToast(smithErrText(r >= 6 ? "raid_forbidden" : "legendary_no_refine"), "error");
+    return;
+  }
+  closeSmithTemperModal();
+  smithWorkUi.refine = { itemId: item.id, preview: null, busy: false, ack: false };
+  smithWorkSetOpen("shop-smith-refine-modal", true);
+  renderSmithRefineModal();
+  await refreshSmithWalletIcons().catch(() => {});
+  const prev = await smithFetchJson(`/inventory/${item.id}/refine-preview`);
+  smithWorkUi.refine.preview = prev;
+  renderSmithRefineModal();
+}
+
+function closeSmithRefineModal() {
+  smithWorkUi.refine.busy = false;
+  smithWorkSetOpen("shop-smith-refine-modal", false);
+}
+
+function smithRefineSetAck(checked) {
+  smithWorkUi.refine.ack = Boolean(checked);
+  const pay = document.querySelector("#shop-smith-refine-foot .shop-smith-ctrl-btn--primary");
+  if (!pay || pay.textContent === "В Бездну" || pay.textContent === "К подземельям") return;
+  pay.disabled = !checked || smithWorkUi.refine.busy;
+}
+
 async function smithRefineApply(itemId) {
+  if (smithWorkUi.refine.busy) return;
+  if (!smithWorkUi.refine.ack) {
+    showToast("Подтвердите, что доводку нельзя откатить", "info");
+    return;
+  }
+  smithWorkUi.refine.busy = true;
+  renderSmithRefineModal();
   try {
     const res = await apiFetch(`/inventory/${itemId}/refine`, { method: "POST" });
+    smithWorkUi.refine.busy = false;
     showToast(res.art_note || "Доведено", "success");
+    closeSmithRefineModal();
     await loadSmithTab();
   } catch (e) {
+    smithWorkUi.refine.busy = false;
     const { detail } = parseHttpErrorDetail(e);
     showToast(detail || "Не удалось довести", "error");
+    renderSmithRefineModal();
   }
 }
 
@@ -5518,16 +5984,43 @@ async function smithReforgeResume(itemId) {
 }
 
 window.WaifuApp.refreshSmithEnhancePreview = refreshSmithEnhancePreview;
+window.WaifuApp.openSmithTemperModal = openSmithTemperModal;
+window.WaifuApp.closeSmithTemperModal = closeSmithTemperModal;
+window.WaifuApp.smithTemperSelectAffix = smithTemperSelectAffix;
+window.WaifuApp.smithTemperSetAck = smithTemperSetAck;
+window.WaifuApp.smithTemperAskBurn = smithTemperAskBurn;
+window.WaifuApp.smithTemperCancelBurn = smithTemperCancelBurn;
 window.WaifuApp.smithTemperQuote = smithTemperQuote;
 window.WaifuApp.smithTemperRoll = smithTemperRoll;
 window.WaifuApp.smithTemperApply = smithTemperApply;
 window.WaifuApp.smithTemperBurn = smithTemperBurn;
+window.WaifuApp.openSmithRefineModal = openSmithRefineModal;
+window.WaifuApp.closeSmithRefineModal = closeSmithRefineModal;
+window.WaifuApp.smithRefineSetAck = smithRefineSetAck;
 window.WaifuApp.smithRefineApply = smithRefineApply;
 window.WaifuApp.smithReforgeRoll = smithReforgeRoll;
 window.WaifuApp.smithReforgeApply = smithReforgeApply;
 window.WaifuApp.smithReforgeBurn = smithReforgeBurn;
 window.WaifuApp.smithReforgeResume = smithReforgeResume;
 window.WaifuApp.openSmithResSheet = openSmithResSheet;
+
+function smithWorkBindEsc() {
+  if (window.__waifuSmithWorkEscBound) return;
+  if (typeof window.addEventListener !== "function") return;
+  window.__waifuSmithWorkEscBound = true;
+  window.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape") return;
+    if (smithWorkIsOpen("shop-smith-temper-modal")) {
+      ev.preventDefault();
+      closeSmithTemperModal();
+      return;
+    }
+    if (smithWorkIsOpen("shop-smith-refine-modal")) {
+      ev.preventDefault();
+      closeSmithRefineModal();
+    }
+  });
+}
 
 function updateSmithSelectionUI() {
   const id = shopState.smithSelectedId;
@@ -5660,6 +6153,8 @@ function closeSmithPickModal() {
 function pickSmithItem(id) {
   shopState.smithSelectedId = Number(id);
   closeSmithPickModal();
+  closeSmithTemperModal();
+  closeSmithRefineModal();
   updateSmithSelectionUI();
   refreshSmithPreview().catch(console.error);
   refreshSmithCraftPreview().catch(console.error);
@@ -7507,6 +8002,7 @@ function goShopSmithEnchant(inventoryItemId, work) {
       if (shopState.smithItems.some((x) => x.id === id)) {
         shopState.smithSelectedId = id;
         shopState.smithWork = workKey;
+        shopState.smithOpenWork = workKey;
         updateSmithSelectionUI();
         switchSmithSubTab(workKey);
       } else {
@@ -9285,6 +9781,17 @@ function initTitleScreen(profile) {
   }
 
   if (authEl) authEl.style.display = "none";
+
+  // /profile may return 200 with main_waifu=null and profile_error when the
+  // ORM query failed (missing column, etc.). That is not "no waifu".
+  if (profile.profile_error) {
+    btn.textContent = "Продолжить";
+    btn.disabled = false;
+    btn.onclick = () => {
+      window.location.href = "./profile.html";
+    };
+    return;
+  }
 
   const w = profile?.main_waifu;
   if (w && (w.id != null || w.level != null)) {
@@ -16707,6 +17214,10 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   smithTryCraftEnchant,
   refreshSmithCraftPreview,
   refreshSmithEnhancePreview,
+  openSmithTemperModal,
+  closeSmithTemperModal,
+  openSmithRefineModal,
+  closeSmithRefineModal,
   openSmithHelpModal,
   closeSmithHelpModal,
   openSmithPickModal,
