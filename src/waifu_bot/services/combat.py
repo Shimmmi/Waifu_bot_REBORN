@@ -402,14 +402,22 @@ async def roll_monster_elite(
         "elite_color": elite_color,
         "elite_name": run_monster.name,
         "applied_affixes": [
-            {
-                "id": a.id,
-                "name": a.name,
-                "type": a.type,
-                "category": a.category,
-                "behavior_flag": a.behavior_flag,
-                "behavior_params": a.behavior_params,
-            }
+                    {
+                        "id": a.id,
+                        "name": a.name,
+                        "type": a.type,
+                        "category": a.category,
+                        "hp_mult": a.hp_mult,
+                        "dmg_mult": a.dmg_mult,
+                        "defense_add": a.defense_add,
+                        "evade_add": a.evade_add,
+                        "gold_mult": a.gold_mult,
+                        "exp_mult": a.exp_mult,
+                        "drop_chance_mult": a.drop_chance_mult,
+                        "drop_rarity_bonus": a.drop_rarity_bonus,
+                        "behavior_flag": a.behavior_flag,
+                        "behavior_params": a.behavior_params,
+                    }
             for a in chosen
         ],
         "level_bonus": level_bonus,

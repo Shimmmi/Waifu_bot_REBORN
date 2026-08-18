@@ -14472,13 +14472,13 @@ async function initPage(page) {
 
 async function adminKillMonster() {
   const payload = await apiFetch(`/admin/dungeons/kill-monster`, { method: "POST" });
-  if (payload?.dungeon_completed) openRewardModal(payload);
+  if (payload?.dungeon_completed) window.WaifuApp?.openRewardModal?.(payload);
   await refreshSoloActive().catch(() => {});
 }
 
 async function adminCompleteDungeon() {
   const payload = await apiFetch(`/admin/dungeons/complete`, { method: "POST" });
-  if (payload?.dungeon_completed) openRewardModal(payload);
+  if (payload?.dungeon_completed) window.WaifuApp?.openRewardModal?.(payload);
   await refreshSoloActive().catch(() => {});
 }
 

@@ -6,11 +6,11 @@
     <title>Профиль вайфу — Waifu REBORN</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="./steam-pages.css?v=waifu-webapp-v65" />
-    <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v65" />
+    <link rel="stylesheet" href="./steam-pages.css?v=waifu-webapp-v90" />
+    <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v90" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" media="print" onload="this.media='all'" />
     <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" /></noscript>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v65" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v90" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
     <style>
       /* Палитра как у магазина / таверны */
       body.page-profile .profile-missing-waifu {
@@ -101,7 +101,6 @@
         white-space: nowrap;
       }
       body.page-profile .profile-tabs .tab-reset,
-      body.page-profile .profile-tabs .tab-steam-recreate,
       body.page-profile .profile-tabs .tab-levelup,
       body.page-profile .profile-tabs .tab-statspend-reset,
       body.page-profile .profile-tabs .tab-clearitems {
@@ -336,6 +335,9 @@
       }
       body.page-profile .profile-mtg-bar--xp .profile-mtg-bar-fill {
         background: linear-gradient(90deg, rgba(200, 146, 42, 0.95), rgba(232, 184, 75, 0.95));
+      }
+      body.page-profile .profile-mtg-xp-block--perfection .profile-mtg-bar--xp .profile-mtg-bar-fill {
+        background: linear-gradient(90deg, rgba(52, 211, 153, 0.95), rgba(74, 222, 128, 0.95));
       }
       body.page-profile .profile-mtg-bottom {
         position: absolute;
@@ -1295,7 +1297,7 @@
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
     <script defer src="/webapp/vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v65" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v90" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
   </head>
   <body class="page-profile page-steam-shell" onload="WaifuApp.bootstrapPage('profile', WaifuApp.populateProfile);">
     <header class="attic" style="display:none !important" aria-hidden="true">
@@ -1316,7 +1318,7 @@
           <span id="attic-dungeon-label">Нет боя</span>
           <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden></div>
         </div>
-        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Экспедиции">
+        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Операции">
           <span class="attic-exp-ico" aria-hidden="true">🗺</span>
           <div class="attic-exp-cells" id="attic-exp-cells" aria-label="Статус экспедиций"></div>
         </div>
@@ -1328,13 +1330,27 @@
       <div class="attic-menu" id="attic-menu" hidden role="menu" aria-label="Дополнительные разделы">
         <a class="attic-menu-item" href="./profile.html?tab=inventory" role="menuitem">🎒 Инвентарь</a>
         <a class="attic-menu-item" href="./profile.html?tab=info&info=statistics" role="menuitem">📊 Статистика</a>
-        <a class="attic-menu-item" href="./dungeons.html?tab=expedition" role="menuitem">🗺 Экспедиции</a>
+        <a class="attic-menu-item" href="./dungeons.html?tab=operations" role="menuitem">🗺️ Операции</a>
         <a class="attic-menu-item" href="./dungeons.html?tab=abyss" role="menuitem">🕳 Бездна</a>
         <a class="attic-menu-item" href="./shop.html?tab=gamble" role="menuitem">🎲 Gamble</a>
         <a class="attic-menu-item" href="./shop.html?tab=smith" role="menuitem">🔨 Кузнец</a>
-        <a class="attic-menu-item" href="./tavern.html?tab=heal" role="menuitem">💊 Лечение</a>
-        <a class="attic-menu-item" href="./tavern.html?tab=upgrade" role="menuitem">⬆ Прокачка наёмниц</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=arena" role="menuitem">⚔️ Арена</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=hire" role="menuitem">🎲 Найм</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=squad" role="menuitem">👥 Отряд</a>
+        <a class="attic-menu-item" href="./tavern.html?tab=exchange" role="menuitem">🏪 Обмен</a>
+        <a class="attic-menu-item" href="#" role="menuitem" onclick="event.preventDefault();(function(){var m=document.getElementById('attic-menu');var b=document.getElementById('attic-menu-btn');if(m)m.hidden=true;if(b)b.setAttribute('aria-expanded','false');WaifuApp.openLibrary();})()">📖 Библиотека</a>
         <a class="attic-menu-item" href="./player.html#settings" role="menuitem">⚙ Настройки</a>
+        <button type="button" class="attic-menu-item" id="attic-menu-link-code" role="menuitem">📱 Код для Mobile / Steam</button>
+        <button type="button" class="attic-menu-item mobile-only-attic" id="attic-menu-steps" role="menuitem" hidden>👟 Шаги (Mobile)</button>
+      </div>
+      <div id="mobile-steps-attic" class="activity-steps-card mobile-only-attic" hidden>
+        <h2>Шаги</h2>
+        <p class="muted">Шаги копятся в фоне (если разрешён шагомер). Заберите урон в общий инвентарь с Telegram.</p>
+        <div class="activity-meter"><span>Буфер: <strong id="ms-buffer">0</strong></span><span>До удара: <strong id="ms-need">—</strong></span></div>
+        <div class="activity-meter"><span>С забора: <strong id="ms-pending">—</strong></span><span>Сегодня: <strong id="ms-today">0</strong></span></div>
+        <p class="muted" id="ms-perm">Разрешение: …</p>
+        <button type="button" id="ms-claim">Забрать урон за шаги</button>
+        <button type="button" id="ms-perm-btn" style="margin-top:8px;background:#3a4558;color:#f5f0e6">Доступ к шагомеру</button>
       </div>
     </header>
 
@@ -1521,6 +1537,10 @@
 
           <div id="profile-info-indicators" class="profile-info-panel active">
             <div id="profile-indicators-grid" class="details-grid profile-detail-grid"></div>
+            <div id="profile-perfection-summary" class="profile-perfection-summary" hidden>
+              <h4 class="profile-perfection-summary-title">Совершенствование</h4>
+              <ul id="profile-perfection-bonus-list" class="perfection-bonus-list"></ul>
+            </div>
           </div>
 
           <div id="profile-info-statistics" class="profile-info-panel">
@@ -1582,63 +1602,78 @@
     <div id="item-modal" class="modal item-modal-root item-modal-v2-wrap item-modal-v2-host" style="display:none;" onclick="if (event.target === this) WaifuApp.closeItemModal()">
       <div class="item-modal-v2-shell">
       <div id="item-modal-content" class="item-modal-v2-card" role="dialog" aria-modal="true" aria-labelledby="item-modal-name" onclick="event.stopPropagation()">
-        <header class="item-modal-v2-hdr">
-          <div class="item-modal-v2-hdr-l">
-            <button type="button" class="item-modal-v2-hdr-x" aria-label="Закрыть" onclick="WaifuApp.closeItemModal()">✕</button>
-            <span class="item-modal-v2-hdr-t">Детали предмета</span>
-          </div>
-        </header>
-        <div class="item-modal-v2-scroll">
-          <div class="item-modal-v2-title-block">
+        <div class="item-modal-v2-titlebar">
+          <div class="item-modal-v2-rarity-chip" id="item-modal-rpill">—</div>
+          <div class="item-modal-v2-title-field">
             <div class="item-modal-v2-title" id="item-modal-name">—</div>
-            <div class="item-modal-v2-sub">
-              <div class="item-modal-v2-sub-spacer" aria-hidden="true"></div>
-              <div class="item-modal-v2-sub-main">
-                <span class="item-modal-v2-sub-lbl" id="item-modal-subline"></span>
-                <span class="item-modal-v2-dot" aria-hidden="true"></span>
-                <span class="item-modal-v2-rpill" id="item-modal-rpill">—</span>
-              </div>
-              <div class="item-modal-v2-sub-tail">
-                <span
-                  class="item-modal-v2-upgrade"
-                  id="item-modal-upgrade-hint"
-                  style="display: none"
-                  aria-hidden="true"
-                ></span>
+          </div>
+          <button type="button" class="item-modal-v2-hdr-x" aria-label="Закрыть" onclick="WaifuApp.closeItemModal()">✕</button>
+        </div>
+        <div class="item-modal-v2-hero-row">
+          <aside class="item-modal-v2-hero-side item-modal-v2-hero-side--left" id="item-modal-hero-left"></aside>
+          <div class="item-modal-v2-hero">
+            <div
+              class="item-modal-v2-flip-scene"
+              id="item-modal-flip-scene"
+              role="button"
+              tabindex="0"
+              aria-label="Перевернуть карточку: описание предмета"
+            >
+              <div class="item-modal-v2-flip-inner" id="item-modal-flip-inner">
+                <div class="item-modal-v2-face item-modal-v2-face--front">
+                  <div class="item-modal-v2-art-wrap">
+                    <div class="item-modal-v2-art" aria-hidden="true">
+                      <div class="item-modal-v2-frame" id="item-modal-art-frame">
+                        <div class="item-modal-v2-art-inner" id="item-modal-art">📦</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="item-modal-v2-hero-bottom">
+                    <div class="item-modal-v2-sub">
+                      <div class="item-modal-v2-sub-spacer" aria-hidden="true"></div>
+                      <div class="item-modal-v2-sub-main">
+                        <span class="item-modal-v2-sub-lbl" id="item-modal-subline"></span>
+                      </div>
+                      <div class="item-modal-v2-sub-tail">
+                        <span
+                          class="item-modal-v2-upgrade"
+                          id="item-modal-upgrade-hint"
+                          style="display: none"
+                          aria-hidden="true"
+                        ></span>
+                      </div>
+                    </div>
+                    <div class="item-modal-v2-ench" id="item-modal-ench"></div>
+                  </div>
+                </div>
+                <div class="item-modal-v2-face item-modal-v2-face--back">
+                  <div class="item-modal-v2-desc-flip" id="item-modal-desc"></div>
+                </div>
               </div>
             </div>
           </div>
-          <div class="item-modal-v2-art-wrap">
-            <div class="item-modal-v2-art" aria-hidden="true">
-              <div class="item-modal-v2-ring item-modal-v2-ring--outer"></div>
-              <div class="item-modal-v2-ring item-modal-v2-ring--inner"></div>
-              <div class="item-modal-v2-glow"></div>
-              <div class="item-modal-v2-frame" id="item-modal-art-frame">
-                <div class="item-modal-v2-art-inner" id="item-modal-art">📦</div>
-              </div>
-            </div>
-          </div>
-          <div class="item-modal-v2-ench" id="item-modal-ench"></div>
+          <aside class="item-modal-v2-hero-side item-modal-v2-hero-side--right" id="item-modal-hero-right"></aside>
+        </div>
+        <div class="item-modal-v2-scroll">
           <div class="item-modal-v2-spanel">
-            <div class="item-modal-v2-spanel-hd"><span aria-hidden="true">✦</span> Характеристики</div>
             <div id="item-modal-body"></div>
           </div>
+        </div>
+        <div class="item-modal-v2-foot">
           <div class="item-modal-v2-req" id="item-modal-req-section" style="display:none;">
-            <div class="item-modal-v2-req-hd">Требования</div>
+            <span class="item-modal-v2-req-hd">Требования</span>
             <div class="item-modal-v2-req-pills" id="item-modal-requirements" aria-live="polite"></div>
           </div>
-          <div class="item-modal-v2-desc" id="item-modal-desc" style="display:none;"></div>
           <div class="item-modal-v2-cta">
             <div class="item-modal-v2-actions item-modal-v2-actions--3" id="item-modal-actions-row" data-cols="3">
               <button class="item-modal-v2-btn item-modal-v2-btn--equip" id="item-modal-equip" type="button" onclick="WaifuApp.equipItemFromModal()" style="display:none;">Надеть</button>
               <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
-              <button class="item-modal-v2-btn item-modal-v2-btn--ench item-modal-v2-btn--icon" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;" aria-label="Заточить" title="Заточить">⚒</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--ench item-modal-v2-btn--icon" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;" aria-label="Кузница" title="Кузница">⚒</button>
               <button class="item-modal-v2-btn item-modal-v2-btn--neutral item-modal-v2-btn--icon" id="item-modal-dismantle" type="button" onclick="WaifuApp.openItemDismantleConfirmOverlay()" style="display:none;" aria-label="Распылить" title="Распылить">✨</button>
               <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
               <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
             </div>
           </div>
-          <div class="item-modal-v2-scroll-pad shop-offer-modal-scroll-pad" aria-hidden="true"></div>
         </div>
       </div>
       </div>
@@ -1658,7 +1693,7 @@
           <div class="item-modal-sell-price-line">Вы получите <strong>🪙 <span id="item-modal-sell-gold">—</span></strong></div>
           <div class="item-modal-sell-actions">
             <button type="button" class="item-modal-v2-btn item-modal-v2-btn--neutral" onclick="WaifuApp.closeItemSellConfirmOverlay()">Отмена</button>
-            <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" onclick="WaifuApp.confirmSellSelectedItem()">Продать</button>
+            <button type="button" class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell-confirm" onclick="WaifuApp.confirmSellSelectedItem()">Продать</button>
           </div>
         </div>
       </div>
@@ -1724,7 +1759,7 @@
       <div class="item-art-gen-busy-panel">
         <div class="item-art-gen-busy-spinner" aria-hidden="true"></div>
         <p>Генерация иконки…</p>
-        <p class="item-art-gen-busy-hint muted tiny">OpenRouter может отвечать до 2 минут</p>
+        <p class="item-art-gen-busy-hint muted tiny">Генерация может занять до 2 минут</p>
       </div>
     </div>
 

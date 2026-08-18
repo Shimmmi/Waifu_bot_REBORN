@@ -360,6 +360,7 @@ class DungeonOut(BaseModel):
     # Блокировки для отображения в UI (заполняются при запросе с player_id)
     locked_by_act: bool = False  # акт ещё не открыт (max_act < act)
     locked_by_prev: bool = False  # не пройдено предыдущее подземелье в акте
+    is_completed: bool = False  # базовый клир (DungeonProgress.is_completed)
 
 
 class DungeonPlusStatusOut(BaseModel):

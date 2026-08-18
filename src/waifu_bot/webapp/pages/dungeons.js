@@ -57,14 +57,12 @@ async function renderChallengeStrip() {
     })
     .join("");
   const allCleared = data.chips.every((c) => c.first_cleared);
-  const emptyNote = allCleared
-    ? `<div class="muted tiny">Испытания дня пройдены. Новые в 00:00 МСК. Повтор — без премии.</div>`
-    : "";
+  host.title = allCleared
+    ? "Испытания дня пройдены. Новые в 00:00 МСК. Повтор — без премии."
+    : "1 полный приз в сутки · до 00:00 МСК · это не сложность +";
   host.innerHTML = `
     <div class="challenge-strip-title">Испытание дня</div>
-    <div class="challenge-strip-sub muted tiny">1 полный приз в сутки · до 00:00 МСК · это не сложность +</div>
     <div class="challenge-chips">${chips}</div>
-    ${emptyNote}
   `;
   maybeFtueChallenge().catch(() => {});
 }
@@ -149,6 +147,15 @@ function dungeonThemeByNumber(dungeonNumber) {
   );
 }
 
+function isSoloDungeonCompleted(d) {
+  if (Boolean(d?.is_completed)) return true;
+  const st = dungeonPlusStatusById?.[Number(d?.id)];
+  if (Number(st?.unlocked_plus_level || 0) > 0) return true;
+  if (Number(st?.best_completed_plus_level || 0) > 0) return true;
+  const maxAct = safeInt(window.__lastProfileForDungeons?.max_act, 1);
+  return safeInt(d?.act, 1) < maxAct;
+}
+
 function dungeonTypeLabel(type) {
   const t = Number(type);
   return (
@@ -165,6 +172,7 @@ let soloActiveMonsterTemplateId = null;
 let soloActiveStoryBossId = null;
 /** @type {object | null} Snapshot for incremental SSE battle updates */
 let soloActiveSnapshot = null;
+let soloActiveDungeonId = null;
 let soloHpRefetchTimer = null;
 
 function scheduleSoloHpRefetch() {
@@ -199,7 +207,7 @@ function showDungeonsError(message, kind = "info") {
   else box.classList.remove("danger");
 }
 
-function renderSoloDungeonTile(d, waifuLevel) {
+function renderSoloDungeonTile(d, waifuLevel, ctx = {}) {
   const did = Number(d?.id);
   const lvlReq = safeInt(d?.level, 1);
   const baseCanEnter = safeInt(waifuLevel, 0) >= lvlReq;
@@ -220,6 +228,9 @@ function renderSoloDungeonTile(d, waifuLevel) {
   const dungeonArtBase = window.DUNGEONS_STATIC_BASE || "/static/game/dungeons";
   const artUrl = `${dungeonArtBase}/act-${act}/dungeon-${dungeonNum}.webp`;
   const lockedClass = canEnter ? "" : "locked";
+  const activeId = ctx.activeDungeonId != null ? Number(ctx.activeDungeonId) : soloActiveDungeonId;
+  const isActiveRun = Number.isFinite(activeId) && activeId === did;
+  const isCompleted = isSoloDungeonCompleted(d);
   let lockReason = "";
   if (!canEnter) {
     if (blockedByAbyss) lockReason = "Сначала выйдите из Бездны";
@@ -255,12 +266,21 @@ function renderSoloDungeonTile(d, waifuLevel) {
       : `<div class="solo-dungeon-card__meta-line solo-dungeon-card__meta-line--lock solo-dungeon-card__meta-line--spacer" aria-hidden="true">&nbsp;</div>`;
   const bottomClass =
     "solo-dungeon-card__bottombar" + (showMinLvl ? "" : " solo-dungeon-card__bottombar--compact");
+  let statusPillHtml = "";
+  if (isActiveRun) {
+    statusPillHtml = `<span class="solo-dungeon-card__status solo-dungeon-card__status--run"><i aria-hidden="true"></i>В БОЮ</span>`;
+  } else if (isCompleted) {
+    statusPillHtml = `<span class="solo-dungeon-card__status solo-dungeon-card__status--done">✓ ПРОЙДЕНО</span>`;
+  }
+  const runClass = isActiveRun ? " active-run" : "";
   return `
-    <div class="solo-dungeon-card dungeon-tile ${lockedClass}" data-dungeon-id="${did}" data-can-enter="${canEnter ? "1" : "0"}"${lockHint}
-      onclick="WaifuApp.handleSoloDungeonTileClick(event, ${did})">
+    <div class="solo-dungeon-card dungeon-tile ${lockedClass}${runClass}" data-dungeon-id="${did}" data-can-enter="${canEnter ? "1" : "0"}" tabindex="0"${lockHint}
+      onclick="WaifuApp.handleSoloDungeonTileClick(event, ${did})"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();WaifuApp.handleSoloDungeonTileClick(event, ${did});}">
       <div class="solo-dungeon-card__frame">
         <img class="solo-dungeon-card__bg" src="${artUrl}" alt="" loading="lazy" decoding="async" />
         <div class="solo-dungeon-card__overlay">
+          ${statusPillHtml}
           <div class="solo-dungeon-card__hdr">
             <h3 class="solo-dungeon-card__title">${nm}</h3>
             ${plusBtn}
@@ -278,7 +298,7 @@ function renderSoloDungeonTile(d, waifuLevel) {
 
 function handleSoloDungeonTileClick(ev, dungeonId) {
   if (ev?.target?.closest?.(".solo-dungeon-plus-btn")) return;
-  const tile = ev?.currentTarget;
+  const tile = ev?.currentTarget || ev?.target?.closest?.(".solo-dungeon-card");
   if (!tile || !dungeonId) return;
   const can = tile.getAttribute("data-can-enter") === "1";
   if (!can) {
@@ -286,22 +306,35 @@ function handleSoloDungeonTileClick(ev, dungeonId) {
     if (t) showDungeonsError(t, "info");
     return;
   }
+  const activeId = Number(soloActiveDungeonId);
+  if (Number.isFinite(activeId) && activeId > 0) {
+    if (Number(dungeonId) === activeId) {
+      document.getElementById("solo-active")?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    showDungeonsError("Сначала завершите или покиньте текущее подземелье.", "info");
+    return;
+  }
   const pl = getPlusLevelForDungeon(dungeonId);
   startDungeon(dungeonId, pl);
 }
 
-async function renderSoloDungeonsForAct(profile) {
+async function renderSoloDungeonsForAct(profile, opts = {}) {
   const box = document.getElementById("solo-dungeons");
   if (!box) return;
   window.__lastProfileForDungeons = profile;
   const waifuLevel = profile?.main_waifu?.level ?? 0;
   const act = safeInt(profile?.act, 1);
+  const activeDungeonId =
+    opts.activeDungeonId != null ? Number(opts.activeDungeonId) : soloActiveDungeonId;
 
   const res = await apiFetch(`/dungeons?act=${act}&type=1`).catch(() => ({ dungeons: [] }));
   const dungeons = Array.isArray(res?.dungeons) ? res.dungeons : [];
-  const subtitle = `5 данжей · доступно: ${dungeons.filter((d) => safeInt(waifuLevel, 0) >= safeInt(d?.level, 1)).length}`;
+  const completedCount = dungeons.filter((d) => isSoloDungeonCompleted(d)).length;
+  const subtitle = `${completedCount} из ${dungeons.length || 5}`;
+  const roman = ["I", "II", "III", "IV", "V"][Math.max(0, act - 1)] || String(act);
   const tiles = dungeons.length
-    ? dungeons.map((d) => renderSoloDungeonTile(d, waifuLevel)).join("")
+    ? dungeons.map((d) => renderSoloDungeonTile(d, waifuLevel, { activeDungeonId })).join("")
     : `<div class="placeholder">Нет данжей для акта ${act}.</div>`;
 
   const abyssBanner = abyssState?.session_active
@@ -310,15 +343,16 @@ async function renderSoloDungeonsForAct(profile) {
 
   box.innerHTML = `
     ${abyssBanner}
-    <div class="act-block">
-      <div class="act-head">
-        <div class="act-title">Акт ${act}</div>
-        <div class="act-subtitle">${subtitle}</div>
-      </div>
+    <details class="solo-progress-disc">
+      <summary class="solo-progress-summary">
+        <span class="seal act-seal" aria-hidden="true">${roman}</span>
+        <span class="solo-progress-label">Прогресс</span>
+        <span class="solo-progress-count">${subtitle}</span>
+      </summary>
       <div class="dungeon-grid">
         ${tiles}
       </div>
-    </div>
+    </details>
   `;
   renderChallengeStrip().catch(() => {});
 }
@@ -575,6 +609,21 @@ function applySoloBattleSsePayload(payload) {
     name_known: snap.monster?.name_known !== false,
     type_known: snap.monster?.type_known !== false,
   };
+  if (payload.elite_spawn && typeof payload.elite_spawn === "object") {
+    const es = payload.elite_spawn;
+    monster.is_elite = es.is_elite !== false;
+    const affixes = Array.isArray(es.affixes)
+      ? es.affixes
+      : Array.isArray(es.applied_affixes)
+        ? es.applied_affixes
+        : null;
+    if (affixes) {
+      monster.affixes = affixes;
+      monster.affix_count = affixes.length;
+    } else if (es.affix_count != null) {
+      monster.affix_count = Number(es.affix_count) || 0;
+    }
+  }
   const waifu = {
     ...(snap.waifu || { name: "—" }),
     current_hp: waifuCur,
@@ -621,19 +670,139 @@ function ensureCombatIslandMounted() {
   }
 }
 
+function formatMonsterTierLabel(monster) {
+  if (monster?.is_boss) return "Босс";
+  if (!monster?.is_elite) return "";
+  const n = Number(monster.affix_count) || (monster.affixes || []).length;
+  if (n <= 0) return "Элита";
+  const tail = n === 1 ? "аффикс" : n < 5 ? "аффикса" : "аффиксов";
+  return `Элита · ${n} ${tail}`;
+}
+
+function formatAffixMult(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v === 1) return null;
+  const rounded = Math.round(v * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+function formatAffixBehaviorLine(a) {
+  const flag = String(a?.behavior_flag || "").toUpperCase();
+  const p = a?.behavior_params || {};
+  const pct = (x) => Math.round(Number(x) * 100);
+  if (flag === "BERSERK") {
+    const hp = p.threshold != null ? `≤${pct(p.threshold)}% HP` : "низком HP";
+    const dmg = formatAffixMult(p.dmg_bonus);
+    return `ярость при ${hp}${dmg ? ` (урон ×${dmg})` : ""}`;
+  }
+  if (flag === "REGEN") {
+    const heal = p.regen_pct ?? p.hp_pct;
+    const every = p.every_n != null ? ` каждые ${p.every_n} сообщ.` : "";
+    return heal != null ? `реген +${heal}% HP${every}` : "регенерация";
+  }
+  if (flag === "REFLECT") {
+    const chance = p.chance != null ? `${pct(p.chance)}% шанс` : "";
+    const amt = p.reflect_pct != null ? `отражает ${pct(p.reflect_pct)}%` : "отражает урон";
+    return [chance, amt].filter(Boolean).join(", ");
+  }
+  if (flag === "SPLIT") {
+    const copies = p.copies != null ? `${p.copies} копии` : "копии";
+    return `при смерти делится (${copies})`;
+  }
+  if (flag === "UNDYING") {
+    const hp = p.revive_hp_pct != null ? ` с ${pct(p.revive_hp_pct)}% HP` : "";
+    return `воскресает один раз${hp}`;
+  }
+  if (flag === "MEDIA_BLOCK") {
+    const n = Number(p.every_n);
+    if (n === 1) return "блокирует каждый медиа-удар";
+    if (Number.isFinite(n) && n > 1) return `блокирует каждый ${n}-й медиа-удар`;
+    return "блокирует медиа";
+  }
+  if (flag === "MEDIA_IMMUNE") {
+    const labels = { audio: "аудио", url: "ссылки", video: "видео", photo: "фото", sticker: "стикеры" };
+    const kind = labels[String(p.media_type || "").toLowerCase()] || p.media_type || "медиа";
+    return `иммунитет к ${kind}`;
+  }
+  if (flag === "TEXT_IMMUNE") return "иммунитет к тексту";
+  if (flag === "CURSE") {
+    const red = p.dmg_reduction != null ? pct(p.dmg_reduction) : null;
+    const m = formatAffixMult(p.player_dmg_mult);
+    if (red != null) return `проклятие: ваш урон −${red}%`;
+    if (m) return `проклятие: ваш урон ×${m}`;
+    return "проклятие: ослабляет ваш урон";
+  }
+  if (flag === "ANTI_CRIT") {
+    const red = p.crit_reduction != null ? ` −${pct(p.crit_reduction)}%` : "";
+    return `снижает шанс крита${red}`;
+  }
+  if (flag === "MISER") return "режет награды за убийство";
+  if (flag === "BUFF_NEXT") {
+    const bits = [];
+    const hp = formatAffixMult(p.hp_mult);
+    const dmg = formatAffixMult(p.dmg_mult);
+    const pd = formatAffixMult(p.player_dmg_mult);
+    if (hp) bits.push(`HP след. ×${hp}`);
+    if (dmg) bits.push(`урон след. ×${dmg}`);
+    if (pd) bits.push(`ваш урон ×${pd}`);
+    return bits.length ? `бафф следующих: ${bits.join(", ")}` : "усиливает следующих монстров";
+  }
+  if (flag === "STONE_SKIN") {
+    const maxR = p.max_reduction != null ? ` до −${pct(p.max_reduction)}%` : "";
+    return `каменная кожа: броня сильнее на полном HP${maxR}`;
+  }
+  return "";
+}
+
+function formatAffixDescription(a) {
+  if (!a || typeof a !== "object") return "";
+  const parts = [];
+  const hp = formatAffixMult(a.hp_mult);
+  if (hp) parts.push(`HP ×${hp}`);
+  const dmg = formatAffixMult(a.dmg_mult);
+  if (dmg) parts.push(`урон ×${dmg}`);
+  const def = Number(a.defense_add);
+  if (Number.isFinite(def) && def !== 0) parts.push(`вх. −${Math.abs(def)}%`);
+  const evade = Number(a.evade_add);
+  if (Number.isFinite(evade) && evade !== 0) parts.push(`уклон +${evade}%`);
+  const gold = formatAffixMult(a.gold_mult);
+  if (gold) parts.push(`золото ×${gold}`);
+  const exp = formatAffixMult(a.exp_mult);
+  if (exp) parts.push(`EXP ×${exp}`);
+  const drop = formatAffixMult(a.drop_chance_mult);
+  if (drop) parts.push(`дроп ×${drop}`);
+  const rarity = Number(a.drop_rarity_bonus);
+  if (Number.isFinite(rarity) && rarity !== 0) parts.push(`редкость +${rarity}`);
+  const behavior = formatAffixBehaviorLine(a);
+  if (behavior) parts.push(behavior);
+  return parts.join(" · ");
+}
+
+function renderAffixChipHtml(a, colorClass) {
+  const desc = formatAffixDescription(a);
+  const name = escapeHtml(a?.name || "—");
+  const body = desc ? `${name} — <b>${escapeHtml(desc)}</b>` : name;
+  return `<span class="affix-chip ${colorClass}">${body}</span>`;
+}
+
 function renderSoloBattleCard(monster, dungeon, waifu) {
   const card = document.getElementById("solo-active");
   if (!card) return;
-  const list = document.getElementById("solo-dungeons");
-  if (list) list.style.display = "none";
   card.style.display = "block";
 
   setText("solo-dungeon-name", dungeon.name ?? "—");
   const total = dungeon.total_rooms || 0;
   const current = dungeon.current_room || 1;
-  const progressText = total > 0 ? `🚪 ${current}/${total}` : "";
-  const progressEl = document.getElementById("solo-dungeon-progress-ov");
-  if (progressEl) progressEl.textContent = progressText;
+  const progressHeader = document.getElementById("solo-dungeon-progress");
+  if (progressHeader) {
+    progressHeader.innerHTML = buildStageDots(current, total);
+    progressHeader.style.display = total > 0 ? "" : "none";
+  }
+  const progressOv = document.getElementById("solo-dungeon-progress-ov");
+  if (progressOv) {
+    progressOv.textContent = "";
+    progressOv.hidden = true;
+  }
 
   const nameKnown = monster.name_known !== false;
   const typeKnown = monster.type_known !== false;
@@ -656,6 +825,20 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
         window.WaifuApp.openLibrary({ tab: "bestiary", templateId: monster.template_id });
       }
     };
+  }
+
+  const eliteLabelEl = document.getElementById("monster-elite-label");
+  const tierLabel = formatMonsterTierLabel(monster);
+  if (eliteLabelEl) {
+    if (tierLabel) {
+      eliteLabelEl.textContent = tierLabel;
+      eliteLabelEl.hidden = false;
+      eliteLabelEl.removeAttribute("aria-hidden");
+    } else {
+      eliteLabelEl.textContent = "";
+      eliteLabelEl.hidden = true;
+      eliteLabelEl.setAttribute("aria-hidden", "true");
+    }
   }
 
   setText("monster-name-text", nameKnown ? (monster.name ?? "—") : (monster.display_name || "Неизвестный монстр"));
@@ -700,7 +883,7 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
   if (affixesEl) {
     if (monster.is_elite && monster.affixes?.length) {
       const colorClass = monster.affix_count >= 4 ? "red" : monster.affix_count >= 3 ? "gold" : "blue";
-      affixesEl.innerHTML = monster.affixes.map((a) => `<span class="affix-chip ${colorClass}">${a.name}</span>`).join("");
+      affixesEl.innerHTML = monster.affixes.map((a) => renderAffixChipHtml(a, colorClass)).join("");
       affixesEl.style.display = "flex";
     } else {
       affixesEl.style.display = "none";
@@ -714,13 +897,9 @@ function renderSoloBattleCard(monster, dungeon, waifu) {
 
   const metaEl = document.getElementById("solo-active-meta");
   if (metaEl) {
-    const lastDmg = typeof window._lastSoloDamage === "number" ? window._lastSoloDamage : null;
-    const lastCrit = window._lastSoloCrit === true;
-    const dealt = typeof window._lastSoloDealt === "number" ? window._lastSoloDealt : null;
-    const parts = [];
-    if (lastDmg != null) parts.push(`<div class="meta-tag">Последний удар: <strong>${lastDmg}</strong>${lastCrit ? " <span style=\"color:#fbbf24\">★крит</span>" : ""}</div>`);
-    if (dealt != null && dealt > 0) parts.push(`<div class="meta-tag">Нанесено: <strong>${dealt}</strong></div>`);
-    metaEl.innerHTML = parts.length ? parts.join("") : "";
+    metaEl.innerHTML = "";
+    metaEl.hidden = true;
+    metaEl.style.display = "none";
   }
 }
 
@@ -733,11 +912,13 @@ function renderSoloActiveProgress(active) {
     soloActiveMonsterTemplateId = null;
     soloActiveStoryBossId = null;
     soloActiveSnapshot = null;
+    soloActiveDungeonId = null;
     host.style.display = "none";
-    list.style.display = "";
     setSoloExitBtnVisible(false);
     return;
   }
+
+  soloActiveDungeonId = active.dungeon_id != null ? Number(active.dungeon_id) : null;
 
   soloActiveMonsterTemplateId =
     active.monster_template_id != null ? Number(active.monster_template_id) : null;
@@ -798,7 +979,6 @@ function renderSoloActiveProgress(active) {
     max_hp: Math.max(1, safeNumber(active.waifu_max_hp, 1)),
   };
   host.style.display = "";
-  list.style.display = "none";
   const content = document.getElementById("solo-active-content");
   const fallback = document.getElementById("solo-active-fallback");
   if (content) content.style.display = "";
@@ -830,7 +1010,6 @@ function renderSoloActiveFallback(reason) {
   const fallback = document.getElementById("solo-active-fallback");
   if (!host || !list) return;
   host.style.display = "";
-  list.style.display = "none";
   if (content) content.style.display = "none";
   if (fallback) {
     fallback.style.display = "block";
@@ -888,13 +1067,19 @@ async function ensureSoloTabBootstrapped(profile) {
   } catch {
     initPlusSelect(false, {});
   }
-  await renderSoloDungeonsForAct(p);
   try {
     const active = await fetchActiveDungeon({ includeLog: true, force: true });
     renderAtticDungeon(active);
+    if (active?.active && active.dungeon_id != null) {
+      soloActiveDungeonId = Number(active.dungeon_id);
+    } else {
+      soloActiveDungeonId = null;
+    }
+    await renderSoloDungeonsForAct(p, { activeDungeonId: soloActiveDungeonId });
     renderSoloActiveProgress(active);
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
+    await renderSoloDungeonsForAct(p);
     renderSoloActiveProgress({ active: false });
     showDungeonsError(`Не удалось проверить активный данж: ${detail || "ошибка"}`);
   }
@@ -1021,20 +1206,15 @@ function initPlusSelect(globalUnlocked, statusById) {
   }
 }
 
+const STORY_PLUS_TIERS = new Set([5, 10, 15, 20, 25, 30]);
+
 function getDifficultyDescription(n) {
   const lvl = Number(n || 0);
   if (lvl === 0) return "Базовая сложность.";
-  // Mirrors waifu_bot.game.dungeon_plus_scaling: HP=2300+100*n^2.15, dmg=1+0.08N.
-  const hpTarget = Math.round(2300 + 100 * Math.pow(lvl, 2.15));
-  const ttkAt1k = hpTarget / 1000;
-  const dmgPct = Math.round(lvl * 8);
+  const dmgMult = (1 + lvl * 0.08).toFixed(2);
   const reward = (1 + lvl * 0.22 + Math.log1p(lvl) * 0.15).toFixed(2);
-  const rarityLabels = ["обычная", "необычная", "редкая", "эпическая", "легендарная"];
-  const rarity = rarityLabels[Math.min(Math.floor(lvl / 2), 4)];
   const elite = Math.min(40, lvl * 2);
-  const extra = Math.max(0, Math.floor((lvl - 4) / 4));
-  const extraTxt = extra > 0 ? ` +${extra} монстр.` : "";
-  return `HP ≈${hpTarget} (~${ttkAt1k.toFixed(1)} сообщ. при 1k). Урон монстров +${dmgPct}%. Награды x${reward}. Предмет +${lvl} ур. Редкость: ${rarity}. Элиты +${elite}%.${extraTxt}`;
+  return `Урон ×${dmgMult} · Награды ×${reward} · Элиты +${elite}%`;
 }
 
 window.WaifuApp.openPlusBottomSheet = (dungeonId) => {
@@ -1052,18 +1232,20 @@ window.WaifuApp.openPlusBottomSheet = (dungeonId) => {
   }
   for (let i = 0; i <= Math.max(0, max); i++) {
     const hue = max > 0 ? Math.round(120 * (1 - i / Math.max(1, max))) : 120;
-    const bgColor = `hsla(${hue},70%,45%,0.22)`;
-    const borderColor = `hsla(${hue},60%,55%,0.50)`;
+    const sealC = `hsl(${hue}, 58%, 42%)`;
     const desc = getDifficultyDescription(i);
+    const storyMark = STORY_PLUS_TIERS.has(i)
+      ? `<span class="plus-option-story-mark">Сюжетный босс на последней комнате</span>`
+      : "";
     const btn = document.createElement("button");
     btn.className = "plus-option" + (i === current ? " selected" : "");
     btn.innerHTML = `
-      <div class="plus-option-badge" style="background:${bgColor};border-color:${borderColor};color:#fff;">
+      <div class="plus-option-badge seal" style="--seal-c:${sealC}">
         ${i === 0 ? "0" : `+${i}`}
       </div>
       <div class="plus-option-info">
         <div class="plus-option-label">${i === 0 ? "Обычная" : `Сложность +${i}`}</div>
-        <div class="plus-option-desc">${desc}</div>
+        <div class="plus-option-desc">${desc}${storyMark}</div>
       </div>`;
     btn.addEventListener("click", () => {
       setPlusLevelForDungeon(did, i);
@@ -1128,19 +1310,29 @@ function openRewardModal(payload) {
   const sub = document.getElementById("reward-modal-subtitle");
   if (!m || !body) return;
 
-  if (sub) sub.textContent = "Победа над боссом!";
+  if (sub) sub.textContent = payload.dungeon_name || "Подземелье пройдено";
 
-  const expMobs = payload.exp_from_monsters ?? payload.experience_gained ?? null;
-  const expBoss = payload.exp_from_boss ?? null;
-  const expTotal =
-    payload.total_experience_gained ??
-    (expMobs != null && expBoss != null ? expMobs + expBoss : expMobs ?? expBoss);
+  const bossExpRaw = payload.exp_from_boss ?? payload.experience_gained ?? null;
+  const totalExpRaw = payload.total_experience_gained ?? payload.experience_gained ?? null;
+  const expBoss = bossExpRaw != null ? Number(bossExpRaw) : null;
+  const expTotal = totalExpRaw != null ? Number(totalExpRaw) : null;
+  const expMobs =
+    payload.exp_from_monsters != null
+      ? Number(payload.exp_from_monsters)
+      : expTotal != null && expBoss != null
+        ? Math.max(0, expTotal - expBoss)
+        : null;
 
-  const goldMobs = payload.gold_from_monsters ?? payload.gold_gained ?? null;
-  const goldBoss = payload.gold_from_boss ?? null;
-  const goldTotal =
-    payload.total_gold_gained ??
-    (goldMobs != null && goldBoss != null ? goldMobs + goldBoss : goldMobs ?? goldBoss);
+  const bossGoldRaw = payload.gold_from_boss ?? payload.gold_gained ?? null;
+  const totalGoldRaw = payload.total_gold_gained ?? payload.gold_gained ?? null;
+  const goldBoss = bossGoldRaw != null ? Number(bossGoldRaw) : null;
+  const goldTotal = totalGoldRaw != null ? Number(totalGoldRaw) : null;
+  const goldMobs =
+    payload.gold_from_monsters != null
+      ? Number(payload.gold_from_monsters)
+      : goldTotal != null && goldBoss != null
+        ? Math.max(0, goldTotal - goldBoss)
+        : null;
 
   const itemsRaw = Array.isArray(payload.items_dropped)
     ? payload.items_dropped
@@ -1155,11 +1347,24 @@ function openRewardModal(payload) {
   }
 
   const fmt = (v) => (v != null ? Number(v).toLocaleString() : "—");
+  const splitRow = (label, value) =>
+    `<div class="reward-total-row reward-total-row--split"><span class="muted">${label}</span><strong>+${fmt(value)}</strong></div>`;
+
+  const expSplit = [
+    expMobs != null && Number(expMobs) > 0 ? splitRow("EXP за монстров", expMobs) : "",
+    expBoss != null ? splitRow("EXP за босса", expBoss) : "",
+  ].join("");
+  const goldSplit = [
+    goldMobs != null && Number(goldMobs) > 0 ? splitRow("Золото за монстров", goldMobs) : "",
+    goldBoss != null ? splitRow("Золото за босса", goldBoss) : "",
+  ].join("");
 
   const totalsBlock = `
     <div class="reward-totals-panel">
-      <div class="reward-total-row"><span class="muted">Опыт</span><strong>+${fmt(expTotal)} ✨</strong></div>
-      <div class="reward-total-row"><span class="muted">Золото</span><strong>+${fmt(goldTotal)} 🪙</strong></div>
+      ${expSplit}
+      ${goldSplit}
+      <div class="reward-total-row reward-total-row--total"><span class="muted">Итого опыт</span><strong>+${fmt(expTotal)} ✨</strong></div>
+      <div class="reward-total-row reward-total-row--total"><span class="muted">Итого золото</span><strong>+${fmt(goldTotal)} 🪙</strong></div>
     </div>`;
 
   const itemsHtml = itemsRaw.length
@@ -1185,6 +1390,7 @@ async function closeRewardModal() {
   // Refresh page state after completion (new act unlock, inventory changes, etc.)
   try {
     const p = await loadProfile();
+    soloTabBootstrapped = false;
     await populateDungeonsPage(p);
   } catch {
     // ignore
@@ -1218,6 +1424,8 @@ async function startDungeon(dungeonId, plusLevel = 0) {
         const active = await fetchActiveDungeon({ includeLog: true, force: true });
         if (active?.active) {
           renderSoloActiveProgress(active);
+          const p = window.__lastProfileForDungeons;
+          if (p) renderSoloDungeonsForAct(p, { activeDungeonId: soloActiveDungeonId }).catch?.(() => {});
           showDungeonsError("У вас уже есть активное подземелье. Показал прогресс ниже.");
         } else {
           renderSoloActiveFallback("API вернул active:false");
@@ -1259,6 +1467,8 @@ async function startDungeon(dungeonId, plusLevel = 0) {
   try {
     const active = await fetchActiveDungeon({ includeLog: true, force: true });
     renderSoloActiveProgress(active);
+    const p = window.__lastProfileForDungeons;
+    if (p) await renderSoloDungeonsForAct(p, { activeDungeonId: soloActiveDungeonId });
   } catch {
     // ignore
   }
@@ -1315,8 +1525,8 @@ async function exitDungeon() {
   const result = await apiFetch("/dungeons/exit", { method: "POST" });
   invalidateActiveDungeonCache();
   const profile = await loadProfile({ lite: true }).catch(() => null);
-  if (profile) await renderSoloDungeonsForAct(profile);
   renderSoloActiveProgress({ active: false });
+  if (profile) await renderSoloDungeonsForAct(profile);
   await loadActiveDungeon();
   // Show a brief summary if rewards were accumulated
   if (result?.exp_gained > 0 || result?.gold_gained > 0) {
@@ -4631,6 +4841,8 @@ Object.assign(window.WaifuApp, {
   confirmExitDungeon,
   openBattleLogModal,
   closeBattleLogModal,
+  openRewardModal,
+  closeRewardModal,
   adminExitDungeon,
   loadBattle,
   continueBattle,

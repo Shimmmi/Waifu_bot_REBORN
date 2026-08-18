@@ -1023,7 +1023,7 @@ class DungeonService:
                         player_id=player_id,
                         dungeon_id=dungeon_id,
                         is_active=True,
-                        is_completed=False,
+                        is_completed=pl > 0,
                         current_monster_position=1,
                         current_monster_hp=monsters[0].max_hp,
                         total_monsters=total,
@@ -1082,7 +1082,7 @@ class DungeonService:
                 player_id=player_id,
                 dungeon_id=dungeon_id,
                 is_active=True,
-                is_completed=False,
+                is_completed=pl > 0,
                 current_monster_position=1,
                 current_monster_hp=first_monster.max_hp,
                 total_monsters=dungeon.obstacle_count,
@@ -1162,7 +1162,24 @@ class DungeonService:
                             )
                         ).scalars().all()
                         applied_affix_names = [a.name for a in affix_rows]
-                        affixes_for_ui = [{"name": a.name, "type": (a.type or "prefix")} for a in affix_rows]
+                        affixes_for_ui = [
+                            {
+                                "name": a.name,
+                                "type": (a.type or "prefix"),
+                                "category": a.category,
+                                "hp_mult": a.hp_mult,
+                                "dmg_mult": a.dmg_mult,
+                                "defense_add": a.defense_add,
+                                "evade_add": a.evade_add,
+                                "gold_mult": a.gold_mult,
+                                "exp_mult": a.exp_mult,
+                                "drop_chance_mult": a.drop_chance_mult,
+                                "drop_rarity_bonus": a.drop_rarity_bonus,
+                                "behavior_flag": a.behavior_flag,
+                                "behavior_params": a.behavior_params or {},
+                            }
+                            for a in affix_rows
+                        ]
                     except Exception:
                         pass
 

@@ -4,14 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Подземелья</title>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v88" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
-    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v88" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v90" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
+    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v90" />
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
+    <link rel="preload" href="/webapp/assets/fonts/manrope-var.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/webapp/dungeons-redesign.css?v=waifu-webapp-v90" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v88" onerror="console.warn('combat island skipped')"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v88" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
-    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v88" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v64'"></script>
+    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v90" onerror="console.warn('combat island skipped')"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v90" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
+    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v90" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v64'"></script>
     <style>
       .hp-fill-monster.monster-hp-fill--unknown {
         opacity: 0.35;
@@ -251,11 +253,11 @@
       }
       .page-dungeons #dungeon-tabs .tab.active {
         flex: 3 1 0;
-        background: rgba(200, 146, 42, 0.18) !important;
+        background: linear-gradient(180deg, rgba(226, 169, 63, 0.22), rgba(226, 169, 63, 0.08)) !important;
         border-color: rgba(232, 184, 75, 0.55) !important;
         color: #f5d97a !important;
         font-weight: 800;
-        box-shadow: 0 0 10px rgba(232, 184, 75, 0.22) !important;
+        box-shadow: 0 0 14px rgba(226, 169, 63, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
         transform: none !important;
       }
       .page-dungeons #dungeon-tabs .tab.active .tab-txt {
@@ -371,36 +373,45 @@
         padding: 0 4px;
         box-sizing: border-box;
       }
-      .page-dungeons .challenge-strip {
-        margin: 0 0 12px;
-        padding: 10px 12px;
+      .page-dungeons .challenge-strip[hidden] {
+        display: none !important;
+      }
+        margin: 0;
+        padding: 4px 8px;
         background: rgba(18, 14, 10, 0.92);
         border: 1px solid rgba(200, 146, 42, 0.22);
-        border-radius: 14px;
+        border-radius: 10px;
         color: #e8dcc8;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 36px;
+        min-width: 0;
       }
       .page-dungeons .challenge-strip-title {
-        font-size: 14px;
+        font-size: 11px;
         font-weight: 700;
         color: #e8b84b;
         font-family: Cinzel, serif;
+        white-space: nowrap;
+        flex-shrink: 0;
       }
       .page-dungeons .challenge-strip-sub {
-        margin: 2px 0 8px;
-        font-size: 11px;
-        color: #9a8a7a;
+        display: none;
       }
       .page-dungeons .challenge-chips {
         display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
+        gap: 6px;
+        flex-wrap: nowrap;
+        min-width: 0;
+        overflow: auto;
       }
       .page-dungeons .challenge-chip {
         appearance: none;
         -webkit-appearance: none;
-        min-width: 42px;
-        height: 36px;
-        padding: 0 12px;
+        min-width: 36px;
+        height: 28px;
+        padding: 0 8px;
         border-radius: 10px;
         border: 1px solid rgba(200, 146, 42, 0.28);
         background: rgba(26, 20, 14, 0.92);
@@ -520,18 +531,6 @@
       }
       .page-dungeons .solo-dungeon-card__meta-line--spacer {
         visibility: hidden;
-      }
-      .page-dungeons .solo-dungeon-card.locked .solo-dungeon-card__frame::after {
-        content: "🔒";
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-        font-size: 30px;
-        opacity: 0.88;
-        pointer-events: none;
-        z-index: 2;
-        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
       }
 
       /* Модальное окно награды — тёмная тема */
@@ -3051,7 +3050,7 @@
               <div id="solo-active-content">
               <div class="solo-dungeon-header">
                 <span id="solo-dungeon-name" class="solo-dungeon-title">—</span>
-                <span id="solo-dungeon-progress" class="solo-dungeon-progress mv-progress" aria-label="Прогресс комнат" style="display:none;"></span>
+                <span id="solo-dungeon-progress" class="solo-dungeon-progress" aria-label="Прогресс комнат"></span>
               </div>
 
               <div class="monster-visual"
@@ -3062,7 +3061,8 @@
                    role="img"
                    aria-label="Изображение монстра">
                 <div class="monster-overlay-top">
-                  <span id="solo-dungeon-progress-ov" class="mv-progress" aria-label="Прогресс комнат"></span>
+                  <span id="monster-elite-label" class="mv-elite-label" hidden aria-hidden="true"></span>
+                  <span id="solo-dungeon-progress-ov" class="mv-progress" aria-label="Прогресс комнат" hidden></span>
                   <button type="button" id="battle-log-btn" class="battle-log-btn" title="Журнал боя" aria-label="Журнал боя" hidden onclick="event.stopPropagation(); WaifuApp.openBattleLogModal()">📜</button>
                 </div>
                 <div class="monster-placeholder" id="monster-placeholder">
@@ -3112,9 +3112,11 @@
               </div>
               <div id="solo-active-fallback" class="solo-active-card" style="display:none;"></div>
             </div>
+            <div class="solo-campaign-bar">
             <div id="challenge-day-strip" class="challenge-strip" hidden></div>
             <div class="dungeon-acts" id="solo-dungeons">
               <div class="placeholder">Загрузка подземелий...</div>
+            </div>
             </div>
           </div>
 

@@ -186,6 +186,7 @@ def _to_dungeon(
     *,
     locked_by_act: bool = False,
     locked_by_prev: bool = False,
+    is_completed: bool = False,
 ) -> schemas.DungeonOut:
     raw_tags = getattr(d, "tags", None)
     tags: list[str] | None = None
@@ -214,6 +215,7 @@ def _to_dungeon(
         base_gold=getattr(d, "base_gold", None),
         locked_by_act=locked_by_act,
         locked_by_prev=locked_by_prev,
+        is_completed=is_completed,
     )
 
 
@@ -490,6 +492,7 @@ async def list_dungeons(
         max_act = int(player.max_act or 1) if player else 1
         dungeon_ids = [d.id for d in dungeons]
         progress_map = {}
+        plus_map = {}
         if dungeon_ids:
             prog_stmt = select(m.DungeonProgress).where(
                 m.DungeonProgress.player_id == player_id,
@@ -497,6 +500,23 @@ async def list_dungeons(
             )
             for row in (await session.execute(prog_stmt)).scalars().all():
                 progress_map[row.dungeon_id] = row
+            plus_stmt = select(m.PlayerDungeonPlus).where(
+                m.PlayerDungeonPlus.player_id == player_id,
+                m.PlayerDungeonPlus.dungeon_id.in_(dungeon_ids),
+            )
+            for row in (await session.execute(plus_stmt)).scalars().all():
+                plus_map[row.dungeon_id] = row
+
+        def _is_cleared(dungeon, prog, plus_row) -> bool:
+            if prog and prog.is_completed:
+                return True
+            if plus_row and (
+                int(plus_row.unlocked_plus_level or 0) > 0
+                or int(plus_row.best_completed_plus_level or 0) > 0
+            ):
+                return True
+            return int(getattr(dungeon, "act", 0) or 0) < max_act
+
         out = []
         for d in dungeons:
             locked_by_act = d.act > max_act
@@ -507,9 +527,18 @@ async def list_dungeons(
                     None,
                 )
                 if prev_d:
-                    prev_prog = progress_map.get(prev_d.id)
-                    locked_by_prev = not (prev_prog and prev_prog.is_completed)
-            out.append(_to_dungeon(d, locked_by_act=locked_by_act, locked_by_prev=locked_by_prev))
+                    locked_by_prev = not _is_cleared(
+                        prev_d, progress_map.get(prev_d.id), plus_map.get(prev_d.id)
+                    )
+            prog = progress_map.get(d.id)
+            out.append(
+                _to_dungeon(
+                    d,
+                    locked_by_act=locked_by_act,
+                    locked_by_prev=locked_by_prev,
+                    is_completed=_is_cleared(d, prog, plus_map.get(d.id)),
+                )
+            )
         return schemas.DungeonListResponse(dungeons=out)
     except Exception as e:
         logger.exception("Failed /dungeons for act=%s type=%s: %s", act, type, e)
