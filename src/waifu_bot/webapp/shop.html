@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Магазин</title>
-  <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v84" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
+  <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v88" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
   <style>
     :root {
       --ink: #0d0a08; /* основной фон */
@@ -19,6 +19,10 @@
 
     /* --- Base unification (shop-only) --- */
     body.page-shop {
+      --bg: var(--ink);
+      --card: var(--surface);
+      --text: var(--cream);
+      --border: rgba(200, 146, 42, 0.28);
       background: var(--ink);
       color: var(--cream);
       overflow: hidden;
@@ -698,7 +702,7 @@
       flex-direction: column;
       align-items: stretch;
       gap: 8px;
-      padding: 16px 12px 80px;
+      padding: 8px 12px 80px;
       flex: 1 1 auto;
     }
     body.page-shop .shop-smith-work-row {
@@ -760,30 +764,76 @@
     }
     body.page-shop .shop-smith-toolbar {
       display: flex;
-      align-items: stretch;
-      gap: 8px;
-      margin-bottom: 12px;
+      align-items: center;
+      gap: 6px;
+      margin: 6px 10px 4px;
     }
     body.page-shop .shop-smith-resources {
       display: flex;
+      flex-wrap: nowrap;
       align-items: center;
-      gap: 10px;
+      justify-content: space-between;
+      gap: 0;
       flex-shrink: 0;
-      padding: 8px 12px;
-      border: 1px solid rgba(200, 146, 42, 0.35);
-      border-radius: 10px;
+      margin: 0 10px 6px;
+      padding: 2px 3px;
+      border: 1px solid rgba(200, 146, 42, 0.28);
+      border-radius: 8px;
       background: rgba(13, 10, 8, 0.55);
-      font-size: 11px;
-      line-height: 1.2;
     }
     body.page-shop .shop-smith-res-item {
+      appearance: none;
+      -webkit-appearance: none;
+      flex: 1 1 0;
+      min-width: calc(14px + 2px + 4ch);
+      margin: 0;
+      padding: 2px 1px;
+      border: none;
+      background: transparent !important;
+      background-color: transparent !important;
+      background-image: none !important;
+      box-shadow: none;
+      color: var(--cream);
+      color-scheme: dark;
+      -webkit-tap-highlight-color: transparent;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      cursor: pointer;
+      font: inherit;
+      line-height: 1;
       white-space: nowrap;
     }
-    body.page-shop .shop-smith-res-sep {
-      width: 1px;
-      align-self: stretch;
-      background: rgba(200, 146, 42, 0.25);
-      flex-shrink: 0;
+    body.page-shop .shop-smith-res-item:focus-visible {
+      outline: 1px solid rgba(232, 184, 75, 0.65);
+      outline-offset: 1px;
+      border-radius: 8px;
+    }
+    body.page-shop .shop-smith-res-ico {
+      width: 14px;
+      height: 14px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 14px;
+    }
+    body.page-shop .shop-smith-res-ico svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+      overflow: visible;
+    }
+    body.page-shop .shop-smith-res-item strong {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--cream);
+      line-height: 1;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+      min-width: 4ch;
+      text-align: left;
     }
     body.page-shop .shop-smith-subtabs {
       flex: 1;
@@ -924,6 +974,401 @@
       justify-content: center;
       text-align: center;
       overflow: hidden;
+    }
+    body.page-shop #shop-smith-enhance-preview.shop-smith-card {
+      height: 140px;
+      min-height: 140px;
+      max-height: 140px;
+      color: var(--cream);
+      background: rgba(26, 20, 16, 0.92);
+    }
+    body.page-shop .shop-smith-enhance-block {
+      background: rgba(13, 10, 8, 0.55);
+      border: 1px solid rgba(200, 146, 42, 0.22);
+      border-radius: 10px;
+      padding: 6px 8px;
+      margin: 6px 0;
+      color: var(--cream);
+    }
+    body.page-shop .shop-smith-enhance-block summary {
+      cursor: pointer;
+      color: #e8b84b;
+      font-weight: 700;
+    }
+    body.page-shop .shop-smith-enhance-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      padding: 4px 0;
+      color: var(--cream);
+    }
+    body.page-shop .shop-smith-enhance-sum {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      height: 100%;
+      min-height: 0;
+    }
+    body.page-shop .shop-smith-enhance-sum-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #e8b84b;
+    }
+    body.page-shop .shop-smith-enhance-sum-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      overflow: auto;
+      min-height: 0;
+    }
+    body.page-shop .shop-smith-ctrl-badge {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 5px;
+      border-radius: 999px;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #2a1c08;
+      background: #e8b84b;
+      vertical-align: middle;
+    }
+    body.page-shop .shop-smith-work-modal.modal {
+      z-index: 80;
+      padding: 10px;
+      padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+      background: rgba(0, 0, 0, 0.62);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    body.page-shop .shop-smith-work-modal[hidden] {
+      display: none !important;
+    }
+    body.page-shop .shop-smith-work-sheet {
+      width: min(400px, 100%);
+      max-height: min(88vh, 620px);
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      overflow: hidden;
+      border-radius: 16px;
+      border: 1px solid rgba(200, 146, 42, 0.4);
+      background:
+        radial-gradient(120% 80% at 50% -20%, rgba(232, 184, 75, 0.16), transparent 55%),
+        rgba(18, 14, 11, 0.98);
+      color: var(--cream);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+    }
+    body.page-shop .swm-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 14px 8px;
+      border-bottom: 1px solid rgba(200, 146, 42, 0.18);
+    }
+    body.page-shop .swm-kicker {
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #c8922a;
+      font-weight: 700;
+    }
+    body.page-shop .swm-title {
+      margin: 2px 0 0;
+      font-size: 18px;
+      line-height: 1.2;
+      color: #f4e6c8;
+      font-weight: 800;
+    }
+    body.page-shop .swm-close {
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid rgba(200, 146, 42, 0.3);
+      background: rgba(13, 10, 8, 0.7);
+      color: var(--cream);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+    }
+    body.page-shop .swm-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 14px 0;
+      padding: 8px;
+      border-radius: 12px;
+      border: 1px solid rgba(200, 146, 42, 0.18);
+      background: rgba(13, 10, 8, 0.45);
+    }
+    body.page-shop .swm-item-art {
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border-radius: 8px;
+      background: rgba(200, 146, 42, 0.08);
+    }
+    body.page-shop .swm-item-art img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    body.page-shop .swm-item-name {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+    body.page-shop .swm-item-sub {
+      margin-top: 2px;
+      font-size: 11px;
+      color: #a89880;
+    }
+    body.page-shop .swm-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 10px 14px 12px;
+      -webkit-overflow-scrolling: touch;
+    }
+    body.page-shop .swm-foot {
+      display: flex;
+      gap: 8px;
+      padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+      border-top: 1px solid rgba(200, 146, 42, 0.18);
+      background: rgba(13, 10, 8, 0.55);
+    }
+    body.page-shop .swm-foot .shop-smith-ctrl-btn {
+      min-height: 42px;
+    }
+    body.page-shop .swm-sec {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #c8922a;
+      margin: 0 0 6px;
+    }
+    body.page-shop .swm-affix {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 0 0 6px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(200, 146, 42, 0.2);
+      background: rgba(26, 20, 16, 0.7);
+      color: var(--cream);
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+    }
+    body.page-shop .swm-affix.is-on {
+      border-color: rgba(232, 184, 75, 0.7);
+      background: rgba(232, 184, 75, 0.12);
+      box-shadow: inset 0 0 0 1px rgba(232, 184, 75, 0.25);
+    }
+    body.page-shop .swm-affix-name {
+      font-size: 12px;
+      font-weight: 700;
+    }
+    body.page-shop .swm-affix-val {
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      color: #e8b84b;
+      font-weight: 800;
+    }
+    body.page-shop .swm-quote {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(200, 146, 42, 0.22);
+      background: rgba(13, 10, 8, 0.4);
+    }
+    body.page-shop .swm-pips {
+      display: flex;
+      gap: 3px;
+      margin: 6px 0 8px;
+    }
+    body.page-shop .swm-pip {
+      flex: 1;
+      height: 4px;
+      border-radius: 99px;
+      background: rgba(200, 146, 42, 0.18);
+    }
+    body.page-shop .swm-pip.is-on {
+      background: #e8b84b;
+    }
+    body.page-shop .swm-costs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 8px 0;
+    }
+    body.page-shop .swm-cost {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 4px;
+      padding: 5px 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(200, 146, 42, 0.22);
+      background: rgba(26, 20, 16, 0.8);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    body.page-shop .swm-cost.is-short {
+      border-color: rgba(239, 68, 68, 0.55);
+      color: #fca5a5;
+    }
+    body.page-shop .swm-cost b {
+      font-weight: 800;
+    }
+    body.page-shop .swm-note {
+      font-size: 11px;
+      line-height: 1.4;
+      color: #b8a88c;
+      margin: 0;
+    }
+    body.page-shop .swm-warn {
+      margin: 8px 0 0;
+      padding: 8px 9px;
+      border-radius: 8px;
+      background: rgba(180, 80, 30, 0.16);
+      border: 1px solid rgba(232, 140, 60, 0.28);
+      color: #f3d2a8;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    body.page-shop .swm-ack {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin: 10px 0 0;
+      font-size: 12px;
+      line-height: 1.35;
+      cursor: pointer;
+    }
+    body.page-shop .swm-ack input {
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+    body.page-shop .swm-timer {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-variant-numeric: tabular-nums;
+      font-weight: 800;
+      color: #e8b84b;
+    }
+    body.page-shop .swm-timer.is-expired {
+      color: #fca5a5;
+    }
+    body.page-shop .swm-opt {
+      width: 100%;
+      display: block;
+      margin: 0 0 6px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(200, 146, 42, 0.28);
+      background: rgba(26, 20, 16, 0.85);
+      color: var(--cream);
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+    }
+    body.page-shop .swm-opt:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    body.page-shop .swm-opt-k {
+      font-size: 10px;
+      color: #c8922a;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    body.page-shop .swm-opt-v {
+      margin-top: 2px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    body.page-shop .swm-keep {
+      border-style: dashed;
+      background: transparent;
+    }
+    body.page-shop .swm-compare {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 8px;
+      align-items: stretch;
+      margin-bottom: 10px;
+    }
+    body.page-shop .swm-col {
+      padding: 10px 8px;
+      border-radius: 12px;
+      border: 1px solid rgba(200, 146, 42, 0.2);
+      background: rgba(13, 10, 8, 0.45);
+      text-align: center;
+    }
+    body.page-shop .swm-col.is-next {
+      border-color: rgba(232, 184, 75, 0.55);
+      background: rgba(232, 184, 75, 0.1);
+    }
+    body.page-shop .swm-col-lbl {
+      font-size: 10px;
+      color: #a89880;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 700;
+    }
+    body.page-shop .swm-col-val {
+      margin-top: 4px;
+      font-size: 13px;
+      font-weight: 800;
+      color: #f4e6c8;
+    }
+    body.page-shop .swm-arrow {
+      align-self: center;
+      color: #e8b84b;
+      font-weight: 900;
+      font-size: 16px;
+    }
+    body.page-shop .swm-empty,
+    body.page-shop .swm-load {
+      text-align: center;
+      padding: 18px 8px;
+      color: #a89880;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    body.page-shop .swm-load::before {
+      content: "";
+      display: block;
+      width: 28px;
+      height: 28px;
+      margin: 0 auto 10px;
+      border-radius: 50%;
+      border: 2px solid rgba(200, 146, 42, 0.2);
+      border-top-color: #e8b84b;
+      animation: swm-spin 0.8s linear infinite;
+    }
+    @keyframes swm-spin {
+      to { transform: rotate(360deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      body.page-shop .swm-load::before {
+        animation: none;
+      }
     }
     body.page-shop .shop-smith-preview-state {
       color: var(--amber-glow, #e8b84b);
@@ -1182,7 +1627,7 @@
   <link rel="stylesheet" href="./assets/tutorial.css" />
   <script defer src="./vendor/telegram-web-app.js"></script>
   <script defer src="./assets/tutorial.js"></script>
-  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v84" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
+  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v88" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v50'"></script>
 </head>
 <body class="page-shop">
   <header class="attic">
@@ -1331,21 +1776,34 @@
 
       <div class="shop-tab-panel" id="tab-smith" style="display:none;">
         <div class="shop-smith-toolbar">
-          <div class="shop-smith-resources muted tiny" aria-label="Ресурсы кузницы">
-            <button type="button" class="shop-smith-res-item" id="shop-smith-res-dust" onclick="WaifuApp.openSmithResSheet('dust')" title="Пыль">✨ <strong id="shop-smith-dust-hint">—</strong></button>
-            <span class="shop-smith-res-sep" aria-hidden="true"></span>
-            <button type="button" class="shop-smith-res-item" id="shop-smith-res-stone" onclick="WaifuApp.openSmithResSheet('stone')" title="Камни">🛡 <strong id="shop-smith-stones">0</strong></button>
-            <span class="shop-smith-res-sep" aria-hidden="true"></span>
-            <button type="button" class="shop-smith-res-item" id="shop-smith-res-core" onclick="WaifuApp.openSmithResSheet('core')" title="Ядра">◆ <strong id="shop-smith-cores"></strong></button>
-            <button type="button" class="shop-smith-res-item" id="shop-smith-res-essence" onclick="WaifuApp.openSmithResSheet('essence')" title="Эссенция">▲ <strong id="shop-smith-essence"></strong></button>
-            <button type="button" class="shop-smith-res-item" id="shop-smith-res-ember" onclick="WaifuApp.openSmithResSheet('ember')" title="Угли">🔥 <strong id="shop-smith-ember"></strong></button>
-          </div>
           <div class="shop-smith-subtabs">
             <button type="button" class="shop-btab active" id="shop-smith-subtab-sharpen" onclick="ShopPage.switchSmithSubTab('sharpen')">Заточка</button>
             <button type="button" class="shop-btab" id="shop-smith-subtab-craft" onclick="ShopPage.switchSmithSubTab('craft')">Зачарование</button>
             <button type="button" class="shop-btab" id="shop-smith-subtab-enhance" onclick="ShopPage.switchSmithSubTab('enhance')">Усиление</button>
           </div>
           <button type="button" class="shop-smith-help-btn" id="shop-smith-help-btn" onclick="WaifuApp.openSmithHelpModal()" title="Как работает кузница" aria-label="Справка о кузнице">?</button>
+        </div>
+        <div class="shop-smith-resources" aria-label="Ресурсы кузницы">
+          <button type="button" class="shop-smith-res-item" id="shop-smith-res-dust" onclick="WaifuApp.openSmithResSheet('dust')" title="Пыль">
+            <span class="shop-smith-res-ico" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none"><path d="M9 1.2l1.15 3.55L13.7 5.9 10.15 8.1 9 11.7 7.85 8.1 4.3 5.9l3.55-1.15L9 1.2z" fill="#e8b84b"/><circle cx="3.2" cy="12.2" r="1.05" fill="#f4d078"/><circle cx="14.7" cy="11.4" r="0.85" fill="#c8922a"/><circle cx="11.6" cy="14.8" r="0.7" fill="#e8b84b"/></svg></span>
+            <strong id="shop-smith-dust-hint">0</strong>
+          </button>
+          <button type="button" class="shop-smith-res-item" id="shop-smith-res-stone" onclick="WaifuApp.openSmithResSheet('stone')" title="Камни">
+            <span class="shop-smith-res-ico" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none"><path d="M9 2.2 3.4 4.6v4.3c0 3.3 2.3 5.6 5.6 6.9 3.3-1.3 5.6-3.6 5.6-6.9V4.6L9 2.2z" fill="#3d4a5c" stroke="#9aa7b8" stroke-width="1.1" stroke-linejoin="round"/><path d="M9 4.1 5.6 5.5v3.1c0 2.1 1.5 3.6 3.4 4.6 1.9-1 3.4-2.5 3.4-4.6V5.5L9 4.1z" fill="#c5d0dc" opacity=".35"/></svg></span>
+            <strong id="shop-smith-stones">0</strong>
+          </button>
+          <button type="button" class="shop-smith-res-item" id="shop-smith-res-core" onclick="WaifuApp.openSmithResSheet('core')" title="Ядра">
+            <span class="shop-smith-res-ico" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none"><path d="M9 1.6 15.2 9 9 16.4 2.8 9 9 1.6z" fill="#1a4a44" stroke="#5eead4" stroke-width="1.15" stroke-linejoin="round"/><path d="M9 4.4 12.6 9 9 13.6 5.4 9 9 4.4z" fill="#5eead4" opacity=".35"/></svg></span>
+            <strong id="shop-smith-cores">0</strong>
+          </button>
+          <button type="button" class="shop-smith-res-item" id="shop-smith-res-essence" onclick="WaifuApp.openSmithResSheet('essence')" title="Эссенция">
+            <span class="shop-smith-res-ico" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none"><path d="M9 2.1 15.1 14.4H2.9L9 2.1z" fill="#3a2a08" stroke="#e8b84b" stroke-width="1.15" stroke-linejoin="round"/><path d="M9 5.4 12.6 12.6H5.4L9 5.4z" fill="#e8b84b" opacity=".4"/></svg></span>
+            <strong id="shop-smith-essence">0</strong>
+          </button>
+          <button type="button" class="shop-smith-res-item" id="shop-smith-res-ember" onclick="WaifuApp.openSmithResSheet('ember')" title="Угли">
+            <span class="shop-smith-res-ico" aria-hidden="true"><svg viewBox="0 0 18 18" fill="none"><path d="M9.2 1.8s2.6 3.1 2.6 6.1c0 1.7-1.1 3-2.6 3-1.5 0-2.6-1.3-2.6-3 0-2.2 1.6-4.4 2.6-6.1z" fill="#f59e0b"/><path d="M9.1 8.2c2.4 0 4.3 1.8 4.3 4.1 0 2.3-1.9 3.9-4.3 3.9s-4.3-1.6-4.3-3.9c0-1.6 1-3 2.4-3.7" fill="#ea580c"/><path d="M9.1 11.1c1.2 0 2.1.8 2.1 1.9 0 1.1-.9 1.9-2.1 1.9s-2.1-.8-2.1-1.9c0-.7.4-1.3 1.1-1.7" fill="#fbbf24"/></svg></span>
+            <strong id="shop-smith-ember">0</strong>
+          </button>
         </div>
         <div class="shop-smith-stage">
           <div class="shop-smith-work-row">
@@ -1379,11 +1837,62 @@
             <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-craft-reroll" onclick="WaifuApp.smithTryCraftEnchant('reroll')" disabled title="Другой тип и сила вторички">Сменить бонус</button>
             <button type="button" class="shop-smith-ctrl-btn" id="shop-smith-craft-upgrade" onclick="WaifuApp.smithTryCraftEnchant('upgrade')" disabled title="+шаг к текущей вторичке">Усилить бонус</button>
           </div>
-          <div id="shop-smith-controls-enhance" class="shop-smith-controls-row" style="display:none;"></div>
+          <div id="shop-smith-controls-enhance" class="shop-smith-controls-row" style="display:none;">
+            <button type="button" class="shop-smith-ctrl-btn shop-smith-ctrl-btn--primary" id="shop-smith-btn-temper" onclick="WaifuApp.openSmithTemperModal()" disabled>
+              Закалка<span class="shop-smith-ctrl-badge" id="shop-smith-btn-temper-badge" hidden>ролл</span>
+            </button>
+            <button type="button" class="shop-smith-ctrl-btn shop-smith-ctrl-btn--primary" id="shop-smith-btn-refine" onclick="WaifuApp.openSmithRefineModal()" disabled>
+              Доводка
+            </button>
+          </div>
         </div>
       </div>
     </section>
   </main>
+
+  <div
+    id="shop-smith-temper-modal"
+    class="modal shop-smith-work-modal"
+    style="display:none;"
+    hidden
+    aria-hidden="true"
+    onclick="if (event.target === this) WaifuApp.closeSmithTemperModal()"
+  >
+    <div class="shop-smith-work-sheet" role="dialog" aria-modal="true" aria-labelledby="shop-smith-temper-title" onclick="event.stopPropagation()">
+      <div class="swm-head">
+        <div>
+          <div class="swm-kicker">Кузница · усиление</div>
+          <h2 class="swm-title" id="shop-smith-temper-title">Закалка</h2>
+        </div>
+        <button type="button" class="swm-close" onclick="WaifuApp.closeSmithTemperModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div id="shop-smith-temper-item"></div>
+      <div class="swm-body" id="shop-smith-temper-body"></div>
+      <div class="swm-foot" id="shop-smith-temper-foot"></div>
+    </div>
+  </div>
+
+  <div
+    id="shop-smith-refine-modal"
+    class="modal shop-smith-work-modal"
+    style="display:none;"
+    hidden
+    aria-hidden="true"
+    onclick="if (event.target === this) WaifuApp.closeSmithRefineModal()"
+  >
+    <div class="shop-smith-work-sheet" role="dialog" aria-modal="true" aria-labelledby="shop-smith-refine-title" onclick="event.stopPropagation()">
+      <div class="swm-head">
+        <div>
+          <div class="swm-kicker">Кузница · усиление</div>
+          <h2 class="swm-title" id="shop-smith-refine-title">Доводка</h2>
+        </div>
+        <button type="button" class="swm-close" onclick="WaifuApp.closeSmithRefineModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div id="shop-smith-refine-item"></div>
+      <div class="swm-body" id="shop-smith-refine-body"></div>
+      <div class="swm-foot" id="shop-smith-refine-foot"></div>
+    </div>
+  </div>
 
   <div id="shop-smith-pick-modal" class="modal" style="display:none;" onclick="if (event.target === this) WaifuApp.closeSmithPickModal()">
     <div class="modal-content shop-smith-pick-content" onclick="event.stopPropagation()">

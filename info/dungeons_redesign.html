@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Подземелья — редизайн (концепт)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Manrope:wght@500;600;700;800&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+<style>
+
+/* ============================================================
+   TOKENS
+   Ink & parchment bestiary. Gold is the only "hero" hue; ember
+   (HP/danger) and rune-teal (energy/success) are the two utility
+   accents. Rarity ladder is used strictly for items, never chrome.
+   ============================================================ */
+:root{
+  --ink:        #0a0705;
+  --ink-2:      #150e09;
+  --panel:      #1b130c;
+  --panel-2:    #241a10;
+  --parchment:  #ecdfc6;
+  --parchment-dim: #9c8b76;
+  --parchment-faint: #6b5c4b;
+  --gold:       #e2a93f;
+  --gold-bright:#ffd97a;
+  --gold-dim:   rgba(226,169,63,.16);
+  --ember:      #e2543f;
+  --ember-bright:#ff8a65;
+  --rune:       #49c9b3;
+  --rune-bright:#7ff0dd;
+  --line:       rgba(226,169,63,.18);
+  --shadow:     0 10px 30px rgba(0,0,0,.5);
+
+  --r-common:   #9a8f82;
+  --r-uncommon: #5fbf80;
+  --r-rare:     #5b9bf0;
+  --r-epic:     #b177f0;
+  --r-legendary:#f3c766;
+
+  --display: "Cinzel", serif;
+  --body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --hud: "Rajdhani", var(--body);
+}
+
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0;
+  background:
+    radial-gradient(120% 65% at 50% -10%, #1f150d 0%, var(--ink) 55%),
+    var(--ink);
+  color:var(--parchment);
+  font-family:var(--body);
+  -webkit-font-smoothing:antialiased;
+  overscroll-behavior:none;
+}
+::selection{background:var(--gold-dim);color:var(--gold-bright);}
+:focus-visible{outline:2px solid var(--gold-bright);outline-offset:2px;border-radius:6px;}
+button{font-family:inherit;}
+img,svg{display:block;}
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:.001ms !important; transition-duration:.001ms !important;}
+}
+
+/* ============================================================
+   PREVIEW SHELL — decorative only, not part of the deliverable.
+   The real page is fluid/full-width inside Telegram's WebApp.
+   ============================================================ */
+.preview-tag{
+  position:fixed; top:10px; left:50%; transform:translateX(-50%);
+  z-index:999; font:700 11px/1 var(--body); letter-spacing:.04em;
+  color:var(--ink); background:var(--gold-bright);
+  padding:6px 10px; border-radius:999px; box-shadow:0 6px 16px rgba(0,0,0,.4);
+  pointer-events:none; opacity:.92;
+}
+.stage{
+  max-width:480px; margin:36px auto; min-height:100vh;
+  background:var(--ink);
+  box-shadow:0 30px 80px rgba(0,0,0,.6);
+  border-left:1px solid rgba(255,255,255,.04);
+  border-right:1px solid rgba(255,255,255,.04);
+}
+
+/* ============================================================
+   SIGNATURE — carved corner-brackets, reused on every framed
+   surface (monster plate, dungeon tile, modal art). Evokes a
+   bestiary page under an appraiser's loupe.
+   ============================================================ */
+.corners{position:relative;}
+.corners::after{
+  content:"";
+  position:absolute; inset:7px; z-index:3; pointer-events:none;
+  --cc: var(--corner-color, var(--gold-bright));
+  --cs: var(--corner-size, 14px);
+  background:
+    linear-gradient(var(--cc),var(--cc)) top left/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) top left/2px var(--cs) no-repeat,
+    linear-gradient(var(--cc),var(--cc)) top right/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) top right/2px var(--cs) no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom left/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom left/2px var(--cs) no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom right/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom right/2px var(--cs) no-repeat;
+  opacity:.85;
+  filter:drop-shadow(0 0 4px rgba(226,169,63,.45));
+}
+
+/* Wax-seal badge — used for difficulty and act numerals */
+.seal{
+  --seal-c: var(--gold);
+  position:relative;
+  display:grid; place-items:center;
+  width:34px; height:34px; border-radius:50%;
+  color:var(--ink); font:700 13px/1 var(--hud);
+  background:
+    radial-gradient(circle at 32% 28%, #fff3d6 0%, var(--gold-bright) 22%, var(--seal-c) 62%, #8a611c 100%);
+  box-shadow:0 3px 8px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.25);
+}
+.seal::before{
+  content:"";
+  position:absolute; inset:-3px; border-radius:50%;
+  background:repeating-conic-gradient(rgba(0,0,0,.18) 0deg 4deg, transparent 4deg 12deg);
+  opacity:.55; mix-blend-mode:multiply;
+}
+
+/* ============================================================
+   LAYOUT SHELL
+   ============================================================ */
+.screen{display:flex; flex-direction:column; min-height:100vh;}
+main{flex:1; padding:0 12px 90px; display:flex; flex-direction:column; gap:16px;}
+
+/* ============================================================
+   ОЧ — HUD HEADER
+   ============================================================ */
+.hud{
+  position:sticky; top:0; z-index:50;
+  display:flex; align-items:center; gap:8px;
+  padding:10px 10px;
+  background:linear-gradient(180deg, rgba(10,7,5,.97) 0%, rgba(10,7,5,.9) 80%, rgba(10,7,5,0) 100%);
+  border-bottom:1px solid var(--line);
+  backdrop-filter:blur(6px);
+}
+.hud-avatar{
+  position:relative; flex-shrink:0; width:46px; height:46px;
+  border-radius:50%; border:none; background:none; padding:0; cursor:pointer;
+}
+.hud-avatar-ring{width:46px; height:46px; transform:rotate(-90deg);}
+.hud-avatar-ring circle{fill:none; stroke-width:3;}
+.hud-avatar-ring .bg{stroke:rgba(226,169,63,.18);}
+.hud-avatar-ring .fg{stroke:url(#ringGrad); stroke-linecap:round; transition:stroke-dashoffset .6s ease;}
+.hud-avatar-face{
+  position:absolute; inset:4px; border-radius:50%; display:grid; place-items:center;
+  background:radial-gradient(circle at 35% 30%, #3a2a18, #150e09 75%);
+  font-size:18px;
+}
+.hud-lvl{
+  position:absolute; bottom:-3px; left:50%; transform:translateX(-50%);
+  font:700 10px/1 var(--hud); color:var(--ink);
+  background:var(--gold-bright); border-radius:999px; padding:2px 6px;
+  box-shadow:0 2px 4px rgba(0,0,0,.4);
+}
+.hud-chips{flex:1; display:flex; align-items:center; gap:6px; min-width:0; overflow:hidden;}
+.chip{
+  display:flex; align-items:center; gap:5px;
+  height:32px; padding:0 9px; border-radius:10px;
+  background:linear-gradient(180deg, var(--panel-2), var(--panel));
+  border:1px solid var(--line);
+  font:700 12px/1 var(--hud); color:var(--parchment);
+  white-space:nowrap; overflow:hidden;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+.chip-dungeon{flex:1; min-width:0; cursor:pointer;}
+.chip-dungeon .lbl{overflow:hidden; text-overflow:ellipsis; font-family:var(--body); font-weight:700; font-size:11.5px;}
+.chip-dungeon .dots{display:flex; gap:2px; margin-left:2px; flex-shrink:0;}
+.chip-dungeon .dots i{width:5px; height:5px; border-radius:50%; background:var(--parchment-faint);}
+.chip-dungeon .dots i.done{background:var(--ember);}
+.chip-gold{color:var(--gold-bright);}
+.chip-energy{color:var(--rune-bright);}
+.chip-diff{
+  width:34px; height:34px; padding:0; border-radius:50%; border:none; cursor:pointer; flex-shrink:0;
+}
+.hud-menu{
+  flex-shrink:0; width:32px; height:32px; border-radius:9px; border:1px solid var(--line);
+  background:var(--panel); color:var(--parchment-dim); cursor:pointer; font-size:14px;
+}
+
+/* ============================================================
+   TABS
+   ============================================================ */
+.tabbar{
+  display:flex; gap:6px; padding:10px 12px 2px;
+}
+.tab{
+  flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
+  height:38px; border-radius:11px; border:1px solid var(--line);
+  background:var(--panel); color:var(--parchment-faint);
+  font:700 11px/1 var(--body); cursor:pointer;
+  transition:flex-grow .25s ease, background .2s, color .2s, border-color .2s, box-shadow .2s;
+}
+.tab .ico{font-size:15px;}
+.tab .txt{display:none;}
+.tab.active{
+  flex-grow:2.4;
+  color:var(--gold-bright); border-color:rgba(226,169,63,.55);
+  background:linear-gradient(180deg, rgba(226,169,63,.22), rgba(226,169,63,.08));
+  box-shadow:0 0 14px rgba(226,169,63,.2), inset 0 1px 0 rgba(255,255,255,.06);
+}
+.tab.active .txt{display:inline;}
+
+/* ============================================================
+   ACTIVE BATTLE CARD
+   ============================================================ */
+.battle-card{
+  border-radius:16px; overflow:hidden; border:1px solid var(--line);
+  background:var(--panel); box-shadow:var(--shadow);
+}
+.battle-head{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:10px 12px; background:linear-gradient(180deg, var(--panel-2), var(--panel));
+}
+.battle-head h2{
+  margin:0; font:700 13px/1.2 var(--display); color:var(--parchment);
+  letter-spacing:.02em;
+}
+.room-track{display:flex; gap:4px;}
+.room-track i{
+  width:16px; height:6px; border-radius:3px; background:rgba(226,169,63,.14);
+}
+.room-track i.cleared{background:var(--gold); box-shadow:0 0 6px rgba(226,169,63,.6);}
+.room-track i.current{background:var(--ember); box-shadow:0 0 8px rgba(226,84,63,.7); animation:pulse-soft 1.6s ease-in-out infinite;}
+.room-track i.boss{background:linear-gradient(90deg, var(--gold), var(--gold-bright)); width:20px;}
+@keyframes pulse-soft{0%,100%{opacity:1;}50%{opacity:.45;}}
+
+.plate{
+  --corner-color: var(--r-legendary, var(--gold-bright));
+  --corner-size: 18px;
+  position:relative; aspect-ratio:4/3; overflow:hidden;
+  background:
+    radial-gradient(120% 90% at 50% 15%, rgba(178,119,240,.28), transparent 60%),
+    linear-gradient(160deg, #241830 0%, #150e09 65%);
+}
+.plate-aura{
+  position:absolute; inset:0;
+  background:radial-gradient(circle at 50% 40%, rgba(226,84,63,.22), transparent 62%);
+  animation:aura-breathe 3.2s ease-in-out infinite;
+}
+@keyframes aura-breathe{0%,100%{opacity:.55;}50%{opacity:1;}}
+.plate-emoji{
+  position:absolute; inset:0; display:grid; place-items:center;
+  font-size:88px; filter:drop-shadow(0 10px 18px rgba(0,0,0,.55));
+  animation:idle-float 4s ease-in-out infinite;
+}
+@keyframes idle-float{0%,100%{transform:translateY(0);}50%{transform:translateY(-6px);}}
+.plate-topline{
+  position:absolute; top:0; left:0; right:0; z-index:4;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:8px 10px; background:linear-gradient(180deg, rgba(5,3,2,.75), transparent);
+}
+.elite-tag{
+  display:flex; align-items:center; gap:4px;
+  font:700 10px/1 var(--hud); letter-spacing:.04em; color:var(--gold-bright);
+  background:rgba(0,0,0,.4); border:1px solid rgba(226,169,63,.4);
+  padding:3px 8px; border-radius:999px;
+}
+.log-btn{
+  width:26px; height:26px; border-radius:8px; border:1px solid rgba(226,169,63,.3);
+  background:rgba(0,0,0,.4); color:var(--parchment); font-size:12px; cursor:pointer;
+}
+.plate-bottom{
+  position:absolute; left:0; right:0; bottom:0; z-index:4;
+  padding:10px; background:linear-gradient(0deg, rgba(5,3,2,.92) 10%, transparent 100%);
+}
+.mon-nameline{display:flex; align-items:baseline; justify-content:space-between; gap:6px; margin-bottom:6px;}
+.mon-name{font:700 13.5px/1.25 var(--body); color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+.mon-lvl{font:700 12px/1 var(--hud); color:var(--gold-bright); flex-shrink:0;}
+.hpbar{position:relative; height:12px; border-radius:6px; background:rgba(0,0,0,.5); overflow:hidden; border:1px solid rgba(0,0,0,.6);}
+.hpbar .fill{
+  position:absolute; inset:0; width:var(--pct,70%);
+  background:linear-gradient(180deg, var(--ember-bright), var(--ember));
+  box-shadow:0 0 10px rgba(226,84,63,.55);
+  transition:width .5s cubic-bezier(.2,.9,.3,1);
+}
+.hpbar .ticks{
+  position:absolute; inset:0;
+  background:repeating-linear-gradient(90deg, rgba(0,0,0,.35) 0 1px, transparent 1px 12.5%);
+}
+.hpbar.hit{animation:hit-flash .3s ease-out;}
+@keyframes hit-flash{0%{filter:brightness(2);}100%{filter:brightness(1);}}
+.hp-readout{display:flex; justify-content:space-between; font:600 10px/1 var(--hud); color:var(--parchment-dim); margin-top:3px;}
+
+.affix-row{display:flex; gap:6px; padding:10px; flex-wrap:wrap; border-top:1px solid var(--line);}
+.affix-chip{
+  display:flex; align-items:center; gap:5px;
+  font:600 10.5px/1 var(--body); color:var(--parchment);
+  background:var(--panel-2); border:1px solid var(--line);
+  padding:5px 8px; border-radius:8px;
+}
+.affix-chip b{color:var(--gold-bright); font-weight:700;}
+.affix-dot{width:6px; height:6px; border-radius:50%;}
+.affix-dot.blue{background:var(--r-rare);}
+.affix-dot.gold{background:var(--gold);}
+.affix-dot.red{background:var(--ember);}
+
+.ov-status{display:flex; gap:10px; align-items:center; padding:10px 12px; border-top:1px solid var(--line);}
+.ov-portrait{
+  width:38px; height:38px; border-radius:10px; flex-shrink:0;
+  background:linear-gradient(160deg,#33251a,#180f09);
+  display:grid; place-items:center; font-size:18px;
+  border:1px solid var(--line);
+}
+.ov-info{flex:1; min-width:0;}
+.ov-nameline{display:flex; justify-content:space-between; font:700 11.5px/1 var(--body); margin-bottom:5px;}
+.ov-nameline span:last-child{color:var(--parchment-dim); font:600 10px/1 var(--hud);}
+.hpbar.ov .fill{background:linear-gradient(180deg,var(--rune-bright),var(--rune)); box-shadow:0 0 8px rgba(73,201,179,.5);}
+.demo-hit{
+  flex-shrink:0; font:700 10.5px/1 var(--body); color:var(--ink);
+  background:var(--gold-bright); border:none; border-radius:8px; padding:8px 10px; cursor:pointer;
+}
+
+/* ============================================================
+   DUNGEON LIST — ACTS & CARDS
+   ============================================================ */
+.act{border:1px solid var(--line); border-radius:16px; background:rgba(21,14,9,.6); overflow:hidden;}
+.act-head{display:flex; align-items:center; gap:10px; padding:12px;}
+.act-head h3{margin:0; font:700 13px/1 var(--display); color:var(--gold-bright); letter-spacing:.06em;}
+.act-head p{margin:2px 0 0; font:600 10.5px/1 var(--body); color:var(--parchment-faint);}
+.act-chevron{margin-left:auto; color:var(--parchment-faint); transition:transform .25s;}
+.act.collapsed .act-chevron{transform:rotate(-90deg);}
+.act.collapsed .dungeon-grid{display:none;}
+
+.dungeon-grid{display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:0 10px 12px;}
+.d-card{
+  --corner-color: var(--gold-bright);
+  --corner-size: 12px;
+  position:relative; aspect-ratio:3/4; border-radius:12px; overflow:hidden;
+  border:1px solid var(--line); cursor:pointer;
+  background:linear-gradient(165deg, var(--fam-a,#2a2018), var(--fam-b,#140e09));
+  transition:transform .12s, box-shadow .15s, border-color .15s;
+}
+.d-card:active{transform:scale(.97);}
+.d-card.active-run{border-color:rgba(226,169,63,.6); box-shadow:0 0 0 1px rgba(226,169,63,.25), var(--shadow);}
+.d-card .fam-emoji{position:absolute; inset:0; display:grid; place-items:center; font-size:52px; opacity:.85;}
+.d-card .top{
+  position:absolute; top:0; left:0; right:0; z-index:4; padding:7px 7px 0;
+  display:flex; justify-content:space-between; align-items:flex-start;
+}
+.status-pill{
+  font:700 9px/1 var(--hud); letter-spacing:.03em; padding:3px 6px; border-radius:6px;
+  background:rgba(0,0,0,.5); color:var(--parchment-dim); border:1px solid rgba(255,255,255,.08);
+}
+.status-pill.run{color:var(--gold-bright); border-color:rgba(226,169,63,.4);}
+.status-pill.run i{display:inline-block; width:5px; height:5px; border-radius:50%; background:var(--gold-bright); margin-right:4px; animation:pulse-soft 1.4s infinite;}
+.status-pill.done{color:var(--rune-bright); border-color:rgba(73,201,179,.4);}
+.diff-pill{font:700 9px/1 var(--hud); color:var(--ink); background:var(--gold-bright); padding:3px 6px; border-radius:6px;}
+.d-card .bottom{
+  position:absolute; left:0; right:0; bottom:0; z-index:4;
+  padding:7px 8px 8px; background:linear-gradient(0deg, rgba(5,3,2,.95) 15%, transparent 100%);
+}
+.d-card .name{font:700 11px/1.25 var(--body); color:var(--parchment); margin:0 0 3px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
+.d-card .lvl{font:600 9.5px/1 var(--hud); color:var(--parchment-dim);}
+.d-card.locked{cursor:not-allowed;}
+.d-card.locked .fam-emoji,.d-card.locked > .top,.d-card.locked > .bottom{filter:grayscale(.5) brightness(.55);}
+.d-card.locked::before{
+  content:"🔒"; position:absolute; inset:0; z-index:5; display:grid; place-items:center;
+  font-size:22px; opacity:.9;
+}
+
+/* ============================================================
+   PLACEHOLDER PANELS (other tabs)
+   ============================================================ */
+.placeholder-panel{
+  border:1px dashed var(--line); border-radius:16px; padding:26px 16px;
+  text-align:center; color:var(--parchment-dim); font:600 12px/1.5 var(--body);
+}
+.placeholder-panel .ico{font-size:26px; margin-bottom:8px;}
+
+/* ============================================================
+   BOTTOM SHEET — difficulty
+   ============================================================ */
+.sheet-wrap{position:fixed; inset:0; z-index:200; display:none;}
+.sheet-wrap.open{display:block;}
+.sheet-backdrop{position:absolute; inset:0; background:rgba(0,0,0,.6); backdrop-filter:blur(2px);}
+.sheet{
+  position:absolute; left:0; right:0; bottom:0; max-width:480px; margin:0 auto;
+  background:linear-gradient(165deg, #221a12, #150e09 60%);
+  border:1px solid var(--line); border-bottom:none;
+  border-radius:20px 20px 0 0; padding:10px 14px calc(18px + env(safe-area-inset-bottom));
+  transform:translateY(100%); transition:transform .28s cubic-bezier(.2,.9,.3,1);
+  box-shadow:0 -20px 50px rgba(0,0,0,.55);
+}
+.sheet-wrap.open .sheet{transform:translateY(0);}
+.sheet-handle{width:36px; height:4px; border-radius:2px; background:var(--line); margin:2px auto 12px;}
+.sheet-title{display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;}
+.sheet-title h3{margin:0; font:700 15px/1 var(--display); color:var(--gold-bright);}
+.sheet-close{width:28px; height:28px; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--parchment-dim); cursor:pointer;}
+.sheet p.hint{margin:6px 0 14px; font:600 11px/1.5 var(--body); color:var(--parchment-faint);}
+.diff-row{
+  display:flex; align-items:center; gap:12px; padding:10px 6px;
+  border-bottom:1px solid var(--line); cursor:pointer;
+}
+.diff-row:last-child{border-bottom:none;}
+.diff-row .info{flex:1;}
+.diff-row .info .n{font:700 12.5px/1 var(--body); color:var(--parchment);}
+.diff-row .info .m{font:600 10px/1 var(--hud); color:var(--parchment-faint); margin-top:3px;}
+.diff-row .radio{width:18px; height:18px; border-radius:50%; border:2px solid var(--parchment-faint); flex-shrink:0;}
+.diff-row.selected .radio{border-color:var(--gold-bright); background:radial-gradient(circle, var(--gold-bright) 40%, transparent 44%);}
+.diff-row.selected .info .n{color:var(--gold-bright);}
+
+/* ============================================================
+   MODAL — reward
+   ============================================================ */
+.modal-wrap{position:fixed; inset:0; z-index:210; display:none; place-items:center; padding:20px;}
+.modal-wrap.open{display:grid;}
+.modal-backdrop{position:absolute; inset:0; background:rgba(0,0,0,.7);}
+.reward-modal{
+  --corner-color: var(--gold-bright);
+  position:relative; width:100%; max-width:360px; border-radius:18px; overflow:hidden;
+  background:linear-gradient(165deg, #241a10, #140d08 65%);
+  border:1px solid rgba(226,169,63,.4); box-shadow:0 30px 70px rgba(0,0,0,.6);
+  animation:modal-in .25s cubic-bezier(.2,.9,.3,1);
+}
+@keyframes modal-in{from{opacity:0; transform:translateY(10px) scale(.97);} to{opacity:1; transform:none;}}
+.reward-head{text-align:center; padding:20px 16px 10px;}
+.reward-head .cap{font:700 10px/1 var(--hud); letter-spacing:.14em; color:var(--rune-bright); text-transform:uppercase;}
+.reward-head h2{margin:4px 0 0; font:700 18px/1.2 var(--display); color:var(--gold-bright);}
+.reward-body{padding:6px 18px 14px; display:flex; flex-direction:column; gap:10px;}
+.reward-line{display:flex; justify-content:space-between; align-items:center; font:600 12px/1 var(--body); color:var(--parchment-dim);}
+.reward-line b{font:700 13px/1 var(--hud); color:var(--parchment);}
+.reward-line.total{border-top:1px solid var(--line); padding-top:10px; color:var(--parchment);}
+.reward-line.total b{color:var(--gold-bright); font-size:14px;}
+.reward-items{display:flex; gap:8px; padding-top:4px;}
+.item-slot{
+  --rc: var(--r-common);
+  flex:1; aspect-ratio:1; border-radius:10px; display:grid; place-items:center; font-size:22px;
+  background:var(--panel-2); border:1.5px solid var(--rc); box-shadow:0 0 10px color-mix(in srgb, var(--rc) 45%, transparent);
+}
+.item-caption{font:700 9.5px/1.3 var(--body); text-align:center; color:var(--parchment-dim); margin-top:4px;}
+.combat-sum{display:flex; justify-content:space-between; font:600 10.5px/1 var(--hud); color:var(--parchment-faint); padding-top:6px;}
+.combat-sum b{color:var(--ember-bright);}
+.reward-foot{display:flex; gap:8px; padding:6px 16px 16px;}
+.btn-primary{
+  flex:1; height:46px; border-radius:12px; border:1px solid rgba(255,255,255,.15);
+  background:linear-gradient(180deg, var(--gold-bright), var(--gold));
+  color:#241708; font:800 13px/1 var(--body); cursor:pointer;
+  box-shadow:0 6px 16px rgba(226,169,63,.3);
+}
+.btn-ghost{
+  width:46px; height:46px; border-radius:12px; border:1px solid var(--line);
+  background:var(--panel); color:var(--parchment); cursor:pointer; font-size:16px;
+}
+
+/* ============================================================
+   BOTTOM NAV
+   ============================================================ */
+.bottombar{
+  position:fixed; left:0; right:0; bottom:0; z-index:60; max-width:480px; margin:0 auto;
+  display:flex; background:rgba(10,7,5,.97); border-top:1px solid var(--line);
+  padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+  backdrop-filter:blur(8px);
+}
+.nav-btn{
+  flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding:6px 2px; border:none; background:none; color:var(--parchment-faint); cursor:pointer;
+  font:600 9px/1 var(--body);
+}
+.nav-btn .ico{font-size:18px;}
+.nav-btn.active{color:var(--gold-bright);}
+.nav-btn.active .ico{filter:drop-shadow(0 0 6px rgba(226,169,63,.6));}
+
+@media (min-width:481px){ .stage{margin:36px auto;} }
+</style>
+</head>
+<body>
+
+<span class="preview-tag">Концепт-дизайн · dungeons.html</span>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffd97a"/>
+      <stop offset="100%" stop-color="#e2a93f"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<div class="stage">
+<div class="screen">
+
+  <!-- ================= ОЧ / HUD ================= -->
+  <header class="hud">
+    <button class="hud-avatar" aria-label="Профиль">
+      <svg class="hud-avatar-ring" viewBox="0 0 40 40">
+        <circle class="bg" cx="20" cy="20" r="17"/>
+        <circle class="fg" cx="20" cy="20" r="17" stroke-dasharray="106.8" stroke-dashoffset="25" />
+      </svg>
+      <span class="hud-avatar-face">🗡️</span>
+      <span class="hud-lvl">34</span>
+    </button>
+
+    <div class="hud-chips">
+      <div class="chip chip-dungeon" title="Пещера разбойников — комната 3 из 5">
+        <span class="lbl">Пещера разбойников</span>
+        <span class="dots"><i class="done"></i><i class="done"></i><i></i><i></i><i></i></span>
+      </div>
+      <div class="chip chip-gold">🪙 128 400</div>
+      <div class="chip chip-energy">⚡ 62/80</div>
+    </div>
+
+    <button class="seal chip-diff" id="openSheet" title="Уровень сложности" aria-haspopup="dialog">+15</button>
+    <button class="hud-menu" aria-label="Меню">☰</button>
+  </header>
+
+  <!-- ================= TABS ================= -->
+  <nav class="tabbar" id="tabbar">
+    <button class="tab active" data-tab="solo"><span class="ico">⚔</span><span class="txt">Одиночные</span></button>
+    <button class="tab" data-tab="ops"><span class="ico">🗺</span><span class="txt">Операции</span></button>
+    <button class="tab" data-tab="group"><span class="ico">👥</span><span class="txt">Групповые</span></button>
+    <button class="tab" data-tab="abyss"><span class="ico">🕳</span><span class="txt">Бездна</span></button>
+  </nav>
+
+  <main>
+
+    <!-- ================= PANEL: SOLO ================= -->
+    <section id="panel-solo">
+
+      <!-- Active battle card -->
+      <div class="battle-card">
+        <div class="battle-head">
+          <h2>Пещера разбойников</h2>
+          <div class="room-track" aria-label="Прогресс комнат">
+            <i class="cleared"></i><i class="cleared"></i><i class="current"></i><i></i><i class="boss"></i>
+          </div>
+        </div>
+
+        <div class="plate corners" style="--fam-a:#2a1f33;--fam-b:#150e09;">
+          <div class="plate-aura"></div>
+          <div class="plate-emoji">🦇</div>
+          <div class="plate-topline">
+            <span class="elite-tag">🟡 ЧЕМПИОН · 3 аффикса</span>
+            <button class="log-btn" title="Журнал боя">📜</button>
+          </div>
+          <div class="plate-bottom">
+            <div class="mon-nameline">
+              <span class="mon-name">Толстая Могучая Летучая мышь-берсерк</span>
+              <span class="mon-lvl">Ур. 4</span>
+            </div>
+            <div class="hpbar" id="monHp" style="--pct:55%;">
+              <div class="fill"></div>
+              <div class="ticks"></div>
+            </div>
+            <div class="hp-readout"><span>340 / 620 HP</span><span>ЭЛИТА</span></div>
+          </div>
+        </div>
+
+        <div class="affix-row">
+          <span class="affix-chip"><i class="affix-dot gold"></i>Толстый <b>HP ×1.5</b></span>
+          <span class="affix-chip"><i class="affix-dot gold"></i>Могучий <b>DMG ×1.4</b></span>
+          <span class="affix-chip"><i class="affix-dot gold"></i>-берсерк <b>≤40% HP</b></span>
+        </div>
+
+        <div class="ov-status">
+          <div class="ov-portrait">🏹</div>
+          <div class="ov-info">
+            <div class="ov-nameline"><span>Мия · Лучник, ур. 4</span><span>210 / 260</span></div>
+            <div class="hpbar ov" id="ovHp" style="--pct:81%;"><div class="fill"></div></div>
+          </div>
+          <button class="demo-hit" id="demoHit">⚔ Демо-удар</button>
+        </div>
+      </div>
+
+      <!-- Acts / dungeon list -->
+      <div class="act" id="act1">
+        <div class="act-head" onclick="document.getElementById('act1').classList.toggle('collapsed')">
+          <div class="seal" style="--seal-c:#c8922a; width:30px; height:30px; font-size:12px;">I</div>
+          <div>
+            <h3>АКТ I — ОКРАИНЫ</h3>
+            <p>3 из 5 подземелий пройдено</p>
+          </div>
+          <span class="act-chevron">▾</span>
+        </div>
+
+        <div class="dungeon-grid">
+          <div class="d-card active-run" style="--fam-a:#2a1f33;--fam-b:#150e09;">
+            <div class="fam-emoji">🦇</div>
+            <div class="top"><span class="status-pill run"><i></i>В БОЮ</span><span class="diff-pill">+15</span></div>
+            <div class="bottom"><p class="name">Пещера разбойников</p><span class="lvl">Ур. 1–5</span></div>
+          </div>
+
+          <div class="d-card" style="--fam-a:#241a24;--fam-b:#150e09;">
+            <div class="fam-emoji">💀</div>
+            <div class="top"><span class="status-pill done">✓ ПРОЙДЕНО</span></div>
+            <div class="bottom"><p class="name">Заброшенный склеп</p><span class="lvl">Ур. 1–5</span></div>
+          </div>
+
+          <div class="d-card" style="--fam-a:#1c2a1e;--fam-b:#150e09;">
+            <div class="fam-emoji">🟢</div>
+            <div class="top"><span class="status-pill done">✓ ПРОЙДЕНО</span></div>
+            <div class="bottom"><p class="name">Гнилые топи</p><span class="lvl">Ур. 1–5</span></div>
+          </div>
+
+          <div class="d-card" style="--fam-a:#2a2418;--fam-b:#150e09;">
+            <div class="top"><span class="status-pill">ДОСТУПНО</span></div>
+            <div class="fam-emoji">🧚</div>
+            <div class="bottom"><p class="name">Сад шёпота</p><span class="lvl">Ур. 1–5</span></div>
+          </div>
+
+          <div class="d-card locked" style="--fam-a:#2a1414;--fam-b:#150e09;">
+            <div class="fam-emoji">🐉</div>
+            <div class="bottom"><p class="name">Логово Дракона</p><span class="lvl">Открыть на ур. 10</span></div>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn-primary" id="openReward" style="margin-top:4px;">🏆 Демо: окно наград за подземелье</button>
+    </section>
+
+    <!-- ================= OTHER PANELS (placeholders) ================= -->
+    <section id="panel-ops" style="display:none;">
+      <div class="placeholder-panel"><div class="ico">🗺</div>Операции — отряд наёмных вайфу в пути.<br>Вкладка сохраняет ту же визуальную систему: карточки, печати, HP/энергия.</div>
+    </section>
+    <section id="panel-group" style="display:none;">
+      <div class="placeholder-panel"><div class="ico">👥</div>Групповые подземелья — запускаются командой /gd_start в чате.</div>
+    </section>
+    <section id="panel-abyss" style="display:none;">
+      <div class="placeholder-panel"><div class="ico">🕳</div>Бездна — бесконечные этажи, чекпоинты каждые 10 уровней.</div>
+    </section>
+
+  </main>
+
+  <!-- ================= BOTTOM NAV ================= -->
+  <nav class="bottombar">
+    <button class="nav-btn"><span class="ico">🧝</span>Профиль</button>
+    <button class="nav-btn active"><span class="ico">⚔</span>Подземелья</button>
+    <button class="nav-btn"><span class="ico">🛒</span>Магазин</button>
+    <button class="nav-btn"><span class="ico">🍺</span>Таверна</button>
+    <button class="nav-btn"><span class="ico">🏰</span>Гильдия</button>
+    <button class="nav-btn"><span class="ico">⚙</span>Настройки</button>
+  </nav>
+
+</div>
+</div>
+
+<!-- ================= BOTTOM SHEET: DIFFICULTY ================= -->
+<div class="sheet-wrap" id="diffSheet" role="dialog" aria-modal="true" aria-label="Уровень сложности">
+  <div class="sheet-backdrop" id="diffBackdrop"></div>
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title"><h3>Уровень сложности</h3><button class="sheet-close" id="diffClose">✕</button></div>
+    <p class="hint">Чем выше уровень — тем сильнее монстры, но лучше награды и шанс редких предметов.</p>
+    <div id="diffList"></div>
+  </div>
+</div>
+
+<!-- ================= MODAL: REWARD ================= -->
+<div class="modal-wrap" id="rewardModal" role="dialog" aria-modal="true" aria-label="Награда за подземелье">
+  <div class="modal-backdrop" id="rewardBackdrop"></div>
+  <div class="reward-modal corners">
+    <div class="reward-head">
+      <div class="cap">Подземелье пройдено</div>
+      <h2>Пещера разбойников</h2>
+    </div>
+    <div class="reward-body">
+      <div class="reward-line"><span>EXP за монстров</span><b>340</b></div>
+      <div class="reward-line"><span>EXP за босса</span><b>210</b></div>
+      <div class="reward-line"><span>Золото за монстров</span><b>🪙 1 200</b></div>
+      <div class="reward-line"><span>Бонус золота за босса</span><b>🪙 800</b></div>
+      <div class="reward-line total"><span>Итого</span><b>550 EXP · 🪙 2 000</b></div>
+
+      <div class="reward-items">
+        <div><div class="item-slot" style="--rc:var(--r-rare);">🗡</div><div class="item-caption">Кинжал теней<br>Ур.5 · Редкий</div></div>
+        <div><div class="item-slot" style="--rc:var(--r-epic);">💍</div><div class="item-caption">Перстень охотника<br>Ур.5 · Эпический</div></div>
+      </div>
+
+      <div class="combat-sum"><span>Нанесено урона: <b>8 240</b></span><span>Получено: <b>640</b></span></div>
+    </div>
+    <div class="reward-foot">
+      <button class="btn-ghost" title="В инвентарь">🎒</button>
+      <button class="btn-primary" id="rewardOk">Забрать</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Demo interactivity only — mock data, no backend calls.
+
+// Tabs
+document.getElementById('tabbar').addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab');
+  if (!btn) return;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  ['solo','ops','group','abyss'].forEach(id => {
+    document.getElementById('panel-' + id).style.display = (id === btn.dataset.tab) ? '' : 'none';
+  });
+});
+
+// Act collapse chevron already toggled via inline onclick
+
+// Difficulty bottom sheet
+const diffData = [
+  {n:'+5 · Пробуждение', m:'Урон монстров ×1.0 · Награды ×1.0'},
+  {n:'+10 · Натиск',      m:'Урон монстров ×1.4 · Награды ×1.5'},
+  {n:'+15 · Испытание',   m:'Урон монстров ×1.9 · Награды ×2.1', sel:true},
+  {n:'+20 · Кошмар',      m:'Урон монстров ×2.6 · Награды ×2.8'},
+  {n:'+25 · Погибель',    m:'Урон монстров ×3.4 · Награды ×3.6'},
+];
+const diffList = document.getElementById('diffList');
+diffData.forEach(d => {
+  const row = document.createElement('div');
+  row.className = 'diff-row' + (d.sel ? ' selected' : '');
+  row.innerHTML = `<div class="info"><div class="n">${d.n}</div><div class="m">${d.m}</div></div><div class="radio"></div>`;
+  row.addEventListener('click', () => {
+    diffList.querySelectorAll('.diff-row').forEach(r => r.classList.remove('selected'));
+    row.classList.add('selected');
+  });
+  diffList.appendChild(row);
+});
+const diffSheet = document.getElementById('diffSheet');
+document.getElementById('openSheet').addEventListener('click', () => diffSheet.classList.add('open'));
+document.getElementById('diffClose').addEventListener('click', () => diffSheet.classList.remove('open'));
+document.getElementById('diffBackdrop').addEventListener('click', () => diffSheet.classList.remove('open'));
+
+// Reward modal
+const rewardModal = document.getElementById('rewardModal');
+document.getElementById('openReward').addEventListener('click', () => rewardModal.classList.add('open'));
+document.getElementById('rewardOk').addEventListener('click', () => rewardModal.classList.remove('open'));
+document.getElementById('rewardBackdrop').addEventListener('click', () => rewardModal.classList.remove('open'));
+
+// Demo hit — juicy feedback: HP drop + flash + floating damage number
+document.getElementById('demoHit').addEventListener('click', () => {
+  const bar = document.getElementById('monHp');
+  const readout = bar.parentElement.querySelector('.hp-readout span');
+  let pct = parseFloat(bar.style.getPropertyValue('--pct')) || 55;
+  const dmg = 20 + Math.floor(Math.random() * 40);
+  pct = Math.max(0, pct - dmg / 6.2);
+  bar.style.setProperty('--pct', pct + '%');
+  bar.classList.remove('hit'); void bar.offsetWidth; bar.classList.add('hit');
+  const cur = Math.round((pct/100) * 620);
+  readout.textContent = cur + ' / 620 HP';
+
+  const float = document.createElement('div');
+  float.textContent = '-' + dmg;
+  float.style.cssText = `position:absolute;top:30%;left:50%;transform:translateX(-50%);
+    font:800 20px var(--hud);color:#fff2b8;text-shadow:0 2px 6px rgba(0,0,0,.9);
+    pointer-events:none;z-index:6;animation:dmgfloat .8s ease-out forwards;`;
+  const style = document.createElement('style');
+  if (!document.getElementById('dmgfloat-kf')) {
+    style.id = 'dmgfloat-kf';
+    style.textContent = '@keyframes dmgfloat{0%{opacity:1;transform:translate(-50%,0);}100%{opacity:0;transform:translate(-50%,-26px);}}';
+    document.head.appendChild(style);
+  }
+  document.querySelector('.plate').appendChild(float);
+  setTimeout(() => float.remove(), 800);
+});
+</script>
+</body>
+</html>

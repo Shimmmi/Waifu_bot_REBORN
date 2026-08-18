@@ -1028,7 +1028,12 @@ async def learn_passive_node(session: AsyncSession, player_id: int, node_id: str
 
     try:
         await wallet_svc.spend_gold(
-            session, player, int(cost), source="skill_reset", ref_type="passive_learn", ref_id=int(node_id)
+            session,
+            player,
+            int(cost),
+            source="skill_reset",
+            ref_type="passive_learn",
+            ref_id=str(node_id),
         )
     except InsufficientCurrency as exc:
         return {"ok": False, "error": "insufficient_gold", "required": cost, "have": exc.have}
