@@ -905,9 +905,16 @@ class GDCycleService:
         tpl = random.choice(templates)
 
         candidate_ids = await players_seen_in_group_chat(session, int(chat_id))
+        from waifu_bot.services.gd_chat_prefs import (
+            filter_enroll_candidate_ids,
+            load_gd_opt_out_player_ids,
+        )
+
+        opt_out_ids = await load_gd_opt_out_player_ids(session, int(chat_id), candidate_ids)
+        enroll_ids = filter_enroll_candidate_ids(candidate_ids, opt_out_ids)
         party: list[dict[str, Any]] = []
         regs_created = 0
-        for uid in candidate_ids:
+        for uid in enroll_ids:
             snap = await build_waifu_snapshot(session, int(uid))
             if not snap:
                 continue

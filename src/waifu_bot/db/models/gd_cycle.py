@@ -86,6 +86,24 @@ class GDRegistration(Base):
     cycle: Mapped["GDCycle"] = relationship("GDCycle", back_populates="registrations")
 
 
+class GDPlayerChatPref(Base):
+    """Per-player opt-in for daily GD auto-enroll in a Telegram group chat.
+
+    Missing row means participate=True. Toggle takes effect at the next 04:30 MSK start.
+    """
+
+    __tablename__ = "gd_player_chat_prefs"
+
+    player_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("players.id", ondelete="CASCADE"), primary_key=True
+    )
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    participate: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+
 class GDRound(Base):
     __tablename__ = "gd_rounds"
     __table_args__ = (

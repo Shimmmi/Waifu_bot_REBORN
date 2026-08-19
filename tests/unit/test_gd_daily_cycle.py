@@ -22,6 +22,10 @@ from waifu_bot.services.gd_daily_stats import (
     media_type_to_day_key,
     pick_mvp_and_least,
 )
+from waifu_bot.services.gd_chat_prefs import (
+    filter_enroll_candidate_ids,
+    participate_pref_enabled,
+)
 from waifu_bot.services.gd_daily_worker import (
     format_daily_finale_stats_html,
     format_daily_start_roster_html,
@@ -158,3 +162,17 @@ def test_pie_generate_falls_back_without_routerai(monkeypatch):
     )
     assert src == "pillow"
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_pref_false_not_enrolled_default_true():
+    assert participate_pref_enabled(None) is True
+    enrolled = filter_enroll_candidate_ids([11, 22, 33], {22})
+    assert 22 not in enrolled
+    assert enrolled == [11, 33]
+    # Finale rows come only from registrations — opted-out uid never appears.
+    rows = build_player_summary_rows(
+        [_Reg(11, {"name": "On"}, {"msg_total": 3, "by_type": {"text": 3}, "damage_total": 1})],
+        chat_msg_total=3,
+    )
+    assert [r["user_id"] for r in rows] == [11]
+

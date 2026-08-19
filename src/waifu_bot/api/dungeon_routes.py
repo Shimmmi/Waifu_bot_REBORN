@@ -31,6 +31,10 @@ class GdStopBody(BaseModel):
     cycle_id: int | None = Field(None, description="GD cycle id (preferred)")
 
 
+class GdParticipateBody(BaseModel):
+    participate: bool
+
+
 # ---------------------------------------------------------------------------
 # GD v1 helpers
 # ---------------------------------------------------------------------------
@@ -264,6 +268,37 @@ async def get_gd_available_chats(
     gd = GDCycleService(redis_core.get_redis())
     chats = await list_gd_available_chats(session, player_id, gd)
     return {"chats": chats}
+
+
+@router.get("/gd/me/chats", tags=["gd"])
+async def get_gd_me_chats(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Player's bot group chats with live daily message counters and participate prefs."""
+    from waifu_bot.core import redis as redis_core
+    from waifu_bot.services.gd_chat_prefs import list_gd_player_chats
+    from waifu_bot.services.gd_cycle_service import GDCycleService
+
+    gd = GDCycleService(redis_core.get_redis())
+    return await list_gd_player_chats(session, player_id, gd)
+
+
+@router.post("/gd/me/chats/{chat_id}/participate", tags=["gd"])
+async def post_gd_me_chat_participate(
+    chat_id: int,
+    body: GdParticipateBody,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Upsert participate pref. Takes effect at the next 04:30 MSK auto-enroll."""
+    from waifu_bot.services.gd_chat_prefs import set_gd_participate
+
+    result = await set_gd_participate(session, player_id, int(chat_id), bool(body.participate))
+    if result.get("error") == "forbidden":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=result)
+    await session.commit()
+    return result
 
 
 @router.get("/gd/dungeons/joinable", tags=["gd"])

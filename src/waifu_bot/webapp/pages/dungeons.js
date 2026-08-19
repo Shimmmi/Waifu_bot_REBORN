@@ -1246,8 +1246,7 @@ async function populateDungeonsPage(profile) {
   window.WaifuApp.onMiniAppFrozen = () => stopSoloHpSafetyPoll();
   window.WaifuApp.onSseEvent = (evt) => {
     if (evt && evt.type === "gd") {
-      loadActiveGdDungeons().catch?.(() => {});
-      updateGdSessionUI().catch?.(() => {});
+      loadGdChatList().catch?.(() => {});
       return;
     }
     if (!evt || evt.type !== "battle") return;
@@ -1811,7 +1810,145 @@ async function exitBattle() {
 }
 
 
-let gdSessionRefreshTimer = null;
+let gdChatListCache = { chats: [], next_start_hint: null };
+const gdParticipateBusy = new Set();
+
+function formatGdEndsAtMsk(iso) {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "до 04:00 МСК";
+    const t = new Intl.DateTimeFormat("ru-RU", {
+      timeZone: "Europe/Moscow",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(d);
+    return `до ${t} МСК`;
+  } catch {
+    return "до 04:00 МСК";
+  }
+}
+
+function gdChatParticipateHint(chat) {
+  if (chat.participate && chat.in_today_roster) return "";
+  if (!chat.participate && chat.in_today_roster) return "со следующего дня";
+  return "не в составе сегодня";
+}
+
+function gdChatTimeLine(chat) {
+  if (chat.in_today_roster && chat.ends_at) {
+    return formatGdEndsAtMsk(chat.ends_at);
+  }
+  return "следующий поход в 04:30 МСК";
+}
+
+async function loadGdChatList() {
+  const container = document.getElementById("gd-chats-list");
+  if (!container) return;
+  try {
+    const data = await apiFetch("/gd/me/chats");
+    gdChatListCache = {
+      chats: Array.isArray(data?.chats) ? data.chats : [],
+      next_start_hint: data?.next_start_hint || null,
+    };
+    renderGdChatList();
+  } catch (e) {
+    console.error("loadGdChatList:", e);
+    container.innerHTML = `
+      <div class="empty-state">
+        <h3>Ошибка загрузки</h3>
+        <p>Не удалось загрузить список чатов.</p>
+      </div>`;
+  }
+}
+
+function renderGdChatList() {
+  const container = document.getElementById("gd-chats-list");
+  if (!container) return;
+  const chats = gdChatListCache.chats || [];
+  container.innerHTML = "";
+  if (!chats.length) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <p>Нет общих чатов с ботом. Напишите сообщение в группе, где есть бот.</p>
+      </div>`;
+    return;
+  }
+  chats.forEach((chat) => {
+    container.appendChild(createGdChatRow(chat));
+  });
+}
+
+function createGdChatRow(chat) {
+  const row = document.createElement("div");
+  row.className = "gd-chat-row";
+  row.dataset.chatId = String(chat.chat_id);
+  const title = String(chat.title || `Чат ${chat.chat_id}`);
+  const on = Boolean(chat.participate);
+  const player = Number(chat.player_msg_total || 0);
+  const chatTotal = Number(chat.chat_msg_total || 0);
+  const share = Math.max(0, Math.min(100, Number(chat.player_share_pct || 0)));
+  const hint = gdChatParticipateHint(chat);
+  const countsLine =
+    chatTotal === 0
+      ? "пока нет сообщений"
+      : `вы ${player.toLocaleString("ru-RU")} · чат ${chatTotal.toLocaleString("ru-RU")}`;
+  row.innerHTML = `
+    <div class="gd-chat-row__head">
+      <div class="gd-chat-row__title">${escapeHtml(title)}</div>
+      <button type="button" class="gd-chat-switch" role="switch" aria-checked="${on ? "true" : "false"}" aria-label="Участвовать">
+        <span class="gd-chat-switch__track" aria-hidden="true"><span class="gd-chat-switch__knob"></span></span>
+        <span class="gd-chat-switch__label">Участвовать</span>
+      </button>
+    </div>
+    <div class="gd-chat-row__stats">
+      <span class="gd-chat-row__counts">${escapeHtml(countsLine)}</span>
+      ${hint ? `<span class="gd-chat-row__hint">${escapeHtml(hint)}</span>` : ""}
+      <span class="gd-chat-row__meta">${escapeHtml(gdChatTimeLine(chat))}</span>
+    </div>
+    <div class="gd-chat-share" aria-hidden="true">
+      <div class="gd-chat-share__fill" style="width:${chatTotal === 0 ? 0 : share}%"></div>
+    </div>
+  `;
+  const sw = row.querySelector(".gd-chat-switch");
+  sw?.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    toggleGdParticipate(chat.chat_id, !on);
+  });
+  return row;
+}
+
+async function toggleGdParticipate(chatId, nextVal) {
+  const cid = Number(chatId);
+  if (!Number.isFinite(cid) || gdParticipateBusy.has(cid)) return;
+  const chats = gdChatListCache.chats || [];
+  const idx = chats.findIndex((c) => Number(c.chat_id) === cid);
+  if (idx < 0) return;
+  const prev = chats[idx];
+  chats[idx] = { ...prev, participate: Boolean(nextVal) };
+  gdParticipateBusy.add(cid);
+  renderGdChatList();
+  try {
+    await apiFetch(`/gd/me/chats/${cid}/participate`, {
+      method: "POST",
+      body: JSON.stringify({ participate: Boolean(nextVal) }),
+    });
+    showToast?.(
+      nextVal
+        ? "Со следующего похода снова в составе"
+        : "Со следующего похода (04:30) вы вне состава",
+      "success"
+    );
+  } catch (e) {
+    chats[idx] = prev;
+    renderGdChatList();
+    const msg = e?.message || "Не удалось сохранить";
+    showToast?.(msg, "error") || alert(msg);
+  } finally {
+    gdParticipateBusy.delete(cid);
+  }
+}
 
 function getGdChatIdFromUrl() {
   const params = new URLSearchParams(window.location.search);
@@ -1975,16 +2112,12 @@ function renderGdDungeonsList(container, dungeons) {
 function gdHelpHtml() {
   return `
     <p>
-      <strong>GD v1</strong> — общий поход для чата. Сбор можно начать из WebApp или командой <code>/gd_join</code> в группе.
+      Групповой поход идёт весь день: автостарт в <strong>04:30 МСК</strong>, финал в <strong>04:00 МСК</strong> следующего дня.
     </p>
     <ul class="gd-info-list">
-      <li><strong>Начать сбор группы</strong> — открывает регистрацию в первом свободном чате с ботом и шлёт призыв.</li>
-      <li>Вступить: кнопка во вкладке, deep-link из призыва или <code>/gd_join</code> в ЛС боту.</li>
-      <li>Можно вступить <strong>на любом этапе</strong> до финала; награда меньше, если вошли позже.</li>
-      <li>В раундах пишите в группу как обычно — урон и навыки считаются при закрытии раунда.</li>
-      <li><strong>Тихий раунд</strong> (никто не писал) — бой пропускается. Два тихих подряд — автозавершение без наград.</li>
-      <li><strong>Нокаут отряда</strong> снижает финальную награду; три нокаута — поход свёрнут.</li>
-      <li><strong>Завершить поход</strong> (WebApp или <code>/gd_stop</code>) — только участник, без наград за победу.</li>
+      <li>В зачёт идут сообщения, которые вы пишете в общий чат с ботом.</li>
+      <li>Переключатель <strong>Участвовать</strong> меняет состав со <strong>следующего</strong> старта в 04:30. Сегодняшний поход и финал не меняются.</li>
+      <li>Соло-урон из сообщений в группе <strong>не</strong> отключается, даже если вы сняли участие.</li>
     </ul>
   `;
 }
@@ -4901,20 +5034,7 @@ function showTab(name) {
     loadExpeditionTab().catch(() => {});
   }
   if (name === "group") {
-    loadActiveGdDungeons().catch(() => {});
-    updateGdSessionUI().catch(() => {});
-    if (gdSessionRefreshTimer) clearInterval(gdSessionRefreshTimer);
-    gdSessionRefreshTimer = setInterval(() => {
-      if (document.getElementById("tab-group")?.style.display !== "none") {
-        loadActiveGdDungeons().catch(() => {});
-        updateGdSessionUI().catch(() => {});
-      }
-    }, 15000);
-  } else {
-    if (gdSessionRefreshTimer) {
-      clearInterval(gdSessionRefreshTimer);
-      gdSessionRefreshTimer = null;
-    }
+    loadGdChatList().catch(() => {});
   }
   if (name === "solo") {
     const wasSoloBootstrapped = soloTabBootstrapped;
@@ -5014,6 +5134,7 @@ Object.assign(window.WaifuApp, {
   closeExpeditionHelp,
   openGdHelp,
   closeGdHelp,
+  loadGdChatList,
   startGdMusterDefault,
   stopGdFromWebapp,
   loadAbyssTab,
