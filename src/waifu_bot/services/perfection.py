@@ -463,6 +463,12 @@ async def get_state(session: AsyncSession, player: m.Player) -> dict[str, Any]:
                     "can_respec": True,
                 }
             )
+    respec_gold = 0
+    if lvl > 0:
+        from waifu_bot.services.game_config_service import get_game_config_map
+
+        cfg = await get_game_config_map(session)
+        respec_gold = _respec_cost(player, cfg)
     return {
         "unlocked": lvl > 0,
         "perfection_level": lvl,
@@ -475,6 +481,7 @@ async def get_state(session: AsyncSession, player: m.Player) -> dict[str, Any]:
         "bonus_totals": totals,
         "permanent_history": history,
         "tier": tier_number_for_level(lvl) if lvl > 0 else 0,
+        "respec_gold_cost": int(respec_gold),
     }
 
 

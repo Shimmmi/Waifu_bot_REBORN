@@ -1,5 +1,5 @@
 /** Service worker: cache static game assets; network-first shell JS/CSS for fresh deploys. */
-const CACHE_VERSION = "waifu-webapp-v93";
+const CACHE_VERSION = "waifu-webapp-v94";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
@@ -21,6 +21,7 @@ const SHELL_URLS = [
   "/webapp/vendor/telegram-web-app.js",
   "/webapp/pages/tavern.js",
   "/webapp/pages/dungeons.js",
+  "/webapp/perfection-redesign.css",
 ];
 
 function isShellAsset(pathname) {

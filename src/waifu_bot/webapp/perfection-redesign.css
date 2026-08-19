@@ -1,0 +1,783 @@
+/* Compact perfection tab — scoped to #training-perfection-view and .perfection-layer.
+   Do not restyle global .perfection-bonus-list (profile uses it). */
+
+@font-face {
+  font-family: "Cinzel";
+  src: url("/webapp/assets/fonts/cinzel-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cinzel";
+  src: url("/webapp/assets/fonts/cinzel-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cinzel";
+  src: url("/webapp/assets/fonts/cinzel-900.woff2") format("woff2");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Manrope";
+  src: url("/webapp/assets/fonts/manrope-var.woff2") format("woff2");
+  font-weight: 400 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Rajdhani";
+  src: url("/webapp/assets/fonts/rajdhani-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Rajdhani";
+  src: url("/webapp/assets/fonts/rajdhani-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+#training-perfection-view,
+.perfection-layer {
+  --ink: #0a0705;
+  --panel: #1b130c;
+  --panel-2: #241a10;
+  --parchment: #ecdfc6;
+  --parchment-dim: #9c8b76;
+  --parchment-faint: #6b5c4b;
+  --gold: #e2a93f;
+  --gold-bright: #ffd97a;
+  --gold-dim: rgba(226, 169, 63, 0.16);
+  --ember: #e2543f;
+  --ember-bright: #ff8a65;
+  --rune: #49c9b3;
+  --rune-bright: #7ff0dd;
+  --arcane: #5b9bf0;
+  --arcane-bright: #8fc0ff;
+  --line: rgba(226, 169, 63, 0.18);
+  --font-display: "Cinzel", serif;
+  --font-body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-hud: "Rajdhani", var(--font-body);
+  --perfection-buff-scroll-max-h: 158px;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  color: var(--parchment);
+}
+
+@media (min-height: 740px) {
+  #training-perfection-view,
+  .perfection-layer {
+    --perfection-buff-scroll-max-h: 190px;
+  }
+}
+
+#training-perfection-view :focus-visible,
+.perfection-layer :focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+#training-perfection-view {
+  min-height: 0;
+}
+
+#training-perfection-view .perfection-root.perfection-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 2px 0 8px;
+}
+
+#training-perfection-view .perfection-locked {
+  padding: 18px 12px;
+  text-align: center;
+  font: 600 13px/1.45 var(--font-body);
+  color: var(--parchment-dim);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.perfection-corners {
+  position: relative;
+}
+.perfection-corners::after {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  z-index: 3;
+  pointer-events: none;
+  --cc: var(--corner-color, var(--gold-bright));
+  --cs: var(--corner-size, 10px);
+  background:
+    linear-gradient(var(--cc), var(--cc)) top left / var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc), var(--cc)) top left / 2px var(--cs) no-repeat,
+    linear-gradient(var(--cc), var(--cc)) top right / var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc), var(--cc)) top right / 2px var(--cs) no-repeat,
+    linear-gradient(var(--cc), var(--cc)) bottom left / var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc), var(--cc)) bottom left / 2px var(--cs) no-repeat,
+    linear-gradient(var(--cc), var(--cc)) bottom right / var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc), var(--cc)) bottom right / 2px var(--cs) no-repeat;
+  opacity: 0.8;
+  filter: drop-shadow(0 0 3px rgba(226, 169, 63, 0.4));
+}
+
+.perfection-tier-card {
+  --corner-color: var(--rune-bright);
+  --corner-size: 10px;
+  flex-shrink: 0;
+  position: relative;
+  border-radius: 13px;
+  padding: 9px 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: linear-gradient(165deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--line);
+}
+
+.perfection-tier-seal {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  position: relative;
+  flex-shrink: 0;
+  background: radial-gradient(circle at 32% 28%, #d6fff5 0%, var(--rune-bright) 24%, var(--rune) 64%, #1c6e60 100%);
+  display: grid;
+  place-items: center;
+  color: #04231d;
+  font: 800 16px/1 var(--font-hud);
+  box-shadow: 0 3px 10px rgba(73, 201, 179, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.perfection-tier-mid {
+  flex: 1;
+  min-width: 0;
+}
+
+.perfection-tier-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.perfection-tier-title-row .n {
+  font: 700 12px/1.2 var(--font-display);
+  color: var(--parchment);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.perfection-tier-title-row .p {
+  font: 700 11px/1 var(--font-hud);
+  color: var(--rune-bright);
+  flex-shrink: 0;
+}
+
+.perfection-exp-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.perfection-exp-bar .fill {
+  position: absolute;
+  inset: 0;
+  width: var(--pct, 0%);
+  background: linear-gradient(180deg, var(--rune-bright), var(--rune));
+  box-shadow: 0 0 8px rgba(73, 201, 179, 0.5);
+}
+
+.perfection-exp-readout {
+  margin-top: 3px;
+  font: 700 9.5px/1 var(--font-hud);
+  color: var(--parchment-dim);
+}
+
+.perfection-help-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--parchment-dim);
+  font: 700 11px/1 var(--font-body);
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.perfection-help-btn:hover {
+  color: var(--gold-bright);
+  border-color: rgba(226, 169, 63, 0.45);
+}
+
+.perfection-choose-cta {
+  flex-shrink: 0;
+  width: 100%;
+  height: 32px;
+  border-radius: 9px;
+  border: none;
+  cursor: pointer;
+  font: 700 11px/1 var(--font-body);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.perfection-choose-cta.locked {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--parchment-faint);
+  cursor: not-allowed;
+}
+
+.perfection-choose-cta.ready {
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+  color: #241708;
+  box-shadow: 0 4px 12px rgba(226, 169, 63, 0.35);
+}
+
+.perfection-buffs-block {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.perfection-sec-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.perfection-sec-title {
+  margin: 0;
+  font: 700 11px/1 var(--font-display);
+  letter-spacing: 0.05em;
+  color: var(--gold-bright);
+  text-transform: uppercase;
+}
+
+.perfection-sec-count {
+  font: 700 10px/1 var(--font-hud);
+  color: var(--parchment-faint);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
+.perfection-buff-scroll {
+  position: relative;
+  max-height: var(--perfection-buff-scroll-max-h);
+  overflow-y: auto;
+  border-radius: 10px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(226, 169, 63, 0.4) transparent;
+}
+
+.perfection-buff-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.perfection-buff-scroll::-webkit-scrollbar-thumb {
+  background: rgba(226, 169, 63, 0.4);
+  border-radius: 3px;
+}
+.perfection-buff-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.perfection-buff-scroll::after {
+  content: "";
+  position: sticky;
+  display: block;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 14px;
+  margin-top: -14px;
+  background: linear-gradient(0deg, var(--ink, #0d0a08), transparent);
+  pointer-events: none;
+}
+
+.perfection-buff-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.perfection-buff-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+
+.perfection-buff-chip .ico {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.perfection-buff-chip .name {
+  flex: 1;
+  min-width: 0;
+  font: 600 10px/1.1 var(--font-body);
+  color: var(--parchment-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.perfection-buff-chip .val {
+  flex-shrink: 0;
+  font: 700 11.5px/1 var(--font-hud);
+  color: var(--parchment);
+}
+
+.perfection-buff-chip--int .val,
+.perfection-buff-chip--chm .val { color: var(--arcane-bright); }
+.perfection-buff-chip--str .val,
+.perfection-buff-chip--crit .val,
+.perfection-buff-chip--dmg .val { color: var(--ember-bright); }
+.perfection-buff-chip--gold .val { color: var(--gold-bright); }
+.perfection-buff-chip--hp .val { color: var(--rune-bright); }
+.perfection-buff-chip--agi .val,
+.perfection-buff-chip--lck .val { color: #c4b5fd; }
+.perfection-buff-chip--end .val { color: #9ca3af; }
+
+.perfection-buff-empty {
+  grid-column: 1 / -1;
+  height: auto;
+  min-height: 32px;
+  padding: 8px 10px;
+  font: 600 11px/1.3 var(--font-body);
+  color: var(--parchment-faint);
+  justify-content: center;
+}
+
+.perfection-permanent-trigger {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--line);
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+}
+
+.perfection-permanent-trigger:hover {
+  border-color: rgba(226, 169, 63, 0.45);
+}
+
+.perfection-stack-avatars {
+  display: flex;
+  flex-shrink: 0;
+  min-width: 26px;
+  min-height: 26px;
+}
+
+.perfection-mini-medal {
+  --mc: var(--gold-bright);
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  background: radial-gradient(
+    circle at 32% 28%,
+    color-mix(in srgb, var(--mc) 55%, white),
+    var(--mc) 45%,
+    color-mix(in srgb, var(--mc) 60%, black) 100%
+  );
+  border: 2px solid var(--ink);
+  margin-left: -9px;
+  color: #1c1408;
+}
+.perfection-mini-medal:first-child { margin-left: 0; }
+.perfection-mini-medal--int,
+.perfection-mini-medal--chm { --mc: var(--arcane-bright); }
+.perfection-mini-medal--str,
+.perfection-mini-medal--crit,
+.perfection-mini-medal--dmg { --mc: var(--ember-bright); }
+.perfection-mini-medal--gold { --mc: var(--gold-bright); }
+.perfection-mini-medal--hp { --mc: var(--rune-bright); }
+.perfection-mini-medal--empty {
+  background: var(--panel-2);
+  color: var(--parchment-faint);
+  font-size: 11px;
+}
+
+.perfection-pt-text {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.perfection-pt-title {
+  display: block;
+  font: 700 12px/1.2 var(--font-body);
+  color: var(--parchment);
+}
+.perfection-pt-sub {
+  display: block;
+  font: 600 10px/1.2 var(--font-body);
+  color: var(--parchment-faint);
+  margin-top: 1px;
+}
+.perfection-pt-arrow {
+  flex-shrink: 0;
+  font-size: 16px;
+  color: var(--parchment-faint);
+}
+
+/* Layers sit above sticky attic (z-index 200) */
+.perfection-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.65);
+}
+.perfection-layer.is-open {
+  display: flex;
+}
+
+#perfection-permanent-modal { z-index: 1100; }
+#perfection-choose-modal.perfection-layer {
+  z-index: 1120;
+  background: rgba(0, 0, 0, 0.55);
+  display: none !important;
+}
+#perfection-choose-modal.perfection-layer.is-open {
+  display: flex !important;
+}
+#perfection-help-modal { z-index: 1130; }
+#perfection-respec-confirm-modal {
+  z-index: 1140;
+  background: rgba(0, 0, 0, 0.38);
+}
+
+.perfection-layer-panel {
+  --corner-color: var(--gold-bright);
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(165deg, #221912, #140d08 65%);
+  border: 1px solid rgba(226, 169, 63, 0.35);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6);
+}
+
+.perfection-layer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 14px 10px;
+  flex-shrink: 0;
+}
+
+.perfection-layer-head h2,
+.perfection-layer-head .modal-title {
+  margin: 0;
+  font: 700 15px/1 var(--font-display);
+  color: var(--gold-bright);
+}
+
+.perfection-sheet-close {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--parchment-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.perfection-list-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(226, 169, 63, 0.4) transparent;
+}
+
+.perfection-list-empty {
+  margin: 8px 0 4px;
+  font: 600 12px/1.4 var(--font-body);
+  color: var(--parchment-faint);
+  text-align: center;
+}
+
+.perfection-node-card {
+  --corner-color: var(--gold-bright);
+  --corner-size: 10px;
+  position: relative;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.perfection-node-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.perfection-node-medal {
+  --mc: var(--gold-bright);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  background: radial-gradient(
+    circle at 32% 28%,
+    color-mix(in srgb, var(--mc) 55%, white),
+    var(--mc) 45%,
+    color-mix(in srgb, var(--mc) 60%, black) 100%
+  );
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+  color: #1c1408;
+}
+.perfection-node-medal--int,
+.perfection-node-medal--chm { --mc: var(--arcane-bright); }
+.perfection-node-medal--str,
+.perfection-node-medal--crit,
+.perfection-node-medal--dmg { --mc: var(--ember-bright); }
+.perfection-node-medal--gold { --mc: var(--gold-bright); }
+.perfection-node-medal--hp { --mc: var(--rune-bright); }
+
+.perfection-node-info { flex: 1; min-width: 0; }
+.perfection-node-name {
+  font: 700 12.5px/1.3 var(--font-body);
+  color: var(--parchment);
+}
+.perfection-node-val {
+  font: 700 14px/1.1 var(--font-hud);
+  color: var(--gold-bright);
+  margin-top: 1px;
+}
+.perfection-node-tier {
+  flex-shrink: 0;
+  font: 700 9.5px/1 var(--font-hud);
+  color: var(--ink);
+  background: var(--parchment-dim);
+  padding: 3px 7px;
+  border-radius: 999px;
+}
+
+.perfection-respec-btn {
+  margin-top: 8px;
+  width: 100%;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--parchment);
+  font: 700 11px/1 var(--font-body);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.perfection-respec-btn:hover {
+  border-color: rgba(226, 169, 63, 0.5);
+  color: var(--gold-bright);
+}
+
+.perfection-confirm-panel {
+  --corner-color: var(--gold-bright);
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(165deg, #241a10, #140d08 65%);
+  border: 1px solid rgba(226, 169, 63, 0.4);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6);
+  padding: 18px 16px 16px;
+  text-align: center;
+}
+
+.perfection-confirm-cap {
+  font: 700 9.5px/1 var(--font-hud);
+  letter-spacing: 0.14em;
+  color: var(--ember-bright);
+  text-transform: uppercase;
+}
+.perfection-confirm-panel h2 {
+  margin: 5px 0 2px;
+  font: 700 15px/1.2 var(--font-display);
+  color: var(--parchment);
+}
+.perfection-confirm-panel p {
+  margin: 5px 0 14px;
+  font: 600 11px/1.5 var(--font-body);
+  color: var(--parchment-dim);
+}
+.perfection-confirm-cost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: 800 16px/1 var(--font-hud);
+  color: var(--gold-bright);
+  margin-bottom: 14px;
+}
+.perfection-confirm-foot {
+  display: flex;
+  gap: 8px;
+}
+.perfection-btn-primary {
+  flex: 1;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+  color: #241708;
+  font: 800 12px/1 var(--font-body);
+  cursor: pointer;
+}
+.perfection-btn-cancel {
+  flex: 1;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--parchment);
+  font: 700 12px/1 var(--font-body);
+  cursor: pointer;
+}
+
+.perfection-help-body {
+  padding: 0 16px 16px;
+  font: 600 12px/1.55 var(--font-body);
+  color: var(--parchment-dim);
+}
+.perfection-help-body p {
+  margin: 0 0 10px;
+}
+.perfection-help-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* Choose modal polish (same 3-card flow) */
+#perfection-choose-modal.perfection-layer .perfection-choose-modal-panel {
+  width: 100%;
+  max-width: 360px;
+  max-height: 82vh;
+  background: linear-gradient(165deg, #221912, #140d08 65%);
+  border: 1px solid rgba(226, 169, 63, 0.35);
+  color: var(--parchment);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6);
+}
+#perfection-choose-modal.perfection-layer .modal-head {
+  align-items: center;
+}
+#perfection-choose-modal.perfection-layer .modal-title {
+  font: 700 15px/1 var(--font-display);
+  color: var(--gold-bright);
+}
+#perfection-choose-modal.perfection-layer .perfection-choose-grid {
+  gap: 8px;
+}
+#perfection-choose-modal.perfection-layer .perfection-choose-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--parchment);
+  border-radius: 12px;
+}
+#perfection-choose-modal.perfection-layer .perfection-choose-card:hover {
+  border-color: rgba(226, 169, 63, 0.55);
+}
+#perfection-choose-modal.perfection-layer .perfection-choose-badge {
+  color: var(--parchment-faint);
+  font: 700 10px/1 var(--font-hud);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+#perfection-choose-modal.perfection-layer .perfection-choose-name {
+  font: 700 13px/1.2 var(--font-body);
+  color: var(--parchment);
+}
+#perfection-choose-modal.perfection-layer .perfection-choose-value {
+  font: 700 14px/1 var(--font-hud);
+  color: var(--gold-bright);
+}
+#perfection-choose-modal.perfection-layer .perfection-choose-current {
+  font: 600 11px/1.4 var(--font-body);
+  color: var(--parchment-dim);
+  margin-bottom: 8px;
+}
+#perfection-choose-modal.perfection-layer .perfection-choose-gold {
+  font: 800 14px/1 var(--font-hud);
+  color: var(--gold-bright);
+  margin: 10px 0 8px;
+  text-align: center;
+}
+#perfection-choose-modal.perfection-layer .perfection-choose-keep {
+  width: 100%;
+  height: 36px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--parchment);
+  font: 700 12px/1 var(--font-body);
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #training-perfection-view *,
+  .perfection-layer * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -4236,28 +4236,183 @@ async function bootstrapTrainingHall() {
 
 let perfectionStateCache = null;
 let perfectionListenersBound = false;
+let perfectionPermanentOpen = false;
+let perfectionPermanentScrollTop = 0;
+let perfectionChooseFromRespec = false;
+let perfectionRespecDraft = null;
+let perfectionRespecBusy = false;
+
+function formatRuInt(n) {
+  return Number(n || 0).toLocaleString("ru-RU");
+}
+
+function perfectionChipMeta(bonusId) {
+  const id = String(bonusId || "");
+  if (id === "int_flat") return { kind: "int", ico: "🧠" };
+  if (id === "str_flat") return { kind: "str", ico: "💪" };
+  if (id === "agi_flat") return { kind: "agi", ico: "🗡️" };
+  if (id === "end_flat") return { kind: "end", ico: "🛡️" };
+  if (id === "chm_flat") return { kind: "chm", ico: "✨" };
+  if (id === "lck_flat") return { kind: "lck", ico: "🍀" };
+  if (id.startsWith("hp_")) return { kind: "hp", ico: "❤" };
+  if (id === "crit_chance_pct") return { kind: "crit", ico: "💥" };
+  if (id === "gold_bonus_pct") return { kind: "gold", ico: "🪙" };
+  if (id === "evade_pct") return { kind: "sit", ico: "💨" };
+  if (id === "dmg_reduce_pct") return { kind: "end", ico: "🛡️" };
+  if (/^(melee_|ranged_|magic_damage)/.test(id) || id.includes("damage_flat")) {
+    return { kind: "dmg", ico: "⚔" };
+  }
+  if (id.startsWith("dmg_vs_") || id.startsWith("media_dmg_")) {
+    return { kind: "sit", ico: "🎯" };
+  }
+  return { kind: "neutral", ico: "✦" };
+}
+
+function setPerfectionLayerOpen(id, open) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle("is-open", Boolean(open));
+  el.setAttribute("aria-hidden", open ? "false" : "true");
+  el.style.display = open ? "flex" : "none";
+  if (open) {
+    const focusEl =
+      el.querySelector(".perfection-sheet-close, .passive-modal-x, .perfection-btn-cancel, .perfection-choose-card") ||
+      el.querySelector("button");
+    if (focusEl && typeof focusEl.focus === "function") {
+      try {
+        focusEl.focus();
+      } catch (_) {}
+    }
+  }
+}
+
+function perfectionTopLayer() {
+  const confirm = document.getElementById("perfection-respec-confirm-modal");
+  const help = document.getElementById("perfection-help-modal");
+  const choose = document.getElementById("perfection-choose-modal");
+  const perm = document.getElementById("perfection-permanent-modal");
+  if (confirm?.classList.contains("is-open")) return "confirm";
+  if (help?.classList.contains("is-open")) return "help";
+  if (choose?.classList.contains("is-open")) return "choose";
+  if (perm?.classList.contains("is-open")) return "permanent";
+  return null;
+}
+
+function closePerfectionTopLayer() {
+  const top = perfectionTopLayer();
+  if (top === "confirm") closePerfectionRespecConfirm();
+  else if (top === "help") closePerfectionHelpModal();
+  else if (top === "choose") closePerfectionChooseModal();
+  else if (top === "permanent") closePerfectionPermanentModal();
+}
+
+function rememberPerfectionPermanentScroll() {
+  const body = document.getElementById("perfection-permanent-list");
+  if (body) perfectionPermanentScrollTop = body.scrollTop || 0;
+}
+
+function restorePerfectionPermanentScroll() {
+  const body = document.getElementById("perfection-permanent-list");
+  if (body) body.scrollTop = perfectionPermanentScrollTop || 0;
+}
 
 function bindPerfectionListenersOnce() {
   if (perfectionListenersBound) return;
   perfectionListenersBound = true;
   const closeBtn = document.getElementById("perfection-choose-close");
   if (closeBtn) closeBtn.addEventListener("click", closePerfectionChooseModal);
+  const permClose = document.getElementById("perfection-permanent-close");
+  if (permClose) permClose.addEventListener("click", closePerfectionPermanentModal);
+  const helpClose = document.getElementById("perfection-help-close");
+  if (helpClose) helpClose.addEventListener("click", closePerfectionHelpModal);
+  const confirmCancel = document.getElementById("perfection-respec-cancel");
+  if (confirmCancel) confirmCancel.addEventListener("click", closePerfectionRespecConfirm);
+  const confirmOk = document.getElementById("perfection-respec-ok");
+  if (confirmOk) confirmOk.addEventListener("click", () => executePerfectionRespecFromDraft());
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape") return;
+    if (!perfectionTopLayer()) return;
+    ev.preventDefault();
+    closePerfectionTopLayer();
+  });
 }
 
 function closePerfectionChooseModal() {
-  const modal = document.getElementById("perfection-choose-modal");
-  if (modal) modal.style.display = "none";
+  rememberPerfectionPermanentScroll();
+  setPerfectionLayerOpen("perfection-choose-modal", false);
+  perfectionChooseFromRespec = false;
+}
+
+function closePerfectionPermanentModal() {
+  rememberPerfectionPermanentScroll();
+  setPerfectionLayerOpen("perfection-permanent-modal", false);
+  perfectionPermanentOpen = false;
+}
+
+function closePerfectionRespecConfirm() {
+  setPerfectionLayerOpen("perfection-respec-confirm-modal", false);
+  perfectionRespecDraft = null;
+}
+
+function closePerfectionHelpModal() {
+  setPerfectionLayerOpen("perfection-help-modal", false);
+}
+
+function openPerfectionHelpModal() {
+  setPerfectionLayerOpen("perfection-help-modal", true);
+}
+
+function fillPerfectionPermanentList(state) {
+  const list = document.getElementById("perfection-permanent-list");
+  if (!list) return;
+  const history = Array.isArray(state?.permanent_history) ? state.permanent_history : [];
+  const cost = Number(state?.respec_gold_cost || 0);
+  const costLabel = cost > 0 ? ` · ${formatRuInt(cost)} 🪙` : "";
+  if (!history.length) {
+    list.innerHTML = `<p class="perfection-list-empty">Постоянных бонусов пока нет.</p>`;
+    return;
+  }
+  list.innerHTML = history
+    .map((b) => {
+      const meta = perfectionChipMeta(b.bonus_id);
+      const rowId = Number(b.row_id);
+      return `<div class="perfection-node-card perfection-corners">
+        <div class="perfection-node-top">
+          <div class="perfection-node-medal perfection-node-medal--${meta.kind}">${meta.ico}</div>
+          <div class="perfection-node-info">
+            <div class="perfection-node-name">${escapeHtml(b.title_ru || b.bonus_id)}</div>
+            <div class="perfection-node-val">${escapeHtml(b.display_value || "")}</div>
+          </div>
+          <div class="perfection-node-tier">ур. ${escapeHtml(String(b.perfection_level_gained || ""))}</div>
+        </div>
+        <button type="button" class="perfection-respec-btn" data-perfection-respec="${rowId}">🔄 Переназначить${costLabel}</button>
+      </div>`;
+    })
+    .join("");
+  list.querySelectorAll("[data-perfection-respec]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      rememberPerfectionPermanentScroll();
+      WaifuApp.openPerfectionRespec(Number(btn.getAttribute("data-perfection-respec")));
+    });
+  });
+}
+
+function openPerfectionPermanentModal(state) {
+  const src = state || perfectionStateCache;
+  fillPerfectionPermanentList(src);
+  perfectionPermanentOpen = true;
+  setPerfectionLayerOpen("perfection-permanent-modal", true);
+  restorePerfectionPermanentScroll();
 }
 
 function openPerfectionChooseModal(state) {
-  // Single choose modal — never stack a second overlay.
   const existing = document.getElementById("perfection-choose-modal");
   if (!existing) return;
-  const modal = existing;
   const body = document.getElementById("perfection-choose-body");
   const title = document.getElementById("perfection-choose-title");
   const pending = state?.pending;
   if (!body || !pending) return;
+  perfectionChooseFromRespec = false;
   const kind = pending.kind === "skill_point" ? "Очко навыка" : "Выбор бонуса";
   if (title) title.textContent = `${kind} · ур. ${pending.perfection_level}`;
   const opts = Array.isArray(pending.options) ? pending.options : [];
@@ -4279,7 +4434,7 @@ function openPerfectionChooseModal(state) {
       await choosePerfectionOption(pending.id, idx);
     });
   });
-  modal.style.display = "flex";
+  setPerfectionLayerOpen("perfection-choose-modal", true);
 }
 
 async function loadPerfectionPanel() {
@@ -4297,12 +4452,13 @@ async function loadPerfectionPanel() {
   }
 }
 
-function renderPerfectionPanel(state) {
+function renderPerfectionPanel(state, opts = {}) {
   const root = document.getElementById("perfection-root");
   if (!root) return;
   root.classList.remove("placeholder");
+  root.classList.add("perfection-compact");
   if (!state?.unlocked) {
-    root.innerHTML = `<div class="perfection-locked muted">Откроется на 60 уровне основной вайфу.</div>`;
+    root.innerHTML = `<div class="perfection-locked">Откроется на 60 уровне основной вайфу.</div>`;
     return;
   }
   const lvl = Number(state.perfection_level || 0);
@@ -4310,51 +4466,90 @@ function renderPerfectionPanel(state) {
   const need = Number(state.perfection_xp_to_next || 0);
   const pct = need > 0 ? Math.round(clamp01(xp / need) * 100) : 0;
   const pendingCount = Number(state.pending_count || 0);
+  const remaining = Math.max(0, need - xp);
   const summary = Array.isArray(state.bonuses_summary) ? state.bonuses_summary : [];
   const history = Array.isArray(state.permanent_history) ? state.permanent_history : [];
-  const historyHtml = history.length
-    ? `<ul class="perfection-bonus-list">${history
-        .map(
-          (b) =>
-            `<li><span>${escapeHtml(b.title_ru || b.bonus_id)}</span><strong>${escapeHtml(
-              b.display_value || ""
-            )}</strong><em class="perfection-bonus-tag">ур. ${escapeHtml(String(b.perfection_level_gained || ""))}</em>
-            <button type="button" class="btn tiny" onclick="WaifuApp.openPerfectionRespec(${b.row_id})">Переназначить</button></li>`
-        )
-        .join("")}</ul>`
-    : `<p class="muted tiny">Постоянных бонусов пока нет.</p>`;
-  const summaryHtml = summary.length
-    ? `<ul class="perfection-bonus-list">${summary
-        .map(
-          (b) =>
-            `<li><span>${escapeHtml(b.title_ru || b.bonus_id)}</span><strong>${escapeHtml(
-              b.display_value || ""
-            )}</strong><em class="perfection-bonus-tag">${escapeHtml(b.label || "Навсегда")}</em></li>`
-        )
-        .join("")}</ul>`
-    : "";
+  const tier = Number(state.tier || 1);
+  const chipHtml = summary.length
+    ? summary
+        .map((b) => {
+          const meta = perfectionChipMeta(b.bonus_id);
+          return `<div class="perfection-buff-chip perfection-buff-chip--${meta.kind}">
+            <span class="ico">${meta.ico}</span>
+            <span class="name">${escapeHtml(b.title_ru || b.bonus_id)}</span>
+            <span class="val">${escapeHtml(b.display_value || "")}</span>
+          </div>`;
+        })
+        .join("")
+    : `<div class="perfection-buff-chip perfection-buff-empty">Пока нет активных бонусов</div>`;
+  const medals = history.slice(0, 3);
+  const medalsHtml = medals.length
+    ? medals
+        .map((b) => {
+          const meta = perfectionChipMeta(b.bonus_id);
+          return `<span class="perfection-mini-medal perfection-mini-medal--${meta.kind}">${meta.ico}</span>`;
+        })
+        .join("")
+    : `<span class="perfection-mini-medal perfection-mini-medal--empty">✦</span>`;
+  const permSub = history.length ? `${history.length} получено · тир ${tier}` : "Пока нет";
+  const ctaReady = pendingCount > 0;
+  const ctaLabel = ctaReady
+    ? `Выбрать бонус${pendingCount > 1 ? ` (${pendingCount})` : ""}`
+    : `🔒 Выбрать бонус — ещё ${formatRuInt(remaining)} EXP`;
   root.innerHTML = `
-    <div class="perfection-header">
-      <div class="perfection-level-line">Совершенствование <strong>${lvl}</strong> · тир ${Number(state.tier || 1)}</div>
-      <div class="perfection-xp-text">${xp} / ${need} EXP</div>
-      <div class="perfection-xp-bar"><div class="perfection-xp-fill" style="width:${pct}%"></div></div>
+    <div class="perfection-tier-card perfection-corners">
+      <div class="perfection-tier-seal">${escapeHtml(String(lvl))}</div>
+      <div class="perfection-tier-mid">
+        <div class="perfection-tier-title-row">
+          <span class="n">Совершенствование · тир ${tier}</span>
+          <span class="p">${pct}%</span>
+        </div>
+        <div class="perfection-exp-bar"><div class="fill" style="--pct:${pct}%;width:${pct}%"></div></div>
+        <div class="perfection-exp-readout">${formatRuInt(xp)} / ${formatRuInt(need)} EXP</div>
+      </div>
+      <button type="button" class="perfection-help-btn" id="perfection-help-btn" aria-label="Как работает совершенствование">?</button>
     </div>
-    <div class="perfection-actions">
-      <button type="button" class="btn" id="perfection-open-choose" ${pendingCount > 0 ? "" : "disabled"}>
-        Выбрать бонус${pendingCount > 1 ? ` (${pendingCount})` : ""}
-      </button>
+    <button type="button" class="perfection-choose-cta ${ctaReady ? "ready" : "locked"}" id="perfection-open-choose" ${ctaReady ? "" : "disabled"}>
+      ${ctaLabel}
+    </button>
+    <div class="perfection-buffs-block">
+      <div class="perfection-sec-row">
+        <h3 class="perfection-sec-title">Текущие бонусы</h3>
+        <span class="perfection-sec-count">${summary.length}</span>
+      </div>
+      <div class="perfection-buff-scroll">
+        <div class="perfection-buff-grid">${chipHtml}</div>
+      </div>
     </div>
-    <h3 class="section-head">Текущие бонусы</h3>
-    ${summaryHtml}
-    <h3 class="section-head">Постоянные</h3>
-    ${historyHtml}
+    <button type="button" class="perfection-permanent-trigger" id="perfection-open-permanent">
+      <div class="perfection-stack-avatars">${medalsHtml}</div>
+      <div class="perfection-pt-text">
+        <span class="perfection-pt-title">Постоянные бонусы</span>
+        <span class="perfection-pt-sub">${escapeHtml(permSub)}</span>
+      </div>
+      <span class="perfection-pt-arrow">›</span>
+    </button>
   `;
+  const helpBtn = document.getElementById("perfection-help-btn");
+  if (helpBtn) helpBtn.addEventListener("click", openPerfectionHelpModal);
   const btn = document.getElementById("perfection-open-choose");
-  if (btn && pendingCount > 0) {
+  if (btn && ctaReady) {
     btn.addEventListener("click", () => openPerfectionChooseModal(state));
   }
-  // Auto-open FIFO head when there are pending bonuses (single modal DOM).
-  if (pendingCount > 0 && state.pending) {
+  const permBtn = document.getElementById("perfection-open-permanent");
+  if (permBtn) {
+    permBtn.addEventListener("click", () => {
+      perfectionPermanentScrollTop = 0;
+      openPerfectionPermanentModal(state);
+    });
+  }
+  maybeShowFtue(
+    "perfection",
+    "Каждый уровень совершенствования даёт выбор из трёх бонусов. Постоянные можно переназначить за золото."
+  ).catch(() => {});
+  if (opts.keepPermanentOpen) {
+    openPerfectionPermanentModal(state);
+  } else if (pendingCount > 0 && state.pending) {
     openPerfectionChooseModal(state);
   }
 }
@@ -4375,7 +4570,7 @@ async function choosePerfectionOption(pendingId, optionIndex) {
     if (applied?.title_ru) {
       showToast(`${applied.title_ru} ${applied.display_value || ""}`, "success");
     }
-    renderPerfectionPanel(state);
+    renderPerfectionPanel(state, { keepPermanentOpen: perfectionPermanentOpen });
     const profile = await loadProfile({ lite: false });
     if (profile) {
       populateFromProfile(profile);
@@ -4402,24 +4597,37 @@ async function openPerfectionRespec(rowId) {
     const body = document.getElementById("perfection-choose-body");
     const title = document.getElementById("perfection-choose-title");
     if (!modal || !body) return;
+    perfectionChooseFromRespec = true;
     if (title) title.textContent = "Переназначить бонус";
     const cur = p.current || {};
+    const gold = Number(p.gold_cost || 0);
+    const pLevel = Number(cur.perfection_level_gained || 1);
+    const curTitle = String(cur.title_ru || "");
+    const curVal = String(cur.display_value || "");
     const opts = (p.options || [])
-      .map(
-        (o, idx) =>
-          `<button type="button" class="perfection-choose-card" onclick="WaifuApp.confirmPerfectionRespec(${rowId},${idx},${p.gold_cost || 0},${cur.perfection_level_gained || 1})">
+      .map((o, idx) => {
+        return `<button type="button" class="perfection-choose-card" data-perfection-respec-opt="${idx}">
             <strong class="perfection-choose-name">${escapeHtml(o.title_ru || o.bonus_id)}</strong>
             <span class="perfection-choose-value">${escapeHtml(o.display_value || "")}</span>
-          </button>`
-      )
+          </button>`;
+      })
       .join("");
     body.innerHTML = `
-      <div class="muted tiny">Сейчас: ${escapeHtml(cur.title_ru || "")} · ${escapeHtml(cur.display_value || "")}</div>
+      <div class="perfection-choose-current">Сейчас: ${escapeHtml(curTitle)} · ${escapeHtml(curVal)}</div>
       <div class="perfection-choose-grid">${opts}</div>
-      <div>${p.gold_cost || 0} 🪙</div>
-      <button type="button" class="secondary" onclick="WaifuApp.confirmPerfectionRespec(${rowId},'keep',0,0)">Оставить как есть — бесплатно</button>
+      <div class="perfection-choose-gold">${formatRuInt(gold)} 🪙</div>
+      <button type="button" class="perfection-choose-keep" data-perfection-respec-keep="1">Оставить как есть — бесплатно</button>
     `;
-    modal.style.display = "flex";
+    body.querySelectorAll("[data-perfection-respec-opt]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        confirmPerfectionRespec(rowId, Number(btn.getAttribute("data-perfection-respec-opt")), gold, pLevel, curTitle, curVal);
+      });
+    });
+    const keepBtn = body.querySelector("[data-perfection-respec-keep]");
+    if (keepBtn) {
+      keepBtn.addEventListener("click", () => confirmPerfectionRespec(rowId, "keep", 0, 0, curTitle, curVal));
+    }
+    setPerfectionLayerOpen("perfection-choose-modal", true);
     maybeShowFtue(
       "respec",
       "Мгновенные награды и очки навыков переназначить нельзя. Платите только за новый бонус."
@@ -4434,21 +4642,58 @@ async function openPerfectionRespec(rowId) {
   }
 }
 
-async function confirmPerfectionRespec(rowId, optionIndex, gold, pLevel) {
-  if (optionIndex !== "keep") {
-    const ok = await confirmAction(
-      `Заменить бонус за ${gold} 🪙?\nСила как при получении (ур. ${pLevel}), не текущий тир.`
-    );
-    if (!ok) return;
+function openPerfectionRespecConfirm(draft) {
+  perfectionRespecDraft = draft;
+  const title = document.getElementById("perfection-respec-title");
+  const desc = document.getElementById("perfection-respec-desc");
+  const cost = document.getElementById("perfection-respec-cost");
+  if (title) {
+    title.textContent = `${draft.currentTitle || "Бонус"} · ур. ${draft.pLevel || 1}`;
   }
+  if (desc) {
+    desc.innerHTML = `Текущий бонус <b>${escapeHtml(draft.currentValue || "")}</b> будет заменён. Сила как при получении (ур. ${Number(
+      draft.pLevel || 1
+    )}), не текущий тир.`;
+  }
+  if (cost) cost.textContent = formatRuInt(draft.gold || 0);
+  setPerfectionLayerOpen("perfection-respec-confirm-modal", true);
+}
+
+async function confirmPerfectionRespec(rowId, optionIndex, gold, pLevel, currentTitle, currentValue) {
+  if (optionIndex !== "keep") {
+    openPerfectionRespecConfirm({
+      rowId,
+      optionIndex,
+      gold,
+      pLevel,
+      currentTitle: currentTitle || "",
+      currentValue: currentValue || "",
+    });
+    return;
+  }
+  await executePerfectionRespec(rowId, optionIndex);
+}
+
+async function executePerfectionRespecFromDraft() {
+  const draft = perfectionRespecDraft;
+  if (!draft) return;
+  await executePerfectionRespec(draft.rowId, draft.optionIndex);
+}
+
+async function executePerfectionRespec(rowId, optionIndex) {
+  if (perfectionRespecBusy) return;
+  perfectionRespecBusy = true;
   try {
     const state = await apiFetch("/perfection/respec/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ bonus_row_id: Number(rowId), option_index: optionIndex }),
     });
+    closePerfectionRespecConfirm();
     closePerfectionChooseModal();
-    renderPerfectionPanel(state);
+    const keepPermanent = perfectionPermanentOpen;
+    perfectionStateCache = state;
+    renderPerfectionPanel(state, { keepPermanentOpen: keepPermanent });
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
     if (detail === "expired") {
@@ -4456,6 +4701,8 @@ async function confirmPerfectionRespec(rowId, optionIndex, gold, pLevel) {
       return;
     }
     showToast(detail || "Не удалось заменить", "error");
+  } finally {
+    perfectionRespecBusy = false;
   }
 }
 
@@ -17310,6 +17557,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   openHiddenSkillModal,
   closeHiddenSkillModal,
   closePerfectionChooseModal,
+  closePerfectionPermanentModal,
+  closePerfectionRespecConfirm,
+  closePerfectionHelpModal,
   loadPerfectionPanel,
   openPerfectionRespec,
   confirmPerfectionRespec,

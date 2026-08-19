@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Тренировочный зал</title>
-    <link rel="stylesheet" href="./styles.css?v=waifu-webapp-v93" />
+    <link rel="stylesheet" href="./styles.css?v=waifu-webapp-v94" />
+    <link rel="stylesheet" href="./perfection-redesign.css?v=waifu-webapp-v94" />
     <style>
       :root {
         --ink: #0d0a08;
@@ -159,7 +160,7 @@
     <link rel="stylesheet" href="./assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="./assets/tutorial.js"></script>
-    <script defer src="./app.js?v=waifu-webapp-v93"></script>
+    <script defer src="./app.js?v=waifu-webapp-v94"></script>
   </head>
   <body class="page-training" onload="WaifuApp.bootstrapTrainingHall();">
     <header class="attic">
@@ -273,8 +274,9 @@
 
     <div
       id="perfection-choose-modal"
-      class="modal"
+      class="modal perfection-layer"
       style="display: none"
+      aria-hidden="true"
       onclick="if (event.target === this) WaifuApp.closePerfectionChooseModal()"
     >
       <div class="modal-content perfection-choose-modal-panel" onclick="event.stopPropagation()">
@@ -283,6 +285,71 @@
           <button type="button" class="passive-modal-x" id="perfection-choose-close" aria-label="Закрыть">✕</button>
         </div>
         <div class="modal-body" id="perfection-choose-body"></div>
+      </div>
+    </div>
+
+    <div
+      id="perfection-permanent-modal"
+      class="perfection-layer"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="perfection-permanent-title"
+      aria-hidden="true"
+      style="display: none"
+      onclick="if (event.target === this) WaifuApp.closePerfectionPermanentModal()"
+    >
+      <div class="perfection-layer-panel perfection-corners" onclick="event.stopPropagation()">
+        <div class="perfection-layer-head">
+          <h2 id="perfection-permanent-title">Постоянные бонусы</h2>
+          <button type="button" class="perfection-sheet-close" id="perfection-permanent-close" aria-label="Закрыть">✕</button>
+        </div>
+        <div class="perfection-list-body" id="perfection-permanent-list"></div>
+      </div>
+    </div>
+
+    <div
+      id="perfection-respec-confirm-modal"
+      class="perfection-layer"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="perfection-respec-title"
+      aria-hidden="true"
+      style="display: none"
+      onclick="if (event.target === this) WaifuApp.closePerfectionRespecConfirm()"
+    >
+      <div class="perfection-confirm-panel perfection-corners" onclick="event.stopPropagation()">
+        <div class="perfection-confirm-cap">Переназначение бонуса</div>
+        <h2 id="perfection-respec-title">—</h2>
+        <p id="perfection-respec-desc">—</p>
+        <div class="perfection-confirm-cost">🪙 <span id="perfection-respec-cost">—</span></div>
+        <div class="perfection-confirm-foot">
+          <button type="button" class="perfection-btn-cancel" id="perfection-respec-cancel">Отмена</button>
+          <button type="button" class="perfection-btn-primary" id="perfection-respec-ok">Подтвердить</button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="perfection-help-modal"
+      class="perfection-layer"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="perfection-help-title"
+      aria-hidden="true"
+      style="display: none"
+      onclick="if (event.target === this) WaifuApp.closePerfectionHelpModal()"
+    >
+      <div class="perfection-layer-panel perfection-corners" onclick="event.stopPropagation()">
+        <div class="perfection-layer-head">
+          <h2 id="perfection-help-title">Совершенствование</h2>
+          <button type="button" class="perfection-sheet-close" id="perfection-help-close" aria-label="Закрыть">✕</button>
+        </div>
+        <div class="perfection-help-body">
+          <p>Открывается на 60 уровне основной вайфу. Дальше растёт отдельный уровень совершенствования за EXP из боёв.</p>
+          <p>Каждый уровень даёт очередь из трёх вариантов: постоянный бонус или мгновенный ресурс. Выбрать нужно по очереди, начиная с самого раннего.</p>
+          <p>Каждые 10 уровней — отдельный пик «+1 ОПГ» в дерево навыков. Его переназначить нельзя.</p>
+          <p>Постоянные бонусы можно переназначить за золото (цена растёт с уровнем совершенствования), один раз в сутки на узел. Сила нового бонуса — как в момент получения, не от текущего тира. «Оставить как есть» бесплатно.</p>
+        </div>
       </div>
     </div>
 

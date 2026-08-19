@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Совершенствование — компакт (концепт)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Manrope:wght@500;600;700;800&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+<style>
+
+/* ============================================================
+   TOKENS — та же система, что в предыдущих двух файлах.
+   ============================================================ */
+:root{
+  --ink:#0a0705; --panel:#1b130c; --panel-2:#241a10;
+  --parchment:#ecdfc6; --parchment-dim:#9c8b76; --parchment-faint:#6b5c4b;
+  --gold:#e2a93f; --gold-bright:#ffd97a; --gold-dim:rgba(226,169,63,.16);
+  --ember:#e2543f; --ember-bright:#ff8a65;
+  --rune:#49c9b3; --rune-bright:#7ff0dd;
+  --arcane:#5b9bf0; --arcane-bright:#8fc0ff;
+  --line:rgba(226,169,63,.18); --shadow:0 10px 30px rgba(0,0,0,.5);
+  --display:"Cinzel",serif; --body:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif; --hud:"Rajdhani",var(--body);
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0; background:radial-gradient(120% 65% at 50% -10%, #1f150d 0%, var(--ink) 55%), var(--ink);
+  color:var(--parchment); font-family:var(--body); -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--gold-dim);color:var(--gold-bright);}
+:focus-visible{outline:2px solid var(--gold-bright);outline-offset:2px;border-radius:6px;}
+button{font-family:inherit;}
+@media (prefers-reduced-motion: reduce){ *{animation-duration:.001ms !important; transition-duration:.001ms !important;} }
+
+/* thin gold-tinted scrollbars for the internal scroll areas */
+.scroll-thin{scrollbar-width:thin; scrollbar-color:rgba(226,169,63,.4) transparent;}
+.scroll-thin::-webkit-scrollbar{width:5px;}
+.scroll-thin::-webkit-scrollbar-thumb{background:rgba(226,169,63,.4); border-radius:3px;}
+.scroll-thin::-webkit-scrollbar-track{background:transparent;}
+
+.preview-tag{
+  position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:999;
+  font:700 11px/1 var(--body); letter-spacing:.04em; color:var(--ink);
+  background:var(--gold-bright); padding:5px 9px; border-radius:999px;
+  box-shadow:0 6px 16px rgba(0,0,0,.4); pointer-events:none; opacity:.92;
+}
+.stage{
+  max-width:480px; margin:30px auto; height:calc(100dvh - 60px); min-height:600px; max-height:760px;
+  background:var(--ink); box-shadow:0 30px 80px rgba(0,0,0,.6); border-radius:18px; overflow:hidden;
+  border:1px solid rgba(255,255,255,.05);
+}
+
+/* signature: corners + seal (identical to previous files) */
+.corners{position:relative;}
+.corners::after{
+  content:""; position:absolute; inset:6px; z-index:3; pointer-events:none;
+  --cc: var(--corner-color, var(--gold-bright)); --cs: var(--corner-size, 12px);
+  background:
+    linear-gradient(var(--cc),var(--cc)) top left/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) top left/2px var(--cs) no-repeat,
+    linear-gradient(var(--cc),var(--cc)) top right/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) top right/2px var(--cs) no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom left/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom left/2px var(--cs) no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom right/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom right/2px var(--cs) no-repeat;
+  opacity:.8; filter:drop-shadow(0 0 3px rgba(226,169,63,.4));
+}
+
+/* ============================================================
+   LAYOUT — рассчитан на один экран без прокрутки страницы целиком.
+   main всё же имеет overflow:auto как страховочный fallback для
+   мелких экранов/крупного текста (accessibility), но по умолчанию
+   не должен активироваться при обычных пропорциях 375-430×700+.
+   ============================================================ */
+.screen{display:flex; flex-direction:column; height:100%;}
+main{
+  flex:1; min-height:0; padding:8px 10px 10px;
+  display:flex; flex-direction:column; gap:8px; overflow-y:auto;
+}
+
+/* ================= HUD (компактнее) ================= */
+.hud{
+  display:flex; align-items:center; gap:6px; padding:7px 9px;
+  background:linear-gradient(180deg, rgba(10,7,5,.97), rgba(10,7,5,.9));
+  border-bottom:1px solid var(--line); flex-shrink:0;
+}
+.hud-avatar{position:relative; flex-shrink:0; width:38px; height:38px; border-radius:50%; border:none; background:none; padding:0; cursor:pointer;}
+.hud-avatar-ring{width:38px; height:38px; transform:rotate(-90deg);}
+.hud-avatar-ring circle{fill:none; stroke-width:3;}
+.hud-avatar-ring .bg{stroke:rgba(226,169,63,.18);}
+.hud-avatar-ring .fg{stroke:url(#ringGrad); stroke-linecap:round;}
+.hud-avatar-face{position:absolute; inset:3px; border-radius:50%; display:grid; place-items:center;
+  background:radial-gradient(circle at 35% 30%, #3a2a18, #150e09 75%); font-size:14px;}
+.hud-lvl{position:absolute; bottom:-3px; left:50%; transform:translateX(-50%); font:700 9px/1 var(--hud);
+  color:var(--ink); background:var(--gold-bright); border-radius:999px; padding:1px 5px; box-shadow:0 2px 4px rgba(0,0,0,.4);}
+.hud-chips{flex:1; display:flex; align-items:center; gap:5px; min-width:0; overflow:hidden;}
+.chip{display:flex; align-items:center; gap:4px; height:26px; padding:0 8px; border-radius:8px;
+  background:linear-gradient(180deg, var(--panel-2), var(--panel)); border:1px solid var(--line);
+  font:700 10.5px/1 var(--hud); color:var(--parchment); white-space:nowrap; overflow:hidden;}
+.chip-gold{color:var(--gold-bright);}
+.hud-menu{flex-shrink:0; width:26px; height:26px; border-radius:8px; border:1px solid var(--line);
+  background:var(--panel); color:var(--parchment-dim); cursor:pointer; font-size:12px;}
+
+/* ================= Tree strip (одна компактная полоса) ================= */
+.tree-strip{
+  flex-shrink:0; display:flex; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden;
+}
+.tree-item{
+  flex:1; display:flex; align-items:center; justify-content:center; gap:5px; padding:6px 4px;
+  border-right:1px solid var(--line); cursor:pointer;
+}
+.tree-item:last-child{border-right:none;}
+.tree-item .ico{font-size:13px;}
+.tree-item .lvl{font:700 12.5px/1 var(--hud); color:var(--parchment);}
+.tree-item.warrior .ico{filter:drop-shadow(0 0 3px rgba(226,84,63,.5));}
+.tree-item.shadow .ico{filter:drop-shadow(0 0 3px rgba(160,140,255,.5));}
+.tree-item.sage .ico{filter:drop-shadow(0 0 3px rgba(91,155,240,.5));}
+
+/* ================= Tab bar (компактно) ================= */
+.feature-tabbar{flex-shrink:0; display:flex; align-items:center; gap:6px;}
+.tab-pill{
+  display:flex; align-items:center; gap:5px; height:28px; padding:0 11px; border-radius:8px;
+  background:linear-gradient(180deg, rgba(226,169,63,.24), rgba(226,169,63,.1));
+  border:1px solid rgba(226,169,63,.5); color:var(--gold-bright); font:700 11.5px/1 var(--body);
+}
+.help-btn{width:28px; height:28px; border-radius:8px; border:1px solid var(--line); background:var(--panel);
+  color:var(--parchment-dim); font:700 11px/1 var(--body); cursor:pointer;}
+.points-counter{margin-left:auto; display:flex; align-items:baseline; gap:5px;}
+.points-counter .cap{font:700 9px/1 var(--body); letter-spacing:.05em; color:var(--parchment-faint); text-transform:uppercase;}
+.points-counter .val{font:700 14px/1 var(--hud); color:var(--parchment-faint);}
+
+/* ================= Tier / EXP — горизонтальная компакт-карточка ================= */
+.tier-card{
+  --corner-color: var(--rune-bright); --corner-size:10px; flex-shrink:0;
+  position:relative; border-radius:13px; padding:9px 10px; display:flex; gap:10px; align-items:center;
+  background:linear-gradient(165deg, var(--panel-2), var(--panel)); border:1px solid var(--line);
+}
+.tier-seal{
+  width:38px; height:38px; border-radius:50%; position:relative; flex-shrink:0;
+  background:radial-gradient(circle at 32% 28%, #d6fff5 0%, var(--rune-bright) 24%, var(--rune) 64%, #1c6e60 100%);
+  display:grid; place-items:center; color:#04231d; font:800 16px/1 var(--hud);
+  box-shadow:0 3px 10px rgba(73,201,179,.35), inset 0 0 0 1px rgba(255,255,255,.3);
+}
+.tier-mid{flex:1; min-width:0;}
+.tier-title-row{display:flex; justify-content:space-between; align-items:baseline; gap:6px; margin-bottom:4px;}
+.tier-title-row .n{font:700 12px/1.2 var(--display); color:var(--parchment); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.tier-title-row .p{font:700 11px/1 var(--hud); color:var(--rune-bright); flex-shrink:0;}
+.exp-bar{position:relative; height:8px; border-radius:5px; background:rgba(0,0,0,.45); border:1px solid rgba(0,0,0,.5); overflow:hidden;}
+.exp-bar .fill{position:absolute; inset:0; width:var(--pct,90%); background:linear-gradient(180deg, var(--rune-bright), var(--rune)); box-shadow:0 0 8px rgba(73,201,179,.5);}
+.exp-readout{margin-top:3px; font:700 9.5px/1 var(--hud); color:var(--parchment-dim);}
+
+.choose-btn{
+  flex-shrink:0; width:100%; height:32px; border-radius:9px; border:none; cursor:pointer;
+  font:700 11px/1 var(--body); display:flex; align-items:center; justify-content:center; gap:6px;
+}
+.choose-btn.locked{background:var(--panel-2); border:1px solid var(--line); color:var(--parchment-faint); cursor:not-allowed;}
+.choose-btn.ready{background:linear-gradient(180deg, var(--gold-bright), var(--gold)); color:#241708; box-shadow:0 4px 12px rgba(226,169,63,.35);}
+
+/* ================= Текущие бонусы — плотная сетка со скроллом ================= */
+.buffs-block{flex-shrink:0; display:flex; flex-direction:column; min-height:0;}
+.sec-row{display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-shrink:0;}
+.sec-title{margin:0; font:700 11px/1 var(--display); letter-spacing:.05em; color:var(--gold-bright); text-transform:uppercase;}
+.sec-count{font:700 10px/1 var(--hud); color:var(--parchment-faint); background:var(--panel-2); border:1px solid var(--line); border-radius:999px; padding:2px 7px;}
+
+.buff-scroll{
+  position:relative; max-height:158px; overflow-y:auto; border-radius:10px;
+}
+.buff-scroll::after{
+  /* лёгкий фейд снизу — подсказка, что список прокручивается */
+  content:""; position:sticky; display:block; bottom:0; left:0; right:0; height:14px; margin-top:-14px;
+  background:linear-gradient(0deg, var(--ink), transparent); pointer-events:none;
+}
+.buff-grid{display:grid; grid-template-columns:1fr 1fr; gap:5px;}
+.buff-chip{
+  display:flex; align-items:center; gap:5px; height:32px; padding:0 8px; border-radius:8px;
+  background:var(--panel); border:1px solid var(--line); min-width:0;
+}
+.buff-chip .ico{font-size:12px; flex-shrink:0;}
+.buff-chip .name{flex:1; min-width:0; font:600 10px/1.1 var(--body); color:var(--parchment-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.buff-chip .val{flex-shrink:0; font:700 11.5px/1 var(--hud); color:var(--parchment);}
+.buff-chip.int .val{color:var(--arcane-bright);}
+.buff-chip.crit .val{color:var(--ember-bright);}
+.buff-chip.gold .val{color:var(--gold-bright);}
+
+/* ================= Постоянные — компактный триггер модалки ================= */
+.permanent-trigger{
+  flex-shrink:0; display:flex; align-items:center; gap:10px; width:100%; padding:9px 10px; border-radius:12px;
+  background:linear-gradient(180deg, var(--panel-2), var(--panel)); border:1px solid var(--line); cursor:pointer;
+}
+.stack-avatars{display:flex; flex-shrink:0;}
+.mini-medal{
+  --mc: var(--gold-bright); width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-size:12px;
+  background:radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--mc) 55%, white), var(--mc) 45%, color-mix(in srgb, var(--mc) 60%, black) 100%);
+  border:2px solid var(--ink); margin-left:-9px; color:#1c1408;
+}
+.mini-medal:first-child{margin-left:0;}
+.mini-medal.int{--mc: var(--arcane-bright);} .mini-medal.crit{--mc: var(--ember-bright);} .mini-medal.gold{--mc: var(--gold-bright);}
+.pt-text{flex:1; min-width:0; text-align:left;}
+.pt-title{display:block; font:700 12px/1.2 var(--body); color:var(--parchment);}
+.pt-sub{display:block; font:600 10px/1.2 var(--body); color:var(--parchment-faint); margin-top:1px;}
+.pt-arrow{flex-shrink:0; font-size:16px; color:var(--parchment-faint);}
+
+/* ================= Modal: список постоянных бонусов ================= */
+.modal-wrap{position:fixed; inset:0; z-index:200; display:none; place-items:center; padding:16px;}
+.modal-wrap.open{display:grid;}
+.modal-backdrop{position:absolute; inset:0; background:rgba(0,0,0,.65);}
+.list-modal{
+  --corner-color: var(--gold-bright);
+  position:relative; width:100%; max-width:360px; max-height:82vh; display:flex; flex-direction:column;
+  border-radius:16px; overflow:hidden; background:linear-gradient(165deg, #221912, #140d08 65%);
+  border:1px solid rgba(226,169,63,.35); box-shadow:0 30px 70px rgba(0,0,0,.6);
+  animation:modal-in .2s cubic-bezier(.2,.9,.3,1);
+}
+@keyframes modal-in{from{opacity:0; transform:translateY(8px) scale(.97);} to{opacity:1; transform:none;}}
+.list-modal-head{display:flex; align-items:center; justify-content:space-between; padding:14px 14px 10px; flex-shrink:0;}
+.list-modal-head h2{margin:0; font:700 15px/1 var(--display); color:var(--gold-bright);}
+.sheet-close{width:26px; height:26px; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--parchment-dim); cursor:pointer;}
+.list-modal-body{flex:1; min-height:0; overflow-y:auto; padding:0 12px 14px; display:flex; flex-direction:column; gap:8px;}
+
+.node-card{
+  --corner-color: var(--gold-bright); --corner-size:10px; position:relative;
+  padding:10px; border-radius:12px; background:var(--panel); border:1px solid var(--line); flex-shrink:0;
+}
+.node-top{display:flex; align-items:center; gap:9px;}
+.node-medal{
+  --mc: var(--gold-bright); width:36px; height:36px; border-radius:50%; flex-shrink:0; display:grid; place-items:center; font-size:15px;
+  background:radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--mc) 55%, white), var(--mc) 45%, color-mix(in srgb, var(--mc) 60%, black) 100%);
+  box-shadow:0 3px 8px rgba(0,0,0,.4), inset 0 0 0 1px rgba(255,255,255,.25); color:#1c1408;
+}
+.node-medal.int{--mc: var(--arcane-bright);} .node-medal.crit{--mc: var(--ember-bright);} .node-medal.gold{--mc: var(--gold-bright);}
+.node-info{flex:1; min-width:0;}
+.node-name{font:700 12.5px/1.3 var(--body); color:var(--parchment);}
+.node-val{font:700 14px/1.1 var(--hud); color:var(--gold-bright); margin-top:1px;}
+.node-tier{flex-shrink:0; font:700 9.5px/1 var(--hud); color:var(--ink); background:var(--parchment-dim); padding:3px 7px; border-radius:999px;}
+.respec-btn{
+  margin-top:8px; width:100%; height:32px; border-radius:8px; border:1px solid var(--line);
+  background:var(--panel-2); color:var(--parchment); font:700 11px/1 var(--body); cursor:pointer;
+  display:flex; align-items:center; justify-content:center; gap:5px;
+}
+.respec-btn:hover{border-color:rgba(226,169,63,.5); color:var(--gold-bright);}
+
+/* ================= Modal: подтверждение переназначения (поверх списка) ================= */
+#respecModal{z-index:220;}
+.confirm-modal{
+  --corner-color: var(--gold-bright); position:relative; width:100%; max-width:320px; border-radius:16px; overflow:hidden;
+  background:linear-gradient(165deg, #241a10, #140d08 65%); border:1px solid rgba(226,169,63,.4);
+  box-shadow:0 30px 70px rgba(0,0,0,.6); animation:modal-in .2s cubic-bezier(.2,.9,.3,1); padding:18px 16px 16px; text-align:center;
+}
+.confirm-modal .cap{font:700 9.5px/1 var(--hud); letter-spacing:.14em; color:var(--ember-bright); text-transform:uppercase;}
+.confirm-modal h2{margin:5px 0 2px; font:700 15px/1.2 var(--display); color:var(--parchment);}
+.confirm-modal p{margin:5px 0 14px; font:600 11px/1.5 var(--body); color:var(--parchment-dim);}
+.confirm-cost{display:flex; align-items:center; justify-content:center; gap:6px; font:800 16px/1 var(--hud); color:var(--gold-bright); margin-bottom:14px;}
+.confirm-foot{display:flex; gap:8px;}
+.btn-primary{flex:1; height:40px; border-radius:10px; border:1px solid rgba(255,255,255,.15);
+  background:linear-gradient(180deg, var(--gold-bright), var(--gold)); color:#241708; font:800 12px/1 var(--body); cursor:pointer;}
+.btn-cancel{flex:1; height:40px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--parchment); font:700 12px/1 var(--body); cursor:pointer;}
+</style>
+</head>
+<body>
+
+<span class="preview-tag">Концепт · компакт, 1 экран</span>
+<svg width="0" height="0" style="position:absolute">
+  <defs><linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#ffd97a"/><stop offset="100%" stop-color="#e2a93f"/>
+  </linearGradient></defs>
+</svg>
+
+<div class="stage"><div class="screen">
+
+  <header class="hud">
+    <button class="hud-avatar" aria-label="Профиль">
+      <svg class="hud-avatar-ring" viewBox="0 0 40 40">
+        <circle class="bg" cx="20" cy="20" r="17"/>
+        <circle class="fg" cx="20" cy="20" r="17" stroke-dasharray="106.8" stroke-dashoffset="40" />
+      </svg>
+      <span class="hud-avatar-face">🦊</span>
+      <span class="hud-lvl">3</span>
+    </button>
+    <div class="hud-chips">
+      <div class="chip">5-5 (+9)</div>
+      <div class="chip">🎟 × 5</div>
+      <div class="chip chip-gold">🪙 80 223</div>
+    </div>
+    <button class="hud-menu" aria-label="Меню">☰</button>
+  </header>
+
+  <main>
+
+    <div class="tree-strip">
+      <div class="tree-item warrior" title="Воин"><span class="ico">⚔️</span><span class="lvl">5</span></div>
+      <div class="tree-item shadow" title="Тень"><span class="ico">🗡️</span><span class="lvl">14</span></div>
+      <div class="tree-item sage" title="Мудрец"><span class="ico">📖</span><span class="lvl">40</span></div>
+    </div>
+
+    <div class="feature-tabbar">
+      <div class="tab-pill">✦ Совершенствование</div>
+      <button class="help-btn" title="Как это работает">?</button>
+      <div class="points-counter"><span class="cap">ОПГ</span><span class="val">0</span></div>
+    </div>
+
+    <div class="tier-card corners">
+      <div class="tier-seal">3</div>
+      <div class="tier-mid">
+        <div class="tier-title-row"><span class="n">Совершенствование · Тир 1</span><span class="p">90%</span></div>
+        <div class="exp-bar"><div class="fill"></div></div>
+        <div class="exp-readout">12 537 / 13 895 EXP</div>
+      </div>
+    </div>
+    <button class="choose-btn locked" disabled>🔒 Выбрать бонус — ещё 1 358 EXP</button>
+
+    <div class="buffs-block">
+      <div class="sec-row"><h3 class="sec-title">Текущие бонусы</h3><span class="sec-count" id="buffCount">10</span></div>
+      <div class="buff-scroll scroll-thin">
+        <div class="buff-grid" id="buffGrid"></div>
+      </div>
+    </div>
+
+    <button class="permanent-trigger" id="openPermanent">
+      <div class="stack-avatars">
+        <span class="mini-medal int">🧠</span>
+        <span class="mini-medal gold">🪙</span>
+        <span class="mini-medal crit">💥</span>
+      </div>
+      <div class="pt-text"><span class="pt-title">Постоянные бонусы</span><span class="pt-sub">3 получено · тир 1</span></div>
+      <span class="pt-arrow">›</span>
+    </button>
+
+  </main>
+</div></div>
+
+<!-- ============ MODAL: список постоянных бонусов ============ -->
+<div class="modal-wrap" id="permanentModal" role="dialog" aria-modal="true">
+  <div class="modal-backdrop" id="permanentBackdrop"></div>
+  <div class="list-modal corners">
+    <div class="list-modal-head"><h2>Постоянные бонусы</h2><button class="sheet-close" id="permanentClose">✕</button></div>
+    <div class="list-modal-body">
+
+      <div class="node-card corners">
+        <div class="node-top">
+          <div class="node-medal int">🧠</div>
+          <div class="node-info"><div class="node-name">+ИНТ</div><div class="node-val">+20</div></div>
+          <div class="node-tier">ур. 1</div>
+        </div>
+        <button class="respec-btn" data-name="+ИНТ" data-lvl="1" data-val="+20" data-cost="1 800">🔄 Переназначить</button>
+      </div>
+
+      <div class="node-card corners">
+        <div class="node-top">
+          <div class="node-medal gold">🪙</div>
+          <div class="node-info"><div class="node-name">Золото с дропа</div><div class="node-val">+1.5%</div></div>
+          <div class="node-tier">ур. 2</div>
+        </div>
+        <button class="respec-btn" data-name="Золото с дропа" data-lvl="2" data-val="+1.5%" data-cost="2 400">🔄 Переназначить</button>
+      </div>
+
+      <div class="node-card corners">
+        <div class="node-top">
+          <div class="node-medal crit">💥</div>
+          <div class="node-info"><div class="node-name">Крит</div><div class="node-val">+0.7%</div></div>
+          <div class="node-tier">ур. 3</div>
+        </div>
+        <button class="respec-btn" data-name="Крит" data-lvl="3" data-val="+0.7%" data-cost="3 100">🔄 Переназначить</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: подтверждение переназначения (поверх списка) ============ -->
+<div class="modal-wrap" id="respecModal" role="dialog" aria-modal="true">
+  <div class="modal-backdrop" id="respecBackdrop"></div>
+  <div class="confirm-modal corners">
+    <div class="cap">Переназначение бонуса</div>
+    <h2 id="respecTitle">+ИНТ · ур. 1</h2>
+    <p id="respecDesc">Текущий бонус <b>+20</b> будет сброшен. Вы сможете выбрать новый бонус на этом уровне тира заново.</p>
+    <div class="confirm-cost">🪙 <span id="respecCost">1 800</span></div>
+    <div class="confirm-foot">
+      <button class="btn-cancel" id="respecCancel">Отмена</button>
+      <button class="btn-primary" id="respecOk">Подтвердить</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Демо-данные: 10 строк "текущих бонусов", чтобы показать, что плотная
+// сетка + внутренний скролл держат форму независимо от количества.
+const buffs = [
+  {ico:'🧠', name:'+ИНТ',        val:'+20',   cls:'int'},
+  {ico:'💥', name:'Крит',        val:'+0.7%', cls:'crit'},
+  {ico:'🪙', name:'Золото с дропа', val:'+1.5%', cls:'gold'},
+  {ico:'💪', name:'+СИЛ',        val:'+12',   cls:''},
+  {ico:'🏹', name:'+ЛОВ',        val:'+9',    cls:''},
+  {ico:'🌀', name:'Уклонение',   val:'+1.2%', cls:''},
+  {ico:'🛡', name:'+ВЫН',        val:'+15',   cls:''},
+  {ico:'📈', name:'Опыт',        val:'+2%',   cls:'gold'},
+  {ico:'❤️', name:'HP макс',     val:'+80',   cls:''},
+  {ico:'🔰', name:'Броня',       val:'+6',    cls:''},
+];
+const grid = document.getElementById('buffGrid');
+buffs.forEach(b => {
+  const el = document.createElement('div');
+  el.className = `buff-chip ${b.cls}`;
+  el.innerHTML = `<span class="ico">${b.ico}</span><span class="name">${b.name}</span><span class="val">${b.val}</span>`;
+  grid.appendChild(el);
+});
+document.getElementById('buffCount').textContent = buffs.length;
+
+// Модалка "Постоянные бонусы"
+const permModal = document.getElementById('permanentModal');
+document.getElementById('openPermanent').addEventListener('click', () => permModal.classList.add('open'));
+document.getElementById('permanentClose').addEventListener('click', () => permModal.classList.remove('open'));
+document.getElementById('permanentBackdrop').addEventListener('click', () => permModal.classList.remove('open'));
+
+// Модалка подтверждения переназначения (открывается поверх списка, список не закрывается)
+const respecModal = document.getElementById('respecModal');
+document.querySelectorAll('.respec-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.getElementById('respecTitle').textContent = `${btn.dataset.name} · ур. ${btn.dataset.lvl}`;
+    document.getElementById('respecDesc').innerHTML =
+      `Текущий бонус <b>${btn.dataset.val}</b> будет сброшен. Вы сможете выбрать новый бонус на этом уровне тира заново.`;
+    document.getElementById('respecCost').textContent = btn.dataset.cost;
+    respecModal.classList.add('open');
+  });
+});
+const closeRespec = () => respecModal.classList.remove('open');
+document.getElementById('respecCancel').addEventListener('click', closeRespec);
+document.getElementById('respecBackdrop').addEventListener('click', closeRespec);
+document.getElementById('respecOk').addEventListener('click', closeRespec);
+</script>
+</body>
+</html>
