@@ -9053,8 +9053,7 @@ body.page-shop {
   gap: 8px;
 }
 .page-training .passive-modal-icon {
-  font-size: 22px;
-  line-height: 1;
+  display: none;
 }
 .page-training .passive-modal-learn-wrap {
   margin-top: 14px;

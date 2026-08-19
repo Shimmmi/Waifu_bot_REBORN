@@ -11931,7 +11931,7 @@ function openGuildSkillModal(skillId) {
   const title = document.getElementById("guild-skill-modal-title");
   const body = document.getElementById("guild-skill-modal-body");
   const footer = document.getElementById("guild-skill-modal-footer");
-  if (title) title.textContent = sk.name || "Навык";
+  if (title) title.textContent = skillModalTitleText(sk.name) || "Навык";
   const cur = safeInt(sk.current_level, 0);
   const eff = Array.isArray(sk.effect_per_level) ? sk.effect_per_level : [];
   const effCur = cur > 0 && eff[cur - 1] != null ? eff[cur - 1] : "—";
@@ -16288,6 +16288,15 @@ function bindPassiveNodeArt(imgEl, artWrapEl, nodeId) {
   imgEl.src = url;
 }
 
+/** Заголовок модалки навыка: без ведущего эмодзи («🎯Острый глаз» → «Острый глаз»). */
+function skillModalTitleText(name) {
+  const raw = String(name ?? "").trim();
+  const stripped = raw
+    .replace(/^(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\uFE0F|\u200D|\s)+/u, "")
+    .trim();
+  return stripped || raw;
+}
+
 /** Иконки узлов пассивного дерева (совпадают с id в БД). */
 const PASSIVE_NODE_ICONS = {
   w_bash: "⚔️",
@@ -16445,8 +16454,11 @@ function openPassiveSkillModal(nodeId) {
   m.classList.add("passive-skill-modal--dota");
   const panel = m.querySelector(".passive-skill-modal-panel");
   if (panel) panel.classList.add("passive-skill-modal-panel--dota");
-  if (iconEl) iconEl.textContent = getPassiveNodeIcon(node);
-  title.textContent = node.name;
+  if (iconEl) {
+    iconEl.textContent = "";
+    iconEl.hidden = true;
+  }
+  title.textContent = skillModalTitleText(node.name);
   const cur = Number(node.current_level) || 0;
   const max = Number(node.max_level) || 1;
   const eq = Number(node.equipment_level_bonus) || 0;
@@ -17016,7 +17028,7 @@ function openHiddenSkillModal(skillId) {
   if (!m || !title || !body) return;
   if (iconEmoji) iconEmoji.textContent = s.icon || "✨";
   bindHiddenSkillArt(iconImg, iconWrap, s);
-  title.textContent = s.name || "—";
+  title.textContent = skillModalTitleText(s.name) || "—";
   const lv = Number(s.level) || 0;
   const cnt = Number(s.counter) || 0;
   const next = s.next_threshold != null ? Number(s.next_threshold) : null;
