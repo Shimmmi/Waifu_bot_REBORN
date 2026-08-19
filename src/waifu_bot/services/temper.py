@@ -303,6 +303,12 @@ async def start_roll(
             return {"error": "open_pending", "pending": _serialize_pending(existing)}
         return {"error": "open_pending"}
     inv.temper_reroll_count = int(inv.temper_reroll_count or 0) + 1
+    try:
+        from waifu_bot.services.hidden_milestones import hook_milestones
+
+        await hook_milestones(session, int(player_id), ["endgame_smith"])
+    except Exception:
+        pass
     await session.commit()
     return {"pending": _serialize_pending(pending)}
 

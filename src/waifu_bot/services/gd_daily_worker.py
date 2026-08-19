@@ -413,6 +413,12 @@ async def finalize_daily_rewards_and_notify(
         if waifu_pre and exp > 0:
             waifu_pre.experience = (waifu_pre.experience or 0) + exp
             await apply_main_waifu_levelups(session, waifu_pre)
+        try:
+            from waifu_bot.services.hidden_milestones import hook_milestones
+
+            await hook_milestones(session, uid, ["gd_regular"])
+        except Exception:
+            pass
 
 
 async def _load_unsent_reward_parts(

@@ -24,7 +24,7 @@ def _build_bot() -> Bot:
     api_base = (getattr(settings, "telegram_api_base_url", None) or "").strip()
     if api_base:
         api = TelegramAPIServer.from_base(api_base)
-        session = AiohttpSession(api=api)
+        session = AiohttpSession(api=api, timeout=8)
         logger.info(
             "Telegram Bot API: TELEGRAM_API_BASE_URL (прокси через Cloudflare Worker), host=%s",
             api_base.split("://", 1)[-1].split("/", 1)[0] if "://" in api_base else api_base,
@@ -33,7 +33,7 @@ def _build_bot() -> Bot:
     raw = (getattr(settings, "telegram_bot_proxy", None) or "").strip()
     if raw:
         try:
-            session = AiohttpSession(proxy=raw)
+            session = AiohttpSession(proxy=raw, timeout=8)
         except ImportError as e:
             raise RuntimeError(
                 "TELEGRAM_BOT_PROXY задан, но не установлен пакет aiohttp-socks. "
@@ -44,7 +44,7 @@ def _build_bot() -> Bot:
             raw.split("://", 1)[0] if "://" in raw else "?",
         )
         return Bot(token=settings.bot_token, session=session, default=props)
-    return Bot(token=settings.bot_token, default=props)
+    return Bot(token=settings.bot_token, session=AiohttpSession(timeout=8), default=props)
 
 
 _bot = _build_bot()
@@ -192,7 +192,13 @@ async def start_polling() -> None:
 
     async def _poll() -> None:
         try:
-            await _dp.start_polling(_bot)
+            await _dp.start_polling(
+                _bot,
+                polling_timeout=2,
+                handle_as_tasks=True,
+                handle_signals=False,
+                close_bot_session=False,
+            )
         except asyncio.CancelledError:
             logger.info("Polling loop cancelled")
         except Exception:

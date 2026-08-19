@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -178,11 +178,18 @@ async def _maybe_announce_group_skill_unlock(
     await _notify_group_hidden_skill_unlock(session, player_id, defn, new_level)
 
 
-async def refresh_legend_counter(session: AsyncSession, player_id: int) -> None:
-    """Пересчитать «Легенду»: число прочих скрытых навыков с уровнем ≥ 3."""
-    q = select(PlayerHiddenSkill).where(
-        PlayerHiddenSkill.player_id == int(player_id),
-        PlayerHiddenSkill.skill_id != "legend",
+async def refresh_legend_counter(
+    session: AsyncSession, player_id: int, *, silent: bool = False
+) -> None:
+    """Пересчитать «Легенда»: число прочих скрытых навыков с уровнем ≥ 3."""
+    q = (
+        select(PlayerHiddenSkill)
+        .join(HiddenSkillDefinition, HiddenSkillDefinition.id == PlayerHiddenSkill.skill_id)
+        .where(
+            PlayerHiddenSkill.player_id == int(player_id),
+            PlayerHiddenSkill.skill_id != "legend",
+            HiddenSkillDefinition.counts_toward_legend.is_(True),
+        )
     )
     rows = (await session.execute(q)).scalars().all()
     n = sum(1 for r in rows if int(r.level or 0) >= 3)
@@ -219,7 +226,8 @@ async def refresh_legend_counter(session: AsyncSession, player_id: int) -> None:
         row.last_level_up = now
         if row.unlocked_at is None:
             row.unlocked_at = now
-        await _maybe_announce_group_skill_unlock(session, int(player_id), defn, old_level, nl)
+        if not silent:
+            await _maybe_announce_group_skill_unlock(session, int(player_id), defn, old_level, nl)
 
 
 async def sync_loyal_commander_counter(session: AsyncSession, player_id: int) -> None:
@@ -243,7 +251,9 @@ async def sync_loyal_commander_counter(session: AsyncSession, player_id: int) ->
     await refresh_legend_counter(session, int(player_id))
 
 
-async def _apply_level_for_skill(session: AsyncSession, player_id: int, skill_id: str) -> None:
+async def _apply_level_for_skill(
+    session: AsyncSession, player_id: int, skill_id: str, *, silent: bool = False
+) -> None:
     defn = await session.get(HiddenSkillDefinition, skill_id)
     row = (
         await session.execute(
@@ -263,6 +273,8 @@ async def _apply_level_for_skill(session: AsyncSession, player_id: int, skill_id
         row.last_level_up = now
         if row.unlocked_at is None:
             row.unlocked_at = now
+        if silent:
+            return
         await _maybe_announce_group_skill_unlock(session, int(player_id), defn, old_level, nl)
         if old_level == 0 and nl >= 1:
             try:
@@ -292,10 +304,17 @@ async def _apply_level_for_skill(session: AsyncSession, player_id: int, skill_id
             pass
 
 
-async def check_level_up(session: AsyncSession, player_id: int, skill_id: str) -> None:
-    await _apply_level_for_skill(session, player_id, skill_id)
-    if skill_id != "legend":
-        await refresh_legend_counter(session, player_id)
+async def check_level_up(
+    session: AsyncSession,
+    player_id: int,
+    skill_id: str,
+    *,
+    silent: bool = False,
+    refresh_legend: bool = True,
+) -> None:
+    await _apply_level_for_skill(session, player_id, skill_id, silent=silent)
+    if skill_id != "legend" and refresh_legend:
+        await refresh_legend_counter(session, player_id, silent=silent)
 
 
 async def increment_skill_counter(
@@ -338,20 +357,35 @@ async def set_skill_counter(
     player_id: int,
     skill_id: str,
     counter: int,
+    *,
+    silent: bool = False,
+    mode: Literal["replace", "max"] = "replace",
+    refresh_legend: bool = True,
 ) -> None:
-    """Установить абсолютное значение счётчика (для синхронизации из стейта игрока)."""
+    """Установить абсолютное значение счётчика (для синхронизации из стейта игрока).
+
+    mode=\"max\": не уменьшать уже записанный counter (пиковый gear score / рейтинг арены).
+    silent=True: повысить уровень без анонса, ленты гильдии и event_log (бэкфилл).
+    """
     tbl = PlayerHiddenSkill.__table__
+    value = int(counter)
+    if mode == "max":
+        counter_expr = func.greatest(tbl.c.counter, value)
+    else:
+        counter_expr = value
     stmt = (
         insert(tbl)
-        .values(player_id=int(player_id), skill_id=skill_id, counter=int(counter), level=0)
+        .values(player_id=int(player_id), skill_id=skill_id, counter=value, level=0)
         .on_conflict_do_update(
             index_elements=[tbl.c.player_id, tbl.c.skill_id],
-            set_={"counter": int(counter)},
+            set_={"counter": counter_expr},
         )
     )
     await session.execute(stmt)
     await session.flush()
-    await check_level_up(session, player_id, skill_id)
+    await check_level_up(
+        session, player_id, skill_id, silent=silent, refresh_legend=refresh_legend
+    )
 
 
 async def get_hidden_skill_bonuses(session: AsyncSession, player_id: int) -> dict[str, float]:
@@ -372,6 +406,12 @@ async def get_hidden_skill_bonuses(session: AsyncSession, player_id: int) -> dic
 
 async def list_hidden_skills_payload(session: AsyncSession, player_id: int) -> list[dict[str, Any]]:
     """Все определения + прогресс игрока (для training_hall / профиль)."""
+    try:
+        from waifu_bot.services.hidden_milestones import lazy_sync_milestones
+
+        await lazy_sync_milestones(session, int(player_id))
+    except Exception:
+        logger.debug("hidden milestone lazy sync skip player_id=%s", player_id, exc_info=True)
     defs = (await session.execute(select(HiddenSkillDefinition).order_by(HiddenSkillDefinition.category, HiddenSkillDefinition.id))).scalars().all()
     prog = (
         await session.execute(select(PlayerHiddenSkill).where(PlayerHiddenSkill.player_id == int(player_id)))

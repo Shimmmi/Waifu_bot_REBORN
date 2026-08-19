@@ -22,10 +22,14 @@ const waifuHpLabel = computed(() => `${waifuHp.value} / ${waifuMaxHp.value}`);
 
 function applyPayload(payload) {
   if (!payload || typeof payload !== "object") return;
-  if (payload.monster_hp != null) monsterHp.value = Number(payload.monster_hp) || 0;
-  if (payload.monster_max_hp != null) monsterMaxHp.value = Math.max(1, Number(payload.monster_max_hp) || 1);
-  if (payload.waifu_current_hp != null) waifuHp.value = Number(payload.waifu_current_hp) || 0;
-  if (payload.waifu_max_hp != null) waifuMaxHp.value = Math.max(1, Number(payload.waifu_max_hp) || 1);
+  const mHp = payload.monster_hp ?? payload.monster_current_hp;
+  const mMax = payload.monster_max_hp ?? payload.monster_maxHp;
+  const wHp = payload.waifu_current_hp ?? payload.waifu_hp;
+  const wMax = payload.waifu_max_hp;
+  if (mHp != null) monsterHp.value = Number(mHp) || 0;
+  if (mMax != null) monsterMaxHp.value = Math.max(1, Number(mMax) || 1);
+  if (wHp != null) waifuHp.value = Number(wHp) || 0;
+  if (wMax != null) waifuMaxHp.value = Math.max(1, Number(wMax) || 1);
 }
 
 defineExpose({ applyPayload, setBaseline });

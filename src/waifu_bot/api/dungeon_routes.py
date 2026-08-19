@@ -676,11 +676,8 @@ async def active_dungeon(
         codex_template_id = data.get("monster_template_id")
         codex_tier = 0
         try:
-            # The monster is in front of the player right now -> mark it "seen"
-            # so its art unlocks in the library even before the first kill.
-            if codex_template_id:
-                await bestiary_service.mark_seen(session, player_id, codex_template_id)
-                await session.commit()
+            # The monster is in front of the player right now; combat already
+            # calls mark_seen on hits. GET must stay read-only.
             codex_tier = await bestiary_service.get_tier(
                 session, player_id, codex_template_id, redis=get_redis()
             )
@@ -745,6 +742,19 @@ async def active_dungeon(
         }
     except Exception as e:
         logger.exception("Failed /dungeons/active for player_id=%s: %s", player_id, e)
+        return {"active": False}
+
+
+@router.get("/dungeons/hp", tags=["dungeon"])
+async def active_dungeon_hp(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Lightweight HP snapshot for SSE resume / visible poll. No battle log."""
+    try:
+        return await dungeon_service.get_active_dungeon_hp(session, player_id)
+    except Exception as e:
+        logger.exception("Failed /dungeons/hp for player_id=%s: %s", player_id, e)
         return {"active": False}
 
 

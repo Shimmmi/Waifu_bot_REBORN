@@ -206,6 +206,12 @@ async def apply_refine(session: AsyncSession, player_id: int, item_id: int) -> d
     from waifu_bot.services.armory_service import recompute_and_store_gear_score
 
     await recompute_and_store_gear_score(session, int(player_id))
+    try:
+        from waifu_bot.services.hidden_milestones import hook_milestones
+
+        await hook_milestones(session, int(player_id), ["endgame_smith"])
+    except Exception:
+        pass
     await session.commit()
     return {
         "ok": True,

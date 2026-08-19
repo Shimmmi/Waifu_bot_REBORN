@@ -101,7 +101,15 @@ async def record_kill(
             await redis.delete(_cache_key(player_id, template_id))
         except Exception:
             pass
-    return bcfg.tier_for_kills(int(new_kills or 0))
+    kills = int(new_kills or 0)
+    if bcfg.tier_for_kills(kills) >= 6 and bcfg.tier_for_kills(kills - 1) < 6:
+        try:
+            from waifu_bot.services.hidden_milestones import hook_milestones
+
+            await hook_milestones(session, int(player_id), ["bestiary_lord"])
+        except Exception:
+            pass
+    return bcfg.tier_for_kills(kills)
 
 
 async def get_tier(

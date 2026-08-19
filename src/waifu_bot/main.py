@@ -7,7 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.middleware.gzip import GZipMiddleware
 
 from waifu_bot.api.routes import router as api_router
 from waifu_bot.core.config import settings
@@ -15,6 +14,7 @@ from waifu_bot.core.logging import setup_logging
 from waifu_bot.db.session import get_session, init_engine
 from waifu_bot.services.webhook import setup_webhook, start_polling, stop_polling, get_update_mode, log_bot_identity
 from waifu_bot.services.background import start_all_background_tasks, cancel_all_background_tasks
+from waifu_bot.services.sse import SseSkipGZipMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +120,7 @@ def create_app() -> FastAPI:
         openapi_url="/api/openapi.json",
     )
 
-    app.add_middleware(GZipMiddleware, minimum_size=500)
+    app.add_middleware(SseSkipGZipMiddleware, minimum_size=500)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

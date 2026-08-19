@@ -1709,6 +1709,39 @@ function renderAtticDungeon(active) {
   }
 }
 
+function patchAtticDungeonHp(active) {
+  const progressWrap = document.getElementById("attic-dungeon-progress");
+  if (!progressWrap || !active) return;
+  const hpCur = Number(active.monster_hp ?? active.monster_current_hp);
+  const hpMax = Math.max(1, Number(active.monster_max_hp) || 1);
+  if (!Number.isFinite(hpCur)) return;
+  const hpFrac = 1 - Math.max(0, Math.min(1, hpCur / hpMax));
+  const segs = progressWrap.querySelectorAll(".attic-dungeon-seg");
+  if (!segs.length) return;
+  const curStage = Math.max(
+    1,
+    Math.floor(Number(active.monster_position ?? active.position ?? 1) || 1),
+  );
+  segs.forEach((seg, idx) => {
+    const i = idx + 1;
+    let fill = 0;
+    if (i < curStage) fill = 1;
+    else if (i === curStage) fill = hpFrac;
+    let inner = seg.querySelector(".attic-dungeon-seg-fill");
+    if (fill > 0) {
+      if (!inner) {
+        inner = document.createElement("div");
+        inner.className = "attic-dungeon-seg-fill";
+        seg.appendChild(inner);
+      }
+      inner.style.width = `${Math.round(fill * 100)}%`;
+    } else if (inner) {
+      inner.remove();
+    }
+    seg.classList.toggle("attic-dungeon-seg--done", fill >= 1);
+  });
+}
+
 const ATTIC_LEVEL_RING_C = 2 * Math.PI * 16;
 
 function bindAtticLevelCirclePerfectionNav(circle) {
@@ -2201,6 +2234,10 @@ function appendEvent(text) {
 }
 
 let sse;
+let sseReconnectTimer = null;
+let sseBackoffMs = 1000;
+let sseConnectGeneration = 0;
+const SSE_BACKOFF_MAX = 15000;
 let dungeonPlusStatusById = {};
 /** Выбранная сложность (+N) отдельно для каждого подземелья (id → уровень). */
 let selectedPlusLevelByDungeonId = {};
@@ -2229,12 +2266,24 @@ function connectSSE() {
   const initData = getInitData();
   const desktopSession = getDesktopSessionTokenSync();
   if (!initData && !desktopSession) return;
-  if (sse) sse.close();
+  if (sse && sse.readyState !== EventSource.CLOSED) return;
+  if (sse) {
+    try { sse.close(); } catch { /* ignore */ }
+    sse = null;
+  }
+  const gen = ++sseConnectGeneration;
   const params = new URLSearchParams();
   if (initData) params.set("initData", initData);
   if (desktopSession) params.set("desktopSession", desktopSession);
   const url = `${API_BASE}/sse/stream?${params.toString()}`;
   sse = new EventSource(url);
+  sse.onopen = () => {
+    if (gen !== sseConnectGeneration) return;
+    sseBackoffMs = 1000;
+    if (typeof window.WaifuApp?.onSseResumed === "function") {
+      window.WaifuApp.onSseResumed();
+    }
+  };
   sse.onmessage = (ev) => {
     const data = ev?.data;
     if (typeof data === "string") {
@@ -2251,12 +2300,30 @@ function connectSSE() {
     appendEvent(data);
   };
   sse.onerror = () => {
-    appendEvent("SSE connection lost, retrying...");
-    if (typeof window.WaifuApp._scheduleSseRefetch === "function") {
-      window.WaifuApp._scheduleSseRefetch();
+    if (gen !== sseConnectGeneration) return;
+    if (sse && sse.readyState === EventSource.CONNECTING) {
+      return;
     }
-    setTimeout(connectSSE, 3000);
+    appendEvent("SSE connection lost, retrying...");
+    try { sse.close(); } catch { /* ignore */ }
+    sse = null;
+    if (typeof window.WaifuApp.onSseDisconnected === "function") {
+      window.WaifuApp.onSseDisconnected();
+    }
+    clearTimeout(sseReconnectTimer);
+    sseReconnectTimer = setTimeout(() => {
+      sseBackoffMs = Math.min(sseBackoffMs * 2, SSE_BACKOFF_MAX);
+      connectSSE();
+    }, sseBackoffMs);
   };
+}
+
+function ensureSseConnected() {
+  if (!sse || sse.readyState === EventSource.CLOSED) connectSSE();
+}
+
+function getSseReadyState() {
+  return sse ? sse.readyState : (typeof EventSource !== "undefined" ? EventSource.CLOSED : 2);
 }
 
 let _sseRefetchTimer = null;
@@ -2264,14 +2331,46 @@ window.WaifuApp._scheduleSseRefetch = function scheduleSseRefetch() {
   if (_sseRefetchTimer) clearTimeout(_sseRefetchTimer);
   _sseRefetchTimer = setTimeout(() => {
     _sseRefetchTimer = null;
+    if (typeof window.WaifuApp.onSseResumed === "function") {
+      window.WaifuApp.onSseResumed();
+      return;
+    }
     if (typeof window.WaifuApp.refreshBattleState === "function") {
       window.WaifuApp.refreshBattleState();
     }
-    if (typeof window.WaifuApp.loadProfile === "function") {
-      window.WaifuApp.loadProfile();
-    }
   }, 300);
 };
+
+function bindMiniAppResumeSync() {
+  if (window.__waifuResumeSyncBound) return;
+  window.__waifuResumeSyncBound = true;
+  let resumeTimer = null;
+  const onResume = (reason) => {
+    if (document.visibilityState === "hidden") return;
+    clearTimeout(resumeTimer);
+    resumeTimer = setTimeout(() => {
+      ensureSseConnected();
+      window.WaifuApp.onMiniAppResumed?.(reason);
+    }, 250);
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") onResume("visibilitychange");
+    else window.WaifuApp.onMiniAppFrozen?.();
+  });
+  window.addEventListener("pageshow", (e) => onResume(e.persisted ? "pageshow-bfcache" : "pageshow"));
+  document.addEventListener("freeze", () => { window.WaifuApp.onMiniAppFrozen?.(); });
+  document.addEventListener("resume", () => onResume("document-resume"));
+  const tgApp = window.Telegram?.WebApp;
+  if (tgApp?.onEvent) {
+    tgApp.onEvent("activated", () => onResume("tg-activated"));
+    tgApp.onEvent("deactivated", () => window.WaifuApp.onMiniAppFrozen?.());
+    tgApp.onEvent("viewportChanged", (ev) => {
+      if (ev?.isStateStable && tgApp.isActive !== false && document.visibilityState === "visible") {
+        onResume("tg-viewport");
+      }
+    });
+  }
+}
 
 const WAIFU_GEN_BASE = `${GAME_STATIC_BASE}/waifu-gen`;
 const WAIFU_GEN_PLACEHOLDER = `${WAIFU_GEN_BASE}/placeholder.svg`;
@@ -14434,6 +14533,7 @@ async function initPage(page) {
   if (page !== "index") {
     connectSSE();
   }
+  bindMiniAppResumeSync();
   initAtticChipClicks();
   initAtticMenu();
   initItemArtGenerateDelegated();
@@ -17148,6 +17248,10 @@ function exportWebAppShellGlobals() {
     formatMonsterTypeLabelRu,
     setSoloExitBtnVisible,
     renderAtticDungeon,
+    patchAtticDungeonHp,
+    connectSSE,
+    ensureSseConnected,
+    getSseReadyState,
     renderAtticLevelCircle,
     renderAtticExpeditions,
     refreshAtticChips,

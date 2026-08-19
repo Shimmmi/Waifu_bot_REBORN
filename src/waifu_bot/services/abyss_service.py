@@ -547,6 +547,17 @@ async def generate_floor(
     if floor > int(progress.max_floor_reached or 0):
         progress.max_floor_reached = floor
         await _update_weekly_leaderboard(session, progress.player_id, floor)
+        try:
+            from waifu_bot.services.hidden_milestones import hook_milestones
+
+            await hook_milestones(
+                session,
+                int(progress.player_id),
+                ["abyss_walker"],
+                precomputed={"abyss_walker": int(floor)},
+            )
+        except Exception:
+            pass
 
     expire_grace_if_needed(progress, floor)
 

@@ -805,6 +805,17 @@ async def arena_attack(
     )
     session.add(match)
     await session.flush()
+    try:
+        from waifu_bot.services.hidden_milestones import hook_milestones
+
+        await hook_milestones(
+            session,
+            int(player_id),
+            ["gladiator"],
+            precomputed={"gladiator": int(state.arena_rating or 0)},
+        )
+    except Exception:
+        pass
     return {
         "ok": True,
         "winner": result["winner"],

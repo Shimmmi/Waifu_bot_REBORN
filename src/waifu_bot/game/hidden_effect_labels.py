@@ -58,7 +58,9 @@ def format_hidden_effect_value(effect_type: str, raw: Any) -> str:
         return f"×{n:.2f}"
 
     if t == "all_stats_pct":
-        return f"+{int(round(n))} п.п."
+        if abs(n - round(n)) < 1e-9:
+            return f"+{int(round(n))} п.п."
+        return f"+{n:g} п.п."
 
     if t == "hp_regen_per_active_hour":
         per_min = max(0, int(round(n)))

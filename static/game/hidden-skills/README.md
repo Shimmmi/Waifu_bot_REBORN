@@ -10,10 +10,14 @@
 
 Сейчас в `webp/` лежат **заглушки** одного стиля; их можно заменить финальными артами без смены имён файлов.
 
-## Список id (29)
+Промпты генерации: [`PROMPTS.md`](PROMPTS.md).
+
+## Список id (42)
 
 `chatterbox`, `early_bird`, `marathon`, `night_owl`, `consistent`, `speedster`, `stoic`,
 `sticker_master`, `photographer`, `audiophile`, `director`, `gif_fighter`,
 `executioner`, `boss_slayer`, `elite_hunter`, `survivor`, `untouchable`, `dungeon_diver`,
 `hoarder`, `merchant_friend`, `gambler`, `team_player`, `expedition_veteran`, `loyal_commander`,
-`perfectionist`, `enchanter_soul`, `legend`, `echo_atlas`, `echo_catalog`
+`perfectionist`, `enchanter_soul`, `legend`, `echo_atlas`, `echo_catalog`,
+`apex`, `paragon`, `plus_master`, `abyss_walker`, `challenger`, `warlord`, `gladiator`,
+`bestiary_lord`, `endgame_smith`, `enchant_apex`, `codex_sage`, `gd_regular`, `tree_master`

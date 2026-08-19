@@ -1047,6 +1047,13 @@ async def learn_passive_node(session: AsyncSession, player_id: int, node_id: str
     if mw:
         await sync_waifu_max_hp(session, int(player_id), mw)
 
+    try:
+        from waifu_bot.services.hidden_milestones import hook_milestones
+
+        await hook_milestones(session, int(player_id), ["tree_master"])
+    except Exception:
+        pass
+
     await session.commit()
     return {
         "ok": True,

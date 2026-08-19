@@ -250,6 +250,12 @@ async def start_roll(session: AsyncSession, player_id: int, item_id: int) -> dic
             return {"error": "open_pending", "pending": _serialize_pending(existing)}
         return {"error": "open_pending"}
     inv.reforge_reroll_count = int(inv.reforge_reroll_count or 0) + 1
+    try:
+        from waifu_bot.services.hidden_milestones import hook_milestones
+
+        await hook_milestones(session, int(player_id), ["endgame_smith"])
+    except Exception:
+        pass
     await session.commit()
     return {"pending": _serialize_pending(pending)}
 

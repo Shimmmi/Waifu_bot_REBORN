@@ -174,12 +174,39 @@ let soloActiveStoryBossId = null;
 let soloActiveSnapshot = null;
 let soloActiveDungeonId = null;
 let soloHpRefetchTimer = null;
+let lastAppliedHp = { dungeonId: null, position: null, monsterHp: null };
+let soloHpPollTimer = null;
+let resumeHpInFlight = null;
+const SOLO_HP_POLL_OPEN_MS = 2500;
+const SOLO_HP_POLL_STALE_MS = 1200;
+
+function mergeSoloHpPatch(prev, incoming) {
+  if (!incoming || typeof incoming !== "object") return null;
+  const dungeonId =
+    incoming.dungeon_id != null ? Number(incoming.dungeon_id) : prev?.dungeonId ?? null;
+  const positionRaw = incoming.position ?? incoming.monster_position;
+  const position = positionRaw != null ? Number(positionRaw) : prev?.position ?? null;
+  const hpCurRaw = incoming.monster_hp ?? incoming.monster_current_hp;
+  const hpCur = hpCurRaw != null ? Number(hpCurRaw) : null;
+  const sameFight =
+    prev &&
+    dungeonId != null &&
+    prev.dungeonId != null &&
+    Number(dungeonId) === Number(prev.dungeonId) &&
+    position != null &&
+    prev.position != null &&
+    Number(position) === Number(prev.position);
+  if (sameFight && hpCur != null && prev.monsterHp != null && hpCur > prev.monsterHp) {
+    return null;
+  }
+  return { dungeonId, position, monsterHp: hpCur };
+}
 
 function scheduleSoloHpRefetch() {
   clearTimeout(soloHpRefetchTimer);
   soloHpRefetchTimer = setTimeout(() => {
     soloHpRefetchTimer = null;
-    refreshSoloActive({ includeLog: false }).catch(() => {});
+    fetchSoloCombatHp({ flash: false }).catch(() => {});
   }, 150);
 }
 
@@ -522,6 +549,12 @@ function mountSoloBattleLog(entries) {
 function openBattleLogModal() {
   const modal = document.getElementById("battle-log-modal");
   if (modal) modal.style.display = "grid";
+  fetchActiveDungeon({ includeLog: true, force: true })
+    .then((active) => {
+      const entries = active?.battle_log_entries;
+      if (Array.isArray(entries) && entries.length) mountSoloBattleLog(entries);
+    })
+    .catch(() => {});
 }
 
 function closeBattleLogModal() {
@@ -558,12 +591,24 @@ function flashSoloHitFeedback(payload) {
 }
 
 /**
- * Apply battle SSE payload to HP bars immediately (no API round-trip).
+ * Apply battle SSE/HP payload to HP bars immediately (no full card remount).
  * Returns true if solo-active UI was updated.
  */
-function applySoloBattleSsePayload(payload) {
+function applySoloBattleSsePayload(payload, options = {}) {
+  return patchSoloCombatUi(payload, options);
+}
+
+function patchSoloCombatUi(payload, { flash = true } = {}) {
   if (!payload || typeof payload !== "object") return false;
   if (!canUpdateSoloBattleHp()) return false;
+
+  const incomingDungeon = payload.dungeon_id != null ? Number(payload.dungeon_id) : null;
+  if (soloActiveDungeonId && incomingDungeon != null && incomingDungeon !== Number(soloActiveDungeonId)) {
+    return false;
+  }
+
+  const merged = mergeSoloHpPatch(lastAppliedHp, payload);
+  if (!merged) return true;
 
   const snap = soloActiveSnapshot || {};
   const hpMax = Math.max(
@@ -571,9 +616,11 @@ function applySoloBattleSsePayload(payload) {
     safeNumber(payload.monster_max_hp ?? snap.monster_max_hp ?? snap.monster?.max_hp, 1)
   );
   const hpCur =
-    payload.monster_hp != null
-      ? safeNumber(payload.monster_hp, 0)
-      : safeNumber(snap.monster_current_hp ?? snap.monster?.current_hp, 0);
+    merged.monsterHp != null
+      ? merged.monsterHp
+      : payload.monster_hp != null
+        ? safeNumber(payload.monster_hp, 0)
+        : safeNumber(snap.monster_current_hp ?? snap.monster?.current_hp, 0);
 
   const waifuMax = Math.max(
     1,
@@ -582,7 +629,9 @@ function applySoloBattleSsePayload(payload) {
   let waifuCur =
     payload.waifu_current_hp != null
       ? safeNumber(payload.waifu_current_hp, 0)
-      : safeNumber(snap.waifu_current_hp ?? snap.waifu?.current_hp, 0);
+      : payload.waifu_hp != null
+        ? safeNumber(payload.waifu_hp, 0)
+        : safeNumber(snap.waifu_current_hp ?? snap.waifu?.current_hp, 0);
   if (payload.reflect_damage_taken > 0 && payload.waifu_current_hp == null && snap.waifu) {
     waifuCur = Math.max(0, safeNumber(snap.waifu.current_hp, 0) - safeNumber(payload.reflect_damage_taken, 0));
   }
@@ -601,6 +650,7 @@ function applySoloBattleSsePayload(payload) {
           : safeNumber(snap.damage_done ?? window._lastSoloDealt ?? 0, 0);
   }
 
+  const pos = merged.position ?? snap.monster?.position ?? snap.monster_position;
   const monster = {
     ...(snap.monster || {}),
     current_hp: hpCur,
@@ -609,6 +659,7 @@ function applySoloBattleSsePayload(payload) {
     name_known: snap.monster?.name_known !== false,
     type_known: snap.monster?.type_known !== false,
   };
+  if (pos != null) monster.position = pos;
   if (payload.elite_spawn && typeof payload.elite_spawn === "object") {
     const es = payload.elite_spawn;
     monster.is_elite = es.is_elite !== false;
@@ -642,9 +693,20 @@ function applySoloBattleSsePayload(payload) {
     waifu_max_hp: waifuMax,
     damage_done: window._lastSoloDealt,
   };
+  lastAppliedHp = {
+    dungeonId: merged.dungeonId ?? soloActiveDungeonId,
+    position: pos ?? lastAppliedHp.position,
+    monsterHp: hpCur,
+  };
 
+  if (typeof invalidateActiveDungeonCache === "function") invalidateActiveDungeonCache();
   ensureCombatIslandMounted();
-  window.WaifuCombatIsland?.applyPayload?.(payload);
+  window.WaifuCombatIsland?.applyPayload?.({
+    monster_hp: hpCur,
+    monster_max_hp: hpMax,
+    waifu_current_hp: waifuCur,
+    waifu_max_hp: waifuMax,
+  });
 
   const host = document.getElementById("solo-active");
   const content = document.getElementById("solo-active-content");
@@ -653,10 +715,81 @@ function applySoloBattleSsePayload(payload) {
     host.style.display !== "none" &&
     (!content || content.style.display !== "none")
   ) {
-    renderSoloBattleCard(monster, dungeon, waifu);
-    flashSoloHitFeedback(payload);
+    if (payload.elite_spawn || payload.monster_defeated || payload.dungeon_completed) {
+      renderSoloBattleCard(monster, dungeon, waifu);
+    }
+    const unconsciousBanner = document.getElementById("unconscious-banner");
+    if (unconsciousBanner) unconsciousBanner.style.display = waifuCur <= 0 ? "block" : "none";
+    if (flash && payload.damage != null) flashSoloHitFeedback(payload);
+  }
+  if (typeof patchAtticDungeonHp === "function") {
+    patchAtticDungeonHp({
+      monster_hp: hpCur,
+      monster_current_hp: hpCur,
+      monster_max_hp: hpMax,
+      monster_position: pos,
+      position: pos,
+    });
   }
   return true;
+}
+
+async function fetchSoloCombatHp({ flash = false } = {}) {
+  if (resumeHpInFlight) return resumeHpInFlight;
+  resumeHpInFlight = (async () => {
+    try {
+      if (typeof invalidateActiveDungeonCache === "function") invalidateActiveDungeonCache();
+      const data = await apiFetch("/dungeons/hp");
+      if (!data || data.active === false) return data;
+      patchSoloCombatUi(
+        {
+          dungeon_id: data.dungeon_id,
+          position: data.position,
+          monster_position: data.monster_position,
+          monster_hp: data.monster_hp ?? data.monster_current_hp,
+          monster_max_hp: data.monster_max_hp,
+          waifu_current_hp: data.waifu_current_hp,
+          waifu_max_hp: data.waifu_max_hp,
+          last_damage: data.last_damage,
+          last_is_crit: data.last_is_crit,
+          hit_id: data.hit_id,
+        },
+        { flash: flash && data.last_damage != null },
+      );
+      return data;
+    } finally {
+      resumeHpInFlight = null;
+    }
+  })();
+  return resumeHpInFlight;
+}
+
+function soloCombatIsVisible() {
+  if (document.visibilityState !== "visible") return false;
+  if (window.Telegram?.WebApp && window.Telegram.WebApp.isActive === false) return false;
+  const tab = document.getElementById("tab-solo");
+  if (tab && tab.style.display === "none") return false;
+  const host = document.getElementById("solo-active");
+  return !!(host && host.style.display !== "none");
+}
+
+function stopSoloHpSafetyPoll() {
+  if (soloHpPollTimer) {
+    clearInterval(soloHpPollTimer);
+    soloHpPollTimer = null;
+  }
+}
+
+function startSoloHpSafetyPoll() {
+  stopSoloHpSafetyPoll();
+  const tick = () => {
+    if (!soloCombatIsVisible()) return;
+    fetchSoloCombatHp({ flash: false }).catch(() => {});
+  };
+  const ready = typeof getSseReadyState === "function" ? getSseReadyState() : 1;
+  const open = typeof EventSource !== "undefined" ? EventSource.OPEN : 1;
+  const ms = ready === open ? SOLO_HP_POLL_OPEN_MS : SOLO_HP_POLL_STALE_MS;
+  soloHpPollTimer = setInterval(tick, ms);
 }
 
 function ensureCombatIslandMounted() {
@@ -680,8 +813,9 @@ function formatMonsterTierLabel(monster) {
 }
 
 function formatAffixMult(n) {
+  if (n == null || n === "") return null;
   const v = Number(n);
-  if (!Number.isFinite(v) || v === 1) return null;
+  if (!Number.isFinite(v) || v === 0 || v === 1) return null;
   const rounded = Math.round(v * 100) / 100;
   return Number.isInteger(rounded) ? String(rounded) : String(rounded);
 }
@@ -913,6 +1047,7 @@ function renderSoloActiveProgress(active) {
     soloActiveStoryBossId = null;
     soloActiveSnapshot = null;
     soloActiveDungeonId = null;
+    lastAppliedHp = { dungeonId: null, position: null, monsterHp: null };
     host.style.display = "none";
     setSoloExitBtnVisible(false);
     return;
@@ -931,6 +1066,11 @@ function renderSoloActiveProgress(active) {
 
   const hpCur = safeNumber(active.monster_current_hp, 0);
   const hpMax = Math.max(1, safeNumber(active.monster_max_hp, 1));
+  lastAppliedHp = {
+    dungeonId: soloActiveDungeonId,
+    position: safeNumber(active.monster_position, null),
+    monsterHp: hpCur,
+  };
   const dealt = safeNumber(active.damage_done, Math.max(0, hpMax - hpCur));
   const monPct = Math.round(clamp01(hpCur / hpMax) * 100);
   const log = Array.isArray(active.battle_log) ? active.battle_log.slice(-6) : [];
@@ -1034,7 +1174,7 @@ function renderSoloActiveFallback(reason) {
 }
 
 async function refreshSoloActive(options = {}) {
-  const includeLog = options.includeLog !== false;
+  const includeLog = options.includeLog === true;
   if (!dungeonsFinishBlockedMsg) showDungeonsError("");
   try {
     const active = await fetchActiveDungeon({ includeLog, force: true });
@@ -1092,17 +1232,22 @@ async function populateDungeonsPage(profile) {
   if (p?.act != null) setText("badge-act", p.act);
   showDungeonsError("");
 
-  // Page-scoped SSE handler: instant HP from payload; debounced API fallback for reliability.
-  let logSyncTimer;
-  window.WaifuApp.refreshBattleState = () =>
-    refreshSoloActive({ includeLog: false }).catch(() => {});
+  // Page-scoped SSE handler: instant HP from payload; full refetch only on defeat/complete.
+  window.WaifuApp.refreshBattleState = () => fetchSoloCombatHp({ flash: false }).catch(() => {});
+  window.WaifuApp.onMiniAppResumed = () => {
+    if (typeof invalidateActiveDungeonCache === "function") invalidateActiveDungeonCache();
+    if (soloCombatIsVisible()) fetchSoloCombatHp({ flash: false }).catch(() => {});
+  };
+  window.WaifuApp.onSseResumed = () => {
+    fetchSoloCombatHp({ flash: false }).catch(() => {});
+    startSoloHpSafetyPoll();
+  };
+  window.WaifuApp.onSseDisconnected = () => startSoloHpSafetyPoll();
+  window.WaifuApp.onMiniAppFrozen = () => stopSoloHpSafetyPoll();
   window.WaifuApp.onSseEvent = (evt) => {
     if (evt && evt.type === "gd") {
-      clearTimeout(logSyncTimer);
-      logSyncTimer = setTimeout(() => {
-        loadActiveGdDungeons().catch?.(() => {});
-        updateGdSessionUI().catch?.(() => {});
-      }, 150);
+      loadActiveGdDungeons().catch?.(() => {});
+      updateGdSessionUI().catch?.(() => {});
       return;
     }
     if (!evt || evt.type !== "battle") return;
@@ -1135,7 +1280,6 @@ async function populateDungeonsPage(profile) {
       dungeonsFinishBlockedMsg = null;
       showDungeonsError("");
     }
-    clearTimeout(logSyncTimer);
     if (payload.dungeon_completed || payload.monster_defeated) {
       clearTimeout(soloHpRefetchTimer);
       soloHpRefetchTimer = null;
@@ -1146,16 +1290,7 @@ async function populateDungeonsPage(profile) {
       }
       return;
     }
-    if (!applied) {
-      scheduleSoloHpRefetch();
-    } else if (payload.damage != null || payload.monster_hp != null || payload.waifu_current_hp != null) {
-      scheduleSoloHpRefetch();
-    }
-    if (payload.damage_breakdown?.length || payload.summary_ru) {
-      logSyncTimer = setTimeout(() => {
-        refreshSoloActive({ includeLog: true }).catch?.(() => {});
-      }, 800);
-    }
+    if (!applied) scheduleSoloHpRefetch();
   };
 
   const tabParamRaw = new URLSearchParams(window.location.search).get("tab");
@@ -1180,6 +1315,8 @@ async function populateDungeonsPage(profile) {
   if (tabParam === "operations") tabParam = "expedition";
   if (tabParam === "solo" || tabParam === "expedition" || tabParam === "group" || tabParam === "abyss") {
     showTab(tabParam);
+  } else if (!skipSoloBootstrap) {
+    startSoloHpSafetyPoll();
   }
   if (tabParam === "expedition") {
     const wantSend = new URLSearchParams(window.location.search).get("send") === "1";
@@ -4759,6 +4896,7 @@ function showTab(name) {
     panel.classList.toggle("active", isActive);
     panel.style.display = isActive ? "" : "none";
   });
+  if (name !== "solo") stopSoloHpSafetyPoll();
   if (name === "expedition") {
     loadExpeditionTab().catch(() => {});
   }
@@ -4781,6 +4919,7 @@ function showTab(name) {
   if (name === "solo") {
     const wasSoloBootstrapped = soloTabBootstrapped;
     ensureSoloTabBootstrapped(window.__lastProfileForDungeons).catch(() => {});
+    startSoloHpSafetyPoll();
     apiFetch("/abyss/status")
       .then((st) => {
         abyssState = st;
@@ -4850,8 +4989,10 @@ Object.assign(window.WaifuApp, {
   showTab,
   populateDungeonsPage,
   refreshSoloActive,
-  refreshBattleState: () => refreshSoloActive({ includeLog: false }).catch(() => {}),
+  refreshBattleState: () => fetchSoloCombatHp({ flash: false }).catch(() => {}),
   applySoloBattleSsePayload,
+  fetchSoloCombatHp,
+  mergeSoloHpPatch,
   loadExpeditionTab,
   submitExpeditionStart,
   expToggleSquadUnit,

@@ -248,6 +248,18 @@ async def add_perfection_xp(
                 perfection_level=new_lvl,
                 offer=_skill_point_offer(new_lvl),
             )
+    if gained:
+        try:
+            from waifu_bot.services.hidden_milestones import hook_milestones
+
+            await hook_milestones(
+                session,
+                int(player.id),
+                ["paragon"],
+                precomputed={"paragon": int(player.perfection_level or 0)},
+            )
+        except Exception:
+            pass
     return gained
 
 

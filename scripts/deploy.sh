@@ -50,6 +50,13 @@ systemctl is-active waifu-bot.service
 echo "==> health check"
 curl -sf http://localhost:8001/health
 echo ""
+echo "==> nginx SSE location (fail if missing)"
+sudo nginx -t
+if ! sudo nginx -T 2>/dev/null | grep -q 'location ^~ /api/sse/'; then
+  echo "ERROR: nginx is missing 'location ^~ /api/sse/' — include infra/nginx/waifu-bot-api-sse.conf in the 443 server block" >&2
+  exit 1
+fi
+sudo systemctl reload nginx
 echo "==> update webhook"
 PYTHONPATH=${REPO_DIR}/src:/usr/local/lib/python3.12/dist-packages \\
   python3 scripts/update_webhook.py

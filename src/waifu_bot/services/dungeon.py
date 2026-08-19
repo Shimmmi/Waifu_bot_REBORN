@@ -1114,6 +1114,38 @@ class DungeonService:
             out["story_modal"] = story_modal
         return out
 
+    async def get_active_dungeon_hp(
+        self,
+        session: AsyncSession,
+        player_id: int,
+        *,
+        economy: str = "telegram",
+    ) -> dict:
+        """Integer HP snapshot for Mini App resume/poll. No log, no mark_seen, no mutations."""
+        run = await self._get_active_run(session, player_id, economy=economy)
+        if not run:
+            return {"active": False}
+        player = await session.get(Player, player_id, options=[selectinload(Player.main_waifu)])
+        waifu = player.main_waifu if player else None
+        cur = await self._get_current_run_monster(session, run)
+        if not waifu or not cur:
+            return {"active": False}
+        pos = int(cur.position or 0)
+        hp = int(cur.current_hp or 0)
+        return {
+            "active": True,
+            "dungeon_id": int(run.dungeon_id),
+            "position": pos,
+            "monster_position": pos,
+            "monster_hp": hp,
+            "monster_current_hp": hp,
+            "monster_max_hp": int(cur.max_hp or 1),
+            "waifu_current_hp": int(waifu.current_hp or 0),
+            "waifu_max_hp": int(waifu.max_hp or 1),
+            "monster_defeated": hp <= 0,
+            "dungeon_completed": False,
+        }
+
     async def get_active_dungeon(
         self,
         session: AsyncSession,

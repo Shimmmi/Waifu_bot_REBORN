@@ -28,6 +28,8 @@ class HiddenSkillDefinition(Base):
     effect_types: Mapped[list] = mapped_column(JSONB, nullable=False)
     effect_values: Mapped[list] = mapped_column(JSONB, nullable=False)
     announce_in_group: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # False = milestone/progress skills that must not inflate «Легенда».
+    counts_toward_legend: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     player_rows: Mapped[list["PlayerHiddenSkill"]] = relationship(
         "PlayerHiddenSkill", back_populates="definition"

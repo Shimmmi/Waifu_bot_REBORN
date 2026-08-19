@@ -307,6 +307,18 @@ async def _commit_enchant_success(
         awaken_payload = await _maybe_awaken_fraction(session, inv, cfg)
     if target == 5:
         await increment_skill_counter(session, player_id, "enchant_5plus", 1)
+    if target >= 6:
+        try:
+            from waifu_bot.services.hidden_milestones import hook_milestones
+
+            await hook_milestones(
+                session,
+                int(player_id),
+                ["enchant_apex"],
+                precomputed={"enchant_apex": int(target)},
+            )
+        except Exception:
+            pass
     await session.commit()
     out: dict[str, Any] = {
         "success": True,

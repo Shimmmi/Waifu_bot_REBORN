@@ -595,6 +595,15 @@ async def apply_main_waifu_levelups(session: AsyncSession, waifu: MainWaifu) -> 
         except Exception:
             pass
 
+        try:
+            from waifu_bot.services.hidden_milestones import hook_milestones
+
+            await hook_milestones(
+                session, int(waifu.player_id), ["apex"], precomputed={"apex": int(lvl)}
+            )
+        except Exception:
+            pass
+
     # Post-60: unlock perfection and divert overflow XP off the main curve.
     if int(getattr(waifu, "level", 1) or 1) >= int(MAX_LEVEL):
         try:
@@ -809,6 +818,29 @@ def _with_guild_reward_bonus(payload: dict, guild_bonus: list | dict | None) -> 
 
 
 logger = logging.getLogger(__name__)
+
+
+def solo_hp_identity(*, run=None, run_monster=None, waifu=None) -> dict:
+    """Integer HP identity for SSE and GET /dungeons/hp (never-raise client merge)."""
+    out: dict = {}
+    if run is not None:
+        did = getattr(run, "dungeon_id", None)
+        if did is not None:
+            out["dungeon_id"] = int(did)
+    if run_monster is not None:
+        pos = int(getattr(run_monster, "position", 0) or 0)
+        out["position"] = pos
+        out["monster_position"] = pos
+        hp = getattr(run_monster, "current_hp", None)
+        mx = getattr(run_monster, "max_hp", None)
+        if hp is not None:
+            out["monster_hp"] = int(hp)
+        if mx is not None:
+            out["monster_max_hp"] = int(mx)
+    if waifu is not None:
+        out["waifu_current_hp"] = int(getattr(waifu, "current_hp", 0) or 0)
+        out["waifu_max_hp"] = int(getattr(waifu, "max_hp", 1) or 1)
+    return out
 
 
 class CombatService:
@@ -1030,7 +1062,11 @@ class CombatService:
             )
             await append_solo_battle_log(session, battle_log)
             await session.commit()
-            await self._publish_battle_event(player_id, result)
+            await self._publish_battle_event(
+                player_id,
+                result,
+                identity=solo_hp_identity(run=run, run_monster=run_monster, waifu=waifu),
+            )
             return result
 
         # Solo DungeonRun: DoT ticks and shock before player damage pipeline (one message = one turn)
@@ -1061,7 +1097,11 @@ class CombatService:
                     monster_defeated=False,
                 )
                 fail_out["dot_damage"] = dot_total
-                await self._publish_battle_event(player_id, fail_out)
+                await self._publish_battle_event(
+                    player_id,
+                    fail_out,
+                    identity=solo_hp_identity(run=run, run_monster=run_monster, waifu=waifu),
+                )
                 return fail_out
             if shock_skip:
                 await session.commit()
@@ -1072,7 +1112,11 @@ class CombatService:
                     "monster_hp": run_monster.current_hp if run_monster else None,
                     "monster_max_hp": run_monster.max_hp if run_monster else None,
                 }
-                await self._publish_battle_event(player_id, sk)
+                await self._publish_battle_event(
+                    player_id,
+                    sk,
+                    identity=solo_hp_identity(run=run, run_monster=run_monster, waifu=waifu),
+                )
                 return sk
 
         # Calculate damage (с пошаговой трассировкой для UI / BattleLog)
@@ -1596,7 +1640,11 @@ class CombatService:
             )
             result["damage_breakdown"] = damage_breakdown
             result["summary_ru"] = summary_ru
-            await self._publish_battle_event(player_id, result)
+            await self._publish_battle_event(
+                player_id,
+                result,
+                identity=solo_hp_identity(run=run, run_monster=run_monster, waifu=waifu),
+            )
             return result
 
         # Check if monster defeated
@@ -1640,7 +1688,11 @@ class CombatService:
             if isinstance(result, dict):
                 result["damage_breakdown"] = damage_breakdown
                 result["summary_ru"] = summary_ru
-            await self._publish_battle_event(player_id, result)
+            await self._publish_battle_event(
+                player_id,
+                result,
+                identity=solo_hp_identity(run=run, run_monster=run_monster, waifu=waifu),
+            )
             return result
 
         # Monster counter-attack (optional, can be disabled)
@@ -1699,6 +1751,8 @@ class CombatService:
             "damage_breakdown": damage_breakdown,
             "summary_ru": summary_ru,
         }
+        result.update(solo_hp_identity(run=run, run_monster=run_monster, waifu=waifu))
+        result["monster_hp"] = monster_hp_after
         # If the monster just became elite on this very hit, attach the spawn info
         # so the frontend / bot can announce it
         if elite_spawn_info:
@@ -3243,6 +3297,12 @@ class CombatService:
                     row.best_completed_plus_level = max(int(row.best_completed_plus_level or 0), pl)
                     row.unlocked_plus_level = max(int(row.unlocked_plus_level or 0), pl + 1)
                     row.updated_at = datetime.utcnow()
+                    try:
+                        from waifu_bot.services.hidden_milestones import hook_milestones
+
+                        await hook_milestones(session, pid, ["plus_master"])
+                    except Exception:
+                        pass
                     if pl >= 30:
                         await maybe_unlock_secret_echo_boss(session, pid)
             except Exception:
@@ -3523,11 +3583,21 @@ class CombatService:
         )
         return row.scalar_one_or_none()
 
-    async def _publish_battle_event(self, player_id: int, payload: dict) -> None:
+    async def _publish_battle_event(
+        self,
+        player_id: int,
+        payload: dict,
+        *,
+        identity: dict | None = None,
+    ) -> None:
         """Publish battle event via SSE."""
         if not self.redis:
             return
-        event = {"type": "battle", "payload": payload}
+        merged = dict(payload or {})
+        if identity:
+            for key, value in identity.items():
+                merged.setdefault(key, value)
+        event = {"type": "battle", "payload": merged}
         await sse_service.publish_event(self.redis, player_id, event)
 
     async def admin_kill_monster(self, session: AsyncSession, player_id: int) -> dict:

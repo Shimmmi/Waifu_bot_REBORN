@@ -600,6 +600,17 @@ async def settle_challenge_run(
     first = res.first() is not None
     item_payload = None
     if first and inst is not None:
+        try:
+            from waifu_bot.services.hidden_milestones import hook_milestones
+
+            await hook_milestones(
+                session,
+                int(run.player_id),
+                ["challenger"],
+                precomputed={"challenger": int(inst.tier)},
+            )
+        except Exception:
+            pass
         await wallet_svc.add_gold(
             session,
             await session.get(m.Player, int(run.player_id)),

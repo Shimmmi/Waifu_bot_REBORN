@@ -207,6 +207,12 @@ async def register_inventory_codex(
                 getattr(inv, "tier", None),
             )
         await mark_affixes_from_inventory(session, int(player_id), inv)
+        try:
+            from waifu_bot.services.hidden_milestones import hook_milestones
+
+            await hook_milestones(session, int(player_id), ["codex_sage"])
+        except Exception:
+            pass
     except Exception:
         logger.exception(
             "register_inventory_codex failed player_id=%s inv_id=%s",

@@ -1,6 +1,6 @@
-# Скрытые навыки: полный справочник (29 навыков)
+# Скрытые навыки: полный справочник (42 навыка: 29 + 13 вех прогресса)
 
-Источники: [`0035_hidden_skills.py`](../alembic/versions/0035_hidden_skills.py), [`0053_story_bosses_narrative_flags.py`](../alembic/versions/0053_story_bosses_narrative_flags.py), [`hidden_skills.py`](../src/waifu_bot/services/hidden_skills.py), [`combat.py`](../src/waifu_bot/services/combat.py).
+Источники: [`0035_hidden_skills.py`](../alembic/versions/0035_hidden_skills.py), [`0053_story_bosses_narrative_flags.py`](../alembic/versions/0053_story_bosses_narrative_flags.py), [`0139_hidden_milestone_skills.py`](../alembic/versions/0139_hidden_milestone_skills.py), [`hidden_skills.py`](../src/waifu_bot/services/hidden_skills.py), [`hidden_milestones.py`](../src/waifu_bot/services/hidden_milestones.py), [`combat.py`](../src/waifu_bot/services/combat.py).
 
 **Легенда статусов**
 
@@ -80,7 +80,7 @@
 |----|--------|---------|--------|
 | perfectionist | `perfect_rarity_pct` 5→55% | `perfect_dungeon_streak` (set) | OK |
 | enchanter_soul | `enchant_cost_pct`, `enchant_chance_pct` −5→−40% | `enchant_5plus` | OK |
-| legend | `all_stats_pct` +1→+8 п.п. | `refresh_legend_counter` (др. навыки ≥3) | OK |
+| legend | `all_stats_pct` +1→+8 п.п. | `refresh_legend_counter` (др. навыки ≥3, `counts_toward_legend`) | OK |
 
 ---
 
@@ -90,6 +90,28 @@
 |----|--------|---------|--------|
 | echo_atlas | `boss_reward_pct` 1→9% | `story_boss_total_kills` | OK |
 | echo_catalog | `exp_bonus_pct` 1→5% | `story_boss_unique_kills` | OK |
+
+---
+
+## Прогресс (13) — вехи новых систем
+
+Абсолютные счётчики из БД (`set_skill_counter` mode=`max`). Не входят в «Легенду» (`counts_toward_legend=false`). Бэкфилл: [`scripts/backfill_hidden_milestones.py`](../scripts/backfill_hidden_milestones.py); ленивый sync при `GET /skills/hidden`.
+
+| id | Название | Пороги ур. 1–5 | Эффект (ур. 1→5) | Счётчик | Статус |
+|----|----------|----------------|------------------|---------|--------|
+| apex | Предел формы | 10…60 ур. ОВ | `all_stats_pct` 0.5→3 п.п. | `main_waifus.level` | OK |
+| paragon | Путь совершенствования | 10…50 | `exp_bonus_pct` 1→5% | `players.perfection_level` | OK |
+| plus_master | Покоритель плюса | +6…+30 | `first_clear_exp_pct` 5→30% | max Dungeon+ | OK |
+| abyss_walker | Ходок Бездны | 10…200 эт. | `gold_drop_pct` 1→6% | `abyss_progress.max_floor_reached` | OK |
+| challenger | Испытатель | тир I…V | `boss_reward_pct` 0.5→5% | max first-clear challenge tier | OK |
+| warlord | Военачальник | GS 120…650 | `final_armor_pct` 1→8% | peak `gear_score` | OK |
+| gladiator | Гладиатор таверны | 1100…1800 | `group_dmg_pct` 1→6% | peak `arena_rating` | OK |
+| bestiary_lord | Покоритель бестиария | 1…80 видов t6 | `elite_drop_pct` 1→6% | `kills >= 100` | OK |
+| endgame_smith | Кузнец предела | 1…100 оп. | `enchant_cost_pct` −2→−12% | temper+refine+reforge | OK |
+| enchant_apex | Мастер +10 | +6…+10 | `enchant_chance_pct` −2→−12% | max `enchant_level` | OK |
+| codex_sage | Хранитель кодекса | 20…300 шабл. | `shop_discount_pct` 1→5% | `player_item_codex` | OK |
+| gd_regular | Завсегдатай круга | 1…180 дней | `expedition_reward_pct` 1→6% | distinct GD `game_date` | OK |
+| tree_master | Архитектор дерева | 5…33 узла | `hp_regen_per_active_hour` 2→12 | nodes at max_level | OK |
 
 ---
 
@@ -115,11 +137,11 @@
 
 ## API и UI
 
-- `GET /skills/hidden` — прогресс + `effect_types`, `effect_values`, `current_effects`, `next_effects`, `bonus_summary`, `image_url`.
+- `GET /skills/hidden` — прогресс + `effect_types`, `effect_values`, `current_effects`, `next_effects`, `bonus_summary`, `image_url`. Перед ответом тихо синхронизирует вехи прогресса.
 - Подписи бонусов: [`hidden_effect_labels.py`](../src/waifu_bot/game/hidden_effect_labels.py).
 - Иконки: `/static/game/hidden-skills/webp/<id>.webp` (1:1).
 - `training_hall.html` вкладка «?» — карточки открытых навыков, клик → `#hidden-skill-modal`.
-- Подробные `description` в БД: миграция `0078_hidden_skill_descriptions`.
+- Подробные `description` в БД: миграции `0078_hidden_skill_descriptions`, `0139_hidden_milestone_skills`.
 
 ---
 

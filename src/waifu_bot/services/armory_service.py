@@ -108,6 +108,14 @@ async def recompute_and_store_gear_score(session: AsyncSession, player_id: int) 
     player = await session.get(m.Player, player_id)
     if player is not None:
         player.gear_score = int(score)
+    try:
+        from waifu_bot.services.hidden_milestones import hook_milestones
+
+        await hook_milestones(
+            session, int(player_id), ["warlord"], precomputed={"warlord": int(score)}
+        )
+    except Exception:
+        pass
     return int(score)
 
 
