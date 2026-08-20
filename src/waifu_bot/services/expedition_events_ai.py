@@ -2004,6 +2004,7 @@ async def generate_hire_waifu_image(
     bio: str,
     name: str = "",
     perk_ids: Sequence[str] | None = None,
+    extra_visual: str = "",
 ) -> Optional[str]:
     """
     Генерирует портрет наёмницы через RouterAI image API (cursor_plan_7).
@@ -2063,6 +2064,9 @@ async def generate_hire_waifu_image(
         race_visual,
         class_visual,
     ]
+    extra = (extra_visual or "").strip()
+    if extra:
+        parts.append(extra)
     if perk_snippet:
         parts.append(perk_snippet)
     parts.append(pose_snippet)

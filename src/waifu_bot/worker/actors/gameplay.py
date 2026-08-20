@@ -34,11 +34,29 @@ def tick_chat_rewards_flush() -> None:
     _run_tick("chat_rewards_flush", _chat_rewards_flush_fn)
 
 
+@dramatiq.actor(queue_name="default", actor_name="tick_delve_grant", max_retries=1, time_limit=600_000)
+def tick_delve_grant() -> None:
+    from waifu_bot.services.background import _delve_grant_fn
+
+    _run_tick("delve_grant", _delve_grant_fn)
+
+
+@dramatiq.actor(queue_name="default", actor_name="tick_chronicle_stipend", max_retries=1, time_limit=600_000)
+def tick_chronicle_stipend() -> None:
+    """Back-compat alias after Chronicle → Delve cutover."""
+    tick_delve_grant()
+
+
 @dramatiq.actor(queue_name="default", actor_name="tick_expedition_notify", max_retries=1, time_limit=600_000)
 def tick_expedition_notify() -> None:
-    from waifu_bot.services.background import _expedition_notify_tick
+    """Legacy no-op: Chronicle stipend replaced expedition DMs."""
+    return
 
-    _run_tick("expedition_notify", _expedition_notify_tick)
+
+@dramatiq.actor(queue_name="default", actor_name="tick_expedition_tick", max_retries=1, time_limit=600_000)
+def tick_expedition_tick() -> None:
+    """Legacy no-op: expedition ticks removed."""
+    return
 
 
 @dramatiq.actor(queue_name="default", actor_name="tick_gd_daily_finalize", max_retries=1, time_limit=600_000)
@@ -68,13 +86,6 @@ def tick_guild_war_hourly() -> None:
     from waifu_bot.services.background import _guild_war_hourly_fn
 
     _run_tick("guild_war_hourly", _guild_war_hourly_fn)
-
-
-@dramatiq.actor(queue_name="default", actor_name="tick_expedition_tick", max_retries=1, time_limit=600_000)
-def tick_expedition_tick() -> None:
-    from waifu_bot.services.background import _expedition_tick_loop_fn
-
-    _run_tick("expedition_tick", _expedition_tick_loop_fn)
 
 
 @dramatiq.actor(queue_name="default", actor_name="tick_guild_war_narrative", max_retries=1, time_limit=600_000)
@@ -143,15 +154,12 @@ def tick_chat_rewards_daily_claim() -> None:
 
 TICK_ACTORS: dict[str, dramatiq.Actor] = {
     "chat_rewards_flush": tick_chat_rewards_flush,
-    "expedition_notify": tick_expedition_notify,
+    "delve_grant": tick_delve_grant,
     "gd_daily_finalize": tick_gd_daily_finalize,
-    "gd_v1_registration": tick_gd_v1_registration,
     "guild_tick": tick_guild_tick,
     "guild_war_hourly": tick_guild_war_hourly,
-    "expedition_tick": tick_expedition_tick,
     "guild_war_narrative": tick_guild_war_narrative,
     "gd_daily_start": tick_gd_daily_start,
-    "gd_v1_round": tick_gd_v1_round,
     "abyss_daily_reset": tick_abyss_daily_reset,
     "challenge_day": tick_challenge_day,
     "abyss_weekly_reset": tick_abyss_weekly_reset,

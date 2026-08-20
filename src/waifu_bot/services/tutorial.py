@@ -24,9 +24,8 @@ KNOWN_TUTORIAL_STEPS: tuple[str, ...] = (
     "equip",
     "paperdoll",
     "shop",
-    "tavern",
     "dungeons",
-    "expeditions",
+    "delve",
     "caravan",
     "guild",
     "training",
@@ -102,6 +101,8 @@ async def complete_tutorial_step(
     step_id: str,
 ) -> tuple[dict[str, Any], int | None]:
     """Mark a tutorial flow as completed. Returns (state, gold_reward_or_none)."""
+    if step_id in ("tavern", "expeditions", "chronicle"):
+        step_id = "delve"
     if step_id not in KNOWN_TUTORIAL_STEPS:
         raise ValueError(f"unknown_tutorial_step:{step_id}")
 

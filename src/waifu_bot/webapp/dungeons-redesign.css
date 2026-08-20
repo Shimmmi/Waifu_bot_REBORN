@@ -735,3 +735,292 @@ body.page-dungeons .attic-dungeon-seg-fill {
 .page-dungeons #tab-group .empty-state p {
   margin: 0;
 }
+
+/* Delve column */
+.delve-root, .chronicle-root { min-height: 420px; }
+.delve-camp {
+  background: linear-gradient(180deg, #161b22 0%, #0e1218 100%);
+  border: 1px solid rgba(110, 160, 170, 0.28);
+  border-radius: 14px;
+  padding: 14px 12px 16px;
+  color: #dce6ea;
+}
+.delve-copy { margin: 0 0 12px; line-height: 1.4; }
+.delve-cta {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: #6ec4c0;
+  color: #0e1218;
+  font-weight: 700;
+  cursor: pointer;
+}
+.delve-link {
+  display: block;
+  margin-top: 8px;
+  background: transparent;
+  border: 0;
+  color: #8ec6ff;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.delve-size { display: flex; gap: 8px; margin: 10px 0; }
+.delve-size-btn {
+  flex: 1;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(110,196,192,.4);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.delve-size-btn.active { background: rgba(110,196,192,.22); }
+.delve-faces { display: flex; gap: 8px; flex-wrap: wrap; }
+.delve-face { width: 110px; display: flex; flex-direction: column; gap: 6px; }
+.delve-face img, .delve-bust, .delve-token-face { image-rendering: pixelated; background: #12161c; }
+.delve-token-face {
+  width: 32px;
+  height: 32px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border: 1px solid color-mix(in srgb, var(--accent, #c47a3a) 55%, #fff);
+  border-radius: 4px;
+}
+.delve-face input, .delve-face select, .delve-role-row select { font-size: 12px; }
+.delve-hud { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+.delve-busts { display: flex; gap: 8px; align-items: flex-start; }
+.delve-bust-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 64px;
+  margin: 0;
+  gap: 4px;
+}
+.delve-bust {
+  width: 56px;
+  height: 56px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  box-sizing: border-box;
+  border: 2px solid color-mix(in srgb, var(--accent, #c47a3a) 70%, #fff);
+  border-radius: 6px;
+}
+.delve-face .delve-bust { width: 72px; height: 72px; }
+.delve-bust-name {
+  font-size: 10px;
+  line-height: 1.15;
+  text-align: center;
+  max-width: 64px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+.delve-status { font-size: 16px; font-weight: 700; }
+.delve-depth { font-size: 13px; opacity: .85; }
+.delve-stage { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 640px) { .delve-stage { grid-template-columns: 1fr; } }
+.delve-shaft-wrap { position: relative; min-height: 280px; }
+.delve-shaft-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  border-radius: 10px;
+}
+.delve-shaft-status {
+  position: absolute;
+  top: 10px;
+  left: 72px;
+  right: 72px;
+  text-align: center;
+  color: #f3e6c8;
+  text-shadow: 0 1px 2px #000;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.delve-status-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  pointer-events: auto;
+  background: rgba(0, 0, 0, .48);
+  color: #f3e6c8;
+  border: 1px solid #c4a574;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-shadow: 0 1px 2px #000;
+}
+.delve-status-btn:hover { background: rgba(0, 0, 0, .62); }
+.delve-shaft {
+  --shaft: #2a2420;
+  --accent: #c47a3a;
+  position: relative;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  border-radius: 10px;
+  background-color: var(--shaft);
+  background-image:
+    linear-gradient(180deg, color-mix(in srgb, var(--shaft) 58%, transparent) 0%, color-mix(in srgb, var(--shaft) 78%, #000) 100%),
+    var(--shaft-art, url("/static/game/delve/shaft.webp"));
+  background-size: cover;
+  background-position: center top;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  overflow: hidden;
+}
+.delve-nodes {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 8px 6px 10px;
+  gap: 0;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, .42));
+}
+.delve-node {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 88px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: .4;
+  color: var(--accent);
+}
+.delve-node-loc {
+  font-size: 10px;
+  line-height: 1.15;
+  font-weight: 700;
+  text-align: center;
+  color: #f3e6c8;
+  text-shadow: 0 1px 2px #000;
+  margin-bottom: 2px;
+  max-width: 100%;
+  word-break: break-word;
+}
+.delve-node-g { font-size: 14px; line-height: 1.2; }
+.delve-node.is-seen { opacity: .7; }
+.delve-node.is-here { opacity: 1; }
+.delve-token {
+  position: static;
+  transform: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+}
+.delve-card {
+  background: #e8d5b5;
+  color: #3b2414;
+  border: 2px solid #8a5a32;
+  box-shadow: inset 0 0 0 4px #f3e6c8;
+  border-radius: 6px;
+  padding: 14px 16px;
+}
+.delve-card-kicker { font-size: 11px; opacity: .8; margin-bottom: 6px; color: #5c3a22; }
+.delve-card-phrase { font-size: 13px; font-weight: 400; line-height: 1.45; color: #3b2414; }
+.delve-card-phrase strong { font-weight: 700; }
+.delve-card .delve-meta { font-size: 12px; color: #5c3a22; margin-top: 6px; }
+.delve-hint { font-size: 13px; margin: 8px 0; }
+.delve-card .delve-hint { color: #5c3a22; }
+.delve-sleeves { display: flex; flex-direction: column; gap: 6px; }
+.delve-sleeve {
+  border: 1px solid #8a5a32;
+  background: transparent;
+  color: #3b2414;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+}
+.delve-sleeve.is-instinct { background: color-mix(in srgb, var(--accent) 22%, #e8d5b5); }
+.delve-sheet { margin-top: 10px; font-size: 13px; opacity: .9; }
+.delve-sheet-stats { display: grid; gap: 4px; margin-bottom: 8px; }
+.delve-sheet-faces { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.delve-sheet-face { display: flex; gap: 10px; align-items: center; }
+.delve-stamps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.delve-stamp { border: 1px solid var(--accent); border-radius: 6px; padding: 2px 6px; font-size: 11px; }
+.delve-status-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 16px;
+}
+.delve-status-modal-card {
+  background: #1c1814;
+  color: #f3e6c8;
+  border: 1px solid #8a5a32;
+  border-radius: 10px;
+  max-width: min(440px, 92vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 16px 18px 18px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+}
+.delve-status-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.delve-status-modal-title { font-weight: 700; font-size: 16px; }
+.delve-status-modal-close {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.delve-status-modal .delve-sheet { margin-top: 0; opacity: 1; }
+.delve-legacy { font-size: 13px; margin-bottom: 8px; opacity: .85; }
+.delve-role-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.attic-chr-label { font-size: 12px; font-weight: 700; }
+.profile-delve-faces { display: flex; gap: 12px; margin: 8px 0; flex-wrap: wrap; }
+.profile-delve-face { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; width: 80px; }
+.profile-delve-face img,
+.profile-delve-faces .delve-bust {
+  width: 72px;
+  height: 72px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  image-rendering: pixelated;
+  border: 2px solid rgba(196, 194, 180, 0.55);
+  border-radius: 6px;
+  background: #12161c;
+}
+.profile-delve-face figcaption {
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+  word-break: break-word;
+}
+.profile-delve-face figcaption span { display: block; opacity: .75; font-size: 10px; }
+.delve-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 12px;
+  background: rgba(110,196,192,.18);
+  border: 1px solid rgba(110,196,192,.35);
+}
+

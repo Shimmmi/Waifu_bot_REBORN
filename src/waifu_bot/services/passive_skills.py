@@ -650,22 +650,14 @@ async def effective_passive_learn_cost(session: AsyncSession, player_id: int, ba
 
 
 def expedition_reward_multiplier(ps: dict[str, float], hs: dict[str, float] | None = None) -> float:
-    """Множитель золота/опыта экспедиции."""
-    mult = 1.0 + float(ps.get("expedition_bonus_pct", 0) or 0)
-    if hs:
-        mult += float(hs.get("expedition_reward_pct", 0) or 0) / 100.0
-    return mult
+    """Expeditions removed — Chronicle stipend is not modified by passives/hidden skills."""
+    return 1.0
 
 
 def expedition_success_probability_boost(
     ps: dict[str, float], hs: dict[str, float] | None = None
 ) -> float:
-    """Добавка к вероятности успеха (0..1) при первом claim."""
-    eb = float(ps.get("expedition_bonus_pct", 0) or 0)
-    boost = min(0.4, eb * 0.65)
-    if hs:
-        boost += float(hs.get("loyal_unit_success_pct", 0) or 0) / 100.0
-    return min(0.5, boost)
+    return 0.0
 
 
 def merge_passive_into_profile_details(

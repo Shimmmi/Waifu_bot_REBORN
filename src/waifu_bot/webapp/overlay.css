@@ -276,6 +276,17 @@ button {
   transform-origin: 50% 90%;
 }
 
+.ov-portrait-wrap .chronicle-mote {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  right: 8%;
+  top: 18%;
+  image-rendering: pixelated;
+  pointer-events: none;
+  z-index: 4;
+}
+
 .ov-paperdoll {
   position: relative;
   width: min(100%, 160px);

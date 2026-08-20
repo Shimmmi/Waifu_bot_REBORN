@@ -9,11 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db.models.player import Player
 
-DM_PREF_KEYS = frozenset({"solo_dungeon", "expedition_result", "group_dungeon", "raid", "abyss"})
+DM_PREF_KEYS = frozenset({"solo_dungeon", "expedition_result", "chronicle", "delve", "group_dungeon", "raid", "abyss"})
 
 DEFAULT_DM_NOTIFICATION_PREFS: dict[str, bool] = {
     "solo_dungeon": True,
-    "expedition_result": True,
+    "expedition_result": False,
+    "chronicle": False,
+    "delve": False,
     "group_dungeon": True,
     "raid": True,
     "abyss": True,
@@ -28,6 +30,8 @@ def normalize_prefs(raw: dict[str, Any] | None) -> dict[str, bool]:
     for key in DM_PREF_KEYS:
         if key in raw:
             out[key] = bool(raw[key])
+    if "delve" not in raw and "chronicle" in raw:
+        out["delve"] = bool(raw["chronicle"])
     return out
 
 
@@ -43,6 +47,8 @@ def merge_patch(player: Player, patch: dict[str, Any]) -> dict[str, bool]:
     for key, value in patch.items():
         if key in DM_PREF_KEYS:
             current[key] = bool(value)
+    if "chronicle" in patch and "delve" not in patch:
+        current["delve"] = bool(patch["chronicle"])
     player.dm_notification_prefs = current
     return current
 

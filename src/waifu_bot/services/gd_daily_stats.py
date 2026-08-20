@@ -113,10 +113,11 @@ def sort_rows_by_activity(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
-def format_waifu_html(name: str | None) -> str:
+def format_waifu_html(name: str | None, epithet_short: str | None = None) -> str:
     """Bold escaped waifu name for Telegram HTML (no @username / tg links)."""
-    label = (name or "").strip().lstrip("@") or "—"
-    return f"<b>{html.escape(label)}</b>"
+    from waifu_bot.game.delve_catalog import format_waifu_html as _fmt
+
+    return _fmt(name)
 
 
 def format_waifu_plain(name: str | None) -> str:

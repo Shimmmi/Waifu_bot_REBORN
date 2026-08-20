@@ -23,8 +23,16 @@ def test_normalize_prefs_defaults():
 def test_normalize_prefs_partial():
     out = normalize_prefs({"solo_dungeon": False, "unknown": True})
     assert out["solo_dungeon"] is False
-    assert out["expedition_result"] is True
+    assert out["expedition_result"] is False
+    assert out["delve"] is False
+    assert out["chronicle"] is False
     assert "unknown" not in out
+
+
+def test_old_chronicle_pref_maps_to_delve():
+    out = normalize_prefs({"chronicle": True})
+    assert out["delve"] is True
+    assert out["chronicle"] is True
 
 
 def test_merge_patch():

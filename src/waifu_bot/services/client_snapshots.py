@@ -102,24 +102,16 @@ async def rebuild_client_snapshot(session: AsyncSession, player_id: int) -> m.Pl
         else:
             bag_summary.append(card)
 
-    mercs = (
-        await session.execute(
-            select(m.HiredWaifu)
-            .where(m.HiredWaifu.player_id == player_id)
-            .order_by(m.HiredWaifu.id.asc())
-            .limit(24)
-        )
-    ).scalars().all()
-    merc_summary = [
-        {
-            "id": h.id,
-            "name": h.name,
-            "level": int(h.level or 1),
-            "power": int(getattr(h, "power", 0) or 0),
-            "squad_position": getattr(h, "squad_position", None),
-        }
-        for h in mercs
-    ]
+    chronicle_lite = {}
+    try:
+        from waifu_bot.services.delve import lite_showcase, list_companions, companion_out
+
+        chronicle_lite = await lite_showcase(session, player_id)
+        companions = [companion_out(c) for c in await list_companions(session, player_id)]
+        chronicle_lite["companions"] = companions
+    except Exception:
+        logger.debug("delve lite snapshot failed", exc_info=True)
+        companions = []
 
     rev = await _source_revision(session, player_id)
     snap = await session.get(m.PlayerClientSnapshot, player_id)
@@ -135,7 +127,12 @@ async def rebuild_client_snapshot(session: AsyncSession, player_id: int) -> m.Pl
         "bag_count": len(bag_summary),
         "bag_preview": bag_summary[:40],
     }
-    snap.mercenaries_summary_json = {"count": len(merc_summary), "items": merc_summary}
+    snap.mercenaries_summary_json = {
+        "count": len(chronicle_lite.get("companions") or []),
+        "chronicle": chronicle_lite,
+        "delve": chronicle_lite,
+        "items": chronicle_lite.get("companions") or [],
+    }
     snap.source_revision = rev
     snap.revision = int(snap.revision or 0) + 1
     snap.updated_at = _utc_now()

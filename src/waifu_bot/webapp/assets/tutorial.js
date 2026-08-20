@@ -818,28 +818,43 @@
         },
       ],
     },
-    tavern: {
-      page: "tavern",
+    chronicle: {
+      page: "dungeons",
+      tab: "expedition",
       steps: [
         {
-          id: "tavern_welcome",
+          id: "chr_welcome",
           target: null,
           image: "greeting",
-          text: "Таверна — место отдыха и найма. Сильный отряд наёмниц помогает в экспедициях.",
+          text: "Они спускаются сами. Золото и опыт капают ей. Смотреть не обязательно.",
+          beforeShow: () => {
+            if (window.WaifuApp && typeof window.WaifuApp.showTab === "function") {
+              window.WaifuApp.showTab("expedition");
+            }
+          },
         },
         {
-          id: "tavern_tabs",
-          target: "[data-tutorial='tavern-tabs']",
+          id: "chr_faces",
+          target: "[data-tutorial='delve-root']",
           image: "explaining",
-          text: "Вкладки: Найм — новые наёмницы, Отряд — состав, Лечение и Улучшения.",
+          text: "Собери лица. Одна, две или три — рекорд одинаковый.",
         },
+      ],
+    },
+    delve: {
+      page: "dungeons",
+      tab: "expedition",
+      steps: [
         {
-          id: "tavern_hire",
-          target: "[data-tutorial='tavern-hire-btn']",
-          image: "excited",
-          mode: "action",
-          hint: "Нажми «Нанять»",
-          text: "Первый найм бесплатный. Нажми «Нанять» — получишь случайную наёмницу.",
+          id: "delve_welcome",
+          target: "[data-tutorial='delve-root']",
+          image: "greeting",
+          text: "Экспедиции идут сами. Рекорд глубины видно всем.",
+          beforeShow: () => {
+            if (window.WaifuApp && typeof window.WaifuApp.showTab === "function") {
+              window.WaifuApp.showTab("expedition");
+            }
+          },
         },
       ],
     },
@@ -856,7 +871,7 @@
           id: "dungeons_tabs",
           target: "[data-tutorial='dungeon-tabs']",
           image: "explaining",
-          text: "Одиночные — соло-прогресс, Операции — IDLE-контракты наёмниц, Групповые — кооп, Бездна — эндгейм.",
+          text: "Одиночные — соло-прогресс, Экспедиции — отряд сам идёт вниз, Групповые — кооп, Бездна — эндгейм.",
         },
         {
           id: "dungeons_list",
@@ -878,10 +893,10 @@
       tab: "expedition",
       steps: [
         {
-          id: "exp_welcome",
+          id: "chr_welcome",
           target: null,
           image: "greeting",
-          text: "Операции — контракты с отрядом наёмниц. Награды по таймеру + merc coins.",
+          text: "Они спускаются сами. Золото и опыт капают ей. Смотреть не обязательно.",
           beforeShow: () => {
             if (window.WaifuApp && typeof window.WaifuApp.showTab === "function") {
               window.WaifuApp.showTab("expedition");
@@ -889,25 +904,10 @@
           },
         },
         {
-          id: "exp_tab",
-          target: "#dungeon-tabs .tab[data-tab='expedition']",
+          id: "chr_root",
+          target: "[data-tutorial='delve-root'], #delve-root",
           image: "explaining",
-          mode: "action",
-          hint: "Открой «Операции»",
-          text: "Вкладка «Операции» — активные контракты и свободные слоты.",
-        },
-        {
-          id: "exp_slot",
-          target: "[data-tutorial='exp-free-slot'], #exp-free-slots .exp-free-slot, #exp-bottom-zone",
-          image: "excited",
-          mode: "action",
-          hint: "Открой отправку",
-          text: "Нажми свободный слот «Отправить экспедицию», чтобы собрать отряд. Старт не обязателен — просто посмотри интерфейс.",
-          beforeShow: () => {
-            if (window.WaifuApp && typeof window.WaifuApp.showTab === "function") {
-              window.WaifuApp.showTab("expedition");
-            }
-          },
+          text: "Экспедиции идут сами. Золото капает ей, забирать не нужно.",
         },
       ],
     },

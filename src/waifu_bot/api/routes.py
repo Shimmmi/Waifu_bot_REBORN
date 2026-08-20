@@ -54,10 +54,12 @@ from waifu_bot.services.passive_skills import (
     merge_passive_into_profile_details,
     normalize_passive_level_affix_value,
 )
-from waifu_bot.services.expedition_events_ai import (
+from waifu_bot.services.llm_narrative import (
     build_caravan_driver_game_knowledge,
-    fallback_main_waifu_bio,
     generate_caravan_driver_tip,
+)
+from waifu_bot.services.main_waifu_media import (
+    fallback_main_waifu_bio,
     generate_main_waifu_bio,
     generate_main_waifu_paperdoll_from_portrait,
     generate_main_waifu_portrait,
@@ -107,6 +109,8 @@ from waifu_bot.api.desktop_auth_routes import router as desktop_auth_router
 from waifu_bot.api.pc_client_routes import router as pc_client_router
 from waifu_bot.api.activity_routes import router as activity_router
 from waifu_bot.api.client_snapshot_routes import router as client_snapshot_router
+from waifu_bot.api.delve_routes import router as delve_router
+from waifu_bot.api.tavern_living_routes import router as tavern_living_router
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +138,8 @@ router.include_router(desktop_auth_router)
 router.include_router(pc_client_router)
 router.include_router(activity_router)
 router.include_router(client_snapshot_router)
+router.include_router(delve_router)
+router.include_router(tavern_living_router)
 
 # Вторичные бонусы с предметов (шаблон + зачарование) и аффиксы с effect_key *_pct.
 # Значение в аффиксе — целое число в сотых долях процента: 150 => 1.50% => +0.015 к сумме.
@@ -1243,6 +1249,29 @@ async def get_profile(
 
         tutorial_raw = tutorial_state_from_player(player)
 
+        chronicle_lite = None
+        try:
+            from waifu_bot.services.delve_flag import is_delve_enabled
+            from waifu_bot.services.delve import grant_and_sync
+            from waifu_bot.services.game_config_service import get_game_config_map as _gcm
+
+            if is_delve_enabled(await _gcm(session)):
+                sync = await grant_and_sync(session, player_id)
+                await session.commit()
+                await session.refresh(player)
+                chronicle_lite = {
+                    "started": sync.get("started"),
+                    "pb_depth": sync.get("pb_depth"),
+                    "title": sync.get("title"),
+                    "companions": sync.get("companions") or [],
+                    "status": (sync.get("frame") or {}).get("status"),
+                    "depth": (sync.get("frame") or {}).get("d"),
+                    "gold_today": sync.get("gold_today"),
+                    "former_gladiator": sync.get("former_gladiator"),
+                }
+        except Exception:
+            logger.exception("delve warm sync failed player_id=%s", player_id)
+
         return schemas.ProfileResponse(
             player_id=player.id,
             act=player.current_act,
@@ -1268,6 +1297,7 @@ async def get_profile(
             perfection_pending_count=int(perfection_state.get("pending_count") or 0),
             perfection_bonuses_summary=list(perfection_state.get("bonuses_summary") or []),
             profile_error=None,
+            delve=chronicle_lite,
         )
     except Exception as e:
         logger.exception("Failed /profile for player_id=%s: %s", player_id, e)

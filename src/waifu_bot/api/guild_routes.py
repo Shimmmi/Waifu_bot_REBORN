@@ -457,6 +457,16 @@ async def guild_member_preview(
     if mw:
         portrait_url = guild_member_portrait_url(mw, target_player_id)
         paperdoll_url = guild_member_paperdoll_url(mw, target_player_id)
+        delve_pb = 0
+        delve_title = None
+        try:
+            from waifu_bot.services.delve import lite_showcase
+
+            show = await lite_showcase(session, int(target_player_id))
+            delve_pb = int(show.get("pb_depth") or 0)
+            delve_title = show.get("title")
+        except Exception:
+            pass
         main_out = schemas.GuildMemberMainWaifuPreviewOut(
             name=mw.name,
             level=int(mw.level or 1),
@@ -465,6 +475,8 @@ async def guild_member_preview(
             class_=int(mw.class_ or 0),
             portrait_url=portrait_url,
             paperdoll_url=paperdoll_url,
+            delve_pb=delve_pb or None,
+            delve_title=delve_title,
         )
 
     guild_online_ttl = timedelta(minutes=5)
@@ -486,25 +498,36 @@ async def guild_member_preview(
         session, int(target_mem.guild_id), int(target_player_id)
     )
 
-    hired_rows = (
-        await session.execute(
-            select(m.HiredWaifu)
-            .where(m.HiredWaifu.player_id == target_player_id)
-            .order_by(m.HiredWaifu.level.desc(), m.HiredWaifu.id.desc())
-            .limit(4)
-        )
-    ).scalars().all()
     hired_out: list[schemas.GuildMemberHiredWaifuPreviewOut] = []
-    for hw in hired_rows:
-        hw_portrait = hired_waifu_portrait_url(hw)
-        hired_out.append(
-            schemas.GuildMemberHiredWaifuPreviewOut(
-                id=int(hw.id),
-                name=str(hw.name or "Наёмница"),
-                level=int(hw.level or 1),
-                portrait_url=hw_portrait,
+    delve_companions: list[dict] = []
+    delve_pb = getattr(main_out, "delve_pb", None) if main_out else None
+    delve_title = getattr(main_out, "delve_title", None) if main_out else None
+    try:
+        from waifu_bot.services.delve import companion_out, list_companions
+
+        for c in await list_companions(session, int(target_player_id)):
+            delve_companions.append(companion_out(c))
+    except Exception:
+        pass
+    if not delve_companions:
+        hired_rows = (
+            await session.execute(
+                select(m.HiredWaifu)
+                .where(m.HiredWaifu.player_id == target_player_id)
+                .order_by(m.HiredWaifu.level.desc(), m.HiredWaifu.id.desc())
+                .limit(4)
             )
-        )
+        ).scalars().all()
+        for hw in hired_rows:
+            hw_portrait = hired_waifu_portrait_url(hw)
+            hired_out.append(
+                schemas.GuildMemberHiredWaifuPreviewOut(
+                    id=int(hw.id),
+                    name=str(hw.name or "Наёмница"),
+                    level=int(hw.level or 1),
+                    portrait_url=hw_portrait,
+                )
+            )
 
     un = (tpl.username or "").strip() or None
     return schemas.GuildMemberPreviewOut(
@@ -518,6 +541,10 @@ async def guild_member_preview(
         contribution_week=contrib_week,
         contribution_week_cap=contrib_cap,
         hired_waifus=hired_out,
+        chronicle_companions=delve_companions,
+        delve_companions=delve_companions,
+        delve_pb=delve_pb,
+        delve_title=delve_title,
         is_self=int(target_player_id) == int(player_id),
     )
 

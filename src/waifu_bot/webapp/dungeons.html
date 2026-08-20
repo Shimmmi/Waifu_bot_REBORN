@@ -4,16 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Подземелья</title>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v96" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
-    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v96" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v100" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
+    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v97" />
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
     <link rel="preload" href="/webapp/assets/fonts/manrope-var.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="stylesheet" href="/webapp/dungeons-redesign.css?v=waifu-webapp-v96" />
+    <link rel="stylesheet" href="/webapp/dungeons-redesign.css?v=waifu-webapp-v103" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v96" onerror="console.warn('combat island skipped')"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v96" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v57'"></script>
-    <script defer src="/webapp/bundle/dungeons.min.js?v=waifu-webapp-v96" onerror="this.onerror=null;this.src='/webapp/pages/dungeons.js?v=waifu-webapp-v64'"></script>
+    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v97" onerror="console.warn('combat island skipped')"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v100" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v100'"></script>
+    <script defer src="/webapp/pages/dungeons.js?v=waifu-webapp-v100"></script>
+    <script defer src="/webapp/pages/delve.js?v=waifu-webapp-v104"></script>
     <style>
       .hp-fill-monster.monster-hp-fill--unknown {
         opacity: 0.35;
@@ -3003,9 +3004,9 @@
           <span id="attic-dungeon-label">Нет боя</span>
           <div id="attic-dungeon-progress" class="attic-dungeon-progress" hidden></div>
         </div>
-        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Операции">
+        <div class="chip attic-exp-chip" id="attic-exp-chip" title="Экспедиции">
           <span class="attic-exp-ico" aria-hidden="true">🗺</span>
-          <div class="attic-exp-cells" id="attic-exp-cells" aria-label="Статус экспедиций"></div>
+          <div class="attic-exp-cells" id="attic-exp-cells" aria-label="Статус колонны"></div>
         </div>
         <div class="chip attic-gold-chip" id="attic-gold-chip" title="Золото">
           <span class="attic-gold-ico" aria-hidden="true">🪙</span><strong id="badge-gold">—</strong>
@@ -3015,14 +3016,12 @@
         <div class="attic-menu" id="attic-menu" hidden role="menu" aria-label="Дополнительные разделы">
           <a class="attic-menu-item" href="./profile.html?tab=inventory" role="menuitem">🎒 Инвентарь</a>
           <a class="attic-menu-item" href="./profile.html?tab=info&info=statistics" role="menuitem">📊 Статистика</a>
-          <a class="attic-menu-item" href="./dungeons.html?tab=operations" role="menuitem">🗺️ Операции</a>
+          <a class="attic-menu-item" href="./dungeons.html?tab=expedition" role="menuitem">⛏ Экспедиции</a>
           <a class="attic-menu-item" href="./dungeons.html?tab=abyss" role="menuitem">🕳 Бездна</a>
           <a class="attic-menu-item" href="./shop.html?tab=gamble" role="menuitem">🎲 Gamble</a>
           <a class="attic-menu-item" href="./shop.html?tab=smith" role="menuitem">🔨 Кузнец</a>
-          <a class="attic-menu-item" href="./tavern.html?tab=arena" role="menuitem">⚔️ Арена</a>
-          <a class="attic-menu-item" href="./tavern.html?tab=hire" role="menuitem">🎲 Найм</a>
-          <a class="attic-menu-item" href="./tavern.html?tab=squad" role="menuitem">👥 Отряд</a>
-          <a class="attic-menu-item" href="./tavern.html?tab=exchange" role="menuitem">🏪 Обмен</a>
+          <a class="attic-menu-item" href="./dungeons.html?tab=expedition" role="menuitem">⛏ Экспедиции</a>
+          <a class="attic-menu-item" href="./tavern.html?tab=bgm" role="menuitem">🎵 Музыка таверны</a>
           <a class="attic-menu-item" href="#" role="menuitem" onclick="event.preventDefault();(function(){var m=document.getElementById('attic-menu');var b=document.getElementById('attic-menu-btn');if(m)m.hidden=true;if(b)b.setAttribute('aria-expanded','false');WaifuApp.openLibrary();})()">📖 Библиотека</a>
           <a class="attic-menu-item" href="./player.html#settings" role="menuitem">⚙ Настройки</a>
         </div>
@@ -3031,7 +3030,7 @@
       <div class="dungeon-tabs-bar">
         <div class="tabs" id="dungeon-tabs" data-tutorial="dungeon-tabs">
           <button class="tab active" data-tab="solo" onclick="WaifuApp.showTab('solo')"><span class="tab-ico" aria-hidden="true">⚔</span><span class="tab-txt">Одиночные</span></button>
-          <button class="tab" data-tab="expedition" onclick="WaifuApp.showTab('expedition')"><span class="tab-ico" aria-hidden="true">🗺</span><span class="tab-txt">Операции</span></button>
+          <button class="tab" data-tab="expedition" onclick="WaifuApp.showTab('expedition')"><span class="tab-ico" aria-hidden="true">↓</span><span class="tab-txt">Экспедиции</span></button>
           <button class="tab" data-tab="group" onclick="WaifuApp.showTab('group')"><span class="tab-ico" aria-hidden="true">👥</span><span class="tab-txt">Групповые</span></button>
           <button class="tab" data-tab="abyss" onclick="WaifuApp.showTab('abyss')"><span class="tab-ico" aria-hidden="true">🕳</span><span class="tab-txt">Бездна</span></button>
         </div>
@@ -3122,25 +3121,7 @@
 
           <div id="tab-expedition" class="tab-panel" style="display: none;">
             <div id="expedition-error" class="banner" style="display:none;"></div>
-            <div id="ops-board-strip" style="display:none;"></div>
-
-            <div id="exp-active-section" style="display:none;">
-              <div class="exp-sec-header">
-                <span class="exp-sec-title">Активные операции</span>
-                <div class="exp-sec-header-right">
-                  <span class="exp-slots-indicator" id="exp-slots-indicator"></span>
-                  <button type="button" class="exp-help-btn" onclick="WaifuApp.openExpeditionHelp()" aria-label="Справка по операциям" title="Справка">?</button>
-                </div>
-              </div>
-              <div class="exp-card-grid" id="exp-active-grid">
-                <div class="placeholder muted tiny">Загрузка...</div>
-              </div>
-            </div>
-
-            <div id="exp-bottom-zone">
-              <div id="exp-free-slots" class="exp-free-slots" style="display:none;"></div>
-              <div id="exp-last-loot" class="exp-last-loot" style="display:none;"></div>
-            </div>
+            <div id="delve-root" class="delve-root" data-tutorial="delve-root"></div>
           </div>
 
           <div id="exp-active-modal" class="exp-overlay" style="display:none;" onclick="if(event.target===this)WaifuApp.closeActiveExpModal()">

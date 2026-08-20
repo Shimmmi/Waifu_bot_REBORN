@@ -13,6 +13,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+
+async def _display_waifu_name(session: AsyncSession, waifu) -> str:
+    from waifu_bot.game.delve_catalog import format_waifu_plain
+
+    return format_waifu_plain(getattr(waifu, "name", None))
+
 from waifu_bot.db.models import (
     BattleLog,
     Player,
@@ -1283,7 +1289,7 @@ class DungeonService:
                     "monster_has_image": monster_has_image,
                     "monster_image_updated_at": monster_image_updated_at,
                     "monster_image_override": monster_image_override,
-                    "waifu_name": waifu.name,
+                    "waifu_name": await _display_waifu_name(session, waifu),
                     "waifu_level": waifu.level,
                     "waifu_current_hp": waifu.current_hp,
                     "waifu_max_hp": waifu.max_hp,
@@ -1343,7 +1349,7 @@ class DungeonService:
                 "affixes": [],
                 "monster_has_image": False,
                 "monster_image_override": None,
-                "waifu_name": waifu.name,
+                "waifu_name": await _display_waifu_name(session, waifu),
                 "waifu_level": waifu.level,
                 "waifu_current_hp": waifu.current_hp,
                 "waifu_max_hp": waifu.max_hp,
@@ -1383,7 +1389,7 @@ class DungeonService:
             "monster_image_override": None,
             "monster_position": progress.current_monster_position,
             "total_monsters": progress.total_monsters or dungeon.obstacle_count,
-            "waifu_name": waifu.name,
+            "waifu_name": await _display_waifu_name(session, waifu),
             "waifu_level": waifu.level,
             "waifu_current_hp": waifu.current_hp,
             "waifu_max_hp": waifu.max_hp,

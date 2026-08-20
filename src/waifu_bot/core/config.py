@@ -119,6 +119,9 @@ class Settings(BaseSettings):
     # Absolute repo root for admin writes to static/ (optional; see waifu_bot.paths.repository_root)
     repo_root: str | None = Field(None, alias="REPO_ROOT")
 
+    # Chronicle retired; Delve is the v3 side-idle. On = column + 410 for legacy expeditions/hire/arena.
+    expedition_v3_enabled: bool = Field(True, alias="EXPEDITION_V3_ENABLED")
+
     # Browser dev bypass: when DEV_BROWSER_TOKEN is set, ?devPlayerId=N&devToken=<token> works in any APP_ENV.
     dev_browser_token: str | None = Field(None, alias="DEV_BROWSER_TOKEN")
 

@@ -127,6 +127,9 @@ onMounted(() => loadSummary().then(loadExtra))
       :current-act="summary.current_act"
       :perfection-level="perfectionLevel"
       :guild="summary.guild"
+      :companions="summary.delve?.companions"
+      :delve-pb="summary.character?.delve_pb || summary.delve?.pb_depth"
+      :delve-title="summary.character?.delve_title || summary.delve?.title"
       :admin-mode="isAdmin"
       @item-click="openModal"
     />

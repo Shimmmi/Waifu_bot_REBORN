@@ -572,6 +572,8 @@
       if (mw) {
         state.waifu.name = mw.name || "Вайфу";
         el.waifuName.textContent = state.waifu.name;
+        const moteEl = document.getElementById("ov-chronicle-mote");
+        if (moteEl) moteEl.hidden = true;
         setWaifuLevel(mw.level);
         const cosmetics =
           mw.paperdoll_cosmetics && typeof mw.paperdoll_cosmetics === "object"

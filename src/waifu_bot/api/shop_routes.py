@@ -9,7 +9,7 @@ from waifu_bot.api import schemas
 from waifu_bot.db import models as m
 from waifu_bot.services.shop import ShopService, shop_size_for_act
 from waifu_bot.services.gamble import GambleService
-from waifu_bot.services.expedition_events_ai import generate_shop_merchant_line
+from waifu_bot.services.llm_narrative import generate_shop_merchant_line
 from waifu_bot.services.llm_client import has_text_llm_configured
 from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
 from waifu_bot.services.passive_skills import apply_passive_buy_price

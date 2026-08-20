@@ -3,12 +3,21 @@ import { onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { apiGet } from '../api/client'
 
+type DelveCompanion = {
+  name?: string
+  image_url?: string
+  portrait_url?: string
+  gold_earned?: number
+  days?: number
+}
+
 type PlayerRow = {
   telegram_id?: number
   character_name?: string
   username?: string
   level?: number | null
   value?: number
+  companions?: DelveCompanion[]
 }
 
 type GuildRow = {
@@ -38,6 +47,7 @@ const boards = reactive({
   gear_score: { items: [] as PlayerRow[], loading: true as boolean, error: '' },
   dungeon_plus: { items: [] as PlayerRow[], loading: true as boolean, error: '' },
   abyss: { items: [] as PlayerRow[], loading: true as boolean, error: '' },
+  delve: { items: [] as PlayerRow[], loading: true as boolean, error: '' },
   gold: { items: [] as PlayerRow[], loading: true as boolean, error: '' },
   guild: { items: [] as GuildRow[], loading: true as boolean, error: '' },
 })
@@ -47,6 +57,7 @@ const PLAYER_BOARDS = [
   { kind: 'gear_score' as const, title: 'Снаряжение', metric: 'GS' },
   { kind: 'dungeon_plus' as const, title: 'Данж+', metric: '+' },
   { kind: 'abyss' as const, title: 'Бездна', metric: 'Этаж' },
+  { kind: 'delve' as const, title: 'Экспедиции', metric: 'Глубина' },
   { kind: 'gold' as const, title: 'Золото', metric: 'Золото' },
 ]
 
@@ -92,6 +103,7 @@ onMounted(() => {
     loadBoard('gear_score'),
     loadBoard('dungeon_plus'),
     loadBoard('abyss'),
+    loadBoard('delve'),
     loadBoard('gold'),
     loadBoard('guild'),
   ])
@@ -157,6 +169,21 @@ onMounted(() => {
                   {{ row.character_name || row.username || row.telegram_id }}
                 </RouterLink>
                 <span v-else>—</span>
+                <div v-if="board.kind === 'delve' && row.companions?.length" class="delve-faces">
+                  <figure v-for="(c, ci) in row.companions.slice(0, 3)" :key="ci" class="delve-face">
+                    <img
+                      v-if="c.image_url || c.portrait_url"
+                      :src="c.image_url || c.portrait_url"
+                      :alt="c.name || ''"
+                      width="40"
+                      height="40"
+                    />
+                    <figcaption>
+                      {{ c.name }}
+                      <span v-if="c.gold_earned != null">{{ Number(c.gold_earned).toLocaleString('ru-RU') }} зол.</span>
+                    </figcaption>
+                  </figure>
+                </div>
               </td>
               <td v-if="board.kind !== 'level'">{{ row.level ?? '—' }}</td>
               <td>{{ formatValue(board.kind, row.value) }}</td>
@@ -241,6 +268,38 @@ onMounted(() => {
 .empty-hint {
   color: var(--muted);
   font-size: 0.85rem;
+}
+.delve-faces {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.delve-face {
+  margin: 0;
+  width: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.delve-face img {
+  width: 40px;
+  height: 40px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border: 1px solid rgba(200, 180, 120, 0.5);
+  border-radius: 4px;
+  image-rendering: pixelated;
+}
+.delve-face figcaption {
+  font-size: 10px;
+  line-height: 1.15;
+  text-align: center;
+  word-break: break-word;
+}
+.delve-face figcaption span {
+  display: block;
+  opacity: 0.7;
 }
 @media (max-width: 720px) {
   .ladder-grid {

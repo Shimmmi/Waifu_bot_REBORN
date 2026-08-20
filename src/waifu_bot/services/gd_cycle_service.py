@@ -172,9 +172,11 @@ async def build_waifu_snapshot(session: AsyncSession, player_id: int) -> dict[st
             attack_type = str(at)
     except Exception:
         pass
+    epithet_short = None
     return {
         "user_id": player_id,
         "name": w.name,
+        "epithet_short": epithet_short,
         "username": username,
         "class_id": int(w.class_),
         "race_id": int(w.race),

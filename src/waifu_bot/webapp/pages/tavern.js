@@ -1,5 +1,15 @@
 /** Tavern page bundle. */
 async function loadTavern(profile) {
+  try {
+    const tab = new URLSearchParams(window.location.search).get("tab") || "";
+    if (tab === "bgm") {
+      const p = profile || (await loadProfile({ lite: true }).catch(() => null));
+      return loadTavernWithProfile(p || { act: 1 });
+    }
+  } catch (_) {}
+  if (window.WaifuApp?.bootstrapLivingTavern && !document.body.classList.contains("living-hall")) {
+    return window.WaifuApp.bootstrapLivingTavern();
+  }
   const p = profile || (await loadProfile({ lite: true }).catch(() => null));
   return loadTavernWithProfile(p || { act: 1 });
 }
@@ -4125,6 +4135,7 @@ async function openTavernCodex() {
 Object.assign(window.WaifuApp, {
   loadTavern,
   loadTavernWithProfile,
+  scheduleTavernBgmStart,
   switchTavernTab,
   onTavernHirePrimaryClick,
   toggleHireResultFlip,

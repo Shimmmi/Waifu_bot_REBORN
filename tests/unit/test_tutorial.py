@@ -57,7 +57,9 @@ def test_known_steps_include_intro_and_sections():
     assert "shop" in KNOWN_TUTORIAL_STEPS
     assert "equip" in KNOWN_TUTORIAL_STEPS
     assert "paperdoll" in KNOWN_TUTORIAL_STEPS
-    assert "expeditions" in KNOWN_TUTORIAL_STEPS
+    assert "delve" in KNOWN_TUTORIAL_STEPS
+    assert "expeditions" not in KNOWN_TUTORIAL_STEPS
+    assert "tavern" not in KNOWN_TUTORIAL_STEPS
     assert INTRO_TUTORIAL_GOLD_REWARD == 500
     assert SHOP_KIT_ID == "shop_loop"
     assert PAPERDOLL_KIT_ID == "paperdoll"
@@ -133,7 +135,8 @@ def test_complete_new_steps():
             assert "equip" in state["completed"]
             assert gold is None
             state, gold = await complete_tutorial_step(session, 3, "expeditions")
-            assert "expeditions" in state["completed"]
+            assert "delve" in state["completed"]
+            assert "expeditions" not in state["completed"]
             assert gold is None
 
     asyncio.run(_run())

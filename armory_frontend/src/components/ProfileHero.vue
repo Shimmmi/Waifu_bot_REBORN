@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import type { PlayerCharacter, ArmoryItem } from '../api/client'
+import type { PlayerCharacter, ArmoryItem, DelveCompanion } from '../api/client'
 import EquipmentSlot from './EquipmentSlot.vue'
 import {
   META_ICONS,
@@ -23,6 +23,9 @@ const props = defineProps<{
   perfectionLevel?: number
   adminMode?: boolean
   guild?: { id?: number; name: string; tag: string; level: number } | null
+  companions?: DelveCompanion[]
+  delvePb?: number
+  delveTitle?: string
 }>()
 
 const emit = defineEmits<{ itemClick: [item: ArmoryItem] }>()
@@ -132,6 +135,22 @@ function fmt(n: number): string {
             <span v-else>{{ META_ICONS.guild }} [{{ guild.tag }}] {{ guild.name }}</span>
             <span class="badge">Ур. {{ guild.level }}</span>
           </div>
+          <div v-if="companions?.length" class="profile-delve-faces">
+            <div v-if="delvePb" class="profile-delve-rec">Экспедиции · рекорд {{ delvePb }}<span v-if="delveTitle"> · {{ delveTitle }}</span></div>
+            <figure v-for="(c, i) in companions.slice(0, 3)" :key="i" class="profile-delve-face">
+              <img
+                v-if="c.image_url || c.portrait_url"
+                :src="c.image_url || c.portrait_url"
+                :alt="c.name || ''"
+                width="64"
+                height="64"
+              />
+              <figcaption>
+                <strong>{{ c.name }}</strong>
+                <span>{{ Number(c.gold_earned || 0).toLocaleString('ru-RU') }} зол. · {{ (c.days || 0) > 0 ? `${c.days} дн.` : 'сегодня' }}</span>
+              </figcaption>
+            </figure>
+          </div>
         </div>
         <div v-else class="profile-portrait-caption">
           <h2>Нет персонажа</h2>
@@ -172,3 +191,47 @@ function fmt(n: number): string {
     </div>
   </div>
 </template>
+
+<style scoped>
+.profile-delve-faces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  justify-content: center;
+}
+.profile-delve-rec {
+  flex-basis: 100%;
+  font-size: 0.8rem;
+  opacity: 0.85;
+  text-align: center;
+}
+.profile-delve-face {
+  margin: 0;
+  width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.profile-delve-face img {
+  width: 64px;
+  height: 64px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border: 2px solid rgba(200, 180, 120, 0.5);
+  border-radius: 6px;
+  image-rendering: pixelated;
+}
+.profile-delve-face figcaption {
+  font-size: 11px;
+  line-height: 1.15;
+  text-align: center;
+  word-break: break-word;
+}
+.profile-delve-face figcaption span {
+  display: block;
+  opacity: 0.75;
+  font-size: 10px;
+}
+</style>

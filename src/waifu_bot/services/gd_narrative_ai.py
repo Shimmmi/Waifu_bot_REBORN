@@ -44,7 +44,7 @@ def gd_attack_style_hint_ru(class_id: int | None) -> str:
 
 def format_gd_party_member_line(p: dict[str, Any], *, for_start: bool) -> str:
     """Одна строка отряда для промпта: словесные класс/раса + id, чтобы не путать LLM (напр. маг и ангел оба id 4)."""
-    name = p.get("name", "Вайфу")
+    name = _member_display_name(p)
     cid = p.get("class_id")
     rid = p.get("race_id")
     lvl = p.get("level", "?")
@@ -68,7 +68,10 @@ def format_gd_party_member_line(p: dict[str, Any], *, for_start: bool) -> str:
 
 
 def _member_display_name(p: dict[str, Any]) -> str:
-    return str(p.get("name") or f"Игрок {p.get('user_id', '?')}")
+    from waifu_bot.game.delve_catalog import format_waifu_plain
+
+    raw = str(p.get("name") or f"Игрок {p.get('user_id', '?')}")
+    return format_waifu_plain(raw)
 
 
 def _party_by_uid(party: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:

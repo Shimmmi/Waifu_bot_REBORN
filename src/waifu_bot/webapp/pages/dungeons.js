@@ -2628,38 +2628,12 @@ async function ensureExpeditionRoster(opts = {}) {
 }
 
 async function loadExpeditionTab(opts = {}) {
-  const force = Boolean(opts && opts.force);
-  if (force) expeditionRosterLoaded = false;
-  showExpeditionError("");
-  try {
-    if (!expeditionTabDataLoaded || force) {
-      if (!expeditionTabDataLoaded) expeditionTabDataLoaded = true;
-      const [catalogRes, activeRes, boardRes] = await Promise.all([
-        apiFetch("/operations/catalog").catch(() =>
-          apiFetch("/expeditions/catalog").catch(() => ({ reward_types: [], depth_tiers: [] }))
-        ),
-        apiFetch("/expeditions/active"),
-        apiFetch("/operations/board").catch(() => null),
-      ]);
-      expeditionState.catalog = {
-        reward_types: Array.isArray(catalogRes?.reward_types) ? catalogRes.reward_types : [],
-        depth_tiers: Array.isArray(catalogRes?.depth_tiers) ? catalogRes.depth_tiers : [],
-        max_concurrent: Number(catalogRes?.max_concurrent) || 3,
-      };
-      expeditionState.opsBoard = boardRes;
-      expeditionState.active = Array.isArray(activeRes?.active) ? activeRes.active : [];
-      expeditionUiCache.activeById = {};
-      (expeditionState.active || []).forEach((a) => {
-        expeditionUiCache.activeById[a.id] = a;
-      });
-    }
-    renderOpsBoardStrip();
-    renderExpeditionGrids();
-    wireExpeditionTabTimers();
-    refreshAtticChips({ skipDungeon: true });
-  } catch (e) {
-    const { detail } = parseHttpErrorDetail(e);
-    showExpeditionError(detail || "Ошибка загрузки операций");
+  if (typeof window !== "undefined" && window.DelveColumn) {
+    return window.DelveColumn.load(opts);
+  }
+  const root = document.getElementById("delve-root");
+  if (root) {
+    root.innerHTML = `<div class="delve-camp"><p class="delve-copy">Экспедиции недоступны</p></div>`;
   }
 }
 
@@ -5032,6 +5006,8 @@ function showTab(name) {
   if (name !== "solo") stopSoloHpSafetyPoll();
   if (name === "expedition") {
     loadExpeditionTab().catch(() => {});
+  } else if (typeof window !== "undefined" && window.DelveColumn && typeof window.DelveColumn.stop === "function") {
+    window.DelveColumn.stop();
   }
   if (name === "group") {
     loadGdChatList().catch(() => {});

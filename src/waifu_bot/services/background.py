@@ -86,6 +86,10 @@ async def _gd_daily_start_tick() -> None:
 
 
 async def _expedition_notify_tick() -> None:
+    from waifu_bot.services.delve_flag import is_expedition_v3_enabled
+
+    if is_expedition_v3_enabled():
+        return
     from waifu_bot.db.session import get_session, init_engine
     from waifu_bot.core import redis as redis_core
     from waifu_bot.services.expedition import ExpeditionService, OUTCOME_LABELS
@@ -140,6 +144,10 @@ async def _expedition_notify_tick() -> None:
 
 
 async def _expedition_tick_loop_fn() -> None:
+    from waifu_bot.services.delve_flag import is_expedition_v3_enabled
+
+    if is_expedition_v3_enabled():
+        return
     from waifu_bot.db.session import get_session, init_engine
     from waifu_bot.services.expedition import ExpeditionService
     from waifu_bot.services.webhook import get_bot
@@ -421,11 +429,35 @@ async def _chat_rewards_daily_claim_fn() -> None:
     )
 
 
+async def _delve_grant_fn() -> None:
+    """Hourly gold/XP catch-up. Never imports OpenRouter."""
+    from waifu_bot.db.session import get_session, init_engine
+    from waifu_bot.services.delve import grant_batch
+    from waifu_bot.services.delve_flag import is_delve_enabled
+
+    if not is_delve_enabled():
+        return
+    init_engine()
+    async for session in get_session():
+        n = await grant_batch(session, limit=400)
+        if n:
+            await session.commit()
+            logger.info("delve tap granted for %s players", n)
+        break
+
+
+async def _chronicle_stipend_fn() -> None:
+    """Alias kept for in-flight worker names during cutover."""
+    await _delve_grant_fn()
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 CHAT_REWARDS_FLUSH_INTERVAL = 30
+CHRONICLE_STIPEND_INTERVAL = 3600
+DELVE_GRANT_INTERVAL = 3600
 GD_V1_REG_POLL_SECONDS = 30
 GD_V1_ROUND_POLL_SECONDS = 20
 EXPEDITION_NOTIFY_INTERVAL = 30

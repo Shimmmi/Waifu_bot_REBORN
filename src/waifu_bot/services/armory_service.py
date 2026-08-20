@@ -42,6 +42,7 @@ LEADERBOARD_KINDS = frozenset({
     "abyss",
     "merc_arena",
     "merc_collection",
+    "delve",
 })
 
 
@@ -278,6 +279,15 @@ async def build_public_summary(
             "level": waifu.level,
             "max_hp": waifu.max_hp,
         }
+        try:
+            from waifu_bot.services.delve import lite_showcase
+
+            show = await lite_showcase(session, int(player.id))
+            out["character"]["delve_pb"] = show.get("pb_depth")
+            out["character"]["delve_title"] = show.get("title")
+            out["delve"] = show
+        except Exception:
+            pass
         portrait_url = _waifu_portrait_url(waifu)
         if portrait_url:
             out["character"]["portrait_url"] = portrait_url
@@ -634,6 +644,43 @@ async def build_leaderboard(session: AsyncSession, kind: str, limit: int = 50) -
             _player_lb_row(tid, un, name, int(floor or 0), level=lvl)
             for tid, un, name, lvl, floor in rows
         ]
+
+    if kind == "delve":
+        q = (
+            select(
+                m.Player.id,
+                m.Player.username,
+                m.MainWaifu.name,
+                m.MainWaifu.level,
+                m.DelveState.pb_depth,
+            )
+            .join(m.DelveState, m.DelveState.player_id == m.Player.id)
+            .outerjoin(m.MainWaifu, m.MainWaifu.player_id == m.Player.id)
+            .where(m.DelveState.t_origin.is_not(None), m.DelveState.pb_depth > 0)
+            .order_by(m.DelveState.pb_depth.desc(), m.Player.id.asc())
+            .limit(limit)
+        )
+        rows = (await session.execute(q)).all()
+        player_ids = [int(tid) for tid, *_rest in rows]
+        faces_by: dict[int, list[dict[str, Any]]] = {pid: [] for pid in player_ids}
+        if player_ids:
+            from waifu_bot.services.delve import companion_out
+
+            comps = (
+                await session.execute(
+                    select(m.DelveCompanion)
+                    .where(m.DelveCompanion.player_id.in_(player_ids))
+                    .order_by(m.DelveCompanion.player_id.asc(), m.DelveCompanion.slot.asc())
+                )
+            ).scalars().all()
+            for c in comps:
+                faces_by.setdefault(int(c.player_id), []).append(companion_out(c))
+        out_rows = []
+        for tid, un, name, lvl, depth in rows:
+            row = _player_lb_row(tid, un, name, int(depth or 0), level=lvl)
+            row["companions"] = faces_by.get(int(tid), [])[:3]
+            out_rows.append(row)
+        return out_rows
 
     if kind == "dungeon_plus":
         max_best = func.max(m.PlayerDungeonPlus.best_completed_plus_level)

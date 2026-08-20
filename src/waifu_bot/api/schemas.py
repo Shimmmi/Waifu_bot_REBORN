@@ -439,6 +439,12 @@ class MainWaifuProfile(BaseModel):
     paperdoll_url: Optional[str] = None
     paperdoll_generations_remaining: int = 0
     bio: Optional[str] = None
+    epithet_short: Optional[str] = None
+    chronicle_mote_url: Optional[str] = None
+    chronicle_frame_echo_id: Optional[int] = None
+    combat_name_html: Optional[str] = None
+    delve_pb: Optional[int] = None
+    delve_title: Optional[str] = None
 
     class Config:
         populate_by_name = True
@@ -571,11 +577,14 @@ class DmNotificationPrefsOut(BaseModel):
     group_dungeon: bool = True
     raid: bool = True
     abyss: bool = True
+    delve: bool = False
 
 
 class DmNotificationPrefsPatch(BaseModel):
     solo_dungeon: Optional[bool] = None
     expedition_result: Optional[bool] = None
+    chronicle: Optional[bool] = None
+    delve: Optional[bool] = None
     group_dungeon: Optional[bool] = None
     raid: Optional[bool] = None
     abyss: Optional[bool] = None
@@ -614,6 +623,8 @@ class ProfileResponse(BaseModel):
     perfection_bonuses_summary: List[dict] = Field(default_factory=list)
     # Set when /profile hit an internal error; main_waifu=None then must NOT be read as "no waifu".
     profile_error: Optional[str] = None
+    chronicle: Optional[dict] = None
+    delve: Optional[dict] = None
 
 
 class GuildMemberMainWaifuPreviewOut(BaseModel):
@@ -624,6 +635,9 @@ class GuildMemberMainWaifuPreviewOut(BaseModel):
     class_: int = Field(default=0, alias="class")
     portrait_url: Optional[str] = None
     paperdoll_url: Optional[str] = None
+    epithet_short: Optional[str] = None
+    delve_pb: Optional[int] = None
+    delve_title: Optional[str] = None
 
     class Config:
         populate_by_name = True
@@ -647,6 +661,11 @@ class GuildMemberPreviewOut(BaseModel):
     contribution_week: int = 0
     contribution_week_cap: int = 200_000
     hired_waifus: list[GuildMemberHiredWaifuPreviewOut] = Field(default_factory=list)
+    chronicle_companions: list[dict] = Field(default_factory=list)
+    delve_companions: list[dict] = Field(default_factory=list)
+    epithet_short: Optional[str] = None
+    delve_pb: Optional[int] = None
+    delve_title: Optional[str] = None
     is_self: bool = False
 
 

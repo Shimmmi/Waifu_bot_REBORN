@@ -21,6 +21,8 @@ EVENT_TYPES = frozenset({
     "dungeon_completed",
     "dungeon_failed",
     "expedition_completed",
+    "delve_started",
+    "delve_record",
     "boss_first_kill",
     "act_unlocked",
     "tavern_hired",

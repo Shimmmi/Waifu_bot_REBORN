@@ -131,6 +131,28 @@ export interface PlayerCharacter {
   current_hp?: number
   portrait_url?: string
   paperdoll_url?: string
+  delve_pb?: number
+  delve_title?: string
+}
+
+export interface DelveCompanion {
+  name?: string
+  image_url?: string
+  portrait_url?: string
+  gold_earned?: number
+  xp_earned?: number
+  days?: number
+  stance_label?: string
+}
+
+export interface DelveShowcase {
+  started?: boolean
+  pb_depth?: number
+  depth?: number
+  title?: string
+  gold_granted_total?: number
+  xp_granted_total?: number
+  companions?: DelveCompanion[]
 }
 
 export interface PerfectionBonusSummary {
@@ -158,6 +180,7 @@ export interface PlayerSummary {
   recent_dungeons?: Array<{ dungeon_name: string; status: string; plus_level: number }>
   perfection_level?: number
   perfection_bonuses_summary?: PerfectionBonusSummary[]
+  delve?: DelveShowcase
 }
 
 export interface PlayerStatistics {

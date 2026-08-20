@@ -12,7 +12,6 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db.models import (
-    HiredWaifu,
     HiddenSkillDefinition,
     Player,
     PlayerHiddenSkill,
@@ -50,6 +49,8 @@ COUNTER_EVENTS: dict[str, list[str]] = {
     "gamble_use": ["gambler"],
     "expedition_complete": ["expedition_veteran"],
     "loyal_expedition": ["loyal_commander"],
+    "delve_record": ["mythweaver", "loyal_commander"],
+    "delve_hours": ["expedition_veteran"],
     "saving_period": ["hoarder"],
     "enchant_5plus": ["enchanter_soul"],
     "marathon_complete": ["marathon"],
@@ -231,11 +232,11 @@ async def refresh_legend_counter(
 
 
 async def sync_loyal_commander_counter(session: AsyncSession, player_id: int) -> None:
-    """Счётчик «Верного командира» = max(expedition_completions) по наёмницам игрока."""
-    m = await session.scalar(
-        select(func.max(HiredWaifu.expedition_completions)).where(HiredWaifu.player_id == int(player_id))
-    )
-    n = int(m or 0)
+    """Счётчик «Верного командира» = рекорд глубины колонны."""
+    from waifu_bot.db.models.delve import DelveState
+
+    state = await session.get(DelveState, int(player_id))
+    n = int(state.pb_depth or 0) if state is not None else 0
     tbl = PlayerHiddenSkill.__table__
     stmt = (
         insert(tbl)

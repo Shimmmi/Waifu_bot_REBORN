@@ -19,8 +19,7 @@ def get_background_tick_registry() -> list[BackgroundTickSpec]:
     from waifu_bot.services.background import (
         ABYSS_RESET_POLL_INTERVAL,
         CHAT_REWARDS_FLUSH_INTERVAL,
-        EXPEDITION_NOTIFY_INTERVAL,
-        EXPEDITION_TICK_INTERVAL,
+        DELVE_GRANT_INTERVAL,
         GD_V1_REG_POLL_SECONDS,
         GD_V1_ROUND_POLL_SECONDS,
         GUILD_NARRATIVE_INTERVAL,
@@ -33,8 +32,7 @@ def get_background_tick_registry() -> list[BackgroundTickSpec]:
         _guild_quest_weekly_reset_fn,
         _chat_rewards_daily_claim_fn,
         _chat_rewards_flush_fn,
-        _expedition_notify_tick,
-        _expedition_tick_loop_fn,
+        _delve_grant_fn,
         _gd_daily_finalize_tick,
         _gd_daily_start_tick,
         _gd_v1_registration_tick,
@@ -52,10 +50,10 @@ def get_background_tick_registry() -> list[BackgroundTickSpec]:
             lock_ttl_sec=55,
         ),
         BackgroundTickSpec(
-            "expedition_notify",
-            EXPEDITION_NOTIFY_INTERVAL,
-            _expedition_notify_tick,
-            lock_ttl_sec=25,
+            "delve_grant",
+            DELVE_GRANT_INTERVAL,
+            _delve_grant_fn,
+            lock_ttl_sec=3500,
         ),
         BackgroundTickSpec(
             "gd_daily_finalize",
@@ -74,12 +72,6 @@ def get_background_tick_registry() -> list[BackgroundTickSpec]:
             GUILD_WAR_HOUR,
             _guild_war_hourly_fn,
             lock_ttl_sec=3500,
-        ),
-        BackgroundTickSpec(
-            "expedition_tick",
-            EXPEDITION_TICK_INTERVAL,
-            _expedition_tick_loop_fn,
-            lock_ttl_sec=25,
         ),
         BackgroundTickSpec(
             "guild_war_narrative",

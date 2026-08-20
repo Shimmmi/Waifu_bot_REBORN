@@ -72,6 +72,18 @@ def test_leaderboard_kinds_include_gear_and_dungeon():
     assert "gear_score" in LEADERBOARD_KINDS
     assert "guild" in LEADERBOARD_KINDS
     assert "abyss" in LEADERBOARD_KINDS
+    assert "delve" in LEADERBOARD_KINDS
+
+
+def test_delve_leaderboard_sorts_by_pb_depth():
+    import inspect
+
+    from waifu_bot.services import armory_service as svc
+
+    src = inspect.getsource(svc.build_leaderboard)
+    assert "kind == \"delve\"" in src
+    assert "DelveState.pb_depth" in src
+    assert "pb_depth.desc" in src
 
 
 @pytest.mark.asyncio

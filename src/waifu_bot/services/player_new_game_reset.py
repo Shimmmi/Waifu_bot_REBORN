@@ -46,6 +46,11 @@ async def reset_player_to_new_game(session: AsyncSession, player_id: int) -> Non
     await session.execute(delete(m.TavernHireSlot).where(m.TavernHireSlot.player_id == pid))
     await session.execute(delete(m.HiredWaifu).where(m.HiredWaifu.player_id == pid))
     await session.execute(delete(m.TavernState).where(m.TavernState.player_id == pid))
+    try:
+        await session.execute(delete(m.DelveCompanion).where(m.DelveCompanion.player_id == pid))
+        await session.execute(delete(m.DelveState).where(m.DelveState.player_id == pid))
+    except Exception:
+        pass
 
     await session.execute(delete(m.InventoryItem).where(m.InventoryItem.player_id == pid))
 

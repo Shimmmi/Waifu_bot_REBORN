@@ -98,6 +98,8 @@ from waifu_bot.db.models.tavern_audio import (
     PlayerBgmPrefs,
 )
 from waifu_bot.db.models.expedition import ExpeditionAffix, ExpeditionSlot, ActiveExpedition
+from waifu_bot.db.models.delve import DelveState, DelveCompanion
+from waifu_bot.db.models.companion_card import CompanionCard, CompanionEvent, CompanionHall
 from waifu_bot.db.models.group_dungeon import (
     GDDungeonTemplate,
     PlayerChatFirstSeen,
@@ -248,6 +250,11 @@ __all__ = [
     "ExpeditionAffix",
     "ExpeditionSlot",
     "ActiveExpedition",
+    "DelveState",
+    "DelveCompanion",
+    "CompanionCard",
+    "CompanionEvent",
+    "CompanionHall",
     "GDDungeonTemplate",
     "PlayerChatFirstSeen",
     "PlayerGameAction",

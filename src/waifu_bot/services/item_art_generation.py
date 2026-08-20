@@ -12,7 +12,7 @@ from typing import Optional
 import httpx
 from PIL import Image
 
-from waifu_bot.services.expedition_events_ai import _extract_openrouter_image_b64
+from waifu_bot.services.llm_narrative import _extract_openrouter_image_b64
 from waifu_bot.services.item_art import is_legendary_art_key
 from waifu_bot.services.llm_client import (
     IMAGE_MODALITY_ATTEMPTS,

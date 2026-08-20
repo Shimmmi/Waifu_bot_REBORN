@@ -26,6 +26,13 @@ node_modules/
 static/guild_icons/*
 !static/guild_icons/.gitkeep
 
+# Runtime and per-player generated column portraits
+/var/
+static/game/delve/portraits/*
+!static/game/delve/portraits/.gitkeep
+static/game/chronicle/portraits/*
+!static/game/chronicle/portraits/.gitkeep
+
 # Секреты и токены (дополнительная защита)
 *secret*
 *token*

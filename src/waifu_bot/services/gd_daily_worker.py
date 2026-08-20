@@ -91,7 +91,7 @@ def format_level_display(level: int, perfection_level: int = 0) -> str:
 def format_daily_start_roster_html(party: list[dict[str, Any]]) -> str:
     lines: list[str] = []
     for p in party:
-        name_html = format_waifu_html(p.get("name"))
+        name_html = format_waifu_html(p.get("name"), p.get("epithet_short"))
         lvl_txt = format_level_display(
             int(p.get("level") or 1),
             int(p.get("perfection_level") or 0),
@@ -102,7 +102,7 @@ def format_daily_start_roster_html(party: list[dict[str, Any]]) -> str:
 
 
 def _finale_player_block(index: int, r: dict[str, Any]) -> str:
-    name_html = format_waifu_html(r.get("name"))
+    name_html = format_waifu_html(r.get("name"), r.get("epithet_short"))
     msg_total = int(r.get("msg_total") or 0)
     head = (
         f"{index}. {name_html} — сообщ. <b>{msg_total}</b> "
@@ -129,9 +129,9 @@ def _finale_footer_lines(
     _ = rows
     lines: list[str] = [""]
     if mvp:
-        lines.append(f"🏆 MVP: {format_waifu_html(mvp.get('name'))}")
+        lines.append(f"🏆 MVP: {format_waifu_html(mvp.get('name'), mvp.get('epithet_short'))}")
     if least and (not mvp or least.get("user_id") != mvp.get("user_id")):
-        lines.append(f"🪵 Малоактивный: {format_waifu_html(least.get('name'))}")
+        lines.append(f"🪵 Малоактивный: {format_waifu_html(least.get('name'), least.get('epithet_short'))}")
     return lines
 
 

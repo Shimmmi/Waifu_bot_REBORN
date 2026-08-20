@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from waifu_bot.db.models.dungeon import DungeonRun, DungeonRunMonster, MonsterAffix, MonsterTemplate
 from waifu_bot.db.models.story_boss import StoryBossDefinition
 from waifu_bot.services.dungeon import _monster_slug_for_webp
-from waifu_bot.services.expedition_events_ai import (
+from waifu_bot.services.llm_narrative import (
     _extract_openrouter_image_b64,
     monster_template_dominant_trait_ru,
 )

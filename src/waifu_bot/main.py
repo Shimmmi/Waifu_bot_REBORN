@@ -130,6 +130,9 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(ArmoryCORSMiddleware)
     app.add_middleware(TelegramWebAppHeadersMiddleware)
+    from waifu_bot.api.legacy_gone import ExpeditionLegacyGoneMiddleware
+
+    app.add_middleware(ExpeditionLegacyGoneMiddleware)
 
     app.include_router(api_router, prefix="/api")
 

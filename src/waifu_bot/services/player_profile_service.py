@@ -159,7 +159,18 @@ async def get_self_profile(session: AsyncSession, player_id: int) -> dict[str, A
         build_campaign_progress(session, player_id, player=player),
         build_abyss_summary(session, player_id),
     )
-    return profile_self_dict(player, campaign=campaign, abyss=abyss)
+    out = profile_self_dict(player, campaign=campaign, abyss=abyss)
+    try:
+        from waifu_bot.services.delve import lite_showcase
+
+        out["delve"] = await lite_showcase(session, player_id)
+        mw = out.get("main_waifu")
+        if isinstance(mw, dict):
+            mw["delve_pb"] = out["delve"].get("pb_depth")
+            mw["delve_title"] = out["delve"].get("title")
+    except Exception:
+        logger.debug("delve on self profile failed", exc_info=True)
+    return out
 
 
 async def get_public_profile(

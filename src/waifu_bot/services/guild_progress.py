@@ -340,15 +340,8 @@ async def apply_war_bank_deposit(session: AsyncSession, player_id: int, gold_amo
 
 
 async def apply_expedition_success_guild(session: AsyncSession, player_id: int) -> None:
-    cfg = await get_game_config_map(session)
-    amt = cfg_int(cfg, "guild_gxp.expedition_success", 30)
-    gid = await get_player_guild_id(session, player_id)
-    if gid and amt:
-        await add_gxp(session, gid, amt, reason="expedition")
-        from waifu_bot.services.guild_contribution import add_member_contribution
-
-        await add_member_contribution(session, gid, player_id, amt, reason="expedition")
-    await apply_war_activity(session, player_id, "expedition_success")
+    """Chronicle must not farm GXP / war score. Kept as a no-op for leftover callers."""
+    return
 
 
 async def apply_war_activity(

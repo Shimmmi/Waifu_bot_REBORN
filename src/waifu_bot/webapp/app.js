@@ -1820,33 +1820,19 @@ function perfectionXpPct(profile) {
   return Math.round(clamp01(xp / need) * 100);
 }
 
-function renderAtticExpeditions(actives, maxConcurrent) {
+function renderAtticExpeditions(payload) {
   const chip = document.getElementById("attic-exp-chip");
   const cellsWrap = document.getElementById("attic-exp-cells");
   if (!chip || !cellsWrap) return;
-  const max = Math.max(1, Number(maxConcurrent) || 3);
-  const list = Array.isArray(actives) ? actives : [];
   chip.hidden = false;
-  const cells = [];
-  for (let i = 0; i < max; i++) {
-    const a = list[i] || null;
-    if (!a) {
-      cells.push('<div class="attic-exp-cell attic-exp-cell--empty" aria-label="Свободный слот"></div>');
-      continue;
-    }
-    const title = escapeHtml(a.narrative_title || "Экспедиция");
-    let cls = "attic-exp-cell--active";
-    let label = "В процессе";
-    if (a.outcome === "cancelled") {
-      cls = "attic-exp-cell--cancelled";
-      label = "Отменена";
-    } else if (a.can_claim) {
-      cls = "attic-exp-cell--done";
-      label = "Готово";
-    }
-    cells.push(`<div class="attic-exp-cell ${cls}" title="${title}" aria-label="${label}"></div>`);
+  chip.title = "Экспедиции";
+  const started = Boolean(payload && payload.started);
+  const rec = Number((payload && (payload.pb_depth || (payload.frame && payload.frame.record))) || 0);
+  if (!started) {
+    cellsWrap.innerHTML = '<span class="attic-chr-label">Экспедиции</span>';
+    return;
   }
-  cellsWrap.innerHTML = cells.join("");
+  cellsWrap.innerHTML = `<span class="attic-chr-label">${rec > 0 ? rec : "↓"}</span>`;
 }
 
 function hasAtticChrome() {
@@ -1939,7 +1925,7 @@ async function fetchActiveExpeditions(options = {}) {
     return activeExpeditionCache.data;
   }
   if (activeExpeditionCache.inFlight) return activeExpeditionCache.inFlight;
-  activeExpeditionCache.inFlight = apiFetch("/expeditions/active")
+  activeExpeditionCache.inFlight = apiFetch("/delve/sync")
     .then((data) => {
       activeExpeditionCache.data = data;
       activeExpeditionCache.ts = Date.now();
@@ -1961,11 +1947,9 @@ function refreshAtticChips(opts = {}) {
   }
   fetchActiveExpeditions()
     .then((res) => {
-      const actives = Array.isArray(res?.active) ? res.active : [];
-      const maxConcurrent = Number(res?.max_concurrent) || 3;
-      renderAtticExpeditions(actives, maxConcurrent);
+      renderAtticExpeditions(res);
     })
-    .catch(() => renderAtticExpeditions([], 3));
+    .catch(() => renderAtticExpeditions(null));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1992,7 +1976,9 @@ function populateFromProfile(profile, opts = {}) {
 
     // Legacy IDs kept for back-compat (silently skipped when not in DOM)
     if (w.name) setText("waifu-name", w.name);
-    if (w.name) setText("profile-name", w.name);
+    if (w.name) {
+      setText("profile-name", w.name);
+    }
     if (w.level != null) {
       setText("profile-level", formatLevelWithPerfection(w.level, pLevel));
     }
@@ -2056,6 +2042,7 @@ function populateFromProfile(profile, opts = {}) {
 
   updateTrainingNavAttention(profile);
   ensureAtticPerfectionMenuItem(profile);
+  renderDelveShowcase(profile);
 
   if (document.getElementById("shop-gamble-cost")) updateShopGambleCost();
 }
@@ -4042,36 +4029,15 @@ function initAtticChipClicks() {
   const expChip = document.getElementById("attic-exp-chip");
   if (expChip) {
     expChip.addEventListener("click", () => {
-      window.location.href = "./dungeons.html?tab=operations";
+      window.location.href = "./dungeons.html?tab=expedition";
     });
     expChip.style.cursor = "pointer";
-    expChip.title = "Операции";
+    expChip.title = "Экспедиции";
   }
-  // Arena chip (merc overhaul) — inject next to ops chip if missing
-  let arenaChip = document.getElementById("attic-arena-chip");
-  if (!arenaChip && expChip && expChip.parentElement) {
-    arenaChip = document.createElement("div");
-    arenaChip.className = "chip attic-arena-chip";
-    arenaChip.id = "attic-arena-chip";
-    arenaChip.title = "Арена";
-    arenaChip.innerHTML = `<span id="attic-arena-tickets">⚔ —</span>`;
-    expChip.parentElement.insertBefore(arenaChip, expChip.nextSibling);
-  }
-  if (arenaChip) {
-    arenaChip.addEventListener("click", () => {
-      window.location.href = "./tavern.html?tab=arena";
-    });
-    arenaChip.style.cursor = "pointer";
-    fetch("/api/arena/status", { headers: authHeaders() })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        const el = document.getElementById("attic-arena-tickets");
-        if (el && data) el.textContent = `⚔ ${data.arena_tickets ?? 0}`;
-      })
-      .catch(() => {});
-  }
+  const arenaChip = document.getElementById("attic-arena-chip");
+  if (arenaChip) arenaChip.hidden = true;
   if (document.getElementById("attic-exp-cells")) {
-    renderAtticExpeditions([], 3);
+    renderAtticExpeditions(null);
   }
 }
 
@@ -8555,7 +8521,14 @@ function getItemBonusesText(item) {
 }
 
 function renderProfilePortrait(waifu, profile = null) {
-  setText("profile-portrait-name", waifu?.name || "—");
+  const p = profile || profileState.currentProfile;
+  const name = waifu?.name || "—";
+  const rec = Number(waifu?.delve_pb || p?.delve?.pb_depth || 0);
+  setText("profile-portrait-name", rec > 0 ? `${name}` : name);
+  const nameEl = document.getElementById("profile-portrait-name");
+  if (nameEl && rec > 0) {
+    nameEl.innerHTML = `${escapeHtml(name)} <span class="delve-badge">${rec}</span>`;
+  }
   const metaEl = document.getElementById("profile-mtg-meta");
   if (metaEl) {
     const p = profile || profileState.currentProfile;
@@ -8768,6 +8741,52 @@ async function renderProfileStatistics() {
   renderProfileAbyssStats().catch(() => {});
 }
 
+function renderDelveShowcase(profile) {
+  const section = document.getElementById("profile-delve-section") || document.getElementById("profile-chronicle-section");
+  if (!section) return;
+  const dv = profile && (profile.delve || profile.chronicle);
+  if (!dv || !dv.started) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  const rec = Number(dv.pb_depth || 0);
+  const nowD = dv.depth != null ? Number(dv.depth) : null;
+  const title = dv.title || "";
+  const comps = Array.isArray(dv.companions) ? dv.companions.slice(0, 3) : [];
+  const faces = comps
+    .map((c) => {
+      const src = String(c.image_url || c.portrait_url || "").trim();
+      const days = Number(c.days || 0);
+      const daysText = days <= 0 ? "сегодня" : `${days} дн.`;
+      const gold = Number(c.gold_earned || 0).toLocaleString("ru-RU");
+      return `<figure class="profile-delve-face">
+        <img class="delve-bust" src="${escapeHtml(src)}" alt="${escapeHtml(c.name || "")}" width="72" height="72" />
+        <figcaption>
+          <strong>${escapeHtml(c.name || "")}</strong>
+          <span>${escapeHtml(gold)} зол. · ${escapeHtml(daysText)}</span>
+        </figcaption>
+      </figure>`;
+    })
+    .join("");
+  const bits = [`Рекорд ${rec}`];
+  if (nowD != null) bits.push(`сейчас ${nowD}`);
+  if (title) bits.push(title);
+  const partyGold = dv.gold_granted_total != null ? Number(dv.gold_granted_total) : null;
+  const partyXp = dv.xp_granted_total != null ? Number(dv.xp_granted_total) : null;
+  const party =
+    partyGold != null
+      ? `<p class="muted tiny">Принесли ${escapeHtml(partyGold.toLocaleString("ru-RU"))} золота · ${escapeHtml(Number(partyXp || 0).toLocaleString("ru-RU"))} опыта</p>`
+      : "";
+  section.innerHTML = `
+    <h3 class="section-title">Экспедиции</h3>
+    <p class="muted tiny">${escapeHtml(bits.join(" · "))}</p>
+    ${party}
+    <div class="profile-delve-faces">${faces}</div>
+    <p class="muted tiny"><a href="./dungeons.html?tab=expedition">Открыть экспедиции</a></p>
+  `;
+}
+
 async function renderProfileAbyssStats() {
   const section = document.getElementById("profile-abyss-section");
   const box = document.getElementById("profile-abyss-stats");
@@ -8957,6 +8976,10 @@ function renderProfilePaperDoll(waifu) {
   } else {
     bodyInner = escapeHtml(waifuPortraitEmoji(waifu) || "👤");
   }
+  const rec = Number(waifu?.delve_pb || profileState.currentProfile?.delve?.pb_depth || 0);
+  const framedName = rec > 0
+    ? `<strong>${name} <span class="delve-badge">${rec}</span></strong>`
+    : `<strong>${name}</strong>`;
 
   const menuBtn = `<button type="button" class="profile-paperdoll-menu-btn" data-tutorial="profile-paperdoll-menu" title="Действия с образом" aria-label="Меню образа" onclick="event.stopPropagation();WaifuApp.togglePaperdollMenu(event)">⋯</button>`;
   const menuBlock = `
@@ -8972,7 +8995,7 @@ function renderProfilePaperDoll(waifu) {
     <div class="profile-paperdoll">
       <div class="${bodyClass}">${bodyInner}${menuBtn}${menuBlock}</div>
       <div class="profile-paperdoll-caption">
-        <strong>${name}</strong>
+        ${framedName}
         <span class="muted tiny">${meta}</span>
       </div>
     </div>
@@ -12327,9 +12350,33 @@ function renderGuildMemberPreviewBody() {
   if (contribBar) contribBar.style.width = `${contribPct}%`;
 
   if (heroesRow) {
+    const faces = Array.isArray(data.delve_companions) && data.delve_companions.length
+      ? data.delve_companions
+      : Array.isArray(data.chronicle_companions)
+        ? data.chronicle_companions
+        : [];
     const hired = Array.isArray(data.hired_waifus) ? data.hired_waifus : [];
-    if (!hired.length) {
-      heroesRow.innerHTML = `<div class="guild-member-preview-heroes-empty">Нет наёмниц</div>`;
+    if (faces.length) {
+      const rec = data.delve_pb != null ? Number(data.delve_pb) : 0;
+      const recHtml = rec > 0 ? `<div class="guild-member-preview-heroes-empty">Глубина ${rec}</div>` : "";
+      heroesRow.innerHTML =
+        recHtml +
+        faces
+          .map((c) => {
+            const portrait = String(c.image_url || c.portrait_url || "");
+            const imgInner = portrait ? `<img src="${escapeHtml(portrait)}" alt="" />` : "△";
+            const days = Number(c.days || 0);
+            const daysText = days <= 0 ? "сегодня" : `${days} дн.`;
+            const gold = Number(c.gold_earned || 0).toLocaleString("ru-RU");
+            return `<div class="guild-member-preview-hero-thumb">
+            <div class="guild-member-preview-hero-thumb-img">${imgInner}</div>
+            <div class="guild-member-preview-hero-level">${escapeHtml(c.name || "")}</div>
+            <div class="guild-member-preview-hero-level muted">${escapeHtml(gold)} зол. · ${escapeHtml(daysText)}</div>
+          </div>`;
+          })
+          .join("");
+    } else if (!hired.length) {
+      heroesRow.innerHTML = `<div class="guild-member-preview-heroes-empty">Нет отряда экспедиции</div>`;
     } else {
       heroesRow.innerHTML = hired
         .map((hw) => {
