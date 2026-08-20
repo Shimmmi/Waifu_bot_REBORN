@@ -26,6 +26,11 @@ async def spice_one(session: AsyncSession, player_id: int) -> dict | None:
     card = await session.get(m.CompanionCard, int(row.card_id)) if row.card_id else None
     name = card.name if card else "Она"
     original = row.line_ru
+    from waifu_bot.services.companion_living import list_living_cards
+
+    living = await list_living_cards(session, int(player_id))
+    party_names = [str(c.name).strip() for c in living if c.name] or [name]
+    party = ", ".join(party_names)
     try:
         from waifu_bot.services.delve_line import _fast_model
         from waifu_bot.services.llm_client import has_text_llm_configured, post_chat_completions_routerai
@@ -40,7 +45,8 @@ async def spice_one(session: AsyncSession, player_id: int) -> dict | None:
                                 "role": "system",
                                 "content": (
                                     "Перепиши одной-двумя фразами по-русски уже случившееся. "
-                                    "Не меняй исход. Не добавляй золото, смерть или исцеление, если их нет в тексте."
+                                    "Не меняй исход. Не добавляй золото, смерть или исцеление, если их нет в тексте. "
+                                    f"Называй только этих наёмниц: {party}. Не выдумывай других имён."
                                 ),
                             },
                             {"role": "user", "content": f"{name}. {original}"},
@@ -59,9 +65,12 @@ async def spice_one(session: AsyncSession, player_id: int) -> dict | None:
                     if choices:
                         msg = str((choices[0].get("message") or {}).get("content") or "").strip()
                     if msg:
-                        row.line_ru = msg[:280]
+                        from waifu_bot.game.delve_catalog import enforce_squad_names
+
                         payload = dict(row.payload or {})
                         payload["spiced"] = True
+                        payload["who"] = name
+                        row.line_ru = enforce_squad_names(msg[:280], party_names, face=name)[:280]
                         row.payload = payload
     except Exception:
         pass

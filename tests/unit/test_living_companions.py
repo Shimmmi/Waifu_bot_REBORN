@@ -134,7 +134,10 @@ def test_dismiss_card_has_no_age_or_beat_lock():
     hall_js = Path("src/waifu_bot/webapp/pages/tavern_hall.js").read_text(encoding="utf-8")
     assert "Плоть" not in hall_js
     assert "living-dismiss-btn" in hall_js
-    assert "disabled" not in hall_js.split("living-dismiss-btn")[1][:80]
+    assert "can_dismiss" in hall_js
+    assert "Завтра" in hall_js
+    assert "loyalty-tick" in hall_js
+    assert "living-bio-btn" in hall_js
     assert 'data-kind="hire"' in hall_js
     assert "living-log-btn" in hall_js
     assert "confirm_hire" not in hall_js
@@ -195,6 +198,56 @@ def test_rename_once_and_name_rules():
     src = getsource(rename_card)
     assert "name_locked" in src
     assert "renamed" in src
+    assert "_rewrite_delve_flavor_name" in src
+
+
+def test_enforce_squad_names_replaces_pool_and_keeps_living():
+    from waifu_bot.game.delve_catalog import enforce_squad_names, replace_companion_name
+    from waifu_bot.services.delve import overlay_flavor_phrase
+    from waifu_bot.services.delve_line import _sanitize_line, flavor_cache_key
+
+    assert enforce_squad_names("Милана рубит споры.", ["Васянка"]) == "Васянка рубит споры."
+    assert enforce_squad_names("Васянка идёт дальше.", ["Васянка"]) == "Васянка идёт дальше."
+    assert replace_companion_name("Юна считает шаги.", "Юна", "Данилка") == "Данилка считает шаги."
+    assert enforce_squad_names("Юна считает шаги.", ["Данилка"]) == "Данилка считает шаги."
+    two = enforce_squad_names("Милана кивает Эльза.", ["Васянка", "Сера"])
+    assert two == "Васянка кивает Сера."
+    kept = enforce_squad_names("Данилка трогает метку в Пепел.", ["Данилка"])
+    assert kept == "Данилка трогает метку в Пепел."
+    sanitized = _sanitize_line(' "Милана молчит и идёт." ', names=["Васянка"], face="Васянка")
+    assert sanitized == "Васянка молчит и идёт."
+    key_a = flavor_cache_key(d=4, node="TRAVERSE", palette_id="wet", names=["Васянка"])
+    key_b = flavor_cache_key(d=4, node="TRAVERSE", palette_id="wet", names=["Данилка"])
+    assert key_a != key_b
+    assert flavor_cache_key(d=4, node="TRAVERSE", palette_id="wet", names=["Васянка"]) == key_a
+    state = SimpleNamespace(flavor_text="Милана знает камень.")
+    frame = {"phrase": "шаблон"}
+    overlay_flavor_phrase(state, frame, [SimpleNamespace(name="Васянка")])
+    assert frame["phrase"] == "Васянка знает камень."
+    assert state.flavor_text == "Васянка знает камень."
+
+
+def test_spiced_line_picks_up_rename():
+    spiced = SimpleNamespace(
+        line_ru="Юна трогает метку в Пепел.",
+        template_id="landmark_touch",
+        depth=50,
+        payload={"spiced": True, "who": "Юна"},
+    )
+    assert refresh_event_line(spiced, who="Данилка") == "Данилка трогает метку в Пепел."
+
+
+def test_companion_name_pool_is_wide():
+    from waifu_bot.game.delve_catalog import COMPANION_NAME_POOL, pick_companion_name
+    from waifu_bot.services.companion_living import _spawn_rain
+    from inspect import getsource
+
+    assert len(COMPANION_NAME_POOL) >= 80
+    assert len(set(COMPANION_NAME_POOL)) == len(COMPANION_NAME_POOL)
+    names = {pick_companion_name(305174198, 1, salt=i) for i in range(60)}
+    assert len(names) >= 20
+    src = getsource(_spawn_rain)
+    assert "salt=" in src
 
 
 def test_apply_outcome_gold_xp_always_zero():
@@ -276,3 +329,158 @@ def test_grant_tap_source_has_no_party_mult():
     grant_src = __import__("inspect").getsource(grant_tap)
     assert "party_mult" not in grant_src
     assert "party_mult" not in src
+    assert "loyalty_mult" in grant_src
+    from waifu_bot.services.delve import loyalty_faucet_mult
+
+    assert loyalty_faucet_mult([]) == 1.0
+    assert loyalty_faucet_mult([50, 50, 50]) == 1.0
+    assert abs(loyalty_faucet_mult([100]) - 1.15) < 1e-9
+    assert abs(loyalty_faucet_mult([100, 100, 100]) - 1.35) < 1e-9
+    assert loyalty_faucet_mult([0, 0, 0]) == 1.0
+    assert loyalty_faucet_mult([100, 100, 100, 100]) <= 1.40
+
+
+def test_class_to_stance_and_spawn_dedupes_class():
+    from inspect import getsource
+
+    from waifu_bot.services.companion_living import CLASS_NAMES_RU, CLASS_TO_STANCE, _spawn_rain, look_card_for
+
+    assert set(CLASS_TO_STANCE) == set(CLASS_NAMES_RU)
+    assert CLASS_TO_STANCE[1] == CLASS_TO_STANCE[2] == "shield"
+    assert CLASS_TO_STANCE[3] == CLASS_TO_STANCE[5] == "scout"
+    assert CLASS_TO_STANCE[4] == "guide"
+    src = getsource(_spawn_rain)
+    assert "used_c" in src
+    assert "CLASS_TO_STANCE" in src
+    look = look_card_for(name="Мира", stance="scout", cloak="ash", traits=["тихая"], seed=1, class_id=3, race_id=2)
+    assert look["class_id"] == 3
+    assert look["loyalty"] == 50
+
+
+def test_dismiss_cap_and_loyalty_leave_are_separate():
+    from inspect import getsource
+
+    from waifu_bot.services.companion_living import dismiss_card, leave_loyalty
+
+    dismiss_src = getsource(dismiss_card)
+    leave_src = getsource(leave_loyalty)
+    assert "dismiss_day_cap" in dismiss_src
+    assert 'template_id="dismiss"' in dismiss_src
+    assert "was_living" in dismiss_src
+    assert "start_mourning" not in leave_src
+    assert "loyalty_leave" in leave_src
+    assert "leave_column" in leave_src
+    assert "dismiss_day_cap" not in leave_src
+    living = Path("src/waifu_bot/services/companion_living.py").read_text(encoding="utf-8")
+    assert "dismiss_left" in living
+    assert "is_admin" in living
+    hall = Path("src/waifu_bot/webapp/pages/tavern_hall.js").read_text(encoding="utf-8")
+    assert "isAdminUiEnabled" not in hall
+
+
+def test_bio_prompt_long_and_not_grotesque():
+    from inspect import getsource
+
+    from waifu_bot.game.constants import AI_NARRATIVE_GROTESQUE_HUMOR_RU
+    from waifu_bot.services.companion_art import fill_identity
+    from waifu_bot.services.expedition_events_ai import generate_hire_waifu_image
+
+    src = getsource(fill_identity)
+    assert AI_NARRATIVE_GROTESQUE_HUMOR_RU not in src
+    assert "5–8" in src or "5-8" in src
+    assert "max_tokens" in src
+    assert "grotesk" in src.lower() or "гротеск" in src
+    art = Path("src/waifu_bot/services/companion_art.py").read_text(encoding="utf-8")
+    assert 'tone="living"' in art
+    hire = getsource(generate_hire_waifu_image)
+    assert "tone" in hire
+    assert "absurd comedy" in hire
+    assert "no comedy" in hire
+
+
+def test_strip_stage_directions_keeps_emphasis():
+    from waifu_bot.services.companion_chat import strip_stage_directions
+
+    assert strip_stage_directions("*поправила щит* Сижу.") == "Сижу."
+    assert strip_stage_directions("Это *важно* знать.") == "Это *важно* знать."
+    assert "поправила" not in strip_stage_directions("*поправила щит*\nНу. Говори.")
+    chat = Path("src/waifu_bot/services/companion_chat.py").read_text(encoding="utf-8")
+    assert "msk_today" in chat
+    assert "loyalty_tick_msk" in chat
+    assert "Био: {card.bio or ''}" in chat
+
+
+def test_catch_up_midday_cap_and_card_gold():
+    from datetime import datetime, timezone
+
+    from waifu_bot.game.delve_catalog import gold_rate_per_sec, split_weighted
+    from waifu_bot.services.delve import attribute_party_grant, catch_up_midday_cap_increase
+
+    last = datetime(2026, 1, 1, 17, 0, tzinfo=timezone.utc)  # 20:00 MSK
+    minted, today = catch_up_midday_cap_increase(
+        0,
+        275,
+        last=last,
+        now=last,
+        cap=330,
+        rate=gold_rate_per_sec(330),
+        granted_before=250,
+    )
+    assert minted == 25
+    assert today == 275
+    zero, _ = catch_up_midday_cap_increase(
+        10, 10, last=last, now=last, cap=330, rate=gold_rate_per_sec(330), granted_before=0
+    )
+    assert zero == 10
+    parts = split_weighted(10, [50, 50, 100])
+    assert sum(parts) == 10
+    delve_rows = [
+        SimpleNamespace(slot=1, gold_earned=0, xp_earned=0),
+        SimpleNamespace(slot=2, gold_earned=0, xp_earned=0),
+        SimpleNamespace(slot=3, gold_earned=0, xp_earned=0),
+    ]
+    cards = [
+        SimpleNamespace(slot=1, look_card={"loyalty": 50}, gold_earned=0, xp_earned=0),
+        SimpleNamespace(slot=2, look_card={"loyalty": 50}, gold_earned=0, xp_earned=0),
+        SimpleNamespace(slot=3, look_card={"loyalty": 100}, gold_earned=0, xp_earned=0),
+    ]
+    attribute_party_grant(delve_rows, 9, 9, cards=cards)
+    assert sum(r.gold_earned for r in delve_rows) == 9
+    assert sum(c.gold_earned for c in cards) == 9
+    assert cards[2].gold_earned >= cards[0].gold_earned
+
+
+def test_modal_css_and_cache_v108():
+    css = Path("src/waifu_bot/webapp/pages/tavern-living.css").read_text(encoding="utf-8")
+    html = Path("src/waifu_bot/webapp/tavern.html").read_text(encoding="utf-8")
+    hall = Path("src/waifu_bot/webapp/pages/tavern_hall.js").read_text(encoding="utf-8")
+    assert "max-height: 92vh" in css
+    assert "132px" in css
+    assert "v110" in hall
+    assert "waifu-webapp-v110" in html
+    docs = Path("docs/TAVERN_LIVING_COMPANIONS.md").read_text(encoding="utf-8")
+    assert "1 раз в сутки" in docs
+    assert "Без замка по суткам" not in docs
+
+
+def test_loyalty_hearts_on_hall():
+    from waifu_bot.services.companion_living import loyalty_heart_key, loyalty_heart_url
+
+    assert loyalty_heart_key(0) == loyalty_heart_key(5) == "broken"
+    assert loyalty_heart_key(6) == loyalty_heart_key(30) == "dim"
+    assert loyalty_heart_key(31) == loyalty_heart_key(69) == "pink"
+    assert loyalty_heart_key(70) == loyalty_heart_key(99) == "red"
+    assert loyalty_heart_key(100) == "gold"
+    root = Path("static/game/delve/portraits")
+    for key in ("broken", "dim", "pink", "red", "gold"):
+        path = root / f"loyalty_heart_{key}.webp"
+        assert path.is_file() and path.stat().st_size > 80
+        assert loyalty_heart_url({"broken": 0, "dim": 6, "pink": 50, "red": 80, "gold": 100}[key]).endswith(
+            f"loyalty_heart_{key}.webp"
+        )
+    hall = Path("src/waifu_bot/webapp/pages/tavern_hall.js").read_text(encoding="utf-8")
+    assert "living-hood-row" in hall
+    assert "loyaltyHeart" in hall
+    css = Path("src/waifu_bot/webapp/pages/tavern-living.css").read_text(encoding="utf-8")
+    assert "living-loyalty" in css
+

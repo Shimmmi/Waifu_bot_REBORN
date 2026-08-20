@@ -101,10 +101,19 @@ body.page-tavern.living-hall #tavern-living-root {
   font-size: 12px;
 }
 
+.living-hood-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  margin-top: -14px;
+  position: relative;
+  z-index: 1;
+}
 .living-hood {
   width: 44px;
   height: 44px;
-  margin-top: -14px;
+  margin-top: 0;
   border-radius: 50%;
   overflow: hidden;
   border: 2px solid rgba(232, 184, 75, 0.35);
@@ -117,6 +126,15 @@ body.page-tavern.living-hall #tavern-living-root {
   object-fit: cover;
   image-rendering: pixelated;
 }
+.living-loyalty {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  margin-bottom: 2px;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7));
+}
 
 .living-col .name {
   margin-top: 8px;
@@ -128,6 +146,11 @@ body.page-tavern.living-hall #tavern-living-root {
 .living-col .meta {
   font-size: 10px;
   color: var(--ash);
+  text-align: center;
+}
+.living-col .who-sub {
+  font-size: 10px;
+  color: rgba(239, 232, 214, 0.55);
   text-align: center;
 }
 .living-cta {
@@ -202,7 +225,7 @@ body.page-tavern.living-hall #tavern-living-root {
 }
 .living-sheet {
   width: min(420px, calc(100% - 8px));
-  max-height: 86vh;
+  max-height: 92vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -238,14 +261,14 @@ body.page-tavern.living-hall #tavern-living-root {
 }
 .living-hero {
   display: grid;
-  grid-template-columns: 88px 1fr;
+  grid-template-columns: 132px 1fr;
   gap: 10px;
   align-items: start;
   margin: 0 36px 8px 0;
   flex-shrink: 0;
 }
 .living-sheet .portrait-23 {
-  width: 88px;
+  width: 132px;
   aspect-ratio: 2 / 3;
   border-radius: 8px;
   overflow: hidden;
@@ -290,6 +313,27 @@ body.page-tavern.living-hall #tavern-living-root {
   color: var(--ash);
   margin-bottom: 3px;
 }
+.living-sheet .who {
+  font-weight: 700;
+  color: var(--cream);
+  font-size: 12px;
+}
+.living-sheet .who-sub,
+.living-sheet .loyalty {
+  font-size: 11px;
+  color: var(--ash);
+  margin-bottom: 3px;
+}
+.living-sheet .loyalty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.living-sheet .loyalty .living-loyalty {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
 .living-sheet .bio {
   font-size: 12px;
   line-height: 1.35;
@@ -317,6 +361,11 @@ body.page-tavern.living-hall #tavern-living-root {
   background: rgba(0, 0, 0, 0.28);
   cursor: pointer;
   color: inherit;
+}
+.living-stat:disabled,
+#living-dismiss-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .living-ico {
   width: 16px;

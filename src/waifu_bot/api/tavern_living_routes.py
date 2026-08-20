@@ -13,6 +13,7 @@ from waifu_bot.services.companion_living import (
     card_history,
     card_public,
     dismiss_card,
+    hall_dismiss_flags,
     hire_generated,
     refuse_rain,
     rename_card,
@@ -117,7 +118,13 @@ async def living_card(
             )
         )
     ).scalars().all()
-    return {**card_public(row, now=now, party=list(party)), "history": hist}
+    dismiss_left, is_admin = await hall_dismiss_flags(session, player_id, now=now)
+    return {
+        **card_public(
+            row, now=now, party=list(party), dismiss_left=dismiss_left, is_admin=is_admin
+        ),
+        "history": hist,
+    }
 
 
 @router.post("/tavern/living/cards/{card_id}/rename")
@@ -149,6 +156,55 @@ async def living_dismiss(
         _raise(e)
         raise
     return {"ok": True}
+
+
+class LoyaltyTickIn(BaseModel):
+    history: list[ChatTurn] = Field(default_factory=list, max_length=16)
+
+
+@router.post("/tavern/living/cards/{card_id}/loyalty-tick")
+async def living_loyalty_tick(
+    card_id: int,
+    body: LoyaltyTickIn,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from waifu_bot.services.companion_chat import loyalty_tick
+
+    try:
+        out = await loyalty_tick(
+            session,
+            player_id,
+            card_id,
+            history=[{"role": t.role, "text": t.text} for t in body.history],
+        )
+        await session.commit()
+    except DelveError as e:
+        _raise(e)
+        raise
+    return out
+
+
+@router.post("/tavern/living/cards/{card_id}/bio")
+async def living_bio_expand(
+    card_id: int,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    from datetime import datetime, timezone
+
+    from waifu_bot.services.companion_art import bio_needs_expand, fill_identity
+
+    row = await session.get(m.CompanionCard, int(card_id))
+    if row is None or int(row.player_id) != int(player_id) or row.status != "living":
+        raise HTTPException(status_code=404, detail="not_found")
+    if bio_needs_expand(row):
+        await fill_identity(session, row, force=True)
+        await session.commit()
+        await session.refresh(row)
+    now = datetime.now(timezone.utc)
+    dismiss_left, is_admin = await hall_dismiss_flags(session, player_id, now=now)
+    return card_public(row, now=now, dismiss_left=dismiss_left, is_admin=is_admin)
 
 
 @router.post("/tavern/living/cards/{card_id}/chat")

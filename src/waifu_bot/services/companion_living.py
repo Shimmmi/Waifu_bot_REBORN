@@ -60,6 +60,15 @@ CLASS_NAMES_RU = {
     6: "целительница",
     7: "торговка",
 }
+CLASS_TO_STANCE = {
+    1: "shield",
+    2: "shield",
+    3: "scout",
+    4: "guide",
+    5: "scout",
+    6: "guide",
+    7: "guide",
+}
 
 _NAME_RE = re.compile(r"^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё \-]{0,22}[A-Za-zА-Яа-яЁё]$")
 
@@ -124,10 +133,62 @@ def stamp_look_lineage(look: dict[str, Any] | None, *, seed: int, stance: str) -
         out["class_id"] = cid
     out["race_ru"] = RACE_NAMES_RU.get(int(out["race_id"]), "человек")
     out["class_ru"] = CLASS_NAMES_RU.get(int(out["class_id"]), "маг")
+    if "loyalty" not in out:
+        out["loyalty"] = 50
     return out
 
 
-def look_card_for(*, name: str, stance: str, cloak: str, traits: list[str], seed: int, hired_by: str = "") -> dict[str, Any]:
+def card_loyalty(card: m.CompanionCard | None) -> int:
+    if card is None:
+        return 50
+    look = card.look_card or {}
+    try:
+        value = int(look.get("loyalty", 50))
+    except (TypeError, ValueError):
+        value = 50
+    return max(0, min(100, value))
+
+
+LOYALTY_HEART_DIR = "/static/game/delve/portraits"
+
+
+def loyalty_heart_key(loyalty: int) -> str:
+    n = max(0, min(100, int(loyalty)))
+    if n <= 5:
+        return "broken"
+    if n <= 30:
+        return "dim"
+    if n <= 69:
+        return "pink"
+    if n <= 99:
+        return "red"
+    return "gold"
+
+
+def loyalty_heart_url(loyalty: int) -> str:
+    return f"{LOYALTY_HEART_DIR}/loyalty_heart_{loyalty_heart_key(loyalty)}.webp"
+
+
+def card_class_id(card: m.CompanionCard) -> int:
+    look = card.look_card or {}
+    try:
+        cid = int(look.get("class_id") or 0)
+    except (TypeError, ValueError):
+        cid = 0
+    return cid if cid in CLASS_NAMES_RU else 0
+
+
+def look_card_for(
+    *,
+    name: str,
+    stance: str,
+    cloak: str,
+    traits: list[str],
+    seed: int,
+    hired_by: str = "",
+    race_id: int | None = None,
+    class_id: int | None = None,
+) -> dict[str, Any]:
     rng = _rng("look", name, stance, cloak, seed)
     hair = rng.choice(["ash", "ink", "wine", "straw", "copper"])
     eyes = rng.choice(["grey", "amber", "green", "dark"])
@@ -140,9 +201,14 @@ def look_card_for(*, name: str, stance: str, cloak: str, traits: list[str], seed
         "cloak": cloak,
         "traits": traits,
         "marks": [],
+        "loyalty": 50,
     }
     if hired_by:
         out["hired_by"] = hired_by
+    if race_id in RACE_NAMES_RU:
+        out["race_id"] = int(race_id)
+    if class_id in CLASS_NAMES_RU:
+        out["class_id"] = int(class_id)
     return stamp_look_lineage(out, seed=seed, stance=stance)
 
 
@@ -253,8 +319,8 @@ async def sync_card_to_delve(session: AsyncSession, card: m.CompanionCard) -> No
         existing.cloak_color = card.cloak_color
         if pixel:
             existing.image_path = pixel
-        existing.gold_earned = int(card.gold_earned or 0)
-        existing.xp_earned = int(card.xp_earned or 0)
+        existing.gold_earned = max(int(existing.gold_earned or 0), int(card.gold_earned or 0))
+        existing.xp_earned = max(int(existing.xp_earned or 0), int(card.xp_earned or 0))
 
 
 async def migrate_delve_to_cards(session: AsyncSession, player_id: int, *, now: datetime | None = None) -> None:
@@ -381,10 +447,60 @@ def _consequence(card: m.CompanionCard, party: list[m.CompanionCard] | None = No
     return out[:6]
 
 
-def _dismiss_reason(card: m.CompanionCard, *, now: datetime) -> str | None:
-    if card.status in ("living", "left"):
+def can_dismiss_now(card: m.CompanionCard, *, dismiss_left: int, is_admin: bool) -> bool:
+    if card.status == "left":
+        return True
+    if card.status != "living":
+        return False
+    return int(dismiss_left) > 0 or bool(is_admin)
+
+
+def _dismiss_reason(
+    card: m.CompanionCard,
+    *,
+    now: datetime,
+    dismiss_left: int = 1,
+    is_admin: bool = False,
+) -> str | None:
+    if card.status == "left":
         return None
-    return "cannot_dismiss"
+    if card.status != "living":
+        return "cannot_dismiss"
+    if can_dismiss_now(card, dismiss_left=dismiss_left, is_admin=is_admin):
+        return None
+    return "dismiss_day_cap"
+
+
+async def count_dismisses_today(session: AsyncSession, player_id: int, *, now: datetime) -> int:
+    from waifu_bot.game.delve_catalog import msk_day_start
+
+    start = msk_day_start(now)
+    n = await session.scalar(
+        select(func.count())
+        .select_from(m.CompanionEvent)
+        .where(
+            m.CompanionEvent.player_id == int(player_id),
+            m.CompanionEvent.kind == "dismiss",
+            m.CompanionEvent.template_id == "dismiss",
+            m.CompanionEvent.ts >= start,
+        )
+    )
+    return int(n or 0)
+
+
+async def list_living_cards(session: AsyncSession, player_id: int) -> list[m.CompanionCard]:
+    rows = (
+        await session.execute(
+            select(m.CompanionCard)
+            .where(
+                m.CompanionCard.player_id == int(player_id),
+                m.CompanionCard.status == "living",
+                m.CompanionCard.slot.is_not(None),
+            )
+            .order_by(m.CompanionCard.slot.asc())
+        )
+    ).scalars().all()
+    return list(rows)
 
 
 def card_public(
@@ -392,11 +508,23 @@ def card_public(
     *,
     now: datetime,
     party: list[m.CompanionCard] | None = None,
+    dismiss_left: int = 1,
+    is_admin: bool = False,
 ) -> dict[str, Any]:
     stance = STANCES.get(card.stance, {})
     temper = TEMPERS.get(str(card.temper), {})
-    reason = _dismiss_reason(card, now=now)
+    reason = _dismiss_reason(card, now=now, dismiss_left=dismiss_left, is_admin=is_admin)
     from waifu_bot.services.companion_chat import chat_left
+
+    look = dict(card.look_card or {})
+    race_ru = str(look.get("race_ru") or "")
+    class_ru = str(look.get("class_ru") or "")
+    lineage = " · ".join(p for p in (race_ru, class_ru) if p)
+    bio = str(card.bio or "")
+    try:
+        bio_version = int(look.get("bio_version") or 0)
+    except (TypeError, ValueError):
+        bio_version = 0
     return {
         "id": card.id,
         "slot": card.slot,
@@ -430,14 +558,19 @@ def card_public(
         "days": days_in_party(card.joined_at, now),
         "gold_earned": int(card.gold_earned or 0),
         "xp_earned": int(card.xp_earned or 0),
-        "can_dismiss": card.status in ("living", "left"),
+        "can_dismiss": can_dismiss_now(card, dismiss_left=dismiss_left, is_admin=is_admin),
         "dismiss_reason": reason,
+        "dismiss_left": 1 if is_admin else max(0, min(1, int(dismiss_left))),
         "asked_to_leave": bool(card.asked_to_leave),
         "chat_left": chat_left(card, now=now),
         "joined_at": card.joined_at.isoformat() if card.joined_at else None,
-        "can_rename": card.status == "living" and not bool((card.look_card or {}).get("renamed")),
-        "race_ru": str((card.look_card or {}).get("race_ru") or ""),
-        "class_ru": str((card.look_card or {}).get("class_ru") or ""),
+        "can_rename": card.status == "living" and not bool(look.get("renamed")),
+        "race_ru": race_ru,
+        "class_ru": class_ru,
+        "lineage": lineage,
+        "loyalty": card_loyalty(card),
+        "loyalty_heart": loyalty_heart_url(card_loyalty(card)),
+        "bio_expandable": card.status == "living" and bio_version < 2 and 0 < len(bio.strip()) < 200,
     }
 
 
@@ -451,14 +584,21 @@ async def _spawn_rain(session: AsyncSession, player_id: int, *, now: datetime) -
         )
     ).scalars().all()
     names = [c.name for c in seated]
-    rng = _rng("rain", player_id, now.toordinal(), len(names))
-    slot_hint = 1
-    name = pick_companion_name(player_id, slot_hint, exclude=names)
-    stances = list(STANCES.keys())
+    rng = _rng("rain", player_id, int(now.timestamp() * 1000), len(names))
+    name = pick_companion_name(
+        player_id,
+        1,
+        exclude=names,
+        salt=f"{int(now.timestamp() * 1000)}:{len(names)}:{rng.randrange(10**9)}",
+    )
     tempers = list(TEMPERS.keys())
     used_t = {c.temper for c in seated}
     temper = rng.choice([t for t in tempers if t not in used_t] or tempers)
-    stance = rng.choice(stances)
+    used_c = {card_class_id(c) for c in seated if card_class_id(c)}
+    class_pool = [cid for cid in CLASS_NAMES_RU if cid not in used_c] or list(CLASS_NAMES_RU)
+    class_id = rng.choice(class_pool)
+    race_id = rng.randint(1, 7)
+    stance = CLASS_TO_STANCE.get(class_id, rng.choice(list(STANCES.keys())))
     cloak = rng.choice(list(CLOAK_COLORS))
     traits = roll_traits(rng)
     # pity = weirder person: extra odd trait
@@ -482,6 +622,8 @@ async def _spawn_rain(session: AsyncSession, player_id: int, *, now: datetime) -
             traits=traits,
             seed=rng.randrange(10**9),
             hired_by=patron,
+            race_id=race_id,
+            class_id=class_id,
         ),
         bio="",
         flesh=[],
@@ -536,6 +678,7 @@ async def build_hall(
         await resolve_chronicle(session, state, now=now, ov_level=int(mw.level or 1) if mw else 1)
     rain = await ensure_rain(session, player_id, now=now)
     rain_card = rain
+    dismiss_left, is_admin = await hall_dismiss_flags(session, player_id, now=now)
     seated = (
         await session.execute(
             select(m.CompanionCard)
@@ -549,10 +692,27 @@ async def build_hall(
     for slot in (1, 2, 3):
         card = by_slot.get(slot)
         if card:
-            columns.append({"slot": slot, "kind": "living", "card": card_public(card, now=now, party=seated)})
+            columns.append(
+                {
+                    "slot": slot,
+                    "kind": "living",
+                    "card": card_public(
+                        card, now=now, party=seated, dismiss_left=dismiss_left, is_admin=is_admin
+                    ),
+                }
+            )
             continue
         if rain and not any(c.get("kind") == "rain" for c in columns):
-            columns.append({"slot": slot, "kind": "rain", "card": card_public(rain, now=now, party=seated), "mourning": False})
+            columns.append(
+                {
+                    "slot": slot,
+                    "kind": "rain",
+                    "card": card_public(
+                        rain, now=now, party=seated, dismiss_left=dismiss_left, is_admin=is_admin
+                    ),
+                    "mourning": False,
+                }
+            )
             rain = None
             continue
         columns.append(
@@ -574,6 +734,15 @@ async def build_hall(
     ).scalars().all()
     events_asc = list(reversed(list(events)))
     name_ids = {int(e.card_id) for e in events_asc if e.card_id}
+    for ev in events_asc:
+        payload = ev.payload if isinstance(ev.payload, dict) else {}
+        bond = payload.get("bond")
+        if isinstance(bond, dict):
+            for key in bond:
+                try:
+                    name_ids.add(int(key))
+                except (TypeError, ValueError):
+                    pass
     names: dict[int, str] = {}
     if name_ids:
         for cid, nm in (
@@ -584,7 +753,18 @@ async def build_hall(
             names[int(cid)] = str(nm)
     for ev in events_asc:
         who = names.get(int(ev.card_id), "Она") if ev.card_id else "Они"
-        serve_line(ev, who=who)
+        other = ""
+        payload = ev.payload if isinstance(ev.payload, dict) else {}
+        bond = payload.get("bond")
+        if isinstance(bond, dict):
+            for key in bond:
+                try:
+                    other = names.get(int(key), "") or other
+                except (TypeError, ValueError):
+                    continue
+        if not other:
+            other = str(payload.get("other_name") or "")
+        serve_line(ev, who=who, other=other)
     chalkboard = digest_lines(events_asc, seen_at=hall.digest_seen_at)
     for row in chalkboard:
         ev = next((e for e in events_asc if e.id == row["id"]), None)
@@ -626,6 +806,8 @@ async def build_hall(
         "living": living_n,
         "needs_art": needs_art,
         "hire_cost": await compute_living_hire_price(session, player_id),
+        "dismiss_left": dismiss_left,
+        "is_admin": is_admin,
     }
 
 
@@ -763,6 +945,24 @@ async def hire_generated(
     return card_public(card, now=now)
 
 
+async def _rewrite_delve_flavor_name(
+    session: AsyncSession, player_id: int, old: str, new: str
+) -> None:
+    from waifu_bot.game.delve_catalog import enforce_squad_names, replace_companion_name
+    from waifu_bot.services.delve import get_state
+
+    state = await get_state(session, int(player_id))
+    cached = (getattr(state, "flavor_text", None) or "").strip() if state is not None else ""
+    if state is None or not cached:
+        return
+    living = await list_living_cards(session, int(player_id))
+    names = [str(c.name).strip() for c in living if c.name]
+    text = replace_companion_name(cached, old, new)
+    face = names[0] if names else new
+    state.flavor_text = enforce_squad_names(text, names, face=face)[:280]
+    state.flavor_key = None
+
+
 async def rename_card(
     session: AsyncSession,
     player_id: int,
@@ -779,7 +979,8 @@ async def rename_card(
     if look.get("renamed"):
         raise DelveError("name_locked", 400)
     new = normalize_companion_name(raw_name)
-    if new != card.name:
+    old = card.name
+    if new != old:
         taken = (
             await session.execute(
                 select(m.CompanionCard.name).where(
@@ -795,6 +996,8 @@ async def rename_card(
     look["renamed"] = True
     card.look_card = look
     await sync_card_to_delve(session, card)
+    if new != old:
+        await _rewrite_delve_flavor_name(session, player_id, old, new)
     await session.flush()
     return card_public(card, now=now)
 
@@ -811,6 +1014,18 @@ async def refuse_rain(session: AsyncSession, player_id: int, *, now: datetime | 
     hall.mourning_until = now + MOURNING
 
 
+async def hall_dismiss_flags(
+    session: AsyncSession, player_id: int, *, now: datetime | None = None
+) -> tuple[int, bool]:
+    now = now or _now()
+    from waifu_bot.core.config import settings
+
+    is_admin = bool(settings.is_admin(int(player_id)))
+    used = await count_dismisses_today(session, player_id, now=now)
+    dismiss_left = 1 if is_admin or used < 1 else 0
+    return dismiss_left, is_admin
+
+
 async def dismiss_card(session: AsyncSession, player_id: int, card_id: int, *, now: datetime | None = None) -> None:
     now = now or _now()
     card = await session.get(m.CompanionCard, int(card_id))
@@ -818,12 +1033,54 @@ async def dismiss_card(session: AsyncSession, player_id: int, card_id: int, *, n
         raise DelveError("not_found", 404)
     if card.status not in ("living", "left"):
         raise DelveError("cannot_dismiss", 400)
+    was_living = card.status == "living"
+    if was_living:
+        from waifu_bot.core.config import settings
+
+        if not settings.is_admin(int(player_id)):
+            used = await count_dismisses_today(session, player_id, now=now)
+            if used >= 1:
+                raise DelveError("dismiss_day_cap", 429)
     slot = card.slot
     card.status = "dismissed"
     card.slot = None
     if slot:
         await unsync_delve_slot(session, player_id, int(slot))
-    await start_mourning(session, player_id, now=now)
+    if was_living:
+        await start_mourning(session, player_id, now=now)
+        session.add(
+            m.CompanionEvent(
+                player_id=int(player_id),
+                card_id=card.id,
+                beat_index=0,
+                ts=now,
+                depth=0,
+                node="SURFACE",
+                template_id="dismiss",
+                severity="mundane",
+                kind="dismiss",
+                line_ru=f"{card.name} ушла со стола.",
+                payload={"beat_id": card.can_dismiss_beat_id},
+                discovered=True,
+                gold_delta=0,
+                xp_delta=0,
+            )
+        )
+
+
+async def leave_loyalty(session: AsyncSession, player_id: int, card_id: int, *, now: datetime | None = None) -> None:
+    """Self-leave at loyalty 0. Does not consume dismiss slot or start mourning."""
+    now = now or _now()
+    card = await session.get(m.CompanionCard, int(card_id))
+    if card is None or int(card.player_id) != int(player_id):
+        raise DelveError("not_found", 404)
+    if card.status != "living":
+        return
+    slot = card.slot
+    card.status = "left"
+    card.slot = None
+    if slot:
+        await unsync_delve_slot(session, player_id, int(slot))
     session.add(
         m.CompanionEvent(
             player_id=int(player_id),
@@ -832,16 +1089,17 @@ async def dismiss_card(session: AsyncSession, player_id: int, card_id: int, *, n
             ts=now,
             depth=0,
             node="SURFACE",
-            template_id="dismiss",
-            severity="mundane",
-            kind="dismiss",
-            line_ru=f"{card.name} ушла со стола.",
-            payload={"beat_id": card.can_dismiss_beat_id},
+            template_id="loyalty_leave",
+            severity="leave_column",
+            kind="leave_column",
+            line_ru=f"{card.name} ушла сама.",
+            payload={"loyalty": 0},
             discovered=True,
             gold_delta=0,
             xp_delta=0,
         )
     )
+    await session.flush()
 
 
 async def card_history(session: AsyncSession, player_id: int, card_id: int) -> list[dict[str, Any]]:

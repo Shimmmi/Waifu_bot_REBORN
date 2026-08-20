@@ -30,6 +30,7 @@ static/guild_icons/*
 /var/
 static/game/delve/portraits/*
 !static/game/delve/portraits/.gitkeep
+!static/game/delve/portraits/loyalty_heart_*.webp
 static/game/chronicle/portraits/*
 !static/game/chronicle/portraits/.gitkeep
 

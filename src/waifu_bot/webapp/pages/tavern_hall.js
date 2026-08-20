@@ -1,7 +1,7 @@
 /** Living tavern hall. Arena / hire / bench stay dead. BGM tab still uses the old bootstrap. */
 
 (function livingTavernHall() {
-  const VERSION = "v107";
+  const VERSION = "v110";
   let hall = null;
   let openCardId = null;
   let seenOnce = false;
@@ -31,6 +31,14 @@
     return card.portrait_pixel || card.portrait_anime || "";
   }
 
+  function loyaltyHeart(card) {
+    if (!card) return "";
+    const url = String(card.loyalty_heart || "");
+    if (!url) return "";
+    const n = card.loyalty == null ? 50 : card.loyalty;
+    return `<img class="living-loyalty" src="${esc(url)}?v=${VERSION}" alt="Лояльность ${esc(n)}" title="Лояльность ${n}">`;
+  }
+
   function hireCostLabel() {
     const n = Number(hall?.hire_cost);
     if (!Number.isFinite(n) || n <= 0) return "Бесплатно";
@@ -48,15 +56,19 @@
           const waiting = !card.portrait_anime;
           return `<button type="button" class="living-col${card.scar_frame ? " scar" : ""}" data-kind="living" data-id="${card.id}">
             <div class="living-frame${waiting ? " art-wait" : ""}">${card.portrait_anime || card.portrait_pixel ? `<img src="${esc(portrait(card, "anime"))}" alt="">` : ""}</div>
-            <div class="living-hood">${portrait(card, "pixel") ? `<img src="${esc(portrait(card, "pixel"))}" alt="">` : ""}</div>
+            <div class="living-hood-row">
+              <div class="living-hood">${portrait(card, "pixel") ? `<img src="${esc(portrait(card, "pixel"))}" alt="">` : ""}</div>
+              ${loyaltyHeart(card)}
+            </div>
             <div class="name">${esc(card.name)}</div>
-            <div class="meta">${esc(card.stance_label || "")} · ${esc(card.temper_label || "")}</div>
+            <div class="meta">${esc(card.lineage || [card.race_ru, card.class_ru].filter(Boolean).join(" · ") || `${card.stance_label || ""} · ${card.temper_label || ""}`)}</div>
+            <div class="who-sub">${esc(card.stance_label || "")} · ${esc(card.temper_label || "")}</div>
           </button>`;
         }
         if (kind === "rain" && card) {
           return `<div class="living-col" data-kind="rain" data-id="${card.id}">
             <div class="living-frame hood">капюшон</div>
-            <div class="living-hood"></div>
+            <div class="living-hood-row"><div class="living-hood"></div></div>
             <div class="name">${esc(c.rain || "Вошла с дождя")}</div>
             <button type="button" class="living-cta" data-rain="accept">${esc(c.rain || "Вошла с дождя")}</button>
             <button type="button" class="living-refuse" data-rain="refuse">Не пускать</button>
@@ -133,12 +145,32 @@
     });
   }
 
-  function closeModal() {
+  async function closeLivingModal(opts) {
+    const skipTick = Boolean(opts && opts.skipTick);
+    const id = openCardId;
+    const turns = id != null ? chatMemory.get(id) || [] : [];
     const modal = document.getElementById("tavern-living-modal");
     if (modal) modal.classList.remove("open");
     closePop();
-    if (openCardId != null) chatMemory.delete(openCardId);
     openCardId = null;
+    if (id != null) chatMemory.delete(id);
+    if (id == null || skipTick) return;
+    try {
+      const out = await apiFetch(`/tavern/living/cards/${id}/loyalty-tick`, {
+        method: "POST",
+        body: JSON.stringify({
+          history: turns.map((t) => ({ role: t.role, text: t.text })),
+        }),
+      });
+      if (out && out.left) {
+        showToast(`${out.name || "Она"} ушла сама.`, "info");
+        await refreshHall();
+      }
+    } catch (_) {}
+  }
+
+  function closeModal() {
+    closeLivingModal().catch(() => {});
   }
 
   function bodyMark() {
@@ -217,12 +249,14 @@
         <div class="portrait-23">${portrait(detail, "anime") ? `<img src="${esc(portrait(detail, "anime"))}" alt="">` : ""}</div>
         <div class="living-hero-copy">
           <h2 class="${detail.can_rename ? "can-rename" : ""}" id="living-name" ${detail.can_rename ? 'title="Сменить имя (один раз)"' : ""}>${esc(detail.name)}</h2>
-          <div class="who">${esc(detail.stance_label || "")} · ${esc(detail.temper_label || "")}</div>
+          <div class="who">${esc(detail.lineage || [detail.race_ru, detail.class_ru].filter(Boolean).join(" · "))}</div>
+          <div class="who-sub">${esc(detail.stance_label || "")} · ${esc(detail.temper_label || "")}</div>
+          <div class="loyalty">${loyaltyHeart(detail)}<span>Лояльность ${esc(detail.loyalty == null ? 50 : detail.loyalty)}</span></div>
           ${traits.length ? `<div class="traits">${traits.map(esc).join(" · ")}</div>` : ""}
-          ${detail.bio ? `<p class="bio">${esc(detail.bio)}</p>` : ""}
           <div class="living-stats">
             <button type="button" class="living-stat tone-${bodyTone}" data-open="conditions" title="${esc(body)}">${bodyMark()}<span>${esc(body)}</span></button>
             <button type="button" class="living-stat tone-${mindTone}" data-open="conditions" title="${esc(mind)}">${mindMark()}<span>${esc(mind)}</span></button>
+            <button type="button" class="living-stat" id="living-bio-btn">Био</button>
           </div>
           ${cons.length ? `<div class="living-chips">${cons.map((x) => `<span class="living-chip">${esc(x)}</span>`).join("")}</div>` : ""}
         </div>
@@ -233,7 +267,7 @@
         <button type="submit"${detail.chat_left <= 0 ? " disabled" : ""}>Сказать</button>
       </form>
       <div class="living-actions">
-        <button type="button" class="danger" id="living-dismiss-btn">${esc(c.dismiss || "Уволить")}</button>
+        <button type="button" class="danger" id="living-dismiss-btn"${detail.can_dismiss ? "" : " disabled"}>${esc(c.dismiss || "Уволить")}</button>
         <button type="button" class="ghost" id="living-close-btn">Закрыть</button>
       </div>
       <div id="living-pop" class="living-pop" hidden>
@@ -248,13 +282,16 @@
     modal.classList.add("open");
     openCardId = detail.id;
     paintThread(detail.id);
-    sheet.querySelector("#living-close-btn")?.addEventListener("click", closeModal);
+    sheet.querySelector("#living-close-btn")?.addEventListener("click", () => {
+      closeLivingModal().catch(() => {});
+    });
     sheet.querySelector("#living-dismiss-btn")?.addEventListener("click", () => onDismiss(detail));
     sheet.querySelector("#living-name")?.addEventListener("click", () => onRename(detail));
     sheet.querySelector("#living-pop-close")?.addEventListener("click", closePop);
     sheet.querySelector("#living-log-btn")?.addEventListener("click", () => {
       openPop("Журнал", logHtml(detail, c.history_empty));
     });
+    sheet.querySelector("#living-bio-btn")?.addEventListener("click", () => onBio(detail));
     sheet.querySelectorAll("[data-open=conditions]").forEach((btn) => {
       btn.addEventListener("click", () => openPop("Состояния", conditionsHtml(detail)));
     });
@@ -268,6 +305,9 @@
   }
 
   async function openCard(id) {
+    if (openCardId != null && Number(openCardId) !== Number(id)) {
+      await closeLivingModal();
+    }
     const detail = await apiFetch(`/tavern/living/cards/${id}`);
     renderModal(detail);
   }
@@ -335,16 +375,34 @@
     }
   }
 
+  async function onBio(detail) {
+    openPop("Био", `<p>${esc(detail.bio || "Пока молчит.")}</p>`);
+    if (!detail.bio_expandable) return;
+    try {
+      const out = await apiFetch(`/tavern/living/cards/${detail.id}/bio`, { method: "POST" });
+      if (out && out.bio) {
+        detail.bio = out.bio;
+        detail.bio_expandable = false;
+        const body = document.getElementById("living-pop-body");
+        if (body) body.innerHTML = `<p>${esc(out.bio)}</p>`;
+      }
+    } catch (_) {}
+  }
+
   async function onDismiss(detail) {
+    if (!detail?.can_dismiss) {
+      showToast("Завтра.", "info");
+      return;
+    }
     const ok = await confirmAction(`Уволить ${detail.name}?`);
     if (!ok) return;
     try {
       await apiFetch(`/tavern/living/cards/${detail.id}/dismiss`, { method: "POST" });
-      closeModal();
+      await closeLivingModal({ skipTick: true });
       await refreshHall();
     } catch (err) {
       const { detail: d } = parseHttpErrorDetail(err);
-      showToast(d || "Не вышло.", "error");
+      showToast(d === "dismiss_day_cap" ? "Завтра." : d || "Не вышло.", "error");
     }
   }
 
@@ -416,7 +474,7 @@
       }
     });
     document.getElementById("tavern-living-modal")?.addEventListener("click", (ev) => {
-      if (ev.target.id === "tavern-living-modal") closeModal();
+      if (ev.target.id === "tavern-living-modal") closeLivingModal().catch(() => {});
     });
   }
 
@@ -461,7 +519,7 @@
 
   window.WaifuApp = Object.assign(window.WaifuApp || {}, {
     bootstrapLivingTavern,
-    closeLivingTavernModal: closeModal,
+    closeLivingTavernModal: () => closeLivingModal(),
   });
   void VERSION;
 })();

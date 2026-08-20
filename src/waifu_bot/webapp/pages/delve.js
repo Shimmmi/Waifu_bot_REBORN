@@ -293,7 +293,7 @@
   }
 
   function phraseHtml(text) {
-    let s = esc(text || "");
+    let s = esc(enforcePhraseNames(text || ""));
     const names = ((state && state.companions) || [])
       .map((c) => String(c.name || "").trim())
       .filter(Boolean)
@@ -304,6 +304,25 @@
       s = s.split(needle).join(`<strong>${needle}</strong>`);
     }
     return s;
+  }
+
+  const PHRASE_KEEP = {
+    В: 1, Во: 1, На: 1, По: 1, У: 1, К: 1, С: 1, Со: 1, Из: 1, За: 1, От: 1, До: 1,
+    Она: 1, Они: 1, Отряд: 1, Там: 1, Тут: 1, Здесь: 1, Тихо: 1, Дальше: 1, Снова: 1,
+    Впереди: 1, Пора: 1, Пока: 1, Шахта: 1, Лавка: 1, Метка: 1, Лагерь: 1, Камень: 1,
+  };
+
+  function enforcePhraseNames(text) {
+    const raw = String(text || "");
+    const names = ((state && state.companions) || [])
+      .map((c) => String(c.name || "").trim())
+      .filter(Boolean);
+    if (!raw || !names.length) return raw;
+    if (names.some((n) => raw.indexOf(n) !== -1)) return raw;
+    const face = names[0];
+    const m = raw.match(/^[А-ЯЁ][а-яё]{2,23}(?:-[А-ЯЁ][а-яё]{1,23})?/);
+    if (m && !PHRASE_KEEP[m[0]]) return face + raw.slice(m[0].length);
+    return raw;
   }
 
   function renderShaft(frame) {

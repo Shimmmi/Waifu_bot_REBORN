@@ -2005,6 +2005,7 @@ async def generate_hire_waifu_image(
     name: str = "",
     perk_ids: Sequence[str] | None = None,
     extra_visual: str = "",
+    tone: str = "",
 ) -> Optional[str]:
     """
     Генерирует портрет наёмницы через RouterAI image API (cursor_plan_7).
@@ -2054,11 +2055,6 @@ async def generate_hire_waifu_image(
                 "[HIRE PORTRAIT MOMENT] perk_id=%s source=fallback_pool (AI empty or failed)",
                 chosen_perk_id,
             )
-    base_tail = (
-        "absurd comedy anime, surreal gag energy, oddly specific funny detail, "
-        "lighthearted chaos, clean soft lighting, upper body, detailed face, "
-        "high quality illustration, 1girl, wholesome chaos not horror"
-    )
     parts: list[str] = [
         "anime style portrait",
         race_visual,
@@ -2070,6 +2066,17 @@ async def generate_hire_waifu_image(
     if perk_snippet:
         parts.append(perk_snippet)
     parts.append(pose_snippet)
+    if (tone or "").strip().lower() == "living":
+        base_tail = (
+            "serious character portrait, clean soft lighting, upper body, detailed face, "
+            "high quality illustration, 1girl, no comedy, no gag, no meme, not horror"
+        )
+    else:
+        base_tail = (
+            "absurd comedy anime, surreal gag energy, oddly specific funny detail, "
+            "lighthearted chaos, clean soft lighting, upper body, detailed face, "
+            "high quality illustration, 1girl, wholesome chaos not horror"
+        )
     parts.append(base_tail)
     prompt = ", ".join(parts)
 

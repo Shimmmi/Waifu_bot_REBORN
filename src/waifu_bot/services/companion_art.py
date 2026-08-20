@@ -108,8 +108,18 @@ def _needs_art(card: m.CompanionCard) -> bool:
     return False
 
 
-async def fill_identity(session: AsyncSession, card: m.CompanionCard) -> None:
-    """One fast JSON for bio/voice. Does not rewrite a shown name or a frozen bio."""
+def bio_needs_expand(card: m.CompanionCard) -> bool:
+    look = card.look_card or {}
+    try:
+        version = int(look.get("bio_version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    bio = (card.bio or "").strip()
+    return version < 2 and 0 < len(bio) < 200
+
+
+async def fill_identity(session: AsyncSession, card: m.CompanionCard, *, force: bool = False) -> None:
+    """One fast JSON for bio/voice. Does not rewrite a shown name or a frozen bio unless force."""
     from waifu_bot.services.companion_living import patron_name, stamp_look_lineage
 
     patron = await patron_name(session, int(card.player_id))
@@ -117,7 +127,8 @@ async def fill_identity(session: AsyncSession, card: m.CompanionCard) -> None:
     if patron and look.get("hired_by") != patron:
         look["hired_by"] = patron
     card.look_card = look
-    if (card.bio or "").strip() and card.voice:
+    has_bio = bool((card.bio or "").strip())
+    if has_bio and card.voice and not force:
         return
     fallback_bio = f"Нанялась к {patron}. За столом уже своя."
     try:
@@ -137,16 +148,17 @@ async def fill_identity(session: AsyncSession, card: m.CompanionCard) -> None:
             f"Раса: {race_ru}. Класс: {class_ru}. Стойка: {card.stance}. Нрав: {card.temper}. Черты: {traits}.\n"
             f"Её наняла {patron} — основная вайфу игрока. Они в одном отряде, знакомы.\n"
             f"Look: hair {look.get('hair')}, eyes {look.get('eyes')}, mark {look.get('mark')}.\n"
-            "bio — 2 коротких предложения по-русски, без цифр, перков и редкости. "
-            f"Можно коротко задеть, что идёт с {patron}, не «встретила путника».\n"
+            "bio — 5–8 предложений по-русски, живая проза, не длиннее 800 символов. "
+            "Без цифр, перков, редкости, мемов, абсурда и гротескного юмора. Серьёзный характер, не комедия. "
+            f"Можно задеть, что идёт с {patron}, не «встретила путника».\n"
             f"voice — одно предложение, как она говорит с {patron} (на «ты», не с чужаком)."
         )
-        async with httpx.AsyncClient(timeout=12.0) as client:
+        async with httpx.AsyncClient(timeout=20.0) as client:
             r = await post_chat_completions_routerai(
                 client,
                 {
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 180,
+                    "max_tokens": 400,
                     "temperature": 0.85,
                     "reasoning": {"exclude": True},
                 },
@@ -165,8 +177,11 @@ async def fill_identity(session: AsyncSession, card: m.CompanionCard) -> None:
                 text = re.sub(r"^```(?:json)?\s*", "", text)
                 text = re.sub(r"\s*```$", "", text)
             parsed = json.loads(text)
-            if not card.bio and parsed.get("bio"):
+            if parsed.get("bio") and (force or not card.bio):
                 card.bio = str(parsed["bio"])[:800]
+                look = dict(card.look_card or {})
+                look["bio_version"] = 2
+                card.look_card = look
             voice = dict(card.voice or {})
             if parsed.get("voice"):
                 voice["line"] = str(parsed["voice"])[:240]
@@ -180,6 +195,9 @@ async def fill_identity(session: AsyncSession, card: m.CompanionCard) -> None:
 
 def _look_visual_en(look: dict) -> str:
     bits = [
+        str(look.get("race_ru") or ""),
+        str(look.get("class_ru") or ""),
+        "race and class define the person; kit is secondary",
         _HAIR_EN.get(str(look.get("hair") or ""), "brown hair"),
         _EYES_EN.get(str(look.get("eyes") or ""), "brown eyes"),
         _MARK_EN.get(str(look.get("mark") or ""), ""),
@@ -302,6 +320,7 @@ async def enqueue_dual_portraits(session: AsyncSession, card_id: int) -> None:
                 (card.bio or "")[:400],
                 name=card.name,
                 extra_visual=extra,
+                tone="living",
             )
             if b64:
                 webp = _b64_to_webp(b64, size=(512, 768))

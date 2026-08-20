@@ -6,6 +6,7 @@ import hashlib
 import html
 import math
 import random
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
 from zoneinfo import ZoneInfo
@@ -210,6 +211,19 @@ COMPANION_NAME_POOL: tuple[str, ...] = (
     "Рея", "Таня", "Юна", "Эльза", "Соль", "Ника", "Дара", "Лена",
     "Оса", "Кира", "Фея", "Грей", "Руна", "Зоя", "Инга", "Палма",
     "Тесса", "Яра", "Сана", "Вита", "Эра", "Лада",
+    "Айра", "Алма", "Арна", "Астра", "Бера", "Брига", "Веста", "Вирна",
+    "Гала", "Гайя", "Дана", "Джуна", "Ева", "Ива", "Иона", "Калла",
+    "Лара", "Луна", "Мара", "Морна", "Нева", "Орна", "Рива", "Роса",
+    "Сива", "Сильва", "Тара", "Тора", "Уна", "Фрея", "Фрида", "Хана",
+    "Хельма", "Эдна", "Юта", "Яна", "Берта", "Венда", "Герда", "Дина",
+    "Ель", "Жара", "Зима", "Иска", "Лина", "Мела", "Нина", "Ольга",
+    "Поля", "Рита", "Света", "Улья", "Флора", "Эмма", "Юля", "Ясна",
+    "Агния", "Божена", "Влада", "Глаша", "Динара", "Есения", "Ждана",
+    "Заря", "Изольда", "Лайма", "Милана", "Надя", "Оксана", "Рада",
+    "Слава", "Таиса", "Устинья", "Фаина", "Харита", "Элина", "Ядвига",
+    "Аврора", "Бригитта", "Волна", "Гора", "Дрозд", "Искра", "Крапива",
+    "Ладана", "Морок", "Нея", "Острога", "Пепел", "Роща", "Степь",
+    "Тень", "Уголь", "Хвойка", "Цвета", "Шипка", "Янтарь",
 )
 
 # One short sentence. Subject = companion name via {name}.
@@ -502,6 +516,24 @@ def split_even(total: int, n: int) -> list[int]:
     return [q + (1 if i < r else 0) for i in range(int(n))]
 
 
+def split_weighted(total: int, weights: Sequence[int]) -> list[int]:
+    """Split a grant by positive weights. Sum equals total."""
+    n = len(weights)
+    if n <= 0:
+        return []
+    if total <= 0:
+        return [0] * n
+    cleaned = [max(1, int(w or 0)) for w in weights]
+    s = sum(cleaned)
+    raw = [int(total) * w / s for w in cleaned]
+    floors = [int(x) for x in raw]
+    rem = int(total) - sum(floors)
+    order = sorted(range(n), key=lambda i: (raw[i] - floors[i], -i), reverse=True)
+    for i in order[: max(0, rem)]:
+        floors[i] += 1
+    return floors
+
+
 def days_in_party(joined_at: datetime | None, now: datetime | None = None) -> int:
     if joined_at is None:
         return 0
@@ -600,12 +632,192 @@ def merge_journal(existing: list | dict | None, incoming: list[dict[str, Any]]) 
     return rows[:120]
 
 
-def pick_companion_name(player_id: int, slot: int, *, exclude: Sequence[str] = ()) -> str:
+def pick_companion_name(
+    player_id: int,
+    slot: int,
+    *,
+    exclude: Sequence[str] = (),
+    salt: object = "",
+) -> str:
     taken = {str(x).strip() for x in exclude}
-    digest = hashlib.sha256(f"delve-name:{int(player_id)}:{int(slot)}".encode()).hexdigest()[:16]
+    digest = hashlib.sha256(
+        f"delve-name:{int(player_id)}:{int(slot)}:{salt}".encode()
+    ).hexdigest()[:16]
     rng = random.Random(int(digest, 16))
     pool = [n for n in COMPANION_NAME_POOL if n not in taken] or list(COMPANION_NAME_POOL)
     return rng.choice(pool)
+
+
+_PERSON_NAME_RE = re.compile(r"[А-ЯЁ][а-яё]{1,23}(?:-[А-ЯЁ][а-яё]{1,23})?")
+_KEEP_WORDS = frozenset(
+    {
+        "А",
+        "И",
+        "Но",
+        "Да",
+        "Нет",
+        "В",
+        "Во",
+        "На",
+        "По",
+        "У",
+        "К",
+        "Ко",
+        "С",
+        "Со",
+        "Из",
+        "За",
+        "От",
+        "До",
+        "При",
+        "Про",
+        "О",
+        "Об",
+        "Обо",
+        "Над",
+        "Под",
+        "Перед",
+        "Через",
+        "Между",
+        "Для",
+        "Без",
+        "Она",
+        "Они",
+        "Он",
+        "Её",
+        "Ее",
+        "Их",
+        "Ей",
+        "Им",
+        "Отряд",
+        "Спутница",
+        "Наёмница",
+        "Наемница",
+        "Хозяйка",
+        "Там",
+        "Тут",
+        "Здесь",
+        "Потом",
+        "Снова",
+        "Опять",
+        "Дальше",
+        "Впереди",
+        "Сзади",
+        "Тихо",
+        "Громко",
+        "Глубоко",
+        "Вдруг",
+        "Чуть",
+        "Едва",
+        "Уже",
+        "Ещё",
+        "Еще",
+        "Пора",
+        "Пока",
+        "Тогда",
+        "Камень",
+        "Коридор",
+        "Шахта",
+        "Лавка",
+        "Метка",
+        "Босс",
+        "Вилка",
+        "Привал",
+        "Лагерь",
+        "Вода",
+        "Тишина",
+        "Темнота",
+        "Пыль",
+        "Кровь",
+        "Рана",
+        "Паутина",
+        "Стена",
+        "Потолок",
+        "Тропа",
+        "Ход",
+        "Лёд",
+        "Лед",
+        "Тень",
+        "Бездна",
+        "Мокрое",
+    }
+    | {str(p["label"]) for p in PALETTES}
+    | {str(b["label"]) for b in SHAFT_BIOMES}
+)
+
+
+def replace_companion_name(text: str, old: str, new: str) -> str:
+    """Swap one mercenary name for another; word boundaries only."""
+    src = (old or "").strip()
+    dst = (new or "").strip()
+    if not text or not src or not dst or src == dst:
+        return text
+    return re.sub(
+        rf"(?<![А-Яа-яЁёA-Za-z]){re.escape(src)}(?![А-Яа-яЁёA-Za-z])",
+        dst,
+        text,
+    )
+
+
+def enforce_squad_names(text: str, names: Sequence[str], *, face: str | None = None) -> str:
+    """Keep only current mercenary names in a flavor line. Invented pool names go out."""
+    raw = (text or "").strip()
+    squad = [str(n).strip() for n in names if str(n).strip()]
+    lead = (face or (squad[0] if squad else "")).strip()
+    if not raw or not lead:
+        return raw
+    squad_fold = {n.casefold(): n for n in squad}
+    pool = set(COMPANION_NAME_POOL)
+    extras = squad[1:]
+    extra_i = 0
+
+    def _sentence_start(idx: int) -> bool:
+        if idx <= 0:
+            return True
+        prev = raw[:idx].rstrip()
+        return not prev or prev.endswith((".", "!", "?", "…"))
+
+    def _sub(match: re.Match[str]) -> str:
+        nonlocal extra_i
+        word = match.group(0)
+        canon = squad_fold.get(word.casefold())
+        if canon:
+            return canon
+        if word in _KEEP_WORDS:
+            return word
+        invented = word in pool
+        if (
+            not invented
+            and _sentence_start(match.start())
+            and len(word) >= 3
+            and word[-1] in "аяАЯ"
+        ):
+            invented = True
+        if not invented:
+            return word
+        if _sentence_start(match.start()):
+            return lead
+        if extra_i < len(extras):
+            out = extras[extra_i]
+            extra_i += 1
+            return out
+        return lead
+
+    out = _PERSON_NAME_RE.sub(_sub, raw)
+    if not any(n in out for n in squad):
+        found = _PERSON_NAME_RE.search(out)
+        if found and found.group(0) not in _KEEP_WORDS:
+            out = out[: found.start()] + lead + out[found.end() :]
+        else:
+            pron = re.match(r"^(Она|Они)(?![А-Яа-яЁё])", out)
+            if pron:
+                out = lead + out[pron.end() :]
+            else:
+                rest = out
+                if rest[:1].isupper() and rest[1:2].islower():
+                    rest = rest[0].lower() + rest[1:]
+                out = f"{lead} {rest}".strip()
+    return out
 
 
 def format_waifu_html(name: str | None) -> str:

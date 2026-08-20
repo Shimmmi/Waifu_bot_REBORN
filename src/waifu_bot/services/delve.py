@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,7 @@ from waifu_bot.game.delve_catalog import (
     XP_OF_SOLO_DAY_DEFAULT,
     branch_sleeves,
     days_in_party,
+    enforce_squad_names,
     floor_pct,
     frame_kicker,
     gold_cap_day,
@@ -35,6 +36,7 @@ from waifu_bot.game.delve_catalog import (
     instinct_sleeve,
     journal_stamps_for_record,
     merge_journal,
+    msk_day_start,
     msk_today,
     phrase_for,
     pick_companion_name,
@@ -45,7 +47,7 @@ from waifu_bot.game.delve_catalog import (
     shaft_art_for_depth,
     shaft_band_depths,
     spine_type,
-    split_even,
+    split_weighted,
     template_portrait_url,
     title_for_record,
     title_id_for_record,
@@ -73,6 +75,48 @@ class DelveError(Exception):
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def loyalty_faucet_mult(loyalties: Sequence[int]) -> float:
+    """Empty table and all-50 stay 1.0. No per-head party size bonus."""
+    values = [max(0, min(100, int(v))) for v in loyalties]
+    if not values:
+        return 1.0
+    extra = 0.0
+    any_max = False
+    for loyalty in values:
+        extra += max(0.0, (loyalty - 50) / 50.0 * 0.10)
+        if loyalty == 100:
+            any_max = True
+    if any_max:
+        extra += 0.05
+    return max(1.0, min(1.40, 1.0 + extra))
+
+
+def catch_up_midday_cap_increase(
+    minted: int,
+    today_after: int,
+    *,
+    last: datetime,
+    now: datetime,
+    cap: int,
+    rate: float,
+    granted_before: int,
+) -> tuple[int, int]:
+    """Mint the snap gap when cap/rate rose after gold already accrued today."""
+    if granted_before <= 0 or cap <= 0 or rate <= 0:
+        return minted, today_after
+    last_a = last if last.tzinfo else last.replace(tzinfo=timezone.utc)
+    now_a = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    if msk_today(last_a) != msk_today(now_a):
+        return minted, today_after
+    start = msk_day_start(now_a)
+    sec_last = max(0.0, (last_a - start).total_seconds())
+    owed_at_last = min(int(cap), int(rate * sec_last))
+    extra = max(0, owed_at_last - int(granted_before))
+    if extra <= 0:
+        return minted, today_after
+    return int(minted) + extra, int(today_after)
 
 
 def resolve_companion_image_url(row: m.DelveCompanion) -> str:
@@ -123,13 +167,38 @@ def companion_out(row: m.DelveCompanion, *, now: datetime | None = None) -> dict
     }
 
 
-def attribute_party_grant(companions: list[m.DelveCompanion], gold: int, xp: int) -> None:
+def attribute_party_grant(
+    companions: list[m.DelveCompanion],
+    gold: int,
+    xp: int,
+    cards: list[m.CompanionCard] | None = None,
+) -> None:
     n = len(companions)
     if n <= 0:
         return
-    for row, g, x in zip(companions, split_even(int(gold or 0), n), split_even(int(xp or 0), n)):
+    card_by_slot = {int(c.slot): c for c in (cards or []) if c and c.slot}
+    weights: list[int] = []
+    paired: list[m.CompanionCard | None] = []
+    for row in companions:
+        card = card_by_slot.get(int(row.slot))
+        paired.append(card)
+        if card is not None:
+            look = card.look_card or {}
+            try:
+                loyalty = int(look.get("loyalty", 50))
+            except (TypeError, ValueError):
+                loyalty = 50
+            weights.append(max(1, max(0, min(100, loyalty))))
+        else:
+            weights.append(50)
+    gold_parts = split_weighted(int(gold or 0), weights)
+    xp_parts = split_weighted(int(xp or 0), weights)
+    for row, card, g, x in zip(companions, paired, gold_parts, xp_parts):
         row.gold_earned = int(getattr(row, "gold_earned", 0) or 0) + int(g)
         row.xp_earned = int(getattr(row, "xp_earned", 0) or 0) + int(x)
+        if card is not None:
+            card.gold_earned = int(card.gold_earned or 0) + int(g)
+            card.xp_earned = int(card.xp_earned or 0) + int(x)
 
 
 async def get_state(session: AsyncSession, player_id: int) -> m.DelveState | None:
@@ -207,6 +276,7 @@ async def grant_tap(
     state: m.DelveState,
     *,
     now: datetime | None = None,
+    loyalty_mult: float = 1.0,
 ) -> tuple[int, int]:
     """Idempotent gold+XP. Caller must hold a row lock on `state`."""
     if state.t_origin is None:
@@ -215,13 +285,18 @@ async def grant_tap(
     last = state.last_grant_ts or state.t_origin
     ov_level = int(mw.level or 1) if mw is not None else 1
     cap_g, cap_x = await _caps(session, ov_level)
+    mult = max(1.0, min(1.40, float(loyalty_mult or 1.0)))
+    cap_g = int(cap_g * mult)
+    cap_x = int(cap_x * mult)
+    granted_g_before = int(state.gold_granted_today or 0)
+    granted_x_before = int(state.xp_granted_today or 0)
     gold, day_g, today_g = walk_capped_grant(
         last,
         now,
         rate=gold_rate_per_sec(cap_g),
         cap=cap_g,
         day_key=state.grant_day_msk,
-        granted_today=int(state.gold_granted_today or 0),
+        granted_today=granted_g_before,
     )
     xp, day_x, today_x = walk_capped_grant(
         last,
@@ -229,7 +304,25 @@ async def grant_tap(
         rate=xp_rate_per_sec(cap_x),
         cap=cap_x,
         day_key=state.grant_day_msk,
-        granted_today=int(state.xp_granted_today or 0),
+        granted_today=granted_x_before,
+    )
+    gold, today_g = catch_up_midday_cap_increase(
+        gold,
+        today_g,
+        last=last,
+        now=now,
+        cap=cap_g,
+        rate=gold_rate_per_sec(cap_g),
+        granted_before=granted_g_before,
+    )
+    xp, today_x = catch_up_midday_cap_increase(
+        xp,
+        today_x,
+        last=last,
+        now=now,
+        cap=cap_x,
+        rate=xp_rate_per_sec(cap_x),
+        granted_before=granted_x_before,
     )
     day_key = day_g or day_x or msk_today(now)
     if gold > 0:
@@ -368,6 +461,20 @@ def build_frame(
     }
 
 
+def overlay_flavor_phrase(state: m.DelveState | None, frame: dict[str, Any], companions: Sequence) -> None:
+    """Serve cached LLM line with current mercenary names. No LLM."""
+    if not frame:
+        return
+    names = [str(c.name).strip() for c in companions if getattr(c, "name", None)]
+    cached = (getattr(state, "flavor_text", None) or "").strip() if state is not None else ""
+    source = cached or str(frame.get("phrase") or "")
+    fixed = enforce_squad_names(source, names)
+    if state is not None and cached and fixed != cached:
+        state.flavor_text = fixed[:280]
+    if fixed:
+        frame["phrase"] = fixed
+
+
 def showcase_from_state(
     player_id: int,
     state: m.DelveState | None,
@@ -435,12 +542,19 @@ async def grant_and_sync(
     state = await get_state_for_update(session, player_id)
     gold_now = 0
     xp_now = 0
+    living_cards: list[m.CompanionCard] = []
     if state and state.t_origin is not None:
         if not skip_grant:
-            gold_now, xp_now = await grant_tap(session, player, mw, state, now=now)
+            from waifu_bot.services.companion_living import card_loyalty, list_living_cards
+
+            living_cards = await list_living_cards(session, player_id)
+            loyalty_mult = loyalty_faucet_mult([card_loyalty(c) for c in living_cards])
+            gold_now, xp_now = await grant_tap(
+                session, player, mw, state, now=now, loyalty_mult=loyalty_mult
+            )
         companions = await list_companions(session, player_id)
         if not skip_grant and (gold_now or xp_now):
-            attribute_party_grant(companions, gold_now, xp_now)
+            attribute_party_grant(companions, gold_now, xp_now, cards=living_cards)
         frame = build_frame(state, companions, now=now, ov_level=int(mw.level or 1) if mw else 1)
         _apply_theater(state, frame, companions)
         if not skip_grant:
@@ -490,6 +604,7 @@ async def build_sync_payload(
     frame = None
     if started and state is not None:
         frame = build_frame(state, companions, now=now, ov_level=ov)
+        overlay_flavor_phrase(state, frame, companions)
         frame["record"] = int(state.pb_depth or 0)
         frame["title"] = title_for_record(int(state.pb_depth or 0))
     reform_ok = False

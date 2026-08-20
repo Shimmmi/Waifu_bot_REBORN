@@ -148,7 +148,14 @@ def bond_sentence(*, delta: int, other: str, tpl: dict[str, Any]) -> str:
 def refresh_event_line(event: m.CompanionEvent, *, who: str, other: str = "") -> str:
     payload = event.payload if isinstance(event.payload, dict) else {}
     if payload.get("spiced"):
-        return event.line_ru
+        from waifu_bot.game.delve_catalog import enforce_squad_names, replace_companion_name
+
+        text = event.line_ru or ""
+        old_who = str(payload.get("who") or "").strip()
+        if who and old_who and old_who != who:
+            text = replace_companion_name(text, old_who, who)
+        names = [n for n in (who, other) if n]
+        return enforce_squad_names(text, names, face=who or None)
     tpl = template_by_id(str(event.template_id or ""))
     if tpl is None:
         return event.line_ru
@@ -171,8 +178,12 @@ def refresh_event_line(event: m.CompanionEvent, *, who: str, other: str = "") ->
 def serve_line(event: m.CompanionEvent, *, who: str, other: str = "") -> str:
     fresh = refresh_event_line(event, who=who, other=other)
     payload = event.payload if isinstance(event.payload, dict) else {}
-    if fresh != event.line_ru and not payload.get("spiced"):
+    if fresh != event.line_ru:
         event.line_ru = fresh
+    if who and payload.get("spiced") and payload.get("who") != who:
+        payload = dict(payload)
+        payload["who"] = who
+        event.payload = payload
     return fresh
 
 
