@@ -44,6 +44,12 @@ class CompanionIn(BaseModel):
 
 
 class StartBody(BaseModel):
+    use_living: bool = True
+    size: int | None = Field(default=None, ge=1, le=3)
+    companions: list[CompanionIn] = Field(default_factory=list)
+
+
+class ReformBody(BaseModel):
     size: int = Field(..., ge=1, le=3)
     companions: list[CompanionIn]
 
@@ -100,7 +106,7 @@ async def delve_start(
 
 @router.post("/delve/reform")
 async def delve_reform(
-    body: StartBody,
+    body: ReformBody,
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):

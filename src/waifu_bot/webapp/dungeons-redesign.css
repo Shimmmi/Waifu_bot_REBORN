@@ -123,33 +123,6 @@ body.page-dungeons {
   mix-blend-mode: multiply;
 }
 
-/* attic restyle: page-local, do not copy to styles.css yet */
-body.page-dungeons .attic-row .chip {
-  background: linear-gradient(180deg, var(--panel-2), var(--card));
-  border: 1px solid var(--border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  font-family: var(--font-hud);
-  font-weight: 700;
-}
-body.page-dungeons .attic-gold-chip,
-body.page-dungeons .attic-gold-chip strong,
-body.page-dungeons .attic-gold-chip #badge-gold {
-  color: var(--gold-bright);
-}
-body.page-dungeons .attic-level-circle:not(.attic-level-circle--perfection):not(.attic-level-circle--perfection-pending) #attic-level-ring-fg {
-  stroke: var(--gold-bright);
-  filter: drop-shadow(0 0 3px rgba(226, 169, 63, 0.55));
-}
-body.page-dungeons #badge-level,
-body.page-dungeons .attic-level-circle strong {
-  font-family: var(--font-hud);
-}
-body.page-dungeons .attic-dungeon-progress-fill,
-body.page-dungeons .attic-dungeon-seg-fill {
-  background: linear-gradient(90deg, var(--accent), var(--gold-bright));
-  box-shadow: 0 0 6px rgba(226, 169, 63, 0.5);
-}
-
 .page-dungeons #dungeon-tabs .tab {
   font-family: var(--font-body);
 }
@@ -757,6 +730,9 @@ body.page-dungeons .attic-dungeon-seg-fill {
   color: #0e1218;
   font-weight: 700;
   cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  box-sizing: border-box;
 }
 .delve-link {
   display: block;
@@ -993,7 +969,7 @@ body.page-dungeons .attic-dungeon-seg-fill {
 .delve-status-modal .delve-sheet { margin-top: 0; opacity: 1; }
 .delve-legacy { font-size: 13px; margin-bottom: 8px; opacity: .85; }
 .delve-role-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
-.attic-chr-label { font-size: 12px; font-weight: 700; }
+.attic-chr-label { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .profile-delve-faces { display: flex; gap: 12px; margin: 8px 0; flex-wrap: wrap; }
 .profile-delve-face { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; width: 80px; }
 .profile-delve-face img,

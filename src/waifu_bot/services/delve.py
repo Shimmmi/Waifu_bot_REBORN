@@ -11,9 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
 from waifu_bot.game.delve_catalog import (
+    ALPHA,
+    CEILING_TAIL_EXP,
+    CEILING_TAIL_HOURS,
+    CEILING_TAIL_K,
     CLOAK_COLORS,
     COPY,
+    D0,
+    DEPTH_EXP,
     GOLD_OF_CHAT_CAP_DEFAULT,
+    T0_SEC,
+    T_UP_SEC,
     NODE_BOSS,
     NODE_LABEL_RU,
     PALETTES,
@@ -542,12 +550,18 @@ async def grant_and_sync(
     state = await get_state_for_update(session, player_id)
     gold_now = 0
     xp_now = 0
-    living_cards: list[m.CompanionCard] = []
-    if state and state.t_origin is not None:
-        if not skip_grant:
-            from waifu_bot.services.companion_living import card_loyalty, list_living_cards
+    from waifu_bot.services.companion_living import (
+        card_loyalty,
+        list_living_cards,
+        migrate_delve_to_cards,
+        reconcile_delve_party_to_living,
+    )
 
-            living_cards = await list_living_cards(session, player_id)
+    living_cards: list[m.CompanionCard] = await list_living_cards(session, player_id)
+    if state and state.t_origin is not None:
+        await reconcile_delve_party_to_living(session, player_id, now=now)
+        living_cards = await list_living_cards(session, player_id)
+        if not skip_grant:
             loyalty_mult = loyalty_faucet_mult([card_loyalty(c) for c in living_cards])
             gold_now, xp_now = await grant_tap(
                 session, player, mw, state, now=now, loyalty_mult=loyalty_mult
@@ -560,7 +574,6 @@ async def grant_and_sync(
         if not skip_grant:
             await sync_hidden_counters(session, int(player_id), state, now)
         try:
-            from waifu_bot.services.companion_living import migrate_delve_to_cards
             from waifu_bot.services.chronicle import resolve_chronicle
 
             await migrate_delve_to_cards(session, player_id, now=now)
@@ -582,6 +595,7 @@ async def grant_and_sync(
         xp_now=xp_now,
         unlocked=unlocked,
         show_cutover=show_cutover,
+        living_cards=living_cards,
     )
 
 
@@ -597,6 +611,7 @@ async def build_sync_payload(
     xp_now: int,
     unlocked: bool,
     show_cutover: bool = False,
+    living_cards: list[m.CompanionCard] | None = None,
 ) -> dict[str, Any]:
     started = bool(state and state.t_origin)
     ov = int(mw.level or 1) if mw is not None else 1
@@ -620,6 +635,9 @@ async def build_sync_payload(
             reform_ok = True
     gold_today = int(state.gold_granted_today or 0) if state else 0
     xp_today = int(state.xp_granted_today or 0) if state else 0
+    from waifu_bot.services.companion_living import living_preview_rows
+
+    seated = list(living_cards or [])
     return {
         "started": started,
         "unlocked": unlocked,
@@ -643,6 +661,8 @@ async def build_sync_payload(
         "frame": frame,
         "journal": list(state.journal_json or []) if state else [],
         "companions": [companion_out(c, now=now) for c in companions],
+        "living_count": len(seated),
+        "living_preview": living_preview_rows(seated),
         "sprite_count": int(state.sprite_count or 0) if state else 0,
         "sprite_cap": SPRITE_CAP,
         "reform_ready": reform_ok,
@@ -656,11 +676,14 @@ async def build_sync_payload(
         ],
         "shaft_biomes": [shaft_art_for_depth(int(b["band"])) for b in SHAFT_BIOMES],
         "constants": {
-            "D0": 24.0,
-            "alpha": 0.42,
-            "t0": 720.0,
-            "t_up": 6.0,
-            "depth_exp": 1.15,
+            "D0": D0,
+            "alpha": ALPHA,
+            "t0": T0_SEC,
+            "t_up": T_UP_SEC,
+            "depth_exp": DEPTH_EXP,
+            "ceiling_tail_hours": CEILING_TAIL_HOURS,
+            "ceiling_tail_k": CEILING_TAIL_K,
+            "ceiling_tail_exp": CEILING_TAIL_EXP,
         },
         "name_suggestions": [pick_companion_name(int(player.id), slot, exclude=[]) for slot in (1, 2, 3)],
         "legacy_names": (state.legacy_names_json if state else None) or [],
@@ -713,8 +736,8 @@ async def start_delve(
     session: AsyncSession,
     player_id: int,
     *,
-    size: int,
-    companions: list[dict[str, Any]],
+    size: int | None = None,
+    companions: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     now = now or _now()
@@ -725,7 +748,12 @@ async def start_delve(
         raise DelveError("main_waifu_required", 400)
     if not await is_unlocked(session, player_id, mw):
         raise DelveError("not_unlocked", 403)
-    parsed = _validate_party(companions, int(size))
+    from waifu_bot.services.companion_living import list_living_cards, sync_card_to_delve
+
+    cards = await list_living_cards(session, player_id)
+    _ = (size, companions)
+    if not cards:
+        raise DelveError("need_hire", 400)
     state = await get_state_for_update(session, player_id)
     if state is None:
         state = m.DelveState(player_id=int(player_id), gold_granted_total=0, xp_granted_total=0, sprite_count=0)
@@ -734,34 +762,17 @@ async def start_delve(
         state = await get_state_for_update(session, player_id) or state
     if state.t_origin is not None:
         raise DelveError("already_started", 409)
-    n = len(parsed)
+    n = len(cards)
     if int(state.sprite_count or 0) + n > SPRITE_CAP:
         raise DelveError("sprite_cap", 400)
+    living_slots = {int(c.slot) for c in cards if c.slot}
     existing = await list_companions(session, player_id)
-    existing_by_slot = {int(row.slot): row for row in existing}
     for row in existing:
-        await session.delete(row)
+        if int(row.slot) not in living_slots:
+            await session.delete(row)
     await session.flush()
-    for spec in parsed:
-        session.add(
-            m.DelveCompanion(
-                player_id=int(player_id),
-                slot=int(spec["slot"]),
-                name=spec["name"],
-                stance=spec["stance"],
-                temper=spec["temper"],
-                cloak_color=spec.get("cloak_color"),
-                image_path=_portrait_path_for_slot(
-                    int(player_id),
-                    int(spec["slot"]),
-                    existing_by_slot.get(int(spec["slot"])),
-                    keep_file=bool(spec.get("keep_portrait")),
-                ),
-                gold_earned=0,
-                xp_earned=0,
-                joined_at=now,
-            )
-        )
+    for card in cards:
+        await sync_card_to_delve(session, card)
     state.t_origin = now
     state.last_grant_ts = now
     state.spine_seed = int(player_id) ^ int(now.timestamp())
@@ -774,7 +785,7 @@ async def start_delve(
     try:
         from waifu_bot.services.event_log import log_event
 
-        await log_event(session, int(player_id), "delve_started", {"started": True})
+        await log_event(session, int(player_id), "delve_started", {"started": True, "size": n})
     except Exception:
         pass
     return await grant_and_sync(session, player_id, now=now)

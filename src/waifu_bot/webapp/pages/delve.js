@@ -131,7 +131,15 @@
     const elapsed = Math.max(0, (nowMs - origin) / 1000);
     const hours = elapsed / 3600;
     const ov = Number(state.ov_level || 1);
-    const ceil = D0 * (1 + alpha * Math.log(1 + hours)) * (1 + 0.03 * Math.sqrt(Math.max(1, ov)));
+    const ceilBase = D0 * (1 + alpha * Math.log(1 + hours)) * (1 + 0.03 * Math.sqrt(Math.max(1, ov)));
+    const tailHours = Number(k.ceiling_tail_hours);
+    const tailK = Number(k.ceiling_tail_k);
+    const tailExp = Number(k.ceiling_tail_exp);
+    const extra =
+      Number.isFinite(tailHours) && Number.isFinite(tailK) && Number.isFinite(tailExp)
+        ? tailK * Math.pow(Math.max(0, hours - tailHours), tailExp)
+        : 0;
+    const ceil = ceilBase + extra;
     const tDown = t0 * Math.log(1 + ceil);
     const tRest = 50 + 10 * Math.log(1 + ceil);
     const period = tDown + tUp + tRest;
@@ -245,9 +253,19 @@
   }
 
   function shaftBand(d) {
-    let n = Math.floor(Number(d) || 0);
-    if (n <= 0) n = 1;
-    return Math.min(100, Math.max(10, (Math.floor((n - 1) / 10) + 1) * 10));
+    const biomes = (state && state.shaft_biomes) || [];
+    const n = Math.max(1, Math.floor(Number(d) || 0));
+    const bands = biomes
+      .map((b) => Number(b.band))
+      .filter((b) => Number.isFinite(b))
+      .sort((a, b) => a - b);
+    if (!bands.length) {
+      return Math.max(10, (Math.floor((n - 1) / 10) + 1) * 10);
+    }
+    for (let i = 0; i < bands.length; i += 1) {
+      if (n <= bands[i]) return bands[i];
+    }
+    return bands[bands.length - 1];
   }
 
   function shaftUrlForDepth(d) {
@@ -274,9 +292,34 @@
     return `${status} · глубина ${d} · рекорд ${rec}`;
   }
 
+  function shaftBandDepths(d) {
+    const n = Math.max(0, Math.floor(Number(d) || 0));
+    if (n <= 0) return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const band = shaftBand(n);
+    const biomes = (state && state.shaft_biomes) || [];
+    const bands = biomes
+      .map((b) => Number(b.band))
+      .filter((b) => Number.isFinite(b))
+      .sort((a, b) => a - b);
+    let prev = 0;
+    for (let i = 0; i < bands.length; i += 1) {
+      if (bands[i] >= band) break;
+      prev = bands[i];
+    }
+    let start = prev ? prev + 1 : Math.max(1, band - 9);
+    const end = band;
+    if (end - start + 1 > 10) {
+      start = Math.max(start, n - 6);
+      return Array.from({ length: 10 }, (_, i) => start + i);
+    }
+    const out = [];
+    for (let i = start; i <= end; i += 1) out.push(i);
+    return out;
+  }
+
   function bandNodesFor(frame, d) {
-    const band = shaftBand(d);
-    const start = band - 9;
+    const here = Math.max(0, Math.floor(Number(d) || 0));
+    const ceil = Number((frame && frame.d_ceiling) || 0);
     const lookup = {};
     []
       .concat((frame && frame.band_nodes) || [])
@@ -284,12 +327,10 @@
       .forEach((n) => {
         lookup[Number(n.d)] = n.type;
       });
-    const list = [];
-    for (let i = 0; i < 10; i += 1) {
-      const nd = start + i;
-      list.push({ d: nd, type: lookup[nd] || "TRAVERSE" });
-    }
-    return list;
+    return shaftBandDepths(here).map((nd) => ({
+      d: nd,
+      type: lookup[nd] || spineType(nd, ceil),
+    }));
   }
 
   function phraseHtml(text) {
@@ -436,22 +477,72 @@
     </div>`;
   }
 
+  let autoStartSent = false;
+
+  function livingPreview() {
+    const rows = (state && state.living_preview) || [];
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  function livingCount() {
+    const n = Number(state && state.living_count);
+    if (Number.isFinite(n) && n > 0) return n;
+    return livingPreview().length;
+  }
+
   function renderEmpty() {
     const root = document.getElementById("delve-root") || document.getElementById("chronicle-root");
     if (!root) return;
     stop();
     const hasMain = !!(state && state.has_main_waifu);
     const unlocked = !!(state && state.unlocked);
+    const living = livingCount();
     let body = `<p class="delve-copy">${esc(copy("onboard_1"))}</p>`;
     if (!hasMain) body += `<p class="muted tiny">${esc(copy("need_waifu"))}</p>`;
     else if (!unlocked) body += `<p class="muted tiny">${esc(copy("locked"))}</p>`;
-    else body += `<button type="button" class="delve-cta" id="delve-start-cta">${esc(copy("start_cta"))}</button>`;
+    else if (living > 0) {
+      const faces = livingPreview()
+        .map(
+          (c) => `
+            <div class="delve-face" data-slot="${esc(String(c.slot || ""))}">
+              <img class="delve-bust" src="${esc(c.portrait_url || "")}" alt="${esc(c.name || "")}" width="72" height="72" />
+              <span class="delve-face-name">${esc(c.name || "")}</span>
+            </div>`
+        )
+        .join("");
+      if (faces) body += `<div class="delve-faces">${faces}</div>`;
+      body += `<p class="muted tiny">${esc(copy("go_down", "Идти вниз"))}</p>`;
+    } else {
+      body += `<p class="muted tiny">${esc(copy("need_hire"))}</p>`;
+      body += `<a class="delve-cta" id="delve-tavern-cta" href="./tavern.html">${esc(copy("tavern_cta", "В таверну"))}</a>`;
+    }
     if (state && state.migration_from_chronicle && !state.legacy_seen) {
       body = `<p class="delve-copy">${esc(copy("legacy"))}</p>` + body;
     }
     root.innerHTML = `<div class="delve-camp delve-camp--empty">${body}</div>`;
-    const btn = document.getElementById("delve-start-cta");
-    if (btn) btn.addEventListener("click", () => openWizard());
+    if (hasMain && unlocked && living > 0) autoStartFromLiving();
+  }
+
+  async function autoStartFromLiving() {
+    if (autoStartSent || !state || state.started) return;
+    autoStartSent = true;
+    try {
+      const payload = await apiFetch("/delve/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ use_living: true }),
+      });
+      if (!payload || payload.error || payload.detail || !payload.started) {
+        autoStartSent = false;
+        showToast("Не вышло спуститься", "error");
+        return;
+      }
+      state = payload;
+      render();
+    } catch (e) {
+      autoStartSent = false;
+      showToast("Не вышло спуститься", "error");
+    }
   }
 
   function remainingSprites() {

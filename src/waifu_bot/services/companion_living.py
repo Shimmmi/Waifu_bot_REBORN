@@ -323,6 +323,89 @@ async def sync_card_to_delve(session: AsyncSession, card: m.CompanionCard) -> No
         existing.xp_earned = max(int(existing.xp_earned or 0), int(card.xp_earned or 0))
 
 
+def living_preview_rows(cards: list[m.CompanionCard]) -> list[dict[str, Any]]:
+    """Slim faces for GET /delve/sync. No hall payload, no LLM."""
+    out: list[dict[str, Any]] = []
+    for card in cards:
+        if not card or not card.slot:
+            continue
+        pixel = str(card.portrait_pixel_path or "").strip()
+        if pixel:
+            url = pixel if pixel.startswith("/") else f"/static/{pixel}"
+        else:
+            url = template_portrait_url(str(card.stance or "guide"))
+        out.append(
+            {
+                "slot": int(card.slot),
+                "name": str(card.name or ""),
+                "stance": str(card.stance or ""),
+                "portrait_url": url,
+            }
+        )
+    return out
+
+
+def party_source_cards(
+    living: list[m.CompanionCard],
+) -> tuple[list[m.CompanionCard], list[m.CompanionCard]]:
+    """Tavern hires win over wizard migrate-ghosts. All-migrate parties stay intact."""
+    seated = [c for c in living if c and c.slot and str(c.status or "") == "living"]
+    tavern = [c for c in seated if not c.source_delve_id]
+    if tavern:
+        ghosts = [c for c in seated if c.source_delve_id]
+        return tavern, ghosts
+    return seated, []
+
+
+async def _unseat_migrate_ghost(
+    session: AsyncSession, card: m.CompanionCard, *, now: datetime
+) -> None:
+    """Drop a wizard-migrated extra without consuming the daily dismiss slot."""
+    slot = card.slot
+    card.status = "left"
+    card.slot = None
+    if slot:
+        await unsync_delve_slot(session, int(card.player_id), int(slot))
+    session.add(
+        m.CompanionEvent(
+            player_id=int(card.player_id),
+            card_id=int(card.id),
+            beat_index=0,
+            ts=now,
+            depth=0,
+            node="SURFACE",
+            template_id="reconcile",
+            severity="mundane",
+            kind="leave_column",
+            line_ru=f"{card.name} не с этой колонки.",
+            payload={"reconcile": True},
+            discovered=True,
+            gold_delta=0,
+            xp_delta=0,
+        )
+    )
+
+
+async def reconcile_delve_party_to_living(
+    session: AsyncSession, player_id: int, *, now: datetime | None = None
+) -> None:
+    """Column faces follow seated tavern cards. Call before migrate_delve_to_cards."""
+    now = now or _now()
+    living = await list_living_cards(session, player_id)
+    keep, ghosts = party_source_cards(living)
+    for ghost in ghosts:
+        await _unseat_migrate_ghost(session, ghost, now=now)
+    await session.flush()
+    keep_slots = {int(c.slot) for c in keep if c.slot}
+    for card in keep:
+        await sync_card_to_delve(session, card)
+    companions = await list_companions(session, player_id)
+    for row in companions:
+        if int(row.slot) not in keep_slots:
+            await session.delete(row)
+    await session.flush()
+
+
 async def migrate_delve_to_cards(session: AsyncSession, player_id: int, *, now: datetime | None = None) -> None:
     now = now or _now()
     companions = await list_companions(session, player_id)

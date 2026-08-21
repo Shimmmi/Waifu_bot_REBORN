@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import inspect
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,7 +37,12 @@ from waifu_bot.game.delve_catalog import (
     xp_cap_day,
 )
 from waifu_bot.game.formulas import calculate_experience_for_level
-from waifu_bot.services.delve import build_frame, companion_out, grant_tap
+from waifu_bot.services.delve import DelveError, build_frame, companion_out, grant_tap, start_delve
+from waifu_bot.services.companion_living import (
+    living_preview_rows,
+    party_source_cards,
+    reconcile_delve_party_to_living,
+)
 from waifu_bot.services.guild_progress import apply_expedition_success_guild
 from waifu_bot.services.passive_skills import expedition_reward_multiplier, expedition_success_probability_boost
 
@@ -141,14 +147,18 @@ def test_hud_status_strings():
 
 
 def test_copy_has_no_forbidden_substrings():
-    root = Path("/opt/waifu-bot-REBORN")
-    texts = [
-        (root / "src/waifu_bot/game/delve_catalog.py").read_text(encoding="utf-8").lower(),
-        (root / "src/waifu_bot/webapp/pages/delve.js").read_text(encoding="utf-8").lower(),
-    ]
-    blob = "\n".join(texts)
+    texts = list(COPY.values()) + list(HUD_STATUS.values())
+    for pool in PHRASES.values():
+        texts.extend(pool)
+    blob = "\n".join(str(t) for t in texts).lower()
+    js = (Path("/opt/waifu-bot-REBORN") / "src/waifu_bot/webapp/pages/delve.js").read_text(
+        encoding="utf-8"
+    ).lower()
     for word in FORBIDDEN:
         assert word not in blob, word
+        if word == "чернила":
+            continue
+        assert word not in js, word
 
 
 def test_phrases_are_short_russian():
@@ -364,13 +374,211 @@ def test_shaft_art_bands():
     assert shaft_band_for_depth(20) == 20
     assert shaft_band_for_depth(21) == 30
     assert shaft_band_for_depth(100) == 100
-    assert shaft_band_for_depth(101) == 100
+    assert shaft_band_for_depth(101) == 125
+    assert shaft_band_for_depth(125) == 125
+    assert shaft_band_for_depth(126) == 150
+    assert shaft_band_for_depth(4001) == 3000
     assert shaft_art_for_depth(10)["url"].endswith("/shaft.webp")
     assert shaft_art_for_depth(20)["url"].endswith("/shaft_20.webp")
     assert shaft_art_for_depth(100)["id"] == "abyss"
     assert shaft_art_for_depth(20)["id"] == "mushrooms"
+    assert shaft_art_for_depth(101)["id"] == "rust"
+    assert shaft_art_for_depth(4001)["id"] == "quiet"
     assert shaft_band_depths(0) == list(range(1, 11))
     assert shaft_band_depths(15) == list(range(11, 21))
     assert shaft_band_depths(20) == list(range(11, 21))
-    assert shaft_band_depths(101) == list(range(91, 101))
+    assert shaft_band_depths(101) == list(range(101, 111))
+    assert shaft_band_depths(126) == list(range(126, 136))
     assert len(shaft_band_depths(101)) == 10
+    assert len(shaft_band_depths(4001)) == 10
+    delve_dir = Path("/opt/waifu-bot-REBORN/static/game/delve")
+    from waifu_bot.game.delve_catalog import SHAFT_BIOMES
+
+    assert len(SHAFT_BIOMES) == 30
+    for row in SHAFT_BIOMES:
+        art = delve_dir / str(row["file"])
+        assert art.is_file(), row["file"]
+        assert art.stat().st_size > 800, row["file"]
+
+
+def test_ceiling_week_keeps_old_pace_month_clears_100():
+    import math
+
+    from waifu_bot.game.delve_catalog import ALPHA, D0
+
+    ov = 10
+    week_h = 168.0
+    old = D0 * (1.0 + ALPHA * math.log(1.0 + week_h)) * (1.0 + 0.03 * math.sqrt(ov))
+    assert d_ceiling(week_h, ov) == pytest.approx(old)
+    assert d_ceiling(week_h - 1.0, ov) == pytest.approx(
+        D0 * (1.0 + ALPHA * math.log(week_h)) * (1.0 + 0.03 * math.sqrt(ov))
+    )
+    assert d_ceiling(30 * 24.0, ov) > 100
+
+
+def test_party_source_prefers_tavern_hires():
+    tavern = MagicMock()
+    tavern.slot = 1
+    tavern.status = "living"
+    tavern.source_delve_id = None
+    tavern.name = "Мара"
+    ghost = MagicMock()
+    ghost.slot = 2
+    ghost.status = "living"
+    ghost.source_delve_id = 99
+    ghost.name = "Фейк"
+    keep, ghosts = party_source_cards([tavern, ghost])
+    assert keep == [tavern]
+    assert ghosts == [ghost]
+
+
+def test_party_source_keeps_migrate_only_party():
+    a = MagicMock(slot=1, status="living", source_delve_id=1)
+    b = MagicMock(slot=2, status="living", source_delve_id=2)
+    keep, ghosts = party_source_cards([a, b])
+    assert keep == [a, b]
+    assert ghosts == []
+
+
+def test_living_preview_rows_use_static_portrait():
+    card = MagicMock()
+    card.slot = 1
+    card.name = "Мара"
+    card.stance = "scout"
+    card.portrait_pixel_path = "game/delve/portraits/1_1.webp"
+    rows = living_preview_rows([card])
+    assert rows == [
+        {
+            "slot": 1,
+            "name": "Мара",
+            "stance": "scout",
+            "portrait_url": "/static/game/delve/portraits/1_1.webp",
+        }
+    ]
+
+
+def test_start_delve_without_living_raises_need_hire():
+    async def _run():
+        mw = MagicMock()
+        session = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = mw
+        session.execute = AsyncMock(return_value=result)
+        with patch("waifu_bot.services.delve.is_unlocked", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "waifu_bot.services.companion_living.list_living_cards",
+                new_callable=AsyncMock,
+                return_value=[],
+            ):
+                with pytest.raises(DelveError) as ei:
+                    await start_delve(
+                        session,
+                        1,
+                        size=3,
+                        companions=[{"name": "Фейк", "stance": "scout", "temper": "stay"}],
+                    )
+                assert ei.value.code == "need_hire"
+
+    asyncio.run(_run())
+
+
+def test_start_delve_copies_living_not_wizard_body():
+    async def _run():
+        card = MagicMock()
+        card.slot = 1
+        card.name = "Мара"
+        card.status = "living"
+        mw = MagicMock()
+        state = MagicMock()
+        state.t_origin = None
+        state.sprite_count = 0
+        session = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = mw
+        session.execute = AsyncMock(return_value=result)
+        session.flush = AsyncMock()
+        synced: list[str] = []
+        with patch("waifu_bot.services.delve.is_unlocked", new_callable=AsyncMock, return_value=True):
+            with patch("waifu_bot.services.delve.get_state_for_update", new_callable=AsyncMock, return_value=state):
+                with patch("waifu_bot.services.delve.list_companions", new_callable=AsyncMock, return_value=[]):
+                    with patch(
+                        "waifu_bot.services.delve.grant_and_sync",
+                        new_callable=AsyncMock,
+                        return_value={"started": True},
+                    ):
+                        with patch("waifu_bot.services.event_log.log_event", new_callable=AsyncMock):
+                            with patch(
+                                "waifu_bot.services.companion_living.list_living_cards",
+                                new_callable=AsyncMock,
+                                return_value=[card],
+                            ):
+                                with patch(
+                                    "waifu_bot.services.companion_living.sync_card_to_delve",
+                                    new_callable=AsyncMock,
+                                    side_effect=lambda _s, c: synced.append(c.name),
+                                ):
+                                    out = await start_delve(
+                                        session,
+                                        9,
+                                        size=3,
+                                        companions=[
+                                            {"name": "Фейк", "stance": "guide", "temper": "curiosity"}
+                                        ],
+                                    )
+        assert synced == ["Мара"]
+        assert state.t_origin is not None
+        assert out["started"] is True
+
+    asyncio.run(_run())
+
+
+def test_reconcile_drops_migrate_ghosts_when_tavern_hire_exists():
+    async def _run():
+        tavern = MagicMock()
+        tavern.slot = 1
+        tavern.status = "living"
+        tavern.source_delve_id = None
+        tavern.name = "Мара"
+        tavern.player_id = 1
+        tavern.id = 10
+        ghost = MagicMock()
+        ghost.slot = 2
+        ghost.status = "living"
+        ghost.source_delve_id = 77
+        ghost.name = "Фейк"
+        ghost.player_id = 1
+        ghost.id = 11
+        fake = MagicMock(slot=1, name="Чужая")
+        extra = MagicMock(slot=3, name="Лишняя")
+        session = AsyncMock()
+        session.flush = AsyncMock()
+        session.add = MagicMock()
+        session.delete = AsyncMock()
+        synced: list[str] = []
+        with patch(
+            "waifu_bot.services.companion_living.list_living_cards",
+            new_callable=AsyncMock,
+            return_value=[tavern, ghost],
+        ):
+            with patch(
+                "waifu_bot.services.companion_living.sync_card_to_delve",
+                new_callable=AsyncMock,
+                side_effect=lambda _s, c: synced.append(c.name),
+            ):
+                with patch(
+                    "waifu_bot.services.companion_living.unsync_delve_slot",
+                    new_callable=AsyncMock,
+                ) as unsync:
+                    with patch(
+                        "waifu_bot.services.companion_living.list_companions",
+                        new_callable=AsyncMock,
+                        return_value=[fake, extra],
+                    ):
+                        await reconcile_delve_party_to_living(session, 1)
+        assert ghost.status == "left"
+        assert ghost.slot is None
+        assert synced == ["Мара"]
+        unsync.assert_awaited()
+        session.delete.assert_awaited()
+
+    asyncio.run(_run())

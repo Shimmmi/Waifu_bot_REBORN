@@ -1828,11 +1828,16 @@ function renderAtticExpeditions(payload) {
   chip.title = "Экспедиции";
   const started = Boolean(payload && payload.started);
   const rec = Number((payload && (payload.pb_depth || (payload.frame && payload.frame.record))) || 0);
+  const curRaw =
+    payload && payload.frame && payload.frame.d != null ? payload.frame.d : payload && payload.depth;
+  const cur = Number(curRaw);
   if (!started) {
     cellsWrap.innerHTML = '<span class="attic-chr-label">Экспедиции</span>';
     return;
   }
-  cellsWrap.innerHTML = `<span class="attic-chr-label">${rec > 0 ? rec : "↓"}</span>`;
+  const x = Number.isFinite(cur) ? Math.max(0, Math.floor(cur)) : 0;
+  const y = Number.isFinite(rec) ? Math.max(0, Math.floor(rec)) : 0;
+  cellsWrap.innerHTML = `<span class="attic-chr-label">${x}/${y}</span>`;
 }
 
 function hasAtticChrome() {

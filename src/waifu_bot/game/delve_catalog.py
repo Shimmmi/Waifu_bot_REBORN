@@ -35,6 +35,9 @@ T0_SEC = 720.0
 T_UP_SEC = 6.0
 DEPTH_EXP = 1.15
 VIEWPORT_NODES = 14
+CEILING_TAIL_HOURS = 168.0
+CEILING_TAIL_K = 0.8
+CEILING_TAIL_EXP = 0.72
 
 NODE_SURFACE = "SURFACE"
 NODE_BOSS = "BOSS"
@@ -97,6 +100,26 @@ SHAFT_BIOMES: tuple[dict[str, Any], ...] = (
     {"band": 80, "id": "magma", "label": "Магма", "place_ru": "у магмы", "file": "shaft_80.webp"},
     {"band": 90, "id": "bone", "label": "Кости", "place_ru": "среди костей", "file": "shaft_90.webp"},
     {"band": 100, "id": "abyss", "label": "Бездна", "place_ru": "над бездной", "file": "shaft_100.webp"},
+    {"band": 125, "id": "rust", "label": "Ржавчина", "place_ru": "в ржавом колодце", "file": "shaft_125.webp"},
+    {"band": 150, "id": "salt", "label": "Соль", "place_ru": "в соляной корке", "file": "shaft_150.webp"},
+    {"band": 200, "id": "amber", "label": "Янтарь", "place_ru": "в янтаре", "file": "shaft_200.webp"},
+    {"band": 250, "id": "archive", "label": "Архив", "place_ru": "среди бумаг", "file": "shaft_250.webp"},
+    {"band": 300, "id": "tar", "label": "Смола", "place_ru": "в смоле", "file": "shaft_300.webp"},
+    {"band": 350, "id": "porcelain", "label": "Фарфор", "place_ru": "в фарфоре", "file": "shaft_350.webp"},
+    {"band": 400, "id": "verdigris", "label": "Медянка", "place_ru": "в медянке", "file": "shaft_400.webp"},
+    {"band": 450, "id": "felt", "label": "Сукно", "place_ru": "в сукне", "file": "shaft_450.webp"},
+    {"band": 500, "id": "nacre", "label": "Перламутр", "place_ru": "в перламутре", "file": "shaft_500.webp"},
+    {"band": 600, "id": "wax", "label": "Воск", "place_ru": "в воске", "file": "shaft_600.webp"},
+    {"band": 700, "id": "graphite", "label": "Графит", "place_ru": "в графите", "file": "shaft_700.webp"},
+    {"band": 800, "id": "lacquer", "label": "Лак", "place_ru": "в лаке", "file": "shaft_800.webp"},
+    {"band": 900, "id": "mercury", "label": "Ртуть", "place_ru": "у ртути", "file": "shaft_900.webp"},
+    {"band": 1000, "id": "caramel", "label": "Карамель", "place_ru": "в карамели", "file": "shaft_1000.webp"},
+    {"band": 1250, "id": "ink", "label": "Чернила", "place_ru": "в чернилах", "file": "shaft_1250.webp"},
+    {"band": 1500, "id": "coral", "label": "Сухой коралл", "place_ru": "среди сухого коралла", "file": "shaft_1500.webp"},
+    {"band": 1750, "id": "gears", "label": "Зубья", "place_ru": "среди зубьев", "file": "shaft_1750.webp"},
+    {"band": 2000, "id": "pollen", "label": "Пыльца", "place_ru": "в пыльце", "file": "shaft_2000.webp"},
+    {"band": 2500, "id": "enamel", "label": "Эмаль", "place_ru": "в эмали", "file": "shaft_2500.webp"},
+    {"band": 3000, "id": "quiet", "label": "Тишина", "place_ru": "в тишине", "file": "shaft_3000.webp"},
 )
 SHAFT_BIOME_BY_BAND: dict[int, dict[str, Any]] = {int(b["band"]): b for b in SHAFT_BIOMES}
 
@@ -104,14 +127,16 @@ SHAFT_BIOME_BY_BAND: dict[int, dict[str, Any]] = {int(b["band"]): b for b in SHA
 def shaft_band_for_depth(d: int) -> int:
     n = int(d or 0)
     if n <= 0:
-        return 10
-    band = ((n - 1) // 10 + 1) * 10
-    return min(100, max(10, int(band)))
+        return int(SHAFT_BIOMES[0]["band"])
+    for row in SHAFT_BIOMES:
+        if n <= int(row["band"]):
+            return int(row["band"])
+    return int(SHAFT_BIOMES[-1]["band"])
 
 
 def shaft_art_for_depth(d: int) -> dict[str, Any]:
     band = shaft_band_for_depth(d)
-    row = SHAFT_BIOME_BY_BAND.get(band) or SHAFT_BIOMES[0]
+    row = SHAFT_BIOME_BY_BAND.get(band) or SHAFT_BIOMES[-1]
     return {
         "band": int(row["band"]),
         "id": str(row["id"]),
@@ -122,8 +147,22 @@ def shaft_art_for_depth(d: int) -> dict[str, Any]:
 
 
 def shaft_band_depths(d: int) -> list[int]:
-    band = shaft_band_for_depth(d)
-    return list(range(band - 9, band + 1))
+    n = max(0, int(d or 0))
+    if n <= 0:
+        return list(range(1, 11))
+    band = shaft_band_for_depth(n)
+    bands = [int(b["band"]) for b in SHAFT_BIOMES]
+    prev = 0
+    for b in bands:
+        if b >= band:
+            break
+        prev = b
+    start = prev + 1 if prev else max(1, band - 9)
+    end = band
+    if end - start + 1 > 10:
+        start = max(start, n - 6)
+        return list(range(start, start + 10))
+    return list(range(start, end + 1))
 
 TITLES: tuple[tuple[int, str], ...] = (
     (10, "Спускалась"),
@@ -146,6 +185,8 @@ COPY: dict[str, str] = {
     "legacy": "Книгу закрыли. Они идут вниз. Рекорд глубины начнётся сейчас.",
     "locked": "Экспедиции откроются после первого закрытого данжа или с 5 уровня.",
     "need_waifu": "Сначала нужна основная вайфу.",
+    "need_hire": "Сначала наймите наёмницу в таверне.",
+    "tavern_cta": "В таверну",
     "sheet": "Статус",
     "open_column": "Открыть экспедиции",
     "profile_block": "Экспедиции",
@@ -344,7 +385,9 @@ def hours_in_column(t_origin: datetime, now: datetime) -> float:
 def d_ceiling(hours: float, ov_level: int) -> float:
     a = max(0.0, float(hours))
     lvl = max(1, int(ov_level or 1))
-    return D0 * (1.0 + ALPHA * math.log(1.0 + a)) * (1.0 + 0.03 * math.sqrt(lvl))
+    base = D0 * (1.0 + ALPHA * math.log(1.0 + a)) * (1.0 + 0.03 * math.sqrt(lvl))
+    tail = CEILING_TAIL_K * (max(0.0, a - CEILING_TAIL_HOURS) ** CEILING_TAIL_EXP)
+    return base + tail
 
 
 def period_parts(ceil: float) -> tuple[float, float, float]:
