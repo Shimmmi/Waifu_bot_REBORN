@@ -78,48 +78,49 @@ TEMPER_FROM_MOTIVE = {
 }
 
 PALETTES: tuple[dict[str, str], ...] = (
-    {"id": "mushrooms", "label": "Грибы", "shaft": "#2d4a32", "accent": "#7ec27a"},
-    {"id": "crystal", "label": "Кристалл", "shaft": "#2a3a58", "accent": "#8ec6ff"},
-    {"id": "coal", "label": "Уголь", "shaft": "#2a2420", "accent": "#c47a3a"},
-    {"id": "wet", "label": "Мокрое", "shaft": "#1e3a40", "accent": "#6ec4c0"},
-    {"id": "ash", "label": "Пепел", "shaft": "#3a3a3a", "accent": "#c8c2b4"},
+    {"id": "mushrooms", "label": "Грибница", "shaft": "#2d4a32", "accent": "#7ec27a"},
+    {"id": "crystal", "label": "Кристаллы", "shaft": "#2a3a58", "accent": "#8ec6ff"},
+    {"id": "coal", "label": "Угольная шахта", "shaft": "#2a2420", "accent": "#c47a3a"},
+    {"id": "wet", "label": "Мокрый колодец", "shaft": "#1e3a40", "accent": "#6ec4c0"},
+    {"id": "ash", "label": "Пепелище", "shaft": "#3a3a3a", "accent": "#c8c2b4"},
     {"id": "limestone", "label": "Известняк", "shaft": "#4a4336", "accent": "#e0d2a8"},
 )
 PALETTE_IDS: tuple[str, ...] = tuple(p["id"] for p in PALETTES)
 PALETTE_BY_ID: dict[str, dict[str, str]] = {p["id"]: p for p in PALETTES}
 
-# Depth-band shaft art. Band 10 reuses the original wet well. Player palette only tints overlay.
+# Depth-band shaft art. Labels follow the image prompts (wet well, fungal shelves, …).
+# Player palette only tints overlay.
 SHAFT_BIOMES: tuple[dict[str, Any], ...] = (
-    {"band": 10, "id": "wet", "label": "Мокрое", "place_ru": "в мокром ходе", "file": "shaft.webp"},
-    {"band": 20, "id": "mushrooms", "label": "Грибы", "place_ru": "среди грибов", "file": "shaft_20.webp"},
-    {"band": 30, "id": "crystal", "label": "Кристалл", "place_ru": "между кристаллами", "file": "shaft_30.webp"},
-    {"band": 40, "id": "coal", "label": "Уголь", "place_ru": "в угольной пыли", "file": "shaft_40.webp"},
-    {"band": 50, "id": "ash", "label": "Пепел", "place_ru": "в пепле", "file": "shaft_50.webp"},
+    {"band": 10, "id": "wet", "label": "Мокрый колодец", "place_ru": "в мокром колодце", "file": "shaft.webp"},
+    {"band": 20, "id": "mushrooms", "label": "Грибница", "place_ru": "среди грибов", "file": "shaft_20.webp"},
+    {"band": 30, "id": "crystal", "label": "Кристаллы", "place_ru": "между кристаллами", "file": "shaft_30.webp"},
+    {"band": 40, "id": "coal", "label": "Угольная шахта", "place_ru": "в угольной пыли", "file": "shaft_40.webp"},
+    {"band": 50, "id": "ash", "label": "Пепелище", "place_ru": "в пепле", "file": "shaft_50.webp"},
     {"band": 60, "id": "limestone", "label": "Известняк", "place_ru": "в известняке", "file": "shaft_60.webp"},
-    {"band": 70, "id": "ice", "label": "Лёд", "place_ru": "на льду", "file": "shaft_70.webp"},
+    {"band": 70, "id": "ice", "label": "Ледник", "place_ru": "на льду", "file": "shaft_70.webp"},
     {"band": 80, "id": "magma", "label": "Магма", "place_ru": "у магмы", "file": "shaft_80.webp"},
-    {"band": 90, "id": "bone", "label": "Кости", "place_ru": "среди костей", "file": "shaft_90.webp"},
+    {"band": 90, "id": "bone", "label": "Катакомбы", "place_ru": "среди костей", "file": "shaft_90.webp"},
     {"band": 100, "id": "abyss", "label": "Бездна", "place_ru": "над бездной", "file": "shaft_100.webp"},
-    {"band": 125, "id": "rust", "label": "Ржавчина", "place_ru": "в ржавом колодце", "file": "shaft_125.webp"},
-    {"band": 150, "id": "salt", "label": "Соль", "place_ru": "в соляной корке", "file": "shaft_150.webp"},
+    {"band": 125, "id": "rust", "label": "Ржавый колодец", "place_ru": "в ржавом колодце", "file": "shaft_125.webp"},
+    {"band": 150, "id": "salt", "label": "Соляная шахта", "place_ru": "в соляной корке", "file": "shaft_150.webp"},
     {"band": 200, "id": "amber", "label": "Янтарь", "place_ru": "в янтаре", "file": "shaft_200.webp"},
-    {"band": 250, "id": "archive", "label": "Архив", "place_ru": "среди бумаг", "file": "shaft_250.webp"},
-    {"band": 300, "id": "tar", "label": "Смола", "place_ru": "в смоле", "file": "shaft_300.webp"},
-    {"band": 350, "id": "porcelain", "label": "Фарфор", "place_ru": "в фарфоре", "file": "shaft_350.webp"},
-    {"band": 400, "id": "verdigris", "label": "Медянка", "place_ru": "в медянке", "file": "shaft_400.webp"},
-    {"band": 450, "id": "felt", "label": "Сукно", "place_ru": "в сукне", "file": "shaft_450.webp"},
+    {"band": 250, "id": "archive", "label": "Бумажный архив", "place_ru": "среди бумаг", "file": "shaft_250.webp"},
+    {"band": 300, "id": "tar", "label": "Смоляной колодец", "place_ru": "в смоле", "file": "shaft_300.webp"},
+    {"band": 350, "id": "porcelain", "label": "Битый фарфор", "place_ru": "в фарфоре", "file": "shaft_350.webp"},
+    {"band": 400, "id": "verdigris", "label": "Медная патина", "place_ru": "в медной патине", "file": "shaft_400.webp"},
+    {"band": 450, "id": "felt", "label": "Войлок", "place_ru": "в войлоке", "file": "shaft_450.webp"},
     {"band": 500, "id": "nacre", "label": "Перламутр", "place_ru": "в перламутре", "file": "shaft_500.webp"},
-    {"band": 600, "id": "wax", "label": "Воск", "place_ru": "в воске", "file": "shaft_600.webp"},
+    {"band": 600, "id": "wax", "label": "Восковой колодец", "place_ru": "в воске", "file": "shaft_600.webp"},
     {"band": 700, "id": "graphite", "label": "Графит", "place_ru": "в графите", "file": "shaft_700.webp"},
-    {"band": 800, "id": "lacquer", "label": "Лак", "place_ru": "в лаке", "file": "shaft_800.webp"},
+    {"band": 800, "id": "lacquer", "label": "Лаковый колодец", "place_ru": "в лаке", "file": "shaft_800.webp"},
     {"band": 900, "id": "mercury", "label": "Ртуть", "place_ru": "у ртути", "file": "shaft_900.webp"},
     {"band": 1000, "id": "caramel", "label": "Карамель", "place_ru": "в карамели", "file": "shaft_1000.webp"},
-    {"band": 1250, "id": "ink", "label": "Чернила", "place_ru": "в чернилах", "file": "shaft_1250.webp"},
+    {"band": 1250, "id": "ink", "label": "Чернильный колодец", "place_ru": "в чернилах", "file": "shaft_1250.webp"},
     {"band": 1500, "id": "coral", "label": "Сухой коралл", "place_ru": "среди сухого коралла", "file": "shaft_1500.webp"},
-    {"band": 1750, "id": "gears", "label": "Зубья", "place_ru": "среди зубьев", "file": "shaft_1750.webp"},
+    {"band": 1750, "id": "gears", "label": "Каменные шестерни", "place_ru": "среди шестерён", "file": "shaft_1750.webp"},
     {"band": 2000, "id": "pollen", "label": "Пыльца", "place_ru": "в пыльце", "file": "shaft_2000.webp"},
-    {"band": 2500, "id": "enamel", "label": "Эмаль", "place_ru": "в эмали", "file": "shaft_2500.webp"},
-    {"band": 3000, "id": "quiet", "label": "Тишина", "place_ru": "в тишине", "file": "shaft_3000.webp"},
+    {"band": 2500, "id": "enamel", "label": "Эмалевый колодец", "place_ru": "в эмали", "file": "shaft_2500.webp"},
+    {"band": 3000, "id": "quiet", "label": "Пустой колодец", "place_ru": "в пустом колодце", "file": "shaft_3000.webp"},
 )
 SHAFT_BIOME_BY_BAND: dict[int, dict[str, Any]] = {int(b["band"]): b for b in SHAFT_BIOMES}
 
@@ -792,9 +793,28 @@ _KEEP_WORDS = frozenset(
         "Тень",
         "Бездна",
         "Мокрое",
+        "Грибы",
+        "Кристалл",
+        "Уголь",
+        "Пепел",
+        "Кости",
+        "Ржавчина",
+        "Соль",
+        "Архив",
+        "Смола",
+        "Фарфор",
+        "Медянка",
+        "Сукно",
+        "Воск",
+        "Лак",
+        "Чернила",
+        "Зубья",
+        "Эмаль",
+        "Тишина",
     }
     | {str(p["label"]) for p in PALETTES}
     | {str(b["label"]) for b in SHAFT_BIOMES}
+    | {w for label in [str(p["label"]) for p in PALETTES] + [str(b["label"]) for b in SHAFT_BIOMES] for w in label.split()}
 )
 
 

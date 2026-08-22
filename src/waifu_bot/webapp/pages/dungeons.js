@@ -1343,6 +1343,24 @@ function initPlusSelect(globalUnlocked, statusById) {
 }
 
 const STORY_PLUS_TIERS = new Set([5, 10, 15, 20, 25, 30]);
+const PLUS_LIST_STEPPER_THRESHOLD = 20;
+const RARITY_LABELS_RU = ["обычная", "необычная", "редкая", "эпическая", "легендарная"];
+
+function plusExtraMonsters(n) {
+  const lvl = Math.max(0, Number(n) || 0);
+  if (lvl <= 0) return 0;
+  return Math.max(0, Math.floor((lvl - 4) / 4));
+}
+
+function plusCompletionItemRolls(n) {
+  return 1 + Math.min(4, plusExtraMonsters(n));
+}
+
+function plusRarityFloorLabel(n) {
+  const lvl = Math.max(0, Number(n) || 0);
+  if (lvl <= 0) return null;
+  return RARITY_LABELS_RU[Math.min(Math.floor(lvl / 2), 4)] || null;
+}
 
 function getDifficultyDescription(n) {
   const lvl = Number(n || 0);
@@ -1350,7 +1368,82 @@ function getDifficultyDescription(n) {
   const dmgMult = (1 + lvl * 0.08).toFixed(2);
   const reward = (1 + lvl * 0.22 + Math.log1p(lvl) * 0.15).toFixed(2);
   const elite = Math.min(40, lvl * 2);
-  return `Урон ×${dmgMult} · Награды ×${reward} · Элиты +${elite}%`;
+  const items = plusCompletionItemRolls(lvl);
+  const rarity = plusRarityFloorLabel(lvl);
+  const rarityPart = rarity ? ` · Редкость от: ${rarity}` : "";
+  const storyPart =
+    lvl > 30 ? " · Сюжетные боссы до +30, дальше сложность растёт без сюжета." : "";
+  return `Урон ×${dmgMult} · Награды ×${reward} · Элиты +${elite}% · Предметов: ${items}${rarityPart}${storyPart}`;
+}
+
+function plusSealHue(i, max) {
+  return max > 0 ? Math.round(120 * (1 - i / Math.max(1, max))) : 120;
+}
+
+function applyPlusLevelAndClose(did, i) {
+  setPlusLevelForDungeon(did, i);
+  window.WaifuApp.closePlusBottomSheet();
+  const p = window.__lastProfileForDungeons || null;
+  if (p) renderSoloDungeonsForAct(p).catch?.(() => {});
+}
+
+function appendPlusOptionButton(list, i, max, current, did) {
+  const hue = plusSealHue(i, max);
+  const sealC = `hsl(${hue}, 58%, 42%)`;
+  const desc = getDifficultyDescription(i);
+  const storyMark = STORY_PLUS_TIERS.has(i)
+    ? `<span class="plus-option-story-mark">Сюжетный босс на последней комнате</span>`
+    : "";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "plus-option" + (i === current ? " selected" : "");
+  btn.innerHTML = `
+      <div class="plus-option-badge seal" style="--seal-c:${sealC}">
+        ${i === 0 ? "0" : `+${i}`}
+      </div>
+      <div class="plus-option-info">
+        <div class="plus-option-label">${i === 0 ? "Обычная" : `Сложность +${i}`}</div>
+        <div class="plus-option-desc">${desc}${storyMark}</div>
+      </div>`;
+  btn.addEventListener("click", () => applyPlusLevelAndClose(did, i));
+  list.appendChild(btn);
+}
+
+function appendPlusStepper(list, max, current, did) {
+  const wrap = document.createElement("div");
+  wrap.className = "plus-stepper";
+  wrap.innerHTML = `
+    <button type="button" class="plus-stepper-btn" data-delta="-1" aria-label="Ниже">−</button>
+    <div class="plus-stepper-value" data-plus-stepper-value>+${current}</div>
+    <button type="button" class="plus-stepper-btn" data-delta="1" aria-label="Выше">+</button>
+    <button type="button" class="plus-stepper-max" data-plus-max>Макс открытый +${max}</button>
+  `;
+  const valueEl = wrap.querySelector("[data-plus-stepper-value]");
+  let pending = current;
+  const setPending = (v) => {
+    pending = Math.max(0, Math.min(max, Number(v) || 0));
+    if (valueEl) valueEl.textContent = pending === 0 ? "0" : `+${pending}`;
+  };
+  wrap.querySelectorAll("[data-delta]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      setPending(pending + Number(btn.getAttribute("data-delta") || 0));
+    });
+  });
+  const maxBtn = wrap.querySelector("[data-plus-max]");
+  if (maxBtn) {
+    maxBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      applyPlusLevelAndClose(did, max);
+    });
+  }
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.className = "plus-stepper-confirm primary";
+  confirm.textContent = "Выбрать этот уровень";
+  confirm.addEventListener("click", () => applyPlusLevelAndClose(did, pending));
+  list.appendChild(wrap);
+  list.appendChild(confirm);
 }
 
 window.WaifuApp.openPlusBottomSheet = (dungeonId) => {
@@ -1366,30 +1459,23 @@ window.WaifuApp.openPlusBottomSheet = (dungeonId) => {
   if (titleEl) {
     titleEl.textContent = max > 0 ? "Сложность ➕ (это подземелье)" : "Сложность ➕";
   }
-  for (let i = 0; i <= Math.max(0, max); i++) {
-    const hue = max > 0 ? Math.round(120 * (1 - i / Math.max(1, max))) : 120;
-    const sealC = `hsl(${hue}, 58%, 42%)`;
-    const desc = getDifficultyDescription(i);
-    const storyMark = STORY_PLUS_TIERS.has(i)
-      ? `<span class="plus-option-story-mark">Сюжетный босс на последней комнате</span>`
-      : "";
-    const btn = document.createElement("button");
-    btn.className = "plus-option" + (i === current ? " selected" : "");
-    btn.innerHTML = `
-      <div class="plus-option-badge seal" style="--seal-c:${sealC}">
-        ${i === 0 ? "0" : `+${i}`}
-      </div>
-      <div class="plus-option-info">
-        <div class="plus-option-label">${i === 0 ? "Обычная" : `Сложность +${i}`}</div>
-        <div class="plus-option-desc">${desc}${storyMark}</div>
-      </div>`;
-    btn.addEventListener("click", () => {
-      setPlusLevelForDungeon(did, i);
-      window.WaifuApp.closePlusBottomSheet();
-      const p = window.__lastProfileForDungeons || null;
-      if (p) renderSoloDungeonsForAct(p).catch?.(() => {});
+  const cap = Math.max(0, max);
+  if (cap > PLUS_LIST_STEPPER_THRESHOLD) {
+    const hint = document.createElement("p");
+    hint.className = "muted tiny plus-stepper-hint";
+    hint.textContent =
+      "Сюжетные боссы на +5…+30. Дальше сложность растёт без сюжета — выберите уровень степпером или вехой.";
+    list.appendChild(hint);
+    appendPlusStepper(list, cap, Math.min(current, cap), did);
+    const quick = new Set([0, current, cap]);
+    STORY_PLUS_TIERS.forEach((t) => {
+      if (t <= cap) quick.add(t);
     });
-    list.appendChild(btn);
+    [...quick].sort((a, b) => a - b).forEach((i) => appendPlusOptionButton(list, i, cap, current, did));
+  } else {
+    for (let i = 0; i <= cap; i++) {
+      appendPlusOptionButton(list, i, cap, current, did);
+    }
   }
   bs.dataset.plusDungeonId = String(did);
   bs.style.display = "flex";

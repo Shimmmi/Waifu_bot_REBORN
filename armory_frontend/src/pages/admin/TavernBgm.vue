@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import AdminNav from '../../components/AdminNav.vue'
 import {
   apiGet,
   apiPost,
@@ -129,12 +130,7 @@ onMounted(refreshAll)
   <div>
     <RouterLink to="/admin">← Назад</RouterLink>
     <h1>Tavern BGM — диагностика</h1>
-    <nav class="tabs" style="margin: 1rem 0">
-      <RouterLink to="/admin/players" class="tab">Игроки</RouterLink>
-      <RouterLink to="/admin/group-chats" class="tab">Групповые чаты</RouterLink>
-      <RouterLink to="/admin/tavern-bgm" class="tab">Tavern BGM</RouterLink>
-      <RouterLink to="/admin/actions" class="tab">Журнал действий</RouterLink>
-    </nav>
+    <AdminNav />
 
     <div style="margin: 1rem 0; display: flex; gap: 0.5rem; flex-wrap: wrap">
       <button class="btn" :disabled="loading" @click="refreshAll">{{ loading ? 'Загрузка…' : 'Обновить' }}</button>

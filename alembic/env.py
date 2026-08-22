@@ -49,6 +49,7 @@ from waifu_bot.db.models import (  # noqa: F401
     AbyssGrace,
     AbyssWeeklyLeaderboard,
     AbyssShardsShopItem,
+    LlmUsageLog,
 )
 
 # this is the Alembic Config object, which provides

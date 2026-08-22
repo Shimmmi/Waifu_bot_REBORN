@@ -308,3 +308,60 @@ export interface AdminTavernBgmRetryResponse {
   error?: string
   events: AdminTavernBgmEvent[]
 }
+
+export interface AdminLlmUsageTotals {
+  sent: number
+  ok: number
+  error: number
+  prompt_tokens: number
+  completion_tokens: number
+  players: number
+}
+
+export interface AdminLlmCallerRow {
+  caller: string
+  modality: string
+  count: number
+  ok: number
+  error: number
+  avg_ms: number
+  prompt_tokens: number
+  completion_tokens: number
+}
+
+export interface AdminLlmPlayerRow {
+  player_id: number | null
+  username?: string | null
+  first_name?: string | null
+  count: number
+  ok: number
+  error: number
+  prompt_tokens: number
+  completion_tokens: number
+}
+
+export interface AdminLlmRecentRow {
+  id: number
+  created_at?: string | null
+  player_id?: number | null
+  caller: string
+  source: string
+  trigger?: string | null
+  modality: string
+  provider: string
+  model?: string | null
+  http_status?: number | null
+  ok: boolean
+  latency_ms: number
+  prompt_tokens?: number | null
+  completion_tokens?: number | null
+}
+
+export interface AdminLlmUsage {
+  since: string
+  until: string
+  totals: AdminLlmUsageTotals
+  by_caller: AdminLlmCallerRow[]
+  by_player: AdminLlmPlayerRow[]
+  recent: AdminLlmRecentRow[]
+}

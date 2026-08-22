@@ -1021,6 +1021,41 @@ async def admin_armory_generate_item_art(
     }
 
 
+@router.get("/admin/llm/usage")
+async def admin_llm_usage(
+    admin_id: ArmoryAdmin,
+    session: AsyncSession = Depends(get_db),
+    since: str | None = None,
+    until: str | None = None,
+    modality: str | None = None,
+    caller: str | None = None,
+    player_id: int | None = Query(None),
+    limit: int = Query(80, ge=1, le=200),
+):
+    from waifu_bot.services.llm_usage import usage_report
+
+    def _dt(raw: str | None) -> datetime | None:
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid datetime") from exc
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    return await usage_report(
+        session,
+        since=_dt(since),
+        until=_dt(until),
+        modality=modality,
+        caller=caller,
+        player_id=player_id,
+        recent_limit=limit,
+    )
+
+
 @router.get("/admin/actions")
 async def admin_actions_log(
     admin_id: ArmoryAdmin,

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import AdminNav from '../../components/AdminNav.vue'
 import { apiGet, apiPost } from '../../api/client'
 
 type AdminStats = {
@@ -43,12 +44,7 @@ onMounted(load)
 <template>
   <div>
     <h1>Админ-панель</h1>
-    <nav class="tabs" style="margin: 1rem 0">
-      <RouterLink to="/admin/players" class="tab">Игроки</RouterLink>
-      <RouterLink to="/admin/group-chats" class="tab">Групповые чаты</RouterLink>
-      <RouterLink to="/admin/tavern-bgm" class="tab">Tavern BGM</RouterLink>
-      <RouterLink to="/admin/actions" class="tab">Журнал действий</RouterLink>
-    </nav>
+    <AdminNav />
 
     <div v-if="stats" class="card">
       <div class="stat-grid">

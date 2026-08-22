@@ -32,6 +32,9 @@ def llm_post_chat_completions_task(
             provider_chain_for_request,
             _post_chat_completions_locked,
         )
+        from waifu_bot.db.session import init_engine
+
+        init_engine()
 
         chain = provider_chain_for_request(use_image_model=use_image_model)
         if not chain:

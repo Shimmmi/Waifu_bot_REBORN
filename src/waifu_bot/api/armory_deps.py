@@ -45,6 +45,9 @@ async def require_armory_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login required")
     if await is_player_banned(session, tg_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account banned")
+    from waifu_bot.services.llm_usage import set_llm_player_id
+
+    set_llm_player_id(tg_id)
     return tg_id
 
 

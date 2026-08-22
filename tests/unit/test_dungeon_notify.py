@@ -37,6 +37,24 @@ def test_build_solo_dungeon_outcome_text_success_with_item_and_hp():
     assert "веб-приложении" not in text
 
 
+def test_build_solo_dungeon_outcome_text_multiple_items():
+    text = build_solo_dungeon_outcome_text(
+        completed=True,
+        dungeon_name="Башня",
+        plus_level=10,
+        gold=10,
+        exp=20,
+        items_dropped=[
+            {"name": "Легенда", "level": 150},
+            {"name": "Кольцо", "level": 148},
+        ],
+    )
+    assert "Предметы:" in text
+    assert "Легенда (ур. 150)" in text
+    assert "Кольцо (ур. 148)" in text
+    assert "🎁 Предмет: " not in text
+
+
 def test_build_solo_dungeon_outcome_text_fail_caps_and_hp():
     text = build_solo_dungeon_outcome_text(
         completed=False,

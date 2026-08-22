@@ -17,7 +17,10 @@ from waifu_bot.services.solo_run_rewards import (
 
 def _run(*, exp=0, gold=0, battle_state=None):
     return SimpleNamespace(
+        id=1,
         player_id=1,
+        plus_level=0,
+        run_kind="solo",
         total_exp_gained=exp,
         total_gold_gained=gold,
         battle_state=battle_state or {},
@@ -36,7 +39,12 @@ def _waifu(*, exp=0, charm=10, hp=100, max_hp=200, level=5, endurance=10):
 
 
 def _player(*, gold=0):
-    return SimpleNamespace(gold=gold)
+    return SimpleNamespace(id=1, gold=gold)
+
+
+async def _stub_add_gold(_session, pl, amount, **_kw):
+    pl.gold = int(getattr(pl, "gold", 0) or 0) + int(amount)
+    return True
 
 
 def test_accrue_does_not_touch_waifu_or_player():
@@ -56,10 +64,13 @@ def test_settle_completed_credits_full_totals():
         waifu = _waifu(exp=10)
         player = _player(gold=50)
         session = AsyncMock()
-        with patch(
-            "waifu_bot.services.combat.apply_main_waifu_levelups",
-            new_callable=AsyncMock,
-            return_value=False,
+        with (
+            patch(
+                "waifu_bot.services.combat.apply_main_waifu_levelups",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch("waifu_bot.services.wallet.add_gold", new=_stub_add_gold),
         ):
             exp, gold, penalty = await settle_solo_run_rewards(
                 session, run, waifu, player, "completed"
@@ -102,6 +113,7 @@ def test_settle_failed_applies_penalty_to_all_gold():
                 "waifu_bot.services.hidden_skills.try_hoarder_saving_streak",
                 new_callable=AsyncMock,
             ),
+            patch("waifu_bot.services.wallet.add_gold", new=_stub_add_gold),
         ):
             exp, gold, pct = await settle_solo_run_rewards(
                 session, run, waifu, player, "failed"
@@ -125,6 +137,36 @@ def test_settle_idempotent():
         assert exp == 0 and gold == 0
         assert waifu.experience == 0
         assert player.gold == 10
+
+    asyncio.run(_run_test())
+
+
+def test_settle_second_call_does_not_credit_xp_again():
+    async def _run_test():
+        run = _run(exp=100, gold=200)
+        waifu = _waifu(exp=10)
+        player = _player(gold=50)
+        session = AsyncMock()
+
+        with (
+            patch(
+                "waifu_bot.services.combat.apply_main_waifu_levelups",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch("waifu_bot.services.wallet.add_gold", new=_stub_add_gold),
+        ):
+            exp1, gold1, _ = await settle_solo_run_rewards(
+                session, run, waifu, player, "completed"
+            )
+            exp2, gold2, _ = await settle_solo_run_rewards(
+                session, run, waifu, player, "completed"
+            )
+        assert exp1 == 100 and gold1 == 200
+        assert exp2 == 0 and gold2 == 0
+        assert waifu.experience == 110
+        assert player.gold == 250
+        assert solo_rewards_settled(run)
 
     asyncio.run(_run_test())
 
@@ -235,6 +277,7 @@ def test_death_after_kill_includes_last_monster_in_settlement():
                 "waifu_bot.services.hidden_skills.try_hoarder_saving_streak",
                 new_callable=AsyncMock,
             ),
+            patch("waifu_bot.services.wallet.add_gold", new=_stub_add_gold),
         ):
             exp, gold, _ = await settle_solo_run_rewards(session, run, waifu, player, "failed")
         assert exp == 25

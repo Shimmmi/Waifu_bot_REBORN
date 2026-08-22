@@ -124,6 +124,24 @@ def build_solo_dungeon_retry_keyboard(dungeon_id: int, plus_level: int = 0):
     )
 
 
+def _normalize_dropped_items(
+    item_dropped: dict | None,
+    items_dropped: list[dict] | None,
+) -> list[dict]:
+    if items_dropped:
+        return [it for it in items_dropped if isinstance(it, dict)]
+    if item_dropped and isinstance(item_dropped, dict):
+        return [item_dropped]
+    return []
+
+
+def _format_dropped_item_line(item: dict) -> str:
+    item_name = str(item.get("name") or "Предмет")
+    item_lvl = item.get("level")
+    lvl_part = f" (ур. {item_lvl})" if item_lvl is not None else ""
+    return f"{item_name}{lvl_part}"
+
+
 def build_solo_dungeon_outcome_text(
     *,
     completed: bool,
@@ -132,6 +150,7 @@ def build_solo_dungeon_outcome_text(
     gold: int = 0,
     exp: int = 0,
     item_dropped: dict | None = None,
+    items_dropped: list[dict] | None = None,
     reason: str | None = None,
     guild_bonus_lines: list[str] | None = None,
     waifu_current_hp: int | None = None,
@@ -152,11 +171,14 @@ def build_solo_dungeon_outcome_text(
         ]
         if hp_line:
             lines.append(hp_line)
-        if item_dropped and item_dropped.get("name"):
-            item_name = str(item_dropped["name"])
-            item_lvl = item_dropped.get("level")
-            lvl_part = f" (ур. {item_lvl})" if item_lvl is not None else ""
-            lines.append(f"🎁 Предмет: {item_name}{lvl_part}")
+        dropped = _normalize_dropped_items(item_dropped, items_dropped)
+        named = [it for it in dropped if it.get("name")]
+        if len(named) == 1:
+            lines.append(f"🎁 Предмет: {_format_dropped_item_line(named[0])}")
+        elif named:
+            lines.append("🎁 Предметы:")
+            for it in named:
+                lines.append(f"• {_format_dropped_item_line(it)}")
         return "\n".join(lines)
 
     reason_label = _FAIL_REASON_LABELS.get(str(reason or ""), "гибель в бою")
@@ -182,6 +204,7 @@ async def notify_solo_dungeon_outcome(
     gold: int = 0,
     exp: int = 0,
     item_dropped: dict | None = None,
+    items_dropped: list[dict] | None = None,
     reason: str | None = None,
     guild_bonus_lines: list[str] | None = None,
     waifu_current_hp: int | None = None,
@@ -215,6 +238,7 @@ async def notify_solo_dungeon_outcome(
         gold=gold,
         exp=exp,
         item_dropped=item_dropped,
+        items_dropped=items_dropped,
         reason=reason,
         guild_bonus_lines=guild_bonus_lines,
         waifu_current_hp=waifu_current_hp,

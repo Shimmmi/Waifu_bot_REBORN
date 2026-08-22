@@ -8050,6 +8050,54 @@ body.page-shop {
   color: var(--muted);
 }
 
+.plus-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.plus-stepper-btn,
+.plus-stepper-max,
+.plus-stepper-confirm {
+  cursor: pointer;
+}
+
+.plus-stepper-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.plus-stepper-value {
+  min-width: 48px;
+  text-align: center;
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.plus-stepper-max,
+.plus-stepper-confirm {
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.plus-stepper-hint {
+  margin: 0 0 8px;
+}
+
 /* Dungeon+ difficulty: centered modal (not theme --card; avoids white panel in Telegram light) */
 #plus-bottomsheet.bottomsheet--dungeon-plus {
   justify-content: center;

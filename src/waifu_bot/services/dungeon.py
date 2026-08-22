@@ -46,6 +46,7 @@ from waifu_bot.game.formulas import calculate_damage, calculate_damage_reduction
 from waifu_bot.game.dungeon_plus_scaling import (
     dungeon_plus_difficulty_params,
     dungeon_plus_dmg_mult,
+    dungeon_plus_drop_power_rank,
     dungeon_plus_hp_mult_for_rolled,
 )
 from waifu_bot.game.monster_power import vary_hp_dmg_for_power_budget
@@ -828,7 +829,7 @@ class DungeonService:
                     budget_mult = max(1.0, float(params["budget_mult"]))
                     budget = max(1, int(base_budget * budget_mult))
                     run.difficulty_rating = int(budget)
-                    run.drop_power_rank = int(50 + params["item_level_bonus"] * 10)
+                    run.drop_power_rank = dungeon_plus_drop_power_rank(pl)
                 else:
                     budget = max(1, int(getattr(dungeon, "difficulty", 100) or 100))
                 base = max(1, budget // total)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import random
 
 # Soft early (+1 ≈ 2.4k HP for campaign graduates ~1k text dmg), steep late (+30 ≈ 152k).
 # hp_target(N) = HP_FLAT + HP_SCALE * N ** HP_EXP
@@ -25,6 +26,16 @@ REWARD_LINEAR_PER_PLUS = 0.22
 REWARD_LOG_COEFF = 0.15
 
 RARITY_TIERS = ("common", "uncommon", "rare", "epic", "legendary")
+RARITY_TIER_INDEX = {
+    "common": 1,
+    "uncommon": 2,
+    "rare": 3,
+    "epic": 4,
+    "legendary": 5,
+}
+
+# Extra completion-chest items cap (1 guaranteed + up to this many).
+COMPLETION_EXTRA_ITEM_ROLLS_CAP = 4
 
 
 def dungeon_plus_hp_target(plus_level: int) -> float:
@@ -89,6 +100,63 @@ def dungeon_plus_budget_mult(plus_level: int) -> float:
     return max(1.0, (dungeon_plus_hp_target(n) / base) ** 0.5)
 
 
+def dungeon_plus_rarity_floor_index(plus_level: int) -> int:
+    """Minimum item rarity 1–5 for the main completion chest. 1 when plus is 0."""
+    n = max(0, int(plus_level or 0))
+    if n <= 0:
+        return int(RARITY_TIER_INDEX[RARITY_TIERS[0]])
+    name = RARITY_TIERS[min(n // 2, 4)]
+    return int(RARITY_TIER_INDEX[name])
+
+
+def dungeon_plus_drop_effective_act(dungeon_act: int, plus_level: int) -> int:
+    """DropRule act for plus runs so early-act dungeons are not stuck on 0% legendary."""
+    act = max(1, min(5, int(dungeon_act or 1)))
+    n = max(0, int(plus_level or 0))
+    if n <= 0:
+        return act
+    return min(5, max(act, 1 + n // 6))
+
+
+def dungeon_plus_completion_item_rolls(plus_level: int) -> int:
+    """Completion chest rolls: 1 + extra_monsters, capped at 5."""
+    extra = dungeon_plus_extra_monsters(plus_level)
+    return 1 + min(int(COMPLETION_EXTRA_ITEM_ROLLS_CAP), int(extra))
+
+
+def dungeon_plus_drop_power_rank(plus_level: int) -> int:
+    """Snapshot power used as Dungeon+ item level / affix budget."""
+    n = max(0, int(plus_level or 0))
+    if n <= 0:
+        return 0
+    return int(50 + n * 10)
+
+
+def dungeon_plus_completion_item_level(
+    plus_level: int,
+    dungeon_level: int,
+    *,
+    drop_power_rank: int = 0,
+    jitter: int | None = None,
+) -> int:
+    """Item level for a completion drop. Base dungeons stay capped at 60; plus does not."""
+    n = max(0, int(plus_level or 0))
+    extra = random.randint(0, 4) if jitter is None else max(0, int(jitter))
+    if n <= 0:
+        return max(1, min(int(dungeon_level or 1) + extra, 60))
+    rank = int(drop_power_rank or 0)
+    base = rank if rank > 0 else dungeon_plus_drop_power_rank(n)
+    return max(1, int(base) + extra)
+
+
+def apply_completion_rarity_floor(rolled: int, plus_level: int, *, is_main: bool) -> int:
+    """Raise the main chest rarity to the plus floor; extra rolls keep the raw roll."""
+    rarity = max(1, min(5, int(rolled or 1)))
+    if not is_main or int(plus_level or 0) <= 0:
+        return rarity
+    return max(rarity, dungeon_plus_rarity_floor_index(plus_level))
+
+
 def dungeon_plus_difficulty_params(plus_level: int) -> dict:
     """Full Dungeon+ difficulty params used at run start."""
     n = max(0, int(plus_level or 0))
@@ -102,4 +170,6 @@ def dungeon_plus_difficulty_params(plus_level: int) -> dict:
         "rarity_floor": rarity,
         "elite_chance_bonus": min(0.40, n * 0.02),
         "extra_monsters": dungeon_plus_extra_monsters(n),
+        "drop_power_rank": dungeon_plus_drop_power_rank(n),
+        "completion_item_rolls": dungeon_plus_completion_item_rolls(n),
     }

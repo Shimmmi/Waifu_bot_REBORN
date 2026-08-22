@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -252,7 +253,31 @@ async def _post_chat_completions_locked(
     for idx, provider in enumerate(chain):
         body = _payload_with_model(payload, provider, use_image_model=use_image_model)
         url = chat_completions_url(provider.base_url)
-        last = await client.post(url, headers=llm_request_headers(provider.api_key), json=body)
+        t0 = time.perf_counter()
+        try:
+            last = await client.post(url, headers=llm_request_headers(provider.api_key), json=body)
+        except Exception:
+            from waifu_bot.services.llm_usage import record_llm_response
+
+            await record_llm_response(
+                caller=caller,
+                use_image_model=use_image_model,
+                provider=provider.name,
+                model=str(body.get("model") or ""),
+                resp=None,
+                latency_ms=int((time.perf_counter() - t0) * 1000),
+            )
+            raise
+        from waifu_bot.services.llm_usage import record_llm_response
+
+        await record_llm_response(
+            caller=caller,
+            use_image_model=use_image_model,
+            provider=provider.name,
+            model=str(body.get("model") or ""),
+            resp=last,
+            latency_ms=int((time.perf_counter() - t0) * 1000),
+        )
         has_next = idx < len(chain) - 1
         if last.status_code in fallback_set and has_next:
             logger.warning(
@@ -298,7 +323,31 @@ async def post_chat_completions_routerai(
 
     async def _post() -> httpx.Response:
         async with track_async("llm_post_chat_completions_ms"):
-            resp = await client.post(url, headers=llm_request_headers(provider.api_key), json=body)
+            t0 = time.perf_counter()
+            try:
+                resp = await client.post(url, headers=llm_request_headers(provider.api_key), json=body)
+            except Exception:
+                from waifu_bot.services.llm_usage import record_llm_response
+
+                await record_llm_response(
+                    caller=caller,
+                    use_image_model=False,
+                    provider="routerai",
+                    model=model,
+                    resp=None,
+                    latency_ms=int((time.perf_counter() - t0) * 1000),
+                )
+                raise
+            from waifu_bot.services.llm_usage import record_llm_response
+
+            await record_llm_response(
+                caller=caller,
+                use_image_model=False,
+                provider="routerai",
+                model=model,
+                resp=resp,
+                latency_ms=int((time.perf_counter() - t0) * 1000),
+            )
             if not resp.is_success:
                 logger.warning(
                     "LLM %s: routerai model=%s HTTP %s body=%s",

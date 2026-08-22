@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from waifu_bot.db.models import DungeonRun, MainWaifu, Player
 from waifu_bot.game.constants import CHM_DEATH_GOLD_PENALTY_BASE, CHM_DEATH_GOLD_PENALTY_COEFF
@@ -22,6 +23,19 @@ def mark_solo_rewards_settled(run: DungeonRun) -> None:
     st = dict(run.battle_state) if isinstance(getattr(run, "battle_state", None), dict) else {}
     st["_rewards_settled"] = True
     run.battle_state = st
+    try:
+        flag_modified(run, "battle_state")
+    except Exception:
+        pass
+
+
+async def _lock_run_for_settle(session: AsyncSession, run: DungeonRun) -> DungeonRun:
+    """Serialize settle on the run row. No-op for non-ORM unit-test stubs."""
+    run_id = getattr(run, "id", None)
+    if not isinstance(run, DungeonRun) or run_id is None:
+        return run
+    locked = await session.get(DungeonRun, int(run_id), with_for_update=True)
+    return locked if locked is not None else run
 
 
 def accrue_solo_kill_rewards(run: DungeonRun, exp: int, gold: int) -> None:
@@ -77,6 +91,7 @@ async def settle_solo_run_rewards(
     redis=None,
 ) -> tuple[int, int, float | None]:
     """Credit accrued run totals to waifu/player. Returns (exp, gold, penalty_pct)."""
+    run = await _lock_run_for_settle(session, run)
     if solo_rewards_settled(run):
         return 0, 0, None
 

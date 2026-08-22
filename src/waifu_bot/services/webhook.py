@@ -13,6 +13,7 @@ from aiogram.types import ErrorEvent, MenuButtonWebApp, Update, WebAppInfo
 from waifu_bot.core.config import settings
 from waifu_bot.services.bot_handlers import router as bot_router
 from waifu_bot.services.command_debug_dm import CommandDebugDmMiddleware
+from waifu_bot.services.llm_usage_telegram import LlmUsageTelegramMiddleware
 from waifu_bot.services.player_activity import PlayerTelegramActivityMiddleware
 from waifu_bot.services.telegram_trace import TelegramUpdateTraceMiddleware, trace_enabled
 
@@ -50,6 +51,7 @@ def _build_bot() -> Bot:
 _bot = _build_bot()
 _dp = Dispatcher()
 _dp.include_router(bot_router)
+_dp.update.outer_middleware(LlmUsageTelegramMiddleware())
 _dp.update.outer_middleware(PlayerTelegramActivityMiddleware())
 _dp.update.outer_middleware(TelegramUpdateTraceMiddleware())
 # До хендлеров: эхо команд в ЛС (если TELEGRAM_COMMAND_DEBUG_DM=true)

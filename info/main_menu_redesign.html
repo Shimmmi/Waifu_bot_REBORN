@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Waifu Reborn — главное меню (концепт)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Manrope:wght@500;600;700;800&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+<style>
+
+/* ============================================================
+   TOKENS — та же система, что в dungeons/paragon редизайнах.
+   ============================================================ */
+:root{
+  --ink:#0a0705; --panel:#1b130c; --panel-2:#241a10;
+  --parchment:#ecdfc6; --parchment-dim:#9c8b76; --parchment-faint:#6b5c4b;
+  --gold:#e2a93f; --gold-bright:#ffd97a; --gold-dim:rgba(226,169,63,.16);
+  --ember:#e2543f; --ember-bright:#ff8a65;
+  --rune:#49c9b3; --rune-bright:#7ff0dd;
+  --arcane:#5b9bf0; --arcane-bright:#8fc0ff;
+  --line:rgba(226,169,63,.22);
+  --display:"Cinzel",serif; --body:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif; --hud:"Rajdhani",var(--body);
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{margin:0; background:var(--ink); color:var(--parchment); font-family:var(--body); -webkit-font-smoothing:antialiased;}
+button{font-family:inherit;}
+:focus-visible{outline:2px solid var(--gold-bright); outline-offset:2px; border-radius:8px;}
+@media (prefers-reduced-motion: reduce){ *{animation:none !important; transition-duration:.001ms !important;} }
+
+.preview-tag{
+  position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:999;
+  font:700 11px/1 var(--body); letter-spacing:.04em; color:var(--ink);
+  background:var(--gold-bright); padding:5px 9px; border-radius:999px;
+  box-shadow:0 6px 16px rgba(0,0,0,.4); pointer-events:none; opacity:.92;
+}
+.stage{
+  max-width:480px; margin:30px auto; height:calc(100dvh - 60px); min-height:640px; max-height:820px;
+  background:var(--ink); box-shadow:0 30px 80px rgba(0,0,0,.6); border-radius:18px; overflow:hidden;
+  border:1px solid rgba(255,255,255,.05); position:relative;
+}
+
+/* ============================================================
+   SIGNATURE — уголки/печать (идентичны прошлым файлам)
+   ============================================================ */
+.corners{position:relative;}
+.corners::after{
+  content:""; position:absolute; inset:5px; z-index:2; pointer-events:none;
+  --cc: var(--corner-color, var(--gold-bright)); --cs: var(--corner-size, 12px);
+  background:
+    linear-gradient(var(--cc),var(--cc)) top left/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) top left/2px var(--cs) no-repeat,
+    linear-gradient(var(--cc),var(--cc)) top right/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) top right/2px var(--cs) no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom left/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom left/2px var(--cs) no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom right/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom right/2px var(--cs) no-repeat;
+  opacity:.9; filter:drop-shadow(0 0 4px rgba(226,169,63,.5));
+}
+
+/* ============================================================
+   BACKGROUND — декоративная сцена. Ключевая арт-иллюстрация
+   персонажей сюда не встраивается намеренно (по брифу — art
+   заменяемый); вместо неё — лучи, боке и лепестки, которые
+   создают ту же атмосферу и переживут смену арта без правок CSS.
+   ============================================================ */
+.menu-screen{position:relative; height:100%; display:flex; flex-direction:column; overflow:hidden;}
+
+.bg-vignette{
+  position:absolute; inset:0; z-index:0;
+  background:
+    radial-gradient(120% 55% at 50% 30%, rgba(226,169,63,.16), transparent 62%),
+    radial-gradient(90% 60% at 50% 100%, rgba(0,0,0,.75), transparent 55%),
+    linear-gradient(180deg, #100a06 0%, #170f09 35%, #0d0805 100%);
+}
+.bg-sunburst{
+  position:absolute; z-index:0; top:-10%; left:50%; width:520px; height:520px; margin-left:-260px;
+  border-radius:50%; opacity:.5; pointer-events:none;
+  background:repeating-conic-gradient(rgba(255,217,122,.08) 0deg 3deg, transparent 3deg 12deg);
+  mask-image:radial-gradient(circle, black 0%, black 35%, transparent 72%);
+  animation:sunburst-spin 90s linear infinite;
+}
+@keyframes sunburst-spin{ to{ transform:rotate(360deg); } }
+
+.bg-wings{ position:absolute; z-index:0; top:6%; left:50%; transform:translateX(-50%); width:340px; opacity:.35; pointer-events:none; }
+
+.bokeh{ position:absolute; z-index:0; border-radius:50%; filter:blur(2px); pointer-events:none; }
+.bokeh.b1{ width:70px; height:70px; left:8%; top:18%; background:radial-gradient(circle, rgba(255,217,122,.5), transparent 70%); animation:bokeh-float 9s ease-in-out infinite; }
+.bokeh.b2{ width:40px; height:40px; left:80%; top:12%; background:radial-gradient(circle, rgba(143,192,255,.4), transparent 70%); animation:bokeh-float 7s ease-in-out infinite 1s; }
+.bokeh.b3{ width:110px; height:110px; left:78%; top:46%; background:radial-gradient(circle, rgba(255,138,101,.35), transparent 70%); animation:bokeh-float 11s ease-in-out infinite .5s; }
+.bokeh.b4{ width:55px; height:55px; left:4%; top:58%; background:radial-gradient(circle, rgba(226,169,63,.45), transparent 70%); animation:bokeh-float 8s ease-in-out infinite 2s; }
+.bokeh.b5{ width:30px; height:30px; left:22%; top:8%; background:radial-gradient(circle, rgba(255,255,255,.4), transparent 70%); animation:bokeh-float 6s ease-in-out infinite 1.5s; }
+@keyframes bokeh-float{ 0%,100%{ transform:translateY(0) scale(1); opacity:.8; } 50%{ transform:translateY(-14px) scale(1.08); opacity:1; } }
+
+.petals{ position:absolute; inset:0; z-index:1; overflow:hidden; pointer-events:none; }
+.petal{
+  position:absolute; top:-6%; width:10px; height:10px;
+  background:linear-gradient(135deg, #ffd9a0, #e893a8);
+  border-radius:0 60% 0 60%; opacity:.75;
+  animation:petal-fall linear infinite;
+}
+@keyframes petal-fall{
+  0%{ transform:translateY(-8%) translateX(0) rotate(0deg); }
+  100%{ transform:translateY(112vh) translateX(24px) rotate(340deg); }
+}
+
+/* ============================================================
+   TOP BAR — utility icons
+   ============================================================ */
+.top-bar{
+  position:relative; z-index:5; display:flex; align-items:center; justify-content:space-between;
+  padding:14px 14px 0;
+}
+.icon-btn{
+  width:34px; height:34px; border-radius:10px; border:1px solid var(--line);
+  background:rgba(27,19,12,.55); backdrop-filter:blur(4px); color:var(--parchment);
+  font-size:14px; cursor:pointer; transition:transform .12s, border-color .15s;
+}
+.icon-btn:active{ transform:scale(.92); }
+.version-tag{
+  font:700 10px/1 var(--hud); letter-spacing:.05em; color:var(--parchment-faint);
+  background:rgba(27,19,12,.55); border:1px solid var(--line); border-radius:999px; padding:5px 10px;
+}
+
+/* ============================================================
+   LOGO
+   ============================================================ */
+.logo-wrap{ position:relative; z-index:5; text-align:center; padding-top:8%; flex-shrink:0; }
+.logo-title{ margin:0; line-height:.86; }
+.logo-title .l1{
+  display:block; font-family:var(--display); font-weight:600; font-size:30px; letter-spacing:.14em;
+  color:var(--parchment); text-shadow:0 2px 10px rgba(0,0,0,.6);
+}
+.logo-title .l2{
+  display:block; font-family:var(--display); font-weight:900; font-size:56px; letter-spacing:.05em;
+  background:linear-gradient(180deg, #fff3d6 0%, var(--gold-bright) 35%, var(--gold) 70%, #a5731f 100%);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+  filter:drop-shadow(0 4px 18px rgba(226,169,63,.45));
+}
+.logo-tagline{ margin-top:6px; font:700 10.5px/1 var(--body); letter-spacing:.32em; text-transform:uppercase; color:var(--parchment-faint); }
+.logo-flourish{ display:flex; align-items:center; justify-content:center; gap:10px; margin-top:12px; }
+.logo-flourish .line{ width:46px; height:1px; background:linear-gradient(90deg, transparent, var(--gold)); }
+.logo-flourish .line.r{ background:linear-gradient(90deg, var(--gold), transparent); }
+.logo-flourish .gem{ color:var(--gold-bright); font-size:13px; filter:drop-shadow(0 0 4px rgba(255,217,122,.7)); }
+
+/* ============================================================
+   ACTIONS
+   ============================================================ */
+.menu-actions{
+  position:relative; z-index:5; flex:1; display:flex; flex-direction:column; justify-content:flex-end;
+  gap:10px; padding:0 22px 8px;
+}
+.menu-btn{
+  position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; gap:10px;
+  border-radius:13px; cursor:pointer; font:700 14px/1 var(--body); letter-spacing:.02em;
+  transition:transform .12s ease;
+}
+.menu-btn:active{ transform:scale(.97); }
+.menu-btn .ico{ font-size:15px; }
+
+.menu-btn.primary{
+  --corner-color: var(--gold-bright); --corner-size:13px;
+  height:54px; color:#241708;
+  background:linear-gradient(180deg, var(--gold-bright), var(--gold) 60%, #b6822c 100%);
+  box-shadow:0 8px 22px rgba(226,169,63,.4), inset 0 1px 0 rgba(255,255,255,.35);
+  font-size:16px; animation:primary-glow 2.6s ease-in-out infinite;
+}
+@keyframes primary-glow{
+  0%,100%{ box-shadow:0 8px 22px rgba(226,169,63,.4), inset 0 1px 0 rgba(255,255,255,.35); }
+  50%{ box-shadow:0 8px 30px rgba(226,169,63,.65), inset 0 1px 0 rgba(255,255,255,.35); }
+}
+.menu-btn.primary::before{
+  content:""; position:absolute; top:0; bottom:0; width:40%; left:-60%;
+  background:linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
+  animation:sheen 4.5s ease-in-out infinite;
+}
+@keyframes sheen{ 0%,60%,100%{ left:-60%; } 80%{ left:130%; } }
+
+.menu-btn.secondary{
+  height:46px; color:var(--parchment);
+  background:linear-gradient(180deg, rgba(36,26,16,.72), rgba(27,19,12,.72));
+  border:1px solid var(--line); backdrop-filter:blur(3px);
+}
+.menu-btn.secondary:active{ border-color:rgba(226,169,63,.55); }
+
+.daily-chip{
+  align-self:center; display:flex; align-items:center; gap:6px; margin-top:2px;
+  font:700 10.5px/1 var(--body); color:var(--gold-bright);
+  background:rgba(27,19,12,.6); border:1px solid var(--line); border-radius:999px; padding:6px 12px; cursor:pointer;
+}
+.daily-chip .dot{ width:6px; height:6px; border-radius:50%; background:var(--ember-bright); box-shadow:0 0 6px rgba(226,84,63,.8); animation:dot-pulse 1.4s ease-in-out infinite; }
+@keyframes dot-pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+
+/* ============================================================
+   BOTTOM BAR
+   ============================================================ */
+.bottom-bar{
+  position:relative; z-index:5; display:flex; align-items:center; justify-content:center; gap:14px;
+  padding:12px 14px calc(12px + env(safe-area-inset-bottom));
+}
+.social-link{
+  display:flex; align-items:center; gap:5px; font:700 10.5px/1 var(--body); color:var(--parchment-dim);
+  text-decoration:none;
+}
+.social-link:hover{ color:var(--gold-bright); }
+.copy{ font:600 9.5px/1 var(--body); color:var(--parchment-faint); }
+
+/* ============================================================
+   TOAST — лёгкая демо-обратная связь по тапу
+   ============================================================ */
+.toast{
+  position:absolute; left:50%; bottom:14px; transform:translate(-50%, 8px); z-index:20;
+  background:var(--panel); border:1px solid var(--line); color:var(--parchment);
+  font:700 11.5px/1 var(--body); padding:9px 16px; border-radius:999px;
+  box-shadow:0 8px 20px rgba(0,0,0,.5); opacity:0; pointer-events:none;
+  transition:opacity .2s ease, transform .2s ease;
+}
+.toast.show{ opacity:1; transform:translate(-50%, 0); }
+
+@media (min-width:481px){ .stage{ margin:30px auto; } }
+</style>
+</head>
+<body>
+
+<span class="preview-tag">Концепт · главное меню</span>
+
+<div class="stage"><div class="menu-screen">
+
+  <div class="bg-vignette"></div>
+  <div class="bg-sunburst"></div>
+  <svg class="bg-wings" viewBox="0 0 340 120" fill="none">
+    <path d="M170 30 C 120 10, 40 20, 5 55 C 45 55, 95 60, 140 45" stroke="#ffd97a" stroke-width="1" opacity=".7"/>
+    <path d="M170 30 C 130 18, 70 26, 30 50 C 62 48, 100 52, 138 42" stroke="#ffd97a" stroke-width="1" opacity=".5"/>
+    <path d="M170 30 C 220 10, 300 20, 335 55 C 295 55, 245 60, 200 45" stroke="#ffd97a" stroke-width="1" opacity=".7"/>
+    <path d="M170 30 C 210 18, 270 26, 310 50 C 278 48, 240 52, 202 42" stroke="#ffd97a" stroke-width="1" opacity=".5"/>
+  </svg>
+  <div class="bokeh b1"></div><div class="bokeh b2"></div><div class="bokeh b3"></div><div class="bokeh b4"></div><div class="bokeh b5"></div>
+  <div class="petals" id="petals"></div>
+
+  <div class="top-bar">
+    <button class="icon-btn" id="soundBtn" title="Звук">🔊</button>
+    <div class="version-tag">v1.0.3</div>
+    <button class="icon-btn" title="Настройки">⚙</button>
+  </div>
+
+  <div class="logo-wrap">
+    <h1 class="logo-title">
+      <span class="l1">✦ Waifu ✦</span>
+      <span class="l2">Reborn</span>
+    </h1>
+    <div class="logo-tagline">Telegram Idle RPG</div>
+    <div class="logo-flourish"><span class="line"></span><span class="gem">✦</span><span class="line r"></span></div>
+  </div>
+
+  <div class="menu-actions">
+    <div class="daily-chip" data-toast="Награда дня: +50 🪙 и билет призыва">🎁 Награда дня доступна<span class="dot"></span></div>
+
+    <button class="menu-btn primary corners" data-toast="Продолжаем ваше приключение…">
+      <span class="ico">▶</span><span class="lbl">Продолжить</span>
+    </button>
+    <button class="menu-btn secondary" data-toast="Открываем профиль…">
+      <span class="ico">🧝</span><span class="lbl">Профиль</span>
+    </button>
+    <button class="menu-btn secondary" data-toast="Открываем информацию об игре…">
+      <span class="ico">ℹ</span><span class="lbl">Информация</span>
+    </button>
+  </div>
+
+  <div class="bottom-bar">
+    <a class="social-link" href="#" data-toast="Переход в Telegram-канал"><span>✈️</span> Наш канал</a>
+    <span class="copy">© Waifu Reborn · 2026</span>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+</div></div>
+
+<script>
+// Лепестки — генерируются с разбросом позиции/скорости для органичности.
+const petalHost = document.getElementById('petals');
+for (let i = 0; i < 10; i++) {
+  const p = document.createElement('div');
+  p.className = 'petal';
+  const left = Math.random() * 100;
+  const dur = 9 + Math.random() * 9;
+  const delay = Math.random() * -18;
+  const size = 7 + Math.random() * 7;
+  p.style.left = left + '%';
+  p.style.width = size + 'px';
+  p.style.height = size + 'px';
+  p.style.animationDuration = dur + 's';
+  p.style.animationDelay = delay + 's';
+  petalHost.appendChild(p);
+}
+
+// Демо-тосты по тапу — показывают, что кнопки живые, без реальной навигации.
+const toast = document.getElementById('toast');
+let toastTimer;
+document.querySelectorAll('[data-toast]').forEach(el => {
+  el.addEventListener('click', (e) => {
+    if (el.tagName === 'A') e.preventDefault();
+    toast.textContent = el.dataset.toast;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 1800);
+  });
+});
+
+// Тумблер звука — чисто визуальный демо-стейт.
+const soundBtn = document.getElementById('soundBtn');
+let soundOn = true;
+soundBtn.addEventListener('click', () => {
+  soundOn = !soundOn;
+  soundBtn.textContent = soundOn ? '🔊' : '🔇';
+});
+</script>
+</body>
+</html>

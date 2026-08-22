@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import AdminNav from '../../components/AdminNav.vue'
 import { apiGet } from '../../api/client'
 
 const q = ref('')
@@ -21,12 +22,7 @@ onMounted(load)
   <div>
     <h1>Игроки</h1>
     <RouterLink to="/admin">← Назад</RouterLink>
-    <nav class="tabs" style="margin: 1rem 0">
-      <RouterLink to="/admin/players" class="tab">Игроки</RouterLink>
-      <RouterLink to="/admin/group-chats" class="tab">Групповые чаты</RouterLink>
-      <RouterLink to="/admin/tavern-bgm" class="tab">Tavern BGM</RouterLink>
-      <RouterLink to="/admin/actions" class="tab">Журнал действий</RouterLink>
-    </nav>
+    <AdminNav />
     <div style="margin: 1rem 0; display: flex; gap: 0.5rem">
       <input v-model="q" type="search" placeholder="Поиск..." @keyup.enter="load" />
       <button class="btn" @click="load">Найти</button>

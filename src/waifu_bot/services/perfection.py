@@ -5,7 +5,7 @@ import logging
 import random
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
@@ -170,6 +170,25 @@ async def _enqueue_pending(
     perfection_level: int,
     offer: list[dict[str, Any]],
 ) -> m.PlayerPerfectionPending:
+    existing = (
+        await session.execute(
+            select(m.PlayerPerfectionPending)
+            .where(
+                m.PlayerPerfectionPending.player_id == int(player_id),
+                m.PlayerPerfectionPending.kind == str(kind),
+                m.PlayerPerfectionPending.perfection_level == int(perfection_level),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        logger.info(
+            "perfection pending skip duplicate player_id=%s kind=%s level=%s",
+            player_id,
+            kind,
+            perfection_level,
+        )
+        return existing
     row = m.PlayerPerfectionPending(
         player_id=int(player_id),
         kind=kind,
@@ -213,6 +232,11 @@ async def add_perfection_xp(
     """Начислить XP совершенствования; вернуть число полученных уровней."""
     if not player or int(amount or 0) <= 0:
         return 0
+    pid = int(getattr(player, "id", 0) or 0)
+    if isinstance(player, m.Player) and pid:
+        locked = await session.get(m.Player, pid, with_for_update=True)
+        if locked is not None:
+            player = locked
     if int(getattr(player, "perfection_level", 0) or 0) <= 0:
         return 0
 
@@ -261,6 +285,92 @@ async def add_perfection_xp(
         except Exception:
             pass
     return gained
+
+
+async def reset_player_perfection_picks(
+    session: AsyncSession,
+    player: m.Player,
+    *,
+    claimed_skill_points: int,
+) -> dict[str, Any]:
+    """Сбросить выбранные бонусы и заново поставить очередь на текущий уровень.
+
+    ``perfection_level`` / ``perfection_experience`` не меняются.
+    Instant gold/dust/stones не откатываются. Дерево пассивок не трогается.
+    ``claimed_skill_points`` — сколько ОПГ уже забрали с милстоунов (вычесть из
+    свободных ``skill_points``, затем поставить корректные pending skill_point).
+    """
+    pid = int(player.id)
+    lvl = int(getattr(player, "perfection_level", 0) or 0)
+    old_sp = int(getattr(player, "skill_points", 0) or 0)
+    take = max(0, int(claimed_skill_points))
+
+    await session.execute(
+        delete(m.PerfectionRespecPending).where(m.PerfectionRespecPending.player_id == pid)
+    )
+    await session.execute(
+        delete(m.PlayerPerfectionPending).where(m.PlayerPerfectionPending.player_id == pid)
+    )
+    await session.execute(
+        delete(m.PlayerPerfectionBonus).where(m.PlayerPerfectionBonus.player_id == pid)
+    )
+    player.perfection_bonus_totals = {}
+    player.skill_points = max(0, old_sp - take)
+    await session.flush()
+
+    queued_bonus = 0
+    queued_skill = 0
+    if lvl > 0:
+        pick_counts: dict[str, int] = {}
+        for new_lvl in range(1, lvl + 1):
+            offer = _roll_three_bonuses(new_lvl, pick_counts)
+            await _enqueue_pending(
+                session,
+                pid,
+                kind="bonus",
+                perfection_level=new_lvl,
+                offer=offer,
+            )
+            queued_bonus += 1
+            if new_lvl % int(PERFECTION_MILESTONE_EVERY) == 0:
+                await _enqueue_pending(
+                    session,
+                    pid,
+                    kind="skill_point",
+                    perfection_level=new_lvl,
+                    offer=_skill_point_offer(new_lvl),
+                )
+                queued_skill += 1
+
+    hp_synced = False
+    try:
+        from waifu_bot.services.waifu_hp import sync_waifu_stats
+
+        wres = await session.execute(
+            select(m.MainWaifu).where(m.MainWaifu.player_id == pid)
+        )
+        waifu = wres.scalar_one_or_none()
+        if waifu:
+            await sync_waifu_stats(session, pid, waifu)
+            hp_synced = True
+    except Exception:
+        logger.warning(
+            "sync_waifu_stats after perfection pick reset failed player_id=%s",
+            pid,
+            exc_info=True,
+        )
+
+    await session.flush()
+    return {
+        "player_id": pid,
+        "perfection_level": lvl,
+        "queued_bonus": queued_bonus,
+        "queued_skill_point": queued_skill,
+        "skill_points_before": old_sp,
+        "skill_points_after": int(player.skill_points or 0),
+        "claimed_skill_points_subtracted": take,
+        "hp_synced": hp_synced,
+    }
 
 
 async def grant_player_experience(

@@ -115,6 +115,9 @@ async def get_player_id(
         uid = int(user_id)
         if await is_player_banned(session, uid):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account banned")
+        from waifu_bot.services.llm_usage import set_llm_player_id
+
+        set_llm_player_id(uid)
         return uid
 
     if x_player_id and x_player_id > 0:
@@ -127,6 +130,9 @@ async def get_player_id(
         if token_ok or env_ok:
             if await is_player_banned(session, x_player_id):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account banned")
+            from waifu_bot.services.llm_usage import set_llm_player_id
+
+            set_llm_player_id(x_player_id)
             return x_player_id
 
     effective_desktop_session = (x_desktop_session or desktop_session_query or "").strip()
@@ -134,6 +140,9 @@ async def get_player_id(
         player_id = await resolve_player_id_from_desktop_session(redis, effective_desktop_session)
         if await is_player_banned(session, player_id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account banned")
+        from waifu_bot.services.llm_usage import set_llm_player_id
+
+        set_llm_player_id(player_id)
         return player_id
 
     if x_steam_ticket:
@@ -143,6 +152,9 @@ async def get_player_id(
         )
         if await is_player_banned(session, player_id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account banned")
+        from waifu_bot.services.llm_usage import set_llm_player_id
+
+        set_llm_player_id(player_id)
         return player_id
 
     if x_steam_ticket_dev and settings.environment in ("dev", "stage", "testing"):
@@ -151,6 +163,9 @@ async def get_player_id(
             player_id = await resolve_or_create_player_for_steam(session, steamid64)
             if await is_player_banned(session, player_id):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account banned")
+            from waifu_bot.services.llm_usage import set_llm_player_id
+
+            set_llm_player_id(player_id)
             return player_id
 
     raise HTTPException(

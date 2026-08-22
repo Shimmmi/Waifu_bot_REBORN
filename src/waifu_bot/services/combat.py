@@ -23,7 +23,6 @@ from waifu_bot.db.models import (
     Player,
     DungeonRun,
     DungeonRunMonster,
-    DropRule,
     PlayerDungeonPlus,
     PlayerStoryBossFirstKill,
 )
@@ -49,7 +48,6 @@ from waifu_bot.game.solo_rewards import (
 )
 from waifu_bot.game.formulas import (
     apply_equipment_damage_flats,
-    blend_rarity_weights_with_magic_find,
     build_message_damage_base_trace_ru,
     calculate_armor_damage_reduction,
     calculate_crit_chance,
@@ -645,22 +643,30 @@ async def _maybe_log_guild_combat_rewards(
     drop_item_payload: dict | None,
     is_first_completion: bool,
     dungeon_name: str | None,
+    drop_item_payloads: list[dict] | None = None,
 ) -> None:
     try:
         from waifu_bot.services.guild_activity import log_first_dungeon_clear, log_legendary_item
 
         if is_first_completion and dungeon_name:
             await log_first_dungeon_clear(session, int(player_id), dungeon_name)
-        if drop_item_payload and int(drop_item_payload.get("rarity") or 0) >= 5:
-            await log_legendary_item(
-                session,
-                int(player_id),
-                str(drop_item_payload.get("name") or "Предмет"),
-            )
-        if drop_item_payload:
-            await _guild_quest_record(session, player_id, "items_found", 1)
-            if int(drop_item_payload.get("rarity") or 0) >= 4:
-                await _guild_quest_record(session, player_id, "rare_items_found", 1)
+        payloads = list(drop_item_payloads or [])
+        if drop_item_payload and drop_item_payload not in payloads:
+            payloads.insert(0, drop_item_payload)
+        rare_n = 0
+        for payload in payloads:
+            if int(payload.get("rarity") or 0) >= 5:
+                await log_legendary_item(
+                    session,
+                    int(player_id),
+                    str(payload.get("name") or "Предмет"),
+                )
+            if int(payload.get("rarity") or 0) >= 4:
+                rare_n += 1
+        if payloads:
+            await _guild_quest_record(session, player_id, "items_found", len(payloads))
+            if rare_n:
+                await _guild_quest_record(session, player_id, "rare_items_found", rare_n)
     except Exception:
         pass
 
@@ -2485,10 +2491,12 @@ class CombatService:
             progress.is_completed = True
             progress.is_active = False
 
-            # Награда за прохождение: один предмет; редкость — веса DropRule + Magic Find (эфф. УДЧ + вторичка).
-            drop_item_payload = None
+            # Награда за прохождение: DropRule + Magic Find; Dungeon+ — floor и несколько предметов.
+            drop_item_payloads: list[dict] = []
             try:
                 if dungeon:
+                    from waifu_bot.services.solo_completion_loot import grant_solo_completion_items
+
                     total_mf_pct = float(eff_luck_rw) * LCK_MAGIC_FIND_COEFF * 100.0 + float(
                         sec.get("magic_find_pct", 0.0) or 0.0
                     ) * 100.0 + float(hs_cl.get("perfect_rarity_pct", 0) or 0)
@@ -2501,69 +2509,28 @@ class CombatService:
                             total_mf_pct += drop_pct * 100.0
                     except Exception:
                         pass
-                    rule_q = await session.execute(
-                        select(DropRule).where(DropRule.act == dungeon.act, DropRule.boss_only == True)  # noqa: E712
-                    )
-                    rule = rule_q.scalar_one_or_none()
-                    weights = getattr(rule, "rarity_weights", None) or {} if rule else {}
-                    opts = []
-                    for k, w in (weights.items() if isinstance(weights, dict) else []):
-                        try:
-                            rk = int(k)
-                            ww = int(w)
-                        except Exception:
-                            continue
-                        if ww > 0:
-                            opts.append((rk, ww))
-                    if not opts:
-                        opts = [(1, 70), (2, 25), (3, 5)]
-                    opts = blend_rarity_weights_with_magic_find(opts, total_mf_pct)
-                    total_w = sum(w for _, w in opts)
-                    roll = random.randint(1, total_w)
-                    acc = 0
-                    rarity = 1
-                    for r, w in opts:
-                        acc += w
-                        if roll <= acc:
-                            rarity = r
-                            break
-
-                    dungeon_base_level = max(1, int(dungeon.level or 1))
-                    item_level = max(1, min(dungeon_base_level + random.randint(0, 4), 60))
-                    inv = await self.item_service.generate_inventory_item(
-                        session=session,
-                        player_id=waifu.player_id,
-                        act=int(dungeon.act),
-                        rarity=rarity,
-                        level=item_level,
-                        is_shop=False,
+                    drop_item_payloads = await grant_solo_completion_items(
+                        session,
+                        item_service=self.item_service,
+                        player_id=int(waifu.player_id),
+                        dungeon=dungeon,
                         plus_level=0,
+                        total_mf_pct=total_mf_pct,
                     )
-                    from waifu_bot.services.item_codex import encounter_item_codex
-
-                    await encounter_item_codex(session, int(waifu.player_id), inv)
-                    await session.flush()
-                    item_display_name = (
-                        getattr(inv, "_display_name", None)
-                        or (inv.item.name if getattr(inv, "item", None) else None)
-                        or "Предмет"
-                    )
-                    drop_item_payload = {
-                        "inventory_item_id": inv.id,
-                        "name": item_display_name,
-                        "rarity": int(inv.rarity or rarity),
-                        "level": int(inv.level or item_level),
-                        "tier": int(inv.tier or 1),
-                        "slot_type": getattr(inv, "slot_type", None),
-                    }
             except Exception:
-                # Never break completion due to drop failures
-                drop_item_payload = None
+                logger.exception(
+                    "solo completion loot failed (legacy) player_id=%s dungeon_id=%s",
+                    getattr(waifu, "player_id", None),
+                    getattr(progress, "dungeon_id", None),
+                )
+                drop_item_payloads = []
+            drop_item_payload = drop_item_payloads[0] if drop_item_payloads else None
 
             await _maybe_log_guild_combat_rewards(
                 session,
                 int(waifu.player_id),
                 drop_item_payload=drop_item_payload,
+                drop_item_payloads=drop_item_payloads,
                 is_first_completion=is_first_completion,
                 dungeon_name=str(dungeon.name if dungeon else "") or None,
             )
@@ -2586,6 +2553,7 @@ class CombatService:
                 "gold_gained": gold_gain,
                 "damage_taken": dmg_taken,
                 "item_dropped": drop_item_payload,
+                "items_dropped": drop_item_payloads,
             }
             if reward_why_next:
                 out_legacy["reward_why_next"] = reward_why_next
@@ -2615,6 +2583,7 @@ class CombatService:
                 gold=gold_gain,
                 exp=exp_reward,
                 item_dropped=drop_item_payload,
+                items_dropped=drop_item_payloads,
                 guild_bonus_lines=guild_lines,
                 waifu_current_hp=int(waifu.current_hp or 0),
                 waifu_max_hp=int(waifu.max_hp or 0),
@@ -3309,11 +3278,12 @@ class CombatService:
                 # Don't break combat flow on older DBs / missing tables.
                 pass
 
-            # Награда за прохождение: один предмет; редкость — веса DropRule + Magic Find.
-            # Уровень предмета — от базового уровня подземелья, не от уровня вайфу.
-            drop_item_payload = None
+            # Награда за прохождение: DropRule + Magic Find; Dungeon+ — floor и несколько предметов.
+            drop_item_payloads: list[dict] = []
             if dungeon:
                 try:
+                    from waifu_bot.services.solo_completion_loot import grant_solo_completion_items
+
                     total_mf_pct = float(eff_luck_rw) * LCK_MAGIC_FIND_COEFF * 100.0 + float(
                         sec.get("magic_find_pct", 0.0) or 0.0
                     ) * 100.0 + float(hs.get("perfect_rarity_pct", 0) or 0)
@@ -3330,73 +3300,31 @@ class CombatService:
                     leg_drop_mult = float(lb_st.get("_legendary_drop_mult", 1.0) or 1.0)
                     if leg_drop_mult > 1.0:
                         total_mf_pct *= leg_drop_mult
-                    rule_q = await session.execute(
-                        select(DropRule).where(DropRule.act == dungeon.act, DropRule.boss_only == True)  # noqa: E712
-                    )
-                    rule = rule_q.scalar_one_or_none()
-                    weights = getattr(rule, "rarity_weights", None) or {} if rule else {}
-                    opts = []
-                    for k, w in (weights.items() if isinstance(weights, dict) else []):
-                        try:
-                            rk = int(k)
-                            ww = int(w)
-                        except Exception:
-                            continue
-                        if ww > 0:
-                            opts.append((rk, ww))
-                    if not opts:
-                        opts = [(1, 70), (2, 25), (3, 5)]
-                    opts = blend_rarity_weights_with_magic_find(opts, total_mf_pct)
-                    total_w = sum(w for _, w in opts)
-                    roll = random.randint(1, total_w)
-                    acc = 0
-                    rarity = 1
-                    for r, w in opts:
-                        acc += w
-                        if roll <= acc:
-                            rarity = r
-                            break
-
-                    # Item level: базовые подземелья — dungeon.level; Dungeon+ — шкала как у монстров.
-                    if pl > 0:
-                        dungeon_base_level = max(1, 50 + (pl - 1) * 5)
-                    else:
-                        dungeon_base_level = max(1, int(dungeon.level or 1))
-                    item_level = max(1, min(dungeon_base_level + random.randint(0, 4), 60))
-                    inv = await self.item_service.generate_inventory_item(
-                        session=session,
-                        player_id=run.player_id,
-                        act=int(dungeon.act),
-                        rarity=rarity,
-                        level=item_level,
-                        is_shop=False,
+                    drop_item_payloads = await grant_solo_completion_items(
+                        session,
+                        item_service=self.item_service,
+                        player_id=int(run.player_id),
+                        dungeon=dungeon,
                         plus_level=pl,
+                        total_mf_pct=total_mf_pct,
+                        drop_power_rank=int(getattr(run, "drop_power_rank", 0) or 0),
+                        economy=getattr(run, "economy", None) or "telegram",
                     )
-                    inv.economy = getattr(run, "economy", None) or "telegram"
-                    from waifu_bot.services.item_codex import encounter_item_codex
-
-                    await encounter_item_codex(session, int(run.player_id), inv)
-                    await session.flush()
-                    item_display_name = (
-                        getattr(inv, "_display_name", None)
-                        or (inv.item.name if getattr(inv, "item", None) else None)
-                        or "Предмет"
-                    )
-                    drop_item_payload = {
-                        "inventory_item_id": inv.id,
-                        "name": item_display_name,
-                        "rarity": int(inv.rarity or rarity),
-                        "level": int(inv.level or item_level),
-                        "tier": int(inv.tier or 1),
-                        "slot_type": getattr(inv, "slot_type", None),
-                    }
                 except Exception:
-                    drop_item_payload = None
+                    logger.exception(
+                        "solo completion loot failed player_id=%s plus=%s dungeon_id=%s",
+                        pid,
+                        pl,
+                        getattr(run, "dungeon_id", None),
+                    )
+                    drop_item_payloads = []
+            drop_item_payload = drop_item_payloads[0] if drop_item_payloads else None
 
             await _maybe_log_guild_combat_rewards(
                 session,
                 pid,
                 drop_item_payload=drop_item_payload,
+                drop_item_payloads=drop_item_payloads,
                 is_first_completion=is_first_completion,
                 dungeon_name=str(dungeon.name if dungeon else "") or None,
             )
@@ -3430,6 +3358,10 @@ class CombatService:
                     "plus_level": pl,
                     "gold": int(run.total_gold_gained or 0),
                     "exp": int(run.total_exp_gained or 0),
+                    "item_count": len(drop_item_payloads),
+                    "legendary_count": sum(
+                        1 for p in drop_item_payloads if int(p.get("rarity") or 0) >= 5
+                    ),
                 },
             )
             await settle_solo_run_rewards(
@@ -3448,6 +3380,7 @@ class CombatService:
                 "total_gold_gained": int(run.total_gold_gained or 0),
                 "damage_taken": dmg_taken,
                 "item_dropped": drop_item_payload,
+                "items_dropped": drop_item_payloads,
                 "protection_stone_gained": stone_gained,
             }
             if reward_why_next:
@@ -3478,6 +3411,7 @@ class CombatService:
                 gold=int(run.total_gold_gained or 0),
                 exp=int(run.total_exp_gained or 0),
                 item_dropped=drop_item_payload,
+                items_dropped=drop_item_payloads,
                 guild_bonus_lines=guild_lines,
                 waifu_current_hp=int(waifu.current_hp or 0),
                 waifu_max_hp=int(waifu.max_hp or 0),

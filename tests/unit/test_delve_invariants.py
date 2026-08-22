@@ -334,7 +334,7 @@ def test_kicker_is_human_not_enum():
     assert "мокрый камень" in line
     assert journal_stamp_label("shop", 4, "wet") == "Лавка на 4"
     assert journal_stamp_label("landmark", 7, "wet") == "Метка на 7"
-    assert journal_stamp_label("palette", 0, "wet") == "Мокрое"
+    assert journal_stamp_label("palette", 0, "wet") == "Мокрый колодец"
 
 
 def test_companion_out_uses_static_webp():
@@ -395,7 +395,10 @@ def test_shaft_art_bands():
     from waifu_bot.game.delve_catalog import SHAFT_BIOMES
 
     assert len(SHAFT_BIOMES) == 30
+    assert shaft_art_for_depth(1)["label"] == "Мокрый колодец"
+    banned = {"Мокрое", "Медянка", "Зубья", "Сукно"}
     for row in SHAFT_BIOMES:
+        assert row["label"] not in banned, row
         art = delve_dir / str(row["file"])
         assert art.is_file(), row["file"]
         assert art.stat().st_size > 800, row["file"]

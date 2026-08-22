@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import AdminNav from '../../components/AdminNav.vue'
 import { apiGet, apiPost, type AdminGroupChat, type AdminGroupChatsResponse } from '../../api/client'
 
 const statusFilter = ref('all')
@@ -75,12 +76,7 @@ watch(statusFilter, () => {
   <div>
     <RouterLink to="/admin">← Назад</RouterLink>
     <h1>Групповые чаты</h1>
-    <nav class="tabs" style="margin: 1rem 0">
-      <RouterLink to="/admin/players" class="tab">Игроки</RouterLink>
-      <RouterLink to="/admin/group-chats" class="tab">Групповые чаты</RouterLink>
-      <RouterLink to="/admin/tavern-bgm" class="tab">Tavern BGM</RouterLink>
-      <RouterLink to="/admin/actions" class="tab">Журнал действий</RouterLink>
-    </nav>
+    <AdminNav />
     <div style="margin: 1rem 0; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">
       <select v-model="statusFilter" class="btn" style="padding: 0.4rem 0.6rem">
         <option v-for="o in statusOptions" :key="o.value" :value="o.value">{{ o.label }}</option>

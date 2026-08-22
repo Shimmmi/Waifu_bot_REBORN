@@ -136,6 +136,10 @@ def test_difficulty_params_keys() -> None:
     assert p["item_level_bonus"] == 5
     assert p["rarity_floor"] == "rare"
     assert p["elite_chance_bonus"] == pytest.approx(0.10)
+    assert p["drop_power_rank"] == 100
+    assert p["completion_item_rolls"] == 1
+    assert p["drop_power_rank"] == 100
+    assert p["completion_item_rolls"] == 1
 
 
 def test_entry_ref_is_1000() -> None:
