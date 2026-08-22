@@ -126,8 +126,11 @@ async def _fetch_template_stats(
     ).mappings().first()
     if not row:
         return 0, 0.0, None, None
+    from waifu_bot.game.item_ilvl_scaling import scaled_template_armor
+
+    raw_armor = int(getattr(row, "armor_base", 0) or row.get("armor_base", 0) or 0)
     return (
-        int(getattr(row, "armor_base", 0) or row.get("armor_base", 0) or 0),
+        scaled_template_armor(raw_armor, inv),
         float(getattr(row, "secondary_bonus_value", 0.0) or row.get("secondary_bonus_value", 0.0) or 0.0),
         getattr(row, "secondary_bonus_type", None) or row.get("secondary_bonus_type"),
         row,

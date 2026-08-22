@@ -121,7 +121,11 @@ async def collect_gear_dmg_reduce_contribs(session: AsyncSession, player_id: int
                         COALESCE(ibt.secondary_bonus_value, 0.0) AS sec_base,
                         COALESCE(inv.enchant_sec_step, 0.0) AS sec_step,
                         COALESCE(inv.enchant_level, 0) AS enchant_level,
-                        COALESCE(inv.is_broken, false) AS is_broken
+                        COALESCE(inv.is_broken, false) AS is_broken,
+                        inv.secondary_fraction_type AS frac_type,
+                        COALESCE(inv.secondary_fraction_value, 0.0) AS frac_value,
+                        COALESCE(inv.power_rank, 0) AS power_rank,
+                        COALESCE(inv.plus_level_source, 0) AS plus_level_source
                     FROM inventory_items inv
                     JOIN items i ON i.id = inv.item_id
                     JOIN item_base_templates ibt
@@ -135,11 +139,18 @@ async def collect_gear_dmg_reduce_contribs(session: AsyncSession, player_id: int
             )
         ).all()
         for row in rows:
-            sec_type = str(getattr(row, "sec_type", "") or "").strip().lower()
+            from waifu_bot.game.item_ilvl_scaling import scaled_template_fraction
+
+            inst_type = str(getattr(row, "frac_type", "") or "").strip().lower()
+            sec_type = inst_type or str(getattr(row, "sec_type", "") or "").strip().lower()
             if sec_type != "dmg_reduce_pct":
                 continue
             e = 0 if bool(getattr(row, "is_broken", False)) else int(getattr(row, "enchant_level", 0) or 0)
-            sec_val = float(getattr(row, "sec_base", 0) or 0) + float(getattr(row, "sec_step", 0) or 0) * e
+            if inst_type:
+                sec_base = float(getattr(row, "frac_value", 0) or 0)
+            else:
+                sec_base = scaled_template_fraction(getattr(row, "sec_base", 0) or 0, row)
+            sec_val = float(sec_base) + float(getattr(row, "sec_step", 0) or 0) * e
             if sec_val <= 0:
                 continue
             slot = str(getattr(row, "slot", "") or "slot")
@@ -224,7 +235,9 @@ async def collect_armor_slot_contribs(session: AsyncSession, player_id: int) -> 
                         COALESCE(ibt.armor_base, 0) AS armor_base,
                         COALESCE(inv.enchant_arm_step, 0) AS arm_step,
                         COALESCE(inv.enchant_level, 0) AS enchant_level,
-                        COALESCE(inv.is_broken, false) AS is_broken
+                        COALESCE(inv.is_broken, false) AS is_broken,
+                        COALESCE(inv.power_rank, 0) AS power_rank,
+                        COALESCE(inv.plus_level_source, 0) AS plus_level_source
                     FROM inventory_items inv
                     JOIN items i ON i.id = inv.item_id
                     JOIN item_base_templates ibt
@@ -238,8 +251,12 @@ async def collect_armor_slot_contribs(session: AsyncSession, player_id: int) -> 
             )
         ).all()
         for row in rows:
+            from waifu_bot.game.item_ilvl_scaling import scaled_template_armor
+
             e = 0 if bool(getattr(row, "is_broken", False)) else int(getattr(row, "enchant_level", 0) or 0)
-            armor = float(getattr(row, "armor_base", 0) or 0) + float(int(getattr(row, "arm_step", 0) or 0) * e)
+            armor = float(scaled_template_armor(getattr(row, "armor_base", 0) or 0, row)) + float(
+                int(getattr(row, "arm_step", 0) or 0) * e
+            )
             if armor <= 0:
                 continue
             slot = str(getattr(row, "slot", "") or "slot")
@@ -395,22 +412,36 @@ async def collect_evade_chance_contribs(
                            COALESCE(ibt.secondary_bonus_value, 0.0) AS sec_base,
                            COALESCE(inv.enchant_sec_step, 0.0) AS sec_step,
                            COALESCE(inv.enchant_level, 0) AS enchant_level,
-                           COALESCE(inv.is_broken, false) AS is_broken
+                           COALESCE(inv.is_broken, false) AS is_broken,
+                           inv.secondary_fraction_type AS frac_type,
+                           COALESCE(inv.secondary_fraction_value, 0.0) AS frac_value,
+                           COALESCE(inv.power_rank, 0) AS power_rank,
+                           COALESCE(inv.plus_level_source, 0) AS plus_level_source
                     FROM inventory_items inv
                     JOIN items i ON i.id = inv.item_id
                     JOIN item_base_templates ibt
                       ON ibt.name = i.name AND ibt.tier = COALESCE(inv.tier, i.tier)
                     WHERE inv.player_id = :pid
                       AND inv.equipment_slot IS NOT NULL
-                      AND ibt.secondary_bonus_type = 'evade_pct'
+                      AND (
+                            ibt.secondary_bonus_type = 'evade_pct'
+                            OR inv.secondary_fraction_type = 'evade_pct'
+                      )
                     """
                 ),
                 {"pid": int(player_id)},
             )
         ).all()
         for row in gear_rows:
+            from waifu_bot.game.item_ilvl_scaling import scaled_template_fraction
+
             e = 0 if bool(getattr(row, "is_broken", False)) else int(getattr(row, "enchant_level", 0) or 0)
-            sec_val = float(getattr(row, "sec_base", 0) or 0) + float(getattr(row, "sec_step", 0) or 0) * e
+            inst_type = str(getattr(row, "frac_type", "") or "").strip().lower()
+            if inst_type == "evade_pct":
+                sec_base = float(getattr(row, "frac_value", 0) or 0)
+            else:
+                sec_base = scaled_template_fraction(getattr(row, "sec_base", 0) or 0, row)
+            sec_val = float(sec_base) + float(getattr(row, "sec_step", 0) or 0) * e
             if sec_val <= 0:
                 continue
             slot = str(getattr(row, "slot", "") or "slot")

@@ -1999,7 +1999,9 @@ class CombatService:
                             COALESCE(inv.secondary_fraction_value, 0.0) AS secondary_fraction_value,
                             ibt.secondary_bonus_type AS template_secondary_type,
                             COALESCE(ibt.secondary_bonus_value, 0.0) AS template_secondary_value,
-                            COALESCE(inv.enchant_sec_step, 0.0) AS enchant_sec_step
+                            COALESCE(inv.enchant_sec_step, 0.0) AS enchant_sec_step,
+                            COALESCE(inv.power_rank, 0) AS power_rank,
+                            COALESCE(inv.plus_level_source, 0) AS plus_level_source
                         FROM inventory_items inv
                         JOIN items i ON i.id = inv.item_id
                         JOIN item_base_templates ibt
@@ -2013,8 +2015,10 @@ class CombatService:
                 )
             ).all()
             for row in rows:
+                from waifu_bot.game.item_ilvl_scaling import scaled_template_armor, scaled_template_fraction
+
                 e = 0 if bool(getattr(row, "is_broken", False)) else int(getattr(row, "enchant_level", 0) or 0)
-                armor_base = float(getattr(row, "armor_base", 0) or 0)
+                armor_base = float(scaled_template_armor(getattr(row, "armor_base", 0) or 0, row))
                 arm_step = int(getattr(row, "enchant_arm_step", 0) or 0)
                 bonuses["armor_total"] += armor_base + float(arm_step * e)
                 sec_step = float(getattr(row, "enchant_sec_step", 0.0) or 0.0)
@@ -2027,7 +2031,7 @@ class CombatService:
 
                     if tpl_type and is_fraction_secondary_type(tpl_type):
                         frac_type = tpl_type
-                        frac_base = tpl_val
+                        frac_base = scaled_template_fraction(tpl_val, row)
                 if frac_type in bonuses:
                     bonuses[frac_type] += frac_base + sec_step * e
         except Exception:

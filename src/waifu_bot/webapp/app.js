@@ -10106,25 +10106,241 @@ async function resetMainWaifu() {
   window.location.href = "./waifu_generator.html";
 }
 
+const TITLE_SOUND_CLOUD_KEY = "mm_sound_on";
+const TITLE_COMMUNITY_URL = "";
+
+function titleTelegram() {
+  return (typeof window !== "undefined" && window.Telegram && window.Telegram.WebApp) || null;
+}
+
+function titleHaptic(kind = "light") {
+  try {
+    const haptic = titleTelegram()?.HapticFeedback;
+    if (!haptic || typeof haptic.impactOccurred !== "function") return;
+    haptic.impactOccurred(kind);
+  } catch (_) {
+    /* Telegram Desktop / Web: method may be missing or throw */
+  }
+}
+
+function applyTitleScreenTelegramChrome() {
+  const tg = titleTelegram();
+  if (!tg) return;
+  try {
+    if (typeof tg.ready === "function") tg.ready();
+  } catch (_) {}
+  try {
+    if (typeof tg.expand === "function") tg.expand();
+  } catch (_) {}
+  try {
+    if (typeof tg.setHeaderColor === "function") tg.setHeaderColor("#0a0705");
+  } catch (_) {}
+  try {
+    if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor("#0a0705");
+  } catch (_) {}
+  try {
+    tg.BackButton?.hide?.();
+  } catch (_) {}
+
+  const applyVh = () => {
+    const h = Number(tg.viewportStableHeight || tg.viewportHeight || 0);
+    if (h > 0) {
+      document.documentElement.style.setProperty("--tg-vh", `${h}px`);
+    }
+  };
+  try {
+    if (typeof tg.onEvent === "function") tg.onEvent("viewportChanged", applyVh);
+  } catch (_) {}
+  applyVh();
+}
+
+function titleCloudGet(key) {
+  return new Promise((resolve) => {
+    const cs = titleTelegram()?.CloudStorage;
+    if (!cs || typeof cs.getItem !== "function") {
+      resolve(null);
+      return;
+    }
+    try {
+      cs.getItem(key, (err, value) => resolve(err ? null : value));
+    } catch (_) {
+      resolve(null);
+    }
+  });
+}
+
+function titleCloudSet(key, value) {
+  return new Promise((resolve) => {
+    const cs = titleTelegram()?.CloudStorage;
+    if (!cs || typeof cs.setItem !== "function") {
+      resolve(false);
+      return;
+    }
+    try {
+      cs.setItem(key, String(value), (err) => resolve(!err));
+    } catch (_) {
+      resolve(false);
+    }
+  });
+}
+
+function titlePrefersReducedMotion() {
+  try {
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function spawnTitlePetals() {
+  const host = document.getElementById("mm-petals");
+  if (!host || host.dataset.ready === "1") return;
+  host.dataset.ready = "1";
+  if (titlePrefersReducedMotion()) return;
+  const count = 7;
+  for (let i = 0; i < count; i += 1) {
+    const p = document.createElement("div");
+    p.className = "mm-petal";
+    const size = 7 + Math.random() * 7;
+    p.style.left = `${Math.random() * 100}%`;
+    p.style.width = `${size}px`;
+    p.style.height = `${size}px`;
+    p.style.animationDuration = `${9 + Math.random() * 9}s`;
+    p.style.animationDelay = `${Math.random() * -18}s`;
+    host.appendChild(p);
+  }
+}
+
+function formatTitleVersionLabel(raw) {
+  const s = String(raw || "").trim();
+  const m = s.match(/waifu-webapp-(v\d+)/i);
+  if (m) return m[1];
+  if (/^v?\d/.test(s)) return s.startsWith("v") ? s : `v${s}`;
+  return s || "v1";
+}
+
+function setTitlePrimaryLabel(btn, text, { icon = "", disabled = false } = {}) {
+  if (!btn) return;
+  btn.disabled = disabled;
+  const ico = document.getElementById("title-primary-ico") || btn.querySelector(".mm-menu-ico");
+  const lbl = document.getElementById("title-primary-lbl") || btn.querySelector(".mm-menu-lbl");
+  if (lbl) {
+    lbl.textContent = text;
+    if (ico) {
+      ico.textContent = icon || "";
+      ico.hidden = !icon;
+    }
+    return;
+  }
+  btn.textContent = text;
+}
+
+function bindTitleHapticsOnce() {
+  const root = document.getElementById("mm-screen") || document.body;
+  if (!root || root.dataset.mmHapticBound === "1") return;
+  root.dataset.mmHapticBound = "1";
+  root.addEventListener("click", (ev) => {
+    const el = ev.target.closest?.(".mm-menu-btn, .mm-icon-btn, .mm-social-link");
+    if (!el || el.disabled || el.getAttribute("aria-disabled") === "true") return;
+    titleHaptic("light");
+  });
+}
+
+function applyTitleSoundState(soundOn) {
+  const btn = document.getElementById("mm-sound-btn");
+  const on = soundOn !== false;
+  document.documentElement.dataset.mmSound = on ? "on" : "off";
+  if (!btn) return;
+  btn.textContent = on ? "🔊" : "🔇";
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.setAttribute("aria-label", on ? "Звук включён" : "Звук выключен");
+}
+
+async function initTitleSoundToggle() {
+  const btn = document.getElementById("mm-sound-btn");
+  if (!btn) return;
+  let soundOn = true;
+  const stored = await titleCloudGet(TITLE_SOUND_CLOUD_KEY);
+  if (stored === "0" || stored === "off" || stored === "false") soundOn = false;
+  if (stored === "1" || stored === "on" || stored === "true") soundOn = true;
+  applyTitleSoundState(soundOn);
+  if (btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+  btn.addEventListener("click", async () => {
+    const nextOn = document.documentElement.dataset.mmSound === "off";
+    applyTitleSoundState(nextOn);
+    await titleCloudSet(TITLE_SOUND_CLOUD_KEY, nextOn ? "1" : "0");
+  });
+}
+
+function bindTitleSettingsButton() {
+  const btn = document.getElementById("mm-settings-btn");
+  if (!btn || btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+  btn.addEventListener("click", () => {
+    window.location.href = "./player.html#settings";
+  });
+}
+
+function bindTitleCommunityLink() {
+  const el = document.getElementById("mm-social-link");
+  if (!el) return;
+  const url = String(el.dataset.communityUrl || TITLE_COMMUNITY_URL || "").trim();
+  if (!url) {
+    el.hidden = true;
+    el.classList.remove("is-visible");
+    return;
+  }
+  el.hidden = false;
+  el.classList.add("is-visible");
+  if (el.dataset.bound === "1") return;
+  el.dataset.bound = "1";
+  el.addEventListener("click", (e) => {
+    e.preventDefault();
+    const tg = titleTelegram();
+    try {
+      if (tg && typeof tg.openTelegramLink === "function" && /t\.me\//i.test(url)) {
+        tg.openTelegramLink(url);
+        return;
+      }
+    } catch (_) {}
+    window.open(url, "_blank", "noopener");
+  });
+}
+
 /** Стартовый экран index.html: «Новая игра» / «Продолжить» по наличию ОВ. */
-function initTitleScreen(profile) {
+async function initTitleScreen(profile) {
+  applyTitleScreenTelegramChrome();
+  spawnTitlePetals();
+  bindTitleHapticsOnce();
+  bindTitleSettingsButton();
+  bindTitleCommunityLink();
+
+  const versionEl = document.getElementById("mm-version-tag");
+  if (versionEl) versionEl.textContent = formatTitleVersionLabel(WAIFU_WEBAPP_VERSION);
+
+  initTitleSoundToggle().catch(() => applyTitleSoundState(true));
+
   const btn = document.getElementById("title-primary-btn");
   const authEl = document.getElementById("title-screen-auth");
   const modal = document.getElementById("title-info-modal");
   const infoBtn = document.getElementById("title-info-btn");
   const infoClose = document.getElementById("title-info-close");
 
-  if (infoBtn && modal) {
+  if (infoBtn && modal && infoBtn.dataset.bound !== "1") {
+    infoBtn.dataset.bound = "1";
     infoBtn.addEventListener("click", () => {
       modal.hidden = false;
     });
   }
-  if (infoClose && modal) {
+  if (infoClose && modal && infoClose.dataset.bound !== "1") {
+    infoClose.dataset.bound = "1";
     infoClose.addEventListener("click", () => {
       modal.hidden = true;
     });
   }
-  if (modal) {
+  if (modal && modal.dataset.bound !== "1") {
+    modal.dataset.bound = "1";
     modal.addEventListener("click", (e) => {
       if (e.target === modal) modal.hidden = true;
     });
@@ -10137,8 +10353,7 @@ function initTitleScreen(profile) {
       authEl.style.display = "block";
       authEl.innerHTML = serverUnavailableNoticeHtml();
     }
-    btn.textContent = "Повторить";
-    btn.disabled = false;
+    setTitlePrimaryLabel(btn, "Повторить", { disabled: false });
     btn.onclick = () => window.location.reload();
     return;
   }
@@ -10148,8 +10363,7 @@ function initTitleScreen(profile) {
       authEl.style.display = "block";
       authEl.innerHTML = webAppAuthNoticeHtml();
     }
-    btn.textContent = "Вход недоступен";
-    btn.disabled = true;
+    setTitlePrimaryLabel(btn, "Вход недоступен", { disabled: true });
     btn.onclick = null;
     return;
   }
@@ -10159,8 +10373,7 @@ function initTitleScreen(profile) {
   // /profile may return 200 with main_waifu=null and profile_error when the
   // ORM query failed (missing column, etc.). That is not "no waifu".
   if (profile.profile_error) {
-    btn.textContent = "Продолжить";
-    btn.disabled = false;
+    setTitlePrimaryLabel(btn, "Продолжить", { icon: "▶", disabled: false });
     btn.onclick = () => {
       window.location.href = "./profile.html";
     };
@@ -10169,16 +10382,14 @@ function initTitleScreen(profile) {
 
   const w = profile?.main_waifu;
   if (w && (w.id != null || w.level != null)) {
-    btn.textContent = "Продолжить";
-    btn.disabled = false;
+    setTitlePrimaryLabel(btn, "Продолжить", { icon: "▶", disabled: false });
     btn.onclick = () => {
       window.location.href = "./profile.html";
     };
     return;
   }
 
-  btn.textContent = "Новая игра";
-  btn.disabled = false;
+  setTitlePrimaryLabel(btn, "Начать", { disabled: false });
   btn.onclick = () => {
     window.location.href = "./waifu_generator.html";
   };
