@@ -38,6 +38,9 @@
 
 ```
 xp_to_next(L) = 40 + 20*(L-1) + 3*(L-1)^2
+combat_xp(d)  = 2 + ceil(d / 3)            # узел 1 → 3, 15 → 7, 59 → 22
+boss_xp(d)    = 2 * combat_xp(d)
+city_xp(d)    = combat_xp(d)
 power_level   = level
 ilvl(item)    = base_ilvl + enchant_level          # enchant без потолка
 power_gear    = sum(ilvl экипированных слотов)     # двуручник считается один раз
@@ -53,6 +56,8 @@ sharpen_cost  = round(4 * base_ilvl * N)           # N = следующий +; �
 Старт: level 1, без экипа, power 1, hp 48, `d_fair` ≈ 8. Комфорт от сырой силы, без `power_eff` и без текущей глубины.
 
 Авто-левелап: пока `xp_unspent >= xp_to_next(level)` — списать XP, `level += 1`, пересчитать `power` и `hp_max`. Текущее HP от левелапа не восстанавливается.
+
+Опыт спуска — главный источник. Каждая живая наёмница на узле `d` получает `combat_xp(d)` за бой (`KIND_MONSTER` / узел `COMBAT`), `boss_xp(d)` за босса, `city_xp(d)` за город. Не делится по loyalty и не входит в `merc_xp_cap_day`. Кран `60 * band` — AFK-капля.
 
 ID двуручника: слот 1 несёт ilvl, слот 2 пуст и заблокирован.
 
@@ -172,10 +177,12 @@ PQ от `last_pq_ts` до `now`:
 
 1. Начислить merc gold/XP одним `walk_capped_grant`.
 2. Пройти целочисленные глубины вперёд от `last_d` (`walk_ts + t_eff`). Стены `d_max` нет.
-3. На SHOP — автозакупки. На CITY — полный хил, лавка, 1 травма, запомнить чекпоинт. На COMBAT/BOSS — сток. На REST — 22% HP.
+3. На SHOP — автозакупки. На CITY — полный хил, лавка, 1 травма, запомнить чекпоинт, `city_xp`. На COMBAT/BOSS — сток и `combat_xp` / `boss_xp`. На REST — 22% HP.
 4. Wipe внутри сегмента: сохранить прогресс, спавн на `checkpoint_d`, продолжить. Кап wipe за sync = 24.
 
 Первый запуск на старой колонне: `last_pq_ts = now` (историю не переигрывать).
+
+Патч опыта за узлы: одноразовый вайп PQ всех игроков на этаж 1 (`pq_last_d = 0`, экип/сумки/кошельки наёмниц/уровни, `pb_depth = 0`). `Player.gold` и XP ОВ не трогать. `last_pq_ts = now`, чтобы sync не догнал старое время.
 
 ## 8. Данные и API
 
@@ -186,7 +193,7 @@ PQ от `last_pq_ts` до `now`:
 
 Флаг: `delve.pq_enabled` (default true). Новых POST нет.
 
-`GET /delve/sync` добавляет на лицо: `level`, `power`, `gold_wallet`, `xp_unspent`, `hp_*`, `gear[6]`, `bag[]`, `last_shop_buy`; на корень: `party_power`, `d_max`, `wipe_count`, `pq_enabled`, `run_origin`.
+`GET /delve/sync` добавляет на лицо: `level`, `power`, `gold_wallet`, `xp_unspent`, `xp_to_next`, `hp_*`, `gear[6]`, `bag[]`, `last_shop_buy`; на корень: `party_power`, `d_max`, `wipe_count`, `pq_enabled`, `run_origin`.
 
 ## 9. Приёмка
 
@@ -198,6 +205,9 @@ PQ от `last_pq_ts` до `now`:
 - Кадр PQ = `last_d`; `d_fair` не режет ходьбу.
 - Город 40 — `CITY`, не босс. Костёр не лечит на 100%.
 - За 24 ч банды B есть покупка и нет тира выше B+1.
+- `combat_xp(1) < combat_xp(15) < combat_xp(59)`; босс = 2× бой на том же `d`.
+- Прогон 0→59: живые наёмницы не 1 уровня (ориентир ур. 6+).
+- Вайп PQ на этаж 1 не меняет `Player.gold`.
 
 ## 10. Вне v1
 

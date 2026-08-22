@@ -224,3 +224,39 @@ def test_city_heals_one_trauma():
     leftover = [row.get("id") for row in (party.mercs[0].flesh or [])]
     assert len(leftover) == 1
     assert leftover[0] in ("arm_graze", "eye_soot")
+
+
+def test_monster_and_boss_grant_xp_in_phrase():
+    from waifu_bot.game.delve_catalog import NODE_BOSS, NODE_COMBAT
+    from waifu_bot.game.delve_pq import combat_xp
+    from waifu_bot.game.delve_pq_layer import resolve_layer_node
+
+    live = _merc(hp_current=200, hp_max=200)
+    dead = _merc(card_id=2, slot=2, name="Тень", hp_current=0)
+    party = _party(live, dead, seed=3)
+    event = resolve_layer_node(party, 9, NODE_COMBAT, band=1)
+    assert live.xp_unspent >= combat_xp(9) or live.level > 1
+    assert dead.xp_unspent == 0
+    assert dead.level == 1
+    assert "(+" in (event.get("phrase") or "") and "XP)" in (event.get("phrase") or "")
+    boss = resolve_layer_node(_party(_merc(hp_current=200, hp_max=200)), 10, NODE_BOSS, band=1)
+    assert "XP)" in (boss.get("phrase") or "")
+    assert int(boss.get("xp_delta") or 0) == 2 * combat_xp(10)
+
+
+def test_walk_to_59_levels_trio():
+    from waifu_bot.game.delve_catalog import spine_type
+    from waifu_bot.game.delve_pq_layer import resolve_layer_node
+
+    names = ("А", "Б", "В")
+    mercs = [
+        _merc(card_id=i, slot=i, name=n, hp_current=400, hp_max=400)
+        for i, n in enumerate(names, start=1)
+    ]
+    party = _party(*mercs, seed=11)
+    for d in range(1, 60):
+        node = spine_type(d, 999, seed=party.seed, wipe_count=0)
+        resolve_layer_node(party, d, node, band=1)
+        for merc in party.mercs:
+            merc.hp_current = int(merc.hp_max)
+    assert all(merc.level >= 6 for merc in party.mercs)

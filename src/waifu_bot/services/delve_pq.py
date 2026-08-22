@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Sequence
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
@@ -24,6 +24,7 @@ from waifu_bot.game.delve_pq import (
     public_bag,
     refresh_derived,
     simulate_pq,
+    xp_to_next,
 )
 from waifu_bot.game.delve_pq_layer import (
     PQ_LAYER_DEFAULT,
@@ -52,6 +53,112 @@ def pq_layer_of(cfg: dict[str, str] | None) -> int:
 
 def pq_t_node_of(cfg: dict[str, str] | None) -> int:
     return max(15, min(50, cfg_int(cfg or {}, "delve.pq_t_node", T_NODE_SEC)))
+
+
+PQ_RESET_HP = 48
+PQ_RESET_LAYER_JSON = {"armed": True}
+
+
+def reset_pq_merc_progress(row: Any) -> None:
+    row.level = 1
+    row.xp_unspent = 0
+    row.gold_wallet = 0
+    row.power = 1
+    row.hp_max = PQ_RESET_HP
+    row.hp_current = PQ_RESET_HP
+
+
+def reset_pq_card_progress(card: Any) -> None:
+    reset_pq_merc_progress(card)
+    card.flesh = []
+    card.psyche = []
+    look = dict(card.look_card) if isinstance(getattr(card, "look_card", None), dict) else {}
+    look["pq_nodes"] = 0
+    card.look_card = look
+
+
+def reset_pq_column_progress(
+    state: Any,
+    cards: Sequence[Any] | None = None,
+    companions: Sequence[Any] | None = None,
+    *,
+    now: datetime,
+    gear: list[Any] | None = None,
+    bags: list[Any] | None = None,
+) -> None:
+    """Zero one player's column RPG. Does not touch Player.gold or OV XP."""
+    state.pq_last_d = 0
+    state.pq_last_cycle = 0
+    state.wipe_count = 0
+    state.pq_gold_today = 0
+    state.pq_xp_today = 0
+    state.pb_depth = 0
+    state.last_pq_ts = now
+    state.run_origin = now
+    state.pq_layer_json = dict(PQ_RESET_LAYER_JSON)
+    for card in cards or []:
+        reset_pq_card_progress(card)
+    for row in companions or []:
+        reset_pq_merc_progress(row)
+    if gear is not None:
+        gear.clear()
+    if bags is not None:
+        bags.clear()
+
+
+def reset_all_pq_column_progress(bind: Any, *, now: datetime | None = None) -> None:
+    """Wipe every player's column RPG onto floor 1. Alembic 0150."""
+    ts = now or datetime.now(timezone.utc)
+    bind.execute(
+        text(
+            """
+            UPDATE delve_states SET
+              pq_last_d = 0,
+              pq_last_cycle = 0,
+              wipe_count = 0,
+              pq_gold_today = 0,
+              pq_xp_today = 0,
+              pb_depth = 0,
+              last_pq_ts = :ts,
+              run_origin = :ts,
+              pq_layer_json = CAST(:layer AS jsonb)
+            """
+        ),
+        {"ts": ts, "layer": '{"armed": true}'},
+    )
+    bind.execute(text("DELETE FROM delve_companion_gear"))
+    bind.execute(text("DELETE FROM delve_companion_bags"))
+    bind.execute(
+        text(
+            """
+            UPDATE companion_cards SET
+              level = 1,
+              xp_unspent = 0,
+              gold_wallet = 0,
+              power = 1,
+              hp_max = :hp,
+              hp_current = :hp,
+              flesh = CAST('[]' AS jsonb),
+              psyche = CAST('[]' AS jsonb),
+              look_card = COALESCE(look_card, CAST('{}' AS jsonb)) || CAST('{"pq_nodes": 0}' AS jsonb)
+            """
+        ),
+        {"hp": PQ_RESET_HP},
+    )
+    bind.execute(
+        text(
+            """
+            UPDATE delve_companions SET
+              level = 1,
+              xp_unspent = 0,
+              gold_wallet = 0,
+              power = 1,
+              hp_max = :hp,
+              hp_current = :hp
+            """
+        ),
+        {"hp": PQ_RESET_HP},
+    )
 
 
 def card_loyalty(card: m.CompanionCard) -> int:
@@ -160,6 +267,7 @@ def merc_public(merc: MercState) -> dict[str, Any]:
         "power": int(compute_power(merc)),
         "gold_wallet": int(merc.gold_wallet),
         "xp_unspent": int(merc.xp_unspent),
+        "xp_to_next": int(xp_to_next(merc.level)),
         "hp_current": int(merc.hp_current),
         "hp_max": int(merc.hp_max),
         "gear": empty_gear_slots(merc.gear),

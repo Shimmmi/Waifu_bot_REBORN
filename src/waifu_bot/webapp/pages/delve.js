@@ -607,7 +607,7 @@
           ? `<button type="button" class="delve-sheet-equip" aria-expanded="false">Экип.</button>`
           : "";
         const pq = state.pq_enabled
-          ? `<div class="delve-sheet-meta">Ур. ${esc(fmtNum(c.level))} · ${esc(copy("pq_power", "Сила"))} ${esc(fmtNum(c.power))} · 🪙 ${esc(fmtNum(c.gold_wallet))}</div>
+          ? `<div class="delve-sheet-meta">Ур. ${esc(fmtNum(c.level))} (${esc(fmtNum(c.xp_unspent))}/${esc(fmtNum(c.xp_to_next))}) · ${esc(copy("pq_power", "Сила"))} ${esc(fmtNum(c.power))} · 🪙 ${esc(fmtNum(c.gold_wallet))}</div>
              <div class="delve-sheet-hp">${hpBar(c.hp_current, c.hp_max)}<span class="delve-sheet-hp-pct">${pct}%</span></div>
              ${traumaLine ? `<div class="delve-sheet-trauma">${esc(traumaLine)}</div>` : ""}
              <div class="delve-sheet-bag">${esc(bagLine)}</div>`

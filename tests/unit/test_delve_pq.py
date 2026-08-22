@@ -14,14 +14,19 @@ from waifu_bot.game.delve_pq import (
     SALVE_ID,
     ShopOffer,
     apply_drain,
+    apply_levelups,
     band_of_depth,
+    boss_xp,
     buy_increases_power,
+    city_xp,
     combat_drain,
+    combat_xp,
     compute_power,
     d_max_of,
     do_wipe,
     equipped_ilvl,
     gear_price,
+    grant_adventure_xp,
     hp_max_of,
     install_piece,
     load_consumables,
@@ -88,6 +93,35 @@ def test_xp_level_and_power_formulas():
     assert band_of_depth(21) == 2
 
 
+def test_combat_xp_grows_with_node():
+    assert combat_xp(1) == 3
+    assert combat_xp(15) == 7
+    assert combat_xp(40) == 16
+    assert combat_xp(59) == 22
+    assert combat_xp(80) == 29
+    assert combat_xp(1) < combat_xp(15) < combat_xp(59)
+    assert boss_xp(15) == 2 * combat_xp(15)
+    assert city_xp(40) == combat_xp(40)
+
+
+def test_levelup_adds_one_power():
+    merc = _merc(level=1)
+    before = compute_power(merc)
+    merc.xp_unspent = xp_to_next(1)
+    assert apply_levelups(merc) == 1
+    assert merc.level == 2
+    assert compute_power(merc) == before + 1
+
+
+def test_grant_adventure_xp_skips_dead():
+    live = _merc(hp_current=48)
+    dead = _merc(card_id=2, slot=2, name="Тень", hp_current=0)
+    assert grant_adventure_xp([live, dead], combat_xp(9)) == combat_xp(9)
+    assert live.xp_unspent == combat_xp(9)
+    assert dead.xp_unspent == 0
+    assert grant_adventure_xp([dead], 20) == 0
+
+
 def test_buy_and_sharpen_always_increase_power():
     merc = _merc()
     before = compute_power(merc)
@@ -128,7 +162,7 @@ def test_wipe_returns_to_checkpoint_and_keeps_progress():
     assert party.last_d == 15
     assert party.checkpoint_d == 15
     assert kept.gold_wallet == 7
-    assert kept.xp_unspent == 12
+    assert kept.xp_unspent == 12 + city_xp(15)
     assert kept.level == 4
     assert kept.hp_current == kept.hp_max
     assert kept.gear[4].name
@@ -387,3 +421,57 @@ def test_solo_day30_deeper_than_old_plateau():
     party = _run_pace(1, 11, days=30, step_h=2)
     assert party.pb >= 40
     assert party.checkpoint_d >= 15
+
+
+def test_reset_pq_column_progress_zeros_rpg_not_player_gold():
+    from types import SimpleNamespace
+
+    from waifu_bot.services.delve_pq import reset_pq_column_progress
+
+    now = datetime(2026, 8, 22, tzinfo=timezone.utc)
+    player = SimpleNamespace(gold=777)
+    state = SimpleNamespace(
+        pq_last_d=59,
+        pq_last_cycle=3,
+        wipe_count=2,
+        pq_gold_today=40,
+        pq_xp_today=10,
+        pb_depth=59,
+        last_pq_ts=now,
+        run_origin=now,
+        pq_layer_json={"armed": True, "checkpoint_d": 15, "walk_ts": "x"},
+        gold_granted_total=500,
+    )
+    card = SimpleNamespace(
+        level=4,
+        xp_unspent=12,
+        gold_wallet=48,
+        power=5,
+        hp_max=80,
+        hp_current=10,
+        flesh=[{"id": "arm_cut"}],
+        psyche=[{"id": "fear"}],
+        look_card={"pq_nodes": 40, "loyalty": 50},
+    )
+    companion = SimpleNamespace(level=4, xp_unspent=12, gold_wallet=48, power=5, hp_max=80, hp_current=10)
+    gear = ["sword"]
+    bags = ["potion"]
+    reset_pq_column_progress(state, [card], [companion], now=now, gear=gear, bags=bags)
+    assert state.pq_last_d == 0
+    assert state.pq_last_cycle == 0
+    assert state.wipe_count == 0
+    assert state.pb_depth == 0
+    assert state.pq_layer_json == {"armed": True}
+    assert card.level == 1
+    assert card.gold_wallet == 0
+    assert card.xp_unspent == 0
+    assert card.power == 1
+    assert card.hp_current == 48
+    assert card.flesh == []
+    assert card.look_card["pq_nodes"] == 0
+    assert card.look_card["loyalty"] == 50
+    assert companion.power == 1
+    assert gear == []
+    assert bags == []
+    assert player.gold == 777
+    assert state.gold_granted_total == 500

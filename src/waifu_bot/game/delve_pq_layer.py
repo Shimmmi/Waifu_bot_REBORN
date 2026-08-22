@@ -34,8 +34,12 @@ from waifu_bot.game.delve_pq import (
     MercState,
     PqParty,
     auto_use_potions,
+    boss_xp,
+    city_xp,
+    combat_xp,
     compute_power,
     d_max_of,
+    grant_adventure_xp,
     merc_gold_cap_day,
     party_power,
     pq_rng,
@@ -865,7 +869,8 @@ def visit_city(party: PqParty, depth: int, *, band: int) -> dict[str, Any]:
             who = str(last.get("who") or who)
     if trauma:
         line = f"{line} · −{trauma.get('name_ru')}"
-    phrase = assemble_phrase(kind="city", depth=city_d, line=line, who=who)
+    xp_delta = grant_adventure_xp(party.mercs, city_xp(city_d))
+    phrase = assemble_phrase(kind="city", depth=city_d, line=line, who=who, xp_delta=xp_delta)
     if healed:
         phrase = f"{phrase} (+{healed} HP)"
     return event_dict(
@@ -875,6 +880,7 @@ def visit_city(party: PqParty, depth: int, *, band: int) -> dict[str, Any]:
         who=who,
         phrase=phrase,
         hp_delta=-healed,
+        xp_delta=xp_delta,
         node=NODE_CITY,
     )
 
@@ -1054,6 +1060,7 @@ def assemble_phrase(
     hp_by_name: dict[str, int] | None = None,
     gold_delta: int = 0,
     gold_capped: bool = False,
+    xp_delta: int = 0,
     status_ru: str = "",
 ) -> str:
     kind_ru = KIND_LABEL_RU.get(kind, kind)
@@ -1075,6 +1082,8 @@ def assemble_phrase(
     elif gold_delta:
         sign = "+" if gold_delta > 0 else ""
         suffix_bits.append(f"({sign}{gold_delta} зол.)")
+    if xp_delta:
+        suffix_bits.append(f"(+{int(xp_delta)} XP)")
     extra = " ".join(suffix_bits)
     trauma = f" · {status_ru}" if status_ru else ""
     body = f"{text} {extra}".strip() if extra else text
@@ -1092,6 +1101,7 @@ def event_dict(
     hp_by_name: dict[str, int] | None = None,
     gold_delta: int = 0,
     gold_capped: bool = False,
+    xp_delta: int = 0,
     status: dict[str, Any] | None = None,
     node: str = "",
 ) -> dict[str, Any]:
@@ -1109,6 +1119,7 @@ def event_dict(
         "hp_by_name": dict(hp_by_name or {}),
         "gold_delta": int(gold_delta),
         "gold_capped": bool(gold_capped),
+        "xp_delta": int(xp_delta),
         "status": status,
         "status_ru": str((status or {}).get("name_ru") or ""),
         "node": node,
@@ -1172,6 +1183,7 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
         return event_dict(row=None, kind=kind, depth=depth, who=who, phrase=phrase, node=node)
 
     if node == NODE_BOSS:
+        xp_delta = grant_adventure_xp(party.mercs, boss_xp(depth))
         auto_use_potions(party.mercs, before_boss=True)
         pp = party_power_eff(party.mercs, depth=depth, d_max=d_max, living_only=True)
         raw = boss_drain_hole(depth, pp, hp_ref_of(party.mercs), d_fair=d_max)
@@ -1193,6 +1205,7 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
             line="Хозяин яруса ударил отряд",
             who=who,
             hp_by_name=lost,
+            xp_delta=xp_delta,
             status_ru=str((trauma or {}).get("status", {}).get("name_ru") or ""),
         )
         return event_dict(
@@ -1203,6 +1216,7 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
             phrase=phrase,
             hp_delta=-sum(lost.values()),
             hp_by_name=lost,
+            xp_delta=xp_delta,
             status=(trauma or {}).get("status"),
             node=node,
         )
@@ -1214,6 +1228,9 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
     line = str(row.get("line_ru") or "").format(who=who)
     hp_mult = float(row.get("hp_mult") or 0)
     lost: dict[str, int] = dict(poison_lost)
+    xp_delta = 0
+    if kind == KIND_MONSTER or node == NODE_COMBAT:
+        xp_delta = grant_adventure_xp(party.mercs, combat_xp(depth))
     if kind == KIND_MONSTER or hp_mult > 0:
         pp = party_power_eff(party.mercs, depth=depth, d_max=d_max, living_only=True)
         raw = combat_drain_hole(depth, pp, hp_ref_of(party.mercs), d_fair=d_max)
@@ -1244,6 +1261,7 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
         hp_by_name=lost,
         gold_delta=gold_delta,
         gold_capped=capped,
+        xp_delta=xp_delta,
         status_ru=str((trauma or {}).get("status", {}).get("name_ru") or ""),
     )
     return event_dict(
@@ -1256,6 +1274,7 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
         hp_by_name=lost,
         gold_delta=gold_delta,
         gold_capped=capped,
+        xp_delta=xp_delta,
         status=(trauma or {}).get("status"),
         node=node,
     )

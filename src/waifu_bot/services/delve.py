@@ -67,6 +67,7 @@ from waifu_bot.game.delve_catalog import (
     xp_rate_per_sec,
 )
 from waifu_bot.paths import static_game_directory
+from waifu_bot.game.delve_pq import xp_to_next
 from waifu_bot.services.game_config_service import cfg_float, cfg_int, get_game_config_map
 from waifu_bot.services.wallet import add_gold
 
@@ -188,6 +189,7 @@ def companion_out(
         "power": _int_attr(row, "power", 1),
         "gold_wallet": _int_attr(row, "gold_wallet", 0),
         "xp_unspent": _int_attr(row, "xp_unspent", 0),
+        "xp_to_next": xp_to_next(_int_attr(row, "level", 1)),
         "hp_current": _int_attr(row, "hp_current", 48),
         "hp_max": _int_attr(row, "hp_max", 48),
         "days": days_in_party(joined, now or _now()),

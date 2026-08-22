@@ -242,6 +242,19 @@ def xp_to_next(level: int) -> int:
     return 40 + 20 * n + 3 * n * n
 
 
+def combat_xp(depth: int) -> int:
+    d = max(1, int(depth))
+    return 2 + int(math.ceil(d / 3.0))
+
+
+def boss_xp(depth: int) -> int:
+    return 2 * combat_xp(depth)
+
+
+def city_xp(depth: int) -> int:
+    return combat_xp(depth)
+
+
 def band_of_depth(depth: int) -> int:
     return max(1, int(math.ceil(max(1, int(depth)) / 20.0)))
 
@@ -526,6 +539,20 @@ def apply_levelups(merc: MercState) -> int:
     if gained:
         refresh_derived(merc)
     return gained
+
+
+def grant_adventure_xp(mercs: Iterable[MercState], amount: int) -> int:
+    gained = max(0, int(amount))
+    if gained <= 0:
+        return 0
+    awarded = 0
+    for merc in mercs:
+        if not merc.living():
+            continue
+        merc.xp_unspent += gained
+        apply_levelups(merc)
+        awarded += 1
+    return gained if awarded else 0
 
 
 def install_piece(merc: MercState, piece: GearPiece) -> None:
