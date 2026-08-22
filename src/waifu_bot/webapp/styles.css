@@ -9243,7 +9243,7 @@ body.page-title-screen {
   position: fixed;
   inset: 0;
   z-index: 0;
-  background: url("/static/game/ui/title/background.webp") center / cover no-repeat #0d0a08;
+  background: url("/static/game/ui/title/background.webp?v=title-dark-1") center / cover no-repeat #0d0a08;
 }
 
 .title-screen-scrim {

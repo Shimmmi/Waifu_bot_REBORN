@@ -2,11 +2,11 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Waifu REBORN</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="preload" href="/webapp/assets/fonts/manrope-var.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="./styles.css?v=waifu-webapp-v98" />
+    <link rel="stylesheet" href="./main-menu-redesign.css?v=waifu-webapp-v121" />
     <style>
       .title-screen-load-fail-title {
         font-weight: 700;
@@ -20,36 +20,74 @@
     <link rel="stylesheet" href="./assets/tutorial.css" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="./assets/tutorial.js"></script>
-    <script defer src="./app.js?v=waifu-webapp-v98"></script>
+    <script defer src="./app.js?v=waifu-webapp-v118"></script>
   </head>
-  <body class="page-title-screen" onload="WaifuApp.bootstrapPage('index', WaifuApp.initTitleScreen);">
-    <div class="title-screen-bg" aria-hidden="true"></div>
-    <div class="title-screen-scrim" aria-hidden="true"></div>
+  <body class="page-title-screen page-mainmenu" onload="WaifuApp.bootstrapPage('index', WaifuApp.initTitleScreen);">
+    <div class="mm-screen" id="mm-screen">
+      <div class="title-screen-bg mm-bg-art" aria-hidden="true"></div>
+      <div class="mm-bg-vignette" aria-hidden="true"></div>
+      <div class="mm-bg-sunburst" aria-hidden="true"></div>
+      <svg class="mm-bg-wings" viewBox="0 0 340 120" fill="none" aria-hidden="true">
+        <path d="M170 30 C 120 10, 40 20, 5 55 C 45 55, 95 60, 140 45" stroke="#ffd97a" stroke-width="1" opacity=".7"/>
+        <path d="M170 30 C 130 18, 70 26, 30 50 C 62 48, 100 52, 138 42" stroke="#ffd97a" stroke-width="1" opacity=".5"/>
+        <path d="M170 30 C 220 10, 300 20, 335 55 C 295 55, 245 60, 200 45" stroke="#ffd97a" stroke-width="1" opacity=".7"/>
+        <path d="M170 30 C 210 18, 270 26, 310 50 C 278 48, 240 52, 202 42" stroke="#ffd97a" stroke-width="1" opacity=".5"/>
+      </svg>
+      <div class="mm-bokeh b1" aria-hidden="true"></div>
+      <div class="mm-bokeh b2" aria-hidden="true"></div>
+      <div class="mm-bokeh b3" aria-hidden="true"></div>
+      <div class="mm-bokeh b4" aria-hidden="true"></div>
+      <div class="mm-bokeh b5" aria-hidden="true"></div>
+      <div class="mm-petals" id="mm-petals" aria-hidden="true"></div>
 
-    <main class="title-screen-main">
-      <noscript>
-        <p class="title-screen-noscript muted">Включите JavaScript или откройте <a href="./profile.html">profile.html</a>.</p>
-      </noscript>
+      <div class="mm-top-bar">
+        <button type="button" class="mm-icon-btn" id="mm-sound-btn" aria-label="Звук" aria-pressed="true">🔊</button>
+        <div class="mm-version-tag" id="mm-version-tag"></div>
+        <button type="button" class="mm-icon-btn" id="mm-settings-btn" aria-label="Настройки">⚙</button>
+      </div>
 
-      <div id="title-screen-auth" class="title-screen-auth muted tiny" style="display: none"></div>
+      <div class="mm-logo-wrap">
+        <h1 class="mm-logo-title">
+          <span class="l1">✦ Waifu ✦</span>
+          <span class="l2">Reborn</span>
+        </h1>
+        <div class="mm-logo-tagline">Telegram Idle RPG</div>
+        <div class="mm-logo-flourish"><span class="line"></span><span class="gem">✦</span><span class="line r"></span></div>
+      </div>
 
-      <nav class="title-screen-menu" aria-label="Главное меню">
-        <button type="button" id="title-primary-btn" class="title-screen-btn" disabled>
-          …
-        </button>
-        <a class="title-screen-btn" href="./player.html">Профиль</a>
-        <button type="button" id="title-info-btn" class="title-screen-btn">Информация</button>
-      </nav>
-    </main>
+      <main class="title-screen-main mm-menu-actions">
+        <noscript>
+          <p class="title-screen-noscript muted">Включите JavaScript или откройте <a href="./profile.html">profile.html</a>.</p>
+        </noscript>
+
+        <div id="title-screen-auth" class="title-screen-auth muted tiny" style="display: none"></div>
+
+        <nav class="title-screen-menu mm-menu-stack" aria-label="Главное меню">
+          <button type="button" id="title-primary-btn" class="title-screen-btn mm-menu-btn primary mm-corners" disabled>
+            <span class="mm-menu-ico" id="title-primary-ico" hidden></span>
+            <span class="mm-menu-lbl" id="title-primary-lbl">…</span>
+          </button>
+          <a class="title-screen-btn mm-menu-btn secondary" id="title-profile-btn" href="./player.html">
+            <span class="mm-menu-ico">🧝</span>
+            <span class="mm-menu-lbl">Профиль</span>
+          </a>
+        </nav>
+      </main>
+
+      <div class="mm-bottom-bar">
+        <button type="button" class="mm-social-link" id="mm-social-link" hidden>✈️ Наш канал</button>
+        <span class="mm-copy">© Waifu Reborn · 2026</span>
+      </div>
+    </div>
 
     <div id="title-info-modal" class="title-screen-modal" role="dialog" aria-modal="true" aria-labelledby="title-info-heading" hidden>
-      <div class="title-screen-modal-panel">
+      <div class="title-screen-modal-panel mm-corners">
         <h2 id="title-info-heading" class="title-screen-modal-title">О игре</h2>
         <p class="title-screen-modal-text">
           Waifu REBORN — веб-игра в Telegram: основная вайфу, подземелья, магазин, таверна с наёмницами, караван по актам,
           пассивные навыки и групповые походы. Откройте разделы через нижнее меню после входа в игру.
         </p>
-        <button type="button" id="title-info-close" class="title-screen-btn">Закрыть</button>
+        <button type="button" id="title-info-close" class="title-screen-btn mm-menu-btn secondary">Закрыть</button>
       </div>
     </div>
   </body>
