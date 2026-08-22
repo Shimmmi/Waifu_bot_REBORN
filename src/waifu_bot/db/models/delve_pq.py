@@ -44,8 +44,8 @@ class DelveCompanionGear(Base):
             name="ck_delve_companion_gear_slot",
         ),
         CheckConstraint(
-            "enchant_level >= 0 AND enchant_level <= 10",
-            name="ck_delve_companion_gear_enchant",
+            "enchant_level >= 0",
+            name="ck_delve_companion_gear_enchant_nonneg",
         ),
     )
 
@@ -58,11 +58,15 @@ class DelveCompanionGear(Base):
         String(32), ForeignKey("delve_gear_templates.id", ondelete="SET NULL"), nullable=True
     )
     family_key: Mapped[str] = mapped_column(String(16), nullable=False)
-    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
     slot_type: Mapped[str] = mapped_column(String(16), nullable=False)
     base_ilvl: Mapped[int] = mapped_column(Integer, nullable=False)
-    enchant_level: Mapped[int] = mapped_column(SmallInteger, default=0, nullable=False)
+    enchant_level: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     scaled_plus: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    prefix_stat: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    prefix_tier: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    suffix_family: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    suffix_tier: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

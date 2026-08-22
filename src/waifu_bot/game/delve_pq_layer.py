@@ -32,6 +32,7 @@ from waifu_bot.game.delve_pq import (
     PqParty,
     auto_use_potions,
     compute_power,
+    d_max_of,
     merc_gold_cap_day,
     party_power,
     pq_rng,
@@ -49,8 +50,8 @@ COMBAT_FLOOR = 3
 BOSS_FLOOR = 6
 COMBAT_CAP_FRAC = 0.28
 BOSS_CAP_FRAC = 0.40
-REST_BASE_FRAC = 0.10
-REST_CAP_FRAC = 0.22
+REST_BASE_FRAC = 1.00
+REST_CAP_FRAC = 1.00
 HEALER_CLASS_ID = 6
 HEALER_AURA = 0.10
 
@@ -381,9 +382,9 @@ def party_power_eff(mercs: Iterable[MercState], *, depth: int = 0, d_max: int = 
 
 
 def d_max_eff(mercs: Iterable[MercState], *, depth: int = 0) -> int:
-    raw_ceil = max(1, int(math.floor(8.0 + 0.35 * max(0, party_power(mercs)))))
-    eff = party_power_eff(mercs, depth=depth, d_max=raw_ceil, living_only=False)
-    return max(1, int(math.floor(8.0 + 0.35 * max(0.0, eff))))
+    """Same ceiling as d_max_of. depth is ignored so the cap does not oscillate mid-descent."""
+    _ = depth
+    return d_max_of(party_power(mercs))
 
 
 def t_eff_of(mercs: Iterable[MercState], *, t_node: int = T_NODE_SEC, depth: int = 0, d_max: int = 8) -> int:
@@ -988,7 +989,9 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
     if node == NODE_SHOP:
         for merc in party.mercs:
             if merc.living():
-                buys = resolve_shop(merc, depth=depth, seed=party.seed, cycle=party.last_cycle)
+                buys = resolve_shop(
+                    merc, depth=depth, seed=party.seed, cycle=party.last_cycle, band=band
+                )
                 party.shop_log.extend(buys)
         phrase = assemble_phrase(kind="shop", depth=depth, line=f"{who} зашла в лавку", who=who)
         if party.shop_log:
@@ -1132,6 +1135,7 @@ def layer_state_dump(party: PqParty) -> dict[str, Any]:
         "nodes_seen": int(party.nodes_seen or 0),
         "t_eff": int(party.t_eff or T_NODE_SEC),
         "nodes_by_card": {str(m.card_id): int(getattr(m, "nodes_seen", 0) or 0) for m in party.mercs},
+        "walk_ts": party.walk_ts.isoformat() if getattr(party, "walk_ts", None) else None,
     }
 
 
@@ -1142,6 +1146,12 @@ def apply_layer_dump(party: PqParty, blob: dict[str, Any] | None) -> None:
     last = data.get("last_event")
     party.last_event = dict(last) if isinstance(last, dict) else None
     party.nodes_seen = int(data.get("nodes_seen") or 0)
+    raw_walk = data.get("walk_ts")
+    if raw_walk:
+        try:
+            party.walk_ts = datetime.fromisoformat(str(raw_walk))
+        except ValueError:
+            party.walk_ts = None
     by_card = data.get("nodes_by_card") or {}
     if isinstance(by_card, dict):
         for merc in party.mercs:

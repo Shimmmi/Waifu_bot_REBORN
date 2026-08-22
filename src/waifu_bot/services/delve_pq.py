@@ -72,6 +72,10 @@ def _piece_from_row(row: m.DelveCompanionGear) -> GearPiece:
         base_ilvl=int(row.base_ilvl or 0),
         enchant_level=int(row.enchant_level or 0),
         scaled_plus=int(row.scaled_plus or 0),
+        prefix_stat=str(row.prefix_stat) if row.prefix_stat else None,
+        prefix_tier=int(row.prefix_tier or 0),
+        suffix_family=str(row.suffix_family) if row.suffix_family else None,
+        suffix_tier=int(row.suffix_tier or 0),
     )
 
 
@@ -202,6 +206,10 @@ async def persist_merc_items(session: AsyncSession, player_id: int, merc: MercSt
                 base_ilvl=int(piece.base_ilvl),
                 enchant_level=int(piece.enchant_level),
                 scaled_plus=int(piece.scaled_plus),
+                prefix_stat=piece.prefix_stat,
+                prefix_tier=int(piece.prefix_tier) if piece.prefix_stat else None,
+                suffix_family=piece.suffix_family,
+                suffix_tier=int(piece.suffix_tier) if piece.suffix_family else None,
             )
         )
     for cid, qty in merc.bag.items():

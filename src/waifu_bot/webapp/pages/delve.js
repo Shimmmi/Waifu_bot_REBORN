@@ -315,17 +315,20 @@
     return special;
   }
 
+  function biomeLabel(d) {
+    const biomes = (state && state.shaft_biomes) || [];
+    const band = shaftBand(d);
+    const row = biomes.find((b) => Number(b.band) === band);
+    if (row && row.label) return String(row.label);
+    const frame = state && state.frame;
+    if (frame && frame.shaft_label) return String(frame.shaft_label);
+    return copy("camp", "Лагерь");
+  }
+
   function hudLine(frame) {
-    const rec = hudRecord(frame);
-    const status = (frame && frame.status) || copy("camp", "Лагерь · сами пойдут");
     const d = Number((frame && frame.d) || 0);
     const power = Number((state && state.party_power) || 0);
-    const dmax = Number((state && state.d_max) || 0);
-    let line = `${status} · глубина ${d} · рекорд ${rec}`;
-    if (state && state.pq_enabled) {
-      line += ` · сила ${fmtNum(power)} · потолок ${fmtNum(dmax)}`;
-    }
-    return line;
+    return `${biomeLabel(d)} · ${fmtNum(d)} · сила ${fmtNum(power)}`;
   }
 
   function shaftBandDepths(d) {
@@ -487,6 +490,27 @@
     return String(j.kind || "");
   }
 
+  const SLOT_GLYPH = { 1: "⚔", 2: "🛡", 3: "▣", 4: "○", 5: "○", 6: "◊" };
+
+  function slotGridHtml(gear) {
+    const by = {};
+    (Array.isArray(gear) ? gear : []).forEach((g, i) => {
+      if (!g || g.blocked) return;
+      const slot = Number(g.slot || i + 1);
+      if (slot >= 1 && slot <= 6) by[slot] = g;
+    });
+    const cells = [1, 2, 3, 4, 5, 6]
+      .map((s) => {
+        const g = by[s];
+        const on = Boolean(g && (g.display_name || g.name));
+        const title = on ? String(g.display_name || `${g.name || ""} +${g.enchant_level || 0}`).trim() : "";
+        const plus = on ? (Number(g.enchant_level) > 0 ? `+${Number(g.enchant_level)}` : "·") : "";
+        return `<span class="delve-slot${on ? " is-on" : ""}" title="${esc(title)}"><i>${SLOT_GLYPH[s]}</i>${plus ? `<b>${esc(plus)}</b>` : ""}</span>`;
+      })
+      .join("");
+    return `<div class="delve-slot-grid" aria-label="экип">${cells}</div>`;
+  }
+
   function renderSheet() {
     if (!state) return "";
     const comps = Array.isArray(state.companions) ? state.companions : [];
@@ -495,10 +519,6 @@
         const src = faceSrc(c);
         const gear = Array.isArray(c.gear) ? c.gear : [];
         const bag = Array.isArray(c.bag) ? c.bag : [];
-        const gearLine = gear
-          .filter((g) => g && g.name && !g.blocked)
-          .map((g) => `${g.name} ${g.ilvl}${g.enchant_level ? "+" + g.enchant_level : ""}`)
-          .join(" · ");
         const bagLine = bag.map((b) => `${b.name} ×${b.qty}`).join(" · ");
         const trauma = Array.isArray(c.trauma) ? c.trauma : [];
         const traumaLine = trauma
@@ -510,11 +530,13 @@
           ? `<div class="muted tiny">${esc(copy("pq_level", "Уровень"))} ${esc(fmtNum(c.level))} · ${esc(copy("pq_power", "Сила"))} ${esc(fmtNum(c.power))} · ${esc(copy("pq_wallet", "золото"))}: ${esc(fmtNum(c.gold_wallet))}</div>
              ${hpBar(c.hp_current, c.hp_max)}
              ${traumaLine ? `<div class="muted tiny">${esc(traumaLine)}</div>` : ""}
-             <div class="muted tiny">${esc(gearLine || "без экипа")}</div>
              <div class="muted tiny">${esc(bagLine || "без расходников")}</div>`
           : `<div class="muted tiny">${esc(fmtNum(c.gold_earned))} зол. · ${esc(fmtNum(c.xp_earned))} опыта · ${esc(daysLabel(c.days))}</div>`;
         return `<div class="delve-sheet-face">
-          <img class="delve-bust" src="${esc(src)}" alt="${esc(c.name || "")}" width="56" height="56" />
+          <div class="delve-sheet-face-col">
+            <img class="delve-bust" src="${esc(src)}" alt="${esc(c.name || "")}" width="56" height="56" />
+            ${state.pq_enabled ? slotGridHtml(gear) : ""}
+          </div>
           <div>
             <strong title="${esc(c.name || "")}">${esc(c.name || "")}</strong>
             ${pq}

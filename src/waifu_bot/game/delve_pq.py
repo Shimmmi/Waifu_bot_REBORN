@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
+from waifu_bot.game.affix_display_names import resolve_prefix_name_ru, resolve_suffix_name_ru
 from waifu_bot.game.delve_catalog import (
     DEPTH_EXP,
     NODE_BOSS,
@@ -27,12 +28,36 @@ from waifu_bot.game.delve_catalog import (
     walk_capped_grant,
     xp_rate_per_sec,
 )
+from waifu_bot.game.item_display_name import guess_gender_ru, inflect_adj_ru
 
 GEAR_PATH = Path(__file__).resolve().parents[3] / "data" / "delve_gear.v1.json"
 CONSUMABLE_PATH = Path(__file__).resolve().parents[3] / "data" / "delve_consumables.v1.json"
 
-SAFE_ENCHANT_MAX = 7
 WIPE_CAP_PER_SYNC = 24
+SHARPEN_COST_MULT = 4
+PQ_SUFFIX_CHANCE = 0.70
+PQ_PREFIX_STATS: tuple[str, ...] = (
+    "strength",
+    "agility",
+    "intelligence",
+    "endurance",
+    "charm",
+    "luck",
+    "damage_flat",
+    "melee_damage_flat",
+    "ranged_damage_flat",
+    "magic_damage_flat",
+)
+PQ_SUFFIX_FAMILIES: tuple[str, ...] = (
+    "s_dmg_melee",
+    "s_dmg_ranged",
+    "s_dmg_magic",
+    "s_monster_undead_slayer",
+    "s_monster_beast_flat",
+    "s_monster_demon_flat",
+    "s_monster_dragon_flat",
+    "s_monster_undead_flat",
+)
 POTION_ID = "potion_hp"
 SALVE_ID = "salve_party"
 POTION_HP_FRAC = 0.40
@@ -91,15 +116,24 @@ class GearPiece:
     base_ilvl: int
     enchant_level: int = 0
     scaled_plus: int = 0
+    prefix_stat: str | None = None
+    prefix_tier: int = 0
+    suffix_family: str | None = None
+    suffix_tier: int = 0
 
     @property
     def ilvl(self) -> int:
         return int(self.base_ilvl) + int(self.enchant_level)
 
+    @property
+    def display_name(self) -> str:
+        return flavor_display_name(self)
+
     def to_public(self) -> dict[str, Any]:
         return {
             "slot": int(self.slot),
             "name": self.name,
+            "display_name": self.display_name,
             "slot_type": self.slot_type,
             "family_key": self.family_key,
             "template_id": self.template_id,
@@ -107,6 +141,10 @@ class GearPiece:
             "enchant_level": int(self.enchant_level),
             "ilvl": self.ilvl,
             "scaled_plus": int(self.scaled_plus),
+            "prefix_stat": self.prefix_stat,
+            "prefix_tier": int(self.prefix_tier or 0),
+            "suffix_family": self.suffix_family,
+            "suffix_tier": int(self.suffix_tier or 0),
         }
 
 
@@ -153,6 +191,11 @@ class ShopOffer:
     scaled_plus: int = 0
     enchant_to: int | None = None
     consumable_id: str | None = None
+    item_name: str = ""
+    prefix_stat: str | None = None
+    prefix_tier: int = 0
+    suffix_family: str | None = None
+    suffix_tier: int = 0
 
 
 @dataclass
@@ -178,6 +221,7 @@ class PqParty:
     last_event: dict[str, Any] | None = None
     recent_events: list[dict[str, Any]] = field(default_factory=list)
     nodes_seen: int = 0
+    walk_ts: datetime | None = None
 
 
 def _aware(dt: datetime) -> datetime:
@@ -202,13 +246,65 @@ def band_of_depth(depth: int) -> int:
 
 
 def gear_price(base_ilvl: int, band: int) -> int:
-    b = max(1, int(band))
+    item_tier = max(1, int(math.ceil(max(1, int(base_ilvl)) / 4.0)))
+    b = max(1, min(int(band), item_tier))
     return max(1, int(round(12 * int(base_ilvl) * (1.12 ** (b - 1)))))
 
 
-def sharpen_cost(ilvl: int, next_plus: int) -> int:
+def sharpen_cost(base_ilvl: int, next_plus: int) -> int:
     n = max(1, int(next_plus))
-    return max(1, int(round(8 * max(1, int(ilvl)) * (1.35 ** (n - 1)))))
+    return max(1, int(round(SHARPEN_COST_MULT * max(1, int(base_ilvl)) * n)))
+
+
+def clamp_affix_tier(band: int, delta: int) -> int:
+    return max(1, min(10, int(band) + int(delta)))
+
+
+def flavor_display_name(piece: GearPiece) -> str:
+    base = str(piece.name or "").strip() or "Предмет"
+    prefix = ""
+    if piece.prefix_stat:
+        raw = resolve_prefix_name_ru(str(piece.prefix_stat), max(1, int(piece.prefix_tier or 1)))
+        prefix = inflect_adj_ru(raw, guess_gender_ru(base))
+    suffix = ""
+    if piece.suffix_family:
+        suffix = resolve_suffix_name_ru(str(piece.suffix_family), max(1, int(piece.suffix_tier or 1)))
+    body = " ".join(part for part in (prefix, base, suffix) if part)
+    return f"{body} +{int(piece.enchant_level)}"
+
+
+def roll_flavor_affixes(
+    piece: GearPiece,
+    *,
+    seed: int,
+    cycle: int,
+    depth: int,
+    card_id: int,
+    band: int,
+) -> GearPiece:
+    rng = pq_rng(seed, cycle, depth, card_id, int(piece.slot), "affix")
+    piece.prefix_stat = rng.choice(PQ_PREFIX_STATS)
+    piece.prefix_tier = clamp_affix_tier(band, rng.choice((-1, 0, 1)))
+    if rng.random() < PQ_SUFFIX_CHANCE:
+        piece.suffix_family = rng.choice(PQ_SUFFIX_FAMILIES)
+        piece.suffix_tier = clamp_affix_tier(band, rng.choice((-1, 0, 1)))
+    else:
+        piece.suffix_family = None
+        piece.suffix_tier = 0
+    return piece
+
+
+def _base_name_from_template(offer: ShopOffer) -> str:
+    tid = str(offer.template_id or "")
+    if tid:
+        for row in load_gear_templates():
+            if row.id == tid:
+                return row.name
+    family = str(offer.family_key or "")
+    if family and int(offer.base_ilvl or 0) > 0:
+        tier = max(1, int(math.ceil(int(offer.base_ilvl) / 4.0)))
+        return piece_for_family_tier(family, tier, int(offer.slot or 1)).name
+    return "Предмет"
 
 
 def consumable_price(price_per_band: int, band: int) -> int:
@@ -227,8 +323,20 @@ def hp_max_of(power: int) -> int:
     return 40 + 8 * max(1, int(power))
 
 
+D_MAX_BASE = 8.0
+D_MAX_LIN = 0.40
+D_MAX_QUAD = 0.0038
+
+
 def d_max_of(party_power: int) -> int:
-    return max(1, int(math.floor(8.0 + 0.35 * max(0, int(party_power)))))
+    """Ceiling from raw party power. Trio targets: 100/7.5d, 500/32d, 3000/95d."""
+    p = max(0.0, float(party_power))
+    return max(1, int(math.floor(D_MAX_BASE + D_MAX_LIN * p + D_MAX_QUAD * p * p)))
+
+
+def merc_faucet_band(pb_depth: int) -> int:
+    """Daily merc gold/XP band follows the walked record, not theoretical d_max."""
+    return band_of_depth(max(0, int(pb_depth)))
 
 
 def combat_drain(depth: int, party_power: int, hp_ref: int = 48) -> int:
@@ -446,7 +554,7 @@ def buy_increases_power(merc: MercState, piece: GearPiece) -> bool:
 def offer_from_piece(piece: GearPiece, band: int) -> ShopOffer:
     return ShopOffer(
         kind="gear",
-        name=piece.name,
+        name=piece.display_name,
         price=gear_price(piece.base_ilvl, band),
         slot=piece.slot,
         ilvl=piece.ilvl,
@@ -455,11 +563,22 @@ def offer_from_piece(piece: GearPiece, band: int) -> ShopOffer:
         slot_type=piece.slot_type,
         base_ilvl=piece.base_ilvl,
         scaled_plus=piece.scaled_plus,
+        item_name=piece.name,
+        prefix_stat=piece.prefix_stat,
+        prefix_tier=int(piece.prefix_tier or 0),
+        suffix_family=piece.suffix_family,
+        suffix_tier=int(piece.suffix_tier or 0),
     )
 
 
-def shop_offers(merc: MercState, *, depth: int, seed: int, cycle: int) -> list[ShopOffer]:
-    band = band_of_depth(depth)
+def shop_offers(
+    merc: MercState, *, depth: int, seed: int, cycle: int, band: int | None = None
+) -> list[ShopOffer]:
+    node_band = band_of_depth(depth)
+    if band is None:
+        band = node_band
+    else:
+        band = max(node_band, max(1, int(band)))
     rng = pq_rng(seed, cycle, depth, merc.card_id)
     offers: list[ShopOffer] = []
     slots = [1, 2, 3, 4, 5, 6]
@@ -479,6 +598,9 @@ def shop_offers(merc: MercState, *, depth: int, seed: int, cycle: int) -> list[S
             piece = piece_for_family_tier(family, max(tier + 1, band + 1), slot)
         if piece.ilvl <= equipped_ilvl(merc, slot):
             continue
+        roll_flavor_affixes(
+            piece, seed=seed, cycle=cycle, depth=depth, card_id=merc.card_id, band=band
+        )
         if not buy_increases_power(merc, piece):
             continue
         offers.append(offer_from_piece(piece, band))
@@ -491,10 +613,28 @@ def shop_offers(merc: MercState, *, depth: int, seed: int, cycle: int) -> list[S
             cur = equipped_ilvl(merc, slot)
             need_ilvl = cur + 1
             tier = max(1, int(math.ceil(need_ilvl / 4.0)))
+            tier = min(tier, max(1, band + 1))
             piece = piece_for_family_tier(family, tier, slot)
+            roll_flavor_affixes(
+                piece, seed=seed, cycle=cycle, depth=depth, card_id=merc.card_id, band=band
+            )
             if piece.ilvl > cur and buy_increases_power(merc, piece):
                 offers.append(offer_from_piece(piece, band))
                 break
+    for slot in (1, 2, 3, 4, 5, 6):
+        if equipped_ilvl(merc, slot) > 0:
+            continue
+        if slot == 2 and is_two_hand(merc.gear.get(1)):
+            continue
+        families = list(SLOT_FAMILIES.get(slot) or ())
+        if not families:
+            continue
+        piece = piece_for_family_tier(families[0], 1, slot)
+        roll_flavor_affixes(
+            piece, seed=seed, cycle=cycle, depth=depth, card_id=merc.card_id, band=band
+        )
+        if buy_increases_power(merc, piece):
+            offers.append(offer_from_piece(piece, band))
     sharpen = best_sharpen_offer(merc, band)
     if sharpen is not None:
         offers.append(sharpen)
@@ -515,13 +655,25 @@ def best_sharpen_offer(merc: MercState, band: int) -> ShopOffer | None:
     for slot, piece in merc.gear.items():
         if int(slot) == 2 and is_two_hand(merc.gear.get(1)):
             continue
-        if int(piece.enchant_level) >= SAFE_ENCHANT_MAX:
-            continue
         nxt = int(piece.enchant_level) + 1
-        cost = sharpen_cost(piece.ilvl, nxt)
+        cost = sharpen_cost(piece.base_ilvl, nxt)
+        preview = GearPiece(
+            slot=piece.slot,
+            name=piece.name,
+            slot_type=piece.slot_type,
+            family_key=piece.family_key,
+            template_id=piece.template_id,
+            base_ilvl=piece.base_ilvl,
+            enchant_level=nxt,
+            scaled_plus=piece.scaled_plus,
+            prefix_stat=piece.prefix_stat,
+            prefix_tier=piece.prefix_tier,
+            suffix_family=piece.suffix_family,
+            suffix_tier=piece.suffix_tier,
+        )
         offer = ShopOffer(
             kind="sharpen",
-            name=f"{piece.name} +{nxt}",
+            name=preview.display_name,
             price=cost,
             slot=int(slot),
             ilvl=piece.ilvl + 1,
@@ -530,29 +682,93 @@ def best_sharpen_offer(merc: MercState, band: int) -> ShopOffer | None:
             slot_type=piece.slot_type,
             base_ilvl=piece.base_ilvl,
             enchant_to=nxt,
+            prefix_stat=piece.prefix_stat,
+            prefix_tier=int(piece.prefix_tier or 0),
+            suffix_family=piece.suffix_family,
+            suffix_tier=int(piece.suffix_tier or 0),
         )
         if best is None or offer.ilvl < best.ilvl or (offer.ilvl == best.ilvl and offer.price < best.price):
             best = offer
     return best
 
 
-def resolve_shop(merc: MercState, *, depth: int, seed: int, cycle: int) -> list[dict[str, Any]]:
+def _apply_sharpen(
+    merc: MercState,
+    band: int,
+    bought: list[dict[str, Any]],
+    *,
+    reserve: int = 0,
+) -> bool:
+    offer = best_sharpen_offer(merc, band)
+    if not offer or not offer.slot or int(offer.price) > merc.gold_wallet - max(0, int(reserve)):
+        return False
+    piece = merc.gear.get(int(offer.slot))
+    if piece is None:
+        return False
+    before = compute_power(merc)
+    piece.enchant_level = int(piece.enchant_level) + 1
+    refresh_derived(merc)
+    if compute_power(merc) <= before:
+        piece.enchant_level -= 1
+        refresh_derived(merc)
+        return False
+    merc.gold_wallet -= int(offer.price)
+    bought.append(
+        {
+            "kind": "sharpen",
+            "name": piece.display_name,
+            "slot": piece.slot,
+            "ilvl": piece.ilvl,
+            "price": offer.price,
+            "power": compute_power(merc),
+            "power_delta": compute_power(merc) - before,
+            "who": merc.name,
+        }
+    )
+    return True
+
+
+def _worth_replacing(merc: MercState, offer: ShopOffer) -> bool:
+    slot = int(offer.slot or 0)
+    if slot <= 0 or int(offer.ilvl) <= equipped_ilvl(merc, slot):
+        return False
+    cur = merc.gear.get(slot)
+    if cur is None:
+        return True
+    if int(cur.enchant_level) >= 12 and int(offer.base_ilvl) <= cur.ilvl:
+        return False
+    return True
+
+
+def resolve_shop(
+    merc: MercState, *, depth: int, seed: int, cycle: int, band: int | None = None
+) -> list[dict[str, Any]]:
     apply_levelups(merc)
-    offers = shop_offers(merc, depth=depth, seed=seed, cycle=cycle)
+    offers = shop_offers(merc, depth=depth, seed=seed, cycle=cycle, band=band)
     bought: list[dict[str, Any]] = []
-    gear_offers = [o for o in offers if o.kind == "gear" and o.price <= merc.gold_wallet and o.ilvl > equipped_ilvl(merc, int(o.slot or 0))]
-    gear_offers = [o for o in gear_offers if o.slot]
+    gear_offers = [
+        o
+        for o in offers
+        if o.kind == "gear"
+        and o.slot
+        and o.price <= merc.gold_wallet
+        and _worth_replacing(merc, o)
+    ]
     if gear_offers:
         pick = max(gear_offers, key=lambda o: (o.ilvl, -o.price))
         piece = GearPiece(
             slot=int(pick.slot or 1),
-            name=pick.name,
+            name=pick.item_name or _base_name_from_template(pick),
             slot_type=pick.slot_type,
             family_key=pick.family_key,
             template_id=pick.template_id,
             base_ilvl=pick.base_ilvl,
             enchant_level=0,
             scaled_plus=pick.scaled_plus,
+            prefix_stat=pick.prefix_stat,
+            prefix_tier=int(pick.prefix_tier or 0),
+            suffix_family=pick.suffix_family,
+            suffix_tier=int(pick.suffix_tier or 0),
         )
         before = compute_power(merc)
         if buy_increases_power(merc, piece) and merc.gold_wallet >= pick.price:
@@ -561,7 +777,7 @@ def resolve_shop(merc: MercState, *, depth: int, seed: int, cycle: int) -> list[
             bought.append(
                 {
                     "kind": "gear",
-                    "name": piece.name,
+                    "name": piece.display_name,
                     "slot": piece.slot,
                     "ilvl": piece.ilvl,
                     "price": pick.price,
@@ -570,31 +786,21 @@ def resolve_shop(merc: MercState, *, depth: int, seed: int, cycle: int) -> list[
                     "who": merc.name,
                 }
             )
-    if not bought:
-        sharpen = next((o for o in offers if o.kind == "sharpen"), None)
-        if sharpen and sharpen.slot and sharpen.price <= merc.gold_wallet:
-            piece = merc.gear.get(int(sharpen.slot))
-            if piece and int(piece.enchant_level) < SAFE_ENCHANT_MAX:
-                before = compute_power(merc)
-                piece.enchant_level = int(piece.enchant_level) + 1
-                refresh_derived(merc)
-                if compute_power(merc) > before:
-                    merc.gold_wallet -= sharpen.price
-                    bought.append(
-                        {
-                            "kind": "sharpen",
-                            "name": f"{piece.name} +{piece.enchant_level}",
-                            "slot": piece.slot,
-                            "ilvl": piece.ilvl,
-                            "price": sharpen.price,
-                            "power": compute_power(merc),
-                            "power_delta": compute_power(merc) - before,
-                            "who": merc.name,
-                        }
-                    )
-                else:
-                    piece.enchant_level -= 1
-                    refresh_derived(merc)
+    shop_band = max(band_of_depth(depth), max(1, int(band or band_of_depth(depth))))
+    bought_gear = any(b.get("kind") == "gear" for b in bought)
+    if not bought_gear:
+        _apply_sharpen(merc, shop_band, bought)
+    upgrade_reserve = _shop_save_reserve(
+        merc, shop_offers(merc, depth=depth, seed=seed, cycle=cycle, band=shop_band), bought
+    )
+    day_cap = merc_gold_cap_day(shop_band)
+    if upgrade_reserve > merc.gold_wallet + day_cap:
+        upgrade_reserve = 0
+    extra = 0
+    while extra < 16 and _apply_sharpen(merc, shop_band, bought, reserve=upgrade_reserve):
+        extra += 1
+    offers = shop_offers(merc, depth=depth, seed=seed, cycle=cycle, band=shop_band)
+    reserve = _shop_save_reserve(merc, offers, bought)
     for offer in offers:
         if offer.kind != "consumable" or not offer.consumable_id:
             continue
@@ -602,7 +808,7 @@ def resolve_shop(merc: MercState, *, depth: int, seed: int, cycle: int) -> list[
         if spec is None:
             continue
         have = int(merc.bag.get(spec.id, 0))
-        while have < spec.stack_cap and merc.gold_wallet >= offer.price:
+        while have < spec.stack_cap and merc.gold_wallet - offer.price >= reserve:
             merc.gold_wallet -= offer.price
             have += 1
             merc.bag[spec.id] = have
@@ -618,6 +824,20 @@ def resolve_shop(merc: MercState, *, depth: int, seed: int, cycle: int) -> list[
             )
     merc.last_shop_buy = list(bought)
     return bought
+
+
+def _shop_save_reserve(merc: MercState, offers: list[ShopOffer], bought: list[dict[str, Any]]) -> int:
+    """Keep gold for the next gear/sharpen so potions cannot empty the wallet."""
+    pending: list[int] = []
+    bought_gear_slots = {int(b["slot"]) for b in bought if b.get("kind") == "gear" and b.get("slot")}
+    bought_sharpen = any(b.get("kind") == "sharpen" for b in bought)
+    for offer in offers:
+        if offer.kind == "gear" and offer.slot and int(offer.slot) not in bought_gear_slots:
+            if offer.ilvl > equipped_ilvl(merc, int(offer.slot)):
+                pending.append(int(offer.price))
+        if offer.kind == "sharpen" and not bought_sharpen and offer.price > 0:
+            pending.append(int(offer.price))
+    return min(pending) if pending else 0
 
 
 def _heal(merc: MercState, frac: float) -> int:
@@ -688,6 +908,7 @@ def do_wipe(party: PqParty, *, now: datetime, depth: int) -> None:
     party.run_origin = _aware(now)
     party.last_cycle = 0
     party.last_d = 0
+    party.walk_ts = _aware(now)
     party.wipe_log.append({"kind": "wipe", "d": int(depth), "n": party.wipe_count})
     for merc in party.mercs:
         refresh_derived(merc)
@@ -739,7 +960,7 @@ def _ceil(party: PqParty) -> float:
     if int(getattr(party, "layer", 2) or 2) >= 2:
         from waifu_bot.game.delve_pq_layer import d_max_eff
 
-        return float(max(1, d_max_eff(party.mercs, depth=int(party.last_d or 0))))
+        return float(max(1, d_max_eff(party.mercs)))
     return float(max(1, d_max_of(party_power(party.mercs))))
 
 
@@ -785,57 +1006,87 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
 
             party.t_eff = t_eff_of(party.mercs, t_node=int(party.t_node or 30), depth=int(party.last_d or 0), d_max=int(_ceil(party)))
         return party
-    band = max(band_of_depth(pb_depth), band_of_depth(d_max_of(party_power(party.mercs))))
+    band = merc_faucet_band(pb_depth)
     grant_merc_faucet(party, now=now, band=band)
     for merc in party.mercs:
         apply_levelups(merc)
         refresh_derived(merc)
+    if party.walk_ts is None:
+        party.walk_ts = party.last_ts
+    party.walk_ts = _aware(party.walk_ts)
     wipes = 0
     steps = 0
-    while party.last_ts < now and wipes < WIPE_CAP_PER_SYNC and steps < 8000:
+    while wipes < WIPE_CAP_PER_SYNC and steps < 8000:
         steps += 1
         ceil = _ceil(party)
         floor_ceil = max(1, int(math.floor(ceil)))
         t_eff = None
         if layer >= 2:
-            from waifu_bot.game.delve_pq_layer import period_parts_layer, t_eff_of
+            from waifu_bot.game.delve_pq_layer import (
+                apply_rest_layer,
+                city_return,
+                period_parts_layer,
+                remember_event,
+                resolve_layer_node,
+                t_eff_of,
+            )
 
             t_eff = t_eff_of(party.mercs, t_node=int(party.t_node or 30), depth=int(party.last_d or 0), d_max=floor_ceil)
             party.t_eff = t_eff
-            t_down, t_up, t_rest = period_parts_layer(floor_ceil, t_eff)
-        else:
-            t_down, t_up, t_rest = period_parts(ceil)
+            _t_down, t_up, t_rest = period_parts_layer(floor_ceil, t_eff)
+            tick = max(1, int(t_eff))
+            if party.last_d >= floor_ceil:
+                ready = party.walk_ts + timedelta(seconds=float(t_up + t_rest))
+                if ready > now:
+                    break
+                healed = apply_rest_layer(party)
+                city_return(party)
+                auto_use_potions(party.mercs)
+                who = party.mercs[0].name if party.mercs else "Она"
+                remember_event(
+                    party,
+                    {
+                        "id": "surface_rest",
+                        "kind": "surface",
+                        "kind_ru": "Лагерь",
+                        "d": 0,
+                        "phrase": f"[Лагерь] Глубина 0 · {who} сидит у стола (+{healed} HP)",
+                        "who": who,
+                        "hp_delta": -healed,
+                        "from_llm": False,
+                    },
+                )
+                party.last_cycle = party.last_cycle + 1
+                party.last_d = 0
+                party.walk_ts = ready
+                continue
+            nxt_t = party.walk_ts + timedelta(seconds=tick)
+            if nxt_t > now:
+                break
+            party.walk_ts = nxt_t
+            nxt = party.last_d + 1
+            party.last_d = nxt
+            node = spine_type(nxt, ceil)
+            event = resolve_layer_node(party, nxt, node, band=band)
+            remember_event(party, event)
+            if all_down(party.mercs):
+                do_wipe(party, now=party.walk_ts, depth=nxt)
+                party.walk_ts = party.walk_ts + timedelta(seconds=t_rest)
+                wipes += 1
+            continue
+        t_down, t_up, t_rest = period_parts(ceil)
         period = t_down + t_up + t_rest
         elapsed = max(0.0, (now - party.run_origin).total_seconds())
         cur_cycle = int(elapsed // period) if period > 0 else 0
+        if party.last_ts >= now:
+            break
         if party.last_d >= floor_ceil:
             t_rest_at = rest_time(party.run_origin, party.last_cycle, ceil, t_eff=t_eff)
             if t_rest_at > now:
                 break
             if t_rest_at >= party.last_ts:
-                if layer >= 2:
-                    from waifu_bot.game.delve_pq_layer import apply_rest_layer, city_return, remember_event
-
-                    healed = apply_rest_layer(party)
-                    city_return(party)
-                    auto_use_potions(party.mercs)
-                    who = party.mercs[0].name if party.mercs else "Она"
-                    remember_event(
-                        party,
-                        {
-                            "id": "surface_rest",
-                            "kind": "surface",
-                            "kind_ru": "Лагерь",
-                            "d": 0,
-                            "phrase": f"[Лагерь] Глубина 0 · {who} сидит у стола (+{healed} HP)",
-                            "who": who,
-                            "hp_delta": -healed,
-                            "from_llm": False,
-                        },
-                    )
-                else:
-                    apply_rest(party.mercs)
-                    auto_use_potions(party.mercs)
+                apply_rest(party.mercs)
+                auto_use_potions(party.mercs)
             party.last_cycle = party.last_cycle + 1
             party.last_d = 0
             party.last_ts = max(party.last_ts, t_rest_at + timedelta(seconds=t_rest))
@@ -853,16 +1104,13 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
         party.last_ts = max(party.last_ts, t_at)
         party.last_d = nxt
         node = spine_type(nxt, ceil)
-        if layer >= 2:
-            from waifu_bot.game.delve_pq_layer import remember_event, resolve_layer_node
-
-            event = resolve_layer_node(party, nxt, node, band=band)
-            remember_event(party, event)
-        elif node == NODE_SHOP:
+        if node == NODE_SHOP:
             for merc in party.mercs:
                 if not merc.living():
                     continue
-                buys = resolve_shop(merc, depth=nxt, seed=party.seed, cycle=party.last_cycle)
+                buys = resolve_shop(
+                    merc, depth=nxt, seed=party.seed, cycle=party.last_cycle, band=band
+                )
                 party.shop_log.extend(buys)
         elif node == NODE_BOSS:
             auto_use_potions(party.mercs, before_boss=True)
@@ -876,12 +1124,7 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
             auto_use_potions(party.mercs)
         if all_down(party.mercs):
             do_wipe(party, now=party.last_ts, depth=nxt)
-            if layer >= 2:
-                from waifu_bot.game.delve_pq_layer import period_parts_layer
-
-                _t_down, _t_up, t_rest_w = period_parts_layer(int(_ceil(party)), int(party.t_eff or 30))
-            else:
-                _t_down, _t_up, t_rest_w = period_parts(_ceil(party))
+            _t_down, _t_up, t_rest_w = period_parts(_ceil(party))
             party.last_ts = party.last_ts + timedelta(seconds=t_rest_w)
             wipes += 1
             continue
