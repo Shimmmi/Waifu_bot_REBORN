@@ -202,7 +202,7 @@ COPY: dict[str, str] = {
     "pq_power": "Сила",
     "pq_level": "Уровень",
     "pq_hp": "Здоровье",
-    "pq_wallet": "Кошель колонны",
+    "pq_wallet": "золото",
     "pq_party": "Сила отряда",
     "pq_dmax": "Потолок",
 }

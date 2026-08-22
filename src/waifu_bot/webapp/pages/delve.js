@@ -27,6 +27,9 @@
   let state = null;
   let tickTimer = null;
   let lineTimer = null;
+  let syncTimer = null;
+  let lastPolledD = null;
+  let syncInFlight = false;
   let forkHideTimer = null;
   let forkUi = { depth: null, hideAt: 0, dismissed: false };
   let wizard = { step: 0, size: 1, companions: [] };
@@ -126,6 +129,10 @@
     wizard.companions = wizard.companions.slice(0, size).map((c, i) => ({ ...c, slot: i + 1 }));
   }
 
+  function layerOn() {
+    return !!(state && state.pq_enabled && Number(state.pq_layer || 2) >= 2);
+  }
+
   function clientFrame(nowMs) {
     if (!state || !state.started || !state.t_origin) return state && state.frame;
     const k = (state.constants) || {};
@@ -152,7 +159,8 @@
     if (state.pq_enabled && Number.isFinite(dMax) && dMax > 0) {
       ceil = dMax;
     }
-    const tDown = t0 * Math.log(1 + ceil);
+    const tEff = Math.max(15, Number(state.T_eff) || 30);
+    const tDown = layerOn() ? tEff * Math.max(1, ceil) : t0 * Math.log(1 + ceil);
     const tRest = 50 + 10 * Math.log(1 + ceil);
     const period = tDown + tUp + tRest;
     const phase = period > 0 ? elapsed % period : 0;
@@ -160,10 +168,17 @@
     let status = copy("camp", "Лагерь · сами пойдут");
     let st = "SURFACE_REST";
     if (phase < tDown) {
-      const u = tDown > 0 ? phase / tDown : 1;
-      depth = 1 + (ceil - 1) * Math.pow(u, depthExp);
-      st = "DESCENDING";
-      status = u < 0.35 ? "Спуск · несут" : u < 0.75 ? "Спуск · вровень" : "Спуск · тяжело";
+      if (layerOn()) {
+        depth = Math.min(ceil, Math.floor(phase / tEff));
+        const u = ceil > 0 ? depth / ceil : 0;
+        st = "DESCENDING";
+        status = u < 0.35 ? "Спуск · несут" : u < 0.75 ? "Спуск · вровень" : "Спуск · тяжело";
+      } else {
+        const u = tDown > 0 ? phase / tDown : 1;
+        depth = 1 + (ceil - 1) * Math.pow(u, depthExp);
+        st = "DESCENDING";
+        status = u < 0.35 ? "Спуск · несут" : u < 0.75 ? "Спуск · вровень" : "Спуск · тяжело";
+      }
     } else if (phase < tDown + tUp) {
       const v = (phase - tDown) / tUp;
       depth = ceil * (1 - v);
@@ -207,6 +222,7 @@
     if (isLandmark(n)) return "LANDMARK";
     if (n % 8 === 6) return "REST";
     if (n % 12 === 4) return "SHOP";
+    if (layerOn()) return "COMBAT";
     if (ceil > 0 && n < 0.35 * ceil) return "TRAVERSE";
     return "COMBAT";
   }
@@ -250,7 +266,9 @@
     return !forkUi.dismissed;
   }
 
-  function nodeGlyph(type) {
+  function nodeGlyph(type, kind) {
+    const kinds = { empty: "·", monster: "✕", event: "!", npc: "◊", find: "◇" };
+    if (kind && kinds[kind]) return kinds[kind];
     const map = {
       SURFACE: "△",
       BOSS: "●",
@@ -345,9 +363,11 @@
       .forEach((n) => {
         lookup[Number(n.d)] = n.type;
       });
+    const ev = state && state.event;
     return shaftBandDepths(here).map((nd) => ({
       d: nd,
       type: lookup[nd] || spineType(nd, ceil),
+      kind: ev && Number(ev.d) === nd ? ev.kind : "",
     }));
   }
 
@@ -373,6 +393,7 @@
 
   function enforcePhraseNames(text) {
     const raw = String(text || "");
+    if (raw.charAt(0) === "[") return raw;
     const names = ((state && state.companions) || [])
       .map((c) => String(c.name || "").trim())
       .filter(Boolean);
@@ -409,7 +430,7 @@
           : "";
         return `<div class="delve-node${here ? " is-here" : ""}${seen ? " is-seen" : ""}" data-d="${n.d}" title="${esc(String(n.d))}">
           ${locHtml}
-          <span class="delve-node-g">${nodeGlyph(n.type)}</span>
+          <span class="delve-node-g">${nodeGlyph(n.type, n.kind)}</span>
           ${token}
         </div>`;
       })
@@ -437,8 +458,9 @@
     }
     const kickerNode = showFork ? "BRANCH" : frame.node === "BRANCH" ? "TRAVERSE" : frame.node;
     const kicker = kickerFor(kickerNode, frame.palette_id) || frame.kicker || pal.label || "";
+    const catalogPhrase = state && state.event && state.event.phrase ? state.event.phrase : "";
     let shopLine = "";
-    if (frame.node === "SHOP" && state && Array.isArray(state.shop_log) && state.shop_log.length) {
+    if (!catalogPhrase && frame.node === "SHOP" && state && Array.isArray(state.shop_log) && state.shop_log.length) {
       const last = state.shop_log.slice(-3).map((b) => `${b.who || ""} купила ${b.name || ""}`.trim());
       if (last.length) shopLine = last.join(" · ");
     }
@@ -448,7 +470,7 @@
         : "";
     return `<div class="delve-card">
       <div class="delve-card-kicker">${esc(kicker)}</div>
-      <div class="delve-card-phrase">${phraseHtml(shopLine || frame.phrase || "")}</div>
+      <div class="delve-card-phrase">${phraseHtml(catalogPhrase || shopLine || frame.phrase || "")}</div>
       ${boss}
       ${branch}
     </div>`;
@@ -478,9 +500,16 @@
           .map((g) => `${g.name} ${g.ilvl}${g.enchant_level ? "+" + g.enchant_level : ""}`)
           .join(" · ");
         const bagLine = bag.map((b) => `${b.name} ×${b.qty}`).join(" · ");
+        const trauma = Array.isArray(c.trauma) ? c.trauma : [];
+        const traumaLine = trauma
+          .slice(0, 2)
+          .map((t) => `${t.name_ru || ""} · ${t.tail || ""}`.trim())
+          .filter(Boolean)
+          .join(" · ");
         const pq = state.pq_enabled
-          ? `<div class="muted tiny">${esc(copy("pq_level", "Уровень"))} ${esc(fmtNum(c.level))} · ${esc(copy("pq_power", "Сила"))} ${esc(fmtNum(c.power))} · ${esc(copy("pq_wallet", "Кошель колонны"))} ${esc(fmtNum(c.gold_wallet))}</div>
+          ? `<div class="muted tiny">${esc(copy("pq_level", "Уровень"))} ${esc(fmtNum(c.level))} · ${esc(copy("pq_power", "Сила"))} ${esc(fmtNum(c.power))} · ${esc(copy("pq_wallet", "золото"))}: ${esc(fmtNum(c.gold_wallet))}</div>
              ${hpBar(c.hp_current, c.hp_max)}
+             ${traumaLine ? `<div class="muted tiny">${esc(traumaLine)}</div>` : ""}
              <div class="muted tiny">${esc(gearLine || "без экипа")}</div>
              <div class="muted tiny">${esc(bagLine || "без расходников")}</div>`
           : `<div class="muted tiny">${esc(fmtNum(c.gold_earned))} зол. · ${esc(fmtNum(c.xp_earned))} опыта · ${esc(daysLabel(c.days))}</div>`;
@@ -506,7 +535,11 @@
       <div class="delve-sheet-stats">
         <div>${esc(copy("gold_today", "Сегодня золота"))}: ${esc(fmtNum(state.gold_today))} / ${esc(fmtNum(state.gold_cap_day))} (${esc(String(state.floor_gold_pct || 0))}%)</div>
         <div>${esc(copy("xp_today", "Сегодня опыта"))}: ${esc(fmtNum(state.xp_today))} / ${esc(fmtNum(state.xp_cap_day))} (${esc(String(state.floor_xp_pct || 0))}%)</div>
-        <div>${esc(copy("gold_party", "Золото отряда"))}: ${esc(fmtNum(state.gold_granted_total))}</div>
+        ${
+          state.pq_enabled
+            ? ""
+            : `<div>${esc(copy("gold_party", "Золото отряда"))}: ${esc(fmtNum(state.gold_granted_total))}</div>`
+        }
         <div>${esc(copy("xp_party", "Опыт отряда"))}: ${esc(fmtNum(state.xp_granted_total))}</div>
         ${
           state.pq_enabled
@@ -785,6 +818,32 @@
     document.addEventListener("keydown", statusEscHandler);
   }
 
+  function applySync(payload) {
+    if (!payload || payload.error || payload.detail) return;
+    state = payload;
+    const frame = clientFrame(Date.now()) || state.frame || {};
+    const hudEl = document.getElementById("delve-hud-line");
+    if (hudEl) hudEl.textContent = hudLine(frame);
+    const shaft = document.getElementById("delve-shaft-host");
+    if (shaft) shaft.innerHTML = renderShaft(frame);
+    paintFrameCard();
+    const body = document.querySelector("#delve-status-modal .delve-status-modal-body");
+    if (body) body.innerHTML = renderSheet();
+  }
+
+  async function softSync() {
+    if (syncInFlight || !state || !state.started || !tabOpen()) return;
+    syncInFlight = true;
+    try {
+      const payload = await apiFetch("/delve/sync?tab=true");
+      applySync(payload);
+    } catch (e) {
+      /* keep last snapshot */
+    } finally {
+      syncInFlight = false;
+    }
+  }
+
   function startLocalTick() {
     if (tickTimer) clearInterval(tickTimer);
     tickTimer = setInterval(() => {
@@ -795,7 +854,20 @@
       const shaft = document.getElementById("delve-shaft-host");
       if (shaft && frame) shaft.innerHTML = renderShaft(frame);
       paintFrameCard();
+      const d = Number((frame && frame.d) || 0);
+      if (layerOn() && lastPolledD !== d) {
+        lastPolledD = d;
+        softSync();
+      }
     }, 1000);
+  }
+
+  function startSyncPoll() {
+    if (syncTimer) clearInterval(syncTimer);
+    if (!layerOn()) return;
+    const ms = Math.max(15000, (Number(state.T_eff) || 30) * 1000);
+    softSync();
+    syncTimer = setInterval(softSync, ms);
   }
 
   async function fetchLine() {
@@ -826,6 +898,10 @@
     if (lineTimer) {
       clearInterval(lineTimer);
       lineTimer = null;
+    }
+    if (syncTimer) {
+      clearInterval(syncTimer);
+      syncTimer = null;
     }
     if (forkHideTimer) {
       clearTimeout(forkHideTimer);
@@ -911,6 +987,7 @@
     bindSleeves(root);
     startLocalTick();
     startLinePoll();
+    startSyncPoll();
   }
 
   function render() {

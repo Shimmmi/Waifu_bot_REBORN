@@ -446,11 +446,25 @@ def build_frame(
     now: datetime,
     ov_level: int,
     d_max: int | None = None,
+    pq_layer: int = 1,
+    t_eff: int = 30,
+    pq_event: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     run_origin = getattr(state, "run_origin", None)
     origin = run_origin if isinstance(run_origin, datetime) else None
     origin = origin or state.t_origin or now
-    tooth = sawtooth(t_origin=origin, now=now, ov_level=ov_level, d_max=d_max)
+    if int(pq_layer) >= 2 and d_max is not None:
+        from waifu_bot.game.delve_pq_layer import sawtooth_layer
+
+        tooth = sawtooth_layer(
+            run_origin=origin,
+            now=now,
+            d_max=int(d_max),
+            t_eff=int(t_eff or 30),
+            pb_depth=int(state.pb_depth or 0),
+        )
+    else:
+        tooth = sawtooth(t_origin=origin, now=now, ov_level=ov_level, d_max=d_max)
     d = int(tooth["d"])
     ceil = float(tooth["d_ceiling"])
     node = spine_type(d, ceil)
@@ -461,7 +475,10 @@ def build_frame(
     sleeves = [left, right]
     instinct_id = sleeves[instinct]
     face = companions[0].name if companions else "Она"
-    phrase = phrase_for(node=node, palette_id=palette_id, name=face, spine_seed=int(state.spine_seed or 0), d=d)
+    if pq_event and pq_event.get("phrase"):
+        phrase = str(pq_event.get("phrase") or "")
+    else:
+        phrase = phrase_for(node=node, palette_id=palette_id, name=face, spine_seed=int(state.spine_seed or 0), d=d)
     on_branch = node == "BRANCH" and tooth["state"] == "DESCENDING"
     depths = viewport_depths(d)
     nodes = [{"d": n, "type": spine_type(n, ceil)} for n in depths]
@@ -492,6 +509,8 @@ def build_frame(
         "shaft_biome": art["id"],
         "shaft_label": art["label"],
         "d_max": int(d_max) if d_max is not None else None,
+        "event": pq_event,
+        "T_eff": int(t_eff or 30) if int(pq_layer) >= 2 else None,
     }
 
 
@@ -607,16 +626,24 @@ async def grant_and_sync(
         except Exception:
             logger.exception("delve pq catch-up failed player=%s", player_id)
         pq_d_max = None
+        pq_layer = 1
+        t_eff = 30
         if pq_party is not None:
             from waifu_bot.game.delve_pq import d_max_of, party_power
+            from waifu_bot.game.delve_pq_layer import d_max_eff
 
-            pq_d_max = d_max_of(party_power(pq_party.mercs))
+            pq_layer = int(getattr(pq_party, "layer", 2) or 2)
+            t_eff = int(getattr(pq_party, "t_eff", 30) or 30)
+            pq_d_max = d_max_eff(pq_party.mercs, depth=int(pq_party.last_d or 0)) if pq_layer >= 2 else d_max_of(party_power(pq_party.mercs))
         frame = build_frame(
             state,
             companions,
             now=now,
             ov_level=int(mw.level or 1) if mw else 1,
             d_max=pq_d_max,
+            pq_layer=pq_layer,
+            t_eff=t_eff,
+            pq_event=getattr(pq_party, "last_event", None) if pq_party is not None else None,
         )
         _apply_theater(state, frame, companions)
         if not skip_grant:
@@ -668,16 +695,31 @@ async def build_sync_payload(
     cap_g, cap_x = await _caps(session, ov)
     pq_d_max = None
     pq_fields: dict[str, Any] = {"pq_enabled": False}
+    pq_layer = 1
+    t_eff = 30
     if pq_party is not None:
         from waifu_bot.game.delve_pq import d_max_of, party_power
+        from waifu_bot.game.delve_pq_layer import d_max_eff
         from waifu_bot.services.delve_pq import pq_payload_fields
 
-        pq_d_max = d_max_of(party_power(pq_party.mercs))
+        pq_layer = int(getattr(pq_party, "layer", 2) or 2)
+        t_eff = int(getattr(pq_party, "t_eff", 30) or 30)
+        pq_d_max = d_max_eff(pq_party.mercs, depth=int(pq_party.last_d or 0)) if pq_layer >= 2 else d_max_of(party_power(pq_party.mercs))
         pq_fields = pq_payload_fields(pq_party)
     frame = None
     if started and state is not None:
-        frame = build_frame(state, companions, now=now, ov_level=ov, d_max=pq_d_max)
-        overlay_flavor_phrase(state, frame, companions)
+        frame = build_frame(
+            state,
+            companions,
+            now=now,
+            ov_level=ov,
+            d_max=pq_d_max,
+            pq_layer=pq_layer,
+            t_eff=t_eff,
+            pq_event=getattr(pq_party, "last_event", None) if pq_party is not None else None,
+        )
+        if not (pq_layer >= 2 and frame.get("event") and frame.get("event", {}).get("phrase")):
+            overlay_flavor_phrase(state, frame, companions)
         frame["record"] = int(state.pb_depth or 0)
         frame["title"] = title_for_record(int(state.pb_depth or 0))
     reform_ok = False

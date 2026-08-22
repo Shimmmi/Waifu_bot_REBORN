@@ -301,15 +301,34 @@ def _append_slot(rows: list | None, item: dict[str, Any], cap: int = 3) -> list[
     return cur
 
 
-def apply_outcome(card: m.CompanionCard | None, tpl: dict[str, Any], cards: list[m.CompanionCard]) -> dict[str, Any]:
+def apply_outcome(
+    card: m.CompanionCard | None,
+    tpl: dict[str, Any],
+    cards: list[m.CompanionCard],
+    *,
+    node: str | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {"gold_delta": 0, "xp_delta": 0}
     if card is None:
         return payload
     outcome = str(tpl.get("outcome") or "")
     tags = list(card.adventure_tags or [])
+    if outcome in {"leave_column", "death"} and node not in (None, NODE_SURFACE):
+        payload["deferred"] = outcome
+        return payload
     if outcome == "injury":
-        part = str(tpl.get("part") or "рука")
-        card.flesh = _append_slot(card.flesh, {"part": part, "severity": "рана", "permanent": False})
+        from waifu_bot.game.delve_pq_layer import TEMPLATE_STATUS, apply_status
+
+        status_id = str(tpl.get("status_id") or TEMPLATE_STATUS.get(str(tpl.get("id") or ""), "") or "")
+        if status_id:
+            mercish = type("M", (), {"flesh": list(card.flesh or []), "psyche": list(card.psyche or [])})()
+            row = apply_status(mercish, status_id)
+            card.flesh = list(getattr(mercish, "flesh", None) or [])
+            card.psyche = list(getattr(mercish, "psyche", None) or [])
+            part = str((row or {}).get("part") or tpl.get("part") or "рука")
+        else:
+            part = str(tpl.get("part") or "рука")
+            card.flesh = _append_slot(card.flesh, {"part": part, "severity": "рана", "permanent": False})
         card.scar_frame = True
         payload["injury"] = part
         if part in SILHOUETTE_PARTS:
@@ -317,8 +336,17 @@ def apply_outcome(card: m.CompanionCard | None, tpl: dict[str, Any], cards: list
             look["silhouette_dirty"] = True
             card.look_card = look
     elif outcome == "trauma":
+        from waifu_bot.game.delve_pq_layer import TEMPLATE_STATUS, apply_status
+
+        status_id = str(tpl.get("status_id") or TEMPLATE_STATUS.get(str(tpl.get("id") or ""), "") or "")
         facet = str(tpl.get("trauma") or "страх")
-        card.psyche = _append_slot(card.psyche, {"facet": facet, "severity": "рана", "permanent": False})
+        if status_id:
+            mercish = type("M", (), {"flesh": list(card.flesh or []), "psyche": list(card.psyche or [])})()
+            apply_status(mercish, status_id)
+            card.flesh = list(getattr(mercish, "flesh", None) or [])
+            card.psyche = list(getattr(mercish, "psyche", None) or [])
+        else:
+            card.psyche = _append_slot(card.psyche, {"facet": facet, "severity": "рана", "permanent": False})
         if facet not in tags:
             tags.append(facet)
         payload["trauma"] = facet
@@ -410,7 +438,7 @@ async def resolve_chronicle(
         rng = _rng(int(state.spine_seed or 0), beat_index)
         art = shaft_art_for_depth(int(tooth["d"]))
         tpl, actor = pick_template(rng=rng, node=node, cards=cards, biome_id=str(art.get("id") or ""))
-        payload = apply_outcome(actor, tpl, cards)
+        payload = apply_outcome(actor, tpl, cards, node=node)
         if payload.get("death") and actor is not None:
             living_n = sum(1 for c in cards if c.status == "living" and c.slot)
             if living_n <= 1:

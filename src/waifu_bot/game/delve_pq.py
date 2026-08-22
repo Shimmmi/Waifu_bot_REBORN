@@ -127,6 +127,13 @@ class MercState:
     gear: dict[int, GearPiece] = field(default_factory=dict)
     bag: dict[str, int] = field(default_factory=dict)
     last_shop_buy: list[dict[str, Any]] = field(default_factory=list)
+    class_id: int = 0
+    stance: str = "guide"
+    temper: str = "stay"
+    traits: list[str] = field(default_factory=list)
+    flesh: list[dict[str, Any]] = field(default_factory=list)
+    psyche: list[dict[str, Any]] = field(default_factory=list)
+    nodes_seen: int = 0
 
     def living(self) -> bool:
         return int(self.hp_current) > 0
@@ -164,6 +171,13 @@ class PqParty:
     mercs: list[MercState] = field(default_factory=list)
     shop_log: list[dict[str, Any]] = field(default_factory=list)
     wipe_log: list[dict[str, Any]] = field(default_factory=list)
+    layer: int = 2
+    t_node: int = 30
+    t_eff: int = 30
+    chips: list[dict[str, Any]] = field(default_factory=list)
+    last_event: dict[str, Any] | None = None
+    recent_events: list[dict[str, Any]] = field(default_factory=list)
+    nodes_seen: int = 0
 
 
 def _aware(dt: datetime) -> datetime:
@@ -217,16 +231,16 @@ def d_max_of(party_power: int) -> int:
     return max(1, int(math.floor(8.0 + 0.35 * max(0, int(party_power)))))
 
 
-def combat_drain(depth: int, party_power: int) -> int:
-    threat = max(0, int(depth))
-    gap = max(0, threat - int(party_power))
-    return max(1, int(round(4 + 0.45 * gap)))
+def combat_drain(depth: int, party_power: int, hp_ref: int = 48) -> int:
+    from waifu_bot.game.delve_pq_layer import combat_drain_hole
+
+    return combat_drain_hole(depth, float(party_power), hp_ref)
 
 
-def boss_drain(depth: int, party_power: int) -> int:
-    threat = max(0, int(depth))
-    gap = max(0, threat - int(party_power))
-    return max(2, int(round(10 + 0.7 * gap)))
+def boss_drain(depth: int, party_power: int, hp_ref: int = 48) -> int:
+    from waifu_bot.game.delve_pq_layer import boss_drain_hole
+
+    return boss_drain_hole(depth, float(party_power), hp_ref)
 
 
 def slot_type_of_family(family_key: str) -> str:
@@ -678,6 +692,10 @@ def do_wipe(party: PqParty, *, now: datetime, depth: int) -> None:
     for merc in party.mercs:
         refresh_derived(merc)
         merc.hp_current = int(merc.hp_max)
+    if int(getattr(party, "layer", 2) or 2) >= 2:
+        from waifu_bot.game.delve_pq_layer import city_return
+
+        city_return(party)
 
 
 def grant_merc_faucet(party: PqParty, *, now: datetime, band: int) -> tuple[int, int]:
@@ -718,10 +736,18 @@ def grant_merc_faucet(party: PqParty, *, now: datetime, band: int) -> tuple[int,
 
 
 def _ceil(party: PqParty) -> float:
+    if int(getattr(party, "layer", 2) or 2) >= 2:
+        from waifu_bot.game.delve_pq_layer import d_max_eff
+
+        return float(max(1, d_max_eff(party.mercs, depth=int(party.last_d or 0))))
     return float(max(1, d_max_of(party_power(party.mercs))))
 
 
-def time_at_depth(run_origin: datetime, cycle: int, depth: int, ceil: float) -> datetime:
+def time_at_depth(run_origin: datetime, cycle: int, depth: int, ceil: float, *, t_eff: int | None = None) -> datetime:
+    if t_eff is not None:
+        from waifu_bot.game.delve_pq_layer import time_at_depth_layer
+
+        return time_at_depth_layer(run_origin, cycle, depth, int(max(1, math.floor(ceil))), int(t_eff))
     t_down, _t_up, _t_rest = period_parts(ceil)
     c = max(1.0, float(ceil))
     d = max(1.0, float(depth))
@@ -735,7 +761,11 @@ def time_at_depth(run_origin: datetime, cycle: int, depth: int, ceil: float) -> 
     return _aware(run_origin) + timedelta(seconds=sec)
 
 
-def rest_time(run_origin: datetime, cycle: int, ceil: float) -> datetime:
+def rest_time(run_origin: datetime, cycle: int, ceil: float, *, t_eff: int | None = None) -> datetime:
+    if t_eff is not None:
+        from waifu_bot.game.delve_pq_layer import rest_time_layer
+
+        return rest_time_layer(run_origin, cycle, int(max(1, math.floor(ceil))), int(t_eff))
     t_down, t_up, t_rest = period_parts(ceil)
     period = t_down + t_up + t_rest
     return _aware(run_origin) + timedelta(seconds=float(cycle) * period + t_down + t_up)
@@ -745,10 +775,15 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
     now = _aware(now)
     party.run_origin = _aware(party.run_origin)
     party.last_ts = _aware(party.last_ts)
+    layer = int(getattr(party, "layer", 2) or 2)
     if party.last_ts >= now:
         for merc in party.mercs:
             apply_levelups(merc)
             refresh_derived(merc)
+        if layer >= 2:
+            from waifu_bot.game.delve_pq_layer import t_eff_of
+
+            party.t_eff = t_eff_of(party.mercs, t_node=int(party.t_node or 30), depth=int(party.last_d or 0), d_max=int(_ceil(party)))
         return party
     band = max(band_of_depth(pb_depth), band_of_depth(d_max_of(party_power(party.mercs))))
     grant_merc_faucet(party, now=now, band=band)
@@ -761,17 +796,46 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
         steps += 1
         ceil = _ceil(party)
         floor_ceil = max(1, int(math.floor(ceil)))
-        t_down, t_up, t_rest = period_parts(ceil)
+        t_eff = None
+        if layer >= 2:
+            from waifu_bot.game.delve_pq_layer import period_parts_layer, t_eff_of
+
+            t_eff = t_eff_of(party.mercs, t_node=int(party.t_node or 30), depth=int(party.last_d or 0), d_max=floor_ceil)
+            party.t_eff = t_eff
+            t_down, t_up, t_rest = period_parts_layer(floor_ceil, t_eff)
+        else:
+            t_down, t_up, t_rest = period_parts(ceil)
         period = t_down + t_up + t_rest
         elapsed = max(0.0, (now - party.run_origin).total_seconds())
         cur_cycle = int(elapsed // period) if period > 0 else 0
         if party.last_d >= floor_ceil:
-            t_rest_at = rest_time(party.run_origin, party.last_cycle, ceil)
+            t_rest_at = rest_time(party.run_origin, party.last_cycle, ceil, t_eff=t_eff)
             if t_rest_at > now:
                 break
             if t_rest_at >= party.last_ts:
-                apply_rest(party.mercs)
-                auto_use_potions(party.mercs)
+                if layer >= 2:
+                    from waifu_bot.game.delve_pq_layer import apply_rest_layer, city_return, remember_event
+
+                    healed = apply_rest_layer(party)
+                    city_return(party)
+                    auto_use_potions(party.mercs)
+                    who = party.mercs[0].name if party.mercs else "Она"
+                    remember_event(
+                        party,
+                        {
+                            "id": "surface_rest",
+                            "kind": "surface",
+                            "kind_ru": "Лагерь",
+                            "d": 0,
+                            "phrase": f"[Лагерь] Глубина 0 · {who} сидит у стола (+{healed} HP)",
+                            "who": who,
+                            "hp_delta": -healed,
+                            "from_llm": False,
+                        },
+                    )
+                else:
+                    apply_rest(party.mercs)
+                    auto_use_potions(party.mercs)
             party.last_cycle = party.last_cycle + 1
             party.last_d = 0
             party.last_ts = max(party.last_ts, t_rest_at + timedelta(seconds=t_rest))
@@ -780,16 +844,21 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
         if nxt > floor_ceil:
             party.last_d = floor_ceil
             continue
-        t_node = time_at_depth(party.run_origin, party.last_cycle, nxt, ceil)
-        if t_node > now:
+        t_at = time_at_depth(party.run_origin, party.last_cycle, nxt, ceil, t_eff=t_eff)
+        if t_at > now:
             break
-        if t_node < party.last_ts and nxt <= party.last_d:
+        if t_at < party.last_ts and nxt <= party.last_d:
             party.last_d = nxt
             continue
-        party.last_ts = max(party.last_ts, t_node)
+        party.last_ts = max(party.last_ts, t_at)
         party.last_d = nxt
         node = spine_type(nxt, ceil)
-        if node == NODE_SHOP:
+        if layer >= 2:
+            from waifu_bot.game.delve_pq_layer import remember_event, resolve_layer_node
+
+            event = resolve_layer_node(party, nxt, node, band=band)
+            remember_event(party, event)
+        elif node == NODE_SHOP:
             for merc in party.mercs:
                 if not merc.living():
                     continue
@@ -807,7 +876,12 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
             auto_use_potions(party.mercs)
         if all_down(party.mercs):
             do_wipe(party, now=party.last_ts, depth=nxt)
-            _t_down, _t_up, t_rest_w = period_parts(_ceil(party))
+            if layer >= 2:
+                from waifu_bot.game.delve_pq_layer import period_parts_layer
+
+                _t_down, _t_up, t_rest_w = period_parts_layer(int(_ceil(party)), int(party.t_eff or 30))
+            else:
+                _t_down, _t_up, t_rest_w = period_parts(_ceil(party))
             party.last_ts = party.last_ts + timedelta(seconds=t_rest_w)
             wipes += 1
             continue
@@ -817,6 +891,10 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
     for merc in party.mercs:
         apply_levelups(merc)
         refresh_derived(merc)
+    if layer >= 2:
+        from waifu_bot.game.delve_pq_layer import t_eff_of
+
+        party.t_eff = t_eff_of(party.mercs, t_node=int(party.t_node or 30), depth=int(party.last_d or 0), d_max=int(_ceil(party)))
     return party
 
 

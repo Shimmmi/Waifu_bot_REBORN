@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "kinds": {
+    "empty": {"label_ru": "Ничего", "glyph": "·"},
+    "monster": {"label_ru": "Монстр", "glyph": "✕"},
+    "event": {"label_ru": "Событие", "glyph": "!"},
+    "npc": {"label_ru": "NPC", "glyph": "◊"},
+    "find": {"label_ru": "Находка", "glyph": "◇"}
+  },
+  "templates": [
+    {"id": "quiet_shaft", "kind": "empty", "title_ru": "Пустой ход", "line_ru": "Ход пуст. {who} прошла без встречи", "actor": null, "hp_mult": 0, "gold_delta": 0, "weight": 12, "chip": null},
+    {"id": "own_steps", "kind": "empty", "title_ru": "Свои шаги", "line_ru": "{who} слышит только свои шаги", "actor": null, "hp_mult": 0, "gold_delta": 0, "weight": 10, "chip": null},
+    {"id": "empty_sleeve", "kind": "empty", "title_ru": "Тупик", "line_ru": "Рукав оборвался тупиком. {who} вернулась на ствол", "actor": null, "hp_mult": 0, "gold_delta": 0, "weight": 8, "chip": null},
+    {"id": "ratfolk_hit", "kind": "monster", "title_ru": "Крысолюд", "line_ru": "Крысолюд ударил {who}", "actor": "Крысолюд", "hp_mult": 1.0, "gold_delta": 0, "weight": 12, "chip": "bleed"},
+    {"id": "cave_spider", "kind": "monster", "title_ru": "Паук", "line_ru": "Пещерный паук укусил {who}", "actor": "Пещерный паук", "hp_mult": 1.0, "gold_delta": 0, "weight": 10, "chip": "poison"},
+    {"id": "shaft_bat", "kind": "monster", "title_ru": "Мыши", "line_ru": "Стая мышей оцарапала {who}", "actor": "Стая мышей", "hp_mult": 0.7, "gold_delta": 0, "weight": 9, "chip": null},
+    {"id": "acid_slug", "kind": "monster", "title_ru": "Слизень", "line_ru": "Слизень обжёг сапог {who}", "actor": "Слизень", "hp_mult": 0.9, "gold_delta": 0, "weight": 8, "chip": null},
+    {"id": "pick_skeleton", "kind": "monster", "title_ru": "Скелет", "line_ru": "Скелет-кирка ударил {who} древком", "actor": "Скелет-кирка", "hp_mult": 1.1, "gold_delta": 0, "weight": 8, "chip": "bleed"},
+    {"id": "shadow_lurker", "kind": "monster", "title_ru": "Шатун", "line_ru": "Теневой шатун сбил {who} с ног", "actor": "Теневой шатун", "hp_mult": 1.3, "gold_delta": 0, "weight": 6, "chip": "limp"},
+    {"id": "wet_step", "kind": "event", "title_ru": "Мокрая ступень", "line_ru": "{who} оступилась на мокрой ступени", "actor": null, "hp_mult": 0.45, "gold_delta": 0, "weight": 10, "chip": "limp"},
+    {"id": "gravel_fall", "kind": "event", "title_ru": "Щебень", "line_ru": "Со свода осыпался щебень. Камень попал {who}", "actor": null, "hp_mult": 0.55, "gold_delta": 0, "weight": 9, "chip": null},
+    {"id": "cracked_lamp", "kind": "event", "title_ru": "Фитиль", "line_ru": "У {who} треснуло стекло фонаря. Ход тот же", "actor": null, "hp_mult": 0, "gold_delta": 0, "weight": 8, "chip": null},
+    {"id": "bad_air", "kind": "event", "title_ru": "Сквозняк", "line_ru": "{who} вдохнула тяжёлый воздух и кашлянула кровью", "actor": null, "hp_mult": 0.35, "gold_delta": 0, "weight": 7, "chip": null},
+    {"id": "junker_gift", "kind": "npc", "title_ru": "Старьёвщик", "line_ru": "Старьёвщик отдал {who} мелочь и ушёл вверх", "actor": "Старьёвщик", "hp_mult": 0, "gold_delta": 3, "weight": 10, "chip": "ward"},
+    {"id": "toll_collector", "kind": "npc", "title_ru": "Пошлина", "line_ru": "Сборщик пошлины взял с {who} монету за проход", "actor": "Сборщик", "hp_mult": 0, "gold_delta": -2, "weight": 8, "chip": null},
+    {"id": "silent_guide", "kind": "npc", "title_ru": "Проводник", "line_ru": "Молчаливый проводник кивнул {who} и скрылся в рукаве", "actor": "Проводник", "hp_mult": 0, "gold_delta": 0, "weight": 8, "chip": "ward"},
+    {"id": "coin_cleft", "kind": "find", "title_ru": "Щель", "line_ru": "{who} вытащила монеты из щели в стене", "actor": null, "hp_mult": 0, "gold_delta": 3, "weight": 10, "chip": null},
+    {"id": "lost_purse", "kind": "find", "title_ru": "Кошель", "line_ru": "{who} подняла порванный кошель", "actor": null, "hp_mult": 0, "gold_delta": 5, "weight": 8, "chip": null}
+  ]
+}

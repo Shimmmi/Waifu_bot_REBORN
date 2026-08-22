@@ -25,7 +25,17 @@ from waifu_bot.game.delve_pq import (
     refresh_derived,
     simulate_pq,
 )
-from waifu_bot.services.game_config_service import cfg_bool
+from waifu_bot.game.delve_pq_layer import (
+    PQ_LAYER_DEFAULT,
+    T_NODE_SEC,
+    apply_layer_dump,
+    d_max_eff,
+    layer_state_dump,
+    migrate_legacy_status,
+    party_power_eff,
+    public_status,
+)
+from waifu_bot.services.game_config_service import cfg_bool, cfg_int
 
 
 def _now() -> datetime:
@@ -34,6 +44,14 @@ def _now() -> datetime:
 
 def is_pq_enabled(cfg: dict[str, str] | None) -> bool:
     return cfg_bool(cfg or {}, "delve.pq_enabled", True)
+
+
+def pq_layer_of(cfg: dict[str, str] | None) -> int:
+    return max(1, cfg_int(cfg or {}, "delve.pq_layer", PQ_LAYER_DEFAULT))
+
+
+def pq_t_node_of(cfg: dict[str, str] | None) -> int:
+    return max(15, min(50, cfg_int(cfg or {}, "delve.pq_t_node", T_NODE_SEC)))
 
 
 def card_loyalty(card: m.CompanionCard) -> int:
@@ -64,6 +82,14 @@ def merc_from_card(
 ) -> MercState:
     gear = {int(r.equipment_slot): _piece_from_row(r) for r in gear_rows}
     bag = {str(r.consumable_id): int(r.qty or 0) for r in bag_rows if int(r.qty or 0) > 0}
+    look = card.look_card if isinstance(card.look_card, dict) else {}
+    try:
+        class_id = int(look.get("class_id") or 0)
+    except (TypeError, ValueError):
+        class_id = 0
+    traits = [str(t) for t in (card.traits or []) if str(t).strip()]
+    flesh = [migrate_legacy_status(x) for x in (card.flesh or []) if isinstance(x, dict)]
+    psyche = [migrate_legacy_status(x) for x in (card.psyche or []) if isinstance(x, dict)]
     merc = MercState(
         card_id=int(card.id),
         slot=int(card.slot or 0),
@@ -79,6 +105,13 @@ def merc_from_card(
         xp_earned=int(card.xp_earned or 0),
         gear=gear,
         bag=bag,
+        class_id=class_id,
+        stance=str(card.stance or "guide"),
+        temper=str(card.temper or "stay"),
+        traits=traits,
+        flesh=flesh,
+        psyche=psyche,
+        nodes_seen=int(look.get("pq_nodes") or 0),
     )
     refresh_derived(merc, fill_if_full=int(merc.hp_current) >= int(getattr(card, "hp_max", 48) or 48))
     return merc
@@ -93,6 +126,11 @@ def apply_merc_to_card(card: m.CompanionCard, merc: MercState) -> None:
     card.hp_current = max(0, min(int(merc.hp_current), int(card.hp_max)))
     card.gold_earned = int(merc.gold_earned)
     card.xp_earned = int(merc.xp_earned)
+    card.flesh = list(merc.flesh or [])
+    card.psyche = list(merc.psyche or [])
+    look = dict(card.look_card or {})
+    look["pq_nodes"] = int(getattr(merc, "nodes_seen", 0) or 0)
+    card.look_card = look
 
 
 def apply_merc_to_delve(row: m.DelveCompanion, merc: MercState) -> None:
@@ -107,6 +145,11 @@ def apply_merc_to_delve(row: m.DelveCompanion, merc: MercState) -> None:
 
 
 def merc_public(merc: MercState) -> dict[str, Any]:
+    chips = []
+    for row in list(merc.flesh or []) + list(merc.psyche or []):
+        pub = public_status(row)
+        if pub:
+            chips.append(pub)
     return {
         "card_id": merc.card_id,
         "level": int(merc.level),
@@ -118,6 +161,9 @@ def merc_public(merc: MercState) -> dict[str, Any]:
         "gear": empty_gear_slots(merc.gear),
         "bag": public_bag(merc.bag),
         "last_shop_buy": list(merc.last_shop_buy or []),
+        "trauma": chips[:2],
+        "class_id": int(getattr(merc, "class_id", 0) or 0),
+        "traits": list(getattr(merc, "traits", None) or []),
     }
 
 
@@ -186,7 +232,7 @@ def snapshot_party(
         for card in cards
         if card.slot
     ]
-    return PqParty(
+    party = PqParty(
         seed=int(state.pq_seed or state.spine_seed or 0),
         run_origin=origin,
         last_ts=last,
@@ -198,6 +244,8 @@ def snapshot_party(
         grant_day=state.pq_grant_day_msk,
         mercs=mercs,
     )
+    apply_layer_dump(party, getattr(state, "pq_layer_json", None) if isinstance(getattr(state, "pq_layer_json", None), dict) else None)
+    return party
 
 
 def write_party(state: m.DelveState, party: PqParty) -> None:
@@ -211,25 +259,42 @@ def write_party(state: m.DelveState, party: PqParty) -> None:
     state.pq_grant_day_msk = party.grant_day
     if not state.pq_seed:
         state.pq_seed = int(state.spine_seed or party.seed or 0)
+    if int(getattr(party, "layer", 2) or 2) >= 2:
+        state.pq_layer_json = layer_state_dump(party)
 
 
 def pq_payload_fields(party: PqParty | None) -> dict[str, Any]:
     if party is None or not party.mercs:
         return {
             "pq_enabled": True,
+            "pq_layer": PQ_LAYER_DEFAULT,
             "party_power": 0,
             "d_max": d_max_of(0),
             "wipe_count": 0,
             "shop_log": [],
+            "T_eff": T_NODE_SEC,
+            "last_d": 0,
+            "event": None,
+            "recent_events": [],
+            "chips": [],
         }
     power = party_power(party.mercs)
+    layer = int(getattr(party, "layer", 2) or 2)
+    dmax = d_max_eff(party.mercs, depth=int(party.last_d or 0)) if layer >= 2 else d_max_of(power)
     return {
         "pq_enabled": True,
+        "pq_layer": layer,
         "party_power": power,
-        "d_max": d_max_of(power),
+        "party_power_eff": round(party_power_eff(party.mercs, depth=int(party.last_d or 0), d_max=dmax, living_only=False), 2) if layer >= 2 else power,
+        "d_max": dmax,
         "wipe_count": int(party.wipe_count),
         "shop_log": list(party.shop_log[-12:]),
         "run_origin": party.run_origin.isoformat() if party.run_origin else None,
+        "T_eff": int(party.t_eff or T_NODE_SEC),
+        "last_d": int(party.last_d or 0),
+        "event": party.last_event,
+        "recent_events": list(party.recent_events or [])[-3:],
+        "chips": list(party.chips or []),
     }
 
 
@@ -248,14 +313,23 @@ async def resolve_pq(
     seated = [c for c in cards if c and c.slot]
     if not seated:
         return None
+    layer = pq_layer_of(cfg)
+    t_node = pq_t_node_of(cfg)
+    blob = state.pq_layer_json if isinstance(getattr(state, "pq_layer_json", None), dict) else {}
     if state.last_pq_ts is None:
         state.last_pq_ts = now
         state.run_origin = state.run_origin or now
         if not state.pq_seed:
             state.pq_seed = int(state.spine_seed or 0)
+    if layer >= 2 and not blob.get("armed"):
+        state.last_pq_ts = now
+        blob = {**blob, "armed": True}
+        state.pq_layer_json = blob
     ids = [int(c.id) for c in seated]
     gear_map, bag_map = await _load_rows(session, ids)
     party = snapshot_party(state, seated, gear_map, bag_map, now=now)
+    party.layer = layer
+    party.t_node = t_node
     simulate_pq(party, now, pb_depth=int(state.pb_depth or 0))
     write_party(state, party)
     by_slot = {int(r.slot): r for r in companions}

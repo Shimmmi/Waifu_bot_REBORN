@@ -62,6 +62,7 @@ class DelveState(Base):
     pq_grant_day_msk: Mapped[str | None] = mapped_column(String(16), nullable=True)
     pq_last_cycle: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     pq_last_d: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    pq_layer_json: Mapped[dict | list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

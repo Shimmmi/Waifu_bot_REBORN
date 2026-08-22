@@ -149,7 +149,36 @@ async def request_delve_line(session: AsyncSession, player_id: int) -> dict:
         await session.execute(select(m.MainWaifu).where(m.MainWaifu.player_id == int(player_id)))
     ).scalar_one_or_none()
     ov = int(mw.level or 1) if mw is not None else 1
-    frame = build_frame(state, companions, now=now, ov_level=ov)
+    blob = state.pq_layer_json if isinstance(getattr(state, "pq_layer_json", None), dict) else {}
+    last_event = blob.get("last_event") if isinstance(blob, dict) else None
+    t_eff = int(blob.get("t_eff") or 30) if isinstance(blob, dict) else 30
+    pq_layer = 2 if blob.get("armed") else 1
+    d_max = None
+    if pq_layer >= 2:
+        try:
+            from waifu_bot.game.delve_pq import d_max_of
+
+            d_max = max(1, int(d_max_of(len(companions) or 1)))
+        except Exception:
+            d_max = 8
+    frame = build_frame(
+        state,
+        companions,
+        now=now,
+        ov_level=ov,
+        d_max=d_max,
+        pq_layer=pq_layer,
+        t_eff=t_eff,
+        pq_event=last_event if isinstance(last_event, dict) else None,
+    )
+    if isinstance(last_event, dict) and last_event.get("phrase"):
+        phrase = str(last_event.get("phrase") or "")
+        return {
+            "phrase": phrase,
+            "from_llm": False,
+            "cached": True,
+            "event_id": last_event.get("id"),
+        }
     key = flavor_cache_key(
         d=int(frame["d"]),
         node=str(frame["node"]),

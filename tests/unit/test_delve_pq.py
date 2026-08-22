@@ -172,10 +172,13 @@ def test_gear_price_table_matches_tz():
 
 
 def test_combat_drain_grows_when_underleveled():
+    assert combat_drain(3, 1) == 9
+    assert combat_drain(8, 1) == 13
+    assert combat_drain(8, 15) == 7
     easy = combat_drain(4, 20)
     hard = combat_drain(40, 5)
     assert hard > easy
-    assert easy >= 1
+    assert easy >= 3
 
 
 def test_deepcopy_shop_offer_type():
