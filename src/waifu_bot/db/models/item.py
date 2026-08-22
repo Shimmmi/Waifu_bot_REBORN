@@ -157,6 +157,7 @@ class InventoryItem(Base):
     )
     temper_reroll_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
     reforge_reroll_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    ilvl_stat_scale_ver: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
 
     # Relationships
     player: Mapped["Player"] = relationship("Player", back_populates="inventory_items")

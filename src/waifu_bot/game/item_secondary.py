@@ -147,6 +147,8 @@ def effective_fraction_combat(
 
 def snapshot_secondaries_from_template(inv: Any, template: TemplateSecondaryRow) -> None:
     """Copy template secondary into instance columns at item creation."""
+    from waifu_bot.game.item_ilvl_scaling import apply_template_fraction, item_scale_ilvl
+
     t = str(template.secondary_bonus_type or "").strip() or None
     v = float(template.secondary_bonus_value or 0.0)
     if not t or v <= 0:
@@ -156,7 +158,7 @@ def snapshot_secondaries_from_template(inv: Any, template: TemplateSecondaryRow)
         inv.secondary_bonus_value = v
     elif is_fraction_secondary_type(t):
         inv.secondary_fraction_type = t
-        inv.secondary_fraction_value = v
+        inv.secondary_fraction_value = apply_template_fraction(v, item_scale_ilvl(inv))
 
 
 def should_awaken_fraction_on_plus_one(inv: Any, resolved: ResolvedSecondaries) -> bool:

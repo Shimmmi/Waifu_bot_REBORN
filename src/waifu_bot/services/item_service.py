@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from waifu_bot.db import models as m
 from waifu_bot.game.affix_display_names import resolve_prefix_name_ru, resolve_suffix_name_ru
+from waifu_bot.game.item_ilvl_scaling import apply_ilvl_scale_to_fresh_item, stamp_ilvl_scale_meta
 from waifu_bot.game.passive_affix_ilvl import passive_node_level_add_allowed
 from waifu_bot.game.item_secondary import snapshot_secondaries_from_template, template_row_from_mapping
 from waifu_bot.game.item_requirements import compute_item_requirements
@@ -554,6 +555,7 @@ class ItemService:
         )
         session.add(inv)
         await session.flush()
+        stamp_ilvl_scale_meta(inv, plus_level=int(plus_level or 0), scale_ilvl=int(target_total_level))
         from waifu_bot.services.refine import stamp_template_grade
 
         await stamp_template_grade(session, inv, base if isinstance(base, dict) else None)
@@ -672,6 +674,7 @@ class ItemService:
             inv.total_level = int(inv.total_level) + int(tpl_ilvl)
 
         await self._apply_legendary_item_finalization(session, item, inv, base, int(rarity))
+        apply_ilvl_scale_to_fresh_item(inv, item, scale_ilvl=int(target_total_level))
         self._finalize_generated_item(inv, item, base, rarity=int(rarity))
 
         await session.flush()
@@ -793,6 +796,7 @@ class ItemService:
         )
         session.add(inv)
         await session.flush()
+        stamp_ilvl_scale_meta(inv, plus_level=int(plus_level or 0), scale_ilvl=int(target_total_level))
         from waifu_bot.services.refine import stamp_template_grade
 
         await stamp_template_grade(session, inv, base if isinstance(base, dict) else None)
@@ -821,6 +825,7 @@ class ItemService:
         self._apply_template_fixed_bonus(inv, base, tier=base_tier)
 
         await self._apply_legendary_item_finalization(session, item, inv, base, int(rarity))
+        apply_ilvl_scale_to_fresh_item(inv, item, scale_ilvl=int(target_total_level))
         self._finalize_generated_item(inv, item, base, rarity=int(rarity))
 
         await session.flush()
@@ -1171,6 +1176,7 @@ class ItemService:
         act: int,
         rarity: int,
         level: int | None,
+        plus_level: int = 0,
     ) -> m.InventoryItem:
         act_tier_cap = _tier_cap_for_act(act)
         # Choose a target level within act tier (kept compatible with current shop expectations).
@@ -1252,6 +1258,7 @@ class ItemService:
         )
         session.add(inv)
         await session.flush()
+        stamp_ilvl_scale_meta(inv, plus_level=int(plus_level or 0), scale_ilvl=int(target_total_level))
         from waifu_bot.services.refine import stamp_template_grade
 
         await stamp_template_grade(session, inv, base if isinstance(base, dict) else None)
@@ -1368,6 +1375,7 @@ class ItemService:
 
             inv.total_level = int(inv.total_level) + int(level_delta)
 
+        apply_ilvl_scale_to_fresh_item(inv, item, scale_ilvl=int(target_total_level))
         self._finalize_generated_item(inv, item, base, rarity=int(rarity))
 
         await session.flush()
@@ -1417,6 +1425,7 @@ class ItemService:
                     act=act,
                     rarity=int(rarity),
                     level=int(level) if level is not None else None,
+                    plus_level=pl_src,
                 )
                 await self._register_inventory_codex(session, player_id, inv)
                 return inv
@@ -1482,6 +1491,7 @@ class ItemService:
         )
         session.add(inv)
         await session.flush()
+        stamp_ilvl_scale_meta(inv, plus_level=int(pl_src), scale_ilvl=int(level))
         from waifu_bot.services.refine import stamp_template_grade
 
         await stamp_template_grade(session, inv, None)
@@ -1516,6 +1526,7 @@ class ItemService:
         if inv.damage_max is not None:
             inv.damage_max = int((inv.damage_max + dmg_flat) * (1 + dmg_pct / 100))
 
+        apply_ilvl_scale_to_fresh_item(inv, item, scale_ilvl=int(level))
         await session.flush()
         # Attach display name so callers don't need to lazy-load inv.item in async context
         inv._display_name = item.name  # type: ignore[attr-defined]
@@ -1994,6 +2005,8 @@ class ItemService:
         )
         session.add(inv)
         await session.flush()
+        admin_scale_ilvl = int(level) if level is not None else int(base_level)
+        stamp_ilvl_scale_meta(inv, plus_level=0, scale_ilvl=admin_scale_ilvl)
         from waifu_bot.services.refine import stamp_template_grade
 
         await stamp_template_grade(session, inv, base if isinstance(base, dict) else None)
@@ -2077,6 +2090,7 @@ class ItemService:
         self._apply_template_fixed_bonus(inv, base, tier=base_tier)
 
         await self._apply_legendary_item_finalization(session, item, inv, base, int(eff_rarity))
+        apply_ilvl_scale_to_fresh_item(inv, item, scale_ilvl=admin_scale_ilvl)
         self._finalize_generated_item(inv, item, base, rarity=int(eff_rarity))
 
         await session.flush()
