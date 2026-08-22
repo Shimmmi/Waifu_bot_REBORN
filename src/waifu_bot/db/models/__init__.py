@@ -100,6 +100,12 @@ from waifu_bot.db.models.tavern_audio import (
 from waifu_bot.db.models.expedition import ExpeditionAffix, ExpeditionSlot, ActiveExpedition
 from waifu_bot.db.models.delve import DelveState, DelveCompanion
 from waifu_bot.db.models.companion_card import CompanionCard, CompanionEvent, CompanionHall
+from waifu_bot.db.models.delve_pq import (
+    DelveGearTemplate,
+    DelveCompanionGear,
+    DelveConsumableTemplate,
+    DelveCompanionBag,
+)
 from waifu_bot.db.models.group_dungeon import (
     GDDungeonTemplate,
     PlayerChatFirstSeen,
@@ -108,6 +114,7 @@ from waifu_bot.db.models.group_dungeon import (
     GDCompletion,
 )
 from waifu_bot.db.models.armory import ArmoryAdminActionLog, PlayerBan, PlayerEventLog
+from waifu_bot.db.models.llm_usage import LlmUsageLog
 from waifu_bot.db.models.bot_group_chat import BotGroupChat
 from waifu_bot.db.models.gd_cycle import (
     GDClassSkill,
@@ -149,6 +156,7 @@ from waifu_bot.db.models.client_snapshot import PlayerClientSnapshot
 __all__ = [
     "PlayerEventLog",
     "ArmoryAdminActionLog",
+    "LlmUsageLog",
     "BotGroupChat",
     "PlayerBan",
     "Player",
@@ -252,6 +260,10 @@ __all__ = [
     "ActiveExpedition",
     "DelveState",
     "DelveCompanion",
+    "DelveGearTemplate",
+    "DelveCompanionGear",
+    "DelveConsumableTemplate",
+    "DelveCompanionBag",
     "CompanionCard",
     "CompanionEvent",
     "CompanionHall",

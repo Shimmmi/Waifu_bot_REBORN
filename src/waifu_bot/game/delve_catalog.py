@@ -199,6 +199,12 @@ COPY: dict[str, str] = {
     "xp_party": "Опыт отряда",
     "gold_today": "Сегодня золота",
     "xp_today": "Сегодня опыта",
+    "pq_power": "Сила",
+    "pq_level": "Уровень",
+    "pq_hp": "Здоровье",
+    "pq_wallet": "Кошель колонны",
+    "pq_party": "Сила отряда",
+    "pq_dmax": "Потолок",
 }
 
 HUD_STATUS: dict[str, str] = {
@@ -244,6 +250,7 @@ JOURNAL_KIND_RU: dict[str, str] = {
     "landmark": "Метка на {d}",
     "shop": "Лавка на {d}",
     "sryv": "Срыв на {d}",
+    "wipe": "Срыв спуска на {d}",
     "palette": "{palette}",
 }
 
@@ -397,11 +404,13 @@ def period_parts(ceil: float) -> tuple[float, float, float]:
     return t_down, T_UP_SEC, t_rest
 
 
-def sawtooth(*, t_origin: datetime, now: datetime, ov_level: int) -> dict[str, Any]:
+def sawtooth(*, t_origin: datetime, now: datetime, ov_level: int, d_max: int | None = None) -> dict[str, Any]:
     now = _aware(now)
     origin = _aware(t_origin)
     hours = hours_in_column(origin, now)
     ceil = d_ceiling(hours, ov_level)
+    if d_max is not None:
+        ceil = float(max(1, int(d_max)))
     t_down, t_up, t_rest = period_parts(ceil)
     period = t_down + t_up + t_rest
     elapsed = max(0.0, (now - origin).total_seconds())

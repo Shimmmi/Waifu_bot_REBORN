@@ -75,6 +75,14 @@
     return v.toLocaleString("ru-RU");
   }
 
+  function hpBar(cur, max) {
+    const m = Math.max(1, Number(max) || 1);
+    const c = Math.max(0, Number(cur) || 0);
+    const pct = Math.max(0, Math.min(100, Math.round((100 * c) / m)));
+    const tone = pct <= 25 ? "is-crit" : pct <= 40 ? "is-low" : "";
+    return `<div class="delve-hp ${tone}" style="--hp:${pct}%" title="${esc(fmtNum(c))} / ${esc(fmtNum(m))}"><i></i></div>`;
+  }
+
   function daysLabel(days) {
     const n = Math.max(0, Number(days) || 0);
     if (n <= 0) return "сегодня";
@@ -126,7 +134,7 @@
     const t0 = Number(k.t0) || 720;
     const tUp = Number(k.t_up) || 6;
     const depthExp = Number(k.depth_exp) || 1.15;
-    const origin = Date.parse(state.t_origin);
+    const origin = Date.parse(state.run_origin || state.t_origin);
     if (!Number.isFinite(origin)) return state.frame;
     const elapsed = Math.max(0, (nowMs - origin) / 1000);
     const hours = elapsed / 3600;
@@ -139,7 +147,11 @@
       Number.isFinite(tailHours) && Number.isFinite(tailK) && Number.isFinite(tailExp)
         ? tailK * Math.pow(Math.max(0, hours - tailHours), tailExp)
         : 0;
-    const ceil = ceilBase + extra;
+    let ceil = ceilBase + extra;
+    const dMax = Number(state.d_max);
+    if (state.pq_enabled && Number.isFinite(dMax) && dMax > 0) {
+      ceil = dMax;
+    }
     const tDown = t0 * Math.log(1 + ceil);
     const tRest = 50 + 10 * Math.log(1 + ceil);
     const period = tDown + tUp + tRest;
@@ -289,7 +301,13 @@
     const rec = hudRecord(frame);
     const status = (frame && frame.status) || copy("camp", "Лагерь · сами пойдут");
     const d = Number((frame && frame.d) || 0);
-    return `${status} · глубина ${d} · рекорд ${rec}`;
+    const power = Number((state && state.party_power) || 0);
+    const dmax = Number((state && state.d_max) || 0);
+    let line = `${status} · глубина ${d} · рекорд ${rec}`;
+    if (state && state.pq_enabled) {
+      line += ` · сила ${fmtNum(power)} · потолок ${fmtNum(dmax)}`;
+    }
+    return line;
   }
 
   function shaftBandDepths(d) {
@@ -374,10 +392,10 @@
     const tokenN = Number((frame && frame.token_n) || (state && state.companions && state.companions.length) || 1);
     const faces = ((state && state.companions) || []).slice(0, tokenN);
     const tokenHtml = faces
-      .map(
-        (c) =>
-          `<img class="delve-token-face" src="${esc(faceSrc(c))}" alt="${esc(c.name || "")}" width="28" height="28" />`
-      )
+      .map((c) => {
+        const hp = state && state.pq_enabled ? hpBar(c.hp_current, c.hp_max) : "";
+        return `<span class="delve-token-unit"><img class="delve-token-face" src="${esc(faceSrc(c))}" alt="${esc(c.name || "")}" width="28" height="28" />${hp}</span>`;
+      })
       .join("");
     const nodes = bandNodesFor(frame, hereD);
     const list = nodes
@@ -419,13 +437,18 @@
     }
     const kickerNode = showFork ? "BRANCH" : frame.node === "BRANCH" ? "TRAVERSE" : frame.node;
     const kicker = kickerFor(kickerNode, frame.palette_id) || frame.kicker || pal.label || "";
+    let shopLine = "";
+    if (frame.node === "SHOP" && state && Array.isArray(state.shop_log) && state.shop_log.length) {
+      const last = state.shop_log.slice(-3).map((b) => `${b.who || ""} купила ${b.name || ""}`.trim());
+      if (last.length) shopLine = last.join(" · ");
+    }
     const boss =
       frame.boss_in != null
         ? `<div class="delve-meta">${esc(copy("boss_in", "До босса"))}: ${esc(String(frame.boss_in))}</div>`
         : "";
     return `<div class="delve-card">
       <div class="delve-card-kicker">${esc(kicker)}</div>
-      <div class="delve-card-phrase">${phraseHtml(frame.phrase || "")}</div>
+      <div class="delve-card-phrase">${phraseHtml(shopLine || frame.phrase || "")}</div>
       ${boss}
       ${branch}
     </div>`;
@@ -437,6 +460,7 @@
     if (j.kind === "shop") return `Лавка на ${d}`;
     if (j.kind === "landmark") return `Метка на ${d}`;
     if (j.kind === "sryv") return `Срыв на ${d}`;
+    if (j.kind === "wipe") return `Срыв спуска на ${d}`;
     if (j.kind === "palette") return pal.label || "Палитра";
     return String(j.kind || "");
   }
@@ -447,11 +471,24 @@
     const faces = comps
       .map((c) => {
         const src = faceSrc(c);
+        const gear = Array.isArray(c.gear) ? c.gear : [];
+        const bag = Array.isArray(c.bag) ? c.bag : [];
+        const gearLine = gear
+          .filter((g) => g && g.name && !g.blocked)
+          .map((g) => `${g.name} ${g.ilvl}${g.enchant_level ? "+" + g.enchant_level : ""}`)
+          .join(" · ");
+        const bagLine = bag.map((b) => `${b.name} ×${b.qty}`).join(" · ");
+        const pq = state.pq_enabled
+          ? `<div class="muted tiny">${esc(copy("pq_level", "Уровень"))} ${esc(fmtNum(c.level))} · ${esc(copy("pq_power", "Сила"))} ${esc(fmtNum(c.power))} · ${esc(copy("pq_wallet", "Кошель колонны"))} ${esc(fmtNum(c.gold_wallet))}</div>
+             ${hpBar(c.hp_current, c.hp_max)}
+             <div class="muted tiny">${esc(gearLine || "без экипа")}</div>
+             <div class="muted tiny">${esc(bagLine || "без расходников")}</div>`
+          : `<div class="muted tiny">${esc(fmtNum(c.gold_earned))} зол. · ${esc(fmtNum(c.xp_earned))} опыта · ${esc(daysLabel(c.days))}</div>`;
         return `<div class="delve-sheet-face">
           <img class="delve-bust" src="${esc(src)}" alt="${esc(c.name || "")}" width="56" height="56" />
           <div>
             <strong title="${esc(c.name || "")}">${esc(c.name || "")}</strong>
-            <div class="muted tiny">${esc(fmtNum(c.gold_earned))} зол. · ${esc(fmtNum(c.xp_earned))} опыта · ${esc(daysLabel(c.days))}</div>
+            ${pq}
           </div>
         </div>`;
       })
@@ -471,6 +508,11 @@
         <div>${esc(copy("xp_today", "Сегодня опыта"))}: ${esc(fmtNum(state.xp_today))} / ${esc(fmtNum(state.xp_cap_day))} (${esc(String(state.floor_xp_pct || 0))}%)</div>
         <div>${esc(copy("gold_party", "Золото отряда"))}: ${esc(fmtNum(state.gold_granted_total))}</div>
         <div>${esc(copy("xp_party", "Опыт отряда"))}: ${esc(fmtNum(state.xp_granted_total))}</div>
+        ${
+          state.pq_enabled
+            ? `<div>${esc(copy("pq_party", "Сила отряда"))}: ${esc(fmtNum(state.party_power))} · ${esc(copy("pq_dmax", "Потолок"))} ${esc(fmtNum(state.d_max))} · wipe ${esc(fmtNum(state.wipe_count))}</div>`
+            : ""
+        }
       </div>
       <div class="delve-sheet-faces">${faces}</div>
       <div class="delve-stamps">${stamps || "Пока пусто."}</div>

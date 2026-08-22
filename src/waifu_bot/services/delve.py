@@ -154,11 +154,23 @@ def resolve_companion_image_url(row: m.DelveCompanion) -> str:
     return template_portrait_url(stance)
 
 
-def companion_out(row: m.DelveCompanion, *, now: datetime | None = None) -> dict[str, Any]:
+def _int_attr(obj: Any, name: str, default: int) -> int:
+    try:
+        return int(getattr(obj, name, default) or default)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def companion_out(
+    row: m.DelveCompanion,
+    *,
+    now: datetime | None = None,
+    pq: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     stance = str(row.stance or "guide")
     image_url = resolve_companion_image_url(row)
     joined = getattr(row, "joined_at", None) or getattr(row, "created_at", None)
-    return {
+    out = {
         "slot": int(row.slot),
         "name": row.name,
         "stance": stance,
@@ -170,9 +182,18 @@ def companion_out(row: m.DelveCompanion, *, now: datetime | None = None) -> dict
         "portrait_url": image_url,
         "gold_earned": int(getattr(row, "gold_earned", 0) or 0),
         "xp_earned": int(getattr(row, "xp_earned", 0) or 0),
+        "level": _int_attr(row, "level", 1),
+        "power": _int_attr(row, "power", 1),
+        "gold_wallet": _int_attr(row, "gold_wallet", 0),
+        "xp_unspent": _int_attr(row, "xp_unspent", 0),
+        "hp_current": _int_attr(row, "hp_current", 48),
+        "hp_max": _int_attr(row, "hp_max", 48),
         "days": days_in_party(joined, now or _now()),
         "joined_at": joined.isoformat() if joined is not None else None,
     }
+    if pq:
+        out.update(pq)
+    return out
 
 
 def attribute_party_grant(
@@ -424,8 +445,12 @@ def build_frame(
     *,
     now: datetime,
     ov_level: int,
+    d_max: int | None = None,
 ) -> dict[str, Any]:
-    tooth = sawtooth(t_origin=state.t_origin or now, now=now, ov_level=ov_level)
+    run_origin = getattr(state, "run_origin", None)
+    origin = run_origin if isinstance(run_origin, datetime) else None
+    origin = origin or state.t_origin or now
+    tooth = sawtooth(t_origin=origin, now=now, ov_level=ov_level, d_max=d_max)
     d = int(tooth["d"])
     ceil = float(tooth["d_ceiling"])
     node = spine_type(d, ceil)
@@ -466,6 +491,7 @@ def build_frame(
         "shaft_band": art["band"],
         "shaft_biome": art["id"],
         "shaft_label": art["label"],
+        "d_max": int(d_max) if d_max is not None else None,
     }
 
 
@@ -550,6 +576,7 @@ async def grant_and_sync(
     state = await get_state_for_update(session, player_id)
     gold_now = 0
     xp_now = 0
+    pq_party = None
     from waifu_bot.services.companion_living import (
         card_loyalty,
         list_living_cards,
@@ -569,7 +596,28 @@ async def grant_and_sync(
         companions = await list_companions(session, player_id)
         if not skip_grant and (gold_now or xp_now):
             attribute_party_grant(companions, gold_now, xp_now, cards=living_cards)
-        frame = build_frame(state, companions, now=now, ov_level=int(mw.level or 1) if mw else 1)
+        try:
+            from waifu_bot.services.delve_pq import resolve_pq
+            from waifu_bot.services.game_config_service import get_game_config_map
+
+            cfg = await get_game_config_map(session)
+            pq_party = await resolve_pq(
+                session, state, living_cards, companions, now=now, cfg=cfg
+            )
+        except Exception:
+            logger.exception("delve pq catch-up failed player=%s", player_id)
+        pq_d_max = None
+        if pq_party is not None:
+            from waifu_bot.game.delve_pq import d_max_of, party_power
+
+            pq_d_max = d_max_of(party_power(pq_party.mercs))
+        frame = build_frame(
+            state,
+            companions,
+            now=now,
+            ov_level=int(mw.level or 1) if mw else 1,
+            d_max=pq_d_max,
+        )
         _apply_theater(state, frame, companions)
         if not skip_grant:
             await sync_hidden_counters(session, int(player_id), state, now)
@@ -596,6 +644,7 @@ async def grant_and_sync(
         unlocked=unlocked,
         show_cutover=show_cutover,
         living_cards=living_cards,
+        pq_party=pq_party,
     )
 
 
@@ -612,13 +661,22 @@ async def build_sync_payload(
     unlocked: bool,
     show_cutover: bool = False,
     living_cards: list[m.CompanionCard] | None = None,
+    pq_party: Any = None,
 ) -> dict[str, Any]:
     started = bool(state and state.t_origin)
     ov = int(mw.level or 1) if mw is not None else 1
     cap_g, cap_x = await _caps(session, ov)
+    pq_d_max = None
+    pq_fields: dict[str, Any] = {"pq_enabled": False}
+    if pq_party is not None:
+        from waifu_bot.game.delve_pq import d_max_of, party_power
+        from waifu_bot.services.delve_pq import pq_payload_fields
+
+        pq_d_max = d_max_of(party_power(pq_party.mercs))
+        pq_fields = pq_payload_fields(pq_party)
     frame = None
     if started and state is not None:
-        frame = build_frame(state, companions, now=now, ov_level=ov)
+        frame = build_frame(state, companions, now=now, ov_level=ov, d_max=pq_d_max)
         overlay_flavor_phrase(state, frame, companions)
         frame["record"] = int(state.pb_depth or 0)
         frame["title"] = title_for_record(int(state.pb_depth or 0))
@@ -638,6 +696,11 @@ async def build_sync_payload(
     from waifu_bot.services.companion_living import living_preview_rows
 
     seated = list(living_cards or [])
+    merc_by_slot: dict[int, Any] = {}
+    if pq_party is not None:
+        from waifu_bot.services.delve_pq import merc_public
+
+        merc_by_slot = {int(m.slot): merc_public(m) for m in pq_party.mercs if m.slot}
     return {
         "started": started,
         "unlocked": unlocked,
@@ -660,7 +723,8 @@ async def build_sync_payload(
         "title_id": int(state.title_id or 0) if state else 0,
         "frame": frame,
         "journal": list(state.journal_json or []) if state else [],
-        "companions": [companion_out(c, now=now) for c in companions],
+        "companions": [companion_out(c, now=now, pq=merc_by_slot.get(int(c.slot))) for c in companions],
+        **pq_fields,
         "living_count": len(seated),
         "living_preview": living_preview_rows(seated),
         "sprite_count": int(state.sprite_count or 0) if state else 0,
@@ -775,7 +839,12 @@ async def start_delve(
         await sync_card_to_delve(session, card)
     state.t_origin = now
     state.last_grant_ts = now
+    state.last_pq_ts = now
+    state.run_origin = now
     state.spine_seed = int(player_id) ^ int(now.timestamp())
+    state.pq_seed = int(state.spine_seed)
+    state.pq_last_cycle = 0
+    state.pq_last_d = 0
     state.sprite_count = int(state.sprite_count or 0) + n
     state.pb_depth = 0
     state.committed_palette = seed_palette_id(int(state.spine_seed))
@@ -891,6 +960,21 @@ async def grant_batch(session: AsyncSession, *, limit: int = 200) -> int:
             attribute_party_grant(comps, gold, xp)
             n += 1
         if locked.t_origin is not None:
-            frame = build_frame(locked, comps, now=now, ov_level=int(mw.level or 1) if mw else 1)
+            try:
+                from waifu_bot.services.companion_living import list_living_cards
+                from waifu_bot.services.delve_pq import resolve_pq
+                from waifu_bot.services.game_config_service import get_game_config_map
+                from waifu_bot.game.delve_pq import d_max_of, party_power
+
+                cards = await list_living_cards(session, int(locked.player_id))
+                cfg = await get_game_config_map(session)
+                pq_party = await resolve_pq(session, locked, cards, comps, now=now, cfg=cfg)
+                pq_d_max = d_max_of(party_power(pq_party.mercs)) if pq_party else None
+            except Exception:
+                logger.exception("delve pq batch failed player=%s", locked.player_id)
+                pq_d_max = None
+            frame = build_frame(
+                locked, comps, now=now, ov_level=int(mw.level or 1) if mw else 1, d_max=pq_d_max
+            )
             _apply_theater(locked, frame, comps)
     return n

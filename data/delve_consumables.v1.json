@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "consumables": [
+    {
+      "id": "potion_hp",
+      "name": "Зелье лечения",
+      "effect": "heal_self",
+      "heal_frac": 0.35,
+      "price_per_band": 6,
+      "stack_cap": 10,
+      "party": false
+    },
+    {
+      "id": "salve_party",
+      "name": "Мазь отряда",
+      "effect": "heal_party",
+      "heal_frac": 0.15,
+      "price_per_band": 14,
+      "stack_cap": 5,
+      "party": true
+    }
+  ]
+}

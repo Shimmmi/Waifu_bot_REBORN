@@ -10,13 +10,13 @@
     <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v98" />
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
     <link rel="preload" href="/webapp/assets/fonts/manrope-var.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="stylesheet" href="/webapp/dungeons-redesign.css?v=waifu-webapp-v113" />
+    <link rel="stylesheet" href="/webapp/dungeons-redesign.css?v=waifu-webapp-v114" />
     <script defer src="/webapp/vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
     <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v98" onerror="console.warn('combat island skipped')"></script>
     <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v98" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v112'"></script>
-    <script defer src="/webapp/pages/dungeons.js?v=waifu-webapp-v98"></script>
-    <script defer src="/webapp/pages/delve.js?v=waifu-webapp-v113"></script>
+    <script defer src="/webapp/pages/dungeons.js?v=waifu-webapp-v99"></script>
+    <script defer src="/webapp/pages/delve.js?v=waifu-webapp-v114"></script>
     <style>
       .hp-fill-monster.monster-hp-fill--unknown {
         opacity: 0.35;
@@ -3022,7 +3022,6 @@
           <a class="attic-menu-item" href="./dungeons.html?tab=abyss" role="menuitem">🕳 Бездна</a>
           <a class="attic-menu-item" href="./shop.html?tab=gamble" role="menuitem">🎲 Gamble</a>
           <a class="attic-menu-item" href="./shop.html?tab=smith" role="menuitem">🔨 Кузнец</a>
-          <a class="attic-menu-item" href="./dungeons.html?tab=expedition" role="menuitem">⛏ Экспедиции</a>
           <a class="attic-menu-item" href="./tavern.html?tab=bgm" role="menuitem">🎵 Музыка таверны</a>
           <a class="attic-menu-item" href="#" role="menuitem" onclick="event.preventDefault();(function(){var m=document.getElementById('attic-menu');var b=document.getElementById('attic-menu-btn');if(m)m.hidden=true;if(b)b.setAttribute('aria-expanded','false');WaifuApp.openLibrary();})()">📖 Библиотека</a>
           <a class="attic-menu-item" href="./player.html#settings" role="menuitem">⚙ Настройки</a>
@@ -3619,7 +3618,7 @@
             <div class="bottomsheet-title">Уровень сложности ➕</div>
             <button class="secondary" onclick="WaifuApp.closePlusBottomSheet()">✖</button>
           </div>
-          <p class="muted tiny dungeon-plus-hint">Чем выше уровень — тем сильнее монстры, но лучше награды и шанс редких предметов.</p>
+          <p class="muted tiny dungeon-plus-hint">Чем выше уровень — тем сильнее монстры и больше предметов за прохождение. Сюжетные боссы до +30; дальше сложность растёт без сюжета.</p>
           <div id="plus-options-list" class="plus-options-list"></div>
         </div>
       </div>

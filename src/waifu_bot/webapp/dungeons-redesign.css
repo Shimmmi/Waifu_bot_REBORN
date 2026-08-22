@@ -765,6 +765,23 @@ body.page-dungeons {
   border: 1px solid color-mix(in srgb, var(--accent, #c47a3a) 55%, #fff);
   border-radius: 4px;
 }
+.delve-token-unit { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
+.delve-hp {
+  width: 32px;
+  height: 4px;
+  background: #2a3038;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.delve-sheet-face .delve-hp { width: 120px; height: 6px; margin: 4px 0; }
+.delve-hp > i {
+  display: block;
+  height: 100%;
+  width: var(--hp, 100%);
+  background: #5dce7a;
+}
+.delve-hp.is-low > i { background: #e2b341; }
+.delve-hp.is-crit > i { background: #e25b5b; }
 .delve-face input, .delve-face select, .delve-role-row select { font-size: 12px; }
 .delve-hud { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
 .delve-busts { display: flex; gap: 8px; align-items: flex-start; }

@@ -309,6 +309,12 @@ async def sync_card_to_delve(session: AsyncSession, card: m.CompanionCard) -> No
                 image_path=pixel or None,
                 gold_earned=int(card.gold_earned or 0),
                 xp_earned=int(card.xp_earned or 0),
+                level=int(getattr(card, "level", 1) or 1),
+                xp_unspent=int(getattr(card, "xp_unspent", 0) or 0),
+                gold_wallet=int(getattr(card, "gold_wallet", 0) or 0),
+                power=int(getattr(card, "power", 1) or 1),
+                hp_current=int(getattr(card, "hp_current", 48) or 48),
+                hp_max=int(getattr(card, "hp_max", 48) or 48),
                 joined_at=card.joined_at,
             )
         )
@@ -321,6 +327,12 @@ async def sync_card_to_delve(session: AsyncSession, card: m.CompanionCard) -> No
             existing.image_path = pixel
         existing.gold_earned = max(int(existing.gold_earned or 0), int(card.gold_earned or 0))
         existing.xp_earned = max(int(existing.xp_earned or 0), int(card.xp_earned or 0))
+        existing.level = int(getattr(card, "level", getattr(existing, "level", 1)) or 1)
+        existing.xp_unspent = int(getattr(card, "xp_unspent", 0) or 0)
+        existing.gold_wallet = int(getattr(card, "gold_wallet", 0) or 0)
+        existing.power = int(getattr(card, "power", 1) or 1)
+        existing.hp_current = int(getattr(card, "hp_current", 48) or 48)
+        existing.hp_max = int(getattr(card, "hp_max", 48) or 48)
 
 
 def living_preview_rows(cards: list[m.CompanionCard]) -> list[dict[str, Any]]:
@@ -447,6 +459,12 @@ async def migrate_delve_to_cards(session: AsyncSession, player_id: int, *, now: 
             relations={},
             gold_earned=int(row.gold_earned or 0),
             xp_earned=int(row.xp_earned or 0),
+            level=int(getattr(row, "level", 1) or 1),
+            xp_unspent=int(getattr(row, "xp_unspent", 0) or 0),
+            gold_wallet=int(getattr(row, "gold_wallet", 0) or 0),
+            power=int(getattr(row, "power", 1) or 1),
+            hp_current=int(getattr(row, "hp_current", 48) or 48),
+            hp_max=int(getattr(row, "hp_max", 48) or 48),
             joined_at=row.joined_at or row.created_at or now,
             source_delve_id=int(row.id),
         )
