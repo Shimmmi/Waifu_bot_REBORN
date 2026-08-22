@@ -70,11 +70,13 @@ def test_catalog_has_eighteen_rows():
 
 
 def test_hole_drain_table():
-    assert combat_drain(3, 1) == 9
-    assert combat_drain(8, 1) == 13
-    assert combat_drain(8, 15) == 7
-    assert combat_drain_hole(8, 1) > combat_drain_hole(8, 15) > combat_drain_hole(8, 40)
-    assert boss_drain_hole(10, 1) == 19
+    assert d_max_of(3) == 9
+    assert combat_drain(9, 3) == 5
+    assert combat_drain(18, 3) == 10
+    assert combat_drain_hole(9, 3, 48, d_fair=9) == 5
+    assert combat_drain_hole(18, 3, 48, d_fair=9) == 10
+    assert boss_drain_hole(9, 3, 48, d_fair=9) == 8
+    assert boss_drain_hole(36, 3, 48, d_fair=9) >= 38
 
 
 def test_phrase_has_no_double_name():
@@ -132,7 +134,7 @@ def test_faucet_ignores_node_tick():
 def test_simulate_layer_deterministic_and_drops_hp():
     def run() -> PqParty:
         party = _party(_merc(gold_wallet=0), seed=99)
-        return simulate_pq(party, party.run_origin + timedelta(minutes=8), pb_depth=0)
+        return simulate_pq(party, party.run_origin + timedelta(minutes=6), pb_depth=0)
 
     a = run()
     b = run()
@@ -179,3 +181,46 @@ def test_sixteen_statuses_present():
 
 def test_d_max_still_starts_at_eight():
     assert d_max_of(1) == 8
+
+
+def test_campfire_heals_fraction_not_full():
+    from waifu_bot.game.delve_pq_layer import REST_BASE_FRAC, apply_rest_layer
+
+    assert REST_BASE_FRAC == 0.22
+    merc = _merc(hp_current=10, hp_max=48)
+    party = _party(merc)
+    healed = apply_rest_layer(party)
+    assert party.mercs[0].hp_current < party.mercs[0].hp_max
+    assert 8 <= healed <= 14
+
+
+def test_city_is_not_boss_and_unlocks_checkpoint():
+    from waifu_bot.game.delve_catalog import CITY_DEPTHS, NODE_CITY, spine_type
+    from waifu_bot.game.delve_pq_layer import apply_layer_dump, layer_state_dump, visit_city
+
+    assert spine_type(40, 9) == NODE_CITY
+    assert spine_type(10, 9) == "BOSS"
+    assert CITY_DEPTHS[0] == 15
+    merc = _merc(hp_current=12, hp_max=48, gold_wallet=200)
+    party = _party(merc)
+    event = visit_city(party, 15, band=1)
+    assert party.checkpoint_d == 15
+    assert party.mercs[0].hp_current == 48
+    assert event["kind"] == "city"
+    blob = layer_state_dump(party)
+    other = _party(_merc(card_id=2, name="Сера"))
+    apply_layer_dump(other, blob)
+    assert other.checkpoint_d == 15
+
+
+def test_city_heals_one_trauma():
+    from waifu_bot.game.delve_pq_layer import apply_status, visit_city
+
+    merc = _merc()
+    apply_status(merc, "arm_graze")
+    apply_status(merc, "eye_soot")
+    party = _party(merc)
+    visit_city(party, 15, band=1)
+    leftover = [row.get("id") for row in (party.mercs[0].flesh or [])]
+    assert len(leftover) == 1
+    assert leftover[0] in ("arm_graze", "eye_soot")

@@ -24,6 +24,7 @@ from waifu_bot.game.delve_catalog import (
     T_UP_SEC,
     NODE_BOSS,
     NODE_LABEL_RU,
+    fog_spine_type,
     PALETTES,
     PALETTE_IDS,
     REFORM_CD_DAYS,
@@ -42,6 +43,7 @@ from waifu_bot.game.delve_catalog import (
     gold_rate_per_sec,
     hours_in_column,
     instinct_sleeve,
+    is_city_depth,
     journal_stamps_for_record,
     merge_journal,
     msk_day_start,
@@ -449,17 +451,18 @@ def build_frame(
     pq_layer: int = 1,
     t_eff: int = 30,
     pq_event: dict[str, Any] | None = None,
+    pq_last_d: int | None = None,
 ) -> dict[str, Any]:
     run_origin = getattr(state, "run_origin", None)
     origin = run_origin if isinstance(run_origin, datetime) else None
     origin = origin or state.t_origin or now
     if int(pq_layer) >= 2 and d_max is not None:
-        from waifu_bot.game.delve_pq_layer import sawtooth_layer
+        from waifu_bot.game.delve_pq_layer import walk_frame
 
-        tooth = sawtooth_layer(
-            run_origin=origin,
-            now=now,
-            d_max=int(d_max),
+        walked = int(state.pq_last_d if pq_last_d is None else pq_last_d)
+        tooth = walk_frame(
+            last_d=walked,
+            d_fair=int(d_max),
             t_eff=int(t_eff or 30),
             pb_depth=int(state.pb_depth or 0),
         )
@@ -467,7 +470,12 @@ def build_frame(
         tooth = sawtooth(t_origin=origin, now=now, ov_level=ov_level, d_max=d_max)
     d = int(tooth["d"])
     ceil = float(tooth["d_ceiling"])
-    node = spine_type(d, ceil)
+    pq_seed = None
+    pq_wipe = 0
+    if int(pq_layer) >= 2:
+        pq_seed = int(getattr(state, "pq_seed", 0) or getattr(state, "spine_seed", 0) or 0)
+        pq_wipe = int(getattr(state, "wipe_count", 0) or 0)
+    node = spine_type(d, ceil, seed=pq_seed, wipe_count=pq_wipe)
     palette_id = state.committed_palette if state.committed_palette in PALETTE_IDS else seed_palette_id(int(state.spine_seed or 0))
     tempers = [str(c.temper) for c in companions]
     instinct = instinct_sleeve(tempers)
@@ -481,13 +489,27 @@ def build_frame(
         phrase = phrase_for(node=node, palette_id=palette_id, name=face, spine_seed=int(state.spine_seed or 0), d=d)
     on_branch = node == "BRANCH" and tooth["state"] == "DESCENDING"
     depths = viewport_depths(d)
-    nodes = [{"d": n, "type": spine_type(n, ceil)} for n in depths]
+    walked = int(pq_last_d if pq_last_d is not None else getattr(state, "pq_last_d", 0) or d)
+    if int(pq_layer) >= 2:
+        nodes = [
+            {"d": n, "type": fog_spine_type(n, ceil, last_d=walked, seed=pq_seed, wipe_count=pq_wipe)}
+            for n in depths
+        ]
+        band_nodes = [
+            {"d": n, "type": fog_spine_type(n, ceil, last_d=walked, seed=pq_seed, wipe_count=pq_wipe)}
+            for n in shaft_band_depths(d)
+        ]
+    else:
+        nodes = [{"d": n, "type": spine_type(n, ceil)} for n in depths]
+        band_nodes = [{"d": n, "type": spine_type(n, ceil)} for n in shaft_band_depths(d)]
     rec = max(int(state.pb_depth or 0), int(tooth["implied_record"]))
     boss_in = None
     if tooth["state"] == "DESCENDING" and node != NODE_BOSS:
-        boss_in = max(0, ((d // 10) + 1) * 10 - d)
+        nxt = ((d // 10) + 1) * 10
+        while is_city_depth(nxt) and nxt - d < 50:
+            nxt += 10
+        boss_in = max(0, nxt - d)
     art = shaft_art_for_depth(d)
-    band_nodes = [{"d": n, "type": spine_type(n, ceil)} for n in shaft_band_depths(d)]
     return {
         **tooth,
         "node": node,
@@ -644,6 +666,7 @@ async def grant_and_sync(
             pq_layer=pq_layer,
             t_eff=t_eff,
             pq_event=getattr(pq_party, "last_event", None) if pq_party is not None else None,
+            pq_last_d=int(pq_party.last_d) if pq_party is not None else None,
         )
         _apply_theater(state, frame, companions)
         if not skip_grant:
@@ -717,6 +740,7 @@ async def build_sync_payload(
             pq_layer=pq_layer,
             t_eff=t_eff,
             pq_event=getattr(pq_party, "last_event", None) if pq_party is not None else None,
+            pq_last_d=int(pq_party.last_d) if pq_party is not None else None,
         )
         if not (pq_layer >= 2 and frame.get("event") and frame.get("event", {}).get("phrase")):
             overlay_flavor_phrase(state, frame, companions)
@@ -1012,11 +1036,23 @@ async def grant_batch(session: AsyncSession, *, limit: int = 200) -> int:
                 cfg = await get_game_config_map(session)
                 pq_party = await resolve_pq(session, locked, cards, comps, now=now, cfg=cfg)
                 pq_d_max = d_max_of(party_power(pq_party.mercs)) if pq_party else None
+                pq_layer = int(getattr(pq_party, "layer", 2) or 2) if pq_party else 1
+                t_eff = int(getattr(pq_party, "t_eff", 30) or 30) if pq_party else 30
             except Exception:
                 logger.exception("delve pq batch failed player=%s", locked.player_id)
                 pq_d_max = None
+                pq_layer = 1
+                t_eff = 30
+                pq_party = None
             frame = build_frame(
-                locked, comps, now=now, ov_level=int(mw.level or 1) if mw else 1, d_max=pq_d_max
+                locked,
+                comps,
+                now=now,
+                ov_level=int(mw.level or 1) if mw else 1,
+                d_max=pq_d_max,
+                pq_layer=pq_layer,
+                t_eff=t_eff,
+                pq_last_d=int(pq_party.last_d) if pq_party is not None else None,
             )
             _apply_theater(locked, frame, comps)
     return n

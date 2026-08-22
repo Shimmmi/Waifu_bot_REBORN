@@ -19,6 +19,7 @@ from waifu_bot.game.delve_catalog import (
     PHRASES,
     SOLO_XP_DAY_K,
     d_ceiling,
+    fog_spine_type,
     frame_kicker,
     gold_cap_day,
     gold_rate_per_sec,
@@ -179,8 +180,29 @@ def test_titles_zero_power_thresholds():
 def test_spine_boss_every_ten():
     assert spine_type(0, 40) == "SURFACE"
     assert spine_type(10, 40) == "BOSS"
+    assert spine_type(40, 40) == "CITY"
+    assert spine_type(15, 40) == "CITY"
     assert spine_type(5, 40) == "BRANCH"
     assert spine_type(7, 40) == "LANDMARK"
+
+
+def test_roguelike_spine_keeps_boss_city_and_rerolls_specials():
+    assert spine_type(10, 9, seed=11, wipe_count=0) == "BOSS"
+    assert spine_type(40, 9, seed=11, wipe_count=0) == "CITY"
+    assert spine_type(15, 9, seed=11, wipe_count=0) == "CITY"
+    row = [spine_type(d, 9, seed=11, wipe_count=0) for d in range(1, 10)]
+    assert row.count("REST") == 2
+    assert row.count("SHOP") == 1
+    assert row == [spine_type(d, 9, seed=11, wipe_count=0) for d in range(1, 10)]
+    other = [spine_type(d, 9, seed=11, wipe_count=1) for d in range(1, 10)]
+    third = [spine_type(d, 9, seed=99, wipe_count=0) for d in range(1, 10)]
+    assert row != other or row != third
+    ahead = [d for d in range(13, 20) if spine_type(d, 9, seed=11, wipe_count=0) in {"REST", "SHOP", "LANDMARK"}]
+    assert ahead
+    assert fog_spine_type(ahead[0], 9, last_d=12, seed=11, wipe_count=0) == "UNKNOWN"
+    assert fog_spine_type(20, 9, last_d=12, seed=11, wipe_count=0) == "BOSS"
+    assert fog_spine_type(15, 9, last_d=12, seed=11, wipe_count=0) == "CITY"
+    assert fog_spine_type(ahead[0], 9, last_d=ahead[0], seed=11, wipe_count=0) != "UNKNOWN"
 
 
 def test_no_node_history_loop_helper():

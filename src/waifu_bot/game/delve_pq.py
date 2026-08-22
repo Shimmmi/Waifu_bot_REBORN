@@ -222,6 +222,7 @@ class PqParty:
     recent_events: list[dict[str, Any]] = field(default_factory=list)
     nodes_seen: int = 0
     walk_ts: datetime | None = None
+    checkpoint_d: int = 0
 
 
 def _aware(dt: datetime) -> datetime:
@@ -329,7 +330,7 @@ D_MAX_QUAD = 0.0038
 
 
 def d_max_of(party_power: int) -> int:
-    """Ceiling from raw party power. Trio targets: 100/7.5d, 500/32d, 3000/95d."""
+    """Comfort depth from raw party power. Trio targets: 100/7.5d, 500/32d, 3000/95d."""
     p = max(0.0, float(party_power))
     return max(1, int(math.floor(D_MAX_BASE + D_MAX_LIN * p + D_MAX_QUAD * p * p)))
 
@@ -903,20 +904,27 @@ def all_down(mercs: list[MercState]) -> bool:
     return not living
 
 
-def do_wipe(party: PqParty, *, now: datetime, depth: int) -> None:
+def do_wipe(party: PqParty, *, now: datetime, depth: int, band: int = 1) -> None:
     party.wipe_count += 1
     party.run_origin = _aware(now)
     party.last_cycle = 0
-    party.last_d = 0
+    checkpoint = int(getattr(party, "checkpoint_d", 0) or 0)
+    party.last_d = checkpoint
     party.walk_ts = _aware(now)
-    party.wipe_log.append({"kind": "wipe", "d": int(depth), "n": party.wipe_count})
+    party.wipe_log.append({"kind": "wipe", "d": int(depth), "n": party.wipe_count, "at": checkpoint})
     for merc in party.mercs:
         refresh_derived(merc)
         merc.hp_current = int(merc.hp_max)
-    if int(getattr(party, "layer", 2) or 2) >= 2:
-        from waifu_bot.game.delve_pq_layer import city_return
+    if int(getattr(party, "layer", 2) or 2) < 2:
+        return
+    if checkpoint > 0:
+        from waifu_bot.game.delve_pq_layer import remember_event, visit_city
 
-        city_return(party)
+        remember_event(party, visit_city(party, checkpoint, band=max(1, int(band))))
+        return
+    from waifu_bot.game.delve_pq_layer import city_return
+
+    city_return(party)
 
 
 def grant_merc_faucet(party: PqParty, *, now: datetime, band: int) -> tuple[int, int]:
@@ -1023,8 +1031,6 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
         t_eff = None
         if layer >= 2:
             from waifu_bot.game.delve_pq_layer import (
-                apply_rest_layer,
-                city_return,
                 period_parts_layer,
                 remember_event,
                 resolve_layer_node,
@@ -1033,44 +1039,19 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
 
             t_eff = t_eff_of(party.mercs, t_node=int(party.t_node or 30), depth=int(party.last_d or 0), d_max=floor_ceil)
             party.t_eff = t_eff
-            _t_down, t_up, t_rest = period_parts_layer(floor_ceil, t_eff)
+            _t_down, _t_up, t_rest = period_parts_layer(floor_ceil, t_eff)
             tick = max(1, int(t_eff))
-            if party.last_d >= floor_ceil:
-                ready = party.walk_ts + timedelta(seconds=float(t_up + t_rest))
-                if ready > now:
-                    break
-                healed = apply_rest_layer(party)
-                city_return(party)
-                auto_use_potions(party.mercs)
-                who = party.mercs[0].name if party.mercs else "Она"
-                remember_event(
-                    party,
-                    {
-                        "id": "surface_rest",
-                        "kind": "surface",
-                        "kind_ru": "Лагерь",
-                        "d": 0,
-                        "phrase": f"[Лагерь] Глубина 0 · {who} сидит у стола (+{healed} HP)",
-                        "who": who,
-                        "hp_delta": -healed,
-                        "from_llm": False,
-                    },
-                )
-                party.last_cycle = party.last_cycle + 1
-                party.last_d = 0
-                party.walk_ts = ready
-                continue
             nxt_t = party.walk_ts + timedelta(seconds=tick)
             if nxt_t > now:
                 break
             party.walk_ts = nxt_t
             nxt = party.last_d + 1
             party.last_d = nxt
-            node = spine_type(nxt, ceil)
+            node = spine_type(nxt, ceil, seed=party.seed, wipe_count=int(party.wipe_count or 0))
             event = resolve_layer_node(party, nxt, node, band=band)
             remember_event(party, event)
             if all_down(party.mercs):
-                do_wipe(party, now=party.walk_ts, depth=nxt)
+                do_wipe(party, now=party.walk_ts, depth=nxt, band=band)
                 party.walk_ts = party.walk_ts + timedelta(seconds=t_rest)
                 wipes += 1
             continue

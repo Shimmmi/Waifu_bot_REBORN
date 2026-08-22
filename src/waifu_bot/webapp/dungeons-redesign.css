@@ -773,7 +773,7 @@ body.page-dungeons {
   border-radius: 2px;
   overflow: hidden;
 }
-.delve-sheet-face .delve-hp { width: 120px; height: 6px; margin: 4px 0; }
+.delve-sheet-face .delve-hp { width: auto; flex: 1; height: 5px; margin: 0; }
 .delve-hp > i {
   display: block;
   height: 100%;
@@ -939,17 +939,145 @@ body.page-dungeons {
   cursor: pointer;
 }
 .delve-sleeve.is-instinct { background: color-mix(in srgb, var(--accent) 22%, #e8d5b5); }
-.delve-sheet { margin-top: 10px; font-size: 13px; opacity: .9; }
-.delve-sheet-stats { display: grid; gap: 4px; margin-bottom: 8px; }
-.delve-sheet-faces { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
-.delve-sheet-face { display: flex; gap: 10px; align-items: flex-start; }
-.delve-sheet-face-col { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
-.delve-slot-grid {
+.delve-sheet { margin-top: 0; font-size: 13px; opacity: .9; }
+.delve-sheet-stats {
   display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+.delve-sheet-stat {
+  min-width: 0;
+  min-height: 51px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 7px;
+  border: 1px solid #3d3025;
+  border-radius: 8px;
+  background: rgba(20, 16, 13, .42);
+}
+.delve-sheet-stat > div { min-width: 0; }
+.delve-sheet-stat-icon {
+  width: 27px;
+  height: 27px;
+  flex: 0 0 27px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+}
+.delve-sheet-stat-icon--xp {
+  border: 1px solid #5f9b45;
+  color: #78c95c;
+  font-size: 9px;
+  font-weight: 800;
+}
+.delve-sheet-stat-label {
+  display: block;
+  margin-bottom: 2px;
+  color: #a99b89;
+  font-size: 9px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.delve-sheet-stat strong {
+  display: block;
+  color: #f3eadc;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.delve-sheet-stat em {
+  color: #54d47c;
+  font-style: normal;
+  font-size: 9px;
+}
+.delve-sheet-faces { display: flex; flex-direction: column; gap: 5px; margin: 0; }
+.delve-sheet-face {
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid #3d3025;
+  border-radius: 9px;
+  background: rgba(19, 15, 12, .40);
+}
+.delve-sheet-face-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.delve-sheet-face-main { flex: 1; min-width: 0; }
+.delve-sheet-name-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.delve-sheet-name-row strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: #f4e7cf;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.delve-sheet-equip {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border: 1px solid #493a2d;
+  border-radius: 5px;
+  background: #17130f;
+  color: #a99b89;
+  font-size: 8px;
+  cursor: pointer;
+}
+.delve-sheet-face.is-equip-open .delve-sheet-equip {
+  color: #f4e7cf;
+  border-color: #8a5a32;
+}
+.delve-sheet-meta {
+  margin-top: 2px;
+  color: #a99b89;
+  font-size: 8.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.delve-sheet-hp {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+}
+.delve-sheet-hp-pct {
+  color: #a99b89;
+  font-size: 7px;
+  width: 24px;
+  flex: 0 0 24px;
+  text-align: right;
+}
+.delve-sheet-bag,
+.delve-sheet-trauma {
+  margin-top: 3px;
+  color: #9d907f;
+  font-size: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.delve-slot-grid {
+  display: none;
   grid-template-columns: repeat(3, 1fr);
   gap: 3px;
-  width: 120px;
+  width: 100%;
 }
+.delve-sheet-face.is-equip-open .delve-slot-grid { display: grid; }
 .delve-slot {
   aspect-ratio: 1;
   min-height: 28px;
@@ -961,11 +1089,26 @@ body.page-dungeons {
   justify-content: center;
   opacity: .4;
   line-height: 1;
+  overflow: hidden;
 }
-.delve-slot i { font-style: normal; font-size: 11px; }
-.delve-slot b { font-size: 10px; font-weight: 700; margin-top: 1px; }
+.delve-slot i { font-style: normal; font-size: 12px; line-height: 1.2; }
+.delve-slot-name {
+  display: block;
+  width: 100%;
+  padding: 1px 2px 2px;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1.15;
+  font-weight: 600;
+}
+.delve-slot-name span { display: block; }
 .delve-slot.is-on {
   opacity: 1;
+  aspect-ratio: auto;
+  min-height: 72px;
+  justify-content: flex-start;
+  padding-top: 4px;
+  overflow: visible;
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
@@ -974,22 +1117,27 @@ body.page-dungeons {
 .delve-status-modal {
   position: fixed;
   inset: 0;
+  height: min(100dvh, var(--tg-vh, 100dvh));
   background: rgba(0, 0, 0, .75);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1100;
-  padding: 16px;
+  padding: 8px;
+  overflow: hidden;
 }
 .delve-status-modal-card {
+  display: flex;
+  flex-direction: column;
   background: #1c1814;
   color: #f3e6c8;
   border: 1px solid #8a5a32;
   border-radius: 10px;
+  width: min(440px, 100%);
   max-width: min(440px, 92vw);
-  max-height: 86vh;
-  overflow-y: auto;
-  padding: 16px 18px 18px;
+  max-height: calc(100% - 16px);
+  overflow: hidden;
+  padding: 12px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
 }
 .delve-status-modal-head {
@@ -997,9 +1145,11 @@ body.page-dungeons {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  min-height: 32px;
+  margin-bottom: 9px;
+  flex-shrink: 0;
 }
-.delve-status-modal-title { font-weight: 700; font-size: 16px; }
+.delve-status-modal-title { font-weight: 700; font-size: 16px; line-height: 1; }
 .delve-status-modal-close {
   background: transparent;
   border: none;
@@ -1009,7 +1159,45 @@ body.page-dungeons {
   cursor: pointer;
   padding: 0 4px;
 }
+.delve-status-modal-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.delve-status-modal-body:has(.delve-sheet-face.is-equip-open) { overflow-y: auto; }
 .delve-status-modal .delve-sheet { margin-top: 0; opacity: 1; }
+.delve-status-modal .delve-bust {
+  width: 58px;
+  height: 58px;
+  flex: 0 0 58px;
+}
+@media (max-height: 559px) {
+  .delve-status-modal-body { overflow-y: auto; }
+}
+@media (max-height: 760px) {
+  .delve-status-modal-card { padding: 9px; }
+  .delve-status-modal-head { min-height: 27px; margin-bottom: 5px; }
+  .delve-status-modal-title { font-size: 15px; }
+  .delve-sheet-stats { gap: 4px; margin-bottom: 4px; }
+  .delve-sheet-stat { min-height: 43px; padding: 5px 6px; }
+  .delve-sheet-faces { gap: 4px; }
+  .delve-sheet-face { min-height: 65px; padding: 5px; }
+  .delve-status-modal .delve-bust {
+    width: 50px;
+    height: 50px;
+    flex-basis: 50px;
+  }
+}
+@media (max-width: 360px) {
+  .delve-status-modal .delve-bust {
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
+  }
+  .delve-sheet-stat-label { font-size: 8px; }
+  .delve-sheet-stat strong { font-size: 9px; }
+}
 .delve-legacy { font-size: 13px; margin-bottom: 8px; opacity: .85; }
 .delve-role-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .attic-chr-label { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }

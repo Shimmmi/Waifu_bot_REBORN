@@ -22,6 +22,8 @@
     LANDMARK: "Метка · {place}",
     REST: "Привал · {place}",
     SHOP: "Лавка · {place}",
+    CITY: "Город · {place}",
+    UNKNOWN: "?",
     SURFACE: "Лагерь",
   };
   let state = null;
@@ -42,7 +44,10 @@
     LANDMARK: "Метка",
     REST: "Костёр",
     SHOP: "Лавка",
+    CITY: "Город",
+    UNKNOWN: "?",
   };
+  const CITY_DEPTHS = [15, 40, 80, 150, 250, 400, 650, 1000, 1500, 2500];
 
   function esc(s) {
     return (global.escapeHtml || ((x) => String(x)))(s == null ? "" : String(s));
@@ -84,6 +89,12 @@
     const pct = Math.max(0, Math.min(100, Math.round((100 * c) / m)));
     const tone = pct <= 25 ? "is-crit" : pct <= 40 ? "is-low" : "";
     return `<div class="delve-hp ${tone}" style="--hp:${pct}%" title="${esc(fmtNum(c))} / ${esc(fmtNum(m))}"><i></i></div>`;
+  }
+
+  function hpPct(cur, max) {
+    const m = Math.max(1, Number(max) || 1);
+    const c = Math.max(0, Number(cur) || 0);
+    return Math.max(0, Math.min(100, Math.round((100 * c) / m)));
   }
 
   function daysLabel(days) {
@@ -135,6 +146,39 @@
 
   function clientFrame(nowMs) {
     if (!state || !state.started || !state.t_origin) return state && state.frame;
+    if (layerOn()) {
+      const server = state.frame || {};
+      const lastD = Number(state.last_d);
+      const d = Number.isFinite(lastD) ? Math.max(0, Math.floor(lastD)) : Math.max(0, Math.floor(Number(server.d) || 0));
+      const dMax = Number(state.d_max);
+      const ceil = Number.isFinite(dMax) && dMax > 0 ? dMax : Number(server.d_ceiling) || 8;
+      const node = knownType(d) || server.node || "COMBAT";
+      const st = d <= 0 ? "SURFACE_REST" : "DESCENDING";
+      const u = ceil > 0 ? d / ceil : 0;
+      let status = copy("camp", "Лагерь · сами пойдут");
+      if (st === "DESCENDING") {
+        status = u < 0.35 ? "Спуск · несут" : u < 1 ? "Спуск · вровень" : "Спуск · тяжело";
+      }
+      const rec = Math.max(Number(server.record || 0), Number(state.pb_depth || 0), d);
+      let boss_in = null;
+      if (st === "DESCENDING" && node !== "BOSS") {
+        let nxt = (Math.floor(d / 10) + 1) * 10;
+        while (CITY_DEPTHS.indexOf(nxt) >= 0 && nxt - d < 50) nxt += 10;
+        boss_in = Math.max(0, nxt - d);
+      }
+      return Object.assign({}, server, {
+        depth: d,
+        d,
+        state: st,
+        status,
+        d_ceiling: ceil,
+        record: rec,
+        node,
+        on_branch: node === "BRANCH" && st === "DESCENDING",
+        boss_in,
+        kicker: kickerFor(node, server.palette_id),
+      });
+    }
     const k = (state.constants) || {};
     const D0 = Number(k.D0) || 24;
     const alpha = Number(k.alpha) || 0.42;
@@ -214,15 +258,27 @@
     return LANDMARKS.indexOf(n % 100) >= 0;
   }
 
-  function spineType(d, ceil) {
+  function knownType(d) {
     const n = Math.floor(Number(d) || 0);
     if (n <= 0) return "SURFACE";
+    if (CITY_DEPTHS.indexOf(n) >= 0) return "CITY";
     if (n % 10 === 0) return "BOSS";
+    return "";
+  }
+
+  function fogSpecial(type) {
+    return type === "REST" || type === "SHOP" || type === "LANDMARK";
+  }
+
+  function spineType(d, ceil) {
+    const n = Math.floor(Number(d) || 0);
+    const fixed = knownType(n);
+    if (fixed) return fixed;
+    if (layerOn()) return "COMBAT";
     if (n % 5 === 0) return "BRANCH";
     if (isLandmark(n)) return "LANDMARK";
     if (n % 8 === 6) return "REST";
     if (n % 12 === 4) return "SHOP";
-    if (layerOn()) return "COMBAT";
     if (ceil > 0 && n < 0.35 * ceil) return "TRAVERSE";
     return "COMBAT";
   }
@@ -276,6 +332,8 @@
       LANDMARK: "◆",
       REST: "▲",
       SHOP: "□",
+      CITY: "▣",
+      UNKNOWN: "?",
       TRAVERSE: "·",
       COMBAT: "✕",
     };
@@ -309,6 +367,7 @@
 
   function nodeCaption(n, hereD) {
     const here = Number(n.d) === hereD;
+    if (n.type === "UNKNOWN") return here ? String(hereD) : "?";
     const special = SPECIAL_NODE_RU[n.type] || "";
     if (here && special) return `${hereD} · ${special}`;
     if (here) return String(hereD);
@@ -359,6 +418,7 @@
   function bandNodesFor(frame, d) {
     const here = Math.max(0, Math.floor(Number(d) || 0));
     const ceil = Number((frame && frame.d_ceiling) || 0);
+    const lastD = layerOn() ? Math.max(0, Math.floor(Number(state && state.last_d) || here)) : here;
     const lookup = {};
     []
       .concat((frame && frame.band_nodes) || [])
@@ -367,11 +427,21 @@
         lookup[Number(n.d)] = n.type;
       });
     const ev = state && state.event;
-    return shaftBandDepths(here).map((nd) => ({
-      d: nd,
-      type: lookup[nd] || spineType(nd, ceil),
-      kind: ev && Number(ev.d) === nd ? ev.kind : "",
-    }));
+    return shaftBandDepths(here).map((nd) => {
+      let type = lookup[nd];
+      if (!type) {
+        const fixed = knownType(nd);
+        if (fixed) type = fixed;
+        else if (layerOn() && nd > lastD) type = "UNKNOWN";
+        else type = spineType(nd, ceil);
+      }
+      if (layerOn() && nd > lastD && fogSpecial(type)) type = "UNKNOWN";
+      return {
+        d: nd,
+        type,
+        kind: ev && Number(ev.d) === nd ? ev.kind : "",
+      };
+    });
   }
 
   function phraseHtml(text) {
@@ -413,6 +483,7 @@
     const rec = hudRecord(frame);
     const cur = Number((frame && frame.d) || 0);
     const hereD = cur <= 0 ? 1 : cur;
+    const lastD = layerOn() ? Math.max(0, Math.floor(Number(state && state.last_d) || hereD)) : rec;
     const tokenN = Number((frame && frame.token_n) || (state && state.companions && state.companions.length) || 1);
     const faces = ((state && state.companions) || []).slice(0, tokenN);
     const tokenHtml = faces
@@ -425,7 +496,7 @@
     const list = nodes
       .map((n) => {
         const here = Number(n.d) === hereD;
-        const seen = Number(n.d) <= rec;
+        const seen = Number(n.d) <= lastD;
         const loc = nodeCaption(n, hereD);
         const locHtml = loc ? `<span class="delve-node-loc">${esc(loc)}</span>` : "";
         const token = here
@@ -479,17 +550,6 @@
     </div>`;
   }
 
-  function stampLabel(j) {
-    const pal = paletteById(j.palette);
-    const d = Number(j.d || 0);
-    if (j.kind === "shop") return `Лавка на ${d}`;
-    if (j.kind === "landmark") return `Метка на ${d}`;
-    if (j.kind === "sryv") return `Срыв на ${d}`;
-    if (j.kind === "wipe") return `Срыв спуска на ${d}`;
-    if (j.kind === "palette") return pal.label || "Палитра";
-    return String(j.kind || "");
-  }
-
   const SLOT_GLYPH = { 1: "⚔", 2: "🛡", 3: "▣", 4: "○", 5: "○", 6: "◊" };
 
   function slotGridHtml(gear) {
@@ -504,11 +564,25 @@
         const g = by[s];
         const on = Boolean(g && (g.display_name || g.name));
         const title = on ? String(g.display_name || `${g.name || ""} +${g.enchant_level || 0}`).trim() : "";
-        const plus = on ? (Number(g.enchant_level) > 0 ? `+${Number(g.enchant_level)}` : "·") : "";
-        return `<span class="delve-slot${on ? " is-on" : ""}" title="${esc(title)}"><i>${SLOT_GLYPH[s]}</i>${plus ? `<b>${esc(plus)}</b>` : ""}</span>`;
+        const glyph = SLOT_GLYPH[s];
+        if (!on) {
+          return `<span class="delve-slot" title=""><i>${glyph}</i></span>`;
+        }
+        const words = title.split(/\s+/).filter(Boolean).map((w) => `<span>${esc(w)}</span>`).join("");
+        return `<span class="delve-slot is-on" title="${esc(title)}"><i>${glyph}</i><span class="delve-slot-name">${words}</span></span>`;
       })
       .join("");
     return `<div class="delve-slot-grid" aria-label="экип">${cells}</div>`;
+  }
+
+  function sheetStat(icon, label, valueHtml, iconExtra) {
+    return `<div class="delve-sheet-stat">
+      <span class="delve-sheet-stat-icon${iconExtra ? ` ${iconExtra}` : ""}" aria-hidden="true">${icon}</span>
+      <div>
+        <span class="delve-sheet-stat-label">${esc(label)}</span>
+        <strong>${valueHtml}</strong>
+      </div>
+    </div>`;
   }
 
   function renderSheet() {
@@ -519,58 +593,59 @@
         const src = faceSrc(c);
         const gear = Array.isArray(c.gear) ? c.gear : [];
         const bag = Array.isArray(c.bag) ? c.bag : [];
-        const bagLine = bag.map((b) => `${b.name} ×${b.qty}`).join(" · ");
+        const bagLine = bag.length
+          ? bag.map((b) => `${b.name} ×${b.qty}`).join(" · ")
+          : "без расходников";
         const trauma = Array.isArray(c.trauma) ? c.trauma : [];
         const traumaLine = trauma
-          .slice(0, 2)
+          .slice(0, 1)
           .map((t) => `${t.name_ru || ""} · ${t.tail || ""}`.trim())
           .filter(Boolean)
-          .join(" · ");
+          .join("");
+        const pct = hpPct(c.hp_current, c.hp_max);
+        const equipBtn = state.pq_enabled
+          ? `<button type="button" class="delve-sheet-equip" aria-expanded="false">Экип.</button>`
+          : "";
         const pq = state.pq_enabled
-          ? `<div class="muted tiny">${esc(copy("pq_level", "Уровень"))} ${esc(fmtNum(c.level))} · ${esc(copy("pq_power", "Сила"))} ${esc(fmtNum(c.power))} · ${esc(copy("pq_wallet", "золото"))}: ${esc(fmtNum(c.gold_wallet))}</div>
-             ${hpBar(c.hp_current, c.hp_max)}
-             ${traumaLine ? `<div class="muted tiny">${esc(traumaLine)}</div>` : ""}
-             <div class="muted tiny">${esc(bagLine || "без расходников")}</div>`
-          : `<div class="muted tiny">${esc(fmtNum(c.gold_earned))} зол. · ${esc(fmtNum(c.xp_earned))} опыта · ${esc(daysLabel(c.days))}</div>`;
+          ? `<div class="delve-sheet-meta">Ур. ${esc(fmtNum(c.level))} · ${esc(copy("pq_power", "Сила"))} ${esc(fmtNum(c.power))} · 🪙 ${esc(fmtNum(c.gold_wallet))}</div>
+             <div class="delve-sheet-hp">${hpBar(c.hp_current, c.hp_max)}<span class="delve-sheet-hp-pct">${pct}%</span></div>
+             ${traumaLine ? `<div class="delve-sheet-trauma">${esc(traumaLine)}</div>` : ""}
+             <div class="delve-sheet-bag">${esc(bagLine)}</div>`
+          : `<div class="delve-sheet-meta">${esc(fmtNum(c.gold_earned))} зол. · ${esc(fmtNum(c.xp_earned))} опыта · ${esc(daysLabel(c.days))}</div>`;
         return `<div class="delve-sheet-face">
-          <div class="delve-sheet-face-col">
+          <div class="delve-sheet-face-row">
             <img class="delve-bust" src="${esc(src)}" alt="${esc(c.name || "")}" width="56" height="56" />
-            ${state.pq_enabled ? slotGridHtml(gear) : ""}
+            <div class="delve-sheet-face-main">
+              <div class="delve-sheet-name-row">
+                <strong title="${esc(c.name || "")}">${esc(c.name || "")}</strong>
+                ${equipBtn}
+              </div>
+              ${pq}
+            </div>
           </div>
-          <div>
-            <strong title="${esc(c.name || "")}">${esc(c.name || "")}</strong>
-            ${pq}
-          </div>
+          ${state.pq_enabled ? slotGridHtml(gear) : ""}
         </div>`;
       })
       .join("");
-    const journal = Array.isArray(state.journal) ? state.journal : [];
-    const stamps = journal
-      .slice(0, 40)
-      .map((j) => {
-        const p = paletteById(j.palette);
-        const label = stampLabel(j);
-        return `<span class="delve-stamp" title="${esc(label)}" style="--accent:${esc(p.accent)}">${esc(label)}</span>`;
-      })
-      .join("");
+    const goldVal = `${esc(fmtNum(state.gold_today))} / ${esc(fmtNum(state.gold_cap_day))} <em>(${esc(String(state.floor_gold_pct || 0))}%)</em>`;
+    const xpVal = `${esc(fmtNum(state.xp_today))} / ${esc(fmtNum(state.xp_cap_day))} <em>(${esc(String(state.floor_xp_pct || 0))}%)</em>`;
+    const cityD = Number(state.checkpoint_d || 0);
+    const cityLabel = cityD > 0 ? `${esc(fmtNum(cityD))}` : esc(copy("pq_no_city", "нет города"));
+    const fourth = state.pq_enabled
+      ? sheetStat(
+          "⚔",
+          copy("pq_party", "Сила отряда"),
+          `${esc(fmtNum(state.party_power))} · ${esc(copy("pq_dmax", "комфорт"))} ${esc(fmtNum(state.d_max))} · ${esc(copy("pq_city", "город"))} ${cityLabel} · wipe ${esc(fmtNum(state.wipe_count))}`
+        )
+      : sheetStat("🪙", copy("gold_party", "Золото отряда"), esc(fmtNum(state.gold_granted_total)));
     return `<div class="delve-sheet">
       <div class="delve-sheet-stats">
-        <div>${esc(copy("gold_today", "Сегодня золота"))}: ${esc(fmtNum(state.gold_today))} / ${esc(fmtNum(state.gold_cap_day))} (${esc(String(state.floor_gold_pct || 0))}%)</div>
-        <div>${esc(copy("xp_today", "Сегодня опыта"))}: ${esc(fmtNum(state.xp_today))} / ${esc(fmtNum(state.xp_cap_day))} (${esc(String(state.floor_xp_pct || 0))}%)</div>
-        ${
-          state.pq_enabled
-            ? ""
-            : `<div>${esc(copy("gold_party", "Золото отряда"))}: ${esc(fmtNum(state.gold_granted_total))}</div>`
-        }
-        <div>${esc(copy("xp_party", "Опыт отряда"))}: ${esc(fmtNum(state.xp_granted_total))}</div>
-        ${
-          state.pq_enabled
-            ? `<div>${esc(copy("pq_party", "Сила отряда"))}: ${esc(fmtNum(state.party_power))} · ${esc(copy("pq_dmax", "Потолок"))} ${esc(fmtNum(state.d_max))} · wipe ${esc(fmtNum(state.wipe_count))}</div>`
-            : ""
-        }
+        ${sheetStat("🪙", "Золото", goldVal)}
+        ${sheetStat("XP", "Опыт", xpVal, "delve-sheet-stat-icon--xp")}
+        ${sheetStat("✦", copy("xp_party", "Опыт отряда"), esc(fmtNum(state.xp_granted_total)))}
+        ${fourth}
       </div>
       <div class="delve-sheet-faces">${faces}</div>
-      <div class="delve-stamps">${stamps || "Пока пусто."}</div>
     </div>`;
   }
 
@@ -829,7 +904,16 @@
         <div class="delve-status-modal-body">${renderSheet()}</div>
       </div>`;
     wrap.addEventListener("click", (e) => {
-      if (e.target === wrap) closeStatusModal();
+      if (e.target === wrap) {
+        closeStatusModal();
+        return;
+      }
+      const equipBtn = e.target.closest(".delve-sheet-equip");
+      if (!equipBtn || !wrap.contains(equipBtn)) return;
+      const card = equipBtn.closest(".delve-sheet-face");
+      if (!card) return;
+      const open = card.classList.toggle("is-equip-open");
+      equipBtn.setAttribute("aria-expanded", open ? "true" : "false");
     });
     const closeBtn = wrap.querySelector(".delve-status-modal-close");
     if (closeBtn) closeBtn.addEventListener("click", closeStatusModal);

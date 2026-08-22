@@ -14,6 +14,7 @@ from waifu_bot.game.delve_catalog import (
     HUD_STATUS,
     NODE_BOSS,
     NODE_BRANCH,
+    NODE_CITY,
     NODE_COMBAT,
     NODE_LANDMARK,
     NODE_REST,
@@ -24,7 +25,9 @@ from waifu_bot.game.delve_catalog import (
     STATE_DESCENDING,
     STATE_REST,
     T_UP_SEC,
+    city_name_ru,
     implied_record,
+    is_city_depth,
     split_weighted,
 )
 from waifu_bot.game.delve_pq import (
@@ -48,10 +51,13 @@ T_EFF_MAX = 50
 ARMOR_K = 1.2
 COMBAT_FLOOR = 3
 BOSS_FLOOR = 6
-COMBAT_CAP_FRAC = 0.28
-BOSS_CAP_FRAC = 0.40
-REST_BASE_FRAC = 1.00
-REST_CAP_FRAC = 1.00
+DRAIN_BASE_FRAC = 0.10
+DRAIN_LAMBDA = 2.0
+BOSS_FRAC_MULT = 1.6
+COMBAT_CAP_FRAC = 0.85
+BOSS_CAP_FRAC = 0.90
+REST_BASE_FRAC = 0.22
+REST_CAP_FRAC = 0.28
 HEALER_CLASS_ID = 6
 HEALER_AURA = 0.10
 
@@ -71,6 +77,7 @@ KIND_LABEL_RU = {
     "boss": "Босс",
     "rest": "Костёр",
     "shop": "Лавка",
+    "city": "Город",
     "branch": "Вилка",
     "landmark": "Метка",
     "surface": "Лагерь",
@@ -263,18 +270,33 @@ def hole(depth: int, party_power_eff: float) -> float:
     return threat / (threat + ARMOR_K * armor)
 
 
-def combat_drain_hole(depth: int, party_power_eff: float, hp_ref: int = 48) -> int:
-    threat = max(1, int(depth))
-    raw = 3 + (6 + 0.70 * threat) * hole(threat, party_power_eff)
-    cap = max(COMBAT_FLOOR, int(math.floor(COMBAT_CAP_FRAC * max(1, int(hp_ref)))))
-    return int(_clip(_half_up(raw), COMBAT_FLOOR, cap))
+def overage_g(depth: int, d_fair: int) -> float:
+    fair = max(1, int(d_fair))
+    return max(0.0, float(max(0, int(depth))) / float(fair) - 1.0)
 
 
-def boss_drain_hole(depth: int, party_power_eff: float, hp_ref: int = 48) -> int:
-    threat = max(1, int(depth))
-    raw = 6 + (10 + 1.0 * threat) * hole(threat, party_power_eff)
-    cap = max(BOSS_FLOOR, int(math.floor(BOSS_CAP_FRAC * max(1, int(hp_ref)))))
-    return int(_clip(_half_up(raw), BOSS_FLOOR, cap))
+def drain_frac(depth: int, d_fair: int) -> float:
+    return DRAIN_BASE_FRAC * (DRAIN_LAMBDA ** overage_g(depth, d_fair))
+
+
+def _clip_hp_frac(raw: float, *, floor: int, cap_frac: float, hp_ref: int) -> int:
+    ref = max(1, int(hp_ref))
+    cap = max(int(floor), int(math.floor(float(cap_frac) * ref)))
+    return int(_clip(_half_up(raw), int(floor), cap))
+
+
+def combat_drain_hole(depth: int, party_power_eff: float, hp_ref: int = 48, *, d_fair: int | None = None) -> int:
+    fair = int(d_fair) if d_fair is not None else d_max_of(max(1, int(round(float(party_power_eff or 1)))))
+    frac = drain_frac(depth, fair)
+    return _clip_hp_frac(max(1, int(hp_ref)) * frac, floor=COMBAT_FLOOR, cap_frac=COMBAT_CAP_FRAC, hp_ref=hp_ref)
+
+
+def boss_drain_hole(depth: int, party_power_eff: float, hp_ref: int = 48, *, d_fair: int | None = None) -> int:
+    fair = int(d_fair) if d_fair is not None else d_max_of(max(1, int(round(float(party_power_eff or 1)))))
+    frac = drain_frac(depth, fair)
+    return _clip_hp_frac(
+        max(1, int(hp_ref)) * BOSS_FRAC_MULT * frac, floor=BOSS_FLOOR, cap_frac=BOSS_CAP_FRAC, hp_ref=hp_ref
+    )
 
 
 def combat_drain_legacy(depth: int, party_power: int) -> int:
@@ -382,7 +404,7 @@ def party_power_eff(mercs: Iterable[MercState], *, depth: int = 0, d_max: int = 
 
 
 def d_max_eff(mercs: Iterable[MercState], *, depth: int = 0) -> int:
-    """Same ceiling as d_max_of. depth is ignored so the cap does not oscillate mid-descent."""
+    """Comfort depth from raw party power. depth is unused so it does not oscillate mid-descent."""
     _ = depth
     return d_max_of(party_power(mercs))
 
@@ -531,6 +553,50 @@ def sawtooth_layer(
         "strain": min(1.0, max(0.0, float(depth) / ceil)) if state == STATE_DESCENDING and ceil else 0.0,
         "u": u if state == STATE_DESCENDING else 0.0,
         "T_eff": t_eff,
+    }
+
+
+def walk_frame(*, last_d: int, d_fair: int, t_eff: int, pb_depth: int = 0) -> dict[str, Any]:
+    d = max(0, int(last_d))
+    ceil = float(max(1, int(d_fair)))
+    tick = max(T_EFF_MIN, int(t_eff))
+    t_down, t_up, t_rest = period_parts_layer(int(ceil), tick)
+    if d <= 0:
+        state = STATE_REST
+        status_key = "SURFACE_REST"
+        pace = "camp"
+        u = 0.0
+    else:
+        state = STATE_DESCENDING
+        u = d / ceil if ceil else 0.0
+        if u < 0.35:
+            status_key = "DESCENDING_FAST"
+            pace = "fast"
+        elif u < 1.0:
+            status_key = "DESCENDING_MID"
+            pace = "mid"
+        else:
+            status_key = "DESCENDING_HARD"
+            pace = "hard"
+    return {
+        "hours": 0.0,
+        "d_ceiling": ceil,
+        "depth": float(d),
+        "d": d,
+        "state": state,
+        "status_key": status_key,
+        "status": HUD_STATUS[status_key],
+        "pace": pace,
+        "t_down": t_down,
+        "t_up": t_up,
+        "t_rest": t_rest,
+        "period": t_down + t_up + t_rest,
+        "phase": 0.0,
+        "elapsed_sec": 0.0,
+        "implied_record": max(int(pb_depth or 0), d),
+        "strain": min(1.0, max(0.0, u)) if state == STATE_DESCENDING and ceil else 0.0,
+        "u": u if state == STATE_DESCENDING else 0.0,
+        "T_eff": tick,
     }
 
 
@@ -738,6 +804,79 @@ def city_return(party: PqParty) -> None:
         tick_city_return(merc)
     healer_city_extra(party)
     party.chips = []
+
+
+def heal_one_trauma(party: PqParty) -> dict[str, Any] | None:
+    for merc in party.mercs:
+        for bucket in ("flesh", "psyche"):
+            rows = _rows_of(merc, bucket)
+            for i, row in enumerate(rows):
+                spec = status_from_row(row)
+                if spec is None or spec.grade != GRADE_LIGHT:
+                    continue
+                rows.pop(i)
+                setattr(merc, bucket, rows)
+                return {"who": merc.name, "id": spec.id, "grade": GRADE_LIGHT, "name_ru": spec.name_ru}
+    for merc in party.mercs:
+        for bucket in ("flesh", "psyche"):
+            rows = _rows_of(merc, bucket)
+            for i, row in enumerate(rows):
+                spec = status_from_row(row)
+                if spec is None or spec.grade != GRADE_SERIOUS:
+                    continue
+                left = int(row.get("returns_left") if row.get("returns_left") is not None else spec.returns) - 1
+                if left <= 0:
+                    rows.pop(i)
+                else:
+                    row = dict(row)
+                    row["returns_left"] = left
+                    rows[i] = row
+                setattr(merc, bucket, rows)
+                return {"who": merc.name, "id": spec.id, "grade": GRADE_SERIOUS, "name_ru": spec.name_ru}
+    return None
+
+
+def visit_city(party: PqParty, depth: int, *, band: int) -> dict[str, Any]:
+    city_d = int(depth)
+    name = city_name_ru(city_d)
+    party.checkpoint_d = max(int(getattr(party, "checkpoint_d", 0) or 0), city_d if is_city_depth(city_d) else 0)
+    healed = 0
+    for merc in party.mercs:
+        before = int(merc.hp_current)
+        if int(merc.hp_max) > 0:
+            merc.hp_current = int(merc.hp_max)
+        healed += max(0, int(merc.hp_current) - before)
+    bought_here: list[dict[str, Any]] = []
+    for merc in party.mercs:
+        if not merc.living():
+            continue
+        buys = resolve_shop(
+            merc, depth=city_d, seed=party.seed, cycle=party.last_cycle, band=band
+        )
+        bought_here.extend(buys)
+        party.shop_log.extend(buys)
+    trauma = heal_one_trauma(party)
+    who = living_mercs(party.mercs)[0].name if living_mercs(party.mercs) else (party.mercs[0].name if party.mercs else "Она")
+    line = f"{who} вошла в {name}"
+    if bought_here:
+        last = bought_here[-1]
+        if last.get("kind") in ("gear", "sharpen", "consumable"):
+            line = f"{last.get('who') or who} купила {last.get('name') or 'вещь'} в {name}"
+            who = str(last.get("who") or who)
+    if trauma:
+        line = f"{line} · −{trauma.get('name_ru')}"
+    phrase = assemble_phrase(kind="city", depth=city_d, line=line, who=who)
+    if healed:
+        phrase = f"{phrase} (+{healed} HP)"
+    return event_dict(
+        row=None,
+        kind="city",
+        depth=city_d,
+        who=who,
+        phrase=phrase,
+        hp_delta=-healed,
+        node=NODE_CITY,
+    )
 
 
 def rest_frac_for(merc: MercState, party: PqParty) -> float:
@@ -1004,6 +1143,9 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
             )
         return event_dict(row=None, kind="shop", depth=depth, who=who, phrase=phrase, node=node)
 
+    if node == NODE_CITY:
+        return visit_city(party, depth, band=band)
+
     if node == NODE_REST:
         healed = apply_rest_layer(party)
         auto_use_potions(party.mercs)
@@ -1032,7 +1174,7 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
     if node == NODE_BOSS:
         auto_use_potions(party.mercs, before_boss=True)
         pp = party_power_eff(party.mercs, depth=depth, d_max=d_max, living_only=True)
-        raw = boss_drain_hole(depth, pp, hp_ref_of(party.mercs))
+        raw = boss_drain_hole(depth, pp, hp_ref_of(party.mercs), d_fair=d_max)
         raw = max(BOSS_FLOOR, _half_up(raw * drain_mult_of(party.mercs, depth=depth, d_max=d_max)))
         if consume_chip(party, CHIP_WARD):
             raw = max(BOSS_FLOOR, _half_up(raw * 0.75))
@@ -1074,7 +1216,7 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
     lost: dict[str, int] = dict(poison_lost)
     if kind == KIND_MONSTER or hp_mult > 0:
         pp = party_power_eff(party.mercs, depth=depth, d_max=d_max, living_only=True)
-        raw = combat_drain_hole(depth, pp, hp_ref_of(party.mercs))
+        raw = combat_drain_hole(depth, pp, hp_ref_of(party.mercs), d_fair=d_max)
         raw = max(0, _half_up(raw * hp_mult)) if kind != KIND_MONSTER else raw
         if kind == KIND_MONSTER:
             raw = max(COMBAT_FLOOR, _half_up(raw * drain_mult_of(party.mercs, depth=depth, d_max=d_max)))
@@ -1136,6 +1278,7 @@ def layer_state_dump(party: PqParty) -> dict[str, Any]:
         "t_eff": int(party.t_eff or T_NODE_SEC),
         "nodes_by_card": {str(m.card_id): int(getattr(m, "nodes_seen", 0) or 0) for m in party.mercs},
         "walk_ts": party.walk_ts.isoformat() if getattr(party, "walk_ts", None) else None,
+        "checkpoint_d": int(getattr(party, "checkpoint_d", 0) or 0),
     }
 
 
@@ -1152,6 +1295,7 @@ def apply_layer_dump(party: PqParty, blob: dict[str, Any] | None) -> None:
             party.walk_ts = datetime.fromisoformat(str(raw_walk))
         except ValueError:
             party.walk_ts = None
+    party.checkpoint_d = max(0, int(data.get("checkpoint_d") or 0))
     by_card = data.get("nodes_by_card") or {}
     if isinstance(by_card, dict):
         for merc in party.mercs:
@@ -1161,6 +1305,7 @@ def apply_layer_dump(party: PqParty, blob: dict[str, Any] | None) -> None:
 def special_phrase_fallback(node: str, who: str, depth: int) -> str:
     kind = {
         NODE_SHOP: "shop",
+        NODE_CITY: "city",
         NODE_REST: "rest",
         NODE_BOSS: "boss",
         NODE_BRANCH: "branch",
@@ -1171,6 +1316,7 @@ def special_phrase_fallback(node: str, who: str, depth: int) -> str:
     }.get(node, KIND_EMPTY)
     line = {
         "shop": f"{who} зашла в лавку",
+        "city": f"{who} вошла в город",
         "rest": f"{who} греется у угля",
         "boss": "Хозяин яруса смотрит на отряд",
         "branch": f"{who} смотрит на два хода и идёт дальше",

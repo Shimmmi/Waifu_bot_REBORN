@@ -8,6 +8,7 @@ import math
 import random
 import re
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Any, Sequence
 from zoneinfo import ZoneInfo
 
@@ -45,8 +46,38 @@ NODE_BRANCH = "BRANCH"
 NODE_LANDMARK = "LANDMARK"
 NODE_REST = "REST"
 NODE_SHOP = "SHOP"
+NODE_CITY = "CITY"
+NODE_UNKNOWN = "UNKNOWN"
 NODE_TRAVERSE = "TRAVERSE"
 NODE_COMBAT = "COMBAT"
+
+FOG_SPECIALS: frozenset[str] = frozenset({NODE_REST, NODE_SHOP, NODE_LANDMARK})
+LANDMARK_CHANCE = 0.35
+
+CITY_ROWS: tuple[dict[str, Any], ...] = (
+    {"d": 15, "id": "lower_court", "name_ru": "Нижний двор"},
+    {"d": 40, "id": "coal_market", "name_ru": "Угольный рынок"},
+    {"d": 80, "id": "ash_fair", "name_ru": "Пепельный торг"},
+    {"d": 150, "id": "salt_gate", "name_ru": "Соляные ворота"},
+    {"d": 250, "id": "paper_posad", "name_ru": "Бумажный посад"},
+    {"d": 400, "id": "copper_court", "name_ru": "Медный двор"},
+    {"d": 650, "id": "wax_wharf", "name_ru": "Восковой причал"},
+    {"d": 1000, "id": "caramel_fair", "name_ru": "Карамельный торг"},
+    {"d": 1500, "id": "coral_city", "name_ru": "Коралловый град"},
+    {"d": 2500, "id": "enamel_table", "name_ru": "Эмалевый стол"},
+)
+CITY_DEPTHS: tuple[int, ...] = tuple(int(r["d"]) for r in CITY_ROWS)
+CITY_BY_D: dict[int, dict[str, Any]] = {int(r["d"]): r for r in CITY_ROWS}
+CITY_DEPTH_SET: frozenset[int] = frozenset(CITY_DEPTHS)
+
+
+def is_city_depth(d: int) -> bool:
+    return int(d) in CITY_DEPTH_SET
+
+
+def city_name_ru(d: int) -> str:
+    row = CITY_BY_D.get(int(d))
+    return str(row["name_ru"]) if row else "Город"
 
 STATE_DESCENDING = "DESCENDING"
 STATE_ASCENDING = "ASCENDING"
@@ -205,7 +236,9 @@ COPY: dict[str, str] = {
     "pq_hp": "Здоровье",
     "pq_wallet": "золото",
     "pq_party": "Сила отряда",
-    "pq_dmax": "Потолок",
+    "pq_dmax": "комфорт",
+    "pq_city": "город",
+    "pq_no_city": "нет города",
 }
 
 HUD_STATUS: dict[str, str] = {
@@ -223,6 +256,8 @@ NODE_LABEL_RU: dict[str, str] = {
     NODE_LANDMARK: "Метка",
     NODE_REST: "Костёр",
     NODE_SHOP: "Лавка",
+    NODE_CITY: "Город",
+    NODE_UNKNOWN: "?",
     NODE_TRAVERSE: "Переход",
     NODE_COMBAT: "Бой",
 }
@@ -244,12 +279,15 @@ KICKER_BY_NODE: dict[str, str] = {
     NODE_LANDMARK: "Метка · {place}",
     NODE_REST: "Привал · {place}",
     NODE_SHOP: "Лавка · {place}",
+    NODE_CITY: "Город · {place}",
+    NODE_UNKNOWN: "?",
     NODE_SURFACE: "Лагерь",
 }
 
 JOURNAL_KIND_RU: dict[str, str] = {
     "landmark": "Метка на {d}",
     "shop": "Лавка на {d}",
+    "city": "Город на {d}",
     "sryv": "Срыв на {d}",
     "wipe": "Срыв спуска на {d}",
     "palette": "{palette}",
@@ -304,6 +342,12 @@ PHRASES: dict[str, tuple[str, ...]] = {
         "{name} не торгуется.",
         "{name} кивает лавке.",
         "{name} уходит с мелочью.",
+    ),
+    NODE_CITY: (
+        "{name} входит в город.",
+        "{name} садится у стола.",
+        "{name} торгуется внизу.",
+        "{name} лечит рану в городе.",
     ),
     NODE_BRANCH: (
         "{name} не сворачивает.",
@@ -480,23 +524,72 @@ def is_landmark(d: int) -> bool:
     return int(d) % 100 in _BASE_LANDMARKS
 
 
-def spine_type(d: int, ceil: float) -> str:
+def _spine_rng(*parts: Any) -> random.Random:
+    raw = ":".join(str(p) for p in parts).encode("utf-8")
+    digest = hashlib.sha256(raw).digest()
+    return random.Random(int.from_bytes(digest[:8], "big"))
+
+
+def _segment_slots(k: int) -> list[int]:
+    base = int(k) * 10
+    return [base + i for i in range(1, 10) if not is_city_depth(base + i)]
+
+
+@lru_cache(maxsize=4096)
+def _segment_layout(seed: int, wipe_count: int, k: int) -> tuple[tuple[int, str], ...]:
+    slots = _segment_slots(int(k))
+    layout = {d: NODE_COMBAT for d in slots}
+    if not slots:
+        return tuple()
+    rng = _spine_rng("pq-spine", int(seed), int(wipe_count), int(k))
+    pool = list(slots)
+    rng.shuffle(pool)
+    layout[pool.pop()] = NODE_REST
+    if pool:
+        layout[pool.pop()] = NODE_SHOP
+    if pool:
+        layout[pool.pop()] = NODE_REST
+    if pool and rng.random() < LANDMARK_CHANCE:
+        layout[pool.pop()] = NODE_LANDMARK
+    return tuple(sorted(layout.items()))
+
+
+def spine_type(d: int, ceil: float, *, seed: int | None = None, wipe_count: int = 0) -> str:
     n = int(d)
     if n <= 0:
         return NODE_SURFACE
+    if is_city_depth(n):
+        return NODE_CITY
     if n % 10 == 0:
         return NODE_BOSS
-    if n % 5 == 0:
-        return NODE_BRANCH
-    if is_landmark(n):
-        return NODE_LANDMARK
-    if n % 8 == 6:
-        return NODE_REST
-    if n % 12 == 4:
-        return NODE_SHOP
-    if ceil > 0 and n < 0.35 * ceil:
-        return NODE_TRAVERSE
-    return NODE_COMBAT
+    if seed is None:
+        if n % 5 == 0:
+            return NODE_BRANCH
+        if is_landmark(n):
+            return NODE_LANDMARK
+        if n % 8 == 6:
+            return NODE_REST
+        if n % 12 == 4:
+            return NODE_SHOP
+        _ = ceil
+        return NODE_COMBAT
+    layout = dict(_segment_layout(int(seed), int(wipe_count or 0), n // 10))
+    _ = ceil
+    return str(layout.get(n) or NODE_COMBAT)
+
+
+def fog_spine_type(
+    d: int,
+    ceil: float,
+    *,
+    last_d: int,
+    seed: int | None = None,
+    wipe_count: int = 0,
+) -> str:
+    raw = spine_type(d, ceil, seed=seed, wipe_count=wipe_count)
+    if int(d) > int(last_d) and raw in FOG_SPECIALS:
+        return NODE_UNKNOWN
+    return raw
 
 
 def title_for_record(record: int) -> str | None:

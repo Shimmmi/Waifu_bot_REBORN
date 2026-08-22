@@ -117,6 +117,23 @@ def test_shop_never_offers_weaker_or_equal_ilvl():
             assert offer.ilvl > current
 
 
+def test_wipe_returns_to_checkpoint_and_keeps_progress():
+    merc = _merc(level=4, gold_wallet=7, xp_unspent=12, hp_current=0)
+    install_piece(merc, piece_for_family_tier("ring", 2, 4))
+    party = _party(merc)
+    party.checkpoint_d = 15
+    party.last_d = 22
+    do_wipe(party, now=datetime(2026, 1, 2, tzinfo=timezone.utc), depth=22, band=1)
+    kept = party.mercs[0]
+    assert party.last_d == 15
+    assert party.checkpoint_d == 15
+    assert kept.gold_wallet == 7
+    assert kept.xp_unspent == 12
+    assert kept.level == 4
+    assert kept.hp_current == kept.hp_max
+    assert kept.gear[4].name
+
+
 def test_wipe_keeps_gear_wallet_level_and_restores_hp():
     merc = _merc(level=4, gold_wallet=90, hp_current=0)
     install_piece(merc, piece_for_family_tier("ring", 2, 4))
@@ -129,6 +146,7 @@ def test_wipe_keeps_gear_wallet_level_and_restores_hp():
     assert kept.gold_wallet == 90
     assert kept.hp_current == kept.hp_max
     assert party.wipe_count == 1
+    assert party.last_d == 0
 
 
 def test_player_gold_cap_unchanged_by_merc_formula():
@@ -155,10 +173,17 @@ def test_simulate_is_deterministic():
     }
 
 
-def test_frame_depth_cannot_exceed_d_max():
+def test_comfort_depth_not_a_wall():
     assert d_max_of(10) == 12
     merc = _merc(level=20)
     assert d_max_of(compute_power(merc)) >= 8
+    party = _party(_merc(power=3, hp_current=64, hp_max=64, level=3))
+    party.layer = 2
+    party.t_node = 30
+    simulate_pq(party, party.run_origin + timedelta(minutes=12), pb_depth=1)
+    assert party.last_d > 9 or party.wipe_count > 0 or int(getattr(party, "checkpoint_d", 0) or 0) > 0
+    if party.wipe_count == 0:
+        assert party.last_d > 9
 
 
 def test_d_max_curve_matches_trio_targets():
@@ -253,14 +278,14 @@ def test_shop_potion_stack_stops_at_three():
     assert any(merc.gear.values())
 
 
-def test_combat_drain_grows_when_underleveled():
-    assert combat_drain(3, 1) == 9
-    assert combat_drain(8, 1) == 13
-    assert combat_drain(8, 15) == 7
-    easy = combat_drain(4, 20)
-    hard = combat_drain(40, 5)
-    assert hard > easy
-    assert easy >= 3
+def test_combat_drain_follows_overage():
+    assert d_max_of(1) == 8
+    assert d_max_of(3) == 9
+    assert combat_drain(9, 3) == 5
+    assert combat_drain(18, 3) == 10
+    assert combat_drain(8, 1) == 5
+    assert combat_drain(16, 1) == 10
+    assert combat_drain(40, 5) > combat_drain(4, 20)
 
 
 def test_deepcopy_shop_offer_type():
@@ -360,4 +385,5 @@ def test_trio_hits_100_500_3000_pace():
 
 def test_solo_day30_deeper_than_old_plateau():
     party = _run_pace(1, 11, days=30, step_h=2)
-    assert party.pb >= 80
+    assert party.pb >= 40
+    assert party.checkpoint_d >= 15
