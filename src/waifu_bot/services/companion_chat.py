@@ -118,15 +118,27 @@ async def reply_as_card(
                 card.temper, card.temper
             )
             from waifu_bot.services.companion_living import card_loyalty, patron_name
+            from waifu_bot.services.companion_memory import memory_prompt, memory_seed_party
 
             patron = await patron_name(session, player_id)
             look = dict(card.look_card or {})
             if patron and look.get("hired_by") != patron:
                 look["hired_by"] = patron
                 card.look_card = look
+            party = (
+                await session.execute(
+                    select(m.CompanionCard).where(
+                        m.CompanionCard.player_id == int(player_id),
+                        m.CompanionCard.slot.is_not(None),
+                    )
+                )
+            ).scalars().all()
+            memory_seed_party(card, patron, party)
             race_ru = str(look.get("race_ru") or "")
             class_ru = str(look.get("class_ru") or "")
             loyalty = card_loyalty(card)
+            card_block = memory_prompt(card)
+            extra = f" {card_block}" if card_block else ""
             system = (
                 f"Ты {card.name}, наёмница отряда {patron}. "
                 f"{patron} — основная вайфу; она тебя наняла, вы ходите в колонну вместе. "
@@ -134,11 +146,13 @@ async def reply_as_card(
                 f"Раса: {race_ru or '—'}. Класс: {class_ru or '—'}. "
                 f"Стойка: {stance}. Нрав: {temper}. Черты: {traits}. "
                 f"Лояльность к {patron}: {loyalty} из 100. "
-                f"Био: {card.bio or ''}. Голос: {voice_line or 'сухо'}. "
+                f"Био: {card.bio or ''}. Голос: {voice_line or 'сухо'}.{extra} "
                 f"Больные места (не веди себя вежливо, если задели): {', '.join(sores) or 'нет'}. "
                 f"Собеседник — {patron}, не случайный гость. "
                 "Не называй её путницей, странницей, незнакомкой, госпожой с дороги. "
                 "Обращайся на «ты», как к своей, можно по имени. "
+                "Если спрашивают имя, вкус или факт — смотри карточку. Не отрицай то, что в карточке. "
+                "Не выдумывай отсутствие, если факт есть. "
                 "Ответ 1–3 коротких предложения, по-русски. Только реплика. "
                 "Без сценических ремарок, без *действий*, без (жестов), без описаний тела. "
                 "Не отрицай раны. Не JSON. "
@@ -187,16 +201,45 @@ def _canned(card: m.CompanionCard, text: str) -> str:
     return "Сижу. Не скучаю."
 
 
-async def _score_loyalty_delta(
+def _clip_delta(raw: Any) -> int:
+    try:
+        delta = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    if delta > 0:
+        return 1
+    if delta < 0:
+        return -1
+    return 0
+
+
+def _parse_facts(raw: Any) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    if not isinstance(raw, list):
+        return out
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        tag = str(row.get("tag") or "").strip()
+        key = str(row.get("key") or "").strip()
+        value = str(row.get("value") or "").strip()
+        if tag not in ("people", "prefs", "notes") or not key or not value:
+            continue
+        out.append({"tag": tag, "key": key[:24], "value": value[:80]})
+    return out[:12]
+
+
+async def _score_loyalty_and_facts(
     card: m.CompanionCard,
     history: list[dict[str, Any]],
     patron: str,
-) -> int:
+    party_hint: str = "",
+) -> tuple[int, list[dict[str, str]]]:
     from waifu_bot.services.delve_line import _fast_model
     from waifu_bot.services.llm_client import has_text_llm_configured, post_chat_completions_routerai
 
     if not has_text_llm_configured():
-        return 0
+        return 0, []
     traits = ", ".join(card.traits or [])
     look = card.look_card or {}
     lines = []
@@ -209,13 +252,18 @@ async def _score_loyalty_delta(
         lines.append(f"{who}: {text}")
     transcript = "\n".join(lines)[:1800]
     prompt = (
-        'Ответь строго JSON: {"delta":1} или {"delta":-1} или {"delta":0}.\n'
-        f"Ты оцениваешь, как диалог с {patron} сдвинул лояльность наёмницы {card.name}.\n"
+        'Ответь строго JSON: {"delta":-1,"facts":[]} или {"delta":0,"facts":[{"tag":"prefs","key":"цвет_патрона","value":"синий"}]} '
+        'или {"delta":1,"facts":[{"tag":"people","key":"42","value":"А"}]}.\n'
+        f"Ты оцениваешь диалог патрона {patron} с наёмницей {card.name}.\n"
         f"Раса: {look.get('race_ru')}. Класс: {look.get('class_ru')}. "
         f"Нрав: {card.temper}. Черты: {traits}. Био: {card.bio or ''}.\n"
         "delta=1 если разговор тёплый, уважительный, свой. "
         "delta=-1 если грубость, оскорбления, унижение, холодный расчёт. "
-        "delta=0 если пусто, нейтрально или неясно. Только одно число.\n"
+        "delta=0 если пусто, нейтрально или неясно.\n"
+        "facts — только явно сказанное патроном. Не раны, не уровень, не био. "
+        "tag people: имена (ключ patron, id наёмницы или короткий ярлык). "
+        "tag prefs: вкусы патрона. tag notes: прочие явные факты. "
+        f"Отряд: {party_hint or '—'}. Пустой facts если ничего нового.\n"
         f"Диалог:\n{transcript}"
     )
     try:
@@ -224,7 +272,7 @@ async def _score_loyalty_delta(
                 client,
                 {
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 40,
+                    "max_tokens": 160,
                     "temperature": 0.2,
                     "reasoning": {"exclude": True},
                 },
@@ -232,7 +280,7 @@ async def _score_loyalty_delta(
                 caller="tavern living loyalty",
             )
             if r.status_code != 200:
-                return 0
+                return 0, []
             data = r.json()
             choices = data.get("choices") or []
             msg = ""
@@ -243,15 +291,10 @@ async def _score_loyalty_delta(
                 text = re.sub(r"^```(?:json)?\s*", "", text)
                 text = re.sub(r"\s*```$", "", text)
             parsed = json.loads(text)
-            delta = int(parsed.get("delta", 0))
-            if delta > 0:
-                return 1
-            if delta < 0:
-                return -1
-            return 0
+            return _clip_delta(parsed.get("delta", 0)), _parse_facts(parsed.get("facts"))
     except Exception:
         logger.warning("loyalty score failed card=%s", getattr(card, "id", None), exc_info=True)
-        return 0
+        return 0, []
 
 
 async def loyalty_tick(
@@ -299,15 +342,24 @@ async def loyalty_tick(
 
     if card.status != "living":
         return payload()
-    look = dict(card.look_card or {})
-    day = _today(now)
-    if str(look.get("loyalty_tick_msk") or "") == day:
-        return payload()
     turns, words = _user_word_count(history)
     if turns < 1 or words < 2:
         return payload()
+    from waifu_bot.services.companion_memory import memory_apply_facts, memory_seed_party
+
     patron = await patron_name(session, player_id)
-    delta = await _score_loyalty_delta(card, history or [], patron)
+    memory_seed_party(card, patron, party)
+    party_hint = ", ".join(
+        f"{int(c.id)}={c.name}" for c in party if c.id and int(c.id) != int(card.id)
+    )
+    delta, facts = await _score_loyalty_and_facts(card, history or [], patron, party_hint)
+    memory_apply_facts(card, facts)
+    look = dict(card.look_card or {})
+    day = _today(now)
+    already = str(look.get("loyalty_tick_msk") or "") == day
+    if already:
+        await session.flush()
+        return payload()
     loyalty = max(0, min(100, card_loyalty(card) + int(delta)))
     look["loyalty"] = loyalty
     look["loyalty_tick_msk"] = day

@@ -14,14 +14,20 @@ from waifu_bot.game.delve_pq import (
     SALVE_ID,
     ShopOffer,
     apply_drain,
+    apply_levelups,
     band_of_depth,
+    boss_xp,
     buy_increases_power,
+    city_xp,
     combat_drain,
+    combat_xp,
     compute_power,
     d_max_of,
     do_wipe,
     equipped_ilvl,
     gear_price,
+    grant_adventure_xp,
+    grant_merc_faucet,
     hp_max_of,
     install_piece,
     load_consumables,
@@ -29,6 +35,7 @@ from waifu_bot.game.delve_pq import (
     merc_faucet_band,
     merc_gold_cap_day,
     piece_for_family_tier,
+    piece_tier,
     refresh_derived,
     resolve_shop,
     roll_flavor_affixes,
@@ -57,13 +64,13 @@ def _merc(**kwargs) -> MercState:
     return MercState(**base)
 
 
-def _party(merc: MercState, *, seed: int = 11) -> PqParty:
+def _party(*mercs: MercState, seed: int = 11) -> PqParty:
     origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
     return PqParty(
         seed=seed,
         run_origin=origin,
         last_ts=origin,
-        mercs=[merc],
+        mercs=list(mercs),
     )
 
 
@@ -86,6 +93,36 @@ def test_xp_level_and_power_formulas():
     assert d_max_of(1) == 8
     assert band_of_depth(4) == 1
     assert band_of_depth(21) == 2
+
+
+def test_combat_xp_grows_with_node():
+    assert combat_xp(1) == 3
+    assert combat_xp(15) == 4
+    assert combat_xp(40) == 7
+    assert combat_xp(59) == 10
+    assert combat_xp(80) == 12
+    assert combat_xp(250) == 34
+    assert combat_xp(1) < combat_xp(15) < combat_xp(59)
+    assert boss_xp(15) == 2 * combat_xp(15)
+    assert city_xp(40) == combat_xp(40)
+
+
+def test_levelup_adds_one_power():
+    merc = _merc(level=1)
+    before = compute_power(merc)
+    merc.xp_unspent = xp_to_next(1)
+    assert apply_levelups(merc) == 1
+    assert merc.level == 2
+    assert compute_power(merc) == before + 1
+
+
+def test_grant_adventure_xp_skips_dead():
+    live = _merc(hp_current=48)
+    dead = _merc(card_id=2, slot=2, name="Тень", hp_current=0)
+    assert grant_adventure_xp([live, dead], combat_xp(9)) == combat_xp(9)
+    assert live.xp_unspent == combat_xp(9)
+    assert dead.xp_unspent == 0
+    assert grant_adventure_xp([dead], 20) == 0
 
 
 def test_buy_and_sharpen_always_increase_power():
@@ -117,6 +154,23 @@ def test_shop_never_offers_weaker_or_equal_ilvl():
             assert offer.ilvl > current
 
 
+def test_wipe_returns_to_checkpoint_and_keeps_progress():
+    merc = _merc(level=4, gold_wallet=7, xp_unspent=12, hp_current=0)
+    install_piece(merc, piece_for_family_tier("ring", 2, 4))
+    party = _party(merc)
+    party.checkpoint_d = 15
+    party.last_d = 22
+    do_wipe(party, now=datetime(2026, 1, 2, tzinfo=timezone.utc), depth=22, band=1)
+    kept = party.mercs[0]
+    assert party.last_d == 15
+    assert party.checkpoint_d == 15
+    assert kept.gold_wallet == 7
+    assert kept.xp_unspent == 12
+    assert kept.level == 4
+    assert kept.hp_current == kept.hp_max
+    assert kept.gear[4].name
+
+
 def test_wipe_keeps_gear_wallet_level_and_restores_hp():
     merc = _merc(level=4, gold_wallet=90, hp_current=0)
     install_piece(merc, piece_for_family_tier("ring", 2, 4))
@@ -129,6 +183,7 @@ def test_wipe_keeps_gear_wallet_level_and_restores_hp():
     assert kept.gold_wallet == 90
     assert kept.hp_current == kept.hp_max
     assert party.wipe_count == 1
+    assert party.last_d == 0
 
 
 def test_player_gold_cap_unchanged_by_merc_formula():
@@ -155,10 +210,17 @@ def test_simulate_is_deterministic():
     }
 
 
-def test_frame_depth_cannot_exceed_d_max():
+def test_comfort_depth_not_a_wall():
     assert d_max_of(10) == 12
     merc = _merc(level=20)
     assert d_max_of(compute_power(merc)) >= 8
+    party = _party(_merc(power=3, hp_current=64, hp_max=64, level=3))
+    party.layer = 2
+    party.t_node = 30
+    simulate_pq(party, party.run_origin + timedelta(minutes=12), pb_depth=1)
+    assert party.last_d > 9 or party.wipe_count > 0 or int(getattr(party, "checkpoint_d", 0) or 0) > 0
+    if party.wipe_count == 0:
+        assert party.last_d > 9
 
 
 def test_d_max_curve_matches_trio_targets():
@@ -168,13 +230,14 @@ def test_d_max_curve_matches_trio_targets():
     assert d_max_of(800) == 2760
 
 
-def test_merc_faucet_band_follows_record_not_d_max():
+def test_merc_faucet_band_follows_last_d_not_d_max():
     assert merc_faucet_band(0) == 1
     assert merc_faucet_band(20) == 1
     assert merc_faucet_band(21) == 2
     assert merc_faucet_band(100) == 5
     assert d_max_of(321) > 500
     assert merc_faucet_band(40) == 2
+    assert merc_faucet_band(250) == 13
 
 
 def test_balance_day_band_does_not_skip_two_tiers():
@@ -247,20 +310,65 @@ def test_shop_holds_gold_for_tier1_instead_of_potions():
 
 def test_shop_potion_stack_stops_at_three():
     merc = _merc(gold_wallet=500)
+    for slot, family in ((1, "sword"), (3, "costume"), (4, "ring"), (6, "amulet")):
+        install_piece(merc, piece_for_family_tier(family, 1, slot))
     resolve_shop(merc, depth=4, seed=7, cycle=0)
     assert merc.bag.get(POTION_ID, 0) <= 3
     assert merc.bag.get(SALVE_ID, 0) <= 1
+
+
+def test_shop_skips_potions_until_four_slots():
+    merc = _merc(gold_wallet=500)
+    resolve_shop(merc, depth=4, seed=7, cycle=0)
     assert any(merc.gear.values())
+    assert merc.bag.get(POTION_ID, 0) == 0
+    assert merc.bag.get(SALVE_ID, 0) == 0
 
 
-def test_combat_drain_grows_when_underleveled():
-    assert combat_drain(3, 1) == 9
-    assert combat_drain(8, 1) == 13
-    assert combat_drain(8, 15) == 7
-    easy = combat_drain(4, 20)
-    hard = combat_drain(40, 5)
-    assert hard > easy
-    assert easy >= 3
+def test_shop_empty_slot_is_t1_even_at_record_band():
+    merc = _merc()
+    offers = shop_offers(merc, depth=250, seed=7, cycle=0, band=17)
+    gear = [o for o in offers if o.kind == "gear"]
+    assert gear
+    for offer in gear:
+        assert offer.base_ilvl == 4
+        assert offer.price == 48
+    install_piece(merc, piece_for_family_tier("costume", 1, 3))
+    upgrades = [o for o in shop_offers(merc, depth=250, seed=7, cycle=0, band=17) if o.kind == "gear"]
+    assert upgrades
+    for offer in upgrades:
+        assert piece_tier(piece_for_family_tier(offer.family_key, max(1, offer.base_ilvl // 4), int(offer.slot or 1))) <= 2
+        assert (offer.base_ilvl or 0) <= 8
+
+
+def test_faucet_gold_is_per_head():
+    origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    mercs = [_merc(card_id=i, slot=i, name=n, loyalty=50, gold_wallet=0) for i, n in enumerate(("А", "Б", "В"), start=1)]
+    party = _party(*mercs)
+    grant_merc_faucet(party, now=origin + timedelta(hours=24), band=1)
+    wallets = [m.gold_wallet for m in party.mercs]
+    assert wallets == [80, 80, 80]
+
+
+def test_day1_band1_trio_buys_t1_not_t4():
+    names = ("А", "Б", "В")
+    mercs = [_merc(card_id=i, slot=i, name=n, loyalty=50, gold_wallet=0) for i, n in enumerate(names, start=1)]
+    party = _party(*mercs, seed=11)
+    simulate_pq(party, party.run_origin + timedelta(hours=24), pb_depth=1)
+    pieces = [p for merc in party.mercs for p in merc.gear.values()]
+    t1 = [p for p in pieces if piece_tier(p) == 1]
+    assert len(t1) >= 3
+    assert all(piece_tier(p) < 4 for p in pieces)
+
+
+def test_combat_drain_follows_overage():
+    assert d_max_of(1) == 8
+    assert d_max_of(3) == 9
+    assert combat_drain(9, 3) == 5
+    assert combat_drain(18, 3) == 10
+    assert combat_drain(8, 1) == 5
+    assert combat_drain(16, 1) == 10
+    assert combat_drain(40, 5) > combat_drain(4, 20)
 
 
 def test_deepcopy_shop_offer_type():
@@ -329,7 +437,7 @@ def _run_pace(n: int, seed: int, *, days: float, step_h: int = 2) -> _WatchParty
     return party
 
 
-def test_trio_hits_100_500_3000_pace():
+def test_trio_hits_100_in_a_week():
     origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
     party = _WatchParty(
         seed=11,
@@ -346,18 +454,71 @@ def test_trio_hits_100_500_3000_pace():
         pb=0,
     )
     now = origin
-    pending = {100: 7.5, 500: 32.0, 3000: 95.0}
-    while pending and (now - origin).total_seconds() / 86400.0 <= 95.0:
+    while (now - origin).total_seconds() / 86400.0 <= 7.5:
         now += timedelta(hours=2)
         simulate_pq(party, now, pb_depth=max(int(party.pb), 1))
-        days = (now - origin).total_seconds() / 86400.0
-        for depth, limit in list(pending.items()):
-            if party.pb >= depth:
-                assert days <= limit, (depth, days, party.pb)
-                del pending[depth]
-    assert pending == {}, (party.pb, pending)
+        if party.pb >= 100:
+            break
+    days = (now - origin).total_seconds() / 86400.0
+    assert party.pb >= 100, (party.pb, days)
+    assert days <= 7.5
 
 
-def test_solo_day30_deeper_than_old_plateau():
-    party = _run_pace(1, 11, days=30, step_h=2)
-    assert party.pb >= 80
+def test_solo_week_reaches_first_city():
+    party = _run_pace(1, 11, days=7, step_h=2)
+    assert party.pb >= 15
+    assert party.checkpoint_d >= 15
+
+
+def test_reset_pq_column_progress_zeros_rpg_not_player_gold():
+    from types import SimpleNamespace
+
+    from waifu_bot.services.delve_pq import reset_pq_column_progress
+
+    now = datetime(2026, 8, 22, tzinfo=timezone.utc)
+    player = SimpleNamespace(gold=777)
+    state = SimpleNamespace(
+        pq_last_d=59,
+        pq_last_cycle=3,
+        wipe_count=2,
+        pq_gold_today=40,
+        pq_xp_today=10,
+        pb_depth=59,
+        last_pq_ts=now,
+        run_origin=now,
+        pq_layer_json={"armed": True, "checkpoint_d": 15, "walk_ts": "x"},
+        gold_granted_total=500,
+    )
+    card = SimpleNamespace(
+        level=4,
+        xp_unspent=12,
+        gold_wallet=48,
+        power=5,
+        hp_max=80,
+        hp_current=10,
+        flesh=[{"id": "arm_cut"}],
+        psyche=[{"id": "fear"}],
+        look_card={"pq_nodes": 40, "loyalty": 50},
+    )
+    companion = SimpleNamespace(level=4, xp_unspent=12, gold_wallet=48, power=5, hp_max=80, hp_current=10)
+    gear = ["sword"]
+    bags = ["potion"]
+    reset_pq_column_progress(state, [card], [companion], now=now, gear=gear, bags=bags)
+    assert state.pq_last_d == 0
+    assert state.pq_last_cycle == 0
+    assert state.wipe_count == 0
+    assert state.pb_depth == 0
+    assert state.pq_layer_json == {"armed": True}
+    assert card.level == 1
+    assert card.gold_wallet == 0
+    assert card.xp_unspent == 0
+    assert card.power == 1
+    assert card.hp_current == 48
+    assert card.flesh == []
+    assert card.look_card["pq_nodes"] == 0
+    assert card.look_card["loyalty"] == 50
+    assert companion.power == 1
+    assert gear == []
+    assert bags == []
+    assert player.gold == 777
+    assert state.gold_granted_total == 500

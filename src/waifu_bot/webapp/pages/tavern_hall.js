@@ -1,7 +1,7 @@
 /** Living tavern hall. Arena / hire / bench stay dead. BGM tab still uses the old bootstrap. */
 
 (function livingTavernHall() {
-  const VERSION = "v110";
+  const VERSION = "v111";
   let hall = null;
   let openCardId = null;
   let seenOnce = false;
@@ -83,28 +83,12 @@
       .join("")}</div>`;
   }
 
-  function renderBoard() {
-    const c = copy();
-    const rows = hall?.chalkboard || [];
-    if (!rows.length) {
-      return `<section class="tavern-chalk"><h2>${esc(c.board || "Вчера")}</h2><p class="empty">${esc(c.history_empty || "Пока тишина.")}</p></section>`;
-    }
-    return `<section class="tavern-chalk"><h2>${esc(c.board || "Вчера")}</h2><ul>${rows
-      .map((row) => {
-        const severe = ["death", "leave_column", "maim", "psyche", "crime", "bond_break"].includes(row.severity);
-        const who = row.name ? `${row.name}: ` : "";
-        return `<li class="${severe ? "severe" : ""}">${esc(who)}${esc(row.line || "")}</li>`;
-      })
-      .join("")}</ul></section>`;
-  }
-
   function renderHall() {
     const root = document.getElementById("tavern-living-root");
     if (!root || !hall) return;
     const c = copy();
     root.innerHTML = `<div class="tavern-living-head"><h1>${esc(c.title || "Таверна")}</h1><span class="sub">${esc(c.sub || "")}</span></div>
-      ${renderColumns()}
-      ${renderBoard()}`;
+      ${renderColumns()}`;
   }
 
   async function onHire(slot) {
@@ -192,7 +176,7 @@
     const traits = (detail.traits || []).filter(Boolean);
     const flesh = detail.wounds || [];
     const psyche = detail.psyche || [];
-    const bonds = (detail.consequences || []).filter((x) => /не смотрит|Просит не гасить/i.test(x));
+    const bonds = (detail.bonds || []).filter(Boolean);
     const bits = [];
     bits.push(`<h3>Черты</h3><ul>${traits.length ? traits.map((t) => `<li>${esc(t)}</li>`).join("") : "<li class='muted'>Пока без ярких черт.</li>"}</ul>`);
     bits.push(`<h3>Тело</h3><ul>${flesh.length ? flesh.map((w) => `<li>${esc(w.label || w.part || "рана")}${w.severity ? " · " + esc(w.severity) : ""}</li>`).join("") : "<li class='ok'>В форме, ран нет.</li>"}</ul>`);
@@ -204,7 +188,13 @@
   function logHtml(detail, emptyLine) {
     const hist = detail.history || [];
     if (!hist.length) return `<p class="empty">${esc(emptyLine || "Пока тишина.")}</p>`;
-    return `<ul class="living-log-list">${hist.map((h) => `<li>${esc(h.line || "")}</li>`).join("")}</ul>`;
+    return `<ul class="living-log-list">${hist
+      .map((h) => {
+        const text = h.fact || h.line || "";
+        const depth = h.depth ? ` <span class="muted">· ${esc(h.depth)}</span>` : "";
+        return `<li>${esc(text)}${depth}</li>`;
+      })
+      .join("")}</ul>`;
   }
 
   function closePop() {
@@ -423,11 +413,7 @@
   }
 
   async function refreshHall() {
-    const payload = await apiFetch(`/tavern/living/hall?mark_seen=${seenOnce ? "0" : "1"}`);
-    if (seenOnce && hall?.chalkboard?.length) {
-      const have = new Set((payload.chalkboard || []).map((x) => x.id));
-      payload.chalkboard = hall.chalkboard.filter((x) => !have.has(x.id)).concat(payload.chalkboard || []);
-    }
+    const payload = await apiFetch("/tavern/living/hall?mark_seen=0");
     seenOnce = true;
     hall = payload;
     renderHall();
@@ -503,17 +489,6 @@
     try {
       if (typeof scheduleTavernBgmStart === "function") scheduleTavernBgmStart();
     } catch (_) {}
-    apiFetch("/tavern/living/spice", { method: "POST" })
-      .then((out) => {
-        if (out?.ok && out.phrase && hall) {
-          const row = (hall.chalkboard || []).find((x) => x.id === out.id);
-          if (row) {
-            row.line = out.phrase;
-            renderHall();
-          }
-        }
-      })
-      .catch(() => {});
     if (hall?.needs_art?.length) kickArt();
   }
 

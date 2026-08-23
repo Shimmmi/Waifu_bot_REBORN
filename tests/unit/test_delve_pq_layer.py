@@ -70,11 +70,13 @@ def test_catalog_has_eighteen_rows():
 
 
 def test_hole_drain_table():
-    assert combat_drain(3, 1) == 9
-    assert combat_drain(8, 1) == 13
-    assert combat_drain(8, 15) == 7
-    assert combat_drain_hole(8, 1) > combat_drain_hole(8, 15) > combat_drain_hole(8, 40)
-    assert boss_drain_hole(10, 1) == 19
+    assert d_max_of(3) == 9
+    assert combat_drain(9, 3) == 5
+    assert combat_drain(18, 3) == 10
+    assert combat_drain_hole(9, 3, 48, d_fair=9) == 5
+    assert combat_drain_hole(18, 3, 48, d_fair=9) == 10
+    assert boss_drain_hole(9, 3, 48, d_fair=9) == 8
+    assert boss_drain_hole(36, 3, 48, d_fair=9) >= 38
 
 
 def test_phrase_has_no_double_name():
@@ -132,7 +134,7 @@ def test_faucet_ignores_node_tick():
 def test_simulate_layer_deterministic_and_drops_hp():
     def run() -> PqParty:
         party = _party(_merc(gold_wallet=0), seed=99)
-        return simulate_pq(party, party.run_origin + timedelta(minutes=8), pb_depth=0)
+        return simulate_pq(party, party.run_origin + timedelta(minutes=6), pb_depth=0)
 
     a = run()
     b = run()
@@ -179,3 +181,118 @@ def test_sixteen_statuses_present():
 
 def test_d_max_still_starts_at_eight():
     assert d_max_of(1) == 8
+
+
+def test_campfire_heals_fraction_not_full():
+    from waifu_bot.game.delve_pq_layer import REST_BASE_FRAC, apply_rest_layer
+
+    assert REST_BASE_FRAC == 0.12
+    merc = _merc(hp_current=10, hp_max=48)
+    party = _party(merc)
+    healed = apply_rest_layer(party)
+    assert party.mercs[0].hp_current < party.mercs[0].hp_max
+    assert 4 <= healed <= 9
+
+
+def test_city_is_not_boss_and_unlocks_checkpoint():
+    from waifu_bot.game.delve_catalog import CITY_DEPTHS, NODE_CITY, spine_type
+    from waifu_bot.game.delve_pq_layer import apply_layer_dump, layer_state_dump, visit_city
+
+    assert spine_type(40, 9) == NODE_CITY
+    assert spine_type(10, 9) == "BOSS"
+    assert CITY_DEPTHS[0] == 15
+    merc = _merc(hp_current=12, hp_max=48, gold_wallet=200)
+    party = _party(merc)
+    event = visit_city(party, 15, band=1)
+    assert party.checkpoint_d == 15
+    assert party.mercs[0].hp_current == 48
+    assert event["kind"] == "city"
+    blob = layer_state_dump(party)
+    other = _party(_merc(card_id=2, name="Сера"))
+    apply_layer_dump(other, blob)
+    assert other.checkpoint_d == 15
+
+
+def test_city_heals_one_trauma():
+    from waifu_bot.game.delve_pq_layer import apply_status, visit_city
+
+    merc = _merc()
+    apply_status(merc, "arm_graze")
+    apply_status(merc, "eye_soot")
+    party = _party(merc)
+    visit_city(party, 15, band=1)
+    leftover = [row.get("id") for row in (party.mercs[0].flesh or [])]
+    assert len(leftover) == 1
+    assert leftover[0] in ("arm_graze", "eye_soot")
+
+
+def test_monster_and_boss_grant_xp_in_phrase():
+    from waifu_bot.game.delve_catalog import NODE_BOSS, NODE_COMBAT
+    from waifu_bot.game.delve_pq import combat_xp
+    from waifu_bot.game.delve_pq_layer import resolve_layer_node
+
+    live = _merc(hp_current=200, hp_max=200)
+    dead = _merc(card_id=2, slot=2, name="Тень", hp_current=0)
+    party = _party(live, dead, seed=3)
+    event = resolve_layer_node(party, 9, NODE_COMBAT, band=1)
+    if event.get("kind") == "monster":
+        assert live.xp_unspent >= combat_xp(9) or live.level > 1
+        assert "(+" in (event.get("phrase") or "") and "XP)" in (event.get("phrase") or "")
+    else:
+        assert int(event.get("xp_delta") or 0) == 0
+        assert live.xp_unspent == 0
+    assert dead.xp_unspent == 0
+    assert dead.level == 1
+    assert int(event.get("hp_delta") or 0) < 0
+    boss = resolve_layer_node(_party(_merc(hp_current=200, hp_max=200)), 10, NODE_BOSS, band=1)
+    assert "XP)" in (boss.get("phrase") or "")
+    assert int(boss.get("xp_delta") or 0) == 2 * combat_xp(10)
+
+
+def test_empty_combat_drains_without_xp():
+    from waifu_bot.game.delve_catalog import NODE_COMBAT
+    from waifu_bot.game.delve_pq_layer import KIND_MONSTER, resolve_layer_node
+
+    found_empty = False
+    for seed in range(1, 80):
+        merc = _merc(hp_current=200, hp_max=200)
+        party = _party(merc, seed=seed)
+        event = resolve_layer_node(party, 4, NODE_COMBAT, band=1)
+        if event.get("kind") == KIND_MONSTER:
+            continue
+        found_empty = True
+        assert int(event.get("xp_delta") or 0) == 0
+        assert merc.xp_unspent == 0
+        assert merc.hp_current < merc.hp_max
+        break
+    assert found_empty
+
+
+def test_wipe_city_does_not_grant_xp():
+    from waifu_bot.game.delve_pq import do_wipe
+
+    merc = _merc(xp_unspent=5, hp_current=0)
+    party = _party(merc)
+    party.checkpoint_d = 15
+    party.last_d = 22
+    do_wipe(party, now=datetime(2026, 1, 2, tzinfo=timezone.utc), depth=22, band=1)
+    assert party.mercs[0].xp_unspent == 5
+    assert party.last_d == 15
+
+
+def test_walk_to_59_levels_trio():
+    from waifu_bot.game.delve_catalog import spine_type
+    from waifu_bot.game.delve_pq_layer import resolve_layer_node
+
+    names = ("А", "Б", "В")
+    mercs = [
+        _merc(card_id=i, slot=i, name=n, hp_current=400, hp_max=400)
+        for i, n in enumerate(names, start=1)
+    ]
+    party = _party(*mercs, seed=11)
+    for d in range(1, 60):
+        node = spine_type(d, 999, seed=party.seed, wipe_count=0)
+        resolve_layer_node(party, d, node, band=1)
+        for merc in party.mercs:
+            merc.hp_current = int(merc.hp_max)
+    assert all(3 <= merc.level <= 5 for merc in party.mercs)

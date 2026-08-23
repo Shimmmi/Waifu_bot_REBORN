@@ -222,6 +222,7 @@ class PqParty:
     recent_events: list[dict[str, Any]] = field(default_factory=list)
     nodes_seen: int = 0
     walk_ts: datetime | None = None
+    checkpoint_d: int = 0
 
 
 def _aware(dt: datetime) -> datetime:
@@ -239,6 +240,19 @@ def pq_rng(*parts: Any) -> random.Random:
 def xp_to_next(level: int) -> int:
     n = max(0, int(level) - 1)
     return 40 + 20 * n + 3 * n * n
+
+
+def combat_xp(depth: int) -> int:
+    d = max(1, int(depth))
+    return 2 + int(math.ceil(d / 8.0))
+
+
+def boss_xp(depth: int) -> int:
+    return 2 * combat_xp(depth)
+
+
+def city_xp(depth: int) -> int:
+    return combat_xp(depth)
 
 
 def band_of_depth(depth: int) -> int:
@@ -329,14 +343,14 @@ D_MAX_QUAD = 0.0038
 
 
 def d_max_of(party_power: int) -> int:
-    """Ceiling from raw party power. Trio targets: 100/7.5d, 500/32d, 3000/95d."""
+    """Comfort depth from raw party power. Trio targets: 100/7.5d, 500/32d, 3000/95d."""
     p = max(0.0, float(party_power))
     return max(1, int(math.floor(D_MAX_BASE + D_MAX_LIN * p + D_MAX_QUAD * p * p)))
 
 
-def merc_faucet_band(pb_depth: int) -> int:
-    """Daily merc gold/XP band follows the walked record, not theoretical d_max."""
-    return band_of_depth(max(0, int(pb_depth)))
+def merc_faucet_band(last_d: int) -> int:
+    """Daily merc gold/XP band follows the current frame, not theater pb_depth."""
+    return band_of_depth(max(0, int(last_d)))
 
 
 def combat_drain(depth: int, party_power: int, hp_ref: int = 48) -> int:
@@ -470,6 +484,31 @@ def is_two_hand(piece: GearPiece | None) -> bool:
     return bool(piece and piece.slot_type == TWO_HAND)
 
 
+def piece_tier(piece: GearPiece | None) -> int:
+    if piece is None:
+        return 0
+    return max(1, int(math.ceil(max(1, int(piece.base_ilvl)) / 4.0)))
+
+
+def best_owned_tier(merc: MercState) -> int:
+    tiers = [
+        piece_tier(piece)
+        for slot, piece in merc.gear.items()
+        if not (int(slot) == 2 and is_two_hand(merc.gear.get(1)))
+    ]
+    return max(tiers) if tiers else 0
+
+
+def filled_gear_slots(merc: MercState) -> int:
+    n = 0
+    for slot in (1, 2, 3, 4, 5, 6):
+        if slot == 2 and is_two_hand(merc.gear.get(1)):
+            continue
+        if equipped_ilvl(merc, slot) > 0:
+            n += 1
+    return n
+
+
 def equipped_ilvl(merc: MercState, slot: int) -> int:
     piece = merc.gear.get(1) if int(slot) == 2 and is_two_hand(merc.gear.get(1)) else merc.gear.get(int(slot))
     if int(slot) == 2 and is_two_hand(merc.gear.get(1)):
@@ -527,6 +566,20 @@ def apply_levelups(merc: MercState) -> int:
     return gained
 
 
+def grant_adventure_xp(mercs: Iterable[MercState], amount: int) -> int:
+    gained = max(0, int(amount))
+    if gained <= 0:
+        return 0
+    awarded = 0
+    for merc in mercs:
+        if not merc.living():
+            continue
+        merc.xp_unspent += gained
+        apply_levelups(merc)
+        awarded += 1
+    return gained if awarded else 0
+
+
 def install_piece(merc: MercState, piece: GearPiece) -> None:
     slot = int(piece.slot)
     if piece.slot_type == TWO_HAND:
@@ -576,9 +629,11 @@ def shop_offers(
 ) -> list[ShopOffer]:
     node_band = band_of_depth(depth)
     if band is None:
-        band = node_band
+        record_band = node_band
     else:
-        band = max(node_band, max(1, int(band)))
+        record_band = max(node_band, max(1, int(band)))
+    own_best = best_owned_tier(merc)
+    offer_tier = max(1, min(record_band, own_best + 1)) if own_best else 1
     rng = pq_rng(seed, cycle, depth, merc.card_id)
     offers: list[ShopOffer] = []
     slots = [1, 2, 3, 4, 5, 6]
@@ -592,18 +647,22 @@ def shop_offers(
         if not families:
             continue
         family = rng.choice(families)
-        tier = max(1, band + rng.choice((-1, 0, 1)))
+        empty = equipped_ilvl(merc, slot) <= 0
+        tier = 1 if empty else offer_tier
         piece = piece_for_family_tier(family, tier, slot)
-        if piece.ilvl <= equipped_ilvl(merc, slot):
-            piece = piece_for_family_tier(family, max(tier + 1, band + 1), slot)
+        if not empty and piece.ilvl <= equipped_ilvl(merc, slot):
+            bump = min(record_band, tier + 1)
+            if bump > tier:
+                piece = piece_for_family_tier(family, bump, slot)
         if piece.ilvl <= equipped_ilvl(merc, slot):
             continue
+        price_band = 1 if empty else min(record_band, piece_tier(piece))
         roll_flavor_affixes(
-            piece, seed=seed, cycle=cycle, depth=depth, card_id=merc.card_id, band=band
+            piece, seed=seed, cycle=cycle, depth=depth, card_id=merc.card_id, band=record_band
         )
         if not buy_increases_power(merc, piece):
             continue
-        offers.append(offer_from_piece(piece, band))
+        offers.append(offer_from_piece(piece, price_band))
     if not any(o.kind == "gear" for o in offers):
         for slot in (1, 3, 4, 6):
             families = list(SLOT_FAMILIES.get(slot) or ())
@@ -611,15 +670,15 @@ def shop_offers(
                 continue
             family = families[0]
             cur = equipped_ilvl(merc, slot)
-            need_ilvl = cur + 1
-            tier = max(1, int(math.ceil(need_ilvl / 4.0)))
-            tier = min(tier, max(1, band + 1))
+            empty = cur <= 0
+            tier = 1 if empty else offer_tier
             piece = piece_for_family_tier(family, tier, slot)
             roll_flavor_affixes(
-                piece, seed=seed, cycle=cycle, depth=depth, card_id=merc.card_id, band=band
+                piece, seed=seed, cycle=cycle, depth=depth, card_id=merc.card_id, band=record_band
             )
             if piece.ilvl > cur and buy_increases_power(merc, piece):
-                offers.append(offer_from_piece(piece, band))
+                price_band = 1 if empty else min(record_band, piece_tier(piece))
+                offers.append(offer_from_piece(piece, price_band))
                 break
     for slot in (1, 2, 3, 4, 5, 6):
         if equipped_ilvl(merc, slot) > 0:
@@ -631,11 +690,11 @@ def shop_offers(
             continue
         piece = piece_for_family_tier(families[0], 1, slot)
         roll_flavor_affixes(
-            piece, seed=seed, cycle=cycle, depth=depth, card_id=merc.card_id, band=band
+            piece, seed=seed, cycle=cycle, depth=depth, card_id=merc.card_id, band=record_band
         )
         if buy_increases_power(merc, piece):
-            offers.append(offer_from_piece(piece, band))
-    sharpen = best_sharpen_offer(merc, band)
+            offers.append(offer_from_piece(piece, 1))
+    sharpen = best_sharpen_offer(merc, record_band)
     if sharpen is not None:
         offers.append(sharpen)
     for spec in load_consumables():
@@ -643,7 +702,7 @@ def shop_offers(
             ShopOffer(
                 kind="consumable",
                 name=spec.name,
-                price=consumable_price(spec.price_per_band, band),
+                price=consumable_price(spec.price_per_band, record_band),
                 consumable_id=spec.id,
             )
         )
@@ -801,6 +860,9 @@ def resolve_shop(
         extra += 1
     offers = shop_offers(merc, depth=depth, seed=seed, cycle=cycle, band=shop_band)
     reserve = _shop_save_reserve(merc, offers, bought)
+    if filled_gear_slots(merc) < 4:
+        merc.last_shop_buy = list(bought)
+        return bought
     for offer in offers:
         if offer.kind != "consumable" or not offer.consumable_id:
             continue
@@ -903,20 +965,27 @@ def all_down(mercs: list[MercState]) -> bool:
     return not living
 
 
-def do_wipe(party: PqParty, *, now: datetime, depth: int) -> None:
+def do_wipe(party: PqParty, *, now: datetime, depth: int, band: int = 1) -> None:
     party.wipe_count += 1
     party.run_origin = _aware(now)
     party.last_cycle = 0
-    party.last_d = 0
+    checkpoint = int(getattr(party, "checkpoint_d", 0) or 0)
+    party.last_d = checkpoint
     party.walk_ts = _aware(now)
-    party.wipe_log.append({"kind": "wipe", "d": int(depth), "n": party.wipe_count})
+    party.wipe_log.append({"kind": "wipe", "d": int(depth), "n": party.wipe_count, "at": checkpoint})
     for merc in party.mercs:
         refresh_derived(merc)
         merc.hp_current = int(merc.hp_max)
-    if int(getattr(party, "layer", 2) or 2) >= 2:
-        from waifu_bot.game.delve_pq_layer import city_return
+    if int(getattr(party, "layer", 2) or 2) < 2:
+        return
+    if checkpoint > 0:
+        from waifu_bot.game.delve_pq_layer import remember_event, visit_city
 
-        city_return(party)
+        remember_event(party, visit_city(party, checkpoint, band=max(1, int(band)), award_xp=False))
+        return
+    from waifu_bot.game.delve_pq_layer import city_return
+
+    city_return(party)
 
 
 def grant_merc_faucet(party: PqParty, *, now: datetime, band: int) -> tuple[int, int]:
@@ -941,16 +1010,16 @@ def grant_merc_faucet(party: PqParty, *, now: datetime, band: int) -> tuple[int,
     party.grant_day = day_g or day_x or msk_today(now)
     party.gold_today = int(today_g)
     party.xp_today = int(today_x)
-    party.gold_lifetime += int(gold)
+    n_heads = max(1, len(party.mercs))
+    party.gold_lifetime += int(gold) * n_heads
     party.xp_lifetime += int(xp)
     if party.mercs and (gold or xp):
         weights = [max(1, max(0, min(100, int(m.loyalty)))) for m in party.mercs]
-        gold_parts = split_weighted(int(gold), weights)
         xp_parts = split_weighted(int(xp), weights)
-        for merc, g, x in zip(party.mercs, gold_parts, xp_parts):
-            merc.gold_wallet += int(g)
+        for merc, x in zip(party.mercs, xp_parts):
+            merc.gold_wallet += int(gold)
             merc.xp_unspent += int(x)
-            merc.gold_earned += int(g)
+            merc.gold_earned += int(gold)
             merc.xp_earned += int(x)
             apply_levelups(merc)
     return int(gold), int(xp)
@@ -1006,8 +1075,9 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
 
             party.t_eff = t_eff_of(party.mercs, t_node=int(party.t_node or 30), depth=int(party.last_d or 0), d_max=int(_ceil(party)))
         return party
-    band = merc_faucet_band(pb_depth)
-    grant_merc_faucet(party, now=now, band=band)
+    faucet_band = merc_faucet_band(int(party.last_d or 0))
+    grant_merc_faucet(party, now=now, band=faucet_band)
+    band = max(faucet_band, merc_faucet_band(pb_depth))
     for merc in party.mercs:
         apply_levelups(merc)
         refresh_derived(merc)
@@ -1023,8 +1093,6 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
         t_eff = None
         if layer >= 2:
             from waifu_bot.game.delve_pq_layer import (
-                apply_rest_layer,
-                city_return,
                 period_parts_layer,
                 remember_event,
                 resolve_layer_node,
@@ -1033,44 +1101,19 @@ def simulate_pq(party: PqParty, now: datetime, *, pb_depth: int = 0) -> PqParty:
 
             t_eff = t_eff_of(party.mercs, t_node=int(party.t_node or 30), depth=int(party.last_d or 0), d_max=floor_ceil)
             party.t_eff = t_eff
-            _t_down, t_up, t_rest = period_parts_layer(floor_ceil, t_eff)
+            _t_down, _t_up, t_rest = period_parts_layer(floor_ceil, t_eff)
             tick = max(1, int(t_eff))
-            if party.last_d >= floor_ceil:
-                ready = party.walk_ts + timedelta(seconds=float(t_up + t_rest))
-                if ready > now:
-                    break
-                healed = apply_rest_layer(party)
-                city_return(party)
-                auto_use_potions(party.mercs)
-                who = party.mercs[0].name if party.mercs else "Она"
-                remember_event(
-                    party,
-                    {
-                        "id": "surface_rest",
-                        "kind": "surface",
-                        "kind_ru": "Лагерь",
-                        "d": 0,
-                        "phrase": f"[Лагерь] Глубина 0 · {who} сидит у стола (+{healed} HP)",
-                        "who": who,
-                        "hp_delta": -healed,
-                        "from_llm": False,
-                    },
-                )
-                party.last_cycle = party.last_cycle + 1
-                party.last_d = 0
-                party.walk_ts = ready
-                continue
             nxt_t = party.walk_ts + timedelta(seconds=tick)
             if nxt_t > now:
                 break
             party.walk_ts = nxt_t
             nxt = party.last_d + 1
             party.last_d = nxt
-            node = spine_type(nxt, ceil)
+            node = spine_type(nxt, ceil, seed=party.seed, wipe_count=int(party.wipe_count or 0))
             event = resolve_layer_node(party, nxt, node, band=band)
             remember_event(party, event)
             if all_down(party.mercs):
-                do_wipe(party, now=party.walk_ts, depth=nxt)
+                do_wipe(party, now=party.walk_ts, depth=nxt, band=band)
                 party.walk_ts = party.walk_ts + timedelta(seconds=t_rest)
                 wipes += 1
             continue
