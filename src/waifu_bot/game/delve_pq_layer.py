@@ -60,8 +60,8 @@ DRAIN_LAMBDA = 2.0
 BOSS_FRAC_MULT = 1.6
 COMBAT_CAP_FRAC = 0.85
 BOSS_CAP_FRAC = 0.90
-REST_BASE_FRAC = 0.22
-REST_CAP_FRAC = 0.28
+REST_BASE_FRAC = 0.12
+REST_CAP_FRAC = 0.16
 HEALER_CLASS_ID = 6
 HEALER_AURA = 0.10
 
@@ -840,7 +840,7 @@ def heal_one_trauma(party: PqParty) -> dict[str, Any] | None:
     return None
 
 
-def visit_city(party: PqParty, depth: int, *, band: int) -> dict[str, Any]:
+def visit_city(party: PqParty, depth: int, *, band: int, award_xp: bool = True) -> dict[str, Any]:
     city_d = int(depth)
     name = city_name_ru(city_d)
     party.checkpoint_d = max(int(getattr(party, "checkpoint_d", 0) or 0), city_d if is_city_depth(city_d) else 0)
@@ -869,7 +869,7 @@ def visit_city(party: PqParty, depth: int, *, band: int) -> dict[str, Any]:
             who = str(last.get("who") or who)
     if trauma:
         line = f"{line} · −{trauma.get('name_ru')}"
-    xp_delta = grant_adventure_xp(party.mercs, city_xp(city_d))
+    xp_delta = grant_adventure_xp(party.mercs, city_xp(city_d)) if award_xp else 0
     phrase = assemble_phrase(kind="city", depth=city_d, line=line, who=who, xp_delta=xp_delta)
     if healed:
         phrase = f"{phrase} (+{healed} HP)"
@@ -1226,28 +1226,21 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
     actor = pick_actor(party, row)
     who = actor.name if actor else who
     line = str(row.get("line_ru") or "").format(who=who)
-    hp_mult = float(row.get("hp_mult") or 0)
     lost: dict[str, int] = dict(poison_lost)
     xp_delta = 0
-    if kind == KIND_MONSTER or node == NODE_COMBAT:
+    if kind == KIND_MONSTER:
         xp_delta = grant_adventure_xp(party.mercs, combat_xp(depth))
-    if kind == KIND_MONSTER or hp_mult > 0:
-        pp = party_power_eff(party.mercs, depth=depth, d_max=d_max, living_only=True)
-        raw = combat_drain_hole(depth, pp, hp_ref_of(party.mercs), d_fair=d_max)
-        raw = max(0, _half_up(raw * hp_mult)) if kind != KIND_MONSTER else raw
-        if kind == KIND_MONSTER:
-            raw = max(COMBAT_FLOOR, _half_up(raw * drain_mult_of(party.mercs, depth=depth, d_max=d_max)))
-            if consume_chip(party, CHIP_WARD):
-                raw = max(1, _half_up(raw * 0.75))
-        else:
-            raw = max(0, _half_up(raw * drain_mult_of(party.mercs, depth=depth, d_max=d_max)))
-        if raw and consume_chip(party, CHIP_BLEED):
-            raw += 1
-        if raw:
-            for name, n in apply_drain_named(party.mercs, raw, depth=depth, d_max=d_max).items():
-                lost[name] = lost.get(name, 0) + n
-        if kind == KIND_MONSTER:
-            auto_use_potions(party.mercs)
+    pp = party_power_eff(party.mercs, depth=depth, d_max=d_max, living_only=True)
+    raw = combat_drain_hole(depth, pp, hp_ref_of(party.mercs), d_fair=d_max)
+    raw = max(COMBAT_FLOOR, _half_up(raw * drain_mult_of(party.mercs, depth=depth, d_max=d_max)))
+    if consume_chip(party, CHIP_WARD):
+        raw = max(1, _half_up(raw * 0.75))
+    if raw and consume_chip(party, CHIP_BLEED):
+        raw += 1
+    if raw:
+        for name, n in apply_drain_named(party.mercs, raw, depth=depth, d_max=d_max).items():
+            lost[name] = lost.get(name, 0) + n
+    auto_use_potions(party.mercs)
     gold_delta, capped = grant_event_gold(party, actor, int(row.get("gold_delta") or 0), band)
     chip_id = row.get("chip")
     if chip_id in CHIP_LABEL:

@@ -191,9 +191,12 @@ def test_roguelike_spine_keeps_boss_city_and_rerolls_specials():
     assert spine_type(40, 9, seed=11, wipe_count=0) == "CITY"
     assert spine_type(15, 9, seed=11, wipe_count=0) == "CITY"
     row = [spine_type(d, 9, seed=11, wipe_count=0) for d in range(1, 10)]
-    assert row.count("REST") == 2
+    assert row.count("REST") == 1
     assert row.count("SHOP") == 1
     assert row == [spine_type(d, 9, seed=11, wipe_count=0) for d in range(1, 10)]
+    for k in (0, 1, 2, 5):
+        decade = [spine_type(d, 9, seed=11, wipe_count=0) for d in range(k * 10 + 1, k * 10 + 10)]
+        assert decade.count("REST") == 1, (k, decade)
     other = [spine_type(d, 9, seed=11, wipe_count=1) for d in range(1, 10)]
     third = [spine_type(d, 9, seed=99, wipe_count=0) for d in range(1, 10)]
     assert row != other or row != third

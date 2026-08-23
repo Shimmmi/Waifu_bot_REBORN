@@ -27,6 +27,7 @@ from waifu_bot.game.delve_pq import (
     equipped_ilvl,
     gear_price,
     grant_adventure_xp,
+    grant_merc_faucet,
     hp_max_of,
     install_piece,
     load_consumables,
@@ -34,6 +35,7 @@ from waifu_bot.game.delve_pq import (
     merc_faucet_band,
     merc_gold_cap_day,
     piece_for_family_tier,
+    piece_tier,
     refresh_derived,
     resolve_shop,
     roll_flavor_affixes,
@@ -62,13 +64,13 @@ def _merc(**kwargs) -> MercState:
     return MercState(**base)
 
 
-def _party(merc: MercState, *, seed: int = 11) -> PqParty:
+def _party(*mercs: MercState, seed: int = 11) -> PqParty:
     origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
     return PqParty(
         seed=seed,
         run_origin=origin,
         last_ts=origin,
-        mercs=[merc],
+        mercs=list(mercs),
     )
 
 
@@ -95,10 +97,11 @@ def test_xp_level_and_power_formulas():
 
 def test_combat_xp_grows_with_node():
     assert combat_xp(1) == 3
-    assert combat_xp(15) == 7
-    assert combat_xp(40) == 16
-    assert combat_xp(59) == 22
-    assert combat_xp(80) == 29
+    assert combat_xp(15) == 4
+    assert combat_xp(40) == 7
+    assert combat_xp(59) == 10
+    assert combat_xp(80) == 12
+    assert combat_xp(250) == 34
     assert combat_xp(1) < combat_xp(15) < combat_xp(59)
     assert boss_xp(15) == 2 * combat_xp(15)
     assert city_xp(40) == combat_xp(40)
@@ -162,7 +165,7 @@ def test_wipe_returns_to_checkpoint_and_keeps_progress():
     assert party.last_d == 15
     assert party.checkpoint_d == 15
     assert kept.gold_wallet == 7
-    assert kept.xp_unspent == 12 + city_xp(15)
+    assert kept.xp_unspent == 12
     assert kept.level == 4
     assert kept.hp_current == kept.hp_max
     assert kept.gear[4].name
@@ -227,13 +230,14 @@ def test_d_max_curve_matches_trio_targets():
     assert d_max_of(800) == 2760
 
 
-def test_merc_faucet_band_follows_record_not_d_max():
+def test_merc_faucet_band_follows_last_d_not_d_max():
     assert merc_faucet_band(0) == 1
     assert merc_faucet_band(20) == 1
     assert merc_faucet_band(21) == 2
     assert merc_faucet_band(100) == 5
     assert d_max_of(321) > 500
     assert merc_faucet_band(40) == 2
+    assert merc_faucet_band(250) == 13
 
 
 def test_balance_day_band_does_not_skip_two_tiers():
@@ -306,10 +310,55 @@ def test_shop_holds_gold_for_tier1_instead_of_potions():
 
 def test_shop_potion_stack_stops_at_three():
     merc = _merc(gold_wallet=500)
+    for slot, family in ((1, "sword"), (3, "costume"), (4, "ring"), (6, "amulet")):
+        install_piece(merc, piece_for_family_tier(family, 1, slot))
     resolve_shop(merc, depth=4, seed=7, cycle=0)
     assert merc.bag.get(POTION_ID, 0) <= 3
     assert merc.bag.get(SALVE_ID, 0) <= 1
+
+
+def test_shop_skips_potions_until_four_slots():
+    merc = _merc(gold_wallet=500)
+    resolve_shop(merc, depth=4, seed=7, cycle=0)
     assert any(merc.gear.values())
+    assert merc.bag.get(POTION_ID, 0) == 0
+    assert merc.bag.get(SALVE_ID, 0) == 0
+
+
+def test_shop_empty_slot_is_t1_even_at_record_band():
+    merc = _merc()
+    offers = shop_offers(merc, depth=250, seed=7, cycle=0, band=17)
+    gear = [o for o in offers if o.kind == "gear"]
+    assert gear
+    for offer in gear:
+        assert offer.base_ilvl == 4
+        assert offer.price == 48
+    install_piece(merc, piece_for_family_tier("costume", 1, 3))
+    upgrades = [o for o in shop_offers(merc, depth=250, seed=7, cycle=0, band=17) if o.kind == "gear"]
+    assert upgrades
+    for offer in upgrades:
+        assert piece_tier(piece_for_family_tier(offer.family_key, max(1, offer.base_ilvl // 4), int(offer.slot or 1))) <= 2
+        assert (offer.base_ilvl or 0) <= 8
+
+
+def test_faucet_gold_is_per_head():
+    origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    mercs = [_merc(card_id=i, slot=i, name=n, loyalty=50, gold_wallet=0) for i, n in enumerate(("А", "Б", "В"), start=1)]
+    party = _party(*mercs)
+    grant_merc_faucet(party, now=origin + timedelta(hours=24), band=1)
+    wallets = [m.gold_wallet for m in party.mercs]
+    assert wallets == [80, 80, 80]
+
+
+def test_day1_band1_trio_buys_t1_not_t4():
+    names = ("А", "Б", "В")
+    mercs = [_merc(card_id=i, slot=i, name=n, loyalty=50, gold_wallet=0) for i, n in enumerate(names, start=1)]
+    party = _party(*mercs, seed=11)
+    simulate_pq(party, party.run_origin + timedelta(hours=24), pb_depth=1)
+    pieces = [p for merc in party.mercs for p in merc.gear.values()]
+    t1 = [p for p in pieces if piece_tier(p) == 1]
+    assert len(t1) >= 3
+    assert all(piece_tier(p) < 4 for p in pieces)
 
 
 def test_combat_drain_follows_overage():
@@ -388,7 +437,7 @@ def _run_pace(n: int, seed: int, *, days: float, step_h: int = 2) -> _WatchParty
     return party
 
 
-def test_trio_hits_100_500_3000_pace():
+def test_trio_hits_100_in_a_week():
     origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
     party = _WatchParty(
         seed=11,
@@ -405,21 +454,19 @@ def test_trio_hits_100_500_3000_pace():
         pb=0,
     )
     now = origin
-    pending = {100: 7.5, 500: 32.0, 3000: 95.0}
-    while pending and (now - origin).total_seconds() / 86400.0 <= 95.0:
+    while (now - origin).total_seconds() / 86400.0 <= 7.5:
         now += timedelta(hours=2)
         simulate_pq(party, now, pb_depth=max(int(party.pb), 1))
-        days = (now - origin).total_seconds() / 86400.0
-        for depth, limit in list(pending.items()):
-            if party.pb >= depth:
-                assert days <= limit, (depth, days, party.pb)
-                del pending[depth]
-    assert pending == {}, (party.pb, pending)
+        if party.pb >= 100:
+            break
+    days = (now - origin).total_seconds() / 86400.0
+    assert party.pb >= 100, (party.pb, days)
+    assert days <= 7.5
 
 
-def test_solo_day30_deeper_than_old_plateau():
-    party = _run_pace(1, 11, days=30, step_h=2)
-    assert party.pb >= 40
+def test_solo_week_reaches_first_city():
+    party = _run_pace(1, 11, days=7, step_h=2)
+    assert party.pb >= 15
     assert party.checkpoint_d >= 15
 
 

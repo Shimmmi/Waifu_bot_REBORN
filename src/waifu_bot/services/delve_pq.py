@@ -107,7 +107,7 @@ def reset_pq_column_progress(
 
 
 def reset_all_pq_column_progress(bind: Any, *, now: datetime | None = None) -> None:
-    """Wipe every player's column RPG onto floor 1. Alembic 0150."""
+    """Wipe every player's column RPG onto floor 1. Does not touch Player.gold or OV XP."""
     ts = now or datetime.now(timezone.utc)
     bind.execute(
         text(

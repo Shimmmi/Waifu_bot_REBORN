@@ -547,8 +547,6 @@ def _segment_layout(seed: int, wipe_count: int, k: int) -> tuple[tuple[int, str]
     layout[pool.pop()] = NODE_REST
     if pool:
         layout[pool.pop()] = NODE_SHOP
-    if pool:
-        layout[pool.pop()] = NODE_REST
     if pool and rng.random() < LANDMARK_CHANCE:
         layout[pool.pop()] = NODE_LANDMARK
     return tuple(sorted(layout.items()))
