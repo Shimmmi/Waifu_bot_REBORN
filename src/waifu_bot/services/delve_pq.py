@@ -228,6 +228,48 @@ def merc_from_card(
     return merc
 
 
+def record_pq_card_facts(
+    session: AsyncSession,
+    card: m.CompanionCard,
+    merc: MercState,
+    *,
+    prev_level: int,
+    now: datetime,
+    depth: int = 0,
+) -> None:
+    from waifu_bot.services.chronicle import append_fact_event
+
+    new_level = int(getattr(merc, "level", 1) or 1)
+    if new_level > int(prev_level or 1):
+        append_fact_event(
+            session,
+            card,
+            kind="level",
+            template_id="pq_level",
+            payload={"level": new_level},
+            now=now,
+            depth=depth,
+        )
+    seen: set[str] = set()
+    for item in list(getattr(merc, "last_shop_buy", None) or []):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        append_fact_event(
+            session,
+            card,
+            kind="buy",
+            template_id="pq_buy",
+            payload={"item": name, "buy_kind": item.get("kind")},
+            now=now,
+            depth=depth,
+            node="SHOP",
+        )
+
+
 def apply_merc_to_card(card: m.CompanionCard, merc: MercState) -> None:
     card.level = int(merc.level)
     card.xp_unspent = int(merc.xp_unspent)
@@ -451,8 +493,11 @@ async def resolve_pq(
     simulate_pq(party, now, pb_depth=int(state.pb_depth or 0))
     write_party(state, party)
     by_slot = {int(r.slot): r for r in companions}
+    depth = int(getattr(party, "last_d", 0) or getattr(state, "depth", 0) or 0)
     for card, merc in zip(seated, party.mercs):
+        prev_level = int(getattr(card, "level", 1) or 1)
         apply_merc_to_card(card, merc)
+        record_pq_card_facts(session, card, merc, prev_level=prev_level, now=now, depth=depth)
         row = by_slot.get(int(card.slot or 0))
         if row is not None:
             apply_merc_to_delve(row, merc)

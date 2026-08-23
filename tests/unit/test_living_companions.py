@@ -172,7 +172,8 @@ def test_living_chat_knows_main_waifu():
     assert "наняла" in chat
     art = Path("src/waifu_bot/services/companion_art.py").read_text(encoding="utf-8")
     assert "hired_by" in art
-    assert "наняла" in art
+    assert "Её наняла" not in art
+    assert "становлени" in art
     living = Path("src/waifu_bot/services/companion_living.py").read_text(encoding="utf-8")
     assert "hired_by" in living
     look = look_card_for(name="Мира", stance="scout", cloak="ash", traits=["тихая"], seed=1, hired_by="Вася")
@@ -387,7 +388,8 @@ def test_bio_prompt_long_and_not_grotesque():
 
     src = getsource(fill_identity)
     assert AI_NARRATIVE_GROTESQUE_HUMOR_RU not in src
-    assert "5–8" in src or "5-8" in src
+    assert "3–5" in src or "3-5" in src
+    assert "Её наняла" not in src
     assert "max_tokens" in src
     assert "grotesk" in src.lower() or "гротеск" in src
     art = Path("src/waifu_bot/services/companion_art.py").read_text(encoding="utf-8")
@@ -456,8 +458,8 @@ def test_modal_css_and_cache_v108():
     hall = Path("src/waifu_bot/webapp/pages/tavern_hall.js").read_text(encoding="utf-8")
     assert "max-height: 92vh" in css
     assert "132px" in css
-    assert "v110" in hall
-    assert "waifu-webapp-v110" in html
+    assert "v111" in hall
+    assert "waifu-webapp-v111" in html
     docs = Path("docs/TAVERN_LIVING_COMPANIONS.md").read_text(encoding="utf-8")
     assert "1 раз в сутки" in docs
     assert "Без замка по суткам" not in docs
@@ -483,4 +485,77 @@ def test_loyalty_hearts_on_hall():
     assert "loyaltyHeart" in hall
     css = Path("src/waifu_bot/webapp/pages/tavern-living.css").read_text(encoding="utf-8")
     assert "living-loyalty" in css
+
+
+def test_fact_line_is_dry():
+    from waifu_bot.services.chronicle import JOURNAL_KINDS, fact_line
+
+    assert fact_line(_ev(kind="injury", payload={"injury": "рука"})) == "получила травму рука"
+    assert fact_line(_ev(kind="trauma", payload={"trauma": "страх"})) == "получила травму рассудка: страх"
+    assert fact_line(_ev(kind="heal", payload={"heal": True})) == "залечила рану"
+    assert fact_line(_ev(kind="heal", payload={"heal_psyche": True})) == "оправилась"
+    assert fact_line(_ev(kind="bond", payload={"other_name": "Мира", "bond_delta": -1})) == "связь с Мира ухудшилась"
+    assert fact_line(_ev(kind="bond", payload={"other_name": "Мира", "bond_delta": 1})) == "связь с Мира улучшилась"
+    assert fact_line(_ev(kind="hire", payload={})) == "встала за стол"
+    assert fact_line(_ev(kind="level", payload={"level": 3})) == "получила уровень 3"
+    assert fact_line(_ev(kind="buy", payload={"item": "короткий клинок"})) == "купила короткий клинок"
+    assert fact_line(_ev(kind="beat", payload={})) == ""
+    assert "injury" in JOURNAL_KINDS
+    assert "beat" not in JOURNAL_KINDS
+    hall = Path("src/waifu_bot/webapp/pages/tavern_hall.js").read_text(encoding="utf-8")
+    assert "renderBoard" not in hall
+    assert "chalkboard" not in hall
+    assert "/tavern/living/spice" not in hall
+    assert "h.fact" in hall
+    living = Path("src/waifu_bot/services/companion_living.py").read_text(encoding="utf-8")
+    assert "chalkboard" not in living
+    assert "copy.board" not in living
+    assert '"board": "Вчера"' not in living
+
+
+def test_memory_shelves_caps_and_prompt():
+    from waifu_bot.services.companion_memory import (
+        MAX_KEYS,
+        memory_apply_facts,
+        memory_get,
+        memory_prompt,
+        memory_put,
+        memory_seed_party,
+    )
+
+    card = CompanionCard(
+        id=10,
+        player_id=1,
+        name="Сера",
+        stance="scout",
+        temper="stay",
+        memory=None,
+    )
+    memory_put(card, "people", "patron", "Астра")
+    memory_put(card, "people", "42", "А")
+    memory_put(card, "prefs", "цвет_патрона", "синий")
+    assert memory_get(card, "people", "42") == "А"
+    assert memory_get(card, "prefs", "цвет_патрона") == "синий"
+    prompt = memory_prompt(card)
+    assert "42=А" in prompt
+    assert "цвет_патрона=синий" in prompt
+    memory_put(card, "people", "42", "Мира", overwrite=False)
+    assert memory_get(card, "people", "42") == "А"
+    mate = SimpleNamespace(id=42, name="Мира")
+    memory_seed_party(card, "Астра", [card, mate])
+    assert memory_get(card, "people", "42") == "А"
+    memory_apply_facts(card, [{"tag": "people", "key": "42", "value": "А"}])
+    assert memory_get(card, "people", "42") == "А"
+    for i in range(20):
+        memory_put(card, "notes", f"k{i}", f"v{i}")
+    assert len(memory_get(card, "notes")) <= MAX_KEYS
+    living = Path("src/waifu_bot/services/companion_living.py").read_text(encoding="utf-8")
+    assert "_bond_rows" in living
+    assert "bonds" in living
+    hall = Path("src/waifu_bot/webapp/pages/tavern_hall.js").read_text(encoding="utf-8")
+    assert "detail.bonds" in hall
+    chat = Path("src/waifu_bot/services/companion_chat.py").read_text(encoding="utf-8")
+    assert "memory_prompt" in chat
+    assert "memory_apply_facts" in chat
+    assert "смотри карточку" in chat
 

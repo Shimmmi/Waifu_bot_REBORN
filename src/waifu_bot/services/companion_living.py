@@ -20,7 +20,7 @@ from waifu_bot.game.delve_catalog import (
     pick_companion_name,
     template_portrait_url,
 )
-from waifu_bot.services.chronicle import MOURNING, digest_lines, resolve_chronicle, serve_line
+from waifu_bot.services.chronicle import JOURNAL_KINDS, MOURNING, fact_line, resolve_chronicle
 from waifu_bot.services.delve import DelveError, list_companions
 
 TRAIT_POOL = (
@@ -451,7 +451,7 @@ async def migrate_delve_to_cards(session: AsyncSession, player_id: int, *, now: 
                 seed=rng.randrange(10**9),
                 hired_by=patron,
             ),
-            bio=f"Шли вместе с {patron} до таверны.",
+            bio="Выросла в дороге. В отряд вступила сама.",
             portrait_pixel_path=row.image_path,
             flesh=[],
             psyche=[],
@@ -516,6 +516,38 @@ def _qual_mind(card: m.CompanionCard) -> str:
     if n == 1:
         return "тень"
     return "пустой взгляд"
+
+
+def _bond_rows(card: m.CompanionCard, party: list[m.CompanionCard] | None = None) -> list[str]:
+    rel = card.relations or {}
+    names: dict[str, str] = {}
+    if party:
+        for mate in party:
+            if mate.id is not None:
+                names[str(mate.id)] = str(mate.name)
+    from waifu_bot.services.companion_memory import memory_get
+
+    people = memory_get(card, "people") or {}
+    if isinstance(people, dict):
+        for key, val in people.items():
+            if key == "patron":
+                continue
+            names.setdefault(str(key), str(val))
+    out: list[str] = []
+    for pid, val in rel.items():
+        try:
+            n = int(val)
+        except (TypeError, ValueError):
+            continue
+        name = names.get(str(pid)) or "спутница"
+        if n < 0:
+            tone = "холодно"
+        elif n > 0:
+            tone = "тепло"
+        else:
+            tone = "нейтрально"
+        out.append(f"{name} — {tone}")
+    return out[:8]
 
 
 def _consequence(card: m.CompanionCard, party: list[m.CompanionCard] | None = None) -> list[str]:
@@ -621,7 +653,6 @@ def card_public(
     race_ru = str(look.get("race_ru") or "")
     class_ru = str(look.get("class_ru") or "")
     lineage = " · ".join(p for p in (race_ru, class_ru) if p)
-    bio = str(card.bio or "")
     try:
         bio_version = int(look.get("bio_version") or 0)
     except (TypeError, ValueError):
@@ -655,6 +686,7 @@ def card_public(
             if isinstance(r, dict)
         ],
         "consequences": _consequence(card, party),
+        "bonds": _bond_rows(card, party),
         "scar_frame": bool(card.scar_frame),
         "days": days_in_party(card.joined_at, now),
         "gold_earned": int(card.gold_earned or 0),
@@ -671,7 +703,7 @@ def card_public(
         "lineage": lineage,
         "loyalty": card_loyalty(card),
         "loyalty_heart": loyalty_heart_url(card_loyalty(card)),
-        "bio_expandable": card.status == "living" and bio_version < 2 and 0 < len(bio.strip()) < 200,
+        "bio_expandable": card.status == "living" and bio_version < 3,
     }
 
 
@@ -771,6 +803,7 @@ async def build_hall(
     mark_seen: bool = False,
 ) -> dict[str, Any]:
     now = now or _now()
+    _ = mark_seen
     await migrate_delve_to_cards(session, player_id, now=now)
     hall = await get_hall_row(session, player_id)
     state = await session.get(m.DelveState, int(player_id))
@@ -825,56 +858,6 @@ async def build_hall(
                 "mourning_until": hall.mourning_until.isoformat() if hall.mourning_until else None,
             }
         )
-    events = (
-        await session.execute(
-            select(m.CompanionEvent)
-            .where(m.CompanionEvent.player_id == int(player_id))
-            .order_by(m.CompanionEvent.id.desc())
-            .limit(80)
-        )
-    ).scalars().all()
-    events_asc = list(reversed(list(events)))
-    name_ids = {int(e.card_id) for e in events_asc if e.card_id}
-    for ev in events_asc:
-        payload = ev.payload if isinstance(ev.payload, dict) else {}
-        bond = payload.get("bond")
-        if isinstance(bond, dict):
-            for key in bond:
-                try:
-                    name_ids.add(int(key))
-                except (TypeError, ValueError):
-                    pass
-    names: dict[int, str] = {}
-    if name_ids:
-        for cid, nm in (
-            await session.execute(
-                select(m.CompanionCard.id, m.CompanionCard.name).where(m.CompanionCard.id.in_(name_ids))
-            )
-        ).all():
-            names[int(cid)] = str(nm)
-    for ev in events_asc:
-        who = names.get(int(ev.card_id), "Она") if ev.card_id else "Они"
-        other = ""
-        payload = ev.payload if isinstance(ev.payload, dict) else {}
-        bond = payload.get("bond")
-        if isinstance(bond, dict):
-            for key in bond:
-                try:
-                    other = names.get(int(key), "") or other
-                except (TypeError, ValueError):
-                    continue
-        if not other:
-            other = str(payload.get("other_name") or "")
-        serve_line(ev, who=who, other=other)
-    chalkboard = digest_lines(events_asc, seen_at=hall.digest_seen_at)
-    for row in chalkboard:
-        ev = next((e for e in events_asc if e.id == row["id"]), None)
-        if ev and ev.card_id:
-            row["name"] = names.get(int(ev.card_id))
-        if ev:
-            row["line"] = ev.line_ru
-    if mark_seen:
-        hall.digest_seen_at = now
     living_n = sum(1 for c in columns if c["kind"] == "living")
     needs_art = []
     for col in columns:
@@ -886,7 +869,16 @@ async def build_hall(
         if col.get("kind") == "rain":
             raw = rain_card
         look = (raw.look_card if raw else None) or {}
-        if raw and (not raw.portrait_anime_path or look.get("silhouette_dirty") or not (raw.bio or "").strip()):
+        try:
+            bio_ver = int(look.get("bio_version") or 0)
+        except (TypeError, ValueError):
+            bio_ver = 0
+        if raw and (
+            not raw.portrait_anime_path
+            or look.get("silhouette_dirty")
+            or not (raw.bio or "").strip()
+            or bio_ver < 3
+        ):
             needs_art.append(cid)
     return {
         "copy": {
@@ -899,10 +891,8 @@ async def build_hall(
             "dismiss": "Уволить",
             "chat_ph": "Сказать ей…",
             "history_empty": "Пока тишина.",
-            "board": "Вчера",
         },
         "columns": columns,
-        "chalkboard": chalkboard,
         "mourning": mourning,
         "living": living_n,
         "needs_art": needs_art,
@@ -1211,19 +1201,26 @@ async def card_history(session: AsyncSession, player_id: int, card_id: int) -> l
                 m.CompanionEvent.player_id == int(player_id),
                 m.CompanionEvent.card_id == int(card_id),
                 m.CompanionEvent.discovered.is_(True),
+                m.CompanionEvent.kind.in_(JOURNAL_KINDS),
             )
             .order_by(m.CompanionEvent.id.desc())
             .limit(40)
         )
     ).scalars().all()
-    card = await session.get(m.CompanionCard, int(card_id))
-    who = card.name if card else "Она"
-    return [
-        {
-            "id": r.id,
-            "line": serve_line(r, who=who),
-            "depth": r.depth,
-            "kind": r.kind,
-        }
-        for r in rows
-    ]
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        payload = r.payload if isinstance(r.payload, dict) else {}
+        other = str(payload.get("other_name") or "")
+        fact = fact_line(r, other=other)
+        if not fact:
+            continue
+        out.append(
+            {
+                "id": r.id,
+                "fact": fact,
+                "line": fact,
+                "depth": r.depth,
+                "kind": r.kind,
+            }
+        )
+    return out

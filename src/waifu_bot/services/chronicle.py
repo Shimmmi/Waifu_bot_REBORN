@@ -515,6 +515,110 @@ async def _die(session: AsyncSession, card: m.CompanionCard) -> None:
     await start_mourning(session, int(card.player_id))
 
 
+JOURNAL_KINDS = frozenset(
+    {
+        "injury",
+        "trauma",
+        "heal",
+        "heal_psyche",
+        "bond",
+        "hire",
+        "leave_column",
+        "dismiss",
+        "death",
+        "level",
+        "buy",
+        "crime",
+    }
+)
+
+
+def fact_line(event: Any, *, other: str = "") -> str:
+    """Dry journal line from kind + payload. No atmosphere."""
+    kind = str(getattr(event, "kind", "") or "")
+    payload = getattr(event, "payload", None)
+    payload = payload if isinstance(payload, dict) else {}
+    if kind == "injury":
+        part = str(payload.get("injury") or payload.get("part") or "рана").strip()
+        return f"получила травму {part}"
+    if kind == "trauma":
+        facet = str(payload.get("trauma") or payload.get("facet") or "тень").strip()
+        return f"получила травму рассудка: {facet}"
+    if kind == "heal_psyche" or (kind == "heal" and payload.get("heal_psyche")):
+        return "оправилась"
+    if kind == "heal":
+        return "залечила рану"
+    if kind == "bond":
+        name = str(other or payload.get("other_name") or "спутница").strip() or "спутница"
+        delta = 0
+        try:
+            delta = int(payload.get("bond_delta") or 0)
+        except (TypeError, ValueError):
+            delta = 0
+        if not delta and isinstance(payload.get("bond"), dict):
+            vals = list(payload["bond"].values())
+            try:
+                delta = int(vals[0]) if vals else 0
+            except (TypeError, ValueError):
+                delta = 0
+        if delta < 0:
+            return f"связь с {name} ухудшилась"
+        if delta > 0:
+            return f"связь с {name} улучшилась"
+        return f"связь с {name}"
+    if kind == "hire":
+        return "встала за стол"
+    if kind == "leave_column":
+        return "ушла из колонны"
+    if kind == "dismiss":
+        return "уволена"
+    if kind == "death":
+        return "погибла"
+    if kind == "level":
+        n = payload.get("level")
+        return f"получила уровень {n}" if n not in (None, "") else "получила уровень"
+    if kind == "buy":
+        item = str(payload.get("item") or payload.get("name") or "предмет").strip() or "предмет"
+        return f"купила {item}"
+    if kind == "crime":
+        return "совершила преступление"
+    return ""
+
+
+def append_fact_event(
+    session: AsyncSession,
+    card: m.CompanionCard,
+    *,
+    kind: str,
+    template_id: str,
+    payload: dict[str, Any] | None = None,
+    now: datetime | None = None,
+    depth: int = 0,
+    node: str = NODE_SURFACE,
+) -> m.CompanionEvent:
+    now = now or datetime.now(timezone.utc)
+    body = dict(payload or {})
+    ev = m.CompanionEvent(
+        player_id=int(card.player_id),
+        card_id=int(card.id) if card.id else None,
+        beat_index=0,
+        ts=now,
+        depth=int(depth or 0),
+        node=str(node or NODE_SURFACE)[:16],
+        template_id=str(template_id)[:48],
+        severity="mundane",
+        kind=str(kind)[:24],
+        line_ru="",
+        payload=body,
+        discovered=True,
+        gold_delta=0,
+        xp_delta=0,
+    )
+    ev.line_ru = (fact_line(ev) or str(kind))[:280]
+    session.add(ev)
+    return ev
+
+
 def digest_lines(events: list[m.CompanionEvent], *, seen_at: datetime | None) -> list[dict[str, Any]]:
     if seen_at:
         fresh = [e for e in events if _aware(e.ts) > _aware(seen_at)]

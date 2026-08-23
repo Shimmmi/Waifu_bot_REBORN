@@ -64,6 +64,7 @@ class CompanionCard(Base):
     cloak_color: Mapped[str | None] = mapped_column(String(16), nullable=True)
     traits: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     look_card: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    memory: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     bio: Mapped[str | None] = mapped_column(String(800), nullable=True)
     voice: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     portrait_anime_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
