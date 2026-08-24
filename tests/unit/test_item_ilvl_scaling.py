@@ -12,6 +12,7 @@ from waifu_bot.game.item_ilvl_scaling import (
     apply_ilvl_scale_to_fresh_item,
     apply_template_fraction,
     flat_scale,
+    gear_score_item_ilvl,
     item_scale_ilvl,
     pct_affix_scale,
     primary_affix_tier_seed_rows,
@@ -65,6 +66,15 @@ def test_item_scale_ilvl_ignores_display_total_level() -> None:
     inv.power_rank = 0
     inv.plus_level_source = 15
     assert item_scale_ilvl(inv) == 200
+
+
+def test_gear_score_item_ilvl_prefers_budget_then_level() -> None:
+    campaign = SimpleNamespace(power_rank=0, plus_level_source=0, total_level=80, level=60)
+    assert gear_score_item_ilvl(campaign) == 60
+    plus = SimpleNamespace(power_rank=210, plus_level_source=16, total_level=230, level=230)
+    assert gear_score_item_ilvl(plus) == 210
+    plus_no_rank = SimpleNamespace(power_rank=0, plus_level_source=16, total_level=230, level=230)
+    assert gear_score_item_ilvl(plus_no_rank) == 210
 
 
 def test_primary_catchup_a2_at_200() -> None:
