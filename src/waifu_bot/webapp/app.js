@@ -264,6 +264,28 @@ function applyTheme() {
   document.documentElement.classList.add(scheme === "light" ? "theme-light" : "theme-dark");
 }
 
+/** Telegram Mini App chrome: keep header/bg/bottom bar dark on every screen (title already did this). */
+const TG_CHROME_COLOR = "#0a0705";
+
+function applyTelegramAppChrome(tgApi = tg) {
+  if (!tgApi) return;
+  try {
+    if (typeof tgApi.ready === "function") tgApi.ready();
+  } catch (_) {}
+  try {
+    if (typeof tgApi.expand === "function") tgApi.expand();
+  } catch (_) {}
+  try {
+    if (typeof tgApi.setHeaderColor === "function") tgApi.setHeaderColor(TG_CHROME_COLOR);
+  } catch (_) {}
+  try {
+    if (typeof tgApi.setBackgroundColor === "function") tgApi.setBackgroundColor(TG_CHROME_COLOR);
+  } catch (_) {}
+  try {
+    if (typeof tgApi.setBottomBarColor === "function") tgApi.setBottomBarColor(TG_CHROME_COLOR);
+  } catch (_) {}
+}
+
 function setActiveNav(page) {
   document.querySelectorAll(".nav a").forEach((link) => {
     if (link.dataset.page === page) {
@@ -10044,32 +10066,21 @@ function titleHaptic(kind = "light") {
 }
 
 function applyTitleScreenTelegramChrome() {
-  const tg = titleTelegram();
-  if (!tg) return;
+  const tgApi = titleTelegram();
+  if (!tgApi) return;
+  applyTelegramAppChrome(tgApi);
   try {
-    if (typeof tg.ready === "function") tg.ready();
-  } catch (_) {}
-  try {
-    if (typeof tg.expand === "function") tg.expand();
-  } catch (_) {}
-  try {
-    if (typeof tg.setHeaderColor === "function") tg.setHeaderColor("#0a0705");
-  } catch (_) {}
-  try {
-    if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor("#0a0705");
-  } catch (_) {}
-  try {
-    tg.BackButton?.hide?.();
+    tgApi.BackButton?.hide?.();
   } catch (_) {}
 
   const applyVh = () => {
-    const h = Number(tg.viewportStableHeight || tg.viewportHeight || 0);
+    const h = Number(tgApi.viewportStableHeight || tgApi.viewportHeight || 0);
     if (h > 0) {
       document.documentElement.style.setProperty("--tg-vh", `${h}px`);
     }
   };
   try {
-    if (typeof tg.onEvent === "function") tg.onEvent("viewportChanged", applyVh);
+    if (typeof tgApi.onEvent === "function") tgApi.onEvent("viewportChanged", applyVh);
   } catch (_) {}
   applyVh();
 }
@@ -14953,8 +14964,7 @@ async function initPage(page) {
   initNavIcons();
   if (tg) {
     try {
-      tg.ready();
-      tg.expand();
+      applyTelegramAppChrome(tg);
     } catch (err) {
       console.warn("Telegram WebApp init:", err);
     }
