@@ -350,9 +350,10 @@ async def enqueue_dual_portraits(session: AsyncSession, card_id: int) -> None:
                 name=card.name,
                 extra_visual=extra,
                 tone="living",
+                aspect_ratio="3:2",
             )
             if b64:
-                webp = _b64_to_webp(b64, size=(512, 768))
+                webp = _b64_to_webp(b64, size=(768, 512))
                 if webp:
                     dest_an.write_bytes(webp)
                     card.portrait_anime_path = _anime_rel(pid, card.id)
@@ -385,6 +386,44 @@ async def enqueue_dual_portraits(session: AsyncSession, card_id: int) -> None:
     if card.slot:
         await sync_card_to_delve(session, card)
     await session.flush()
+
+
+async def regenerate_living_anime_only(session: AsyncSession, card_id: int) -> bool:
+    """Force-rebuild the 3:2 anime portrait. Pixel mini is never written."""
+    from waifu_bot.services.companion_living import stamp_look_lineage
+    from waifu_bot.services.expedition_events_ai import generate_hire_waifu_image
+
+    card = await session.get(m.CompanionCard, int(card_id))
+    if card is None:
+        return False
+    pid = int(card.player_id)
+    dest_an = _dest(_anime_rel(pid, card.id))
+    dest_an.parent.mkdir(parents=True, exist_ok=True)
+    look = stamp_look_lineage(card.look_card or {}, seed=int(card.id or 0), stance=card.stance)
+    extra = _look_visual_en(look)
+    note = _silhouette_note(card)
+    if note:
+        extra = f"{extra}, {note}"
+    ref = dest_an.read_bytes() if dest_an.is_file() else None
+    b64 = await generate_hire_waifu_image(
+        str(look.get("race_ru") or "человек"),
+        str(look.get("class_ru") or "маг"),
+        (card.bio or "")[:400],
+        name=card.name,
+        extra_visual=extra,
+        tone="living",
+        aspect_ratio="3:2",
+        reference_webp=ref,
+    )
+    if not b64:
+        return False
+    webp = _b64_to_webp(b64, size=(768, 512))
+    if not webp:
+        return False
+    dest_an.write_bytes(webp)
+    card.portrait_anime_path = _anime_rel(pid, card.id)
+    await session.flush()
+    return True
 
 
 async def enqueue_pending(session: AsyncSession, player_id: int, *, limit: int = 6) -> dict:

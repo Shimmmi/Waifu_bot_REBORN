@@ -352,6 +352,33 @@ body.page-dungeons {
   border-color: rgba(239, 68, 68, 0.4);
 }
 
+/* Long elite names (prefix + glued -suffixes) must wrap inside the square art. */
+.page-dungeons .mv-nameline {
+  align-items: flex-start;
+}
+.page-dungeons .mv-namecol {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.page-dungeons #monster-name-text,
+.page-dungeons .monster-overlay-bottom .monster-name-text {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  word-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.25;
+}
+.page-dungeons #tab-abyss .abyss-monster-name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .page-dungeons .affix-chip b,
 .page-dungeons .affix-chip strong {
   font-family: var(--font-hud);

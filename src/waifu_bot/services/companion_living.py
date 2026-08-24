@@ -500,8 +500,62 @@ def _tone(n: int) -> str:
     return "bad"
 
 
+def _flesh_rows(card: m.CompanionCard) -> list[dict[str, Any]]:
+    return [dict(r) for r in (card.flesh or []) if isinstance(r, dict)]
+
+
+def _mind_rows(card: m.CompanionCard) -> list[dict[str, Any]]:
+    from waifu_bot.game.delve_pq_layer import (
+        GRADE_LIGHT,
+        SEV_FROM_GRADE,
+        STATUS_BY_KEY_GRADE,
+        status_from_row,
+    )
+
+    rows = [dict(r) for r in (card.psyche or []) if isinstance(r, dict)]
+    have: set[str] = set()
+    for row in rows:
+        spec = status_from_row(row)
+        if spec:
+            have.add(spec.key)
+        elif row.get("facet"):
+            have.add(str(row["facet"]))
+    for raw in card.adventure_tags or []:
+        tag = str(raw)
+        if not tag or tag in have:
+            continue
+        spec = STATUS_BY_KEY_GRADE.get((tag, GRADE_LIGHT))
+        if spec is None or spec.bucket != "psyche":
+            continue
+        rows.append(
+            {
+                "id": spec.id,
+                "facet": spec.key,
+                "severity": SEV_FROM_GRADE[spec.grade],
+            }
+        )
+        have.add(tag)
+    return rows
+
+
+def _condition_public(row: dict[str, Any], *, fallback: str) -> dict[str, Any]:
+    from waifu_bot.game.delve_pq_layer import public_status, status_from_row
+
+    spec = status_from_row(row)
+    pub = public_status(row) if spec else {}
+    label = str(pub.get("name_ru") or row.get("part") or row.get("facet") or fallback).replace("_", " ")
+    return {
+        "part": row.get("part"),
+        "facet": row.get("facet"),
+        "label": label,
+        "severity": row.get("severity"),
+        "id": pub.get("id") or row.get("id"),
+        "line": pub.get("line_ru") or "",
+    }
+
+
 def _qual_body(card: m.CompanionCard) -> str:
-    n = len(card.flesh or [])
+    n = len(_flesh_rows(card))
     if n <= 0:
         return "в форме"
     if n == 1:
@@ -510,7 +564,7 @@ def _qual_body(card: m.CompanionCard) -> str:
 
 
 def _qual_mind(card: m.CompanionCard) -> str:
-    n = len(card.psyche or [])
+    n = len(_mind_rows(card))
     if n <= 0:
         return "ясна"
     if n == 1:
@@ -673,18 +727,10 @@ def card_public(
         "portrait_pixel": f"/static/{card.portrait_pixel_path}" if card.portrait_pixel_path else template_portrait_url(card.stance),
         "body": _qual_body(card),
         "mind": _qual_mind(card),
-        "body_tone": _tone(len(card.flesh or [])),
-        "mind_tone": _tone(len(card.psyche or [])),
-        "wounds": [
-            {"part": r.get("part"), "label": r.get("part"), "severity": r.get("severity")}
-            for r in (card.flesh or [])
-            if isinstance(r, dict)
-        ],
-        "psyche": [
-            {"facet": r.get("facet"), "label": str(r.get("facet") or "").replace("_", " "), "severity": r.get("severity")}
-            for r in (card.psyche or [])
-            if isinstance(r, dict)
-        ],
+        "body_tone": _tone(len(_flesh_rows(card))),
+        "mind_tone": _tone(len(_mind_rows(card))),
+        "wounds": [_condition_public(r, fallback="рана") for r in _flesh_rows(card)],
+        "psyche": [_condition_public(r, fallback="тень") for r in _mind_rows(card)],
         "consequences": _consequence(card, party),
         "bonds": _bond_rows(card, party),
         "scar_frame": bool(card.scar_frame),
