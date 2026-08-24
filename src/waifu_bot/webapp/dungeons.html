@@ -4,17 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Подземелья</title>
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v98" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
-    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v98" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v100" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
+    <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v100" />
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
     <link rel="preload" href="/webapp/assets/fonts/manrope-var.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="stylesheet" href="/webapp/dungeons-redesign.css?v=waifu-webapp-v123" />
+    <link rel="stylesheet" href="/webapp/dungeons-redesign.css?v=waifu-webapp-v100" />
     <script defer src="./vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
-    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v98" onerror="console.warn('combat island skipped')"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v98" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v112'"></script>
-    <script defer src="/webapp/pages/dungeons.js?v=waifu-webapp-v99"></script>
-    <script defer src="/webapp/pages/delve.js?v=waifu-webapp-v123"></script>
+    <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v100" onerror="console.warn('combat island skipped')"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v100" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v112'"></script>
+    <script defer src="/webapp/pages/dungeons.js?v=waifu-webapp-v100"></script>
+    <script defer src="/webapp/pages/delve.js?v=waifu-webapp-v100"></script>
     <style>
       .hp-fill-monster.monster-hp-fill--unknown {
         opacity: 0.35;
@@ -49,6 +49,22 @@
         100% { opacity: 0; transform: translate(-50%, -28px); }
       }
       #monster-visual { position: relative; }
+      /* Elite names with several -suffixes: wrap even if a cached styles.min.css still has nowrap. */
+      .page-dungeons .mv-nameline { align-items: flex-start; }
+      .page-dungeons .mv-namecol { min-width: 0; flex: 1 1 auto; }
+      .page-dungeons #monster-name-text,
+      .page-dungeons .monster-overlay-bottom .monster-name-text {
+        display: block !important;
+        max-width: 100%;
+        min-width: 0;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: unset;
+        overflow-wrap: anywhere;
+        word-wrap: break-word;
+        word-break: break-word;
+        line-height: 1.25;
+      }
       /* ОЧ — палитра как в магазине / таверне, читаемый текст */
       body.page-dungeons {
         --bg: #0d0a08;
@@ -724,6 +740,9 @@
       }
       .page-dungeons #tab-abyss .abyss-monster-name {
         font-weight: 700;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .page-dungeons #tab-abyss .abyss-revive-btn {
         margin-top: 8px;

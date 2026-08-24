@@ -61,6 +61,9 @@ async def living_rain_accept(
     except DelveError as e:
         _raise(e)
         raise
+    from waifu_bot.services.companion_art import schedule_pending_art
+
+    schedule_pending_art(player_id)
     return card
 
 
@@ -94,6 +97,9 @@ async def living_hire(
     except DelveError as e:
         _raise(e)
         raise
+    from waifu_bot.services.companion_art import schedule_pending_art
+
+    schedule_pending_art(player_id)
     return card
 
 

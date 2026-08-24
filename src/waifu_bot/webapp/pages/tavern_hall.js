@@ -1,7 +1,7 @@
 /** Living tavern hall. Arena / hire / bench stay dead. BGM tab still uses the old bootstrap. */
 
 (function livingTavernHall() {
-  const VERSION = "v111";
+  const VERSION = "v114";
   let hall = null;
   let openCardId = null;
   let seenOnce = false;
@@ -172,17 +172,38 @@
     return "ok";
   }
 
-  function conditionsHtml(detail) {
-    const traits = (detail.traits || []).filter(Boolean);
-    const flesh = detail.wounds || [];
-    const psyche = detail.psyche || [];
+  function conditionItems(rows, fallback) {
+    return (rows || []).map((row) => {
+      const name = row.label || row.part || row.facet || fallback;
+      if (row.line) return `${name}. ${row.line}`;
+      return row.severity ? `${name} · ${row.severity}` : name;
+    });
+  }
+
+  function listBlock(items, emptyLine) {
+    if (!items.length) return `<ul><li class="ok">${esc(emptyLine)}</li></ul>`;
+    return `<ul>${items.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>`;
+  }
+
+  function bodyHtml(detail) {
+    return listBlock(conditionItems(detail.wounds, "рана"), "В форме, ран нет.");
+  }
+
+  function mindHtml(detail) {
     const bonds = (detail.bonds || []).filter(Boolean);
-    const bits = [];
-    bits.push(`<h3>Черты</h3><ul>${traits.length ? traits.map((t) => `<li>${esc(t)}</li>`).join("") : "<li class='muted'>Пока без ярких черт.</li>"}</ul>`);
-    bits.push(`<h3>Тело</h3><ul>${flesh.length ? flesh.map((w) => `<li>${esc(w.label || w.part || "рана")}${w.severity ? " · " + esc(w.severity) : ""}</li>`).join("") : "<li class='ok'>В форме, ран нет.</li>"}</ul>`);
-    bits.push(`<h3>Ум</h3><ul>${psyche.length ? psyche.map((p) => `<li>${esc(p.label || p.facet || "тень")}${p.severity ? " · " + esc(p.severity) : ""}</li>`).join("") : "<li class='ok'>Ясна.</li>"}</ul>`);
-    if (bonds.length) bits.push(`<h3>Связи</h3><ul>${bonds.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>`);
+    const bits = [listBlock(conditionItems(detail.psyche, "тень"), "Ясна.")];
+    if (bonds.length) {
+      bits.push(`<h3>Связи</h3><ul>${bonds.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>`);
+    }
     return bits.join("");
+  }
+
+  function bioHtml(detail) {
+    const traits = (detail.traits || []).filter(Boolean);
+    const traitBlock = traits.length
+      ? `<div class="living-bio-traits">${traits.map((t) => `<span class="living-trait-chip">${esc(t)}</span>`).join("")}</div>`
+      : `<p class="empty">Пока без ярких черт.</p>`;
+    return `<p>${esc(detail.bio || "Пока молчит.")}</p>${traitBlock}`;
   }
 
   function logHtml(detail, emptyLine) {
@@ -216,6 +237,7 @@
     const box = document.getElementById("living-thread");
     if (!box) return;
     const turns = chatMemory.get(cardId) || [];
+    box.classList.toggle("is-empty", turns.length === 0);
     box.innerHTML = turns
       .map((t) => `<div class="living-bubble ${t.role === "user" ? "me" : "her"}">${esc(t.text)}</div>`)
       .join("");
@@ -227,39 +249,60 @@
     const sheet = document.getElementById("tavern-living-sheet");
     if (!modal || !sheet || !detail) return;
     const c = copy();
-    const cons = (detail.consequences || []).slice(0, 3);
-    const traits = (detail.traits || []).filter(Boolean);
     const body = detail.body || "в форме";
     const mind = detail.mind || "ясна";
     const bodyTone = toneOf(body, detail.body_tone);
     const mindTone = toneOf(mind, detail.mind_tone);
+    const loyalty = Math.max(0, Math.min(100, Number(detail.loyalty == null ? 50 : detail.loyalty) || 50));
+    const lineage = detail.lineage || [detail.race_ru, detail.class_ru].filter(Boolean).join(" · ");
+    const art = portrait(detail, "anime");
+    const stance = String(detail.stance_label || "").trim();
+    const temper = String(detail.temper_label || "").trim();
+    const tagChips = [stance, temper]
+      .filter(Boolean)
+      .map((t) => `<span class="living-tag-chip">${esc(t)}</span>`)
+      .join("");
+    sheet.classList.toggle("scar", Boolean(detail.scar_frame));
     sheet.innerHTML = `
-      <button type="button" class="living-log-btn" id="living-log-btn" title="Журнал" aria-label="Журнал">📜</button>
       <div class="living-hero">
-        <div class="portrait-23">${portrait(detail, "anime") ? `<img src="${esc(portrait(detail, "anime"))}" alt="">` : ""}</div>
-        <div class="living-hero-copy">
-          <h2 class="${detail.can_rename ? "can-rename" : ""}" id="living-name" ${detail.can_rename ? 'title="Сменить имя (один раз)"' : ""}>${esc(detail.name)}</h2>
-          <div class="who">${esc(detail.lineage || [detail.race_ru, detail.class_ru].filter(Boolean).join(" · "))}</div>
-          <div class="who-sub">${esc(detail.stance_label || "")} · ${esc(detail.temper_label || "")}</div>
-          <div class="loyalty">${loyaltyHeart(detail)}<span>Лояльность ${esc(detail.loyalty == null ? 50 : detail.loyalty)}</span></div>
-          ${traits.length ? `<div class="traits">${traits.map(esc).join(" · ")}</div>` : ""}
-          <div class="living-stats">
-            <button type="button" class="living-stat tone-${bodyTone}" data-open="conditions" title="${esc(body)}">${bodyMark()}<span>${esc(body)}</span></button>
-            <button type="button" class="living-stat tone-${mindTone}" data-open="conditions" title="${esc(mind)}">${mindMark()}<span>${esc(mind)}</span></button>
-            <button type="button" class="living-stat" id="living-bio-btn">Био</button>
+        <div class="living-hero-rays" aria-hidden="true"></div>
+        <div class="living-hero-art">${art ? `<img src="${esc(art)}" alt="">` : ""}</div>
+        <div class="living-hero-top">
+          <button type="button" class="living-circle-btn" id="living-log-btn" title="Журнал" aria-label="Журнал">📜</button>
+          <div class="living-hero-top-right">
+            <button type="button" class="living-circle-btn living-dismiss-ico" id="living-dismiss-btn" title="${esc(c.dismiss || "Уволить")}" aria-label="${esc(c.dismiss || "Уволить")}"${detail.can_dismiss ? "" : " disabled"}>🚪</button>
+            <button type="button" class="living-circle-btn" id="living-close-btn" aria-label="Закрыть">✕</button>
           </div>
-          ${cons.length ? `<div class="living-chips">${cons.map((x) => `<span class="living-chip">${esc(x)}</span>`).join("")}</div>` : ""}
+        </div>
+        <div class="living-hero-scrim">
+          <div class="living-hero-identity">
+            <h2 class="${detail.can_rename ? "can-rename" : ""}" id="living-name" ${detail.can_rename ? 'title="Сменить имя (один раз)"' : ""}>${esc(detail.name)}</h2>
+            ${lineage ? `<div class="living-who">${esc(lineage)}</div>` : ""}
+          </div>
+          <div class="living-hero-status">
+            <button type="button" class="living-stat tone-${bodyTone}" data-open="body" title="${esc(body)}">${bodyMark()}<span>${esc(body)}</span></button>
+            <button type="button" class="living-stat tone-${mindTone}" data-open="mind" title="${esc(mind)}">${mindMark()}<span>${esc(mind)}</span></button>
+          </div>
         </div>
       </div>
-      <div class="living-thread" id="living-thread"></div>
+      <div class="living-body">
+        <div class="living-tag-row">
+          <div class="living-tag-chips">${tagChips}</div>
+          <button type="button" class="living-bio-btn" id="living-bio-btn">Био</button>
+        </div>
+        <div class="living-loyalty-row">
+          <div class="living-loyalty-top">
+            <span class="living-loyalty-lbl">Лояльность</span>
+            <span class="living-loyalty-val">${esc(loyalty)} / 100</span>
+          </div>
+          <div class="living-loyalty-bar" aria-hidden="true"><i style="--pct:${loyalty}%"></i></div>
+        </div>
+        <div class="living-thread is-empty" id="living-thread"></div>
+      </div>
       <form class="living-chat" id="living-chat-form">
         <input name="text" maxlength="400" placeholder="${esc(c.chat_ph || "Сказать ей…")}" ${detail.chat_left <= 0 ? "disabled" : ""} />
         <button type="submit"${detail.chat_left <= 0 ? " disabled" : ""}>Сказать</button>
       </form>
-      <div class="living-actions">
-        <button type="button" class="danger" id="living-dismiss-btn"${detail.can_dismiss ? "" : " disabled"}>${esc(c.dismiss || "Уволить")}</button>
-        <button type="button" class="ghost" id="living-close-btn">Закрыть</button>
-      </div>
       <div id="living-pop" class="living-pop" hidden>
         <div class="living-pop-card">
           <div class="living-pop-head">
@@ -272,18 +315,22 @@
     modal.classList.add("open");
     openCardId = detail.id;
     paintThread(detail.id);
-    sheet.querySelector("#living-close-btn")?.addEventListener("click", () => {
+    const closeModal = () => {
       closeLivingModal().catch(() => {});
-    });
-    sheet.querySelector("#living-dismiss-btn")?.addEventListener("click", () => onDismiss(detail));
+    };
+    sheet.querySelector("#living-close-btn")?.addEventListener("click", closeModal);
+    bindDismiss(detail);
     sheet.querySelector("#living-name")?.addEventListener("click", () => onRename(detail));
     sheet.querySelector("#living-pop-close")?.addEventListener("click", closePop);
     sheet.querySelector("#living-log-btn")?.addEventListener("click", () => {
       openPop("Журнал", logHtml(detail, c.history_empty));
     });
     sheet.querySelector("#living-bio-btn")?.addEventListener("click", () => onBio(detail));
-    sheet.querySelectorAll("[data-open=conditions]").forEach((btn) => {
-      btn.addEventListener("click", () => openPop("Состояния", conditionsHtml(detail)));
+    sheet.querySelector("[data-open=body]")?.addEventListener("click", () => {
+      openPop("Тело", bodyHtml(detail));
+    });
+    sheet.querySelector("[data-open=mind]")?.addEventListener("click", () => {
+      openPop("Ум", mindHtml(detail));
     });
     sheet.querySelector("#living-pop")?.addEventListener("click", (ev) => {
       if (ev.target.id === "living-pop") closePop();
@@ -291,6 +338,35 @@
     sheet.querySelector("#living-chat-form")?.addEventListener("submit", (ev) => {
       ev.preventDefault();
       onChat(detail, ev.target);
+    });
+  }
+
+  function bindDismiss(detail) {
+    const btn = document.getElementById("living-dismiss-btn");
+    if (!btn) return;
+    const label = copy().dismiss || "Уволить";
+    let confirming = false;
+    let resetTimer = 0;
+    btn.addEventListener("click", () => {
+      if (!detail?.can_dismiss) {
+        showToast("Завтра.", "info");
+        return;
+      }
+      if (!confirming) {
+        confirming = true;
+        btn.classList.add("confirming");
+        btn.setAttribute("title", "Точно уволить?");
+        btn.setAttribute("aria-label", "Точно уволить?");
+        resetTimer = window.setTimeout(() => {
+          confirming = false;
+          btn.classList.remove("confirming");
+          btn.setAttribute("title", label);
+          btn.setAttribute("aria-label", label);
+        }, 2500);
+        return;
+      }
+      window.clearTimeout(resetTimer);
+      onDismiss(detail);
     });
   }
 
@@ -366,7 +442,7 @@
   }
 
   async function onBio(detail) {
-    openPop("Био", `<p>${esc(detail.bio || "Пока молчит.")}</p>`);
+    openPop("Био", bioHtml(detail));
     if (!detail.bio_expandable) return;
     try {
       const out = await apiFetch(`/tavern/living/cards/${detail.id}/bio`, { method: "POST" });
@@ -374,7 +450,7 @@
         detail.bio = out.bio;
         detail.bio_expandable = false;
         const body = document.getElementById("living-pop-body");
-        if (body) body.innerHTML = `<p>${esc(out.bio)}</p>`;
+        if (body) body.innerHTML = bioHtml(detail);
       }
     } catch (_) {}
   }
@@ -384,13 +460,20 @@
       showToast("Завтра.", "info");
       return;
     }
-    const ok = await confirmAction(`Уволить ${detail.name}?`);
-    if (!ok) return;
+    const btn = document.getElementById("living-dismiss-btn");
+    if (btn) btn.disabled = true;
     try {
       await apiFetch(`/tavern/living/cards/${detail.id}/dismiss`, { method: "POST" });
       await closeLivingModal({ skipTick: true });
       await refreshHall();
     } catch (err) {
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove("confirming");
+        const label = copy().dismiss || "Уволить";
+        btn.setAttribute("title", label);
+        btn.setAttribute("aria-label", label);
+      }
       const { detail: d } = parseHttpErrorDetail(err);
       showToast(d === "dismiss_day_cap" ? "Завтра." : d || "Не вышло.", "error");
     }

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Карточка наёмницы — редизайн (концепт)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Manrope:wght@500;600;700;800&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+<style>
+
+:root{
+  --ink:#0a0705; --panel:#1b130c; --panel-2:#241a10;
+  --parchment:#ecdfc6; --parchment-dim:#9c8b76; --parchment-faint:#6b5c4b;
+  --gold:#e2a93f; --gold-bright:#ffd97a; --gold-dim:rgba(226,169,63,.16);
+  --ember:#e2543f; --ember-bright:#ff8a65;
+  --rune:#49c9b3; --rune-bright:#7ff0dd;
+  --bond:#f472b6; --bond-bright:#fbb6d9;
+  --line:rgba(226,169,63,.2);
+  --display:"Cinzel",serif; --body:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif; --hud:"Rajdhani",var(--body);
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{ margin:0; background:var(--ink); color:var(--parchment); font-family:var(--body); -webkit-font-smoothing:antialiased; }
+button{font-family:inherit;}
+:focus-visible{ outline:2px solid var(--gold-bright); outline-offset:2px; border-radius:6px; }
+@media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition-duration:.001ms !important; } }
+
+.preview-tag{
+  position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:999;
+  font:700 11px/1 var(--body); letter-spacing:.04em; color:var(--ink);
+  background:var(--gold-bright); padding:5px 9px; border-radius:999px;
+  box-shadow:0 6px 16px rgba(0,0,0,.4); pointer-events:none; opacity:.92;
+}
+.stage{
+  max-width:480px; margin:30px auto; height:calc(100dvh - 60px); min-height:660px; max-height:820px;
+  background:var(--ink); box-shadow:0 30px 80px rgba(0,0,0,.6); border-radius:18px; overflow:hidden;
+  border:1px solid rgba(255,255,255,.05); position:relative;
+}
+
+.corners{position:relative;}
+.corners::after{
+  content:""; position:absolute; inset:6px; z-index:3; pointer-events:none;
+  --cc: var(--corner-color, var(--gold-bright)); --cs: var(--corner-size, 14px);
+  background:
+    linear-gradient(var(--cc),var(--cc)) top left/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) top left/2px var(--cs) no-repeat,
+    linear-gradient(var(--cc),var(--cc)) top right/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) top right/2px var(--cs) no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom left/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom left/2px var(--cs) no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom right/var(--cs) 2px no-repeat,
+    linear-gradient(var(--cc),var(--cc)) bottom right/2px var(--cs) no-repeat;
+  opacity:.8; filter:drop-shadow(0 0 3px rgba(226,169,63,.4));
+}
+
+/* ---- фон-контекст (таверна, для наглядности) ---- */
+.backdrop-scene{ position:absolute; inset:0; filter:brightness(.3) blur(1px); }
+.bd-hud{ display:flex; align-items:center; gap:6px; padding:10px; }
+.bd-avatar{ width:34px; height:34px; border-radius:50%; background:radial-gradient(circle at 35% 30%,#3a2a18,#150e09 75%); flex-shrink:0; }
+.bd-chip{ height:24px; padding:0 8px; border-radius:7px; background:var(--panel-2); border:1px solid var(--line); }
+.bd-nav{ position:absolute; left:0; right:0; bottom:0; display:flex; gap:6px; padding:10px; }
+.bd-nav i{ flex:1; height:38px; border-radius:9px; background:var(--panel); }
+.bd-nav i.active{ background:var(--gold-dim); }
+
+/* ---- modal ---- */
+.modal-wrap{ position:absolute; inset:0; z-index:10; display:grid; place-items:center; padding:14px; }
+.modal-backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.6); }
+.unit-modal{
+  --corner-color: var(--gold-bright);
+  position:relative; width:100%; max-width:360px; max-height:92%; display:flex; flex-direction:column;
+  border-radius:18px; overflow:hidden; background:linear-gradient(165deg, #221912, #140d08 65%);
+  border:1px solid rgba(226,169,63,.4); box-shadow:0 30px 70px rgba(0,0,0,.6);
+}
+
+/* ---- большой портрет-хиро ---- */
+.portrait-hero{
+  position:relative; flex-shrink:0; height:250px; overflow:hidden;
+  background:
+    radial-gradient(120% 90% at 50% 15%, rgba(255,217,122,.22), transparent 60%),
+    linear-gradient(160deg, #3a2a1c 0%, #150e09 70%);
+}
+/* если/когда появится реальный портрет: <img class="portrait-img" src="..." style="object-fit:cover" /> вместо .portrait-emoji-fallback */
+.portrait-emoji-fallback{ position:absolute; inset:0; display:grid; place-items:center; font-size:120px; filter:drop-shadow(0 14px 24px rgba(0,0,0,.5)); }
+.portrait-rays{
+  position:absolute; top:-20%; left:50%; width:380px; height:380px; margin-left:-190px; border-radius:50%; opacity:.35; pointer-events:none;
+  background:repeating-conic-gradient(rgba(255,217,122,.12) 0deg 3deg, transparent 3deg 12deg);
+}
+.portrait-top{ position:absolute; top:0; left:0; right:0; z-index:4; display:flex; justify-content:space-between; padding:10px; }
+.circle-btn{
+  width:32px; height:32px; border-radius:50%; border:1px solid rgba(255,255,255,.18);
+  background:rgba(10,7,5,.55); backdrop-filter:blur(4px); color:var(--parchment); font-size:13px; cursor:pointer;
+  transition:transform .12s, border-color .15s;
+}
+.circle-btn:active{ transform:scale(.9); }
+.circle-btn.fav.active{ color:var(--gold-bright); border-color:rgba(226,169,63,.6); }
+
+.portrait-scrim{
+  position:absolute; left:0; right:0; bottom:0; z-index:4; padding:14px 14px 12px;
+  background:linear-gradient(0deg, rgba(8,5,3,.95) 20%, transparent 100%);
+}
+.u-name{ margin:0; font:700 22px/1.1 var(--display); color:#fff; text-shadow:0 2px 8px rgba(0,0,0,.7); }
+.u-sub{ margin-top:3px; font:700 11.5px/1 var(--body); color:var(--gold-bright); letter-spacing:.02em; }
+
+/* ---- тело карточки ---- */
+.modal-body{ flex:1; min-height:0; overflow-y:auto; padding:12px 14px 0; display:flex; flex-direction:column; gap:10px; }
+
+.tag-row{ display:flex; flex-wrap:wrap; gap:6px; }
+.tag-chip{
+  font:700 10.5px/1 var(--body); color:var(--gold-bright);
+  background:var(--gold-dim); border:1px solid rgba(226,169,63,.4); border-radius:999px; padding:5px 10px;
+}
+
+.loyalty-row{ display:flex; flex-direction:column; gap:5px; }
+.loyalty-top{ display:flex; align-items:baseline; justify-content:space-between; }
+.loyalty-top .lbl{ display:flex; align-items:center; gap:5px; font:700 11.5px/1 var(--body); color:var(--parchment-dim); }
+.loyalty-top .val{ font:700 15px/1 var(--hud); color:var(--bond-bright); }
+.loyalty-bar{ height:6px; border-radius:4px; background:rgba(0,0,0,.4); overflow:hidden; }
+.loyalty-bar .fill{ height:100%; width:var(--pct,50%); background:linear-gradient(90deg, var(--bond), var(--bond-bright)); box-shadow:0 0 6px rgba(244,114,182,.5); }
+
+.status-row{ display:flex; flex-wrap:wrap; gap:6px; }
+.status-pill{
+  display:flex; align-items:center; gap:4px; font:700 10.5px/1 var(--body); color:var(--rune-bright);
+  background:rgba(73,201,179,.12); border:1px solid rgba(73,201,179,.35); border-radius:999px; padding:5px 10px;
+}
+
+.traits-row{ display:flex; flex-wrap:wrap; gap:5px; }
+.trait-chip{
+  font:600 10px/1 var(--body); color:var(--parchment-faint);
+  background:transparent; border:1px solid var(--line); border-radius:999px; padding:4px 9px;
+}
+
+.bio-block{ border-top:1px solid var(--line); padding-top:10px; }
+.bio-head{ display:flex; align-items:center; justify-content:space-between; cursor:pointer; }
+.bio-head h4{ margin:0; font:700 11px/1 var(--display); letter-spacing:.05em; color:var(--gold-bright); text-transform:uppercase; }
+.bio-chevron{ color:var(--parchment-faint); transition:transform .2s; font-size:12px; }
+.bio-block.open .bio-chevron{ transform:rotate(180deg); }
+.bio-text{
+  margin:8px 0 0; font:600 11.5px/1.55 var(--body); color:var(--parchment-dim);
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+.bio-block.open .bio-text{ -webkit-line-clamp:unset; }
+
+.chat-row{ flex-shrink:0; display:flex; gap:8px; padding:4px 0 12px; }
+.chat-input{
+  flex:1; height:40px; border-radius:10px; border:1px solid var(--line); background:var(--panel);
+  color:var(--parchment); font:600 12px/1 var(--body); padding:0 12px;
+}
+.chat-input::placeholder{ color:var(--parchment-faint); }
+.chat-send{
+  flex-shrink:0; height:40px; padding:0 16px; border-radius:10px; border:1px solid rgba(226,169,63,.4);
+  background:linear-gradient(180deg, var(--gold-dim), transparent); color:var(--gold-bright); font:700 12px/1 var(--body); cursor:pointer;
+}
+
+/* ---- нижние действия ---- */
+.modal-actions{ flex-shrink:0; display:flex; gap:8px; padding:10px 14px calc(12px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); }
+.act-btn{ flex:1; height:44px; border-radius:11px; font:700 12.5px/1 var(--body); cursor:pointer; transition:background .15s, color .15s, border-color .15s; }
+.act-btn.close{ background:var(--panel); border:1px solid var(--line); color:var(--parchment); }
+.act-btn.dismiss{ background:transparent; border:1px solid rgba(226,84,63,.45); color:var(--ember-bright); }
+.act-btn.dismiss.confirming{ background:var(--ember); border-color:var(--ember); color:#2a0b06; }
+
+@media (min-width:481px){ .stage{ margin:30px auto; } }
+</style>
+</head>
+<body>
+
+<span class="preview-tag">Концепт · карточка наёмницы</span>
+
+<div class="stage">
+
+  <div class="backdrop-scene">
+    <div class="bd-hud">
+      <div class="bd-avatar"></div>
+      <div class="bd-chip" style="flex:1"></div>
+      <div class="bd-chip" style="width:60px"></div>
+      <div class="bd-chip" style="width:70px"></div>
+    </div>
+    <div class="bd-nav">
+      <i></i><i></i><i></i><i class="active"></i><i></i><i></i><i></i><i></i>
+    </div>
+  </div>
+
+  <div class="modal-wrap">
+    <div class="modal-backdrop"></div>
+    <div class="unit-modal corners">
+
+      <div class="portrait-hero">
+        <div class="portrait-rays"></div>
+        <div class="portrait-emoji-fallback">👼</div>
+        <div class="portrait-top">
+          <button class="circle-btn fav active" id="favBtn" aria-label="В избранное">★</button>
+          <button class="circle-btn" aria-label="Закрыть">✕</button>
+        </div>
+        <div class="portrait-scrim">
+          <h2 class="u-name">Милфа</h2>
+          <div class="u-sub">Ангел · Торговка</div>
+        </div>
+      </div>
+
+      <div class="modal-body">
+        <div class="tag-row">
+          <span class="tag-chip">Проводница</span>
+          <span class="tag-chip">Стойкость</span>
+        </div>
+
+        <div class="loyalty-row">
+          <div class="loyalty-top">
+            <span class="lbl">💗 Лояльность</span>
+            <span class="val">51 / 100</span>
+          </div>
+          <div class="loyalty-bar"><div class="fill" style="--pct:51%"></div></div>
+        </div>
+
+        <div class="status-row">
+          <span class="status-pill">💚 в форме</span>
+          <span class="status-pill">👁 ясна</span>
+        </div>
+
+        <div class="traits-row">
+          <span class="trait-chip">жадная</span>
+          <span class="trait-chip">насмешливая</span>
+        </div>
+
+        <div class="bio-block" id="bioBlock">
+          <div class="bio-head" id="bioToggle">
+            <h4>Био</h4>
+            <span class="bio-chevron">▾</span>
+          </div>
+          <p class="bio-text">
+            Бывшая храмовая проводница душ, променявшая крылья на прилавок — торгует
+            благословениями втридорога и искренне считает это милосердием. Обожает
+            подшучивать над теми, кто торгуется слишком долго.
+          </p>
+        </div>
+      </div>
+
+      <div class="chat-row" style="padding-left:14px; padding-right:14px;">
+        <input class="chat-input" type="text" placeholder="Сказать ей…" />
+        <button class="chat-send">Сказать</button>
+      </div>
+
+      <div class="modal-actions">
+        <button class="act-btn dismiss" id="dismissBtn">Уволить</button>
+        <button class="act-btn close">Закрыть</button>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+document.getElementById('favBtn').addEventListener('click', (e) => {
+  e.currentTarget.classList.toggle('active');
+});
+
+document.getElementById('bioToggle').addEventListener('click', () => {
+  document.getElementById('bioBlock').classList.toggle('open');
+});
+
+// "Уволить" — лёгкое инлайн-подтверждение вместо отдельной модалки:
+// первый тап переводит кнопку в состояние "точно?", второй — подтверждает.
+const dismissBtn = document.getElementById('dismissBtn');
+let confirming = false;
+let resetTimer;
+dismissBtn.addEventListener('click', () => {
+  if (!confirming) {
+    confirming = true;
+    dismissBtn.textContent = 'Точно уволить?';
+    dismissBtn.classList.add('confirming');
+    resetTimer = setTimeout(() => {
+      confirming = false;
+      dismissBtn.textContent = 'Уволить';
+      dismissBtn.classList.remove('confirming');
+    }, 2500);
+  } else {
+    clearTimeout(resetTimer);
+    dismissBtn.textContent = 'Уволена';
+    dismissBtn.disabled = true;
+  }
+});
+</script>
+</body>
+</html>

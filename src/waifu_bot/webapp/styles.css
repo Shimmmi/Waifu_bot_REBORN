@@ -5745,7 +5745,7 @@ body.page-dungeons #item-modal.modal.item-modal-root.item-modal-v2-wrap.item-mod
 .page-dungeons .mv-nameline {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
 }
@@ -5767,8 +5767,9 @@ body.page-dungeons #item-modal.modal.item-modal-root.item-modal-v2-wrap.item-mod
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
   pointer-events: none;
 }
-.page-dungeons .monster-name-text {
-  display: inline-block;
+.page-dungeons .monster-name-text,
+.page-dungeons #monster-name-text {
+  display: block;
   max-width: 100%;
   font-size: 13px;
   font-weight: 700;
@@ -5776,9 +5777,13 @@ body.page-dungeons #item-modal.modal.item-modal-root.item-modal-v2-wrap.item-mod
   text-align: left;
   flex-shrink: 1;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  word-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.25;
 }
 .page-dungeons .monster-name-level {
   display: inline-block;

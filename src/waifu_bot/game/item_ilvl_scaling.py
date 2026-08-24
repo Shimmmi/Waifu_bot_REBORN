@@ -81,6 +81,17 @@ def item_scale_ilvl(obj: Any) -> int:
     return 0
 
 
+def gear_score_item_ilvl(obj: Any) -> int:
+    """Ilvl for gear_score. Prefer plus budget; fall back to display level only on campaign items."""
+    scaled = item_scale_ilvl(obj)
+    if scaled > 0:
+        return scaled
+    level = _as_int(_row_get(obj, "level", 0), 0)
+    if level > 0:
+        return level
+    return _as_int(_row_get(obj, "total_level", 0), 0)
+
+
 def flat_scale(ilvl: int) -> float:
     lvl = max(0, int(ilvl or 0))
     if lvl <= ILVL_SCALE_ANCHOR:

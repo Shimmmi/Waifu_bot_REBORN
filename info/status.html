@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Статус — компактный UI</title>
+  <link rel="stylesheet" href="status.css">
+</head>
+<body>
+
+  <!-- Демонстрационный игровой HUD -->
+  <header class="game-hud">
+    <div class="hud-avatar">
+      <div class="avatar-circle">👩🏻</div>
+      <span class="level">13</span>
+    </div>
+    <div class="hud-progress">
+      <strong>5-5 (+13) · 11/18</strong>
+      <div class="tiny-progress">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        <i class="muted"></i><i class="muted"></i><i class="muted"></i>
+      </div>
+    </div>
+    <div class="hud-counter">1/9</div>
+    <div class="hud-gold">🪙 <strong>49 251</strong></div>
+    <button class="hud-menu">☰</button>
+  </header>
+
+  <main class="status-modal" role="dialog" aria-labelledby="status-title">
+
+    <div class="modal-header">
+      <h1 id="status-title">Статус</h1>
+      <button class="icon-button close-button" aria-label="Закрыть">×</button>
+    </div>
+
+    <!-- Основные показатели: 2×2 -->
+    <section class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-icon">🪙</span>
+        <div>
+          <span class="stat-label">Золото</span>
+          <strong>220 / 300 <em>(73%)</em></strong>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-icon xp">XP</span>
+        <div>
+          <span class="stat-label">Опыт</span>
+          <strong>13 127 / 17 860 <em>(73%)</em></strong>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-icon">✦</span>
+        <div>
+          <span class="stat-label">Опыт отряда</span>
+          <strong>52 551</strong>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-icon">⚔</span>
+        <div>
+          <span class="stat-label">Сила отряда</span>
+          <strong>3 · Потолок 9 · wipe 0</strong>
+        </div>
+      </div>
+    </section>
+
+    <!-- Текущие бонусы -->
+    <section class="accordion current-bonuses open">
+      <button class="accordion-header" type="button" aria-expanded="true">
+        <span class="section-icon current">✦</span>
+        <span class="accordion-title">Текущие бонусы <b>(10)</b></span>
+        <span class="chevron">⌄</span>
+      </button>
+
+      <div class="accordion-content">
+        <div class="bonus-chips">
+          <span class="bonus-chip">⚔ +10% урон</span>
+          <span class="bonus-chip">🛡 +8% защита</span>
+          <span class="bonus-chip">➜ +5% скорость</span>
+          <span class="bonus-chip">🪙 +20% золото</span>
+          <span class="bonus-chip">✦ +10% опыт</span>
+          <span class="bonus-chip">❤ +5% лечение</span>
+          <span class="bonus-chip">⚔ +3% крит</span>
+          <span class="bonus-chip">🛡 +4% блок</span>
+          <span class="bonus-chip">✦ +2% уклонение</span>
+          <span class="bonus-chip">🪙 +5% награды</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Постоянные бонусы открываются отдельным модальным окном -->
+    <button class="permanent-bonuses-button" id="openPermanent" type="button">
+      <span class="section-icon permanent">◆</span>
+      <span>
+        <strong>Постоянные бонусы</strong>
+        <small>5 активных бонусов</small>
+      </span>
+      <span class="arrow">›</span>
+    </button>
+
+    <!-- Отряд -->
+    <section class="party-list">
+
+      <article class="hero-card">
+        <div class="hero-portrait">
+          <div class="portrait-placeholder milfa">М</div>
+          <span class="hero-status-dot"></span>
+        </div>
+
+        <div class="hero-main">
+          <div class="hero-name-row">
+            <strong>Милфа</strong>
+            <button class="equipment-toggle" type="button">⚔ Экип.</button>
+          </div>
+
+          <div class="hero-stats">Ур. 1 · Сила 1 · 🪙 32</div>
+
+          <div class="hp-row">
+            <div class="hp-bar"><span style="width:78%"></span></div>
+            <span class="hp-text">78%</span>
+          </div>
+
+          <div class="hero-bottom">
+            <span>🧪 Зелье лечения ×6</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="hero-card">
+        <div class="hero-portrait">
+          <div class="portrait-placeholder sasha">С</div>
+          <span class="hero-status-dot"></span>
+        </div>
+
+        <div class="hero-main">
+          <div class="hero-name-row">
+            <strong>Тётя Саша</strong>
+            <button class="equipment-toggle" type="button">⚔ Экип.</button>
+          </div>
+
+          <div class="hero-stats">Ур. 1 · Сила 1 · 🪙 25</div>
+
+          <div class="hp-row">
+            <div class="hp-bar"><span style="width:74%"></span></div>
+            <span class="hp-text">74%</span>
+          </div>
+
+          <div class="hero-bottom">
+            <span>🧪 Зелье лечения ×3</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="hero-card">
+        <div class="hero-portrait">
+          <div class="portrait-placeholder vasyanka">В</div>
+          <span class="hero-status-dot"></span>
+        </div>
+
+        <div class="hero-main">
+          <div class="hero-name-row">
+            <strong>Васянка</strong>
+            <button class="equipment-toggle" type="button">⚔ Экип.</button>
+          </div>
+
+          <div class="hero-stats">Ур. 1 · Сила 1 · 🪙 13</div>
+
+          <div class="hp-row">
+            <div class="hp-bar"><span style="width:81%"></span></div>
+            <span class="hp-text">81%</span>
+          </div>
+
+          <div class="hero-bottom">
+            <span>🧪 Зелье лечения ×3</span>
+          </div>
+        </div>
+      </article>
+
+    </section>
+
+    <!-- Компактная итоговая строка -->
+    <section class="party-modifiers">
+      <span class="modifier-label">✊ Модификаторы отряда</span>
+      <div class="modifier-values">
+        <span>Урон <b>+12%</b></span>
+        <span>Защита <b>+8%</b></span>
+        <span>Скорость <b>+5%</b></span>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Модальное окно постоянных бонусов -->
+  <div class="overlay hidden" id="permanentModal" aria-hidden="true">
+    <section class="bonus-modal" role="dialog" aria-labelledby="permanentTitle">
+      <div class="modal-header">
+        <h2 id="permanentTitle">Постоянные бонусы</h2>
+        <button class="icon-button" id="closePermanent" aria-label="Закрыть">×</button>
+      </div>
+
+      <div class="permanent-list">
+        <div class="permanent-row">
+          <span class="bonus-symbol">🪙</span>
+          <div><strong>Больше золота</strong><small>Постоянно +5% к получаемому золоту</small></div>
+          <b>+5%</b>
+        </div>
+        <div class="permanent-row">
+          <span class="bonus-symbol">✦</span>
+          <div><strong>Опыт искателя</strong><small>Постоянно +3% к получаемому опыту</small></div>
+          <b>+3%</b>
+        </div>
+        <div class="permanent-row">
+          <span class="bonus-symbol">⚔</span>
+          <div><strong>Воинский дух</strong><small>Постоянно +2% к урону отряда</small></div>
+          <b>+2%</b>
+        </div>
+        <div class="permanent-row">
+          <span class="bonus-symbol">🛡</span>
+          <div><strong>Закалка</strong><small>Постоянно +2% к защите отряда</small></div>
+          <b>+2%</b>
+        </div>
+        <div class="permanent-row">
+          <span class="bonus-symbol">❤</span>
+          <div><strong>Целитель</strong><small>Постоянно +5% эффективности зелий</small></div>
+          <b>+5%</b>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const openPermanent = document.getElementById('openPermanent');
+    const closePermanent = document.getElementById('closePermanent');
+    const permanentModal = document.getElementById('permanentModal');
+
+    openPermanent.addEventListener('click', () => {
+      permanentModal.classList.remove('hidden');
+      permanentModal.setAttribute('aria-hidden', 'false');
+    });
+
+    function closePermanentModal() {
+      permanentModal.classList.add('hidden');
+      permanentModal.setAttribute('aria-hidden', 'true');
+    }
+
+    closePermanent.addEventListener('click', closePermanentModal);
+
+    permanentModal.addEventListener('click', (event) => {
+      if (event.target === permanentModal) closePermanentModal();
+    });
+
+    document.querySelectorAll('.accordion-header').forEach(button => {
+      button.addEventListener('click', () => {
+        const accordion = button.closest('.accordion');
+        const expanded = accordion.classList.toggle('open');
+        button.setAttribute('aria-expanded', expanded);
+      });
+    });
+
+    document.querySelectorAll('.equipment-toggle').forEach(button => {
+      button.addEventListener('click', () => {
+        const card = button.closest('.hero-card');
+        card.classList.toggle('equipment-open');
+        button.textContent = card.classList.contains('equipment-open')
+          ? '× Скрыть'
+          : '⚔ Экип.';
+      });
+    });
+
+    document.querySelector('.close-button').addEventListener('click', () => {
+      document.querySelector('.status-modal').classList.add('is-closed');
+    });
+  </script>
+
+</body>
+</html>
