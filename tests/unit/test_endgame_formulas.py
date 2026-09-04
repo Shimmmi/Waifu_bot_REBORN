@@ -54,6 +54,49 @@ def test_gear_score_adds_three_per_grade():
     assert compute_gear_score([inv]) == (10 + 5) + 6
 
 
+def test_gear_score_campaign_t10_uses_tier_not_ilvl():
+    inv = SimpleNamespace(
+        tier=10,
+        rarity=5,
+        affixes=[object(), object(), object(), object()],
+        refined_grade=0,
+        power_rank=0,
+        plus_level_source=0,
+        level=60,
+        total_level=80,
+    )
+    assert compute_gear_score([inv]) == 100 + 25 + 8
+
+
+def test_gear_score_plus_power_rank_beats_tier():
+    inv = SimpleNamespace(
+        tier=10,
+        rarity=5,
+        affixes=[object(), object(), object(), object()],
+        refined_grade=0,
+        power_rank=210,
+        plus_level_source=16,
+        level=230,
+        total_level=230,
+    )
+    assert compute_gear_score([inv]) == 210 + 25 + 8
+
+
+def test_gear_score_plus_ignores_inflated_total_level():
+    inv = SimpleNamespace(
+        tier=10,
+        rarity=1,
+        affixes=[],
+        refined_grade=0,
+        power_rank=0,
+        plus_level_source=16,
+        level=230,
+        total_level=230,
+    )
+    # plus 16 → power_rank fallback 50+16*10 = 210, not display 230
+    assert compute_gear_score([inv]) == 210 + 5
+
+
 def test_avg_equipped_ilvl_2h_copies_slot2():
     two_hand = SimpleNamespace(slot_type="weapon_2h", total_level=40, level=40, equipment_slot=1)
     avg = average_ilvl_from_equipped([two_hand])

@@ -108,19 +108,37 @@ def _needs_art(card: m.CompanionCard) -> bool:
     return False
 
 
-def bio_needs_expand(card: m.CompanionCard) -> bool:
+BIO_VERSION = 3
+FALLBACK_BIO = "Выросла в дороге. В отряд вступила сама."
+
+
+def bio_version_of(card: m.CompanionCard) -> int:
     look = card.look_card or {}
     try:
-        version = int(look.get("bio_version") or 0)
+        return int(look.get("bio_version") or 0)
     except (TypeError, ValueError):
-        version = 0
-    bio = (card.bio or "").strip()
-    return version < 2 and 0 < len(bio) < 200
+        return 0
+
+
+def identity_stale(card: m.CompanionCard) -> bool:
+    if bio_version_of(card) < BIO_VERSION:
+        return True
+    if not (card.bio or "").strip():
+        return True
+    voice = card.voice if isinstance(card.voice, dict) else {}
+    if not str(voice.get("line") or "").strip():
+        return True
+    return False
+
+
+def bio_needs_expand(card: m.CompanionCard) -> bool:
+    return identity_stale(card)
 
 
 async def fill_identity(session: AsyncSession, card: m.CompanionCard, *, force: bool = False) -> None:
-    """One fast JSON for bio/voice. Does not rewrite a shown name or a frozen bio unless force."""
+    """One fast JSON for bio/voice/moments. Frozen only at bio_version >= 3."""
     from waifu_bot.services.companion_living import patron_name, stamp_look_lineage
+    from waifu_bot.services.companion_memory import memory_put
 
     patron = await patron_name(session, int(card.player_id))
     look = stamp_look_lineage(card.look_card or {}, seed=int(card.id or 0), stance=card.stance)
@@ -128,9 +146,9 @@ async def fill_identity(session: AsyncSession, card: m.CompanionCard, *, force: 
         look["hired_by"] = patron
     card.look_card = look
     has_bio = bool((card.bio or "").strip())
-    if has_bio and card.voice and not force:
+    if has_bio and card.voice and bio_version_of(card) >= BIO_VERSION and not force:
         return
-    fallback_bio = f"Нанялась к {patron}. За столом уже своя."
+    fallback_bio = FALLBACK_BIO
     try:
         from waifu_bot.services.delve_line import _fast_model
         from waifu_bot.services.llm_client import has_text_llm_configured, post_chat_completions_routerai
@@ -142,15 +160,22 @@ async def fill_identity(session: AsyncSession, card: m.CompanionCard, *, force: 
         traits = ", ".join(card.traits or [])
         race_ru = look.get("race_ru") or "человек"
         class_ru = look.get("class_ru") or "наёмница"
+        stance_ru = {"scout": "разведчица", "shield": "щит", "guide": "проводница"}.get(card.stance, card.stance)
+        temper_ru = {"curiosity": "любопытство", "temper": "вспыльчивость", "stay": "стойкость"}.get(
+            card.temper, card.temper
+        )
         prompt = (
-            "Ответь строго JSON без markdown: {\"bio\":\"...\",\"voice\":\"...\"}.\n"
+            "Ответь строго JSON без markdown: "
+            "{\"bio\":\"...\",\"voice\":\"...\",\"moments\":{\"черта\":\"момент\"}}.\n"
             f"Имя уже есть: {card.name}. Не меняй имя.\n"
-            f"Раса: {race_ru}. Класс: {class_ru}. Стойка: {card.stance}. Нрав: {card.temper}. Черты: {traits}.\n"
-            f"Её наняла {patron} — основная вайфу игрока. Они в одном отряде, знакомы.\n"
+            f"Раса: {race_ru}. Класс: {class_ru}. Стойка: {stance_ru}. Нрав: {temper_ru}. Черты: {traits}.\n"
             f"Look: hair {look.get('hair')}, eyes {look.get('eyes')}, mark {look.get('mark')}.\n"
-            "bio — 5–8 предложений по-русски, живая проза, не длиннее 800 символов. "
-            "Без цифр, перков, редкости, мемов, абсурда и гротескного юмора. Серьёзный характер, не комедия. "
-            f"Можно задеть, что идёт с {patron}, не «встретила путника».\n"
+            "bio — 3–5 коротких предложений по-русски: становление с детства до решения вступить в отряд, "
+            "не длиннее 600 символов. "
+            "Не называй основную вайфу, патрона, таверну. Не пиши «нанялась к» и не «встретила путника». "
+            "Каждая черта, стойка и нрав должны иметь один конкретный момент в тексте. "
+            "Без цифр, перков, редкости, мемов, абсурда и гротескного юмора. Серьёзный характер, не комедия.\n"
+            "moments — объект: ключ = черта/стойка/нрав, значение = один короткий момент.\n"
             f"voice — одно предложение, как она говорит с {patron} (на «ты», не с чужаком)."
         )
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -158,7 +183,7 @@ async def fill_identity(session: AsyncSession, card: m.CompanionCard, *, force: 
                 client,
                 {
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 400,
+                    "max_tokens": 450,
                     "temperature": 0.85,
                     "reasoning": {"exclude": True},
                 },
@@ -177,15 +202,19 @@ async def fill_identity(session: AsyncSession, card: m.CompanionCard, *, force: 
                 text = re.sub(r"^```(?:json)?\s*", "", text)
                 text = re.sub(r"\s*```$", "", text)
             parsed = json.loads(text)
-            if parsed.get("bio") and (force or not card.bio):
-                card.bio = str(parsed["bio"])[:800]
+            if parsed.get("bio") and (force or bio_version_of(card) < BIO_VERSION or not card.bio):
+                card.bio = str(parsed["bio"])[:600]
                 look = dict(card.look_card or {})
-                look["bio_version"] = 2
+                look["bio_version"] = BIO_VERSION
                 card.look_card = look
             voice = dict(card.voice or {})
             if parsed.get("voice"):
                 voice["line"] = str(parsed["voice"])[:240]
             card.voice = voice
+            moments = parsed.get("moments")
+            if isinstance(moments, dict):
+                for key, val in moments.items():
+                    memory_put(card, "origin", str(key), str(val), overwrite=True)
     except Exception:
         logger.warning("living identity failed card=%s", getattr(card, "id", None), exc_info=True)
         if not card.bio:
@@ -321,9 +350,10 @@ async def enqueue_dual_portraits(session: AsyncSession, card_id: int) -> None:
                 name=card.name,
                 extra_visual=extra,
                 tone="living",
+                aspect_ratio="3:2",
             )
             if b64:
-                webp = _b64_to_webp(b64, size=(512, 768))
+                webp = _b64_to_webp(b64, size=(768, 512))
                 if webp:
                     dest_an.write_bytes(webp)
                     card.portrait_anime_path = _anime_rel(pid, card.id)
@@ -358,6 +388,44 @@ async def enqueue_dual_portraits(session: AsyncSession, card_id: int) -> None:
     await session.flush()
 
 
+async def regenerate_living_anime_only(session: AsyncSession, card_id: int) -> bool:
+    """Force-rebuild the 3:2 anime portrait. Pixel mini is never written."""
+    from waifu_bot.services.companion_living import stamp_look_lineage
+    from waifu_bot.services.expedition_events_ai import generate_hire_waifu_image
+
+    card = await session.get(m.CompanionCard, int(card_id))
+    if card is None:
+        return False
+    pid = int(card.player_id)
+    dest_an = _dest(_anime_rel(pid, card.id))
+    dest_an.parent.mkdir(parents=True, exist_ok=True)
+    look = stamp_look_lineage(card.look_card or {}, seed=int(card.id or 0), stance=card.stance)
+    extra = _look_visual_en(look)
+    note = _silhouette_note(card)
+    if note:
+        extra = f"{extra}, {note}"
+    ref = dest_an.read_bytes() if dest_an.is_file() else None
+    b64 = await generate_hire_waifu_image(
+        str(look.get("race_ru") or "человек"),
+        str(look.get("class_ru") or "маг"),
+        (card.bio or "")[:400],
+        name=card.name,
+        extra_visual=extra,
+        tone="living",
+        aspect_ratio="3:2",
+        reference_webp=ref,
+    )
+    if not b64:
+        return False
+    webp = _b64_to_webp(b64, size=(768, 512))
+    if not webp:
+        return False
+    dest_an.write_bytes(webp)
+    card.portrait_anime_path = _anime_rel(pid, card.id)
+    await session.flush()
+    return True
+
+
 async def enqueue_pending(session: AsyncSession, player_id: int, *, limit: int = 6) -> dict:
     rows = (
         await session.execute(
@@ -369,9 +437,9 @@ async def enqueue_pending(session: AsyncSession, player_id: int, *, limit: int =
     ).scalars().all()
     done = 0
     for card in rows:
-        if not _needs_art(card) and (card.bio or "").strip():
+        if not _needs_art(card) and not identity_stale(card):
             continue
-        if not (card.bio or "").strip() or not card.voice:
+        if identity_stale(card):
             await fill_identity(session, card)
         if _needs_art(card):
             await enqueue_dual_portraits(session, int(card.id))

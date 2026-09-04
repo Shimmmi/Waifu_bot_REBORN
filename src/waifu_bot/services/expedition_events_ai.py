@@ -2006,6 +2006,8 @@ async def generate_hire_waifu_image(
     perk_ids: Sequence[str] | None = None,
     extra_visual: str = "",
     tone: str = "",
+    aspect_ratio: str = "2:3",
+    reference_webp: bytes | None = None,
 ) -> Optional[str]:
     """
     Генерирует портрет наёмницы через RouterAI image API (cursor_plan_7).
@@ -2067,8 +2069,18 @@ async def generate_hire_waifu_image(
         parts.append(perk_snippet)
     parts.append(pose_snippet)
     if (tone or "").strip().lower() == "living":
+        frame = (
+            "wide 3:2 landscape cinematic portrait, "
+            "the character is perfectly centered in the frame both horizontally and vertically, "
+            "head and torso occupy the middle third, face looking at camera, "
+            "do not lean left or right, do not reach toward the camera, "
+            "leave empty background on both sides so a center 2:3 crop still shows the full bust, "
+            "not a tall 2:3 poster, not a close-up of only the face"
+            if str(aspect_ratio).strip() == "3:2"
+            else "vertical 2:3 portrait, character centered, upper body"
+        )
         base_tail = (
-            "serious character portrait, clean soft lighting, upper body, detailed face, "
+            f"{frame}, serious character portrait, clean soft lighting, detailed face, "
             "high quality illustration, 1girl, no comedy, no gag, no meme, not horror"
         )
     else:
@@ -2088,13 +2100,28 @@ async def generate_hire_waifu_image(
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             last_choice: dict = {}
+            ratio = str(aspect_ratio or "2:3").strip() or "2:3"
+            content: list[dict] | str = prompt
+            if reference_webp:
+                ref_b64 = base64.standard_b64encode(reference_webp).decode("ascii")
+                content = [
+                    {
+                        "type": "text",
+                        "text": prompt
+                        + ". Keep the SAME person as the attached reference: same face, hair, eyes, race features.",
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/webp;base64,{ref_b64}"},
+                    },
+                ]
             for modalities in IMAGE_MODALITY_ATTEMPTS:
                 body = {
                     "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": content}],
                     "modalities": list(modalities),
                     "image_config": {
-                        "aspect_ratio": "2:3",
+                        "aspect_ratio": ratio,
                         "image_size": "1K",
                     },
                 }

@@ -15,6 +15,7 @@ from waifu_bot.db import models as m
 from waifu_bot.db.inventory_load_options import inventory_item_load_options
 from waifu_bot.game.constants import WAIFU_CLASS_LABEL_RU, WAIFU_RACE_LABEL_RU
 from waifu_bot.game.effective_stats import resolve_solo_combat_primary_four
+from waifu_bot.game.item_ilvl_scaling import gear_score_item_ilvl
 from waifu_bot.game.main_waifu_base_stats import compute_main_waifu_base_stats
 from waifu_bot.db.models.armory import PlayerBan, PlayerEventLog
 from waifu_bot.db.models.guild_extended import GuildRaidStatus, GuildWarRowStatus
@@ -25,8 +26,6 @@ from waifu_bot.services.perfection import perfection_totals_dict, summarize_tota
 from waifu_bot.services.player_ban import is_player_banned
 from waifu_bot.services.inventory_payload import build_inventory_payloads
 from waifu_bot.services.paperdoll_quota import paperdoll_generations_remaining
-
-
 from waifu_bot.services.waifu_media_service import resolve_main_waifu_portrait_url
 
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -87,7 +86,8 @@ def compute_gear_score(equipped_items: list[m.InventoryItem]) -> int:
     for inv in equipped_items:
         tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 1)
         rarity = int(getattr(inv, "rarity", None) or getattr(getattr(inv, "item", None), "rarity", None) or 1)
-        score += tier * 10 + rarity * 5
+        ilvl = gear_score_item_ilvl(inv)
+        score += max(tier * 10, ilvl) + rarity * 5
         affixes = getattr(inv, "affixes", None) or []
         score += len(affixes) * 2
         score += 3 * int(getattr(inv, "refined_grade", 0) or 0)
@@ -138,33 +138,6 @@ async def recompute_all_gear_scores(session: AsyncSession, *, batch_size: int = 
         offset += batch_size
         await session.flush()
     return {"updated": updated}
-
-
-def _gear_score_subquery():
-    """SQL aggregate matching compute_gear_score for equipped items."""
-    affix_cnt = (
-        select(
-            m.InventoryAffix.inventory_item_id.label("inv_id"),
-            func.count().label("cnt"),
-        )
-        .group_by(m.InventoryAffix.inventory_item_id)
-        .subquery()
-    )
-    item_score = (
-        func.coalesce(m.InventoryItem.tier, 1) * 10
-        + func.coalesce(m.InventoryItem.rarity, 1) * 5
-        + func.coalesce(affix_cnt.c.cnt, 0) * 2
-    )
-    return (
-        select(
-            m.InventoryItem.player_id.label("player_id"),
-            func.sum(item_score).label("gear_score"),
-        )
-        .outerjoin(affix_cnt, affix_cnt.c.inv_id == m.InventoryItem.id)
-        .where(m.InventoryItem.equipment_slot > 0)
-        .group_by(m.InventoryItem.player_id)
-        .subquery()
-    )
 
 
 def _static_url(path: str | None) -> str | None:
