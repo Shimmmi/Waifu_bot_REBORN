@@ -310,6 +310,12 @@ def resolve_inventory_item_art_key(
         art_base,
         display_name=art_base,
     )
+    try:
+        from waifu_bot.game.item_art_identities import apply_art_key_alias
+
+        base_key = apply_art_key_alias(base_key)
+    except Exception:
+        pass
     if getattr(inv, "is_legendary", False) or int(getattr(inv, "rarity", 0) or 0) >= 5:
         return with_legendary_art_prefix(base_key)
     return base_key

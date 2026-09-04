@@ -20,14 +20,17 @@ CATALOG_DIABLO = "diablo_family"
 
 def _direct_base_template_id(inv: m.InventoryItem) -> int | None:
     """Template id set at generation time (preferred over reverse lookup)."""
-    raw = getattr(inv, "_base_template_id", None)
-    if raw is None:
-        return None
-    try:
-        tid = int(raw)
-        return tid if tid > 0 else None
-    except (TypeError, ValueError):
-        return None
+    for attr in ("_base_template_id", "base_template_id"):
+        raw = getattr(inv, attr, None)
+        if raw is None:
+            continue
+        try:
+            tid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if tid > 0:
+            return tid
+    return None
 
 
 def _base_grade_hint(inv: m.InventoryItem) -> int | None:
@@ -51,14 +54,10 @@ def _base_grade_hint(inv: m.InventoryItem) -> int | None:
 async def resolve_base_template_id(
     session: AsyncSession, inv: m.InventoryItem
 ) -> int | None:
-    """Map an inventory row to item_base_templates.id via base item name + tier."""
-    tier = int(getattr(inv, "tier", None) or 0)
-    if tier < 1:
-        item = getattr(inv, "item", None)
-        if item is not None:
-            tier = int(getattr(item, "tier", None) or 0)
-    if tier < 1:
-        return None
+    """Map an inventory row to item_base_templates.id via identity name (any native tier)."""
+    direct = _direct_base_template_id(inv)
+    if direct:
+        return direct
 
     base_name = ""
     item = getattr(inv, "item", None)
@@ -75,11 +74,10 @@ async def resolve_base_template_id(
             row = await session.execute(
                 text(
                     "SELECT id FROM item_base_templates "
-                    "WHERE name = :name AND tier = :tier "
-                    "AND COALESCE(base_grade, 0) = :bg "
-                    "LIMIT 1"
+                    "WHERE name = :name AND COALESCE(base_grade, 0) = :bg "
+                    "ORDER BY id LIMIT 1"
                 ),
-                {"name": base_name, "tier": int(tier), "bg": int(base_grade)},
+                {"name": base_name, "bg": int(base_grade)},
             )
             tid = row.scalar()
             if tid is not None:
@@ -87,16 +85,16 @@ async def resolve_base_template_id(
         row = await session.execute(
             text(
                 "SELECT id FROM item_base_templates "
-                "WHERE name = :name AND tier = :tier "
-                "ORDER BY COALESCE(base_grade, 0) ASC "
+                "WHERE name = :name "
+                "ORDER BY COALESCE(base_grade, 0) ASC, id "
                 "LIMIT 1"
             ),
-            {"name": base_name, "tier": int(tier)},
+            {"name": base_name},
         )
         tid = row.scalar()
         return int(tid) if tid is not None else None
     except Exception:
-        logger.debug("resolve_base_template_id failed for name=%s tier=%s", base_name, tier)
+        logger.debug("resolve_base_template_id failed for name=%s", base_name)
         return None
 
 

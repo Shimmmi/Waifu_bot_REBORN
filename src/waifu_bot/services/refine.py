@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -26,19 +26,34 @@ async def _load_item(session: AsyncSession, item_id: int, player_id: int) -> m.I
 
 
 async def _resolve_template(session: AsyncSession, inv: m.InventoryItem) -> m.ItemBaseTemplate | None:
-    if inv.base_template_id:
-        tpl = await session.get(m.ItemBaseTemplate, int(inv.base_template_id))
+    tid = getattr(inv, "base_template_id", None) or getattr(inv, "_base_template_id", None)
+    if tid:
+        try:
+            tpl = await session.get(m.ItemBaseTemplate, int(tid))
+        except (TypeError, ValueError):
+            tpl = None
         if tpl:
             return tpl
     name = str(getattr(getattr(inv, "item", None), "name", "") or "").strip()
-    tier = int(inv.tier or 0)
-    if not name or tier <= 0:
+    if not name:
         return None
-    return await session.scalar(
-        select(m.ItemBaseTemplate).where(
+    grade = int(getattr(inv, "refined_grade", 0) or 0)
+    tpl = await session.scalar(
+        select(m.ItemBaseTemplate)
+        .where(
             m.ItemBaseTemplate.name == name,
-            m.ItemBaseTemplate.tier == tier,
+            m.ItemBaseTemplate.base_grade == grade,
         )
+        .order_by(m.ItemBaseTemplate.id)
+        .limit(1)
+    )
+    if tpl is not None:
+        return tpl
+    return await session.scalar(
+        select(m.ItemBaseTemplate)
+        .where(m.ItemBaseTemplate.name == name)
+        .order_by(m.ItemBaseTemplate.base_grade.asc(), m.ItemBaseTemplate.id)
+        .limit(1)
     )
 
 
@@ -232,19 +247,19 @@ async def _maybe_swap_art(
     if not key:
         return False
     nxt = await session.scalar(
-        select(m.ItemBaseTemplate).where(
+        select(m.ItemBaseTemplate)
+        .where(
             m.ItemBaseTemplate.family_key == key,
-            m.ItemBaseTemplate.tier == int(tpl.tier),
             m.ItemBaseTemplate.item_type == tpl.item_type,
             m.ItemBaseTemplate.subtype == tpl.subtype,
             m.ItemBaseTemplate.base_grade == int(to_grade),
         )
+        .order_by(func.abs(m.ItemBaseTemplate.tier - int(tpl.tier or 1)), m.ItemBaseTemplate.id)
+        .limit(1)
     )
     if nxt is None:
         return False
     inv.base_template_id = int(nxt.id)
-    if inv.item is not None and nxt.name:
-        inv.item.name = str(nxt.name)
     return True
 
 

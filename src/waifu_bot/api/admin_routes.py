@@ -318,7 +318,7 @@ async def admin_spawn_item_catalog(
     templates = list(
         (
             await session.execute(
-                text("SELECT * FROM item_base_templates ORDER BY tier, name")
+                text("SELECT * FROM item_base_templates ORDER BY name, COALESCE(base_grade, 0), id")
             )
         )
         .mappings()

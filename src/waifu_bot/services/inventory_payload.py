@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import or_, select, text, tuple_
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
@@ -27,22 +27,25 @@ from waifu_bot.game.legendary_bonuses.loader import fetch_legendary_bonus_payloa
 
 
 def _direct_base_template_id(inv: m.InventoryItem) -> int | None:
-    raw = getattr(inv, "_base_template_id", None)
-    if raw is None:
-        return None
-    try:
-        tid = int(raw)
-        return tid if tid > 0 else None
-    except (TypeError, ValueError):
-        return None
+    for attr in ("_base_template_id", "base_template_id"):
+        raw = getattr(inv, attr, None)
+        if raw is None:
+            continue
+        try:
+            tid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if tid > 0:
+            return tid
+    return None
 
 
 def _template_row_index(
     rows: list[Any],
-) -> tuple[dict[int, Any], dict[tuple[str, int], Any], dict[tuple[str, int], Any]]:
+) -> tuple[dict[int, Any], dict[str, Any], dict[str, Any]]:
     by_id: dict[int, Any] = {}
-    by_name_tier: dict[tuple[str, int], Any] = {}
-    by_legendary_tier: dict[tuple[str, int], Any] = {}
+    by_name: dict[str, Any] = {}
+    by_legendary: dict[str, Any] = {}
     for row in rows:
         try:
             tid = int(getattr(row, "id", 0) or 0)
@@ -52,35 +55,29 @@ def _template_row_index(
             by_id[tid] = row
         name = str(getattr(row, "name", "") or "").strip()
         leg = str(getattr(row, "legendary_name_ru", "") or "").strip()
-        try:
-            tier = int(getattr(row, "tier", 0) or 0)
-        except (TypeError, ValueError):
-            tier = 0
-        if name and tier > 0:
-            by_name_tier[(name, tier)] = row
-        if leg and tier > 0:
-            by_legendary_tier[(leg, tier)] = row
-    return by_id, by_name_tier, by_legendary_tier
+        if name and name not in by_name:
+            by_name[name] = row
+        if leg and leg not in by_legendary:
+            by_legendary[leg] = row
+    return by_id, by_name, by_legendary
 
 
 def _resolve_template_row_for_inv(
     inv: m.InventoryItem,
     *,
     by_id: dict[int, Any],
-    by_name_tier: dict[tuple[str, int], Any],
-    by_legendary_tier: dict[tuple[str, int], Any],
+    by_name: dict[str, Any],
+    by_legendary: dict[str, Any],
 ) -> Any | None:
     tid = _direct_base_template_id(inv)
     if tid is not None and tid in by_id:
         return by_id[tid]
     item_name = str(getattr(getattr(inv, "item", None), "name", "") or "").strip()
-    tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 0)
-    if not item_name or tier <= 0:
+    if not item_name:
+        item_name = str(getattr(inv, "_canonical_base_name", "") or "").strip()
+    if not item_name:
         return None
-    return (
-        by_name_tier.get((item_name, tier))
-        or by_legendary_tier.get((item_name, tier))
-    )
+    return by_name.get(item_name) or by_legendary.get(item_name)
 
 
 async def enrich_inventory_items_with_template_stats(
@@ -90,27 +87,26 @@ async def enrich_inventory_items_with_template_stats(
     if not items:
         return
     template_ids: set[int] = set()
-    name_tier_keys: set[tuple[str, int]] = set()
+    name_keys: set[str] = set()
     for inv in items:
         tid = _direct_base_template_id(inv)
         if tid is not None:
             template_ids.add(tid)
         base_name, _full = compose_item_display_name_ru(inv)
         item_name = str(base_name or getattr(getattr(inv, "item", None), "name", "") or "").strip()
-        tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 0)
-        if item_name and tier > 0:
-            name_tier_keys.add((item_name, tier))
+        if item_name:
+            name_keys.add(item_name)
 
     rows: list[Any] = []
-    if template_ids or name_tier_keys:
+    if template_ids or name_keys:
         try:
             clauses = []
             if template_ids:
                 clauses.append(text("id").in_(list(template_ids)))
-            if name_tier_keys:
-                keys = list(name_tier_keys)
-                clauses.append(tuple_(text("name"), text("tier")).in_(keys))
-                clauses.append(tuple_(text("legendary_name_ru"), text("tier")).in_(keys))
+            if name_keys:
+                names = list(name_keys)
+                clauses.append(text("name").in_(names))
+                clauses.append(text("legendary_name_ru").in_(names))
             stmt = (
                 select(
                     text("id"),
@@ -130,14 +126,14 @@ async def enrich_inventory_items_with_template_stats(
         except Exception:
             rows = []
 
-    by_id, by_name_tier, by_legendary_tier = _template_row_index(rows)
+    by_id, by_name, by_legendary = _template_row_index(rows)
 
     for inv in items:
         tpl_row = _resolve_template_row_for_inv(
             inv,
             by_id=by_id,
-            by_name_tier=by_name_tier,
-            by_legendary_tier=by_legendary_tier,
+            by_name=by_name,
+            by_legendary=by_legendary,
         )
         if tpl_row is not None:
             canon = str(getattr(tpl_row, "name", "") or "").strip()

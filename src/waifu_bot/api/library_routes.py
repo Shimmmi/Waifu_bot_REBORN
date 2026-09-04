@@ -21,6 +21,7 @@ from waifu_bot.game.affix_display_names import (
 )
 from waifu_bot.game.affix_effect_ui import effect_bonus_category, effect_stat_description_ru
 from waifu_bot.game.legendary_bonuses.eligibility import bonus_fits_drop
+from waifu_bot.game.item_art_identities import apply_art_key_alias
 from waifu_bot.services.item_art import derive_item_art_key, with_legendary_art_prefix
 from waifu_bot.services.item_codex import CATALOG_DIABLO, CATALOG_LEGACY
 
@@ -272,10 +273,13 @@ def _build_item_entry(row: object, seen: bool) -> dict:
         "slot_type": slot_type if seen else None,
         "level_min": int(_row_get(row, "level_min", 0) or 0) if seen else None,
         "level_max": int(_row_get(row, "level_max", 0) or 0) if seen else None,
+        "available_tiers": list(range(1, 11)),
     }
     if seen:
-        entry["art_key"] = derive_item_art_key(
-            slot_type, weapon_type, base_name, display_name=base_name
+        entry["art_key"] = apply_art_key_alias(
+            derive_item_art_key(
+                slot_type, weapon_type, base_name, display_name=base_name
+            )
         )
         dmg_min = int(_row_get(row, "dmg_min", 0) or 0)
         dmg_max = int(_row_get(row, "dmg_max", 0) or 0)
@@ -308,7 +312,7 @@ async def items_catalog(
         templates = list(
             (
                 await session.execute(
-                    text("SELECT * FROM item_base_templates ORDER BY tier, name")
+                    text("SELECT * FROM item_base_templates ORDER BY name, COALESCE(base_grade, 0), id")
                 )
             )
             .mappings()

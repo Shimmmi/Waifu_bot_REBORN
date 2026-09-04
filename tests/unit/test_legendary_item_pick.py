@@ -49,6 +49,7 @@ def test_pick_item_base_template_rarity5_queries_grade_zero_first() -> None:
         assert row is not None
         assert row["base_grade"] == 0
         assert calls[0]["bg"] == 0
+        assert "tier" not in calls[0]
 
     asyncio.run(_run())
 
