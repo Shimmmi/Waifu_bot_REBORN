@@ -1,4 +1,4 @@
-"""Delve PQ layer 2: hole drain, 30s tick, readable nodes, trauma, class/traits."""
+"""Delve PQ layer 2: power-mitigation drain, 30s tick, readable nodes, trauma, class/traits."""
 
 from __future__ import annotations
 
@@ -37,6 +37,7 @@ from waifu_bot.game.delve_pq import (
     party_power,
     pq_rng,
     resolve_shop,
+    run_city_shops,
 )
 
 EVENTS_PATH = Path(__file__).resolve().parents[3] / "data" / "delve_node_events.v1.json"
@@ -45,11 +46,17 @@ PQ_LAYER_DEFAULT = 2
 T_NODE_SEC = 30
 T_EFF_MIN = 15
 T_EFF_MAX = 50
-ARMOR_K = 1.2
+ARMOR_K = 1.6
+UNDER_K = 1.1
 COMBAT_FLOOR = 3
 BOSS_FLOOR = 6
+COMBAT_DEPTH_LIN = 0.12
+BOSS_DEPTH_LIN = 0.22
 COMBAT_CAP_FRAC = 0.28
 BOSS_CAP_FRAC = 0.40
+ZIP_U = 0.35
+PUSH_U = 0.75
+ZIP_DRAIN_MULT = 0.45
 REST_BASE_FRAC = 1.00
 REST_CAP_FRAC = 1.00
 HEALER_CLASS_ID = 6
@@ -96,14 +103,14 @@ CLASS_MODS: dict[int, dict[str, float]] = {
     2: {"power": 0.08, "drain": -0.08, "tick": 0.00, "injury": -0.04, "rest": 0.00, "monster": 10, "event": -4, "npc": -2, "empty": -4},
     3: {"power": 0.02, "drain": 0.02, "tick": -0.06, "injury": 0.02, "rest": 0.00, "monster": 0, "event": 2, "npc": 0, "empty": 6},
     4: {"power": 0.04, "drain": 0.06, "tick": 0.00, "injury": 0.06, "rest": 0.04, "monster": 4, "event": 8, "npc": 0, "empty": -12},
-    5: {"power": 0.00, "drain": 0.06, "tick": -0.08, "injury": 0.05, "rest": -0.04, "monster": 6, "event": 0, "npc": -2, "empty": -4},
+    5: {"power": 0.00, "drain": 0.06, "tick": -0.08, "injury": 0.05, "rest": -0.04, "shop": 0.02, "monster": 6, "event": 0, "npc": -2, "empty": -4},
     6: {"power": -0.04, "drain": -0.06, "tick": 0.06, "injury": -0.05, "rest": 0.25, "monster": -8, "event": 2, "npc": 4, "empty": 2},
-    7: {"power": -0.06, "drain": 0.04, "tick": 0.02, "injury": 0.02, "rest": 0.00, "monster": -6, "event": 2, "npc": 12, "empty": -8},
+    7: {"power": -0.06, "drain": 0.04, "tick": 0.02, "injury": 0.02, "rest": 0.00, "shop": -0.10, "monster": -6, "event": 2, "npc": 12, "empty": -8},
 }
 STANCE_MODS: dict[str, dict[str, float]] = {
     "scout": {"drain": 0.03, "tick": -0.04, "injury": 0.04, "monster": 2, "empty": 6},
     "shield": {"drain": -0.04, "tick": 0.03, "injury": -0.05, "monster": 4, "empty": 0},
-    "guide": {"drain": 0.00, "tick": 0.02, "injury": 0.00, "monster": -4, "empty": -4},
+    "guide": {"drain": 0.00, "tick": 0.02, "injury": 0.00, "shop": -0.02, "monster": -4, "empty": -4},
 }
 TEMPER_MODS: dict[str, dict[str, float]] = {
     "curiosity": {"power": 0.00, "drain": 0.02, "tick": -0.03, "injury": 0.04, "rest": 0.00, "monster": 0, "event": 8, "empty": -6},
@@ -120,7 +127,10 @@ TRAIT_MODS: dict[str, dict[str, float]] = {
     "боится_тьмы": {"tick": 0.10},
     "вспыльчивая": {"monster": 8, "power": 0.03, "injury": 0.08, "drain": 0.04},
     "упрямая": {"drain": -0.06, "power": 0.03, "tick": 0.08},
-    "тихая": {"injury": -0.04},
+    "тихая": {"injury": -0.04, "shop": 0.03},
+    "циничная": {"shop": -0.03},
+    "жадная": {"shop": -0.08},
+    "добрая": {"shop": 0.05},
 }
 
 KIND_WEIGHTS_START = {KIND_EMPTY: 34, KIND_MONSTER: 30, KIND_EVENT: 18, KIND_NPC: 10, KIND_FIND: 8}
@@ -257,22 +267,50 @@ def events_by_kind(kind: str) -> list[dict[str, Any]]:
     return [row for row in load_node_events() if str(row.get("kind")) == kind]
 
 
-def hole(depth: int, party_power_eff: float) -> float:
+def power_mitigation_mult(depth: int, party_power_eff: float) -> float:
+    """Incoming drain multiplier from party power vs depth. Overlevel cuts, underlevel raises."""
     threat = max(1, int(depth))
     armor = max(0.01, float(party_power_eff))
-    return threat / (threat + ARMOR_K * armor)
+    rel = armor / float(threat)
+    over = max(0.0, rel - 1.0)
+    under = max(0.0, 1.0 - rel)
+    return (1.0 + UNDER_K * under) / (1.0 + ARMOR_K * over)
 
 
-def combat_drain_hole(depth: int, party_power_eff: float, hp_ref: int = 48) -> int:
+def zip_drain_mult(depth: int, d_max: int = 0) -> float:
+    ceil = max(0, int(d_max))
+    if ceil > 0 and int(depth) < ZIP_U * float(ceil):
+        return ZIP_DRAIN_MULT
+    return 1.0
+
+
+def hole(depth: int, party_power_eff: float) -> float:
+    """Kept for tests/debug: share of threat not absorbed by power."""
+    return float(power_mitigation_mult(depth, party_power_eff))
+
+
+def combat_drain_hole(
+    depth: int,
+    party_power_eff: float,
+    hp_ref: int = 48,
+    d_max: int = 0,
+) -> int:
     threat = max(1, int(depth))
-    raw = 3 + (6 + 0.70 * threat) * hole(threat, party_power_eff)
+    raw = (COMBAT_FLOOR + COMBAT_DEPTH_LIN * threat) * power_mitigation_mult(threat, party_power_eff)
+    raw *= zip_drain_mult(threat, d_max)
     cap = max(COMBAT_FLOOR, int(math.floor(COMBAT_CAP_FRAC * max(1, int(hp_ref)))))
     return int(_clip(_half_up(raw), COMBAT_FLOOR, cap))
 
 
-def boss_drain_hole(depth: int, party_power_eff: float, hp_ref: int = 48) -> int:
+def boss_drain_hole(
+    depth: int,
+    party_power_eff: float,
+    hp_ref: int = 48,
+    d_max: int = 0,
+) -> int:
     threat = max(1, int(depth))
-    raw = 6 + (10 + 1.0 * threat) * hole(threat, party_power_eff)
+    raw = (BOSS_FLOOR + BOSS_DEPTH_LIN * threat) * power_mitigation_mult(threat, party_power_eff)
+    raw *= zip_drain_mult(threat, d_max)
     cap = max(BOSS_FLOOR, int(math.floor(BOSS_CAP_FRAC * max(1, int(hp_ref)))))
     return int(_clip(_half_up(raw), BOSS_FLOOR, cap))
 
@@ -309,6 +347,7 @@ def actor_mods(merc: MercState, *, party_size: int, depth: int = 0, d_max: int =
         "tick": 0.0,
         "injury": 0.0,
         "rest": 0.0,
+        "shop": 0.0,
         KIND_MONSTER: 0.0,
         KIND_EVENT: 0.0,
         KIND_NPC: 0.0,
@@ -361,7 +400,17 @@ def actor_mods(merc: MercState, *, party_size: int, depth: int = 0, d_max: int =
     out["injury"] = _clip(out["injury"], -0.32, 0.32)
     out["drain"] = _clip(out["drain"], -0.22, 0.22)
     out["power"] = _clip(out["power"], -0.40, 0.25)
+    out["shop"] = _clip(out["shop"], -0.22, 0.15)
     return out
+
+
+def shop_price_mult(merc: MercState) -> float:
+    bonus = float(actor_mods(merc, party_size=1).get("shop") or 0.0)
+    return _clip(1.0 + bonus, 0.78, 1.15)
+
+
+def shop_price_of(merc: MercState, base_price: int) -> int:
+    return max(1, int(round(int(base_price) * shop_price_mult(merc))))
 
 
 def power_raw_of(merc: MercState) -> int:
@@ -423,17 +472,26 @@ def injury_mult_of(mercs: Iterable[MercState], *, depth: int = 0, d_max: int = 8
     return 1.0 + mean_inj
 
 
-def kind_weight_base(depth: int) -> dict[str, float]:
+def kind_weight_base(depth: int, d_max: int = 8) -> dict[str, float]:
     d = max(1, int(depth))
+    ceil = max(1, int(d_max))
     if d <= 8:
-        return dict(KIND_WEIGHTS_START)
-    if d <= 20:
-        return dict(KIND_WEIGHTS_BAND1)
-    return dict(KIND_WEIGHTS_DEEP)
+        base = dict(KIND_WEIGHTS_START)
+    elif d <= 20:
+        base = dict(KIND_WEIGHTS_BAND1)
+    else:
+        base = dict(KIND_WEIGHTS_DEEP)
+    if d < ZIP_U * ceil:
+        base[KIND_EMPTY] = float(base.get(KIND_EMPTY, 0.0)) + 15.0
+        base[KIND_MONSTER] = float(base.get(KIND_MONSTER, 0.0)) - 15.0
+    elif d > PUSH_U * ceil:
+        base[KIND_MONSTER] = float(base.get(KIND_MONSTER, 0.0)) + 10.0
+        base[KIND_EMPTY] = float(base.get(KIND_EMPTY, 0.0)) - 10.0
+    return base
 
 
 def kind_weights(mercs: Iterable[MercState], depth: int, d_max: int) -> dict[str, float]:
-    base = kind_weight_base(depth)
+    base = kind_weight_base(depth, d_max)
     living = living_mercs(mercs)
     if living:
         lamp = has_lamp(living)
@@ -990,7 +1048,12 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
         for merc in party.mercs:
             if merc.living():
                 buys = resolve_shop(
-                    merc, depth=depth, seed=party.seed, cycle=party.last_cycle, band=band
+                    merc,
+                    depth=depth,
+                    seed=party.seed,
+                    cycle=party.last_cycle,
+                    band=band,
+                    mode="lavka",
                 )
                 party.shop_log.extend(buys)
         phrase = assemble_phrase(kind="shop", depth=depth, line=f"{who} зашла в лавку", who=who)
@@ -1026,13 +1089,14 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
         }
         if node == NODE_SURFACE:
             city_return(party)
+            run_city_shops(party, depth=max(1, int(depth) or 1), band=band)
         phrase = assemble_phrase(kind=kind, depth=depth, line=lines[kind], who=who)
         return event_dict(row=None, kind=kind, depth=depth, who=who, phrase=phrase, node=node)
 
     if node == NODE_BOSS:
         auto_use_potions(party.mercs, before_boss=True)
         pp = party_power_eff(party.mercs, depth=depth, d_max=d_max, living_only=True)
-        raw = boss_drain_hole(depth, pp, hp_ref_of(party.mercs))
+        raw = boss_drain_hole(depth, pp, hp_ref_of(party.mercs), d_max=d_max)
         raw = max(BOSS_FLOOR, _half_up(raw * drain_mult_of(party.mercs, depth=depth, d_max=d_max)))
         if consume_chip(party, CHIP_WARD):
             raw = max(BOSS_FLOOR, _half_up(raw * 0.75))
@@ -1074,7 +1138,7 @@ def resolve_layer_node(party: PqParty, depth: int, node: str, *, band: int) -> d
     lost: dict[str, int] = dict(poison_lost)
     if kind == KIND_MONSTER or hp_mult > 0:
         pp = party_power_eff(party.mercs, depth=depth, d_max=d_max, living_only=True)
-        raw = combat_drain_hole(depth, pp, hp_ref_of(party.mercs))
+        raw = combat_drain_hole(depth, pp, hp_ref_of(party.mercs), d_max=d_max)
         raw = max(0, _half_up(raw * hp_mult)) if kind != KIND_MONSTER else raw
         if kind == KIND_MONSTER:
             raw = max(COMBAT_FLOOR, _half_up(raw * drain_mult_of(party.mercs, depth=depth, d_max=d_max)))

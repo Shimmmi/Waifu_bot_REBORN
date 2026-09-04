@@ -2047,7 +2047,6 @@ function populateFromProfile(profile, opts = {}) {
 
   updateTrainingNavAttention(profile);
   ensureAtticPerfectionMenuItem(profile);
-  renderDelveShowcase(profile);
 
   if (document.getElementById("shop-gamble-cost")) updateShopGambleCost();
 }
@@ -8528,12 +8527,7 @@ function getItemBonusesText(item) {
 function renderProfilePortrait(waifu, profile = null) {
   const p = profile || profileState.currentProfile;
   const name = waifu?.name || "—";
-  const rec = Number(waifu?.delve_pb || p?.delve?.pb_depth || 0);
-  setText("profile-portrait-name", rec > 0 ? `${name}` : name);
-  const nameEl = document.getElementById("profile-portrait-name");
-  if (nameEl && rec > 0) {
-    nameEl.innerHTML = `${escapeHtml(name)} <span class="delve-badge">${rec}</span>`;
-  }
+  setText("profile-portrait-name", name);
   const metaEl = document.getElementById("profile-mtg-meta");
   if (metaEl) {
     const p = profile || profileState.currentProfile;
@@ -8609,30 +8603,6 @@ function renderProfileHeroBars(waifu, details = null, profile = null) {
     if (xpFill) xpFill.style.width = `${Math.max(0, xpPct)}%`;
     if (xpBlock) xpBlock.classList.remove("profile-mtg-xp-block--perfection");
   }
-}
-
-function renderProfilePerfectionSummary(profile) {
-  const wrap = document.getElementById("profile-perfection-summary");
-  const list = document.getElementById("profile-perfection-bonus-list");
-  if (!wrap || !list) return;
-  const summary = Array.isArray(profile?.perfection_bonuses_summary)
-    ? profile.perfection_bonuses_summary
-    : [];
-  const pLevel = Number(profile?.perfection_level || 0);
-  if (!pLevel || !summary.length) {
-    wrap.hidden = true;
-    list.innerHTML = "";
-    return;
-  }
-  wrap.hidden = false;
-  list.innerHTML = summary
-    .map(
-      (b) =>
-        `<li><span>${escapeHtml(b.title_ru || b.bonus_id)}</span><strong>${escapeHtml(
-          b.display_value || ""
-        )}</strong><em class="perfection-bonus-tag">${escapeHtml(b.label || "Навсегда")}</em></li>`
-    )
-    .join("");
 }
 
 function renderProfileIndicators(waifu, details = null) {
@@ -8744,52 +8714,6 @@ async function renderProfileStatistics() {
     box.innerHTML = `<div class="profile-detail-cell profile-detail-cell--full"><span class="profile-detail-label">Ошибка загрузки</span></div>`;
   }
   renderProfileAbyssStats().catch(() => {});
-}
-
-function renderDelveShowcase(profile) {
-  const section = document.getElementById("profile-delve-section") || document.getElementById("profile-chronicle-section");
-  if (!section) return;
-  const dv = profile && (profile.delve || profile.chronicle);
-  if (!dv || !dv.started) {
-    section.hidden = true;
-    return;
-  }
-  section.hidden = false;
-  const rec = Number(dv.pb_depth || 0);
-  const nowD = dv.depth != null ? Number(dv.depth) : null;
-  const title = dv.title || "";
-  const comps = Array.isArray(dv.companions) ? dv.companions.slice(0, 3) : [];
-  const faces = comps
-    .map((c) => {
-      const src = String(c.image_url || c.portrait_url || "").trim();
-      const days = Number(c.days || 0);
-      const daysText = days <= 0 ? "сегодня" : `${days} дн.`;
-      const gold = Number(c.gold_earned || 0).toLocaleString("ru-RU");
-      return `<figure class="profile-delve-face">
-        <img class="delve-bust" src="${escapeHtml(src)}" alt="${escapeHtml(c.name || "")}" width="72" height="72" />
-        <figcaption>
-          <strong>${escapeHtml(c.name || "")}</strong>
-          <span>${escapeHtml(gold)} зол. · ${escapeHtml(daysText)}</span>
-        </figcaption>
-      </figure>`;
-    })
-    .join("");
-  const bits = [`Рекорд ${rec}`];
-  if (nowD != null) bits.push(`сейчас ${nowD}`);
-  if (title) bits.push(title);
-  const partyGold = dv.gold_granted_total != null ? Number(dv.gold_granted_total) : null;
-  const partyXp = dv.xp_granted_total != null ? Number(dv.xp_granted_total) : null;
-  const party =
-    partyGold != null
-      ? `<p class="muted tiny">Принесли ${escapeHtml(partyGold.toLocaleString("ru-RU"))} золота · ${escapeHtml(Number(partyXp || 0).toLocaleString("ru-RU"))} опыта</p>`
-      : "";
-  section.innerHTML = `
-    <h3 class="section-title">Экспедиции</h3>
-    <p class="muted tiny">${escapeHtml(bits.join(" · "))}</p>
-    ${party}
-    <div class="profile-delve-faces">${faces}</div>
-    <p class="muted tiny"><a href="./dungeons.html?tab=expedition">Открыть экспедиции</a></p>
-  `;
 }
 
 async function renderProfileAbyssStats() {
@@ -8981,10 +8905,7 @@ function renderProfilePaperDoll(waifu) {
   } else {
     bodyInner = escapeHtml(waifuPortraitEmoji(waifu) || "👤");
   }
-  const rec = Number(waifu?.delve_pb || profileState.currentProfile?.delve?.pb_depth || 0);
-  const framedName = rec > 0
-    ? `<strong>${name} <span class="delve-badge">${rec}</span></strong>`
-    : `<strong>${name}</strong>`;
+  const framedName = `<strong>${name}</strong>`;
 
   const menuBtn = `<button type="button" class="profile-paperdoll-menu-btn" data-tutorial="profile-paperdoll-menu" title="Действия с образом" aria-label="Меню образа" onclick="event.stopPropagation();WaifuApp.togglePaperdollMenu(event)">⋯</button>`;
   const menuBlock = `
@@ -9470,7 +9391,6 @@ async function populateProfile(profile) {
   renderStatsStrip("profile-stats-strip", w);
   renderStatsBreakdown("profile-stats-breakdown", w, profileState.currentDetails);
   renderProfileIndicators(w, profileState.currentDetails);
-  renderProfilePerfectionSummary(p);
   switchProfileInfoTab(profileState.infoTab);
 
   const invTabActive = document.getElementById("tab-inventory")?.classList.contains("active");

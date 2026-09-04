@@ -194,7 +194,7 @@ party_power_eff  = 3.17   (+5.7% к raw 3)
 
 `shop` — множитель **цены** этой наёмницы: `price_eff = round(price × clamp(1+shop_mod, 0.78, 1.15))`. Отрицательный = дешевле.
 
-`hp_max = 40+8×power_raw` — класс HP не раздувает. Танк живёт через drain/soak/injury.
+`hp_max = 40+12×level` — экип не раздувает HP. Танк живёт через drain/soak/injury и силу (митинг стока).
 
 Найм, raw=1, без черт/нрава: `power_eff` от 0.94 (торговка) до 1.10 (рыцарь). Внутри ±25%.
 
@@ -337,7 +337,7 @@ B_i         = clip(B_i, −0.25, +0.25)                      # на расчёт
               после статусов clip(B_i, −0.40, +0.25)
 power_eff_i = power_raw_i × (1 + B_i)                      # float, не round
 party_power_eff = Σ power_eff_i живых
-d_max       = floor(8 + 0.35 × party_power_eff)
+d_max       = floor(8 + 0.50 × party_power + 0.0016 × party_power²)
 gap         = max(0, d − party_power_eff)
 ```
 
@@ -434,12 +434,16 @@ last_pq_ts = t                    # хвост < T_eff не терять
 
 Старые `4+0.45·gap` / `10+0.7·gap` при 4-мин спуске вайпят каждые ~8 мин. Нельзя.
 
-Новые константы (дефолт без крайних черт, найм power_eff≈1, `d_max=8`):
+Новые константы (дефолт без крайних черт; сила режет сток на низких глубинах):
 
 ```
-drain COMBAT = max(1, round(1.2 + 0.18 * gap))
-drain BOSS   = max(1, round(3.0 + 0.28 * gap))
-REST regen   = 0.10 * hp_max          # потом × rest_mod, кап 0.22
+rel = party_power_eff / max(1, d)
+mult = (1 + 1.1 * max(0, 1-rel)) / (1 + 1.6 * max(0, rel-1))
+drain COMBAT = clip(round((3 + 0.12 * d) * mult * zip), 3, 0.28 * hp_ref)
+drain BOSS   = clip(round((6 + 0.22 * d) * mult * zip), 6, 0.40 * hp_ref)
+zip          = 0.45 если d < 0.35 * d_max иначе 1
+REST regen   = hp_max                 # слой 2: костёр полный
+hp_max       = 40 + 12 * level        # экип не раздувает HP
 ```
 
 Ориентир найма: вайп раз в **40–70 мин** стены, не раз в 8. Зелья/костёр как сейчас по порогам, кроме жадной.

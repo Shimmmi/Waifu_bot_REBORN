@@ -42,15 +42,21 @@ power_level   = level
 ilvl(item)    = base_ilvl + enchant_level          # enchant без потолка
 power_gear    = sum(ilvl экипированных слотов)     # двуручник считается один раз
 power         = power_level + power_gear
-hp_max        = 40 + 8 * power
+hp_max        = 40 + 12 * level                    # экип — только сила, не HP
 party_power   = sum(power живых в отряде)
-d_max         = floor(8 + 0.40 * party_power + 0.0038 * party_power^2)
+d_max         = floor(8 + 0.50 * party_power + 0.0016 * party_power^2)
 band(d)       = max(1, ceil(d / 20))   # кран золота/XP — только от pb_depth, не от d_max
 gear_price    = round(12 * base_ilvl * 1.12^(min(band, item_tier)-1))  # T1 всегда 48, банда не взрывает цену
 sharpen_cost  = round(4 * base_ilvl * N)           # N = следующий +; цена от базы, не от текущего ilvl
+rel           = party_power_eff / max(1, depth)
+mult          = (1 + 1.1 * max(0, 1-rel)) / (1 + 1.6 * max(0, rel-1))
+drain COMBAT  = clip(round((3 + 0.12*d) * mult * zip), 3, 0.28*hp_ref)
+drain BOSS    = clip(round((6 + 0.22*d) * mult * zip), 6, 0.40*hp_ref)
+zip           = 0.45 если d < 0.35 * d_max, иначе 1
+safe_start    = 20 * ceil(max(0, pb_depth-60) / 20)   # рекорд 137 → лагерь 80
 ```
 
-Старт: level 1, без экипа, power 1, hp 48, `d_max` ≈ 8. Потолок от сырой силы, без `power_eff` и без текущей глубины.
+Старт: level 1, без экипа, power 1, hp 52, `d_max` ≈ 8. Потолок от сырой силы, без `power_eff` и без текущей глубины.
 
 Авто-левелап: пока `xp_unspent >= xp_to_next(level)` — списать XP, `level += 1`, пересчитать `power` и `hp_max`. Текущее HP от левелапа не восстанавливается.
 
@@ -81,14 +87,22 @@ name        = "{семейство} бездны T{tier}"
 
 ## 4. Лавка и расходники
 
-Узел `SHOP` (`d % 12 == 4`) — авто-резолв.
+Узел `SHOP` (`d % 12 == 4`) — **лавка**: только расходники, без резерва под слот.
 
-Порядок наёмницы:
+Город (`SURFACE` / возврат после wipe, HP уже полное) — **вещи и заточка** (P3: покупка всегда сильнее). Расходники в городе не покупаются.
+
+Порядок в городе:
 
 1. Левелап.
 2. Купить оффер с максимальным `ilvl` среди доступных по золоту.
 3. Если вещь не куплена — заточить слот, если это увеличит силу.
-4. Остаток — расходники до капа стака.
+
+Порядок в лавке:
+
+1. Левелап.
+2. Зелья и мазь до капа стака. Золото не копят под слот.
+
+Цена с `shop_mod`: `price_eff = round(price × clamp(1+shop_mod, 0.78, 1.15))`. Жадная: кап зелий 6, автоюз с 28% HP.
 
 Витрина на глубине `d`, `band = max(ceil(d/20), ceil(pb_depth/20))` — рынок следует за рекордом, не сбрасывается в T1 на каждом спуске:
 
@@ -108,18 +122,20 @@ name        = "{семейство} бездны T{tier}"
 ## 5. HP, сток, wipe
 
 ```
-threat(d) = d
-drain COMBAT = max(1, round(4 + 0.45 * max(0, threat - party_power)))
-drain BOSS   = max(2, round(10 + 0.7 * max(0, threat - party_power)))
-drain SHOP/REST/SURFACE/LANDMARK/TRAVERSE/BRANCH = 0
-REST regen   = hp_max                  # слой 2: костёр полностью чинит; сила/ilvl задаёт d_max
+rel = party_power_eff / max(1, depth)
+mult = (1 + 1.1 * max(0, 1-rel)) / (1 + 1.6 * max(0, rel-1))
+drain COMBAT = clip(round((3 + 0.12 * d) * mult * zip), 3, 0.28 * hp_ref)
+drain BOSS   = clip(round((6 + 0.22 * d) * mult * zip), 6, 0.40 * hp_ref)
+zip          = 0.45 если d < 0.35 * d_max иначе 1
+drain SHOP/REST/SURFACE/LANDMARK/BRANCH = 0
+REST regen   = hp_max                  # слой 2: костёр полностью чинит
 ```
 
 Сток делится по живым пропорционально `power`.
 
 Wipe: все живые `hp_current <= 0`.
 
-При wipe: `run_origin = now`, HP = max, экип/сумка/уровень/кошельки без изменений, `wipe_count += 1`, штамп журнала `wipe`. Кран игрока (`t_origin`) не сбрасывается. Спуск начинается после `T_rest`.
+При wipe: `run_origin = now`, HP = max, экип/сумка/уровень без изменений, затем городская закупка вещей (золото может уйти в слот/заточку), `wipe_count += 1`, штамп журнала `wipe`. Спуск с `safe_start` (лагерь на сетке 20), не с нуля. Кран игрока (`t_origin`) не сбрасывается. Спуск начинается после `T_rest`.
 
 ## 6. Кран наёмниц и баланс
 

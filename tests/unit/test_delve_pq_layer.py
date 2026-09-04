@@ -1,4 +1,4 @@
-"""PQ layer 2: hole drain, phrases, traits, trauma, wall-clock faucet."""
+"""PQ layer 2: power-mitigation drain, phrases, traits, trauma, wall-clock faucet."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from waifu_bot.game.delve_pq_layer import (
     boss_drain_hole,
     combat_drain_hole,
     events_by_kind,
+    kind_weight_base,
     load_node_events,
     power_eff_of,
     t_eff_of,
@@ -69,12 +70,21 @@ def test_catalog_has_eighteen_rows():
     assert len(events_by_kind("empty")) == 3
 
 
-def test_hole_drain_table():
-    assert combat_drain(3, 1) == 9
-    assert combat_drain(8, 1) == 13
-    assert combat_drain(8, 15) == 7
-    assert combat_drain_hole(8, 1) > combat_drain_hole(8, 15) > combat_drain_hole(8, 40)
-    assert boss_drain_hole(10, 1) == 19
+def test_mitigation_drain_table():
+    assert combat_drain(8, 1) > combat_drain(8, 15) >= combat_drain(8, 40)
+    assert combat_drain_hole(8, 1) > combat_drain_hole(8, 15) >= combat_drain_hole(8, 40)
+    assert combat_drain_hole(80, 367) <= 5
+    assert combat_drain_hole(80, 367, d_max=272) <= combat_drain_hole(80, 367, d_max=80)
+    assert boss_drain_hole(10, 1) > boss_drain_hole(10, 40)
+
+
+def test_zip_weights_shift_empty_and_monster():
+    zip_w = kind_weight_base(80, 272)
+    mid_w = kind_weight_base(150, 272)
+    push_w = kind_weight_base(250, 272)
+    assert zip_w["empty"] > mid_w["empty"]
+    assert zip_w["monster"] < mid_w["monster"]
+    assert push_w["monster"] > mid_w["monster"]
 
 
 def test_phrase_has_no_double_name():

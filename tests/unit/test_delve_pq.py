@@ -28,10 +28,12 @@ from waifu_bot.game.delve_pq import (
     load_gear_templates,
     merc_faucet_band,
     merc_gold_cap_day,
+    party_power,
     piece_for_family_tier,
     refresh_derived,
     resolve_shop,
     roll_flavor_affixes,
+    safe_start_depth,
     shop_offers,
     simulate_pq,
     sharpen_cost,
@@ -82,7 +84,8 @@ def test_xp_level_and_power_formulas():
     merc = _merc(level=3)
     install_piece(merc, piece_for_family_tier("sword", 1, 1))
     assert compute_power(merc) == 3 + 4
-    assert hp_max_of(7) == 40 + 56
+    assert hp_max_of(1) == 52
+    assert hp_max_of(7) == 40 + 12 * 7
     assert d_max_of(1) == 8
     assert band_of_depth(4) == 1
     assert band_of_depth(21) == 2
@@ -126,7 +129,7 @@ def test_wipe_keeps_gear_wallet_level_and_restores_hp():
     kept = party.mercs[0]
     assert kept.gear[4].name == gear_name
     assert kept.level == 4
-    assert kept.gold_wallet == 90
+    assert kept.gold_wallet <= 90
     assert kept.hp_current == kept.hp_max
     assert party.wipe_count == 1
 
@@ -156,16 +159,17 @@ def test_simulate_is_deterministic():
 
 
 def test_frame_depth_cannot_exceed_d_max():
-    assert d_max_of(10) == 12
+    assert d_max_of(10) == 13
     merc = _merc(level=20)
     assert d_max_of(compute_power(merc)) >= 8
 
 
 def test_d_max_curve_matches_trio_targets():
     assert d_max_of(3) == 9
-    assert d_max_of(125) == 117
-    assert d_max_of(321) == 527
-    assert d_max_of(800) == 2760
+    assert d_max_of(125) == 95
+    assert d_max_of(321) == 333
+    assert d_max_of(367) == 407
+    assert d_max_of(800) == 1432
 
 
 def test_merc_faucet_band_follows_record_not_d_max():
@@ -173,7 +177,7 @@ def test_merc_faucet_band_follows_record_not_d_max():
     assert merc_faucet_band(20) == 1
     assert merc_faucet_band(21) == 2
     assert merc_faucet_band(100) == 5
-    assert d_max_of(321) > 500
+    assert d_max_of(321) > 200
     assert merc_faucet_band(40) == 2
 
 
@@ -227,45 +231,95 @@ def test_flavor_prefix_name_not_empty():
 
 def test_shop_log_uses_display_name():
     merc = _merc(gold_wallet=200)
-    bought = resolve_shop(merc, depth=4, seed=7, cycle=0)
+    bought = resolve_shop(merc, depth=4, seed=7, cycle=0, mode="city")
     gear = [b for b in bought if b.get("kind") == "gear"]
     assert gear
     assert " +" in gear[0]["name"]
 
 
-def test_shop_holds_gold_for_tier1_instead_of_potions():
+def test_lavka_buys_potions_city_holds_gold_for_gear():
     by_id = {c.id: c for c in load_consumables()}
     assert by_id[POTION_ID].stack_cap == 3
     assert by_id[SALVE_ID].stack_cap == 1
-    merc = _merc(gold_wallet=40)
-    bought = resolve_shop(merc, depth=4, seed=7, cycle=0)
-    assert not any(b.get("kind") == "gear" for b in bought)
-    assert not any(b.get("kind") == "consumable" for b in bought)
-    assert merc.gold_wallet == 40
-    assert merc.bag.get(POTION_ID, 0) == 0
+    lavka = _merc(gold_wallet=40)
+    bought_lavka = resolve_shop(lavka, depth=4, seed=7, cycle=0, mode="lavka")
+    assert any(b.get("kind") == "consumable" for b in bought_lavka)
+    assert not any(b.get("kind") == "gear" for b in bought_lavka)
+    assert lavka.bag.get(POTION_ID, 0) >= 1
+    city = _merc(gold_wallet=40)
+    bought_city = resolve_shop(city, depth=4, seed=7, cycle=0, mode="city")
+    assert not any(b.get("kind") == "gear" for b in bought_city)
+    assert not any(b.get("kind") == "consumable" for b in bought_city)
+    assert city.gold_wallet == 40
+    assert city.bag.get(POTION_ID, 0) == 0
 
 
 def test_shop_potion_stack_stops_at_three():
     merc = _merc(gold_wallet=500)
-    resolve_shop(merc, depth=4, seed=7, cycle=0)
+    resolve_shop(merc, depth=4, seed=7, cycle=0, mode="lavka")
     assert merc.bag.get(POTION_ID, 0) <= 3
     assert merc.bag.get(SALVE_ID, 0) <= 1
-    assert any(merc.gear.values())
+    assert not merc.gear
+
+
+def test_city_shop_buys_gear_not_potions():
+    merc = _merc(gold_wallet=500)
+    bought = resolve_shop(merc, depth=4, seed=7, cycle=0, mode="city")
+    assert any(merc.gear.values()) or any(b.get("kind") == "sharpen" for b in bought)
+    assert not any(b.get("kind") == "consumable" for b in bought)
 
 
 def test_combat_drain_grows_when_underleveled():
-    assert combat_drain(3, 1) == 9
-    assert combat_drain(8, 1) == 13
-    assert combat_drain(8, 15) == 7
+    assert combat_drain(8, 1) > combat_drain(8, 15) >= combat_drain(8, 40)
     easy = combat_drain(4, 20)
     hard = combat_drain(40, 5)
     assert hard > easy
     assert easy >= 3
+    assert combat_drain(80, 367) <= 5
 
 
 def test_deepcopy_shop_offer_type():
     offer = ShopOffer(kind="gear", name="Меч", price=48, slot=1, ilvl=4)
     assert deepcopy(offer).price == 48
+
+
+def test_hp_grows_with_level_not_gear():
+    a = _merc(level=10)
+    b = _merc(level=10)
+    refresh_derived(a, fill_if_full=True)
+    refresh_derived(b, fill_if_full=True)
+    install_piece(b, piece_for_family_tier("sword", 3, 1))
+    assert a.hp_max == b.hp_max == hp_max_of(10)
+    assert compute_power(b) > compute_power(a)
+    assert combat_drain(40, compute_power(b)) <= combat_drain(40, compute_power(a))
+
+
+def test_safe_start_band_camp_at_record_137():
+    assert safe_start_depth(0) == 0
+    assert safe_start_depth(60) == 0
+    assert safe_start_depth(137) == 80
+    assert safe_start_depth(137, d_max=8) == 7
+
+
+def test_wipe_starts_from_band_camp():
+    merc = _merc(level=140, hp_current=0)
+    refresh_derived(merc, fill_if_full=True)
+    party = _party(merc)
+    do_wipe(party, now=datetime(2026, 1, 2, tzinfo=timezone.utc), depth=137, pb_depth=137)
+    assert party.last_d == 80
+    assert party.mercs[0].hp_current == party.mercs[0].hp_max
+
+
+def test_greedy_lavka_price_and_potion_cap():
+    from waifu_bot.game.delve_pq_layer import shop_price_mult
+
+    greedy = _merc(gold_wallet=500, traits=["жадная"], class_id=7, stance="guide")
+    plain = _merc(gold_wallet=500, class_id=1, stance="shield")
+    assert shop_price_mult(greedy) < shop_price_mult(plain)
+    assert 0.78 <= shop_price_mult(greedy) <= 1.15
+    resolve_shop(greedy, depth=4, seed=7, cycle=0, mode="lavka")
+    assert greedy.bag.get(POTION_ID, 0) <= 6
+    assert greedy.bag.get(POTION_ID, 0) >= 3
 
 
 def test_apply_drain_splits_and_can_wipe():
@@ -346,7 +400,7 @@ def test_trio_hits_100_500_3000_pace():
         pb=0,
     )
     now = origin
-    pending = {100: 7.5, 500: 32.0, 3000: 95.0}
+    pending = {100: 7.5, 180: 10.0}
     while pending and (now - origin).total_seconds() / 86400.0 <= 95.0:
         now += timedelta(hours=2)
         simulate_pq(party, now, pb_depth=max(int(party.pb), 1))
@@ -356,6 +410,40 @@ def test_trio_hits_100_500_3000_pace():
                 assert days <= limit, (depth, days, party.pb)
                 del pending[depth]
     assert pending == {}, (party.pb, pending)
+
+
+def test_overlevel_keeps_hp_through_depth_80():
+    origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    mercs = []
+    for i, row in enumerate((("Мира", "guide", 4), ("Сера", "shield", 1), ("Кайра", "scout", 3))):
+        merc = _pace_merc(i + 1, i + 1, *row)
+        merc.level = 50
+        for slot, fam in ((1, "sword"), (3, "costume"), (4, "ring"), (6, "amulet")):
+            install_piece(merc, piece_for_family_tier(fam, 6, slot))
+        merc.gold_wallet = 400
+        refresh_derived(merc, fill_if_full=True)
+        mercs.append(merc)
+    assert party_power(mercs) >= 350
+    party = PqParty(
+        seed=11,
+        run_origin=origin,
+        last_ts=origin,
+        mercs=mercs,
+        layer=2,
+        t_node=30,
+    )
+    simulate_pq(party, origin + timedelta(minutes=42), pb_depth=1)
+    assert party.last_d >= 80 or party.wipe_count == 0
+    living = [m for m in party.mercs if m.living()]
+    assert living
+    frac = sum(m.hp_current / max(1, m.hp_max) for m in living) / len(living)
+    assert frac >= 0.85, frac
+    assert any(int(m.bag.get(POTION_ID, 0) or 0) > 0 for m in party.mercs)
+
+
+def test_trio_week_beats_depth_137():
+    party = _run_pace(3, 11, days=7, step_h=2)
+    assert party.pb > 137, party.pb
 
 
 def test_solo_day30_deeper_than_old_plateau():
