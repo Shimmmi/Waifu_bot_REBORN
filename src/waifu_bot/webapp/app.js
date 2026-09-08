@@ -1094,6 +1094,8 @@ function weaponTypeLabel(wt) {
       dagger: "Кинжал",
       mace: "Булава",
       hammer: "Молот",
+      two_hand: "Двуручное",
+      one_hand: "Одноручное",
     }[w] || w
   );
 }
@@ -7804,6 +7806,20 @@ function encodeArtKeyPath(artKey) {
     .join("/");
 }
 
+const ITEM_ART_CACHE_BUST = "2";
+
+function itemWebpSrc(artKey, tier) {
+  return `${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${tier}.webp?v=${ITEM_ART_CACHE_BUST}`;
+}
+
+function withItemArtCacheBust(url) {
+  const u = String(url || "").trim();
+  if (!u) return u;
+  if (!u.includes("/items/webp/") && !u.includes("/items_webp/")) return u;
+  if (/[?&]v=/.test(u)) return u;
+  return `${u}${u.includes("?") ? "&" : "?"}v=${ITEM_ART_CACHE_BUST}`;
+}
+
 function itemArtTierNormalized(item) {
   const tierRaw = item?.tier != null ? Number(item.tier) : 1;
   return Number.isFinite(tierRaw) ? Math.min(10, Math.max(1, Math.floor(tierRaw))) : 1;
@@ -7885,7 +7901,7 @@ async function handleItemArtGenerateClick(el) {
         adminSpawnArtFailCache.delete(artKey);
         cardArt.classList.remove("silhouette");
         const tierNum = Math.min(10, Math.max(1, parseInt(tier, 10) || 1));
-        const base = newUrl || `${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${tierNum}.webp`;
+        const base = newUrl || itemWebpSrc(artKey, tierNum);
         let src;
         try {
           const u = new URL(base, window.location.origin);
@@ -7896,7 +7912,7 @@ async function handleItemArtGenerateClick(el) {
         }
         const urls = [];
         for (let t = tierNum; t >= 1; t -= 1) {
-          urls.push(`${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${t}.webp`);
+          urls.push(itemWebpSrc(artKey, t));
         }
         const slotType = escapeHtml(el.getAttribute("data-slot-type") || "");
         const weaponType = escapeHtml(el.getAttribute("data-weapon-type") || "");
@@ -7961,7 +7977,7 @@ function itemImageUrl(item) {
   // Tiered .webp by art_key (e.g. armor/kozhanaya_bronya)
   const artKey = String(item?.art_key || "").trim();
   if (artKey) {
-    return `${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${tier}.webp`;
+    return itemWebpSrc(artKey, tier);
   }
 
   // Legacy svg placeholders by image_key
@@ -7981,9 +7997,9 @@ function itemArtHtml(item, options = {}) {
   const direct = String(item?.image_url || "").trim();
 
   const webpUrl = direct
-    ? direct
+    ? withItemArtCacheBust(direct)
     : artKey
-      ? `${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${tier}.webp`
+      ? itemWebpSrc(artKey, tier)
       : "";
   const svgUrl = svgKey ? `${GAME_STATIC_BASE}/items/svg/${encodeURIComponent(svgKey)}.svg` : "";
 
@@ -10485,7 +10501,7 @@ function adminSpawnCardArtHtml(entry) {
   const startTier = Math.min(10, Math.max(1, Number(entry?.tier) || 1));
   const urls = [];
   for (let t = startTier; t >= 1; t -= 1) {
-    urls.push(`${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${t}.webp`);
+    urls.push(itemWebpSrc(artKey, t));
   }
   const slotType = escapeHtml(String(entry?.slot_type || ""));
   const weaponType = escapeHtml(String(entry?.subtype || ""));

@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from waifu_bot.game.item_template_names import resolve_art_base_name_ru, template_item_name
-from waifu_bot.services.item_art import derive_item_art_key, resolve_inventory_item_art_key
+from waifu_bot.services.item_art import resolve_inventory_item_art_key
 
 
 def test_template_item_name_legendary_prefers_legendary_name_ru() -> None:
@@ -47,3 +47,39 @@ def test_non_legendary_art_key_unchanged() -> None:
     art_key = resolve_inventory_item_art_key(inv, display_base_name="Ручной топор")
     assert art_key == "weapon_axe_1h/ruchnoy_topor"
     assert not art_key.startswith("legendary/")
+
+
+def test_resolve_art_base_name_maps_grade1_weapon() -> None:
+    inv = SimpleNamespace(_canonical_base_name="Посох звёздного дождя")
+    assert resolve_art_base_name_ru(inv, "ignored") == "Архимагов посох"
+
+
+def test_resolve_art_base_name_maps_night_tag() -> None:
+    inv = SimpleNamespace(_canonical_base_name="Шёлк знати (руин)")
+    assert resolve_art_base_name_ru(inv, "ignored") == "Шёлк знати"
+
+
+def test_grade1_inventory_art_key_uses_parent() -> None:
+    inv = SimpleNamespace(
+        slot_type="weapon_2h",
+        weapon_type="two_hand",
+        _canonical_base_name="Боевой колун",
+        is_legendary=False,
+        rarity=3,
+    )
+    assert resolve_inventory_item_art_key(inv, display_base_name="Боевой колун") == (
+        "weapon_axe_2h/varvarskiy_topor"
+    )
+
+
+def test_grade1_legendary_art_key_still_prefixed() -> None:
+    inv = SimpleNamespace(
+        slot_type="weapon_2h",
+        weapon_type="staff",
+        _canonical_base_name="Посох звёздного дождя",
+        is_legendary=True,
+        rarity=5,
+    )
+    assert resolve_inventory_item_art_key(
+        inv, display_base_name="Посох звёздного дождя"
+    ) == "legendary/weapon_staff/arhimagov_posoh"

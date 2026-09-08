@@ -21,6 +21,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
+from waifu_bot.game.item_grade_names import parent_base_name_for_art
 from waifu_bot.paths import static_game_directory
 
 logger = logging.getLogger(__name__)
@@ -44,9 +45,17 @@ def normalize_game_relative_path(relative_path: str) -> str:
     return rel
 
 
+# Bump when replacing item webps in place so Telegram/CF/SW drop stub bytes.
+ITEM_ART_CACHE_BUST = "2"
+
+
 def game_asset_public_url(relative_path: str) -> str:
     """Map stored relative_path (DB or default) to public URL under /static/game/."""
-    return f"{GAME_STATIC_PREFIX}/{normalize_game_relative_path(relative_path)}"
+    rel = normalize_game_relative_path(relative_path)
+    url = f"{GAME_STATIC_PREFIX}/{rel}"
+    if rel.startswith("items/webp/") or rel.startswith("items_webp/"):
+        return f"{url}?v={ITEM_ART_CACHE_BUST}"
+    return url
 
 
 def relative_path_to_game_file(relative_path: str) -> Path:
@@ -135,8 +144,22 @@ def _weapon_category_from_display_name(display_name: str | None) -> str | None:
         )
     ):
         return "weapon_sword"
-    if any(x in n for x in ("топор", "axe", "секир")):
+    if any(
+        x in n
+        for x in (
+            "топор",
+            "axe",
+            "секир",
+            "колун",
+            "тесак",
+            "секач",
+            "бердыш",
+            "бродакс",
+        )
+    ):
         return "weapon_axe"
+    if any(x in n for x in ("булава", "молот", "дубина", "кувалда", "mace", "hammer", "club")):
+        return "generic"
     if any(x in n for x in ("меч", "sword", "сабл", "клинок", "ятаган", "скимитар", "rapier", "катана")):
         return "weapon_sword"
     if any(x in n for x in ("кинжал", "dagger", "knife", "кортик")):
@@ -273,10 +296,16 @@ def derive_item_art_key(
     *,
     display_name: str | None = None,
 ) -> str:
-    """Full tiered art key: ``derive_art_key(...) / slugify(base_name)``."""
-    label = display_name or base_name
+    """Full tiered art key: ``derive_art_key(...) / slugify(base_name)``.
+
+    Grade 1/2 template names collapse to the grade-0 parent identity so existing
+    webp folders (Cursor-generated for canon names) still resolve.
+    """
+    art_name = parent_base_name_for_art(base_name) or (base_name or "")
+    label_src = display_name or base_name
+    label = parent_base_name_for_art(label_src) or label_src
     cat = derive_art_key(slot_type, weapon_type, label)
-    slug = slugify_item_base_name(base_name)
+    slug = slugify_item_base_name(art_name)
     return f"{cat}/{slug}"
 
 
@@ -310,6 +339,12 @@ def resolve_inventory_item_art_key(
         art_base,
         display_name=art_base,
     )
+    try:
+        from waifu_bot.game.item_art_identities import apply_art_key_alias
+
+        base_key = apply_art_key_alias(base_key)
+    except Exception:
+        pass
     if getattr(inv, "is_legendary", False) or int(getattr(inv, "rarity", 0) or 0) >= 5:
         return with_legendary_art_prefix(base_key)
     return base_key
