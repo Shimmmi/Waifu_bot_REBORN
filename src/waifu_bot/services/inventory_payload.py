@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from sqlalchemy import or_, select, text
+from sqlalchemy import and_, column, func, or_, select, table
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.db import models as m
@@ -24,6 +25,27 @@ from waifu_bot.services.item_art import (
 )
 from waifu_bot.services.passive_skills import normalize_passive_level_affix_value
 from waifu_bot.game.legendary_bonuses.loader import fetch_legendary_bonus_payloads
+
+logger = logging.getLogger(__name__)
+
+_ITEM_BASE_TEMPLATES = table(
+    "item_base_templates",
+    column("id"),
+    column("name"),
+    column("legendary_name_ru"),
+    column("tier"),
+    column("armor_base"),
+    column("secondary_bonus_type"),
+    column("secondary_bonus_value"),
+    column("flavor_ru"),
+    column("base_grade"),
+)
+
+
+def _row_field(row: Any, key: str, default: Any = None) -> Any:
+    if isinstance(row, dict):
+        return row.get(key, default)
+    return getattr(row, key, default)
 
 
 def _direct_base_template_id(inv: m.InventoryItem) -> int | None:
@@ -48,18 +70,50 @@ def _template_row_index(
     by_legendary: dict[str, Any] = {}
     for row in rows:
         try:
-            tid = int(getattr(row, "id", 0) or 0)
+            tid = int(_row_field(row, "id", 0) or 0)
         except (TypeError, ValueError):
             tid = 0
         if tid > 0:
             by_id[tid] = row
-        name = str(getattr(row, "name", "") or "").strip()
-        leg = str(getattr(row, "legendary_name_ru", "") or "").strip()
+        name = str(_row_field(row, "name", "") or "").strip()
+        leg = str(_row_field(row, "legendary_name_ru", "") or "").strip()
         if name and name not in by_name:
             by_name[name] = row
         if leg and leg not in by_legendary:
             by_legendary[leg] = row
     return by_id, by_name, by_legendary
+
+
+def _item_base_template_lookup_stmt(
+    template_ids: set[int],
+    name_keys: set[str],
+):
+    """Match by template id always; name / legendary name only on grade-0 rows."""
+    ibt = _ITEM_BASE_TEMPLATES
+    id_match = ibt.c.id.in_(sorted(template_ids)) if template_ids else None
+    name_match = None
+    if name_keys:
+        names = sorted(name_keys)
+        name_match = or_(ibt.c.name.in_(names), ibt.c.legendary_name_ru.in_(names))
+    grade0 = func.coalesce(ibt.c.base_grade, 0) == 0
+    if id_match is not None and name_match is not None:
+        where = or_(id_match, and_(grade0, name_match))
+    elif id_match is not None:
+        where = id_match
+    elif name_match is not None:
+        where = and_(grade0, name_match)
+    else:
+        return None
+    return select(
+        ibt.c.id,
+        ibt.c.name,
+        ibt.c.legendary_name_ru,
+        ibt.c.tier,
+        ibt.c.armor_base,
+        ibt.c.secondary_bonus_type,
+        ibt.c.secondary_bonus_value,
+        ibt.c.flavor_ru,
+    ).where(where)
 
 
 def _resolve_template_row_for_inv(
@@ -98,32 +152,12 @@ async def enrich_inventory_items_with_template_stats(
             name_keys.add(item_name)
 
     rows: list[Any] = []
-    if template_ids or name_keys:
+    stmt = _item_base_template_lookup_stmt(template_ids, name_keys)
+    if stmt is not None:
         try:
-            clauses = []
-            if template_ids:
-                clauses.append(text("id").in_(list(template_ids)))
-            if name_keys:
-                names = list(name_keys)
-                clauses.append(text("name").in_(names))
-                clauses.append(text("legendary_name_ru").in_(names))
-            stmt = (
-                select(
-                    text("id"),
-                    text("name"),
-                    text("legendary_name_ru"),
-                    text("tier"),
-                    text("armor_base"),
-                    text("secondary_bonus_type"),
-                    text("secondary_bonus_value"),
-                    text("flavor_ru"),
-                )
-                .select_from(text("item_base_templates"))
-                .where(text("COALESCE(base_grade, 0) = 0"))
-                .where(or_(*clauses))
-            )
             rows = list((await session.execute(stmt)).all())
         except Exception:
+            logger.exception("Failed to load item_base_templates for inventory enrich")
             rows = []
 
     by_id, by_name, by_legendary = _template_row_index(rows)
@@ -136,10 +170,10 @@ async def enrich_inventory_items_with_template_stats(
             by_legendary=by_legendary,
         )
         if tpl_row is not None:
-            canon = str(getattr(tpl_row, "name", "") or "").strip()
+            canon = str(_row_field(tpl_row, "name", "") or "").strip()
             if canon:
                 inv._canonical_base_name = canon  # type: ignore[attr-defined]
-            flavor = str(getattr(tpl_row, "flavor_ru", None) or "").strip()
+            flavor = str(_row_field(tpl_row, "flavor_ru", None) or "").strip()
             inv._flavor_ru = flavor or None  # type: ignore[attr-defined]
         else:
             inv._flavor_ru = None  # type: ignore[attr-defined]

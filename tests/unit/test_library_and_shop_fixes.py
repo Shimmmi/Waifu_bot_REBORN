@@ -43,6 +43,27 @@ def test_build_item_entry_seen_from_mapping() -> None:
     assert entry["flavor_ru"] == "Клинок, который помнит первый удар."
 
 
+def test_build_item_entry_grade1_art_key_uses_parent() -> None:
+    row = {
+        "id": 80,
+        "tier": 8,
+        "item_type": "weapon",
+        "subtype": "staff",
+        "name": "Посох звёздного дождя",
+        "level_min": 36,
+        "level_max": 45,
+        "dmg_min": 1,
+        "dmg_max": 2,
+        "attack_speed": 4,
+        "armor_base": 0,
+        "stat1_type": "INT",
+        "stat1_value": 1,
+        "flavor_ru": None,
+    }
+    entry = lr._build_item_entry(row, seen=True)
+    assert entry["art_key"] == "weapon_staff/arhimagov_posoh"
+
+
 def test_build_item_entry_flavor_hidden_when_unseen() -> None:
     row = {
         "id": 1,

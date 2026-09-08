@@ -1072,6 +1072,10 @@ function weaponTypeLabel(wt) {
       dagger: "Кинжал",
       mace: "Булава",
       hammer: "Молот",
+      two_hand: "Двуручное",
+      one_hand: "Одноручное",
+      "2h": "Двуручное",
+      "1h": "Одноручное",
     }[w] || w
   );
 }

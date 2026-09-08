@@ -8,6 +8,9 @@ if TYPE_CHECKING:
     from waifu_bot.db import models as m
 
 
+from waifu_bot.game.item_grade_names import parent_base_name_for_art
+
+
 def template_item_name(base: dict[str, Any] | Any, *, legendary: bool) -> str:
     """Spawn-time items.name: legendary display name or canonical base name."""
     if isinstance(base, dict):
@@ -24,10 +27,11 @@ def template_item_name(base: dict[str, Any] | Any, *, legendary: bool) -> str:
 
 
 def resolve_art_base_name_ru(inv: "m.InventoryItem", display_base_name: str) -> str:
-    """Slug source for webp art: canonical template name when known."""
+    """Slug source for webp art: grade-0 parent of the canonical template name."""
     canon = getattr(inv, "_canonical_base_name", None)
     if canon is not None:
         canon_s = str(canon).strip()
         if canon_s:
-            return canon_s
-    return str(display_base_name or "").strip() or "Предмет"
+            return parent_base_name_for_art(canon_s) or canon_s
+    fallback = str(display_base_name or "").strip() or "Предмет"
+    return parent_base_name_for_art(fallback) or fallback
