@@ -1,5 +1,6 @@
 """Item generation and management service (templates + affixes)."""
 import json
+import logging
 import math
 import random
 import re
@@ -17,9 +18,12 @@ from waifu_bot.game.passive_affix_ilvl import passive_node_level_add_allowed
 from waifu_bot.game.item_secondary import snapshot_secondaries_from_template, template_row_from_mapping
 from waifu_bot.game.item_requirements import compute_item_requirements
 from waifu_bot.game.item_template_names import template_item_name
-from waifu_bot.game.legendary_bonuses.drop_roll import roll_legendary_bonus_ids
+from waifu_bot.game.item_tier_stats import apply_drop_tier_to_base
+from waifu_bot.game.legendary_bonuses.drop_roll import roll_legendary_bonus_bundle
 from waifu_bot.services.enchanting import apply_enchant_steps_to_inventory_item
 from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
+
+logger = logging.getLogger(__name__)
 
 
 RARITY_WEIGHTS = [
@@ -222,14 +226,11 @@ class ItemService:
             or self._slot_type_from_template_row(base_map.get("item_type"), base_map.get("subtype"))
             or "other"
         )
-        effective_tier = max(int(inv.tier or 1), _tier_from_level(int(inv.total_level or 1)))
+        effective_tier = _tier_from_level(int(inv.total_level or 1))
         inv.tier = int(effective_tier)
         item.tier = int(effective_tier)
 
-        template_level_min = int(
-            base_map.get("level_min") or max(1, (effective_tier - 1) * 5 + 1)
-        )
-        level_min = max(template_level_min, (effective_tier - 1) * 5 + 1)
+        level_min = (effective_tier - 1) * 5 + 1
         req = _requirements_from_base_template(
             base_map,
             slot_type=slot_type,
@@ -340,10 +341,11 @@ class ItemService:
         self, session: AsyncSession, tier: int, base_grade: int, *, item_rarity: int = 5
     ) -> Optional[dict[str, Any]]:
         """
-        Pick weighted random row from item_base_templates for tier + base_grade.
-        Fallback: same tier with grade 0, then neighbor tiers, then any tier.
+        Pick weighted random identity from item_base_templates for base_grade.
+        Native template.tier is an anchor only; drop tier is applied after pick.
+        Fallback: requested grade, then grade 0.
         """
-        t = max(1, min(10, int(tier)))
+        _ = tier  # drop-tier is applied by the caller; identities are not filtered by it
         bg = max(0, min(2, int(base_grade)))
         legend_excl = ""
         if int(item_rarity) < 5:
@@ -352,7 +354,7 @@ class ItemService:
                 " AND COALESCE(secondary_bonus_type, '') <> 'passive_all_nodes_level_add' "
             )
 
-        async def _one(where_sql: str, params: dict[str, Any]) -> Optional[dict[str, Any]]:
+        async def _one(params: dict[str, Any]) -> Optional[dict[str, Any]]:
             row = (
                 await session.execute(
                     text(
@@ -360,7 +362,6 @@ class ItemService:
                         SELECT *
                         FROM item_base_templates
                         WHERE COALESCE(base_grade, 0) = :bg
-                          AND ({where_sql})
                           {legend_excl}
                         ORDER BY random() * GREATEST(weight, 1) DESC
                         LIMIT 1
@@ -372,39 +373,9 @@ class ItemService:
             return dict(row) if row else None
 
         for try_bg in [bg, 0]:
-            if try_bg > bg:
-                continue
-            r = await _one("tier = :tier", {"tier": t, "bg": try_bg})
+            r = await _one({"bg": try_bg})
             if r:
                 return r
-            r = await _one(
-                "tier BETWEEN :tier_min AND :tier_max",
-                {
-                    "tier": t,
-                    "bg": try_bg,
-                    "tier_min": max(1, t - 1),
-                    "tier_max": min(10, t + 1),
-                },
-            )
-            if r:
-                return r
-            row = (
-                await session.execute(
-                    text(
-                        f"""
-                        SELECT *
-                        FROM item_base_templates
-                        WHERE COALESCE(base_grade, 0) = :bg
-                          {legend_excl}
-                        ORDER BY ABS(tier - :tier), {legend_order} random() * GREATEST(weight, 1) DESC
-                        LIMIT 1
-                        """
-                    ),
-                    {"bg": try_bg, "tier": t},
-                )
-            ).mappings().first()
-            if row:
-                return dict(row)
         return None
 
     async def _pick_starter_base_template_row(
@@ -472,10 +443,9 @@ class ItemService:
     ) -> m.InventoryItem:
         """Создать предмет из уже выбранной строки item_base_templates (стартовый набор)."""
         target_total_level = max(1, int(target_level))
-        max_g = _max_base_grade_for_plus(plus_level)
-        base_grade = _roll_base_grade(max_g)
-        tier = _tier_from_item_level_and_grade(target_total_level, base_grade)
-        base_tier = int(base.get("tier") or tier)
+        drop_tier = _tier_from_level(target_total_level)
+        base = apply_drop_tier_to_base(dict(base), drop_tier)
+        base_tier = int(base.get("tier") or drop_tier)
         base_level = int(base.get("level_min") or max(1, (base_tier - 1) * 5 + 1))
         target_total_level = max(base_level, int(target_total_level))
         slot_type = self._slot_type_from_template_row(base.get("item_type"), base.get("subtype"))
@@ -707,16 +677,17 @@ class ItemService:
         target_total_level = int(level or max(1, _tier_cap_for_act(act) * 5 - 4 + random.randint(0, 4)))
         max_g = _max_base_grade_for_plus(plus_level)
         base_grade = _roll_base_grade(max_g)
-        tier = _tier_from_item_level_and_grade(target_total_level, base_grade)
+        drop_tier = _tier_from_level(target_total_level)
         # Legendary identity (name + unique bonuses) lives on base_grade=0 templates only.
         pick_grade = 0 if int(rarity) >= 5 else base_grade
         base = await self._pick_item_base_template_for_tier_grade(
-            session, tier, pick_grade, item_rarity=int(rarity)
+            session, drop_tier, pick_grade, item_rarity=int(rarity)
         )
         if not base:
             raise RuntimeError("No item_base_templates available")
+        base = apply_drop_tier_to_base(base, drop_tier)
 
-        base_tier = int(base.get("tier") or tier)
+        base_tier = int(base.get("tier") or drop_tier)
         base_level = int(base.get("level_min") or max(1, (base_tier - 1) * 5 + 1))
         target_total_level = max(base_level, int(target_total_level))
         slot_type = self._slot_type_from_template_row(base.get("item_type"), base.get("subtype"))
@@ -1041,12 +1012,14 @@ class ItemService:
                 )
         tpl_row = template_row_from_mapping(base)
         snapshot_secondaries_from_template(inv, tpl_row)
-        inv.legendary_bonus_ids = await roll_legendary_bonus_ids(
+        roll_tier = _tier_from_level(int(inv.total_level or inv.level or inv.tier or 1))
+        inv.legendary_bonus_ids, rolls = await roll_legendary_bonus_bundle(
             session,
-            tier=int(inv.tier or base.get("tier") or 1),
+            tier=int(roll_tier),
             slot_type=str(inv.slot_type or ""),
             item_level=int(inv.level or inv.total_level or 1),
         )
+        inv.legendary_bonus_rolls = rolls or None
         item.is_legendary = True
         inv.is_legendary = True
         item.rarity = 5
@@ -1413,8 +1386,13 @@ class ItemService:
                 await self._register_inventory_codex(session, player_id, inv)
                 return inv
         except Exception:
-            # keep current behavior if the table is absent/incompatible
-            pass
+            logger.exception(
+                "item_base_templates generation failed player_id=%s act=%s rarity=%s level=%s",
+                player_id,
+                act,
+                rarity,
+                level,
+            )
 
         # Then prefer Diablo-style generator if content exists; finally fall back to legacy templates/affixes.
         try:
@@ -1430,8 +1408,13 @@ class ItemService:
                 await self._register_inventory_codex(session, player_id, inv)
                 return inv
         except Exception:
-            # keep legacy behavior on any Diablo error
-            pass
+            logger.exception(
+                "diablo item generation failed player_id=%s act=%s rarity=%s level=%s",
+                player_id,
+                act,
+                rarity,
+                level,
+            )
 
         template = await self._pick_template(session, tier_cap)
         if not template:
@@ -1565,20 +1548,18 @@ class ItemService:
                     """
                     SELECT *
                     FROM item_base_templates
-                    WHERE tier = :tier
-                      AND item_type = :item_type
-                      AND subtype = :subtype
-                      AND COALESCE(stat1_type, '') = COALESCE(:stat1, '')
-                      AND COALESCE(base_grade, 0) = 0
+                    WHERE COALESCE(base_grade, 0) = 0
+                      AND (
+                        (COALESCE(family_key, '') <> '' AND family_key = :fk)
+                        OR name = :name
+                      )
                     ORDER BY id
                     LIMIT 1
                     """
                 ),
                 {
-                    "tier": int(base.get("tier") or 1),
-                    "item_type": str(base.get("item_type") or ""),
-                    "subtype": str(base.get("subtype") or ""),
-                    "stat1": base.get("stat1_type"),
+                    "fk": str(base.get("family_key") or ""),
+                    "name": str(base.get("name") or ""),
                 },
             )
         ).mappings().first()
@@ -1932,8 +1913,10 @@ class ItemService:
 
         eff_rarity = 5 if is_legendary else max(1, min(5, int(rarity)))
         bg = max(0, min(2, int(base_grade or 0)))
-        base_tier = int(base.get("tier") or 1)
-        base_level = int(base.get("level_min") or max(1, (base_tier - 1) * 5 + 1))
+        dest_tier = _tier_from_level(int(level)) if level is not None else int(base.get("tier") or 1)
+        base = apply_drop_tier_to_base(base, dest_tier)
+        base_tier = int(base.get("tier") or dest_tier)
+        base_level = int(level or base.get("level_min") or max(1, (base_tier - 1) * 5 + 1))
         slot_type = self._slot_type_from_template_row(base.get("item_type"), base.get("subtype"))
 
         raw_dmg_min = int(base.get("dmg_min") or 0)

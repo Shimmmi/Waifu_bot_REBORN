@@ -11,6 +11,8 @@ from sqlalchemy.orm import selectinload
 
 from waifu_bot.db import models as m
 from waifu_bot.game.legendary_bonuses.drop_roll import _load_eligible_bonuses, pick_bonus_from_candidates
+from waifu_bot.game.legendary_bonuses.describe import format_legendary_description
+from waifu_bot.game.legendary_bonuses.tier_scale import deep_merge, roll_bonus_magnitudes
 from waifu_bot.services.game_config_service import cfg_int, get_game_config_map
 from waifu_bot.services.wallet import InsufficientCurrency, lock_player
 
@@ -71,21 +73,24 @@ async def _load_item(session: AsyncSession, item_id: int, player_id: int) -> m.I
     )
 
 
-async def _bonus_payloads(session: AsyncSession, ids: list[int]) -> list[dict[str, Any]]:
+async def _bonus_payloads(
+    session: AsyncSession, ids: list[int], *, rolls: dict | None = None, tier: int = 1
+) -> list[dict[str, Any]]:
     if not ids:
         return []
     from waifu_bot.game.legendary_bonuses.loader import fetch_legendary_bonus_payloads
 
     class _Stub:
-        def __init__(self, iid, bids):
-            self.id = iid
-            self.legendary_bonus_ids = bids
+        def __init__(self):
+            self.id = 0
+            self.legendary_bonus_ids = ids
+            self.legendary_bonus_rolls = rolls
             self.is_legendary = True
             self.rarity = 5
+            self.tier = int(tier or 1)
 
-    fake = _Stub(0, ids)
     try:
-        mp = await fetch_legendary_bonus_payloads(session, [fake])  # type: ignore[list-item]
+        mp = await fetch_legendary_bonus_payloads(session, [_Stub()])  # type: ignore[list-item]
         return list(mp.get(0) or [])
     except Exception:
         return [{"id": int(i)} for i in ids]
@@ -114,7 +119,12 @@ async def quote(session: AsyncSession, player_id: int, item_id: int) -> dict[str
         )
     )
     current_ids = list(inv.legendary_bonus_ids or [])
-    current = await _bonus_payloads(session, current_ids)
+    current = await _bonus_payloads(
+        session,
+        current_ids,
+        rolls=getattr(inv, "legendary_bonus_rolls", None),
+        tier=int(inv.tier or 1),
+    )
     return {
         "item_id": int(inv.id),
         "current": current,
@@ -158,11 +168,17 @@ async def _roll_options(session: AsyncSession, inv: m.InventoryItem, cfg: dict[s
             break
         bid = int(picked["id"])
         used.add(bid)
+        overlay = roll_bonus_magnitudes(picked.get("params") or {}, int(inv.tier or 1))
+        merged = deep_merge(picked.get("params") or {}, overlay)
+        desc = format_legendary_description(str(picked.get("description_tpl") or ""), merged)
         out.append(
             {
                 "id": bid,
                 "bonus_key": picked.get("bonus_key"),
-                "params": picked.get("params") or {},
+                "name": picked.get("name"),
+                "params": merged,
+                "rolls": overlay,
+                "description": desc,
             }
         )
     return out
@@ -307,6 +323,8 @@ async def apply_choice(
 
     inv.legendary_bonus_ids = [bid]
     flag_modified(inv, "legendary_bonus_ids")
+    inv.legendary_bonus_rolls = {str(bid): chosen.get("rolls") or {}}
+    flag_modified(inv, "legendary_bonus_rolls")
     pending.status = "applied"
     await session.flush()
     # Reload this player's equipped bonuses for the next fight. Do not touch _CANDIDATE_CACHE.

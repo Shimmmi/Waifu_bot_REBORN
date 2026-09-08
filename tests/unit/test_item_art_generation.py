@@ -66,6 +66,24 @@ def test_legendary_echo_blade_sword_subject() -> None:
     assert "PRIMARY, must match silhouette" in p
 
 
+def test_prompt_forbids_cracked_orb_placeholder() -> None:
+    p = build_item_pixel_art_prompt("armor/plasch_vetra", 6, display_label="Плащ ветра")
+    assert "FORBIDDEN placeholder" in p
+    assert "cracked" in p.lower()
+
+
+def test_cloak_name_overrides_armor_category() -> None:
+    p = build_item_pixel_art_prompt(
+        "armor/plasch_vetra",
+        6,
+        display_label="Плащ ветра",
+    )
+    assert "cloak" in p.lower() or "cape" in p.lower() or "robe" in p.lower()
+    assert "NOT a metal breastplate" in p
+    assert "Subject: a fantasy cloak" in p
+    assert "Плащ ветра" in p
+
+
 def test_weapon_type_is_secondary_hint() -> None:
     p = build_item_pixel_art_prompt(
         "weapon_bow/arbalet",

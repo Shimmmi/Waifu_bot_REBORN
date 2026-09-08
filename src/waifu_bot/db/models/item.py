@@ -150,6 +150,7 @@ class InventoryItem(Base):
     legendary_bonus_ids: Mapped[list[int]] = mapped_column(
         ARRAY(Integer), nullable=False, default=list
     )
+    legendary_bonus_rolls: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     refined_grade: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
     base_template_id: Mapped[int | None] = mapped_column(

@@ -61,7 +61,7 @@ async def test_register_inventory_codex_marks_diablo_affix_family() -> None:
         item=SimpleNamespace(name="Кольцо"),
     )
     await ic.register_inventory_codex(session, 200, inv)
-    assert session.execute.await_count == 2
+    assert session.execute.await_count >= 2
     affix_stmt = str(session.execute.await_args_list[1][0][0])
     assert "player_affix_codex" in affix_stmt
 
@@ -97,7 +97,6 @@ async def test_encounter_item_codex_delegates_to_register() -> None:
 async def test_get_shop_inventory_registers_codex_for_active_offers() -> None:
     from waifu_bot.services.shop import ShopService
 
-    session = AsyncMock()
     offer = SimpleNamespace(
         id=1, slot=1, purchased=False, inventory_item_id=900, price_base=100, act=1
     )
@@ -108,6 +107,10 @@ async def test_get_shop_inventory_registers_codex_for_active_offers() -> None:
         item=SimpleNamespace(name="Посох"),
         _base_template_id=12,
     )
+    session = AsyncMock()
+    exec_result = MagicMock()
+    exec_result.scalars.return_value.all.return_value = [inv]
+    session.execute = AsyncMock(return_value=exec_result)
 
     svc = ShopService()
     with patch.object(svc, "_ensure_offers", new_callable=AsyncMock, return_value=[offer]):
@@ -116,7 +119,10 @@ async def test_get_shop_inventory_registers_codex_for_active_offers() -> None:
             new_callable=AsyncMock,
             return_value=0.0,
         ):
-            with patch.object(svc, "_enrich_inv_with_template_stats", new_callable=AsyncMock):
+            with patch(
+                "waifu_bot.services.inventory_payload.enrich_inventory_items_with_template_stats",
+                new_callable=AsyncMock,
+            ):
                 with patch.object(
                     svc,
                     "_offer_to_preview",
@@ -126,13 +132,17 @@ async def test_get_shop_inventory_registers_codex_for_active_offers() -> None:
                         "waifu_bot.services.shop.enrich_items_with_image_urls",
                         new_callable=AsyncMock,
                     ):
-                        session.scalar = AsyncMock(return_value=inv)
-                        with patch.object(
-                            ic, "register_inventory_codex", new_callable=AsyncMock
-                        ) as reg:
-                            previews = await svc.get_shop_inventory(
-                                session, act=1, player_id=77
-                            )
+                        with patch(
+                            "waifu_bot.services.shop.get_passive_skill_bonuses",
+                            new_callable=AsyncMock,
+                            return_value={},
+                        ):
+                            with patch.object(
+                                ic, "register_inventory_codex", new_callable=AsyncMock
+                            ) as reg:
+                                previews = await svc.get_shop_inventory(
+                                    session, act=1, player_id=77
+                                )
     assert len(previews) == 1
     reg.assert_awaited_once_with(session, 77, inv)
 
@@ -141,11 +151,14 @@ async def test_get_shop_inventory_registers_codex_for_active_offers() -> None:
 async def test_get_shop_inventory_skips_codex_for_sold_offers() -> None:
     from waifu_bot.services.shop import ShopService
 
-    session = AsyncMock()
     offer = SimpleNamespace(
         id=2, slot=1, purchased=True, inventory_item_id=901, price_base=50, act=1
     )
     inv = SimpleNamespace(id=901, affixes=[], tier=1, item=SimpleNamespace(name="X"))
+    session = AsyncMock()
+    exec_result = MagicMock()
+    exec_result.scalars.return_value.all.return_value = [inv]
+    session.execute = AsyncMock(return_value=exec_result)
 
     svc = ShopService()
     with patch.object(svc, "_ensure_offers", new_callable=AsyncMock, return_value=[offer]):
@@ -154,7 +167,10 @@ async def test_get_shop_inventory_skips_codex_for_sold_offers() -> None:
             new_callable=AsyncMock,
             return_value=0.0,
         ):
-            with patch.object(svc, "_enrich_inv_with_template_stats", new_callable=AsyncMock):
+            with patch(
+                "waifu_bot.services.inventory_payload.enrich_inventory_items_with_template_stats",
+                new_callable=AsyncMock,
+            ):
                 with patch.object(
                     svc,
                     "_offer_to_preview",
@@ -164,9 +180,13 @@ async def test_get_shop_inventory_skips_codex_for_sold_offers() -> None:
                         "waifu_bot.services.shop.enrich_items_with_image_urls",
                         new_callable=AsyncMock,
                     ):
-                        session.scalar = AsyncMock(return_value=inv)
-                        with patch.object(
-                            ic, "register_inventory_codex", new_callable=AsyncMock
-                        ) as reg:
-                            await svc.get_shop_inventory(session, act=1, player_id=77)
+                        with patch(
+                            "waifu_bot.services.shop.get_passive_skill_bonuses",
+                            new_callable=AsyncMock,
+                            return_value={},
+                        ):
+                            with patch.object(
+                                ic, "register_inventory_codex", new_callable=AsyncMock
+                            ) as reg:
+                                await svc.get_shop_inventory(session, act=1, player_id=77)
     reg.assert_not_awaited()

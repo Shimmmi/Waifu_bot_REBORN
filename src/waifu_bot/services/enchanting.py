@@ -105,25 +105,54 @@ def get_effective_params(
 async def _fetch_template_stats(
     session: AsyncSession, inv: m.InventoryItem
 ) -> tuple[int, float, str | None, Any | None]:
+    tid = None
+    for attr in ("base_template_id", "_base_template_id"):
+        raw = getattr(inv, attr, None)
+        if raw is None:
+            continue
+        try:
+            tid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if tid > 0:
+            break
+        tid = None
     item_name = str(getattr(getattr(inv, "item", None), "name", "") or "").strip()
-    tier = int(getattr(inv, "tier", None) or getattr(getattr(inv, "item", None), "tier", None) or 0)
-    if not item_name or tier <= 0:
-        return 0, 0.0, None, None
-    row = (
-        await session.execute(
-            text(
-                """
-                SELECT armor_base,
-                       COALESCE(secondary_bonus_value, 0.0) AS secondary_bonus_value,
-                       secondary_bonus_type
-                FROM item_base_templates
-                WHERE name = :name AND tier = :tier
-                LIMIT 1
-                """
-            ),
-            {"name": item_name, "tier": tier},
-        )
-    ).mappings().first()
+    if tid:
+        row = (
+            await session.execute(
+                text(
+                    """
+                    SELECT armor_base,
+                           COALESCE(secondary_bonus_value, 0.0) AS secondary_bonus_value,
+                           secondary_bonus_type
+                    FROM item_base_templates
+                    WHERE id = :id
+                    LIMIT 1
+                    """
+                ),
+                {"id": int(tid)},
+            )
+        ).mappings().first()
+    elif item_name:
+        row = (
+            await session.execute(
+                text(
+                    """
+                    SELECT armor_base,
+                           COALESCE(secondary_bonus_value, 0.0) AS secondary_bonus_value,
+                           secondary_bonus_type
+                    FROM item_base_templates
+                    WHERE name = :name
+                    ORDER BY COALESCE(base_grade, 0) ASC, id
+                    LIMIT 1
+                    """
+                ),
+                {"name": item_name},
+            )
+        ).mappings().first()
+    else:
+        row = None
     if not row:
         return 0, 0.0, None, None
     from waifu_bot.game.item_ilvl_scaling import scaled_template_armor

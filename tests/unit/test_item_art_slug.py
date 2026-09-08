@@ -124,3 +124,65 @@ def test_with_legendary_art_prefix_idempotent() -> None:
     base = "weapon_axe_1h/ruchnoy_topor"
     assert with_legendary_art_prefix(base) == "legendary/weapon_axe_1h/ruchnoy_topor"
     assert with_legendary_art_prefix(f"legendary/{base}") == f"legendary/{base}"
+
+
+def test_grade1_armor_night_tag_uses_parent_art_key() -> None:
+    k = derive_item_art_key(
+        "costume",
+        None,
+        "Шёлк знати (руин)",
+        display_name="Шёлк знати (руин)",
+    )
+    assert k == "armor/shelk_znati"
+
+
+def test_grade1_amulet_night_tag_uses_parent_art_key() -> None:
+    k = derive_item_art_key(
+        "amulet",
+        "amulet",
+        "Амулет вечности (крови)",
+        display_name="Амулет вечности (крови)",
+    )
+    assert k == "amulet/amulet_vechnosti"
+
+
+def test_grade1_staff_unique_name_uses_parent_art_key() -> None:
+    k = derive_item_art_key(
+        "weapon_2h",
+        "staff",
+        "Посох звёздного дождя",
+        display_name="Посох звёздного дождя",
+    )
+    assert k == "weapon_staff/arhimagov_posoh"
+
+
+def test_grade1_axe_kolun_two_hand_uses_parent_art_key() -> None:
+    k = derive_item_art_key(
+        "weapon_2h",
+        "two_hand",
+        "Боевой колун",
+        display_name="Боевой колун",
+    )
+    assert k == "weapon_axe_2h/varvarskiy_topor"
+
+
+def test_grade1_restricted_suffix_uses_parent_art_key() -> None:
+    k = derive_item_art_key(
+        "costume",
+        None,
+        "Плащ вечности · возвыш. (руин)",
+        display_name="Плащ вечности · возвыш. (руин)",
+    )
+    assert k == "armor/plasch_vechnosti"
+
+
+def test_weapon_grade_names_are_unique() -> None:
+    from waifu_bot.game.item_grade_names import WEAPON_ADV, WEAPON_MAG, parent_base_name_for_art
+
+    seen: set[str] = set()
+    for table in (WEAPON_ADV, WEAPON_MAG):
+        for row in table:
+            for name in row:
+                assert name not in seen
+                seen.add(name)
+                assert parent_base_name_for_art(name) != name

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import os
 import re
 import shutil
@@ -139,6 +140,32 @@ def fill_item_webp_legacy() -> None:
 
 
 _ITEM_PLACEHOLDER_MAX_BYTES = 1024
+# orb/t1.webp is ~21 KB and still a stub; never treat orb-library hashes as custom art.
+_ORB_STUB_HASHES: set[str] | None = None
+
+
+def _orb_stub_hashes() -> set[str]:
+    global _ORB_STUB_HASHES
+    if _ORB_STUB_HASHES is None:
+        hashes: set[str] = set()
+        for t in range(1, 11):
+            p = ORB / f"t{t}.webp"
+            if p.is_file():
+                hashes.add(hashlib.sha256(p.read_bytes()).hexdigest())
+        _ORB_STUB_HASHES = hashes
+    return _ORB_STUB_HASHES
+
+
+def _is_custom_item_art(path: Path) -> bool:
+    """True when dest is real generated art (not a tiny stub and not an orb copy)."""
+    if not path.is_file():
+        return False
+    raw = path.read_bytes()
+    if len(raw) <= _ITEM_PLACEHOLDER_MAX_BYTES:
+        return False
+    if hashlib.sha256(raw).hexdigest() in _orb_stub_hashes():
+        return False
+    return True
 
 
 async def fill_item_webp_from_db(*, force: bool = False) -> int:
@@ -197,7 +224,6 @@ async def fill_item_webp_from_db(*, force: bool = False) -> int:
 
     counters = {"created": 0, "skipped": 0, "overwritten": 0}
     for key in sorted(all_keys):
-        is_legendary = key.startswith("legendary/")
         dest = ITEM_WEBP
         for part in key.split("/"):
             dest = dest / part
@@ -207,12 +233,8 @@ async def fill_item_webp_from_db(*, force: bool = False) -> int:
             dst_f = dest / f"t{t}.webp"
             if src_f.resolve() == dst_f.resolve():
                 continue
-            if (
-                not force
-                and not is_legendary
-                and dst_f.is_file()
-                and dst_f.stat().st_size > _ITEM_PLACEHOLDER_MAX_BYTES
-            ):
+            # Legendary used to skip this guard and clobber finished art with orb stubs.
+            if not force and _is_custom_item_art(dst_f):
                 counters["skipped"] += 1
                 continue
             existed = dst_f.is_file()

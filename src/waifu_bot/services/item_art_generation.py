@@ -63,6 +63,11 @@ _SUBJECT_DAGGER = "a fantasy dagger or knife, blade and guard clearly visible"
 _SUBJECT_POLEARM = (
     "a fantasy polearm (spear, pike, halberd, or glaive) with long shaft and striking head"
 )
+_SUBJECT_CLOAK = (
+    "a fantasy cloak, cape, or wizard robe as an isolated hanging garment — "
+    "fabric folds and hood or collar visible. NOT a metal breastplate, "
+    "NOT chest armor plates, NOT pauldrons"
+)
 
 
 def normalize_art_key(art_key: str) -> Optional[str]:
@@ -157,6 +162,21 @@ def _subject_from_text_hints(text: str, category: str) -> str | None:
         return "a katana-style curved one-handed sword, blade and hilt clearly visible"
     if _text_mentions_any(
         text,
+        (
+            "плащ",
+            "накидк",
+            "мантия",
+            "cloak",
+            "cape",
+            "robe",
+            "mantiya",
+            "plasch",
+            "nakidk",
+        ),
+    ):
+        return _SUBJECT_CLOAK
+    if _text_mentions_any(
+        text,
         ("пика", "копь", "spear", "pike", "lance", "глеф", "алебард", "halberd", "trident", "трезуб"),
     ):
         return _SUBJECT_POLEARM
@@ -225,6 +245,10 @@ def build_item_pixel_art_prompt(
         extra_lines.append(f"In-game name (PRIMARY, must match silhouette): «{safe}».")
     extra_lines.append(
         f"Category fallback (use only if name is ambiguous): {category_subject}."
+    )
+    extra_lines.append(
+        "FORBIDDEN placeholder: do NOT draw a cracked green/teal glass orb in a rusty metal claw "
+        "or scepter — that is the empty stub icon. Invent this item from the name."
     )
     wl = (weapon_type or "").strip().lower()
     if wl:

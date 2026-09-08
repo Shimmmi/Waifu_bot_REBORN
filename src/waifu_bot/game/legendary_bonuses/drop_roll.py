@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waifu_bot.game.legendary_bonuses.eligibility import bonus_fits_drop, drop_weight_for_bonus
+from waifu_bot.game.legendary_bonuses.tier_scale import roll_bonus_magnitudes
 
 _CANDIDATE_CACHE: dict[tuple[int, str], list[dict[str, Any]]] | None = None
 
@@ -31,6 +32,8 @@ async def _load_eligible_bonuses(
                 SELECT
                     id,
                     bonus_key,
+                    name,
+                    description_tpl,
                     trigger_group,
                     params,
                     is_active,
@@ -87,9 +90,26 @@ async def roll_legendary_bonus_ids(
     item_level: int | None = None,
 ) -> list[int]:
     """Return exactly one rolled bonus id, or empty if pool is empty."""
-    _ = item_level  # reserved for future ilvl-specific rules
+    ids, _rolls = await roll_legendary_bonus_bundle(
+        session, tier=tier, slot_type=slot_type, item_level=item_level
+    )
+    return ids
+
+
+async def roll_legendary_bonus_bundle(
+    session: AsyncSession,
+    *,
+    tier: int,
+    slot_type: str,
+    item_level: int | None = None,
+    midpoint: bool = False,
+) -> tuple[list[int], dict[str, dict]]:
+    """Return (bonus ids, magnitude overlay keyed by bonus id string)."""
+    _ = item_level
     candidates = await _load_eligible_bonuses(session, tier=tier, slot_type=slot_type)
     picked = pick_bonus_from_candidates(candidates, tier=tier, slot_type=slot_type)
     if picked is None:
-        return []
-    return [int(picked["id"])]
+        return [], {}
+    bid = int(picked["id"])
+    overlay = roll_bonus_magnitudes(picked.get("params") or {}, int(tier), midpoint=midpoint)
+    return [bid], {str(bid): overlay}

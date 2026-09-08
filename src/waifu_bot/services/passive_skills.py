@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from waifu_bot.db import models as m
+from waifu_bot.game.item_art_identities import sql_join_inventory_identity
 from waifu_bot.db.models import MainWaifu, PassiveSkillNode, Player, PlayerPassiveSkill
 from waifu_bot.services.game_config_service import cfg_float, get_game_config_map
 from waifu_bot.services.waifu_hp import sync_waifu_max_hp
@@ -302,9 +303,9 @@ async def collect_passive_node_level_bonus_from_session(
                            ibt.secondary_bonus_value AS template_secondary_value
                     FROM inventory_items ii
                     JOIN items i ON i.id = ii.item_id
-                    LEFT JOIN item_base_templates ibt
-                      ON btrim(ibt.name) = btrim(i.name)
-                     AND ibt.tier = COALESCE(NULLIF(ii.tier, 0), i.tier)
+                    """
+                    + sql_join_inventory_identity("ii", "i", "ibt")
+                    + """
                     WHERE ii.player_id = :pid
                       AND ii.equipment_slot IS NOT NULL
                     """

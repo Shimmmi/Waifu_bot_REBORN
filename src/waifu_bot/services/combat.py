@@ -46,6 +46,7 @@ from waifu_bot.game.solo_rewards import (
     dungeon_plus_reward_mult,
     guild_reward_fractions,
 )
+from waifu_bot.game.item_art_identities import sql_join_inventory_identity
 from waifu_bot.game.formulas import (
     apply_equipment_damage_flats,
     build_message_damage_base_trace_ru,
@@ -2004,9 +2005,9 @@ class CombatService:
                             COALESCE(inv.plus_level_source, 0) AS plus_level_source
                         FROM inventory_items inv
                         JOIN items i ON i.id = inv.item_id
-                        JOIN item_base_templates ibt
-                          ON ibt.name = i.name
-                         AND ibt.tier = COALESCE(inv.tier, i.tier)
+                        """
+                        + sql_join_inventory_identity("inv", "i", "ibt")
+                        + """
                         WHERE inv.player_id = :pid
                           AND inv.equipment_slot IS NOT NULL
                         """
