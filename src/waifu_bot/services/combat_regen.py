@@ -9,7 +9,7 @@ from typing import Literal
 from waifu_bot.db.models.player import Player
 from waifu_bot.db.models.waifu import MainWaifu
 from waifu_bot.game.constants import ONLINE_WINDOW_SECONDS
-from waifu_bot.services.energy import apply_regen, base_hp_regen_per_min
+from waifu_bot.services.energy import apply_regen, base_hp_regen_per_min, endurance_for_hp_regen
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ def apply_abyss_regen(
     extra_hp_per_min: int = 0,
     regen_pct: float = 0.0,
     now: datetime | None = None,
+    endurance: int | None = None,
 ) -> bool:
     """Minute-tick HP regen in the Abyss; can revive from unconscious (0 HP)."""
     if not waifu:
@@ -68,7 +69,7 @@ def apply_abyss_regen(
     minutes = int((now - last).total_seconds() // 60)
     if minutes < 1:
         return False
-    base = base_hp_regen_per_min(int(getattr(waifu, "endurance", 0) or 0))
+    base = base_hp_regen_per_min(endurance_for_hp_regen(waifu, endurance))
     pct_extra = max(0, int(round(base * max(0.0, float(regen_pct or 0.0)))))
     per_min = base + max(0, int(extra_hp_per_min)) + pct_extra
     gain = min(minutes * per_min, max_hp - max(0, cur))
@@ -85,11 +86,13 @@ def apply_hp_regen_for_context(
     extra_hp_per_min: int = 0,
     regen_pct: float = 0.0,
     now: datetime | None = None,
+    endurance: int | None = None,
 ) -> bool:
     """Apply HP regen according to dungeon context.
 
     - solo / town: always accrue offline minutes (suppress=False).
     - abyss: only when online; otherwise forfeit idle time (suppress=True).
+    - endurance: effective ВЫН when known; otherwise allocated ``waifu.endurance``.
     """
     if not waifu:
         return False
@@ -102,14 +105,26 @@ def apply_hp_regen_for_context(
             extra_hp_per_min=extra_hp_per_min,
             regen_pct=regen_pct,
             suppress=False,
+            endurance=endurance,
         )
 
     if context == "abyss":
         if is_player_online(player, now=now):
             return apply_abyss_regen(
-                waifu, extra_hp_per_min=extra_hp_per_min, regen_pct=regen_pct, now=now
+                waifu,
+                extra_hp_per_min=extra_hp_per_min,
+                regen_pct=regen_pct,
+                now=now,
+                endurance=endurance,
             )
-        return apply_regen(waifu, now=now, extra_hp_per_min=0, regen_pct=0.0, suppress=True)
+        return apply_regen(
+            waifu,
+            now=now,
+            extra_hp_per_min=0,
+            regen_pct=0.0,
+            suppress=True,
+            endurance=endurance,
+        )
 
     logger.warning("apply_hp_regen_for_context: unknown context=%s", context)
     return apply_regen(
@@ -118,4 +133,18 @@ def apply_hp_regen_for_context(
         extra_hp_per_min=extra_hp_per_min,
         regen_pct=regen_pct,
         suppress=False,
+        endurance=endurance,
     )
+
+
+async def resolve_regen_endurance(session, player_id: int, waifu: MainWaifu) -> int:
+    """Effective END for HP regen; allocated END if the full stack cannot be loaded."""
+    try:
+        from waifu_bot.services.waifu_hp import compute_effective_endurance
+
+        return await compute_effective_endurance(session, int(player_id), waifu)
+    except Exception:
+        logger.exception(
+            "resolve_regen_endurance failed player_id=%s", getattr(waifu, "player_id", player_id)
+        )
+        return endurance_for_hp_regen(waifu)

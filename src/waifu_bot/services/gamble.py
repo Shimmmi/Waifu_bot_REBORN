@@ -13,7 +13,12 @@ from waifu_bot.db.models import GambleOffer, InventoryItem, MainWaifu, Player
 from waifu_bot.game.formulas import calculate_gamble_price
 from waifu_bot.services.hidden_skills import record_hidden_gold_spend
 from waifu_bot.services.item_service import ItemService, RARITY_WEIGHTS, _pick_weighted
-from waifu_bot.services.passive_skills import apply_passive_buy_price
+from waifu_bot.services.passive_skills import (
+    apply_charm_smith_discount,
+    apply_charm_smith_gold,
+    apply_passive_buy_price,
+    effective_main_waifu_charm,
+)
 from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
 
 MSK = timezone(timedelta(hours=3))
@@ -74,11 +79,13 @@ class GambleService:
         )
         inv_by_id = {int(inv.id): inv for inv in inv_rows}
 
+        charm = await effective_main_waifu_charm(session, player_id)
         previews: list[dict[str, Any]] = []
         for o in sorted(offers, key=lambda x: x.slot):
+            live_price = apply_charm_smith_discount(int(o.price), charm)
             row: dict[str, Any] = {
                 "slot": o.slot,
-                "price": o.price,
+                "price": live_price,
                 "purchased": bool(o.purchased),
             }
             inv = inv_by_id.get(int(o.inventory_item_id)) if o.inventory_item_id is not None else None
@@ -177,7 +184,7 @@ class GambleService:
         if not player:
             return {"error": "not_found"}
 
-        price = int(offer.price)
+        price = await apply_charm_smith_gold(session, player_id, int(offer.price))
         if int(player.gold or 0) < price:
             return {
                 "error": "insufficient_gold",

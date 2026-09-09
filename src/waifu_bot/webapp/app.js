@@ -264,6 +264,28 @@ function applyTheme() {
   document.documentElement.classList.add(scheme === "light" ? "theme-light" : "theme-dark");
 }
 
+/** Telegram Mini App chrome: keep header/bg/bottom bar dark on every screen (title already did this). */
+const TG_CHROME_COLOR = "#0a0705";
+
+function applyTelegramAppChrome(tgApi = tg) {
+  if (!tgApi) return;
+  try {
+    if (typeof tgApi.ready === "function") tgApi.ready();
+  } catch (_) {}
+  try {
+    if (typeof tgApi.expand === "function") tgApi.expand();
+  } catch (_) {}
+  try {
+    if (typeof tgApi.setHeaderColor === "function") tgApi.setHeaderColor(TG_CHROME_COLOR);
+  } catch (_) {}
+  try {
+    if (typeof tgApi.setBackgroundColor === "function") tgApi.setBackgroundColor(TG_CHROME_COLOR);
+  } catch (_) {}
+  try {
+    if (typeof tgApi.setBottomBarColor === "function") tgApi.setBottomBarColor(TG_CHROME_COLOR);
+  } catch (_) {}
+}
+
 function setActiveNav(page) {
   document.querySelectorAll(".nav a").forEach((link) => {
     if (link.dataset.page === page) {
@@ -1072,6 +1094,8 @@ function weaponTypeLabel(wt) {
       dagger: "Кинжал",
       mace: "Булава",
       hammer: "Молот",
+      two_hand: "Двуручное",
+      one_hand: "Одноручное",
     }[w] || w
   );
 }
@@ -1271,7 +1295,7 @@ const PROFILE_STAT_TOOLTIPS = {
   agility: "Урон дальнего боя (+1,2 за пункт), уклонение 0,1%/пункт (потолок 40%) и крит 0,1%/пункт.",
   intelligence: "Магический урон и медиа-навыки (+1,2 за пункт), бонус EXP 0,1%/пункт.",
   endurance: "Макс. HP (+12 за пункт), снижение входящего урона 0,08%/пункт (потолок 35% от ВЫН) и реген HP: 5/мин + max(0, ВЫН−10)/мин. Совершенствование даёт % к этой базе.",
-  charm: "Улучшает торговлю и снижает стоимость найма и тренировок.",
+  charm: "Улучшает торговлю и снижает стоимость кузницы, гембла, найма и тренировок.",
   luck: "Крит 0,1%/пункт, шанс добычи, золото с монстров и Magic Find.",
 };
 
@@ -1356,6 +1380,7 @@ function getProfileIndicators(waifu, details = null) {
   const goldBonus = d ? safeNumber(d.gold_bonus, luck * 0.2) : luck * 0.2;
   const hireDiscount = d ? safeNumber(d.hire_discount, charm * 0.1) : charm * 0.1;
   const trainingDiscount = d ? safeNumber(d.training_discount, charm * 0.15) : charm * 0.15;
+  const smithDiscount = d ? safeNumber(d.smith_discount, Math.min(50, charm * 0.1)) : Math.min(50, charm * 0.1);
   const damageReduction = d ? safeNumber(d.damage_reduction, Math.min(35, endurance * 0.08)) : Math.min(35, endurance * 0.08);
   // Live regen: 5 HP/min + max(0, END-10); perfection adds % of this base.
   const hpRegenPerMin = 5 + Math.max(0, Math.floor(endurance) - 10);
@@ -1381,6 +1406,7 @@ function getProfileIndicators(waifu, details = null) {
     damageReduction: profileFormatPercent(damageReduction, 1),
     hireDiscount: profileFormatPercent(hireDiscount, 1),
     trainingDiscount: profileFormatPercent(trainingDiscount, 1),
+    smithDiscount: profileFormatPercent(smithDiscount, 1),
     merchant: `покупка ${buyPct}% · продажа ${sellPct}%`,
     hpRegen: `${hpRegenPerMin} HP/мин`,
     armor: safeNumber(d?.armor, 0),
@@ -1419,8 +1445,10 @@ function profileStatBonusLines(statKey, waifu, details = null) {
     }
     case "charm": {
       const deathPenalty = Math.max(0, 50 - total * 0.1);
+      const smithPct = Math.min(50, total * 0.1);
       return [
         `Торговля: покупка ~${Math.max(100, Math.round(200 - total * 0.2))}%, продажа ~${Math.min(99, Math.round(50 + total * 0.05))}%`,
+        `-${profileFormatPercent(smithPct, 1)} к золоту кузницы и гембла (потолок 50%)`,
         `-${profileFormatPercent(total * 0.1, 1)} к стоимости найма вайфу`,
         `-${profileFormatPercent(total * 0.15, 1)} к стоимости тренировок`,
         `Штраф золота при смерти: ${deathPenalty.toFixed(1)}%`,
@@ -5277,13 +5305,20 @@ async function generateMerchantLine(context) {
   return window.__shopMerchantLine;
 }
 
-/** Цена гембы как на бэкенде (game.constants + formulas.calculate_gamble_price). */
+/** Цена гембы как на бэкенде (game.constants + formulas.calculate_gamble_price + ОБА). */
 function calculateGamblePriceClient(level) {
   const GAMBLE_BASE_PRICE = 1000;
   const GAMBLE_PRICE_PER_LEVEL = 200;
   const GAMBLE_MAX_PRICE = 10000;
   const lv = Math.max(1, Number(level) || 1);
-  return Math.min(GAMBLE_BASE_PRICE + lv * GAMBLE_PRICE_PER_LEVEL, GAMBLE_MAX_PRICE);
+  const raw = Math.min(GAMBLE_BASE_PRICE + lv * GAMBLE_PRICE_PER_LEVEL, GAMBLE_MAX_PRICE);
+  const w = profileState.currentProfile?.main_waifu;
+  const charm = profileStatValue(w, "charm");
+  const d = profileState.currentDetails;
+  const discPct = d
+    ? Math.min(50, safeNumber(d.smith_discount, Math.min(50, charm * 0.1)))
+    : Math.min(50, charm * 0.1);
+  return Math.max(1, Math.round(raw * (1 - discPct / 100)));
 }
 
 function updateShopGambleCost() {
@@ -7782,6 +7817,20 @@ function encodeArtKeyPath(artKey) {
     .join("/");
 }
 
+const ITEM_ART_CACHE_BUST = "2";
+
+function itemWebpSrc(artKey, tier) {
+  return `${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${tier}.webp?v=${ITEM_ART_CACHE_BUST}`;
+}
+
+function withItemArtCacheBust(url) {
+  const u = String(url || "").trim();
+  if (!u) return u;
+  if (!u.includes("/items/webp/") && !u.includes("/items_webp/")) return u;
+  if (/[?&]v=/.test(u)) return u;
+  return `${u}${u.includes("?") ? "&" : "?"}v=${ITEM_ART_CACHE_BUST}`;
+}
+
 function itemArtTierNormalized(item) {
   const tierRaw = item?.tier != null ? Number(item.tier) : 1;
   return Number.isFinite(tierRaw) ? Math.min(10, Math.max(1, Math.floor(tierRaw))) : 1;
@@ -7863,7 +7912,7 @@ async function handleItemArtGenerateClick(el) {
         adminSpawnArtFailCache.delete(artKey);
         cardArt.classList.remove("silhouette");
         const tierNum = Math.min(10, Math.max(1, parseInt(tier, 10) || 1));
-        const base = newUrl || `${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${tierNum}.webp`;
+        const base = newUrl || itemWebpSrc(artKey, tierNum);
         let src;
         try {
           const u = new URL(base, window.location.origin);
@@ -7874,7 +7923,7 @@ async function handleItemArtGenerateClick(el) {
         }
         const urls = [];
         for (let t = tierNum; t >= 1; t -= 1) {
-          urls.push(`${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${t}.webp`);
+          urls.push(itemWebpSrc(artKey, t));
         }
         const slotType = escapeHtml(el.getAttribute("data-slot-type") || "");
         const weaponType = escapeHtml(el.getAttribute("data-weapon-type") || "");
@@ -7939,7 +7988,7 @@ function itemImageUrl(item) {
   // Tiered .webp by art_key (e.g. armor/kozhanaya_bronya)
   const artKey = String(item?.art_key || "").trim();
   if (artKey) {
-    return `${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${tier}.webp`;
+    return itemWebpSrc(artKey, tier);
   }
 
   // Legacy svg placeholders by image_key
@@ -7959,9 +8008,9 @@ function itemArtHtml(item, options = {}) {
   const direct = String(item?.image_url || "").trim();
 
   const webpUrl = direct
-    ? direct
+    ? withItemArtCacheBust(direct)
     : artKey
-      ? `${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${tier}.webp`
+      ? itemWebpSrc(artKey, tier)
       : "";
   const svgUrl = svgKey ? `${GAME_STATIC_BASE}/items/svg/${encodeURIComponent(svgKey)}.svg` : "";
 
@@ -8340,7 +8389,7 @@ function goShopSmithEnchant(inventoryItemId, work) {
 function goShopSmithEnchantFromModal() {
   const it = profileState.selectedItem;
   if (!it?.id) return;
-  goShopSmithEnchant(it.id, smithWorkForItem(it));
+  goShopSmithEnchant(it.id, "sharpen");
 }
 
 function renderWeaponStatsHtml(item) {
@@ -8657,6 +8706,11 @@ function renderProfileIndicators(waifu, details = null) {
     ["Бонус золота", indicators.goldBonus],
     ["Скидка найма", indicators.hireDiscount],
     ["Скидка трен.", indicators.trainingDiscount],
+    [
+      "Кузница / гембл",
+      indicators.smithDiscount,
+      "Скидка ОБА к золоту заточки, доводки, закалки, перековки и гембла: 0,1%/пункт, потолок 50%. Пыль и материалы без скидки.",
+    ],
     [
       "Реген HP",
       indicators.hpRegen,
@@ -10044,32 +10098,21 @@ function titleHaptic(kind = "light") {
 }
 
 function applyTitleScreenTelegramChrome() {
-  const tg = titleTelegram();
-  if (!tg) return;
+  const tgApi = titleTelegram();
+  if (!tgApi) return;
+  applyTelegramAppChrome(tgApi);
   try {
-    if (typeof tg.ready === "function") tg.ready();
-  } catch (_) {}
-  try {
-    if (typeof tg.expand === "function") tg.expand();
-  } catch (_) {}
-  try {
-    if (typeof tg.setHeaderColor === "function") tg.setHeaderColor("#0a0705");
-  } catch (_) {}
-  try {
-    if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor("#0a0705");
-  } catch (_) {}
-  try {
-    tg.BackButton?.hide?.();
+    tgApi.BackButton?.hide?.();
   } catch (_) {}
 
   const applyVh = () => {
-    const h = Number(tg.viewportStableHeight || tg.viewportHeight || 0);
+    const h = Number(tgApi.viewportStableHeight || tgApi.viewportHeight || 0);
     if (h > 0) {
       document.documentElement.style.setProperty("--tg-vh", `${h}px`);
     }
   };
   try {
-    if (typeof tg.onEvent === "function") tg.onEvent("viewportChanged", applyVh);
+    if (typeof tgApi.onEvent === "function") tgApi.onEvent("viewportChanged", applyVh);
   } catch (_) {}
   applyVh();
 }
@@ -10474,7 +10517,7 @@ function adminSpawnCardArtHtml(entry) {
   const startTier = Math.min(10, Math.max(1, Number(entry?.tier) || 1));
   const urls = [];
   for (let t = startTier; t >= 1; t -= 1) {
-    urls.push(`${GAME_STATIC_BASE}/items/webp/${encodeArtKeyPath(artKey)}/t${t}.webp`);
+    urls.push(itemWebpSrc(artKey, t));
   }
   const slotType = escapeHtml(String(entry?.slot_type || ""));
   const weaponType = escapeHtml(String(entry?.subtype || ""));
@@ -14953,8 +14996,7 @@ async function initPage(page) {
   initNavIcons();
   if (tg) {
     try {
-      tg.ready();
-      tg.expand();
+      applyTelegramAppChrome(tg);
     } catch (err) {
       console.warn("Telegram WebApp init:", err);
     }
@@ -15642,7 +15684,7 @@ function statsGuideContentHtml() {
     <p><strong>Полное уклонение</strong> — отдельная строка и отдельный бросок в бою (например «Шаг тени»). Срабатывает после обычного уклонения, если оно не сработало.</p>
     <p><strong>Снижение урона</strong> — ВЫН даёт 0,08%/пункт (потолок 35% от ВЫН); затем вторички и броня складываются в один пул (до 90%).</p>
     <p><strong>Пассивы с предметов</strong> — «+N к уровню навыка» повышает эффективный уровень. Для части навыков (полное уклонение, instakill и др.) эффект не растёт выше максимума таблицы — смотрите предупреждение в модалке навыка.</p>
-    <p><strong>Заточка</strong> — усиливает урон/броню на оружии и доспехах; на аксессуарах — вторичные бонусы (крит, уклонение…). Предметы с бонусом к пассивному навыку заточкой не усиливаются.</p>`;
+    <p><strong>Заточка</strong> — усиливает урон/броню на оружии и доспехах; на аксессуарах — вторичные бонусы (крит, уклонение…). Предметы с бонусом к пассивному навыку заточкой не усиливаются. Золото заточки, доводки, закалки, перековки и гембла снижается ОБА (0,1%/пункт, потолок 50%).</p>`;
 }
 
 const LIBRARY_MECHANICS_SUBTABS = [
@@ -15687,9 +15729,9 @@ function libraryMechanicsSectionHtml(subtabId) {
       <h3>Магазин</h3>
       <p>Ежедневные офферы привязаны к акту. Цена зависит от уровня предмета, редкости и скидок (обаяние, пассивы). Имя на витрине уже включает выпавшие префиксы и суффиксы.</p>
       <h3>Gamble</h3>
-      <p>Случайный предмет повышенной редкости за золото. Шансы и уровень зависят от акта и уровня вайфу.</p>
+      <p>Случайный предмет повышенной редкости за золото. Шансы и уровень зависят от акта и уровня вайфу. Обаяние снижает золото слота (0,1%/пункт, потолок 50%).</p>
       <h3>Кузнец: заточка</h3>
-      <p>Усиливает урон и броню на оружии и доспехах; на аксессуарах — вторичные бонусы. Есть риск поломки на высоких уровнях заточки.</p>
+      <p>Усиливает урон и броню на оружии и доспехах; на аксессуарах — вторичные бонусы. Есть риск поломки на высоких уровнях заточки. Обаяние снижает золото заточки и остальных услуг кузницы (пыль и материалы без скидки).</p>
       <h3>Кузнец: зачарование</h3>
       <p>Отдельная система шагов зачарования, записанных при создании предмета. Предметы с бонусом к пассивному навыку заточкой не усиливаются.</p>`;
   }

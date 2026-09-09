@@ -83,6 +83,9 @@ async def preview(session: AsyncSession, player_id: int, item_id: int) -> dict[s
         essence = cfg_int(cfg, "refine.essence_to_2", 2)
         gold = cfg_int(cfg, "refine.gold_to_2_per_ilvl", 250) * ilvl
         mult = cfg_float(cfg, "refine.stat_mult_to_2", 1.18)
+    from waifu_bot.services.passive_skills import apply_charm_smith_gold
+
+    gold = await apply_charm_smith_gold(session, int(player_id), int(gold))
     dmin = inv.damage_min
     dmax = inv.damage_max
     bsv = inv.base_stat_value
@@ -149,6 +152,9 @@ async def apply_refine(session: AsyncSession, player_id: int, item_id: int) -> d
         essence = cfg_int(cfg, "refine.essence_to_2", 2)
         gold = cfg_int(cfg, "refine.gold_to_2_per_ilvl", 250) * ilvl
         mult = cfg_float(cfg, "refine.stat_mult_to_2", 1.18)
+    from waifu_bot.services.passive_skills import apply_charm_smith_gold
+
+    gold = await apply_charm_smith_gold(session, int(player_id), int(gold))
     txn = m.RefineTransaction(
         player_id=int(player_id),
         inventory_item_id=int(inv.id),

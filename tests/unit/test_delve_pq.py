@@ -15,6 +15,7 @@ from waifu_bot.game.delve_pq import (
     ShopOffer,
     apply_drain,
     apply_levelups,
+    auto_use_potions,
     band_of_depth,
     boss_xp,
     buy_increases_power,
@@ -325,6 +326,26 @@ def test_shop_skips_potions_until_four_slots():
     assert merc.bag.get(SALVE_ID, 0) == 0
 
 
+def test_shop_buys_potion_when_four_slots_filled():
+    merc = _merc(gold_wallet=500)
+    for slot, family in ((1, "sword"), (3, "costume"), (4, "ring"), (6, "amulet")):
+        install_piece(merc, piece_for_family_tier(family, 1, slot))
+    resolve_shop(merc, depth=4, seed=7, cycle=0)
+    assert merc.bag.get(POTION_ID, 0) >= 1
+
+
+def test_auto_use_keeps_last_potion_at_mid_hp():
+    merc = _merc(hp_current=18, hp_max=52)
+    merc.bag[POTION_ID] = 1
+    used = auto_use_potions([merc])
+    assert used == []
+    assert merc.bag.get(POTION_ID, 0) == 1
+    merc.hp_current = 8
+    used = auto_use_potions([merc])
+    assert used
+    assert merc.bag.get(POTION_ID, 0) == 0
+
+
 def test_shop_empty_slot_is_t1_even_at_record_band():
     merc = _merc()
     offers = shop_offers(merc, depth=250, seed=7, cycle=0, band=17)
@@ -369,6 +390,7 @@ def test_combat_drain_follows_overage():
     assert combat_drain(8, 1) == 5
     assert combat_drain(16, 1) == 10
     assert combat_drain(40, 5) > combat_drain(4, 20)
+    assert combat_drain(100, 200) < combat_drain(100, 80)
 
 
 def test_deepcopy_shop_offer_type():

@@ -954,10 +954,14 @@ class CombatService:
             pass
         from datetime import timezone as _tz
 
-        from waifu_bot.services.combat_regen import apply_hp_regen_for_context
+        from waifu_bot.services.combat_regen import (
+            apply_hp_regen_for_context,
+            resolve_regen_endurance,
+        )
 
         _now = datetime.now(_tz.utc)
         combat_player = await session.get(Player, player_id)
+        regen_end = await resolve_regen_endurance(session, player_id, waifu)
         regen_changed = apply_hp_regen_for_context(
             waifu,
             combat_player,
@@ -965,6 +969,7 @@ class CombatService:
             extra_hp_per_min=hr_pm,
             regen_pct=regen_pct,
             now=_now,
+            endurance=regen_end,
         )
         if combat_player is not None:
             combat_player.last_combat_action_at = _now
@@ -1424,29 +1429,16 @@ class CombatService:
         reflect_damage_taken = 0
         if run and run_monster and affix_rows and not monster_dodged and damage > 0:
             r_chance, r_pct = reflect_params(affix_rows)
-            raw_refl = roll_reflect(r_chance, r_pct, damage)
+            raw_refl = roll_reflect(r_chance, r_pct, int(getattr(waifu, "max_hp", 0) or 0))
             if raw_refl > 0:
-                sec_r = await self._get_waifu_armor_and_secondary(session, int(player_id))
-                armor_tr = max(0, int(sec_r.get("armor_total", 0.0) or 0.0))
-                msf_blk_r = int(ps.get("main_stats_flat", 0) or 0)
-                end_for_dr_r = await self._endurance_for_damage_reduction(
-                    session, int(player_id), waifu, msf_blk_r
-                )
-                end_reduce_r = float(calculate_damage_reduction(end_for_dr_r))
-                sec_reduce_r = float(sec_r.get("dmg_reduce_pct", 0.0) or 0.0)
-                _, total_reduce_r, reflect_damage_taken = compute_incoming_damage_after_mitigation(
-                    raw_refl,
-                    armor_tr,
-                    int(getattr(waifu, "level", 1) or 1),
-                    end_reduce_r,
-                    sec_reduce_r,
-                )
+                reflect_damage_taken = raw_refl
                 hp_w_b = int(waifu.current_hp or 0)
                 waifu.current_hp = max(0, hp_w_b - reflect_damage_taken)
                 run.waifu_hp_lost = int(run.waifu_hp_lost or 0) + reflect_damage_taken
                 trace.result(
                     "elite_reflect",
-                    f"Отражение элита: {reflect_damage_taken} урона (сырой {raw_refl})",
+                    f"Отражение элита: {reflect_damage_taken} HP "
+                    f"({int(round(r_pct * 100))}% макс.), без брони",
                     hp_w_b,
                     int(waifu.current_hp or 0),
                 )

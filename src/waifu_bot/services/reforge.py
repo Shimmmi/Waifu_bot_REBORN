@@ -107,6 +107,9 @@ async def quote(session: AsyncSession, player_id: int, item_id: int) -> dict[str
     n = int(inv.reforge_reroll_count or 0)
     ember = ember_cost(n)
     gold = gold_cost(inv, cfg)
+    from waifu_bot.services.passive_skills import apply_charm_smith_gold
+
+    gold = await apply_charm_smith_gold(session, int(player_id), int(gold))
     open_pending = await session.scalar(
         select(m.ReforgePending).where(
             m.ReforgePending.inventory_item_id == int(inv.id),
@@ -192,6 +195,9 @@ async def start_roll(session: AsyncSession, player_id: int, item_id: int) -> dic
     cfg = await get_game_config_map(session)
     ember = ember_cost(int(inv.reforge_reroll_count or 0))
     gold = gold_cost(inv, cfg)
+    from waifu_bot.services.passive_skills import apply_charm_smith_gold
+
+    gold = await apply_charm_smith_gold(session, int(player_id), int(gold))
     ttl = cfg_int(cfg, "reforge.pending_ttl_sec", 600)
     txn = m.ReforgeTransaction(
         player_id=int(player_id),

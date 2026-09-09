@@ -81,3 +81,50 @@ def test_apply_regen_solo_never_uses_suppress_in_context_helper():
     w = _waifu(hp=40)
     apply_hp_regen_for_context(w, None, context="town")
     assert int(w.current_hp) >= 40
+
+
+def test_apply_regen_uses_effective_endurance_not_allocated():
+    """Paragon/gear END must drive regen; allocated waifu.endurance is only a fallback."""
+    from waifu_bot.services.energy import apply_regen, base_hp_regen_per_min
+
+    now = datetime.now(timezone.utc)
+    w = SimpleNamespace(
+        id=1,
+        endurance=21,
+        current_hp=100,
+        max_hp=200_000,
+        hp_updated_at=now - timedelta(minutes=1),
+    )
+    assert apply_regen(w, now=now, endurance=3888) is True
+    assert w.current_hp == 100 + base_hp_regen_per_min(3888)
+    assert w.current_hp != 100 + base_hp_regen_per_min(21)
+
+
+def test_apply_abyss_regen_uses_effective_endurance():
+    from waifu_bot.services.energy import base_hp_regen_per_min
+
+    now = datetime.now(timezone.utc)
+    w = SimpleNamespace(
+        endurance=21,
+        current_hp=1,
+        max_hp=200_000,
+        hp_updated_at=now - timedelta(minutes=1),
+    )
+    assert apply_abyss_regen(w, now=now, endurance=3888) is True
+    assert w.current_hp == 1 + base_hp_regen_per_min(3888)
+
+
+def test_context_helper_forwards_effective_endurance():
+    from waifu_bot.services.energy import base_hp_regen_per_min
+
+    now = datetime.now(timezone.utc)
+    w = SimpleNamespace(
+        endurance=21,
+        current_hp=50,
+        max_hp=200_000,
+        hp_updated_at=now - timedelta(minutes=1),
+    )
+    apply_hp_regen_for_context(
+        w, None, context="solo", now=now, endurance=3888
+    )
+    assert w.current_hp == 50 + base_hp_regen_per_min(3888)

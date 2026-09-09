@@ -61,6 +61,7 @@ PQ_SUFFIX_FAMILIES: tuple[str, ...] = (
 POTION_ID = "potion_hp"
 SALVE_ID = "salve_party"
 POTION_HP_FRAC = 0.40
+POTION_LAST_HP_FRAC = 0.20
 SALVE_AVG_FRAC = 0.55
 REST_REGEN_FRAC = 0.10
 POTION_HEAL_FRAC = 0.35
@@ -849,20 +850,23 @@ def resolve_shop(
     bought_gear = any(b.get("kind") == "gear" for b in bought)
     if not bought_gear:
         _apply_sharpen(merc, shop_band, bought)
-    upgrade_reserve = _shop_save_reserve(
-        merc, shop_offers(merc, depth=depth, seed=seed, cycle=cycle, band=shop_band), bought
-    )
+    offers = shop_offers(merc, depth=depth, seed=seed, cycle=cycle, band=shop_band)
+    _buy_consumables(merc, offers, bought)
+    upgrade_reserve = _shop_save_reserve(merc, offers, bought)
     day_cap = merc_gold_cap_day(shop_band)
     if upgrade_reserve > merc.gold_wallet + day_cap:
         upgrade_reserve = 0
     extra = 0
     while extra < 16 and _apply_sharpen(merc, shop_band, bought, reserve=upgrade_reserve):
         extra += 1
-    offers = shop_offers(merc, depth=depth, seed=seed, cycle=cycle, band=shop_band)
-    reserve = _shop_save_reserve(merc, offers, bought)
+    merc.last_shop_buy = list(bought)
+    return bought
+
+
+def _buy_consumables(merc: MercState, offers: list[ShopOffer], bought: list[dict[str, Any]]) -> None:
     if filled_gear_slots(merc) < 4:
-        merc.last_shop_buy = list(bought)
-        return bought
+        return
+    reserve = _shop_empty_slot_reserve(merc, offers, bought)
     for offer in offers:
         if offer.kind != "consumable" or not offer.consumable_id:
             continue
@@ -884,12 +888,25 @@ def resolve_shop(
                     "who": merc.name,
                 }
             )
-    merc.last_shop_buy = list(bought)
-    return bought
+
+
+def _shop_empty_slot_reserve(merc: MercState, offers: list[ShopOffer], bought: list[dict[str, Any]]) -> int:
+    """Hold gold for a still-empty gear slot. Do not reserve endless sharpen."""
+    pending: list[int] = []
+    bought_gear_slots = {int(b["slot"]) for b in bought if b.get("kind") == "gear" and b.get("slot")}
+    for offer in offers:
+        if offer.kind != "gear" or not offer.slot:
+            continue
+        slot = int(offer.slot)
+        if slot in bought_gear_slots:
+            continue
+        if equipped_ilvl(merc, slot) <= 0:
+            pending.append(int(offer.price))
+    return min(pending) if pending else 0
 
 
 def _shop_save_reserve(merc: MercState, offers: list[ShopOffer], bought: list[dict[str, Any]]) -> int:
-    """Keep gold for the next gear/sharpen so potions cannot empty the wallet."""
+    """Keep leftover gold for the next gear/sharpen after potions."""
     pending: list[int] = []
     bought_gear_slots = {int(b["slot"]) for b in bought if b.get("kind") == "gear" and b.get("slot")}
     bought_sharpen = any(b.get("kind") == "sharpen" for b in bought)
@@ -933,7 +950,11 @@ def auto_use_potions(mercs: list[MercState], *, before_boss: bool = False) -> li
         target = min(living, key=lambda m: m.hp_current / max(1, m.hp_max))
         if target.hp_max <= 0 or (target.hp_current / target.hp_max) >= POTION_HP_FRAC:
             break
-        holder = next((m for m in mercs if int(m.bag.get(POTION_ID, 0)) > 0), None)
+        holder = next((m for m in mercs if int(m.bag.get(POTION_ID, 0)) > 1), None)
+        if holder is None:
+            crit = before_boss or (target.hp_current / target.hp_max) < POTION_LAST_HP_FRAC
+            if crit:
+                holder = next((m for m in mercs if int(m.bag.get(POTION_ID, 0)) > 0), None)
         if holder is None:
             break
         holder.bag[POTION_ID] = int(holder.bag.get(POTION_ID, 0)) - 1

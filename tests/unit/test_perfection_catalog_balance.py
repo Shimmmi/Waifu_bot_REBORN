@@ -59,6 +59,15 @@ def test_icefear_scale_regen_pick_is_meaningful():
     assert extra >= 50  # vastly above old +2
 
 
+def test_allocated_end_must_not_starve_high_paragon_regen():
+    """IceFear: 21 allocated END vs ~3888 effective — regen must use the latter."""
+    allocated = 21
+    effective = 21 + 173 + 3694  # allocated + gear + paragon (no transcend)
+    assert base_hp_regen_per_min(allocated) == 16
+    assert base_hp_regen_per_min(effective) == 5 + (effective - 10)
+    assert base_hp_regen_per_min(effective) > 3800
+
+
 def test_apply_regen_uses_regen_pct():
     now = datetime.now(timezone.utc)
     waifu = SimpleNamespace(

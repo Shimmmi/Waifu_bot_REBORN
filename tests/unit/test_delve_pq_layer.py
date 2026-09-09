@@ -79,6 +79,13 @@ def test_hole_drain_table():
     assert boss_drain_hole(36, 3, 48, d_fair=9) >= 38
 
 
+def test_comfort_power_cuts_drain_at_depth_100():
+    assert combat_drain(100, 200) < combat_drain(100, 80)
+    weak = combat_drain_hole(50, 80, 48, d_fair=d_max_of(80))
+    strong = combat_drain_hole(50, 200, 48, d_fair=d_max_of(200))
+    assert strong < weak
+
+
 def test_phrase_has_no_double_name():
     phrase = assemble_phrase(
         kind="monster",

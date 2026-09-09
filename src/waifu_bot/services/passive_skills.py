@@ -548,7 +548,7 @@ async def apply_passive_hire_cost(session: AsyncSession, player_id: int, base_co
 
 
 async def effective_main_waifu_charm(session: AsyncSession, player_id: int) -> int:
-    """ОБА основной вайфу + бонусы с экипировки (как в /shop/inventory)."""
+    """ОБА как в профиле: очки вайфу + шмот + Трансценд. + paragon chm_flat."""
     waifu = await session.scalar(select(MainWaifu).where(MainWaifu.player_id == int(player_id)))
     if not waifu:
         return 0
@@ -565,11 +565,23 @@ async def effective_main_waifu_charm(session: AsyncSession, player_id: int) -> i
     # Ленивый импорт: routes тянет passive_skills на уровне модуля.
     from waifu_bot.api.routes import calculate_item_bonuses
 
-    total = 0
+    total = int(getattr(waifu, "charm", 0) or 0)
     for inv in rows or []:
         b = calculate_item_bonuses(inv)
         total += int(b.get("charm", 0) or 0)
-    return int(getattr(waifu, "charm", 0) or 0) + total
+    try:
+        ps = await get_passive_skill_bonuses(session, int(player_id))
+        total += int(ps.get("main_stats_flat", 0) or 0)
+    except Exception:
+        logger.debug("effective_main_waifu_charm passives failed player_id=%s", player_id, exc_info=True)
+    try:
+        from waifu_bot.services.perfection import load_perfection_totals, primary_flat_from_totals
+
+        pt = await load_perfection_totals(session, int(player_id))
+        total += int(primary_flat_from_totals(pt).get("charm", 0) or 0)
+    except Exception:
+        logger.debug("effective_main_waifu_charm paragon failed player_id=%s", player_id, exc_info=True)
+    return total
 
 
 async def merchant_discount_pct_for_player(session: AsyncSession, player_id: int) -> float:
@@ -622,6 +634,20 @@ def apply_charm_training_discount(cost: int, charm: int) -> int:
 
     f = _charm_discount_fraction(charm, CHM_TRAINING_DISCOUNT_COEFF)
     return max(1, int(round(int(cost) * (1.0 - f))))
+
+
+def apply_charm_smith_discount(cost: int, charm: int) -> int:
+    """Gold for forge services and gamble: min(50%, ОБА × 0.1%)."""
+    from waifu_bot.game.constants import CHM_SMITH_DISCOUNT_COEFF
+
+    f = _charm_discount_fraction(charm, CHM_SMITH_DISCOUNT_COEFF)
+    return max(1, int(round(int(cost) * (1.0 - f))))
+
+
+async def apply_charm_smith_gold(session: AsyncSession, player_id: int, cost: int) -> int:
+    """Apply live forge/gamble charm discount using effective ОБА."""
+    ch = await effective_main_waifu_charm(session, int(player_id))
+    return apply_charm_smith_discount(int(cost), ch)
 
 
 def compute_passive_learn_cost_from_bonuses(

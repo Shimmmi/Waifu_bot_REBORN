@@ -148,6 +148,7 @@ CHM_HIRE_DISCOUNT_COEFF = 0.001     # hire discount per ОБА (0.1%/point)
 CHM_TRAINING_DISCOUNT_COEFF = 0.0015  # training hall discount per ОБА (0.15%/point)
 # Скидка у торговца (покупка в магазине): % = min(50, эффективный_ОБА × coeff × 100) + flat с предметов
 CHM_MERCHANT_DISCOUNT_COEFF = 0.0065  # ~6.5%/point, cap 50% (сильнее, чем 0.1%/point у найма)
+CHM_SMITH_DISCOUNT_COEFF = 0.001    # кузница + гембл: 0.1%/point, cap 50% (как найм, не как торговец)
 CHM_DEATH_GOLD_PENALTY_BASE = 0.50  # base gold penalty on death: 50%
 CHM_DEATH_GOLD_PENALTY_COEFF = 0.001  # penalty reduction per ОБА (0.1%/point)
 

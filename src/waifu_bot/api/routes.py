@@ -439,6 +439,7 @@ def _compute_details(
         CHM_HIRE_DISCOUNT_COEFF,
         CHM_MERCHANT_DISCOUNT_COEFF,
         CHM_TRAINING_DISCOUNT_COEFF,
+        CHM_SMITH_DISCOUNT_COEFF,
     )
     base_crit = float(calculate_crit_chance(int(agility), int(luck))) * 100.0
     crit_chance = base_crit + float(total_bonuses.get("crit_chance_flat", 0) or 0)
@@ -504,6 +505,7 @@ def _compute_details(
     # Найм / тренировки: как у торговли — потолок 50% (без «−161%» в UI)
     hire_discount_pct = min(50.0, charm * CHM_HIRE_DISCOUNT_COEFF * 100.0)
     training_discount_pct = min(50.0, charm * CHM_TRAINING_DISCOUNT_COEFF * 100.0)
+    smith_discount_pct = min(50.0, charm * CHM_SMITH_DISCOUNT_COEFF * 100.0)
 
     return {
         "hp_current": main.current_hp,
@@ -525,6 +527,7 @@ def _compute_details(
         "merchant_discount": round(merchant_discount, 2),
         "hire_discount": round(hire_discount_pct, 2),
         "training_discount": round(training_discount_pct, 2),
+        "smith_discount": round(smith_discount_pct, 2),
         "exp_bonus": round(exp_bonus_pct, 2),
         "gold_bonus": round(gold_bonus_pct, 2),
         "item_drop_bonus": round(item_drop_bonus_pct, 2),
@@ -931,7 +934,10 @@ async def get_profile(
                 post_max = int(main_waifu.max_hp or 0)
                 # Passive profile poll: solo regen accrues offline; Abyss only while online.
                 # Never updates last_combat_action_at here.
-                from waifu_bot.services.combat_regen import is_player_online
+                from waifu_bot.services.combat_regen import (
+                    is_player_online,
+                    resolve_regen_endurance,
+                )
 
                 suppress_regen = False
                 active_run = (
@@ -962,10 +968,12 @@ async def get_profile(
                     regen_pct = hp_regen_pct_from_totals(perfection_totals_dict(player))
                 except Exception:
                     pass
+                regen_end = await resolve_regen_endurance(session, player_id, main_waifu)
                 regen_changed = apply_regen(
                     main_waifu,
                     suppress=suppress_regen,
                     regen_pct=regen_pct,
+                    endurance=regen_end,
                 )
                 if regen_changed or post_max != pre_max:
                     await session.commit()

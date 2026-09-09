@@ -7,11 +7,13 @@ This module remains for historical distribution audits only.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from waifu_bot.game.item_grade_names import CANON_WEAPON_LINES
 from waifu_bot.game.legendary_bonuses.compat import bonuses_compatible, slot_allowed
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,18 +30,6 @@ CURATED: dict[tuple[str, int], list[str]] = {
     ("Кольцо вечности", 10): ["SURVIVOR_SPIRIT", "RARITY_SYNERGY"],
     ("Медальон стражника", 5): ["MORNING_RITUAL", "FIRST_DAILY_DUNGEON"],
 }
-
-# Import canon weapon lines from seed script (single source of truth)
-import importlib.util
-
-_seed_spec = importlib.util.spec_from_file_location(
-    "seed_item_base_grades",
-    ROOT / "scripts" / "seed_item_base_grades.py",
-)
-_seed = importlib.util.module_from_spec(_seed_spec)
-assert _seed_spec.loader is not None
-_seed_spec.loader.exec_module(_seed)
-CANON_WEAPON_LINES = _seed.CANON_WEAPON_LINES
 
 
 def slot_type_from_template(item_type: str, subtype: str) -> str:

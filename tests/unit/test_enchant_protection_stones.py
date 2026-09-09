@@ -53,6 +53,8 @@ def test_enchant_success_plus8_keeps_protection_stone() -> None:
         with (
             patch("waifu_bot.services.enchanting.get_game_config_map", AsyncMock(return_value=cfg)),
             patch("waifu_bot.services.enchanting.get_hidden_skill_bonuses", AsyncMock(return_value={})),
+            patch("waifu_bot.services.passive_skills.apply_charm_smith_gold", AsyncMock(side_effect=lambda _s, _p, c: int(c))),
+            patch("waifu_bot.services.wallet.spend_gold", AsyncMock()),
             patch("waifu_bot.services.enchanting.record_hidden_gold_spend", AsyncMock()),
             patch("waifu_bot.services.enchanting.random.random", return_value=0.01),
             patch("waifu_bot.services.enchanting._maybe_awaken_fraction", AsyncMock(return_value=None)),
@@ -82,6 +84,8 @@ def test_enchant_fail_plus8_consumes_protection_stone() -> None:
         with (
             patch("waifu_bot.services.enchanting.get_game_config_map", AsyncMock(return_value=cfg)),
             patch("waifu_bot.services.enchanting.get_hidden_skill_bonuses", AsyncMock(return_value={})),
+            patch("waifu_bot.services.passive_skills.apply_charm_smith_gold", AsyncMock(side_effect=lambda _s, _p, c: int(c))),
+            patch("waifu_bot.services.wallet.spend_gold", AsyncMock()),
             patch("waifu_bot.services.enchanting.record_hidden_gold_spend", AsyncMock()),
             patch("waifu_bot.services.enchanting.random.random", return_value=0.99),
         ):
@@ -117,6 +121,7 @@ def test_build_enchant_preview_stone_hints() -> None:
         with (
             patch("waifu_bot.services.enchanting.get_game_config_map", AsyncMock(return_value=cfg)),
             patch("waifu_bot.services.enchanting.get_hidden_skill_bonuses", AsyncMock(return_value={})),
+            patch("waifu_bot.services.passive_skills.apply_charm_smith_gold", AsyncMock(side_effect=lambda _s, _p, c: int(c))),
             patch("waifu_bot.services.enchanting._resolve_for_inv", AsyncMock(return_value=resolved)),
         ):
             preview = await build_enchant_preview(session, 101, 1)

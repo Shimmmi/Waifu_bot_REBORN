@@ -1382,4 +1382,5 @@ Legacy `/gd_start`, `/engage` отключены.
 |----------|------------|
 | [ARCHITECTURE_AND_INTERACTIONS.md](ARCHITECTURE_AND_INTERACTIONS.md) | Runtime-архитектура |
 | [COMBAT_FORMULAS.md](COMBAT_FORMULAS.md) | Боевые формулы (баланс) |
+| [ELITE_MONSTER_AFFIXES.md](ELITE_MONSTER_AFFIXES.md) | Аффиксы элитных монстров |
 | [technical_spec.md](technical_spec.md) | Техническая спецификация |

@@ -480,6 +480,7 @@ class MainWaifuDetails(BaseModel):
     damage_reduction: float = 0.0
     hire_discount: float = 0.0
     training_discount: float = 0.0
+    smith_discount: float = 0.0
     item_drop_bonus: float = 0.0
 
 

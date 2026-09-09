@@ -173,6 +173,9 @@ async def quote(session: AsyncSession, player_id: int, item_id: int, affix_row_i
         return {"error": "affix_not_found"}
     cfg = await get_game_config_map(session)
     dust, gold = temper_costs(inv, cfg)
+    from waifu_bot.services.passive_skills import apply_charm_smith_gold
+
+    gold = await apply_charm_smith_gold(session, int(player_id), int(gold))
     n = int(inv.temper_reroll_count or 0)
     open_pending = await session.scalar(
         select(m.TemperPending).where(
@@ -244,6 +247,9 @@ async def start_roll(
             return {"error": "open_pending", "pending": _serialize_pending(open_pending)}
     cfg = await get_game_config_map(session)
     dust, gold = temper_costs(inv, cfg)
+    from waifu_bot.services.passive_skills import apply_charm_smith_gold
+
+    gold = await apply_charm_smith_gold(session, int(player_id), int(gold))
     ttl = cfg_int(cfg, "temper.pending_ttl_sec", 600)
     from waifu_bot.services import wallet as wallet_svc
 

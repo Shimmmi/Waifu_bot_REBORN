@@ -25,7 +25,8 @@
 | **ВЫН (endurance)** | Максимальное HP | `game/formulas.py::calculate_max_hp` | `BASE_HP_PER_LEVEL`, `HP_K_COEFFICIENT` |
 |  | Защита во вкладке Info | `api/routes.py::_compute_details` | `base_defense = max(0, endurance-10)` |
 |  | **Реген HP** | `services/energy.py::apply_regen` | **5 HP/мин + max(0, ВЫН-10) HP/мин** + perfection `%_regen` × базы |
-| **ОБА (charm)** | Скидка у торговцев во вкладке Info | `api/routes.py::_compute_details` | `merchant_discount = clamp((charm-10)*1%, 0..50%) + item bonuses` |
+| **ОБА (charm)** | Скидка у торговцев во вкладке Info | `api/routes.py::_compute_details` | `merchant_discount = min(50, charm × 0.65%) + item bonuses` |
+|  | Золото кузницы и гембла | `passive_skills.apply_charm_smith_discount` | `min(50%, ОБА × 0.1%)` |
 |  | Цена покупки в магазине | `game/formulas.py::calculate_shop_price` | **base * (1 - discount%)** |
 |  | Цена продажи (инвентарь → золото) | `game/formulas.py::calculate_shop_price` | `0.5..0.9` по той же скидке |
 | **УДЧ (luck)** | Крит шанс в бою | `game/formulas.py::calculate_crit_chance` | `CRIT_CHANCE_LUCK` |
@@ -58,11 +59,12 @@
   `src/waifu_bot/services/energy.py::apply_regen`
 
 ### ОБА (charm)
-- **Скидка (Info)**: `base_merchant_discount = clamp((charm-10)*1%, 0..50%)` + экипировка  
-  `src/waifu_bot/api/routes.py::_compute_details`
-- **Цена в магазине**: должна соответствовать этой скидке  
-  `src/waifu_bot/game/formulas.py::calculate_shop_price`  
-  `src/waifu_bot/api/routes.py::get_shop_inventory` (передаёт effective charm)
+- **Скидка у торговца (Info)**: `min(50, эффективный_ОБА × 0.65%)` + flat/% с экипировки  
+  `src/waifu_bot/services/passive_skills.py::merchant_discount_pct_for_player`
+- **Кузница и гембл**: `min(50%, эффективный_ОБА × 0.1%)` к золоту заточки / доводки / закалки / перековки / гембла (не к пыли и материалам)  
+  `src/waifu_bot/services/passive_skills.py::apply_charm_smith_discount`
+- **Цена в магазине**: должна соответствовать скидке торговца  
+  `src/waifu_bot/game/formulas.py::calculate_shop_price`
 
 ### УДЧ (luck)
 - **Крит/уворот в бою**: см. `calculate_crit_chance`, `calculate_dodge_chance`  

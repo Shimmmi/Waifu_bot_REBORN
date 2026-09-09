@@ -280,7 +280,11 @@ def overage_g(depth: int, d_fair: int) -> float:
 
 
 def drain_frac(depth: int, d_fair: int) -> float:
-    return DRAIN_BASE_FRAC * (DRAIN_LAMBDA ** overage_g(depth, d_fair))
+    fair = max(1, int(d_fair))
+    u = float(max(0, int(depth))) / float(fair)
+    if u <= 1.0:
+        return DRAIN_BASE_FRAC * u
+    return DRAIN_BASE_FRAC * (DRAIN_LAMBDA ** overage_g(depth, fair))
 
 
 def _clip_hp_frac(raw: float, *, floor: int, cap_frac: float, hp_ref: int) -> int:

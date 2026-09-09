@@ -15,6 +15,8 @@
 
 Константы: [`src/waifu_bot/game/constants.py`](../src/waifu_bot/game/constants.py) (`END_DAMAGE_REDUCTION_CAP = 0.35`, `ARMOR_K_BASE = 50`, `ARMOR_K_PER_LEVEL = 9`, `ARMOR_DR_CAP = 0.75`, потолок пула `0.90` в [`combat.py`](../src/waifu_bot/services/combat.py)).
 
+Рефлект элиты (`REFLECT`) **не** идёт через этот пул: это `% макс. HP` вайфу без брони. См. [`ELITE_MONSTER_AFFIXES.md`](ELITE_MONSTER_AFFIXES.md).
+
 ## Журнал боя: полная атрибуция
 
 Каждый источник изменения — отдельная строка в `damage_breakdown` / `incoming_breakdown`:
@@ -40,6 +42,7 @@
 4. **Элита** — curse, stone_skin, иммунитет/блок медиа (до крита).
 5. **Крит** — отдельный множитель: `get_crit_multiplier(СИЛ) + crit_mult_add + crit_dmg_melee_pct + (leg_crit_mult − 1)` для melee; «Гнев героя» **прибавляется** к mult, не умножает `(1 + X)`.
 6. **После крита** — flat/extra_hits легендарок (без повторного % mult), защита/уклонение монстра, weakness, finisher.
+7. **REFLECT элиты** — после финального исходящего урона (> 0, без уклонения): с шансом снять `round(waifu.max_hp × reflect_pct)` HP вайфу **без брони**. Тиры 25/50/75% макс. HP. Каталог: [`ELITE_MONSTER_AFFIXES.md`](ELITE_MONSTER_AFFIXES.md).
 
 Журнал: contrib-строки по каждому источнику пула, затем один шаг `outgoing_bonus_pool` «Бонусный коэффициент: +X% (×Y)».
 
@@ -56,7 +59,7 @@
 
 Сбор per-item: [`engine.py`](../src/waifu_bot/game/legendary_bonuses/engine.py) (`LegendaryBonusContrib`), трассировка: [`combat_damage_trace.py`](../src/waifu_bot/services/combat_damage_trace.py) (`append_legendary_post_crit_trace`).
 
-См. также [`docs/PASSIVE_SKILLS_QA.md`](PASSIVE_SKILLS_QA.md), [`docs/QA_STATS_BONUSES_SKILLS_CHECKLIST.md`](QA_STATS_BONUSES_SKILLS_CHECKLIST.md).
+См. также [`docs/PASSIVE_SKILLS_QA.md`](PASSIVE_SKILLS_QA.md), [`docs/QA_STATS_BONUSES_SKILLS_CHECKLIST.md`](QA_STATS_BONUSES_SKILLS_CHECKLIST.md), [`docs/ELITE_MONSTER_AFFIXES.md`](ELITE_MONSTER_AFFIXES.md).
 
 ## Награды за активность в чате (не урон)
 
