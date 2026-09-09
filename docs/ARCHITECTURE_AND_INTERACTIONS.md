@@ -2,7 +2,7 @@
 
 > **Purpose:** Exhaustive runtime reference for performance tuning, reliability analysis, and onboarding.  
 > **Scope:** Architecture, data flows, APIs, background work, Redis/PostgreSQL touchpoints, and operational hotspots.  
-> **Formulas / balance:** See linked domain docs ([COMBAT_FORMULAS.md](COMBAT_FORMULAS.md), [technical_spec.md](technical_spec.md)); this document does not duplicate numeric tables.  
+> **Formulas / balance:** See linked domain docs ([COMBAT_FORMULAS.md](COMBAT_FORMULAS.md), [ELITE_MONSTER_AFFIXES.md](ELITE_MONSTER_AFFIXES.md), [technical_spec.md](technical_spec.md)); this document does not duplicate numeric tables.  
 > **Generated from codebase audit:** 2026-06-03. All HTTP paths are prefixed with `/api` unless noted.
 
 ---
@@ -1160,6 +1160,7 @@ See [PERFORMANCE_RUNBOOK.md](PERFORMANCE_RUNBOOK.md) for monitoring and rollback
 |-----|--------|
 | [technical_spec.md](technical_spec.md) | Product spec, entities, formulas overview |
 | [COMBAT_FORMULAS.md](COMBAT_FORMULAS.md) | Damage, stats, regen |
+| [ELITE_MONSTER_AFFIXES.md](ELITE_MONSTER_AFFIXES.md) | Elite monster affix catalog |
 | [CHAT_ACTIVITY_REWARDS.md](CHAT_ACTIVITY_REWARDS.md) | Chat reward economy |
 | [GROUP_DUNGEONS_ANALYSIS_AND_PLAN.md](GROUP_DUNGEONS_ANALYSIS_AND_PLAN.md) | GD design history |
 | [GD_DEBUG_SYSTEM.md](GD_DEBUG_SYSTEM.md) | GD admin/debug commands |

@@ -836,7 +836,10 @@ function formatAffixBehaviorLine(a) {
   }
   if (flag === "REFLECT") {
     const chance = p.chance != null ? `${pct(p.chance)}% шанс` : "";
-    const amt = p.reflect_pct != null ? `отражает ${pct(p.reflect_pct)}%` : "отражает урон";
+    const amt =
+      p.reflect_pct != null
+        ? `отражает ${pct(p.reflect_pct)}% макс. HP (без брони)`
+        : "отражает % макс. HP (без брони)";
     return [chance, amt].filter(Boolean).join(", ");
   }
   if (flag === "SPLIT") {

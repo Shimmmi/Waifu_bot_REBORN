@@ -204,7 +204,7 @@ def apply_regen_after_hit(
 
 
 def reflect_params(affix_rows: list[MonsterAffix]) -> tuple[float, float]:
-    """Max chance / reflect_pct from REFLECT affixes."""
+    """Max chance / reflect_pct (fraction of waifu max HP) from REFLECT affixes."""
     ch = 0.0
     pct = 0.0
     for a in affix_rows:
@@ -316,9 +316,10 @@ def buff_next_multipliers_for_new_monster(
     return hp_m, dmg_m
 
 
-def roll_reflect(chance: float, reflect_pct: float, damage_to_monster: int) -> int:
-    if damage_to_monster <= 0 or chance <= 0 or reflect_pct <= 0:
+def roll_reflect(chance: float, reflect_pct: float, waifu_max_hp: int) -> int:
+    """True-HP reflect: on proc, round(max_hp * reflect_pct), minimum 1. No armor."""
+    if waifu_max_hp <= 0 or chance <= 0 or reflect_pct <= 0:
         return 0
     if random.random() >= float(chance):
         return 0
-    return max(0, int(float(damage_to_monster) * float(reflect_pct)))
+    return max(1, int(round(float(waifu_max_hp) * float(reflect_pct))))

@@ -15,6 +15,8 @@ from waifu_bot.services.elite_affix_combat import (
     apply_stone_skin_to_damage,
     buff_next_multipliers_for_new_monster,
     effective_crit_chance_after_anti_crit,
+    reflect_params,
+    roll_reflect,
     stone_skin_reduction,
 )
 
@@ -249,3 +251,52 @@ def test_buff_next_from_earlier_elite() -> None:
     e1.current_hp = 0
     hp_m2, _ = buff_next_multipliers_for_new_monster([e1], {99: aff}, 2)
     assert hp_m2 == pytest.approx(1.0)
+
+
+def test_reflect_params_picks_highest_chance() -> None:
+    t1 = MonsterAffix(
+        id=1,
+        name="-отражатель",
+        affix_group="reflect",
+        tier=1,
+        type="suffix",
+        category="behavior",
+        behavior_flag="REFLECT",
+        behavior_params={"chance": 0.15, "reflect_pct": 0.25},
+    )
+    t3 = MonsterAffix(
+        id=3,
+        name="-призма",
+        affix_group="reflect",
+        tier=3,
+        type="suffix",
+        category="behavior",
+        behavior_flag="REFLECT",
+        behavior_params={"chance": 0.35, "reflect_pct": 0.75},
+    )
+    ch, pct = reflect_params([t1, t3])
+    assert ch == pytest.approx(0.35)
+    assert pct == pytest.approx(0.75)
+
+
+def test_roll_reflect_pct_of_max_hp(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("waifu_bot.services.elite_affix_combat.random.random", lambda: 0.0)
+    assert roll_reflect(1.0, 0.25, 200) == 50
+    assert roll_reflect(1.0, 0.50, 200) == 100
+    assert roll_reflect(1.0, 0.75, 200) == 150
+
+
+def test_roll_reflect_miss(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("waifu_bot.services.elite_affix_combat.random.random", lambda: 0.99)
+    assert roll_reflect(0.15, 0.25, 1000) == 0
+
+
+def test_roll_reflect_min_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("waifu_bot.services.elite_affix_combat.random.random", lambda: 0.0)
+    assert roll_reflect(1.0, 0.25, 1) == 1
+
+
+def test_roll_reflect_ignores_zero_hp() -> None:
+    assert roll_reflect(1.0, 0.25, 0) == 0
+    assert roll_reflect(0.0, 0.25, 100) == 0
+    assert roll_reflect(1.0, 0.0, 100) == 0
