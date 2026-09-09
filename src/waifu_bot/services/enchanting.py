@@ -271,6 +271,28 @@ def apply_enchant_chance_bonus(base_chance: float, enchant_chance_pct: float) ->
     return min(0.99, max(0.01, float(base_chance) - chb / 100.0))
 
 
+async def _enchant_gold_after_discounts(
+    session: AsyncSession,
+    player_id: int,
+    cost: int,
+) -> tuple[int, dict[str, float]]:
+    """Charm discount first, then hidden-skill ``enchant_cost_pct``."""
+    from waifu_bot.services.passive_skills import apply_charm_smith_gold
+
+    raw = int(cost)
+    try:
+        cost = await apply_charm_smith_gold(session, int(player_id), raw)
+    except Exception:
+        cost = raw
+    hs: dict[str, float] = {}
+    try:
+        hs = await get_hidden_skill_bonuses(session, int(player_id))
+        cost = apply_enchant_cost_bonus(cost, float(hs.get("enchant_cost_pct", 0) or 0))
+    except Exception:
+        hs = {}
+    return int(cost), hs
+
+
 def enchant_cost_gold(
     base_value: int,
     current_enchant_level: int,
@@ -369,12 +391,7 @@ async def enchant_inventory_item(
         item_rarity=_inventory_rarity(inv),
         item_level=_inventory_item_level(inv),
     )
-    hs_enchant: dict[str, float] = {}
-    try:
-        hs_enchant = await get_hidden_skill_bonuses(session, int(player_id))
-        cost = apply_enchant_cost_bonus(cost, float(hs_enchant.get("enchant_cost_pct", 0) or 0))
-    except Exception:
-        hs_enchant = {}
+    cost, hs_enchant = await _enchant_gold_after_discounts(session, int(player_id), cost)
     if int(player.gold or 0) < cost:
         return {"error": "insufficient_gold", "required": cost, "have": int(player.gold or 0)}
 
@@ -537,16 +554,11 @@ async def build_enchant_preview(session: AsyncSession, inventory_item_id: int, p
         item_rarity=_inventory_rarity(inv),
         item_level=_inventory_item_level(inv),
     )
-    hs_enchant: dict[str, float] = {}
-    try:
-        hs_enchant = await get_hidden_skill_bonuses(session, int(player_id))
-        cost = apply_enchant_cost_bonus(cost, float(hs_enchant.get("enchant_cost_pct", 0) or 0))
-        if chance is not None:
-            chance = apply_enchant_chance_bonus(
-                chance, float(hs_enchant.get("enchant_chance_pct", 0) or 0)
-            )
-    except Exception:
-        pass
+    cost, hs_enchant = await _enchant_gold_after_discounts(session, int(player_id), cost)
+    if chance is not None:
+        chance = apply_enchant_chance_bonus(
+            chance, float(hs_enchant.get("enchant_chance_pct", 0) or 0)
+        )
     on_fail = "—"
     if is_risky:
         if target == 10:

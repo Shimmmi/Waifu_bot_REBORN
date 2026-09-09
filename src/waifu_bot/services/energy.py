@@ -1,6 +1,7 @@
 """HP regeneration over time (energy system removed).
 
-Rate: 5 HP/min + END bonus. Minute-based ticks.
+Rate: 5 HP/min + max(0, effective END − 10). Minute-based ticks.
+Effective END = allocated + gear + main_stats_flat + paragon end_flat.
 """
 
 from __future__ import annotations
@@ -27,9 +28,16 @@ def _normalize_ts(ts: datetime, fallback: datetime) -> datetime:
 
 
 def base_hp_regen_per_min(endurance: int) -> int:
-    """Natural regen: 5 HP/min + max(0, END-10)."""
+    """Natural regen: 5 HP/min + max(0, END-10). ``endurance`` should be effective ВЫН."""
     end_bonus = max(0, int(endurance or 0) - 10)
     return int(HP_REGEN_PER_MIN) + int(end_bonus)
+
+
+def endurance_for_hp_regen(waifu: MainWaifu, endurance: int | None = None) -> int:
+    """Prefer caller-supplied effective END; fall back to allocated ``waifu.endurance``."""
+    if endurance is not None:
+        return max(0, int(endurance))
+    return max(0, int(getattr(waifu, "endurance", 0) or 0))
 
 
 def apply_regen(
@@ -39,11 +47,14 @@ def apply_regen(
     extra_hp_per_min: int = 0,
     regen_pct: float = 0.0,
     suppress: bool = False,
+    endurance: int | None = None,
 ) -> bool:
     """
     Regen HP (5/min + END bonus + extras) in discrete minute ticks.
     Returns True if waifu was modified (HP changed).
 
+    - endurance: effective ВЫН (allocated + gear + main_stats_flat + paragon).
+      If omitted, falls back to allocated ``waifu.endurance`` only (tests / legacy).
     - regen_pct: fraction of natural base (perfection %_regen totals).
     - HP: cap at max_hp; if current_hp <= 0, skip (no revive from regen);
       if already at cap, only refresh hp_updated_at.
@@ -83,7 +94,7 @@ def apply_regen(
         delta = (now - last_hp).total_seconds() / 60
         minutes = int(delta)
         if minutes >= 1:
-            base = base_hp_regen_per_min(int(getattr(waifu, "endurance", 0) or 0))
+            base = base_hp_regen_per_min(endurance_for_hp_regen(waifu, endurance))
             pct_extra = max(0, int(round(base * max(0.0, float(regen_pct or 0.0)))))
             per_min = base + max(0, int(extra_hp_per_min)) + pct_extra
             gain = min(minutes * per_min, waifu.max_hp - waifu.current_hp)

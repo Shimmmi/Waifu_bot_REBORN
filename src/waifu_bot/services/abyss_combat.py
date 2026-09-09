@@ -39,7 +39,11 @@ from waifu_bot.services.outgoing_message_damage import (
     compute_base_message_damage,
 )
 from waifu_bot.services.game_config_service import cfg_float, cfg_int, get_game_config_map
-from waifu_bot.services.combat_regen import apply_hp_regen_for_context, is_player_online
+from waifu_bot.services.combat_regen import (
+    apply_hp_regen_for_context,
+    is_player_online,
+    resolve_regen_endurance,
+)
 from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
 from waifu_bot.services.passive_skills import get_passive_skill_bonuses
 from waifu_bot.services.legendary_combat import (
@@ -299,6 +303,7 @@ async def handle_abyss_attack(
         pass
     now = datetime.now(timezone.utc)
     online = is_player_online(player, now=now)
+    regen_end = await resolve_regen_endurance(session, player_id, waifu)
     apply_hp_regen_for_context(
         waifu,
         player,
@@ -306,6 +311,7 @@ async def handle_abyss_attack(
         extra_hp_per_min=hr_pm,
         regen_pct=regen_pct,
         now=now,
+        endurance=regen_end,
     )
     if player is not None:
         player.last_combat_action_at = now

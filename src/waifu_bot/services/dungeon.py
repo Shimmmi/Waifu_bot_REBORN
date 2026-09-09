@@ -716,7 +716,10 @@ class DungeonService:
                 )
             except Exception:
                 pass
-            regen_changed = apply_regen(waifu, regen_pct=regen_pct)
+            from waifu_bot.services.combat_regen import resolve_regen_endurance
+
+            regen_end = await resolve_regen_endurance(session, player_id, waifu)
+            regen_changed = apply_regen(waifu, regen_pct=regen_pct, endurance=regen_end)
             # Entering a dungeon is a real gameplay action: mark online so the
             # first in-run hit counts and in-dungeon regen is allowed.
             from datetime import timezone as _tz

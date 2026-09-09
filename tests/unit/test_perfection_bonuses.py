@@ -12,7 +12,7 @@ from waifu_bot.services.perfection import (
     combat_bonus_ints_from_totals,
     primary_flat_from_totals,
 )
-from waifu_bot.services.waifu_hp import compute_effective_max_hp
+from waifu_bot.services.waifu_hp import compute_effective_endurance, compute_effective_max_hp
 
 
 def _empty_session() -> AsyncMock:
@@ -63,6 +63,38 @@ def test_compute_effective_max_hp_includes_perfection_hp():
         expected = int(round(expected_core * (1.0 + 0.0125)))
         assert boosted == expected
         assert boosted > base
+
+    asyncio.run(_run())
+
+
+def test_compute_effective_endurance_includes_gear_passive_and_paragon():
+    """Regen/profile END: allocated + gear + Трансценд. + end_flat (IceFear-shaped)."""
+
+    async def _run():
+        waifu = SimpleNamespace(level=60, endurance=21, strength=32)
+        gear = SimpleNamespace(
+            base_stat="endurance",
+            base_stat_value=39,
+            affixes=[SimpleNamespace(stat="endurance", value="77")],
+        )
+        session = AsyncMock()
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [gear]
+        session.execute = AsyncMock(return_value=result)
+
+        with patch(
+            "waifu_bot.services.passive_skills.get_passive_skill_bonuses",
+            new_callable=AsyncMock,
+            return_value={"main_stats_flat": 5},
+        ), patch(
+            "waifu_bot.services.perfection.load_perfection_totals",
+            new_callable=AsyncMock,
+            return_value={"end_flat": 3694.0, "str_flat": 1.0},
+        ):
+            end = await compute_effective_endurance(session, 42, waifu)
+
+        # 21 allocated + 39 base + 77 affix + 5 transcend + 3694 paragon
+        assert end == 21 + 39 + 77 + 5 + 3694
 
     asyncio.run(_run())
 

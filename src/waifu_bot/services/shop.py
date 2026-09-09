@@ -23,6 +23,7 @@ from waifu_bot.services.hidden_skills import (
 )
 from waifu_bot.services.item_service import RARITY_WEIGHTS, _pick_weighted
 from waifu_bot.services.passive_skills import (
+    apply_charm_smith_gold,
     apply_passive_buy_price,
     compute_passive_buy_price_from_bonuses,
     get_passive_skill_bonuses,
@@ -282,6 +283,7 @@ class ShopService:
         # Calculate price
         price = calculate_gamble_price(waifu.level)
         price = await apply_passive_buy_price(session, player_id, price)
+        price = await apply_charm_smith_gold(session, player_id, price)
 
         # Check gold
         if player.gold < price:

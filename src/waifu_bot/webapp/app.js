@@ -1295,7 +1295,7 @@ const PROFILE_STAT_TOOLTIPS = {
   agility: "Урон дальнего боя (+1,2 за пункт), уклонение 0,1%/пункт (потолок 40%) и крит 0,1%/пункт.",
   intelligence: "Магический урон и медиа-навыки (+1,2 за пункт), бонус EXP 0,1%/пункт.",
   endurance: "Макс. HP (+12 за пункт), снижение входящего урона 0,08%/пункт (потолок 35% от ВЫН) и реген HP: 5/мин + max(0, ВЫН−10)/мин. Совершенствование даёт % к этой базе.",
-  charm: "Улучшает торговлю и снижает стоимость найма и тренировок.",
+  charm: "Улучшает торговлю и снижает стоимость кузницы, гембла, найма и тренировок.",
   luck: "Крит 0,1%/пункт, шанс добычи, золото с монстров и Magic Find.",
 };
 
@@ -1380,6 +1380,7 @@ function getProfileIndicators(waifu, details = null) {
   const goldBonus = d ? safeNumber(d.gold_bonus, luck * 0.2) : luck * 0.2;
   const hireDiscount = d ? safeNumber(d.hire_discount, charm * 0.1) : charm * 0.1;
   const trainingDiscount = d ? safeNumber(d.training_discount, charm * 0.15) : charm * 0.15;
+  const smithDiscount = d ? safeNumber(d.smith_discount, Math.min(50, charm * 0.1)) : Math.min(50, charm * 0.1);
   const damageReduction = d ? safeNumber(d.damage_reduction, Math.min(35, endurance * 0.08)) : Math.min(35, endurance * 0.08);
   // Live regen: 5 HP/min + max(0, END-10); perfection adds % of this base.
   const hpRegenPerMin = 5 + Math.max(0, Math.floor(endurance) - 10);
@@ -1405,6 +1406,7 @@ function getProfileIndicators(waifu, details = null) {
     damageReduction: profileFormatPercent(damageReduction, 1),
     hireDiscount: profileFormatPercent(hireDiscount, 1),
     trainingDiscount: profileFormatPercent(trainingDiscount, 1),
+    smithDiscount: profileFormatPercent(smithDiscount, 1),
     merchant: `покупка ${buyPct}% · продажа ${sellPct}%`,
     hpRegen: `${hpRegenPerMin} HP/мин`,
     armor: safeNumber(d?.armor, 0),
@@ -1443,8 +1445,10 @@ function profileStatBonusLines(statKey, waifu, details = null) {
     }
     case "charm": {
       const deathPenalty = Math.max(0, 50 - total * 0.1);
+      const smithPct = Math.min(50, total * 0.1);
       return [
         `Торговля: покупка ~${Math.max(100, Math.round(200 - total * 0.2))}%, продажа ~${Math.min(99, Math.round(50 + total * 0.05))}%`,
+        `-${profileFormatPercent(smithPct, 1)} к золоту кузницы и гембла (потолок 50%)`,
         `-${profileFormatPercent(total * 0.1, 1)} к стоимости найма вайфу`,
         `-${profileFormatPercent(total * 0.15, 1)} к стоимости тренировок`,
         `Штраф золота при смерти: ${deathPenalty.toFixed(1)}%`,
@@ -5301,13 +5305,20 @@ async function generateMerchantLine(context) {
   return window.__shopMerchantLine;
 }
 
-/** Цена гембы как на бэкенде (game.constants + formulas.calculate_gamble_price). */
+/** Цена гембы как на бэкенде (game.constants + formulas.calculate_gamble_price + ОБА). */
 function calculateGamblePriceClient(level) {
   const GAMBLE_BASE_PRICE = 1000;
   const GAMBLE_PRICE_PER_LEVEL = 200;
   const GAMBLE_MAX_PRICE = 10000;
   const lv = Math.max(1, Number(level) || 1);
-  return Math.min(GAMBLE_BASE_PRICE + lv * GAMBLE_PRICE_PER_LEVEL, GAMBLE_MAX_PRICE);
+  const raw = Math.min(GAMBLE_BASE_PRICE + lv * GAMBLE_PRICE_PER_LEVEL, GAMBLE_MAX_PRICE);
+  const w = profileState.currentProfile?.main_waifu;
+  const charm = profileStatValue(w, "charm");
+  const d = profileState.currentDetails;
+  const discPct = d
+    ? Math.min(50, safeNumber(d.smith_discount, Math.min(50, charm * 0.1)))
+    : Math.min(50, charm * 0.1);
+  return Math.max(1, Math.round(raw * (1 - discPct / 100)));
 }
 
 function updateShopGambleCost() {
@@ -8378,7 +8389,7 @@ function goShopSmithEnchant(inventoryItemId, work) {
 function goShopSmithEnchantFromModal() {
   const it = profileState.selectedItem;
   if (!it?.id) return;
-  goShopSmithEnchant(it.id, smithWorkForItem(it));
+  goShopSmithEnchant(it.id, "sharpen");
 }
 
 function renderWeaponStatsHtml(item) {
@@ -8695,6 +8706,11 @@ function renderProfileIndicators(waifu, details = null) {
     ["Бонус золота", indicators.goldBonus],
     ["Скидка найма", indicators.hireDiscount],
     ["Скидка трен.", indicators.trainingDiscount],
+    [
+      "Кузница / гембл",
+      indicators.smithDiscount,
+      "Скидка ОБА к золоту заточки, доводки, закалки, перековки и гембла: 0,1%/пункт, потолок 50%. Пыль и материалы без скидки.",
+    ],
     [
       "Реген HP",
       indicators.hpRegen,
@@ -15668,7 +15684,7 @@ function statsGuideContentHtml() {
     <p><strong>Полное уклонение</strong> — отдельная строка и отдельный бросок в бою (например «Шаг тени»). Срабатывает после обычного уклонения, если оно не сработало.</p>
     <p><strong>Снижение урона</strong> — ВЫН даёт 0,08%/пункт (потолок 35% от ВЫН); затем вторички и броня складываются в один пул (до 90%).</p>
     <p><strong>Пассивы с предметов</strong> — «+N к уровню навыка» повышает эффективный уровень. Для части навыков (полное уклонение, instakill и др.) эффект не растёт выше максимума таблицы — смотрите предупреждение в модалке навыка.</p>
-    <p><strong>Заточка</strong> — усиливает урон/броню на оружии и доспехах; на аксессуарах — вторичные бонусы (крит, уклонение…). Предметы с бонусом к пассивному навыку заточкой не усиливаются.</p>`;
+    <p><strong>Заточка</strong> — усиливает урон/броню на оружии и доспехах; на аксессуарах — вторичные бонусы (крит, уклонение…). Предметы с бонусом к пассивному навыку заточкой не усиливаются. Золото заточки, доводки, закалки, перековки и гембла снижается ОБА (0,1%/пункт, потолок 50%).</p>`;
 }
 
 const LIBRARY_MECHANICS_SUBTABS = [
@@ -15713,9 +15729,9 @@ function libraryMechanicsSectionHtml(subtabId) {
       <h3>Магазин</h3>
       <p>Ежедневные офферы привязаны к акту. Цена зависит от уровня предмета, редкости и скидок (обаяние, пассивы). Имя на витрине уже включает выпавшие префиксы и суффиксы.</p>
       <h3>Gamble</h3>
-      <p>Случайный предмет повышенной редкости за золото. Шансы и уровень зависят от акта и уровня вайфу.</p>
+      <p>Случайный предмет повышенной редкости за золото. Шансы и уровень зависят от акта и уровня вайфу. Обаяние снижает золото слота (0,1%/пункт, потолок 50%).</p>
       <h3>Кузнец: заточка</h3>
-      <p>Усиливает урон и броню на оружии и доспехах; на аксессуарах — вторичные бонусы. Есть риск поломки на высоких уровнях заточки.</p>
+      <p>Усиливает урон и броню на оружии и доспехах; на аксессуарах — вторичные бонусы. Есть риск поломки на высоких уровнях заточки. Обаяние снижает золото заточки и остальных услуг кузницы (пыль и материалы без скидки).</p>
       <h3>Кузнец: зачарование</h3>
       <p>Отдельная система шагов зачарования, записанных при создании предмета. Предметы с бонусом к пассивному навыку заточкой не усиливаются.</p>`;
   }

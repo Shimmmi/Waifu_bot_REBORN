@@ -954,10 +954,14 @@ class CombatService:
             pass
         from datetime import timezone as _tz
 
-        from waifu_bot.services.combat_regen import apply_hp_regen_for_context
+        from waifu_bot.services.combat_regen import (
+            apply_hp_regen_for_context,
+            resolve_regen_endurance,
+        )
 
         _now = datetime.now(_tz.utc)
         combat_player = await session.get(Player, player_id)
+        regen_end = await resolve_regen_endurance(session, player_id, waifu)
         regen_changed = apply_hp_regen_for_context(
             waifu,
             combat_player,
@@ -965,6 +969,7 @@ class CombatService:
             extra_hp_per_min=hr_pm,
             regen_pct=regen_pct,
             now=_now,
+            endurance=regen_end,
         )
         if combat_player is not None:
             combat_player.last_combat_action_at = _now

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,12 +66,24 @@ def _item_strength_bonus(inv: m.InventoryItem) -> int:
     return strength
 
 
-async def compute_effective_max_hp(
+@dataclass(frozen=True)
+class HpStatStack:
+    """Allocated + gear + main_stats_flat + paragon flats used by max HP and regen."""
+
+    endurance: int
+    strength: int
+    item_hp_flat: int
+    item_hp_percent: int
+    passive_hp_max_pct: float
+    perf_hp_flat: int
+    perf_hp_pct: float
+
+
+async def _load_hp_stat_stack(
     session: AsyncSession,
     player_id: int,
     waifu: m.MainWaifu,
-) -> int:
-    """Compute waifu max HP including all equipped item bonuses (ВЫН×HP_K + СИЛ×STR_HP)."""
+) -> HpStatStack:
     base_endurance = int(getattr(waifu, "endurance", 10) or 10)
     base_strength = int(getattr(waifu, "strength", 10) or 10)
     endurance_bonus = 0
@@ -124,15 +137,43 @@ async def compute_effective_max_hp(
     except Exception:
         pass
 
+    return HpStatStack(
+        endurance=base_endurance + endurance_bonus + msf + perf_end,
+        strength=base_strength + strength_bonus + msf + perf_str,
+        item_hp_flat=hp_flat,
+        item_hp_percent=hp_percent,
+        passive_hp_max_pct=float(ps.get("hp_max_pct", 0) or 0),
+        perf_hp_flat=perf_hp_flat,
+        perf_hp_pct=perf_hp_pct,
+    )
+
+
+async def compute_effective_endurance(
+    session: AsyncSession,
+    player_id: int,
+    waifu: m.MainWaifu,
+) -> int:
+    """ВЫН как в профиле и max HP: очки вайфу + шмот + Трансценд. + paragon end_flat."""
+    stack = await _load_hp_stat_stack(session, player_id, waifu)
+    return int(stack.endurance)
+
+
+async def compute_effective_max_hp(
+    session: AsyncSession,
+    player_id: int,
+    waifu: m.MainWaifu,
+) -> int:
+    """Compute waifu max HP including all equipped item bonuses (ВЫН×HP_K + СИЛ×STR_HP)."""
+    stack = await _load_hp_stat_stack(session, player_id, waifu)
     max_hp = calculate_max_hp(
         int(waifu.level or 1),
-        base_endurance + endurance_bonus + msf + perf_end,
-        base_strength + strength_bonus + msf + perf_str,
+        stack.endurance,
+        stack.strength,
     )
-    max_hp = int(max_hp + hp_flat + perf_hp_flat)
-    if hp_percent > 0:
-        max_hp = int(max_hp * (1 + hp_percent / 100))
-    hpp = float(ps.get("hp_max_pct", 0) or 0) + perf_hp_pct
+    max_hp = int(max_hp + stack.item_hp_flat + stack.perf_hp_flat)
+    if stack.item_hp_percent > 0:
+        max_hp = int(max_hp * (1 + stack.item_hp_percent / 100))
+    hpp = stack.passive_hp_max_pct + stack.perf_hp_pct
     if hpp > 0:
         max_hp = int(round(max_hp * (1.0 + hpp)))
     try:
