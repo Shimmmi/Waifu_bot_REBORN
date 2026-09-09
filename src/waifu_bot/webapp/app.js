@@ -5021,8 +5021,7 @@ async function loadShop(act) {
       newGrid.appendChild(card);
     }
 
-    const sellBtn = document.getElementById("shop-sell-submit");
-    if (sellBtn) sellBtn.style.display = (shopState.activeTab || "buy") === "sell" ? "" : "none";
+    syncShopSellActionButtons(shopState.activeTab || "buy");
     if ((shopState.activeTab || "buy") === "smith") {
       loadSmithTab().catch(() => {});
     }
@@ -5366,8 +5365,7 @@ function switchShopTab(name) {
   });
 
   if (window.location.pathname.endsWith("/shop.html")) {
-    const sellBtn = document.getElementById("shop-sell-submit");
-    if (sellBtn) sellBtn.style.display = name === "sell" ? "" : "none";
+    syncShopSellActionButtons(name);
     if (name === "sell") {
       loadSellInventory().then(() => syncShopSellToolbarUI()).catch(console.error);
     } else if (name === "smith") {
@@ -7161,6 +7159,14 @@ function compareSellItems(a, b) {
   return result * dir;
 }
 
+function syncShopSellActionButtons(tabName) {
+  const show = tabName === "sell";
+  const sellBtn = document.getElementById("shop-sell-submit");
+  if (sellBtn) sellBtn.style.display = show ? "" : "none";
+  const bulkBtn = document.getElementById("shop-sell-bulk-btn");
+  if (bulkBtn) bulkBtn.style.display = show ? "" : "none";
+}
+
 function ensureShopSellToolbar() {
   if (shopSellToolbarBound || typeof document === "undefined") return;
   const cb = document.getElementById("shop-sell-select-mode");
@@ -7355,6 +7361,263 @@ async function sellSelected() {
   await loadProfile().catch(console.error);
   await loadSellInventory().catch(console.error);
   updateSellResultHint();
+}
+
+const SHOP_BULK_THRESHOLDS = [
+  { max: 1, name: "Обычные" },
+  { max: 2, name: "Необычные и ниже" },
+  { max: 3, name: "Редкие и ниже" },
+  { max: 4, name: "Эпические и ниже" },
+  { max: 5, name: "Все предметы" },
+];
+
+const shopBulkState = {
+  matrix: null,
+  selected: null,
+  ack: false,
+  busy: false,
+};
+
+function formatShopBulkAmount(n) {
+  const v = Math.max(0, Number(n) || 0);
+  if (v >= 1_000_000) {
+    const m = v / 1_000_000;
+    return `${m >= 10 || v % 1_000_000 === 0 ? Math.round(m) : m.toFixed(1).replace(".0", "")}м`;
+  }
+  if (v >= 1000) {
+    const k = v / 1000;
+    return `${v >= 10_000 && v % 1000 === 0 ? Math.round(k) : k.toFixed(1).replace(".0", "")}к`;
+  }
+  return String(Math.round(v));
+}
+
+function shopBulkCellOf(maxRarity, action) {
+  const cell = shopBulkState.matrix?.cells?.[String(maxRarity)] || {};
+  const isSell = action === "sell";
+  const count = isSell ? Number(cell.count || 0) : Number(cell.dismantle_count ?? cell.count ?? 0);
+  const amount = isSell ? Number(cell.gold_total || 0) : Number(cell.dust_total || 0);
+  const legendary = isSell
+    ? Number(cell.legendary_count || 0)
+    : Number(cell.dismantle_legendary_count ?? cell.legendary_count ?? 0);
+  return { count, amount, legendary };
+}
+
+function setShopSellBusy(open, label) {
+  const modal = document.getElementById("shop-sell-busy-modal");
+  const lab = modal?.querySelector(".shop-sell-busy-label");
+  document.body.classList.toggle("shop-sell-busy", !!open);
+  if (!modal) return;
+  if (lab && label) lab.textContent = label;
+  if (open) {
+    modal.hidden = false;
+    modal.removeAttribute("hidden");
+    modal.classList.add("shop-sell-busy--open");
+    modal.setAttribute("aria-hidden", "false");
+  } else {
+    modal.hidden = true;
+    modal.setAttribute("hidden", "");
+    modal.classList.remove("shop-sell-busy--open");
+    modal.setAttribute("aria-hidden", "true");
+  }
+}
+
+function renderShopBulkRows() {
+  const box = document.getElementById("shop-bulk-rows");
+  const empty = document.getElementById("shop-bulk-empty");
+  if (!box) return;
+  const sel = shopBulkState.selected;
+  let any = false;
+  box.innerHTML = SHOP_BULK_THRESHOLDS.map((row) => {
+    const rClass = rarityClass(row.max);
+    const sell = shopBulkCellOf(row.max, "sell");
+    const dust = shopBulkCellOf(row.max, "dismantle");
+    if (sell.count > 0 || dust.count > 0) any = true;
+    const sellSel = sel && sel.action === "sell" && sel.maxRarity === row.max;
+    const dustSel = sel && sel.action === "dismantle" && sel.maxRarity === row.max;
+    const sellEmpty = sell.count <= 0;
+    const dustEmpty = dust.count <= 0;
+    const sellLeg = row.max >= 5 && sell.legendary > 0 ? `<span class="shop-bulk-leg">${sell.legendary} лег.</span>` : "";
+    const dustLeg = row.max >= 5 && dust.legendary > 0 ? `<span class="shop-bulk-leg">${dust.legendary} лег.</span>` : "";
+    return `
+      <div class="shop-bulk-row${row.max >= 5 ? " shop-bulk-row--all" : ""}">
+        <div class="shop-bulk-label">
+          <span class="shop-bulk-dot ${rClass}" aria-hidden="true"></span>
+          <span>${escapeHtml(row.name)}</span>
+        </div>
+        <button type="button" class="shop-bulk-cell shop-bulk-cell--sell ${rClass}${sellSel ? " is-selected" : ""}${sellEmpty ? " is-empty" : ""}" ${sellEmpty ? "disabled" : ""} data-action="sell" data-max="${row.max}" aria-label="Продать: ${escapeHtml(row.name)}">
+          <span class="shop-bulk-n">${sellEmpty ? "—" : `${sell.count} шт.`}</span>
+          <span class="shop-bulk-amt">${sellEmpty ? "" : `🪙 ${formatShopBulkAmount(sell.amount)}`}</span>
+          ${sellLeg}
+        </button>
+        <button type="button" class="shop-bulk-cell shop-bulk-cell--dust ${rClass}${dustSel ? " is-selected" : ""}${dustEmpty ? " is-empty" : ""}" ${dustEmpty ? "disabled" : ""} data-action="dismantle" data-max="${row.max}" aria-label="Распылить: ${escapeHtml(row.name)}">
+          <span class="shop-bulk-n">${dustEmpty ? "—" : `${dust.count} шт.`}</span>
+          <span class="shop-bulk-amt">${dustEmpty ? "" : `✨ ${formatShopBulkAmount(dust.amount)}`}</span>
+          ${dustLeg}
+        </button>
+      </div>`;
+  }).join("");
+  box.querySelectorAll(".shop-bulk-cell").forEach((btn) => {
+    if (btn.disabled) return;
+    btn.addEventListener("click", () => {
+      selectShopBulkCell(btn.getAttribute("data-action"), Number(btn.getAttribute("data-max")));
+    });
+  });
+  if (empty) {
+    empty.hidden = any || !shopBulkState.matrix;
+    if (!any && shopBulkState.matrix) empty.textContent = "Нечего чистить";
+  }
+}
+
+function syncShopBulkConfirmBar() {
+  const bar = document.getElementById("shop-bulk-bar");
+  const preview = document.getElementById("shop-bulk-preview");
+  const ackWrap = document.getElementById("shop-bulk-ack");
+  const ackText = document.getElementById("shop-bulk-ack-text");
+  const ackBox = document.getElementById("shop-bulk-ack-box");
+  const confirm = document.getElementById("shop-bulk-confirm");
+  const sel = shopBulkState.selected;
+  if (!bar) return;
+  if (!sel) {
+    bar.hidden = true;
+    return;
+  }
+  const cell = shopBulkCellOf(sel.maxRarity, sel.action);
+  const isSell = sel.action === "sell";
+  const verb = isSell ? "Продать" : "Распылить";
+  const unit = isSell ? "золота" : "пыли";
+  const icon = isSell ? "🪙" : "✨";
+  bar.hidden = false;
+  if (preview) {
+    preview.textContent = `${verb} ${cell.count} шт. · +${formatShopBulkAmount(cell.amount)} ${unit}`;
+  }
+  const needAck = sel.maxRarity >= 5 && cell.legendary > 0;
+  if (ackWrap) ackWrap.hidden = !needAck;
+  if (ackText) ackText.textContent = `включая ${cell.legendary} легендарных`;
+  if (ackBox && ackBox.checked !== shopBulkState.ack) ackBox.checked = shopBulkState.ack;
+  if (confirm) {
+    confirm.classList.remove("shop-bulk-confirm--rare", "shop-bulk-confirm--epic", "shop-bulk-confirm--danger");
+    if (needAck) confirm.classList.add("shop-bulk-confirm--danger");
+    else if (sel.maxRarity === 4) confirm.classList.add("shop-bulk-confirm--epic");
+    else if (sel.maxRarity === 3) confirm.classList.add("shop-bulk-confirm--rare");
+    confirm.textContent = needAck ? `${verb} всё` : "Подтвердить";
+    confirm.disabled = Boolean(needAck && !shopBulkState.ack);
+  }
+}
+
+function selectShopBulkCell(action, maxRarity) {
+  const act = action === "dismantle" ? "dismantle" : "sell";
+  const max = Number(maxRarity);
+  const cell = shopBulkCellOf(max, act);
+  if (cell.count <= 0) return;
+  titleHaptic("light");
+  const same = shopBulkState.selected && shopBulkState.selected.action === act && shopBulkState.selected.maxRarity === max;
+  if (same) {
+    shopBulkState.selected = null;
+    shopBulkState.ack = false;
+  } else {
+    shopBulkState.selected = { action: act, maxRarity: max };
+    shopBulkState.ack = false;
+  }
+  renderShopBulkRows();
+  syncShopBulkConfirmBar();
+}
+
+function clearShopBulkSelection() {
+  shopBulkState.selected = null;
+  shopBulkState.ack = false;
+  const ackBox = document.getElementById("shop-bulk-ack-box");
+  if (ackBox) ackBox.checked = false;
+  renderShopBulkRows();
+  syncShopBulkConfirmBar();
+}
+
+function setShopBulkLegendaryAck(checked) {
+  shopBulkState.ack = !!checked;
+  syncShopBulkConfirmBar();
+}
+
+function closeShopBulkDisposeModal() {
+  if (shopBulkState.busy) return;
+  const modal = document.getElementById("shop-bulk-modal");
+  if (!modal) return;
+  modal.classList.remove("shop-bulk-modal--open");
+  modal.hidden = true;
+  modal.setAttribute("hidden", "");
+  modal.setAttribute("aria-hidden", "true");
+  shopBulkState.selected = null;
+  shopBulkState.ack = false;
+  shopBulkState.matrix = null;
+}
+
+async function openShopBulkDisposeModal() {
+  const modal = document.getElementById("shop-bulk-modal");
+  if (!modal) return;
+  shopBulkState.selected = null;
+  shopBulkState.ack = false;
+  shopBulkState.matrix = null;
+  modal.hidden = false;
+  modal.removeAttribute("hidden");
+  modal.classList.add("shop-bulk-modal--open");
+  modal.setAttribute("aria-hidden", "false");
+  const rows = document.getElementById("shop-bulk-rows");
+  if (rows) rows.innerHTML = `<div class="muted tiny" style="padding:16px 4px;">Загрузка…</div>`;
+  const empty = document.getElementById("shop-bulk-empty");
+  if (empty) empty.hidden = true;
+  const bar = document.getElementById("shop-bulk-bar");
+  if (bar) bar.hidden = true;
+  try {
+    shopBulkState.matrix = await apiFetch("/inventory/bulk-matrix");
+  } catch (e) {
+    if (rows) rows.innerHTML = "";
+    try {
+      showToast(String(e?.message || e || "Не удалось загрузить"), "error");
+    } catch (_) {
+      /* Telegram showPopup may throw outside WebApp */
+    }
+    return;
+  }
+  renderShopBulkRows();
+  syncShopBulkConfirmBar();
+}
+
+async function confirmShopBulkDispose() {
+  const sel = shopBulkState.selected;
+  if (!sel || shopBulkState.busy) return;
+  const cell = shopBulkCellOf(sel.maxRarity, sel.action);
+  if (cell.count <= 0) return;
+  if (sel.maxRarity >= 5 && cell.legendary > 0 && !shopBulkState.ack) return;
+  titleHaptic("medium");
+  shopBulkState.busy = true;
+  const isSell = sel.action === "sell";
+  setShopSellBusy(true, isSell ? "Продаём предметы…" : "Распыляем предметы…");
+  let res;
+  try {
+    res = await apiFetch("/inventory/bulk-dispose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: sel.action, max_rarity: sel.maxRarity }),
+    });
+  } catch (e) {
+    shopBulkState.busy = false;
+    setShopSellBusy(false);
+    try {
+      showToast(String(e?.message || e || "Ошибка"), "error");
+    } catch (_) {
+      /* Telegram showPopup may throw outside WebApp */
+    }
+    return;
+  }
+  shopBulkState.busy = false;
+  setShopSellBusy(false);
+  closeShopBulkDisposeModal();
+  const n = Number(res?.count || 0);
+  const gold = res?.gold_received ?? "?";
+  const dust = res?.dust_received ?? "?";
+  const doneText = isSell ? `Продано ${n} · +${gold} золота` : `Распылено ${n} · +${dust} пыли`;
+  await loadProfile().catch(console.error);
+  await loadSellInventory().catch(console.error);
+  const hint = document.getElementById("sell-result");
+  if (hint) hint.textContent = doneText;
 }
 
 function openShopGambleResultModal(item, pricePaid, goldRemaining) {
@@ -17909,6 +18172,11 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   libraryBackToGrid,
   adminGenerateMainWaifuPaperdoll,
   sellSelected,
+  openShopBulkDisposeModal,
+  closeShopBulkDisposeModal,
+  clearShopBulkSelection,
+  setShopBulkLegendaryAck,
+  confirmShopBulkDispose,
   toggleShopSellFilter,
   setShopSellSort,
   toggleShopSellSortDir,

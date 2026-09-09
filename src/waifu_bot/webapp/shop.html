@@ -470,6 +470,259 @@
       font-weight: 600;
       color: var(--cream);
     }
+    body.page-shop .shop-sell-bulk-btn {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      padding: 6px 8px;
+    }
+    body.page-shop .shop-bulk-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 2147481500;
+      flex-direction: column;
+      justify-content: center;
+      align-items: stretch;
+      box-sizing: border-box;
+      padding: max(16px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+    }
+    body.page-shop .shop-bulk-modal.shop-bulk-modal--open {
+      display: flex;
+    }
+    body.page-shop .shop-bulk-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(8, 6, 12, 0.72);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    body.page-shop .shop-bulk-sheet {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      max-height: min(80vh, calc(100% - 8px));
+      width: 100%;
+      max-width: 440px;
+      align-self: center;
+      box-sizing: border-box;
+      padding: 14px 12px;
+      border-radius: 16px;
+      border: 1px solid rgba(200, 146, 42, 0.35);
+      background: rgba(22, 18, 28, 0.98);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+    }
+    body.page-shop .shop-bulk-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-shrink: 0;
+      margin-bottom: 10px;
+    }
+    body.page-shop .shop-bulk-head h2 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--amber-glow);
+    }
+    body.page-shop .shop-bulk-sub {
+      margin: 4px 0 0;
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    body.page-shop .shop-bulk-close {
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      border: 1px solid rgba(200, 146, 42, 0.25);
+      background: transparent;
+      color: var(--cream);
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    body.page-shop .shop-bulk-cols,
+    body.page-shop .shop-bulk-row {
+      display: grid;
+      grid-template-columns: minmax(88px, 1.15fr) 1fr 1fr;
+      gap: 6px;
+      align-items: stretch;
+    }
+    body.page-shop .shop-bulk-cols {
+      flex-shrink: 0;
+      margin-bottom: 6px;
+      padding: 0 2px;
+    }
+    body.page-shop .shop-bulk-col {
+      font-size: 11px;
+      font-weight: 800;
+      text-align: center;
+    }
+    body.page-shop .shop-bulk-col--sell { color: var(--amber-glow); }
+    body.page-shop .shop-bulk-col--dust { color: #d4b8ff; }
+    body.page-shop .shop-bulk-rows {
+      overflow-y: auto;
+      flex: 1 1 auto;
+      min-height: 0;
+      padding-right: 2px;
+    }
+    body.page-shop .shop-bulk-row {
+      margin-bottom: 6px;
+    }
+    body.page-shop .shop-bulk-row--all {
+      border: 1px solid rgba(251, 191, 36, 0.35);
+      border-radius: 12px;
+      padding: 4px;
+    }
+    body.page-shop .shop-bulk-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 48px;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--cream);
+      line-height: 1.25;
+    }
+    body.page-shop .shop-bulk-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+    }
+    body.page-shop .shop-bulk-dot.rarity-common { background: rgba(255, 255, 255, 0.7); }
+    body.page-shop .shop-bulk-dot.rarity-uncommon { background: rgb(74, 222, 128); }
+    body.page-shop .shop-bulk-dot.rarity-rare { background: rgb(96, 165, 250); }
+    body.page-shop .shop-bulk-dot.rarity-epic { background: rgb(192, 132, 252); }
+    body.page-shop .shop-bulk-dot.rarity-legendary { background: rgb(251, 191, 36); }
+    body.page-shop .shop-bulk-cell {
+      min-height: 48px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(12, 10, 16, 0.7);
+      color: var(--cream);
+      padding: 6px 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      cursor: pointer;
+      font-weight: 800;
+    }
+    body.page-shop .shop-bulk-cell .shop-bulk-n { font-size: 11px; }
+    body.page-shop .shop-bulk-cell .shop-bulk-amt { font-size: 12px; }
+    body.page-shop .shop-bulk-cell .shop-bulk-leg {
+      font-size: 9px;
+      color: rgb(251, 191, 36);
+      font-weight: 800;
+    }
+    body.page-shop .shop-bulk-cell.shop-bulk-cell--sell {
+      border-color: rgba(232, 184, 75, 0.28);
+    }
+    body.page-shop .shop-bulk-cell.shop-bulk-cell--dust {
+      border-color: rgba(192, 132, 252, 0.28);
+    }
+    body.page-shop .shop-bulk-cell.is-selected.shop-bulk-cell--sell {
+      background: rgba(200, 146, 42, 0.2);
+      box-shadow: 0 0 0 2px rgba(232, 184, 75, 0.45);
+    }
+    body.page-shop .shop-bulk-cell.is-selected.shop-bulk-cell--dust {
+      background: rgba(140, 90, 200, 0.22);
+      box-shadow: 0 0 0 2px rgba(192, 132, 252, 0.45);
+    }
+    body.page-shop .shop-bulk-cell.is-selected.rarity-rare {
+      box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.55);
+    }
+    body.page-shop .shop-bulk-cell.is-selected.rarity-epic {
+      box-shadow: 0 0 0 2px rgba(192, 132, 252, 0.6);
+    }
+    body.page-shop .shop-bulk-cell.is-selected.rarity-legendary {
+      box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.65);
+    }
+    body.page-shop .shop-bulk-cell:disabled,
+    body.page-shop .shop-bulk-cell.is-empty {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    body.page-shop .shop-bulk-empty {
+      margin: 8px 2px 0;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    body.page-shop .shop-bulk-bar {
+      flex-shrink: 0;
+      margin-top: 8px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(200, 146, 42, 0.2);
+    }
+    body.page-shop .shop-bulk-preview {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--cream);
+      margin-bottom: 8px;
+    }
+    body.page-shop .shop-bulk-ack {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #f0c36a;
+      margin-bottom: 10px;
+    }
+    body.page-shop .shop-bulk-ack[hidden],
+    body.page-shop .shop-bulk-bar[hidden],
+    body.page-shop .shop-bulk-empty[hidden] {
+      display: none !important;
+    }
+    body.page-shop .shop-bulk-ack input { margin-top: 2px; }
+    body.page-shop .shop-bulk-actions {
+      display: flex;
+      gap: 8px;
+    }
+    body.page-shop .shop-bulk-actions button {
+      flex: 1;
+      min-height: 44px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    body.page-shop .shop-bulk-cancel {
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: transparent;
+      color: var(--cream);
+    }
+    body.page-shop .shop-bulk-confirm {
+      border: 1px solid rgba(232, 184, 75, 0.5);
+      background: rgba(200, 146, 42, 0.18);
+      color: var(--amber-glow);
+    }
+    body.page-shop .shop-bulk-confirm.shop-bulk-confirm--rare {
+      border-color: rgba(96, 165, 250, 0.55);
+      background: rgba(40, 80, 140, 0.28);
+      color: #bfdbfe;
+    }
+    body.page-shop .shop-bulk-confirm.shop-bulk-confirm--epic {
+      border-color: rgba(192, 132, 252, 0.55);
+      background: rgba(90, 40, 130, 0.3);
+      color: #e9d5ff;
+    }
+    body.page-shop .shop-bulk-confirm.shop-bulk-confirm--danger {
+      border-color: rgba(220, 100, 100, 0.5);
+      background: rgba(120, 40, 40, 0.28);
+      color: #f0a8a8;
+    }
+    body.page-shop .shop-bulk-confirm:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
 
     /* ============================================================
        nav.basement — цвета как в unified-палитре
@@ -1627,7 +1880,7 @@
   <link rel="stylesheet" href="./assets/tutorial.css" />
   <script defer src="./vendor/telegram-web-app.js"></script>
   <script defer src="./assets/tutorial.js"></script>
-  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v118" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v118'"></script>
+  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v119" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v119'"></script>
 </head>
 <body class="page-shop">
   <header class="attic">
@@ -1748,7 +2001,7 @@
           </select>
           <button type="button" id="shop-sell-sort-dir" class="shop-inv-sort-dir" onclick="WaifuApp.toggleShopSellSortDir()">▼</button>
           <div class="shop-sell-toolbar-end">
-            <button type="button" class="shop-sell-toolbar-btn shop-sell-trash-btn" id="shop-sell-trash-btn" style="display:none;" onclick="WaifuApp.sellAllCommonItems()" title="Продать все обычные" aria-label="Продать все обычные">🗑</button>
+            <button type="button" class="shop-sell-toolbar-btn shop-sell-submit-btn shop-sell-bulk-btn" id="shop-sell-bulk-btn" style="display:none;" onclick="WaifuApp.openShopBulkDisposeModal()" title="Пакетная продажа и распыление" aria-label="Пакетная продажа и распыление">Пакет</button>
             <button type="button" class="shop-sell-toolbar-btn shop-sell-submit-btn" id="shop-sell-submit" style="display:none;" onclick="WaifuApp.sellSelected()" title="Продать выбранное" aria-label="Продать выбранное">🪙</button>
             <label class="shop-sell-mode-label">
               <input type="checkbox" id="shop-sell-select-mode" />
@@ -2246,6 +2499,37 @@
         <button type="button" class="secondary" onclick="WaifuApp.closeSmithHelpModal()">✖</button>
       </div>
       <div id="smith-help-body"></div>
+    </div>
+  </div>
+
+  <div id="shop-bulk-modal" class="shop-bulk-modal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="shop-bulk-title">
+    <div class="shop-bulk-backdrop" onclick="WaifuApp.closeShopBulkDisposeModal()"></div>
+    <div class="shop-bulk-sheet">
+      <header class="shop-bulk-head">
+        <div>
+          <h2 id="shop-bulk-title">Очистка рюкзака</h2>
+          <p class="shop-bulk-sub">Весь рюкзак · надетое не трогаем</p>
+        </div>
+        <button type="button" class="shop-bulk-close" onclick="WaifuApp.closeShopBulkDisposeModal()" aria-label="Закрыть">×</button>
+      </header>
+      <div class="shop-bulk-cols" aria-hidden="true">
+        <span></span>
+        <span class="shop-bulk-col shop-bulk-col--sell">Продать 🪙</span>
+        <span class="shop-bulk-col shop-bulk-col--dust">Распылить ✨</span>
+      </div>
+      <div class="shop-bulk-rows" id="shop-bulk-rows"></div>
+      <p class="shop-bulk-empty" id="shop-bulk-empty" hidden>Нечего чистить</p>
+      <footer class="shop-bulk-bar" id="shop-bulk-bar" hidden>
+        <div class="shop-bulk-preview" id="shop-bulk-preview"></div>
+        <label class="shop-bulk-ack" id="shop-bulk-ack" hidden>
+          <input type="checkbox" id="shop-bulk-ack-box" onchange="WaifuApp.setShopBulkLegendaryAck(this.checked)" />
+          <span id="shop-bulk-ack-text">включая легендарные</span>
+        </label>
+        <div class="shop-bulk-actions">
+          <button type="button" class="shop-bulk-cancel" onclick="WaifuApp.clearShopBulkSelection()">Отмена</button>
+          <button type="button" class="shop-bulk-confirm" id="shop-bulk-confirm" onclick="WaifuApp.confirmShopBulkDispose()">Подтвердить</button>
+        </div>
+      </footer>
     </div>
   </div>
 
