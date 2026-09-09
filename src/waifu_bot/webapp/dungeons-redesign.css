@@ -737,13 +737,35 @@ body.page-dungeons {
 }
 
 /* Delve column */
-.delve-root, .chronicle-root { min-height: 420px; }
+.page-dungeons #tab-expedition.tab-panel.active {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.page-dungeons #tab-expedition #expedition-error {
+  flex-shrink: 0;
+}
+.page-dungeons main {
+  padding-bottom: calc(max(56px, min(12.5vw, 128px)) + env(safe-area-inset-bottom, 0px));
+}
+.delve-root, .chronicle-root {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
 .delve-camp {
   background: linear-gradient(180deg, #161b22 0%, #0e1218 100%);
   border: 1px solid rgba(110, 160, 170, 0.28);
   border-radius: 14px;
   padding: 14px 12px 16px;
   color: #dce6ea;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 .delve-copy { margin: 0 0 12px; line-height: 1.4; }
 .delve-cta {
@@ -763,6 +785,7 @@ body.page-dungeons {
 }
 .delve-link {
   display: block;
+  flex-shrink: 0;
   margin-top: 8px;
   background: transparent;
   border: 0;
@@ -843,9 +866,34 @@ body.page-dungeons {
 }
 .delve-status { font-size: 16px; font-weight: 700; }
 .delve-depth { font-size: 13px; opacity: .85; }
-.delve-stage { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-@media (max-width: 640px) { .delve-stage { grid-template-columns: 1fr; } }
-.delve-shaft-wrap { position: relative; min-height: 280px; }
+.delve-stage {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+@media (max-width: 640px) {
+  .delve-stage {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+}
+.delve-shaft-wrap {
+  position: relative;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+#delve-shaft-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
 .delve-shaft-overlay {
   position: absolute;
   inset: 0;
@@ -885,7 +933,9 @@ body.page-dungeons {
   --shaft: #2a2420;
   --accent: #c47a3a;
   position: relative;
-  min-height: 280px;
+  min-height: 0;
+  height: 100%;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -942,6 +992,12 @@ body.page-dungeons {
   gap: 2px;
   margin-top: 4px;
 }
+#delve-frame-host {
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
 .delve-card {
   background: #e8d5b5;
   color: #3b2414;
@@ -949,6 +1005,11 @@ body.page-dungeons {
   box-shadow: inset 0 0 0 4px #f3e6c8;
   border-radius: 6px;
   padding: 14px 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 .delve-card-kicker { font-size: 11px; opacity: .8; margin-bottom: 6px; color: #5c3a22; }
 .delve-card-phrase { font-size: 13px; font-weight: 400; line-height: 1.45; color: #3b2414; }
