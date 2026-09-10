@@ -1252,6 +1252,10 @@ async function populateDungeonsPage(profile) {
       loadGdChatList().catch?.(() => {});
       return;
     }
+    if (evt && evt.type === "abyss") {
+      applyAbyssSsePayload(evt.payload || {});
+      return;
+    }
     if (!evt || evt.type !== "battle") return;
     const payload = evt.payload || {};
     if (payload.dungeon_failed || payload.waifu_died) {
@@ -4726,7 +4730,11 @@ async function adminGenerateExpeditionArt(btn) {
 
 let abyssRefreshTimer = null;
 let abyssState = null;
-let abyssCheckpointShown = false;
+let abyssHudKind = null;
+let abyssHitLog = [];
+let abyssGraceHidden = false;
+let abyssCheckpointQueue = null;
+let abyssLastFloor = null;
 
 const ABYSS_MODIFIER_BADGE = {
   BLESSED: { icon: "✨", cls: "abyss-mod-blessed" },
@@ -4736,6 +4744,309 @@ const ABYSS_MODIFIER_BADGE = {
   ECHO: { icon: "👻", cls: "abyss-mod-echo" },
 };
 
+function abyssFmt(n) {
+  return (typeof formatCombatNumber === "function" ? formatCombatNumber(n) : String(n ?? 0));
+}
+
+function abyssSetNum(id, value, prefix) {
+  const el = document.getElementById(id);
+  if (typeof setCombatNumber === "function") setCombatNumber(el, value, prefix);
+  else if (el) el.textContent = (prefix || "") + abyssFmt(value);
+}
+
+function abyssIsSteam() {
+  return Boolean(window.waifuDesktop) || document.documentElement.classList.contains("desktop-client");
+}
+
+function abyssResolveMode(st) {
+  if (!st?.is_available) return "locked";
+  if (st.pending_grace_choices?.length) return "awaiting_grace";
+  if (st.session_active && st.waifu_unconscious) return "unconscious";
+  if (st.session_active) return "battle";
+  const used = Number(st.checkpoints_today || 0);
+  const limit = Number(st.daily_limit || 0);
+  if (limit > 0 && used >= limit) return "daily_cap";
+  return "lobby";
+}
+
+function abyssShellKind(mode) {
+  if (mode === "locked") return "locked";
+  if (mode === "lobby" || mode === "daily_cap") return "lobby";
+  return "battle";
+}
+
+function abyssChannelHint() {
+  return abyssIsSteam()
+    ? "Клики оверлея = текстовый удар."
+    : "Пишите в групповой чат — каждое сообщение наносит урон.";
+}
+
+function abyssWalletHtml(st) {
+  const w = st.wallet || {};
+  return `
+    <div class="abyss-wallet">
+      <div class="abyss-wallet-cell"><div class="muted tiny">Осколки</div><strong id="abyss-w-shards">${abyssFmt(w.shards ?? st.abyss_shards)}</strong></div>
+      <div class="abyss-wallet-cell"><div class="muted tiny">Ядро</div><strong id="abyss-w-core">${abyssFmt(w.core)}</strong></div>
+      <div class="abyss-wallet-cell"><div class="muted tiny">Эссенция</div><strong id="abyss-w-ess">${abyssFmt(w.essence)}</strong></div>
+      <div class="abyss-wallet-cell"><div class="muted tiny">Уголь · pity</div><strong id="abyss-w-ember">${abyssFmt(w.ember)} · ${Number(w.pity || 0)}/${Number(w.pity_n || 8)}</strong></div>
+    </div>`;
+}
+
+function abyssLockedShell() {
+  return `
+    <div class="card card--locked abyss-shell" data-abyss-shell="locked">
+      <div class="abyss-glyph" id="abyss-glyph">🕳️</div>
+      <h3 class="abyss-title">Бездна закрыта</h3>
+      <p class="muted" id="abyss-locked-reason"></p>
+    </div>`;
+}
+
+function abyssLobbyShell() {
+  return `
+    <div class="card abyss-lobby abyss-shell" data-abyss-shell="lobby">
+      <div class="abyss-glyph" id="abyss-glyph">🕳️</div>
+      <h3 class="abyss-title">Бездна</h3>
+      <p class="muted tiny" id="abyss-mat-hint">эссенция с 30, уголь с 50</p>
+      <div id="abyss-wallet-slot"></div>
+      <div class="abyss-meta-row">
+        <div><div class="muted tiny">Рекорд</div><div class="abyss-stat-value" id="abyss-record">0</div></div>
+        <div><div class="muted tiny">CP</div><div class="abyss-stat-value" id="abyss-cp">0</div></div>
+        <div><div class="muted tiny">Сегодня</div><div class="abyss-stat-value" id="abyss-today">0/3</div></div>
+      </div>
+      <p class="muted tiny">Сессия 24ч · сброс 00:00 МСК</p>
+      <p class="muted tiny abyss-economy-note" id="abyss-economy-note"></p>
+      <button type="button" class="primary btn-block" id="abyss-enter-btn" onclick="WaifuApp.abyssEnter()">Начать спуск</button>
+      <div class="abyss-actions-row">
+        <button type="button" class="secondary" onclick="WaifuApp.openAbyssLeaderboard()">Топ</button>
+        <button type="button" class="secondary" onclick="WaifuApp.openAbyssShop()">Магазин</button>
+      </div>
+    </div>`;
+}
+
+function abyssBattleShell() {
+  const admin = (typeof isAdminUiEnabled === "function" && isAdminUiEnabled())
+    || (typeof window.WaifuApp?.isAdminUiEnabled === "function" && window.WaifuApp.isAdminUiEnabled());
+  return `
+    <div class="card abyss-battle-wrap abyss-shell" data-abyss-shell="battle">
+      <div class="abyss-battle-head">
+        <div class="abyss-glyph" id="abyss-glyph">🕳️</div>
+        <div class="abyss-floor" id="abyss-floor">1</div>
+        <div class="abyss-modifier-badge" id="abyss-mod" hidden></div>
+        <button type="button" class="secondary" onclick="WaifuApp.openAbyssExitModal()">Покинуть</button>
+      </div>
+      <img class="abyss-portrait" id="abyss-portrait" alt="" hidden>
+      <div class="abyss-monster-name" id="abyss-monster-name">Монстр</div>
+      <div class="abyss-hpbar abyss-hp" id="abyss-monster-hp-wrap">
+        <div class="hp-bar-labels"><span id="abyss-monster-hp-label">0 / 0</span> <span id="abyss-monster-hp-pct">0%</span></div>
+        <div class="hp-bar"><div class="hp-fill hp-fill-monster" id="abyss-monster-hp-fill" style="width:0%"></div></div>
+      </div>
+      <div class="abyss-last-hit" id="abyss-last-hit"></div>
+      <details class="abyss-hit-log" id="abyss-hit-log-wrap"><summary>Лог ударов</summary><div id="abyss-hit-log"></div></details>
+      <div class="abyss-hpbar abyss-hp">
+        <div class="muted tiny">ОВ</div>
+        <div class="hp-bar-labels"><span id="abyss-waifu-hp-label">0 / 0</span></div>
+        <div class="hp-bar"><div class="hp-fill hp-fill-waifu" id="abyss-waifu-hp-fill" style="width:0%"></div></div>
+      </div>
+      <div class="abyss-ko-layer" id="abyss-ko" hidden>
+        <div>ОВ без сознания</div>
+        <button type="button" class="primary abyss-revive-btn" id="abyss-revive-btn" onclick="WaifuApp.abyssRevive()">Воскресить</button>
+      </div>
+      <button type="button" class="primary btn-block" id="abyss-pick-grace-btn" hidden onclick="WaifuApp.openAbyssGraceModal()">Выбрать благодать</button>
+      <p class="muted tiny abyss-hint" id="abyss-hint"></p>
+      ${admin ? `<div class="abyss-admin-row admin-only">
+        <button type="button" class="secondary" onclick="WaifuApp.adminDealDamage(1)">Текст</button>
+        <button type="button" class="secondary" onclick="WaifuApp.adminDealDamage(2)">Стикер</button>
+        <button type="button" class="secondary" onclick="WaifuApp.openAdminDealDamageModal()">⚔️</button>
+      </div>` : ""}
+    </div>`;
+}
+
+function mountAbyssShell(kind) {
+  const root = document.getElementById("abyss-root");
+  if (!root) return;
+  if (kind === "locked") root.innerHTML = abyssLockedShell();
+  else if (kind === "lobby") root.innerHTML = abyssLobbyShell();
+  else root.innerHTML = abyssBattleShell();
+  abyssHudKind = kind;
+}
+
+function abyssPortraitUrl(monster) {
+  if (!monster || typeof buildMonsterImageUrls !== "function") return "";
+  const urls = buildMonsterImageUrls(monster.family, monster.slug, monster.tier || 1);
+  return (urls && urls[0]) || "";
+}
+
+function patchAbyssHud(st) {
+  const root = document.getElementById("abyss-root");
+  if (!root) return;
+  const mode = abyssResolveMode(st);
+  const kind = abyssShellKind(mode);
+  if (abyssHudKind !== kind) mountAbyssShell(kind);
+
+  if (kind === "locked") {
+    const reason = document.getElementById("abyss-locked-reason");
+    if (reason) reason.textContent = st.unavailable_reason || "Недоступно";
+    return;
+  }
+
+  if (kind === "lobby") {
+    const w = st.wallet || {};
+    const slot = document.getElementById("abyss-wallet-slot");
+    if (slot && !slot.dataset.ready) {
+      slot.innerHTML = abyssWalletHtml(st);
+      slot.dataset.ready = "1";
+    }
+    abyssSetNum("abyss-w-shards", w.shards ?? st.abyss_shards);
+    abyssSetNum("abyss-w-core", w.core);
+    abyssSetNum("abyss-w-ess", w.essence);
+    const emberEl = document.getElementById("abyss-w-ember");
+    if (emberEl) emberEl.textContent = `${abyssFmt(w.ember)} · ${Number(w.pity || 0)}/${Number(w.pity_n || 8)}`;
+    const rec = document.getElementById("abyss-record");
+    const cp = document.getElementById("abyss-cp");
+    const today = document.getElementById("abyss-today");
+    if (rec) rec.textContent = String(Number(st.max_floor_reached || 0));
+    if (cp) cp.textContent = String(Number(st.current_checkpoint || 0));
+    if (today) today.textContent = `${Number(st.checkpoints_today || 0)}/${Number(st.daily_limit || 3)}`;
+    const hint = document.getElementById("abyss-mat-hint");
+    if (hint) hint.textContent = `эссенция с ${Number(st.essence_from_floor || 30)}, уголь с ${Number(st.ember_from_floor || 50)}`;
+    const note = document.getElementById("abyss-economy-note");
+    if (note) note.textContent = st.economy_note || "";
+    const btn = document.getElementById("abyss-enter-btn");
+    if (btn) {
+      const checkpoint = Number(st.current_checkpoint || 0);
+      const resumeFloor = checkpoint > 0 ? checkpoint + 1 : 1;
+      btn.textContent = checkpoint > 0 ? `Продолжить (этаж ${resumeFloor})` : "Начать спуск";
+      btn.disabled = false;
+    }
+    return;
+  }
+
+  const floorEl = document.getElementById("abyss-floor");
+  const floor = Number(st.current_floor || 0);
+  if (floorEl) floorEl.textContent = String(floor);
+  if (abyssLastFloor != null && floor !== abyssLastFloor) {
+    document.getElementById("abyss-glyph")?.classList.add("is-pulse");
+    setTimeout(() => document.getElementById("abyss-glyph")?.classList.remove("is-pulse"), 600);
+  }
+  abyssLastFloor = floor;
+
+  const mod = document.getElementById("abyss-mod");
+  if (mod) {
+    if (st.current_floor_modifier) {
+      const b = ABYSS_MODIFIER_BADGE[st.current_floor_modifier] || { icon: "", cls: "" };
+      mod.hidden = false;
+      mod.className = `abyss-modifier-badge ${b.cls}`;
+      mod.textContent = `${b.icon} ${st.modifier_label || st.current_floor_modifier}`;
+      mod.title = st.modifier_description || "";
+    } else {
+      mod.hidden = true;
+    }
+  }
+
+  const m = st.current_monster || {};
+  const nameEl = document.getElementById("abyss-monster-name");
+  if (nameEl) nameEl.textContent = m.name || "Монстр";
+  const img = document.getElementById("abyss-portrait");
+  const slug = m.slug || "";
+  if (img) {
+    if (slug && img.dataset.slug !== slug) {
+      img.dataset.slug = slug;
+      img.src = abyssPortraitUrl(m);
+      img.hidden = !img.src;
+    } else if (!slug) {
+      img.hidden = true;
+    }
+  }
+  const mhp = Number(m.hp_current || 0);
+  const mmax = Number(m.hp_max || 1);
+  const mpct = mmax > 0 ? Math.max(0, Math.min(100, Math.round((mhp / mmax) * 100))) : 0;
+  const mLabel = document.getElementById("abyss-monster-hp-label");
+  if (mLabel) {
+    mLabel.textContent = `${abyssFmt(mhp)} / ${abyssFmt(mmax)}`;
+    mLabel.setAttribute("title", `${mhp} / ${mmax}`);
+  }
+  const mPctEl = document.getElementById("abyss-monster-hp-pct");
+  if (mPctEl) mPctEl.textContent = `${mpct}%`;
+  const mFill = document.getElementById("abyss-monster-hp-fill");
+  if (mFill) mFill.style.width = `${mpct}%`;
+
+  const whp = Number(st.waifu_hp || 0);
+  const wmax = Number(st.waifu_max_hp || 1);
+  const wpct = wmax > 0 ? Math.max(0, Math.min(100, Math.round((whp / wmax) * 100))) : 0;
+  const wLabel = document.getElementById("abyss-waifu-hp-label");
+  if (wLabel) {
+    wLabel.textContent = `${abyssFmt(whp)} / ${abyssFmt(wmax)}`;
+    wLabel.setAttribute("title", `${whp} / ${wmax}`);
+  }
+  const wFill = document.getElementById("abyss-waifu-hp-fill");
+  if (wFill) wFill.style.width = `${wpct}%`;
+
+  const ko = document.getElementById("abyss-ko");
+  if (ko) ko.hidden = !st.waifu_unconscious;
+  const rev = document.getElementById("abyss-revive-btn");
+  if (rev) {
+    const need = Number(st.revive_cost || 50);
+    const have = Number(st.revive_have ?? st.abyss_shards ?? 0);
+    rev.textContent = `Воскресить · надо ${abyssFmt(need)} / есть ${abyssFmt(have)}`;
+    rev.disabled = have < need || Number(st.revive_used || 0) >= Number(st.revive_max || 1);
+  }
+  const graceBtn = document.getElementById("abyss-pick-grace-btn");
+  if (graceBtn) graceBtn.hidden = !(st.pending_grace_choices && st.pending_grace_choices.length);
+  const hint = document.getElementById("abyss-hint");
+  if (hint) hint.textContent = abyssChannelHint();
+}
+
+function pushAbyssLastHit(damage, isCrit) {
+  const dmg = Number(damage || 0);
+  if (dmg <= 0) return;
+  const line = `−${abyssFmt(dmg)}${isCrit ? " · крит" : ""}`;
+  abyssHitLog.unshift(line);
+  abyssHitLog = abyssHitLog.slice(0, 3);
+  const sticky = document.getElementById("abyss-last-hit");
+  if (sticky) {
+    sticky.textContent = line;
+    sticky.classList.toggle("is-crit", Boolean(isCrit));
+  }
+  const log = document.getElementById("abyss-hit-log");
+  if (log) log.innerHTML = abyssHitLog.map((x) => `<div>${x}</div>`).join("");
+  const wrap = document.getElementById("abyss-root");
+  if (wrap) {
+    const f = document.createElement("div");
+    f.className = `abyss-dmg-float${isCrit ? " is-crit" : ""}`;
+    f.textContent = line;
+    wrap.appendChild(f);
+    setTimeout(() => f.remove(), 600);
+  }
+}
+
+function applyAbyssSsePayload(payload) {
+  if (!payload || typeof payload !== "object") return;
+  const dmg = payload.damage ?? payload.damage_dealt;
+  if (dmg != null && Number(dmg) > 0 && !payload.block_reason) {
+    pushAbyssLastHit(dmg, Boolean(payload.is_crit));
+  }
+  if (payload.is_checkpoint_complete) {
+    abyssCheckpointQueue = payload.checkpoint_rewards || {};
+    abyssCheckpointQueue.floor = payload.floor;
+  }
+  if (abyssState && abyssState.session_active) {
+    if (payload.monster_hp != null || payload.monster_hp_remaining != null) {
+      abyssState.current_monster = abyssState.current_monster || {};
+      abyssState.current_monster.hp_current = payload.monster_hp ?? payload.monster_hp_remaining;
+      if (payload.monster_max_hp != null) abyssState.current_monster.hp_max = payload.monster_max_hp;
+    }
+    if (payload.waifu_current_hp != null || payload.waifu_hp_remaining != null) {
+      abyssState.waifu_hp = payload.waifu_current_hp ?? payload.waifu_hp_remaining;
+    }
+    if (payload.waifu_max_hp != null) abyssState.waifu_max_hp = payload.waifu_max_hp;
+    abyssState.waifu_unconscious = Boolean(payload.waifu_unconscious);
+    patchAbyssHud(abyssState);
+  }
+  if (payload.monster_defeated || payload.is_checkpoint_complete || payload.floor_complete) {
+    loadAbyssTab().catch(() => {});
+  }
+}
+
 async function loadAbyssTab() {
   const root = document.getElementById("abyss-root");
   if (!root) return;
@@ -4743,11 +5054,7 @@ async function loadAbyssTab() {
     const st = await apiFetch("/abyss/status");
     const prev = abyssState;
     abyssState = st;
-    renderAbyss(st);
-    if (st.pending_grace_choices && st.pending_grace_choices.length) {
-      openAbyssGraceModal(st.pending_grace_choices);
-    }
-    // Reflect Abyss session in the shared header chip (mutually exclusive with solo).
+    patchAbyssHud(st);
     if (typeof renderAtticDungeon === "function" && st.session_active) {
       const m = st.current_monster || {};
       renderAtticDungeon({
@@ -4757,160 +5064,33 @@ async function loadAbyssTab() {
         monster_max_hp: Number(m.hp_max || 1),
       });
     }
-    // Celebrate a freshly cleared checkpoint once.
-    if (prev && Number(st.current_checkpoint || 0) > Number(prev.current_checkpoint || 0)) {
-      openAbyssCheckpointModal(Number(st.current_checkpoint || 0));
+    const newCp = prev && Number(st.current_checkpoint || 0) > Number(prev.current_checkpoint || 0);
+    if (newCp || abyssCheckpointQueue) {
+      openAbyssCheckpointModal(Number(st.current_checkpoint || abyssCheckpointQueue?.floor || 0), abyssCheckpointQueue);
+      abyssCheckpointQueue = null;
+    } else if (st.pending_grace_choices && st.pending_grace_choices.length && !abyssGraceHidden) {
+      const cpOpen = document.getElementById("abyss-checkpoint-modal")?.style.display === "flex";
+      if (!cpOpen) openAbyssGraceModal(st.pending_grace_choices);
     }
   } catch (e) {
     const { detail } = parseHttpErrorDetail(e);
+    if (abyssHudKind) return;
     root.innerHTML = `<div class="banner">Не удалось загрузить Бездну: ${escapeHtml(detail || String(e?.message || e))}</div>`;
   }
-}
-
-function abyssHpBar(cur, max, fillClass) {
-  const pct = max > 0 ? Math.max(0, Math.min(100, Math.round((cur / max) * 100))) : 0;
-  return `
-    <div class="hp-bar-wrap abyss-hpbar-labeled">
-      <div class="hp-bar-labels">
-        <span class="hp-bar-label-value">${Math.max(0, cur)} / ${max}</span>
-      </div>
-      <div class="hp-bar">
-        <div class="hp-fill ${fillClass}" style="width:${pct}%"></div>
-      </div>
-    </div>`;
-}
-
-function abyssAffixColorClass(monster) {
-  const n = Number(monster.affix_count) || (monster.affixes || []).length;
-  if (n >= 4) return "red";
-  if (n >= 3) return "gold";
-  return monster.is_elite ? "gold" : "blue";
-}
-
-function abyssModifierBadge(modifier, label, desc) {
-  if (!modifier) return "";
-  const b = ABYSS_MODIFIER_BADGE[modifier] || { icon: "", cls: "" };
-  return `<div class="abyss-modifier-badge ${b.cls}" title="${escapeHtml(desc || "")}">${b.icon} ${escapeHtml(label || modifier)}</div>`;
-}
-
-function renderAbyss(st) {
-  const root = document.getElementById("abyss-root");
-  if (!root) return;
-
-  if (!st.is_available) {
-    root.innerHTML = `
-      <div class="card card--locked">
-        <div class="abyss-hero-icon">🕳️</div>
-        <h3>Бездна закрыта</h3>
-        <p class="muted">${escapeHtml(st.unavailable_reason || "Недоступно")}</p>
-      </div>`;
-    return;
-  }
-
-  if (!st.session_active) {
-    root.innerHTML = abyssLobbyHtml(st);
-    return;
-  }
-
-  root.innerHTML = abyssBattleHtml(st);
-}
-
-function abyssLobbyHtml(st) {
-  const record = Number(st.max_floor_reached || 0);
-  const checkpoint = Number(st.current_checkpoint || 0);
-  const resumeFloor = checkpoint > 0 ? checkpoint + 1 : 1;
-  const btnLabel = checkpoint > 0 ? `Продолжить (этаж ${resumeFloor})` : "Начать спуск";
-  const limitUsed = Number(st.checkpoints_today || 0);
-  const limit = Number(st.daily_limit || 0);
-  const shards = Number(st.abyss_shards || 0);
-  return `
-    <div class="card">
-      <div class="abyss-lobby-head">
-        <div class="abyss-lobby-icon">🕳️</div>
-        <div>
-          <h3>Бездна</h3>
-          <div class="muted tiny">Бесконечный спуск. Каждое сообщение в чате — удар.</div>
-        </div>
-      </div>
-      <div class="abyss-stats-grid">
-        <div class="abyss-stat"><div class="muted tiny">Рекорд</div><div class="abyss-stat-value">🏆 ${record}</div></div>
-        <div class="abyss-stat"><div class="muted tiny">Последний чекпоинт</div><div class="abyss-stat-value">🏛 ${checkpoint}</div></div>
-        <div class="abyss-stat"><div class="muted tiny">Осколки Бездны</div><div class="abyss-stat-value">🔮 ${shards}</div></div>
-        <div class="abyss-stat"><div class="muted tiny">Чекпоинты сегодня</div><div class="abyss-stat-value">${limitUsed} / ${limit}</div></div>
-      </div>
-      <button class="primary btn-block" onclick="WaifuApp.abyssEnter()">${escapeHtml(btnLabel)}</button>
-      <div class="abyss-actions-row">
-        <button class="secondary" onclick="WaifuApp.openAbyssLeaderboard()">🏆 Топ недели</button>
-        <button class="secondary" onclick="WaifuApp.openAbyssShop()">🔮 Магазин</button>
-      </div>
-    </div>`;
-}
-
-function abyssBattleHtml(st) {
-  const m = st.current_monster || {};
-  const floor = Number(st.current_floor || 0);
-  const badges = [];
-  if (m.is_boss) badges.push(`<span class="badge abyss-badge-boss">👑 Босс</span>`);
-  if (m.is_elite) badges.push(`<span class="badge abyss-badge-elite">⭐ Элита</span>`);
-  const affixColor = abyssAffixColorClass(m);
-  const affixChips = (m.affixes || [])
-    .map((a) => `<span class="affix-chip ${affixColor}">${escapeHtml(a.name)}</span>`)
-    .join("");
-  const grace = st.active_grace;
-  const graceHtml = grace
-    ? `<div class="abyss-grace-active">${escapeHtml(grace.icon || "✨")} <b>${escapeHtml(grace.name)}</b> — ${escapeHtml(grace.effect_label || grace.description || "")}</div>`
-    : "";
-  const modifierHtml = st.current_floor_modifier
-    ? abyssModifierBadge(st.current_floor_modifier, st.modifier_label, st.modifier_description)
-    : "";
-  const warning = m.warning_text
-    ? `<div class="banner banner--warning">⚠️ ${escapeHtml(m.warning_text)}</div>`
-    : "";
-  const unconscious = st.waifu_unconscious;
-  const reviveBtn = unconscious
-    ? `<button type="button" class="primary btn-block abyss-revive-btn" onclick="WaifuApp.abyssRevive()">🔮 Воскресить за Осколки</button>`
-    : "";
-  const unconsciousBanner = unconscious
-    ? `<div class="banner banner--danger">😵 ОВ без сознания. HP восстанавливается со временем — атаки возобновятся автоматически.</div>`
-    : "";
-
-  return `
-    <div class="card">
-      <div class="abyss-battle-head">
-        <div><span class="muted tiny">Этаж</span> <span class="abyss-floor-num">${floor}</span></div>
-        <button class="dungeon-tab-sm" title="Покинуть Бездну" onclick="WaifuApp.openAbyssExitModal()">🏳️</button>
-      </div>
-      <div class="abyss-modifiers">${modifierHtml}</div>
-      ${graceHtml}
-      ${warning}
-      ${unconsciousBanner}
-      <div class="abyss-monster">
-        <div class="abyss-monster-head">
-          <div class="abyss-monster-name">${escapeHtml(m.name || "Монстр")} ${badges.join(" ")}</div>
-          <div class="muted tiny">ур. ${Number(m.level || 1)}</div>
-        </div>
-        <div class="abyss-affixes">${affixChips}</div>
-        ${abyssHpBar(Number(m.hp_current || 0), Number(m.hp_max || 1), "hp-fill-monster")}
-      </div>
-      <div class="abyss-waifu">
-        <div class="muted tiny">Ваша ОВ</div>
-        ${abyssHpBar(Number(st.waifu_hp || 0), Number(st.waifu_max_hp || 1), "hp-fill-waifu")}
-      </div>
-      ${reviveBtn}
-      <p class="muted tiny abyss-hint">✍️ Пишите в групповой чат — каждое сообщение наносит урон.</p>
-    </div>`;
 }
 
 async function abyssEnter() {
   try {
     const res = await apiFetch("/abyss/enter", { method: "POST" });
     if (!res.success) {
-      showToast(res.reason || "Не удалось войти в Бездну", "error");
+      showToast(res.reason || res.error || "Не удалось войти", "error");
+      return;
     }
   } catch (e) {
     showToast("Ошибка входа: " + (e?.message || e), "error");
+    return;
   }
-  abyssCheckpointShown = false;
+  abyssGraceHidden = false;
   await loadAbyssTab();
 }
 
@@ -4934,26 +5114,30 @@ async function confirmAbyssExit() {
   try {
     await apiFetch("/abyss/exit", { method: "POST" });
   } catch (e) {
-    showToast("Ошибка выхода: " + (e?.message || e), "error");
+    showToast("Не удалось выйти: " + (e?.message || e), "error");
   }
+  abyssHudKind = null;
   await loadAbyssTab();
 }
 
 function openAbyssGraceModal(choices) {
   const modal = document.getElementById("abyss-grace-modal");
   const wrap = document.getElementById("abyss-grace-options");
+  const list = choices || abyssState?.pending_grace_choices || [];
   if (!modal || !wrap) return;
-  wrap.innerHTML = (choices || []).map((g) => `
+  wrap.innerHTML = list.map((g) => `
     <button type="button" class="abyss-grace-option" onclick="WaifuApp.chooseAbyssGrace(${Number(g.id)})">
       <div class="abyss-grace-option-title">${escapeHtml(g.icon || "✨")} ${escapeHtml(g.name)}</div>
       <div class="muted tiny abyss-grace-option-desc">${escapeHtml(g.effect_label || g.description || "")}</div>
     </button>`).join("");
+  abyssGraceHidden = false;
   modal.style.display = "flex";
 }
 
 function closeAbyssGraceModal() {
   const modal = document.getElementById("abyss-grace-modal");
   if (modal) modal.style.display = "none";
+  abyssGraceHidden = true;
 }
 
 async function chooseAbyssGrace(graceId) {
@@ -4967,28 +5151,44 @@ async function chooseAbyssGrace(graceId) {
       return;
     }
     closeAbyssGraceModal();
+    abyssGraceHidden = false;
   } catch (e) {
     showToast("Ошибка выбора: " + (e?.message || e), "error");
   }
+  abyssHudKind = null;
   await loadAbyssTab();
 }
 
-function openAbyssCheckpointModal(floor) {
+function openAbyssCheckpointModal(floor, rewards) {
   const modal = document.getElementById("abyss-checkpoint-modal");
   const title = document.getElementById("abyss-checkpoint-title");
   const body = document.getElementById("abyss-checkpoint-body");
   if (!modal || !body) return;
   if (title) title.textContent = `🏛 Чекпоинт ${floor} пройден!`;
+  const r = rewards || {};
+  const w = abyssState?.wallet || {};
+  const rows = [
+    ["Осколки", r.shards],
+    ["Ядро", r.core],
+    ["Эссенция", r.essence],
+    ["Уголь", r.ember],
+  ].filter(([, v]) => Number(v || 0) > 0)
+    .map(([k, v]) => `<div>${k}: +${abyssFmt(v)}</div>`).join("");
+  const pityN = r.pity_n || w.pity_n || 8;
   body.innerHTML = `
     <p class="abyss-checkpoint-lead">Босс повержен, прогресс сохранён.</p>
-    <p class="muted tiny abyss-checkpoint-note">Награды (осколки и предмет) начислены — подробности в личке бота.
-    Выберите Благодать, чтобы продолжить спуск.</p>`;
+    <div class="abyss-hp">${rows || "<p class='muted tiny'>Награды начислены в кошелёк.</p>"}</div>
+    <p class="muted tiny abyss-checkpoint-note">Pity угля: ${Number(r.pity ?? w.pity ?? 0)}/${pityN}. 3 оплаченных чекпоинта в день; дальше спуск без осколков, угля и pity.</p>`;
+  const grace = document.getElementById("abyss-grace-modal");
+  if (grace) grace.style.display = "none";
   modal.style.display = "flex";
 }
 
 function closeAbyssCheckpointModal() {
   const modal = document.getElementById("abyss-checkpoint-modal");
   if (modal) modal.style.display = "none";
+  const pending = abyssState?.pending_grace_choices;
+  if (pending && pending.length) openAbyssGraceModal(pending);
 }
 
 async function abyssRevive() {

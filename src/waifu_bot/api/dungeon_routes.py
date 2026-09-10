@@ -12,6 +12,7 @@ from waifu_bot.api import schemas
 from waifu_bot.api.deps import get_db, get_player_id, get_redis
 from waifu_bot.db import models as m
 from waifu_bot.services.combat import CombatService
+from waifu_bot.services.combat_dispatch import apply_message_combat
 from waifu_bot.services.dungeon import DungeonService
 
 logger = logging.getLogger(__name__)
@@ -798,16 +799,22 @@ async def continue_dungeon(
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Продолжить битву в подземелье (WebApp-кнопка — один удар через combat_service)."""
+    """Продолжить битву (WebApp-кнопка — один удар: Бездна, иначе соло)."""
     from waifu_bot.game.constants import MediaType as _MT
-    result = await combat_service.process_message_damage(
+    from waifu_bot.services.combat_dispatch import resolve_combat_target
+
+    target = await resolve_combat_target(session, player_id)
+    # Overlay / WebApp clicks are TEXT-equivalent (bypass DARK, not CURSED stickers).
+    media = _MT.TEXT if target == "abyss" else _MT.STICKER
+    return await apply_message_combat(
         session,
         player_id,
-        _MT.STICKER,
-        message_text=None,
-        message_length=0,
+        media,
+        message_text="x" if media == _MT.TEXT else None,
+        message_length=1 if media == _MT.TEXT else 0,
+        skip_spam_check=True,
+        combat_service=combat_service,
     )
-    return result
 
 
 @router.post("/dungeons/exit", tags=["dungeon"])
@@ -876,11 +883,12 @@ async def battle_message(
     # Ephemeral text for legendary bonuses only — never persisted by combat service.
     ephemeral = message_text if message_text else None
     return schemas.BattleMessageResponse(
-        **await combat_service.process_message_damage(
+        **await apply_message_combat(
             session,
             player_id,
             MediaType(media_type),
             message_text=ephemeral,
             message_length=msg_len,
+            combat_service=combat_service,
         )
     )

@@ -13,7 +13,6 @@ from waifu_bot.api.deps import get_db, get_player_id
 from waifu_bot.services.delve import (
     DelveError,
     grant_and_sync,
-    reform_delve,
     start_delve,
     tint_sleeve,
 )
@@ -47,11 +46,6 @@ class StartBody(BaseModel):
     use_living: bool = True
     size: int | None = Field(default=None, ge=1, le=3)
     companions: list[CompanionIn] = Field(default_factory=list)
-
-
-class ReformBody(BaseModel):
-    size: int = Field(..., ge=1, le=3)
-    companions: list[CompanionIn]
 
 
 class TintBody(BaseModel):
@@ -106,23 +100,11 @@ async def delve_start(
 
 @router.post("/delve/reform")
 async def delve_reform(
-    body: ReformBody,
     player_id: int = Depends(get_player_id),
     session: AsyncSession = Depends(get_db),
 ):
     await _require_delve(session)
-    try:
-        payload = await reform_delve(
-            session,
-            player_id,
-            size=body.size,
-            companions=[c.model_dump() for c in body.companions],
-        )
-        await session.commit()
-    except DelveError as e:
-        _raise(e)
-        raise
-    return payload
+    raise HTTPException(status_code=410, detail="reform_removed")
 
 
 @router.post("/delve/tint")

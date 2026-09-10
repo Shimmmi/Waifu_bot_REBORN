@@ -23,8 +23,26 @@ def _build_checkpoint_dm(floor: int, cp: dict, awaiting_grace: bool) -> str:
         lvl = item.get("level")
         lvl_part = f" (ур. {lvl})" if lvl is not None else ""
         lines.append(f"🎁 Предмет: {item['name']}{lvl_part}")
+    core = int(cp.get("core") or 0)
+    essence = int(cp.get("essence") or 0)
+    ember = int(cp.get("ember") or 0)
+    if core:
+        lines.append(f"💠 Ядро: +{core}")
+    if essence:
+        lines.append(f"💧 Эссенция: +{essence}")
+    if ember:
+        lines.append(f"🔥 Уголь: +{ember}")
+    pity = cp.get("pity")
+    pity_n = cp.get("pity_n")
+    if pity is not None:
+        if pity_n:
+            lines.append(f"Pity угля: {int(pity)}/{int(pity_n)}")
+        else:
+            lines.append(f"Pity угля: {int(pity)}")
     if cp.get("limit_reached"):
-        lines.append("\n⏳ Дневной лимит чекпоинтов исчерпан — осколки и предмет за новые чекпоинты сегодня не начисляются.")
+        lines.append(
+            "\n⏳ 3 новых оплаченных чекпоинта в день; дальше спуск без осколков, угля и pity."
+        )
     if awaiting_grace:
         lines.append("\n✨ Выберите Благодать в веб-приложении, чтобы продолжить спуск.")
     return "\n".join(lines)

@@ -170,8 +170,33 @@ async def maybe_timeout_session(
         updated = updated.replace(tzinfo=timezone.utc)
     if datetime.now(timezone.utc) - updated > timedelta(hours=hours):
         _reset_block_on_exit(progress)
+        try:
+            from waifu_bot.services.abyss_active_cache import sync_abyss_cache
+
+            await sync_abyss_cache(int(progress.player_id), active=False)
+        except Exception:
+            logger.debug("abyss timeout cache sync failed pid=%s", progress.player_id, exc_info=True)
         return True
     return False
+
+
+def session_is_expired(cfg: dict[str, str], progress: AbyssProgress) -> bool:
+    """Read-only timeout check (GET must not mutate)."""
+    if not progress.session_active:
+        return False
+    hours = cfg_int(cfg, "abyss_session_timeout_hours", 24)
+    updated = progress.updated_at
+    if updated is None:
+        return False
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - updated > timedelta(hours=hours)
+
+
+def checkpoints_today_display(progress: AbyssProgress) -> int:
+    if progress.last_checkpoint_date != msk_today():
+        return 0
+    return int(progress.checkpoints_today or 0)
 
 
 # ---------------------------------------------------------------------------
@@ -398,9 +423,9 @@ async def build_normal_monster(
     exp = ar.calc_abyss_monster_exp(cfg, exp_base, floor)
     gold_min, gold_max = ar.calc_abyss_gold(cfg, gold_base, floor)
 
-    # RAGE modifier doubles monster damage.
+    # RAGE: monster HP ×1.5 and loot ×1.5. Incoming damage is not multiplied.
     if modifier == "RAGE":
-        dmg = max(1, round(dmg * cfg_float(cfg, "abyss_modifier_rage_dmg", 2.0)))
+        hp = max(1, round(hp * cfg_float(cfg, "abyss_modifier_rage_hp", 1.5)))
 
     name = tmpl.name if tmpl else "Тварь Бездны"
     echo_id = None
@@ -460,7 +485,7 @@ async def build_boss_monster(
         m["damage"] = max(1, m["damage"] * 2)
         return m
 
-    hp = ar.calc_abyss_monster_hp(cfg, boss.base_hp, floor)
+    hp = ar.calc_abyss_boss_hp(cfg, floor)
     dmg = ar.calc_abyss_monster_dmg(cfg, boss.base_dmg, floor)
     exp = ar.calc_abyss_monster_exp(cfg, boss.base_exp, floor)
     exp = round(exp * cfg_float(cfg, "abyss_checkpoint_exp_mult", 3.0))
@@ -692,42 +717,96 @@ def _grace_payload(grace: AbyssGrace, expires_at_floor: int | None = None) -> di
 # Public API
 # ---------------------------------------------------------------------------
 
+async def _economy_status_fields(
+    session: AsyncSession, player_id: int, cfg: dict[str, str], progress: AbyssProgress | None
+) -> dict:
+    from waifu_bot.services import wallet as wallet_svc
+
+    snap = await wallet_svc.wallet_snapshot(session, player_id)
+    pity_n = cfg_int(cfg, "reforge.abyss_ember_pity_n", 8)
+    revive_cost = cfg_int(cfg, "abyss_revive_scroll_cost", 50)
+    revive_max = cfg_int(cfg, "abyss_revive_scroll_max_per_block", 1)
+    shards = int(snap.get("abyss_shards") or 0)
+    return {
+        "abyss_shards": shards,
+        "wallet": {
+            "shards": shards,
+            "core": int(snap.get("refine_core") or 0),
+            "essence": int(snap.get("refine_essence") or 0),
+            "ember": int(snap.get("legendary_ember") or 0),
+            "pity": int(getattr(progress, "ember_pity_paid_checkpoints", 0) or 0) if progress else 0,
+            "pity_n": pity_n,
+        },
+        "economy_note": (
+            "3 новых оплаченных чекпоинта в день; дальше спуск без осколков, угля и pity."
+        ),
+        "essence_from_floor": cfg_int(cfg, "refine.abyss_essence_kill_floor", 30),
+        "ember_from_floor": cfg_int(cfg, "refine.abyss_ember_checkpoint_floor", 50),
+        "revive_cost": revive_cost,
+        "revive_have": shards,
+        "revive_used": int(getattr(progress, "revive_scrolls_used_this_block", 0) or 0) if progress else 0,
+        "revive_max": revive_max,
+        "session_timeout_hours": cfg_int(cfg, "abyss_session_timeout_hours", 24),
+    }
+
+
 class AbyssService:
     """High-level Abyss operations used by API routes and the bot handler."""
 
     async def get_status(self, session: AsyncSession, player_id: int) -> dict:
+        """Read-only status. Does not create a progress row or commit."""
         cfg = await get_game_config_map(session)
         player = await session.get(Player, player_id)
         waifu = await get_waifu(session, player_id)
-        progress = await get_or_create_progress(session, player_id)
-
-        timed_out = await maybe_timeout_session(session, cfg, progress)
-        reset_daily_if_needed(progress)
-
+        progress = await get_progress(session, player_id)
         is_available, reason = await check_access(session, cfg, player, waifu)
+        daily_limit = cfg_int(cfg, "abyss_daily_checkpoint_limit", 3)
 
+        economy = await _economy_status_fields(session, player_id, cfg, progress)
+        if progress is None:
+            return {
+                "is_available": bool(is_available),
+                "unavailable_reason": reason,
+                "session_active": False,
+                "current_floor": 0,
+                "max_floor_reached": 0,
+                "current_checkpoint": 0,
+                "next_checkpoint": 10,
+                "checkpoints_today": 0,
+                "daily_limit": daily_limit,
+                "limit_resets_at": limit_resets_at_iso(),
+                "active_grace": None,
+                "current_floor_modifier": None,
+                "modifier_label": None,
+                "modifier_description": None,
+                "pending_grace_choices": None,
+                "waifu_hp": int(waifu.current_hp or 0) if waifu else 0,
+                "waifu_max_hp": int(waifu.max_hp or 0) if waifu else 0,
+                "waifu_unconscious": bool(waifu and int(waifu.current_hp or 0) <= 0),
+                "current_monster": None,
+                "session_timed_out": False,
+                **economy,
+            }
+
+        timed_out = session_is_expired(cfg, progress)
+        next_checkpoint = ((int(progress.current_floor or 0) // 10) + 1) * 10
+        modifier = progress.current_floor_modifier
         active_grace = await get_active_grace(session, progress)
         grace_payload = None
         if active_grace:
             grace_payload = _grace_payload(active_grace, progress.grace_expires_at_floor)
             grace_payload["description"] = active_grace.description
 
-        next_checkpoint = ((int(progress.current_floor or 0) // 10) + 1) * 10
-
-        await session.commit()
-
-        modifier = progress.current_floor_modifier
         return {
             "is_available": bool(is_available),
             "unavailable_reason": reason,
-            "session_active": bool(progress.session_active),
+            "session_active": bool(progress.session_active) and not timed_out,
             "current_floor": int(progress.current_floor or 0),
             "max_floor_reached": int(progress.max_floor_reached or 0),
             "current_checkpoint": int(progress.current_checkpoint or 0),
             "next_checkpoint": next_checkpoint,
-            "abyss_shards": int(progress.abyss_shards or 0),
-            "checkpoints_today": int(progress.checkpoints_today or 0),
-            "daily_limit": cfg_int(cfg, "abyss_daily_checkpoint_limit", 3),
+            "checkpoints_today": checkpoints_today_display(progress),
+            "daily_limit": daily_limit,
             "limit_resets_at": limit_resets_at_iso(),
             "active_grace": grace_payload,
             "current_floor_modifier": modifier,
@@ -739,6 +818,26 @@ class AbyssService:
             "waifu_unconscious": bool(waifu and int(waifu.current_hp or 0) <= 0),
             "current_monster": await serialize_monster(session, progress.current_monster),
             "session_timed_out": bool(timed_out),
+            **economy,
+        }
+
+    async def get_hp(self, session: AsyncSession, player_id: int) -> dict:
+        """Compact read-only HP snapshot for overlay/pollers. No create, no commit."""
+        progress = await get_progress(session, player_id)
+        waifu = await get_waifu(session, player_id)
+        cfg = await get_game_config_map(session)
+        timed_out = bool(progress and session_is_expired(cfg, progress))
+        active = bool(progress and progress.session_active and not timed_out)
+        monster = progress.current_monster if progress else None
+        return {
+            "active": active,
+            "combat_mode": "abyss" if active else "none",
+            "floor": int(progress.current_floor or 0) if progress else 0,
+            "monster_hp": int(monster.get("current_hp") or 0) if monster else None,
+            "monster_max_hp": int(monster.get("max_hp") or 0) if monster else None,
+            "waifu_current_hp": int(waifu.current_hp or 0) if waifu else 0,
+            "waifu_max_hp": int(waifu.max_hp or 0) if waifu else 0,
+            "session_timed_out": timed_out,
         }
 
     async def _serialize_pending_graces(
@@ -779,6 +878,12 @@ class AbyssService:
         # Already in a session → idempotent: just report current floor. Do not bump nonce.
         if progress.session_active:
             await session.commit()
+            try:
+                from waifu_bot.services.abyss_active_cache import sync_abyss_cache
+
+                await sync_abyss_cache(player_id, active=True)
+            except Exception:
+                logger.debug("abyss enter cache sync failed pid=%s", player_id, exc_info=True)
             return await self._enter_payload(session, progress, already=True)
 
         is_available, reason = await check_access(session, cfg, player, waifu)
@@ -801,6 +906,12 @@ class AbyssService:
             player.last_combat_action_at = datetime.now(timezone.utc)
 
         await session.commit()
+        try:
+            from waifu_bot.services.abyss_active_cache import sync_abyss_cache
+
+            await sync_abyss_cache(player_id, active=True)
+        except Exception:
+            logger.debug("abyss enter cache sync failed pid=%s", player_id, exc_info=True)
         return await self._enter_payload(session, progress)
 
     async def _enter_payload(
@@ -825,6 +936,12 @@ class AbyssService:
             return {"success": False, "error": "NOT_IN_SESSION"}
         info = _reset_block_on_exit(progress)
         await session.commit()
+        try:
+            from waifu_bot.services.abyss_active_cache import sync_abyss_cache
+
+            await sync_abyss_cache(player_id, active=False)
+        except Exception:
+            logger.debug("abyss exit cache sync failed pid=%s", player_id, exc_info=True)
         return {
             "success": True,
             "floors_lost": info["floors_lost"],

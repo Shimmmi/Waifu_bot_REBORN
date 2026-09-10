@@ -28,7 +28,10 @@ async def mark_solo_active(redis: Any, player_id: int, *, ttl: int = CACHE_TTL_S
 
 
 async def mark_solo_inactive(redis: Any, player_id: int, *, ttl: int = 300) -> None:
-    """Negative cache: skip combat/abyss until TTL expires or dungeon starts."""
+    """Negative cache: skip solo combat until TTL expires or a dungeon starts.
+
+    Does not gate Abyss — that uses ``abyss_active_cache``.
+    """
     if redis is None:
         return
     try:

@@ -113,13 +113,24 @@ async def admin_simulate_damage(
 ):
     """Admin: simulate one outgoing hit by media type (balance testing)."""
     from waifu_bot.game.constants import MediaType
+    from waifu_bot.services.combat_dispatch import apply_message_combat
 
-    result = await combat_service.admin_simulate_message_damage(
+    msg_len = max(0, int(message_length or 0))
+    text = message_text
+    mt = MediaType(media_type)
+    if mt in (MediaType.TEXT, MediaType.LINK):
+        if not text and msg_len > 0:
+            text = "x" * min(msg_len, 500)
+        if msg_len <= 0 and text:
+            msg_len = len(text)
+    result = await apply_message_combat(
         session,
         player_id,
-        MediaType(media_type),
-        message_length=message_length,
-        message_text=message_text,
+        mt,
+        message_text=text,
+        message_length=msg_len,
+        skip_spam_check=True,
+        combat_service=combat_service,
     )
     if result.get("error"):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result["error"])

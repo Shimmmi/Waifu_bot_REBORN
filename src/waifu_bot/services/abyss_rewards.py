@@ -36,7 +36,7 @@ MODIFIER_LABELS: dict[str, str] = {
 MODIFIER_DESCRIPTIONS: dict[str, str] = {
     "BLESSED": "Золото и опыт ×1.5",
     "CURSED": "Стикеры не наносят урон",
-    "RAGE": "Урон монстров ×2, но награды ×1.5",
+    "RAGE": "HP монстров ×1.5 и лут ×1.5 (входящий без множителя)",
     "DARK": "Медиа-сообщения не наносят урон",
     "ECHO": "Тень убитого босса кампании, +20% опыта",
 }
@@ -73,14 +73,75 @@ def is_checkpoint(floor: int) -> bool:
 # ---------------------------------------------------------------------------
 # Monster stat scaling (F = floor number)
 # ---------------------------------------------------------------------------
+# Trash-base HP before elite hp_mult. Visible boss HP is a separate curve.
+# Remaining-HP design columns after a no-revive 51–60 block (100k start):
+#   midgame / P70 / P80 — P80 target is finish >30% HP (see tests).
+ABYSS_HP_ANCHORS: tuple[tuple[int, int], ...] = (
+    (1, 500),
+    (20, 8_000),
+    (40, 400_000),
+    (50, 1_200_000),
+    (80, 14_000_000),
+    (100, 32_000_000),
+)
+ABYSS_BOSS_HP_ANCHORS: tuple[tuple[int, int], ...] = (
+    (10, 10_000),
+    (20, 50_000),
+    (40, 2_000_000),
+    (50, 6_000_000),
+    (80, 70_000_000),
+    (100, 160_000_000),
+)
+# Stored monster.damage ≈ P80 incoming after mitigation (retaliation on kill).
+ABYSS_DMG_ANCHORS: tuple[tuple[int, int], ...] = (
+    (1, 20),
+    (20, 180),
+    (40, 1_200),
+    (50, 2_800),
+    (80, 10_000),
+    (100, 18_000),
+)
+
+
+def _piecewise_value(floor: int, anchors: tuple[tuple[int, int], ...]) -> int:
+    """Log-interpolate between anchors; ×1.30/10f on 100–150, then ×1.12/10f."""
+    f = max(1, int(floor))
+    if f <= anchors[0][0]:
+        return int(anchors[0][1])
+    for i in range(1, len(anchors)):
+        f0, v0 = anchors[i - 1]
+        f1, v1 = anchors[i]
+        if f <= f1:
+            if f == f1:
+                return int(v1)
+            t = (f - f0) / (f1 - f0)
+            return max(1, round(float(v0) * ((float(v1) / float(v0)) ** t)))
+    last_f, last_v = anchors[-1]
+    extra = f - last_f
+    if extra <= 50:
+        return max(1, round(float(last_v) * (1.30 ** (extra / 10.0))))
+    mid = float(last_v) * (1.30 ** 5)
+    return max(1, round(mid * (1.12 ** ((f - 150) / 10.0))))
+
 
 def calc_abyss_monster_hp(cfg: dict[str, str], base_hp: int, floor: int) -> int:
+    if cfg_int(cfg, "abyss_hp_piecewise", 1) == 1:
+        return _piecewise_value(floor, ABYSS_HP_ANCHORS)
     k = cfg_float(cfg, "abyss_hp_scale_linear", 0.15)
     e = cfg_float(cfg, "abyss_hp_scale_exp", 1.2)
     return max(1, round(base_hp * ((1 + floor * k) ** e)))
 
 
+def calc_abyss_boss_hp(cfg: dict[str, str], floor: int) -> int:
+    if cfg_int(cfg, "abyss_hp_piecewise", 1) == 1:
+        return _piecewise_value(floor, ABYSS_BOSS_HP_ANCHORS)
+    trash = calc_abyss_monster_hp(cfg, cfg_int(cfg, "abyss_monster_hp_base", 200), floor)
+    return max(1, trash * 5)
+
+
 def calc_abyss_monster_dmg(cfg: dict[str, str], base_dmg: int, floor: int) -> int:
+    if cfg_int(cfg, "abyss_hp_piecewise", 1) == 1:
+        return _piecewise_value(floor, ABYSS_DMG_ANCHORS)
     k = cfg_float(cfg, "abyss_dmg_scale_linear", 0.10)
     e = cfg_float(cfg, "abyss_dmg_scale_exp", 1.1)
     return max(1, round(base_dmg * ((1 + floor * k) ** e)))

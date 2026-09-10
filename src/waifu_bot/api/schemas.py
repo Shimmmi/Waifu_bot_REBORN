@@ -125,6 +125,8 @@ class DungeonActiveResponse(BaseModel):
 
 
 class BattleMessageResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     damage: Optional[int] = None
     is_crit: Optional[bool] = None
     monster_hp: Optional[int] = None
@@ -134,9 +136,17 @@ class BattleMessageResponse(BaseModel):
     experience_gained: Optional[int] = None
     gold_gained: Optional[int] = None
     guild_reward_bonus: Optional[List[dict]] = None
-    next_monster: Optional[str] = None
+    next_monster: Optional[Any] = None
     error: Optional[str] = None
     reward_why_next: Optional[str] = None
+    combat_mode: Optional[str] = None
+    waifu_current_hp: Optional[int] = None
+    waifu_max_hp: Optional[int] = None
+    damage_dealt: Optional[int] = None
+    monster_hp_remaining: Optional[int] = None
+    monster_killed: Optional[bool] = None
+    waifu_hp_remaining: Optional[int] = None
+    floor: Optional[int] = None
 
 
 class GuildCreateResponse(BaseModel):

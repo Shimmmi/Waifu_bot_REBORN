@@ -44,6 +44,14 @@ async def abyss_status(
     return await abyss_service.get_status(session, player_id)
 
 
+@router.get("/hp")
+async def abyss_hp(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    return await abyss_service.get_hp(session, player_id)
+
+
 @router.post("/enter")
 async def abyss_enter(
     player_id: int = Depends(get_player_id),

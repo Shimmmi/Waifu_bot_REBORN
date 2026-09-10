@@ -1331,3 +1331,211 @@ body.page-dungeons {
   border: 1px solid rgba(110,196,192,.35);
 }
 
+/* ── Abyss HUD (ember / Cinzel floor / Rajdhani HP) ── */
+.page-dungeons #abyss-grace-modal .modal-content,
+.page-dungeons #abyss-checkpoint-modal .modal-content,
+.page-dungeons #abyss-exit-modal .modal-content,
+.page-dungeons #abyss-bottomsheet .modal-content {
+  max-width: 360px;
+  background: linear-gradient(165deg, rgba(28, 22, 16, 0.98), rgba(12, 9, 6, 0.99));
+  border: 1px solid rgba(226, 84, 63, 0.35);
+  color: #e8dcc8;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+}
+.page-dungeons #abyss-grace-modal .modal-title,
+.page-dungeons #abyss-checkpoint-modal .modal-title,
+.page-dungeons #abyss-exit-modal .modal-title,
+.page-dungeons #abyss-bottomsheet .modal-title {
+  color: var(--ember-bright, #ff8a65);
+}
+.page-dungeons #tab-abyss {
+  --abyss-ember: #e2543f;
+  --abyss-ember-bright: #ff8a65;
+}
+.page-dungeons #tab-abyss .abyss-hud {
+  max-width: 360px;
+  margin: 0 auto;
+}
+.page-dungeons #tab-abyss .abyss-glyph {
+  font-size: 36px;
+  line-height: 1;
+  filter: drop-shadow(0 0 8px rgba(226, 84, 63, 0.45));
+}
+.page-dungeons #tab-abyss .abyss-glyph.is-pulse {
+  animation: abyss-glyph-pulse 0.6s ease;
+}
+@keyframes abyss-glyph-pulse {
+  0% { transform: scale(1); filter: drop-shadow(0 0 4px rgba(226, 84, 63, 0.3)); }
+  40% { transform: scale(1.12); filter: drop-shadow(0 0 14px rgba(255, 138, 101, 0.8)); }
+  100% { transform: scale(1); }
+}
+.page-dungeons #tab-abyss .abyss-title {
+  font-family: var(--font-display);
+  color: var(--abyss-ember-bright);
+  margin: 0;
+}
+.page-dungeons #tab-abyss .abyss-floor {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--abyss-ember-bright);
+}
+.page-dungeons #tab-abyss .abyss-hp {
+  font-family: var(--font-hud);
+  font-variant-numeric: tabular-nums;
+}
+.page-dungeons #tab-abyss .abyss-wallet {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 12px 0;
+}
+.page-dungeons #tab-abyss .abyss-wallet-cell,
+.page-dungeons #tab-abyss .abyss-stat {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(226, 84, 63, 0.22);
+  background: rgba(226, 84, 63, 0.08);
+}
+.page-dungeons #tab-abyss .abyss-stat-value,
+.page-dungeons #tab-abyss .abyss-wallet-cell strong {
+  font-family: var(--font-hud);
+  font-size: 18px;
+}
+.page-dungeons #tab-abyss .abyss-meta-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin: 8px 0 12px;
+  text-align: center;
+}
+.page-dungeons #tab-abyss .abyss-portrait {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  max-height: 38vh;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid rgba(226, 84, 63, 0.28);
+  background: #120c0a;
+}
+.page-dungeons #tab-abyss .abyss-hpbar .hp-bar {
+  height: 14px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.page-dungeons #tab-abyss .abyss-hpbar .hp-fill {
+  transition: width 240ms ease;
+}
+.page-dungeons #tab-abyss .abyss-last-hit {
+  font-family: var(--font-hud);
+  font-size: 20px;
+  font-weight: 700;
+  color: #f87171;
+  min-height: 1.2em;
+}
+.page-dungeons #tab-abyss .abyss-last-hit.is-crit { color: #fbbf24; }
+.page-dungeons #tab-abyss .abyss-hit-log {
+  margin: 4px 0 8px;
+  color: rgba(232, 220, 200, 0.7);
+  font-size: 12px;
+}
+.page-dungeons #tab-abyss .abyss-ko-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(8, 4, 4, 0.72);
+  border-radius: 12px;
+  z-index: 2;
+}
+.page-dungeons #tab-abyss .abyss-battle-wrap { position: relative; }
+.page-dungeons #tab-abyss .abyss-battle-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.page-dungeons #tab-abyss .abyss-hint,
+.page-dungeons #tab-abyss .abyss-economy-note {
+  text-align: center;
+  margin: 10px 0 0;
+}
+.page-dungeons #tab-abyss .abyss-actions-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.page-dungeons #tab-abyss .abyss-actions-row .secondary { flex: 1; }
+.page-dungeons #tab-abyss .btn-block { width: 100%; }
+.page-dungeons #tab-abyss .abyss-modifier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 14px;
+  font-size: 12px;
+  border: 1px solid rgba(226, 84, 63, 0.35);
+}
+.page-dungeons #tab-abyss .abyss-mod-blessed { color: #fcd34d; }
+.page-dungeons #tab-abyss .abyss-mod-cursed { color: #fca5a5; }
+.page-dungeons #tab-abyss .abyss-mod-rage { color: #fecaca; }
+.page-dungeons #tab-abyss .abyss-mod-dark { color: #c4b5fd; }
+.page-dungeons #tab-abyss .abyss-mod-echo { color: #cbd5e1; }
+.page-dungeons #tab-abyss .abyss-admin-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.page-dungeons #tab-abyss .card--locked,
+.page-dungeons #tab-abyss .abyss-lobby {
+  text-align: center;
+  padding: 18px 12px;
+}
+.page-dungeons .abyss-dmg-float {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-hud);
+  font-weight: 800;
+  color: #f87171;
+  animation: abyss-dmg-float 600ms ease-out forwards;
+  pointer-events: none;
+  z-index: 3;
+}
+.page-dungeons .abyss-dmg-float.is-crit { color: #fbbf24; }
+@keyframes abyss-dmg-float {
+  0% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -22px); }
+}
+.page-dungeons #abyss-grace-options { display: grid; gap: 6px; }
+.page-dungeons .abyss-grace-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-radius: 12px;
+  padding: 12px;
+  border: 1px solid rgba(226, 84, 63, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e8dcc8;
+  cursor: pointer;
+}
+.page-dungeons .abyss-list-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 4px;
+  border-bottom: 1px solid rgba(226, 84, 63, 0.15);
+}
+.page-dungeons .abyss-list-row--me { background: rgba(226, 84, 63, 0.12); border-radius: 6px; }
+.page-dungeons .banner.banner--abyss-active {
+  margin-bottom: 12px;
+  text-align: center;
+  background: rgba(226, 84, 63, 0.12);
+  border: 1px solid rgba(226, 84, 63, 0.35);
+}
+

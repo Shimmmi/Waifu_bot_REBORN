@@ -12,7 +12,12 @@ from waifu_bot.db import models as m
 from waifu_bot.db.inventory_load_options import inventory_item_load_options
 from waifu_bot.services.enchanting import build_enchant_preview, enchant_inventory_item
 from waifu_bot.services.craft_enchant import build_craft_enchant_preview, craft_enchant_inventory_item
-from waifu_bot.services.dismantle import dismantle_inventory_item, preview_dismantle_dust
+from waifu_bot.services.dismantle import (
+    build_bulk_matrix,
+    bulk_dispose,
+    dismantle_inventory_item,
+    preview_dismantle_dust,
+)
 from waifu_bot.services.inventory_payload import (
     build_inventory_payloads,
     enrich_inventory_items_with_template_stats,
@@ -104,6 +109,15 @@ async def list_inventory(
     return out
 
 
+@router.get("/inventory/bulk-matrix", tags=["inventory"])
+async def get_inventory_bulk_matrix(
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Counts and gold/dust totals for rarity thresholds 1..5 (unequipped bag)."""
+    return await build_bulk_matrix(session, player_id)
+
+
 @router.get("/inventory/{item_id}", tags=["inventory"])
 async def get_inventory_item(
     item_id: int,
@@ -169,6 +183,31 @@ async def sell_inventory_items(
         )
     await session.commit()
     return {"success": True, "gold_received": total, "gold_remaining": player.gold}
+
+
+class BulkDisposeRequest(BaseModel):
+    action: str = Field(..., pattern="^(sell|dismantle)$")
+    max_rarity: int = Field(..., ge=1, le=5)
+
+
+@router.post("/inventory/bulk-dispose", tags=["inventory"])
+async def post_inventory_bulk_dispose(
+    payload: BulkDisposeRequest,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    result = await bulk_dispose(
+        session,
+        player_id,
+        action=payload.action,
+        max_rarity=payload.max_rarity,
+    )
+    err = result.get("error")
+    if err == "not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=err)
+    if err in ("invalid_action", "invalid_rarity"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
+    return result
 
 
 @router.post("/inventory/{item_id}/enchant", tags=["inventory"])
