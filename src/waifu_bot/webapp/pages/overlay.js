@@ -302,7 +302,10 @@
     const c = Math.max(0, Number(cur) || 0);
     const m = Math.max(1, Number(max) || 1);
     fillEl.style.width = `${Math.min(100, (c / m) * 100)}%`;
-    textEl.textContent = `${c}/${m}`;
+    const fmt = typeof formatCombatNumber === "function" ? formatCombatNumber : String;
+    textEl.textContent = `${fmt(c)}/${fmt(m)}`;
+    textEl.setAttribute("title", `${Math.round(c)}/${Math.round(m)}`);
+    textEl.setAttribute("aria-label", `${Math.round(c)}/${Math.round(m)}`);
   }
 
   function setWaifuHp(cur, max) {
@@ -735,15 +738,19 @@
       if (inner.waifu_current_hp != null && inner.waifu_max_hp != null) {
         setWaifuHp(inner.waifu_current_hp, inner.waifu_max_hp);
       }
-      if (inner.damage != null && Number(inner.damage) > 0) {
+      const dmg = inner.damage ?? inner.damage_dealt;
+      if (dmg != null && Number(dmg) > 0) {
         cancelStatusToast();
-        showDamageNumber(inner.damage, Boolean(inner.is_crit));
+        showDamageNumber(dmg, Boolean(inner.is_crit));
       }
       if (inner.waifu_damage != null && Number(inner.waifu_damage) > 0) {
         playMonsterAttackFx();
       }
       if (inner.monster_defeated || inner.dungeon_completed) {
-        setTimeout(loadDungeon, 500);
+        setTimeout(() => {
+          if (inner.combat_mode === "abyss" || abyssCombatActive()) loadAbyss();
+          else loadDungeon();
+        }, 500);
       }
       if (inner.error === "no_active_battle" && combatActive()) {
         loadDungeon();

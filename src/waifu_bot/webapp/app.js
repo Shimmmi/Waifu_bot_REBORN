@@ -1669,7 +1669,12 @@ function renderAtticDungeon(active) {
     const hpPct = active.monster_max_hp > 0
       ? Math.round((active.monster_current_hp / active.monster_max_hp) * 100)
       : 0;
-    label.textContent = `🕳️ Бездна · эт. ${Number(active.abyss_floor || 0)}`;
+    const fmt = typeof formatCombatNumber === "function" ? formatCombatNumber : String;
+    const curHp = Number(active.monster_current_hp || 0);
+    const maxHp = Number(active.monster_max_hp || 0);
+    label.textContent = maxHp
+      ? `Бездна · эт. ${Number(active.abyss_floor || 0)} · ${fmt(curHp)}/${fmt(maxHp)}`
+      : `Бездна · эт. ${Number(active.abyss_floor || 0)}`;
     chip.classList.remove("chip-ghost");
     chip.classList.add("chip-active");
     if (progressWrap) {
@@ -1677,7 +1682,7 @@ function renderAtticDungeon(active) {
       renderSegments([
         `<div class="attic-dungeon-seg attic-dungeon-seg--done"><div class="attic-dungeon-seg-fill" style="width:${donePct}%"></div></div>`,
       ]);
-      progressWrap.setAttribute("aria-label", `Бездна, этаж ${Number(active.abyss_floor || 0)}`);
+      progressWrap.setAttribute("aria-label", `Бездна, этаж ${Number(active.abyss_floor || 0)}, HP ${curHp} из ${maxHp}`);
     }
     return;
   }
@@ -15322,6 +15327,40 @@ async function adminRestoreHpEnergy() {
   await loadProfile().catch(() => {});
 }
 
+function openAdminDealDamageModal() {
+  const modal = document.getElementById("admin-deal-damage-modal");
+  if (modal) modal.style.display = "flex";
+}
+
+function closeAdminDealDamageModal() {
+  const modal = document.getElementById("admin-deal-damage-modal");
+  if (modal) modal.style.display = "none";
+}
+
+async function adminDealDamage(mediaType) {
+  const mt = Number(mediaType) || 1;
+  const len = mt === 1 || mt === 8 ? 20 : 0;
+  try {
+    const res = await apiFetch(
+      `/admin/dungeons/simulate-damage?media_type=${encodeURIComponent(mt)}&message_length=${len}`,
+      { method: "POST" },
+    );
+    const dmg = res?.damage ?? res?.damage_dealt ?? 0;
+    if (typeof showToast === "function") {
+      showToast(`Урон: ${dmg}${res?.is_crit ? " · крит" : ""}`, "success");
+    }
+    if (res?.combat_mode === "abyss" && typeof window.WaifuApp?.loadAbyssTab === "function") {
+      await window.WaifuApp.loadAbyssTab().catch(() => {});
+    } else {
+      await refreshSoloActive().catch(() => {});
+    }
+  } catch (e) {
+    if (typeof showToast === "function") {
+      showToast(e?.message || "Симуляция урона не удалась", "error");
+    }
+  }
+}
+
 async function _generateMonsterArtByTemplateId(templateId) {
   if (!isAdminUser()) return null;
   const tid = Number(templateId);
@@ -18157,6 +18196,9 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   adminKillMonster,
   adminCompleteDungeon,
   adminRestoreHpEnergy,
+  adminDealDamage,
+  openAdminDealDamageModal,
+  closeAdminDealDamageModal,
   adminGenerateMonsterArt,
   adminGenerateLibraryMonsterArt,
   openLibrary,

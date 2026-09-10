@@ -38,6 +38,7 @@ from waifu_bot.services.outgoing_message_damage import (
     apply_outgoing_flats_and_bonus_pool,
     compute_base_message_damage,
 )
+from waifu_bot.services.combat_dispatch import canonicalize_abyss_result
 from waifu_bot.services.game_config_service import cfg_float, cfg_int, get_game_config_map
 from waifu_bot.services.combat_regen import (
     apply_hp_regen_for_context,
@@ -57,6 +58,73 @@ logger = logging.getLogger(__name__)
 
 # Reused only for its stateless stat/mitigation helpers (no Redis needed).
 _combat = CombatService(redis_client=None)
+
+
+async def _maybe_commit(session: AsyncSession, do_commit: bool) -> None:
+    if do_commit:
+        await session.commit()
+
+
+async def _finish_abyss_result(
+    session: AsyncSession,
+    player_id: int,
+    result: dict,
+    *,
+    commit: bool,
+    monster: dict | None = None,
+    waifu=None,
+) -> dict:
+    if monster is not None:
+        if result.get("monster_hp_remaining") is None and monster.get("current_hp") is not None:
+            result["monster_hp_remaining"] = int(monster.get("current_hp") or 0)
+        if result.get("monster_max_hp") is None and monster.get("max_hp") is not None:
+            result["monster_max_hp"] = int(monster.get("max_hp") or 0)
+    if waifu is not None:
+        if result.get("waifu_hp_remaining") is None:
+            result["waifu_hp_remaining"] = int(waifu.current_hp or 0)
+        result.setdefault("waifu_max_hp", int(waifu.max_hp or 0))
+    out = canonicalize_abyss_result(result)
+    await _maybe_commit(session, commit)
+    err = out.get("error")
+    if err == "no_session":
+        from waifu_bot.core import redis as redis_core
+        from waifu_bot.services.abyss_active_cache import mark_abyss_inactive_if_missing
+
+        try:
+            await mark_abyss_inactive_if_missing(redis_core.get_redis(), player_id)
+        except Exception:
+            pass
+    elif err not in ("spam_detected",):
+        from waifu_bot.services.abyss_active_cache import sync_abyss_cache
+
+        await sync_abyss_cache(player_id, active=True)
+    await _publish_abyss_event(player_id, out)
+    return out
+
+
+async def _publish_abyss_event(player_id: int, payload: dict) -> None:
+    try:
+        from waifu_bot.core import redis as redis_core
+        from waifu_bot.services import sse as sse_service
+
+        redis = redis_core.get_redis()
+        if not redis:
+            return
+        await sse_service.publish_event(
+            redis, player_id, {"type": "abyss", "payload": payload}
+        )
+    except Exception:
+        logger.debug("abyss SSE publish failed player_id=%s", player_id, exc_info=True)
+
+
+async def _abyss_spam_ok(player_id: int) -> bool:
+    try:
+        from waifu_bot.core import redis as redis_core
+
+        checker = CombatService(redis_client=redis_core.get_redis())
+        return bool(await checker._check_spam(player_id))
+    except Exception:
+        return True
 
 
 def _is_text(media_type: MediaType) -> bool:
@@ -216,6 +284,22 @@ def _affix_flags(monster: dict) -> dict:
     return out
 
 
+def _cap_reflect(monster: dict, raw: int, cfg: dict[str, str], *, waifu_max_hp: int) -> int:
+    """Shared fight-wide reflect: min(raw, waifu_max×frac), ≤N procs. SPLIT/UNDYING keep the counter."""
+    if raw <= 0:
+        return 0
+    state = monster.setdefault("mechanic_state", {})
+    max_procs = cfg_int(cfg, "abyss_reflect_max_procs_per_fight", 3)
+    if int(state.get("reflect_procs") or 0) >= max_procs:
+        return 0
+    frac = cfg_float(cfg, "abyss_reflect_max_hp_frac", 0.10)
+    cap = max(0, round(int(waifu_max_hp or 0) * frac))
+    out = min(int(raw), cap)
+    if out > 0:
+        state["reflect_procs"] = int(state.get("reflect_procs") or 0) + 1
+    return out
+
+
 def _affix_mirror_reflect(monster: dict, damage: int, behaviors: dict) -> int:
     """ABYSS_MIRROR: every Nth landed hit reflects a share of damage to the waifu."""
     params = behaviors.get("ABYSS_MIRROR")
@@ -251,29 +335,47 @@ async def handle_abyss_attack(
     message_length: int | None = None,
     *,
     rng: random.Random | None = None,
+    commit: bool = True,
+    skip_spam_check: bool = False,
 ) -> dict:
     """Process one chat message as an Abyss attack. No-ops cleanly if the player
     has no active Abyss session."""
     rng = rng or random
+    if not skip_spam_check and not await _abyss_spam_ok(player_id):
+        return await _finish_abyss_result(
+            session, player_id, {"error": "spam_detected"}, commit=False
+        )
     if not await absvc.has_active_abyss_session(session, player_id):
-        return {"error": "no_session"}
+        return await _finish_abyss_result(
+            session, player_id, {"error": "no_session"}, commit=False
+        )
     progress = await absvc.get_progress_for_update(session, player_id)
     if progress is None or not progress.session_active:
-        return {"error": "no_session"}
+        return await _finish_abyss_result(
+            session, player_id, {"error": "no_session"}, commit=False
+        )
     if progress.pending_grace_choices:
-        return {"error": "awaiting_grace"}
+        return await _finish_abyss_result(
+            session, player_id, {"error": "awaiting_grace"}, commit=False
+        )
 
-    if await absvc.has_active_solo_run(session, player_id):
-        return {"error": "solo_dungeon_active"}
+    cfg = await get_game_config_map(session)
+    if await absvc.maybe_timeout_session(session, cfg, progress):
+        return await _finish_abyss_result(
+            session, player_id, {"error": "no_session"}, commit=commit
+        )
 
     monster = progress.current_monster
     if not monster:
-        return {"error": "no_monster"}
+        return await _finish_abyss_result(
+            session, player_id, {"error": "no_monster"}, commit=False
+        )
 
-    cfg = await get_game_config_map(session)
     waifu = await absvc.get_waifu(session, player_id)
     if not waifu:
-        return {"error": "no_waifu"}
+        return await _finish_abyss_result(
+            session, player_id, {"error": "no_waifu"}, commit=False
+        )
 
     grace = await absvc.get_active_grace(session, progress)
     modifier = progress.current_floor_modifier
@@ -317,26 +419,38 @@ async def handle_abyss_attack(
         player.last_combat_action_at = now
 
     if int(waifu.current_hp or 0) <= 0:
-        await session.commit()
-        return {
-            "damage_dealt": 0,
-            "waifu_unconscious": True,
-            "waifu_hp_remaining": int(waifu.current_hp or 0),
-            "monster_hp_remaining": int(monster.get("current_hp") or 0),
-            "monster_killed": False,
-        }
+        return await _finish_abyss_result(
+            session,
+            player_id,
+            {
+                "damage_dealt": 0,
+                "waifu_unconscious": True,
+                "waifu_hp_remaining": int(waifu.current_hp or 0),
+                "monster_hp_remaining": int(monster.get("current_hp") or 0),
+                "monster_killed": False,
+            },
+            commit=commit,
+            monster=monster,
+            waifu=waifu,
+        )
 
     eff = await _effective_stats(session, player_id, waifu)
     msg_len = int(message_length or (len(message_text) if message_text else 0))
 
     # Gate text attacks by weapon attack speed (min chars).
     if is_text and msg_len < eff["min_chars"]:
-        await session.commit()
-        return {
-            "error": "message_too_short",
-            "required_chars": eff["min_chars"],
-            "got_chars": msg_len,
-        }
+        return await _finish_abyss_result(
+            session,
+            player_id,
+            {
+                "error": "message_too_short",
+                "required_chars": eff["min_chars"],
+                "got_chars": msg_len,
+            },
+            commit=commit,
+            monster=monster,
+            waifu=waifu,
+        )
 
     # --- Compute damage ---
     block_reason = _modifier_blocks_attack(modifier, media_type)
@@ -488,6 +602,8 @@ async def handle_abyss_attack(
             legendary_state_patch["_legendary_drop_mult"] = legendary_drop_mult
             legendary_state_patch["_legendary_ignore_death"] = legendary_ignore_death
             persist_progress_battle_state(progress, legendary_state_patch)
+
+        if damage > 0:
             monster["messages_on_monster"] = int(monster.get("messages_on_monster") or 0) + 1
             _mark_monster_dirty(progress)
 
@@ -498,8 +614,14 @@ async def handle_abyss_attack(
     _maybe_phase_rage(monster)
 
     # Reflect (boss) + ABYSS_MIRROR affix on a landed hit.
-    reflect_dmg = _roll_reflect(monster, damage, rng) if damage > 0 else 0
-    reflect_dmg += _affix_mirror_reflect(monster, damage, behaviors)
+    raw_reflect = _roll_reflect(monster, damage, rng) if damage > 0 else 0
+    raw_reflect += _affix_mirror_reflect(monster, damage, behaviors)
+    reflect_dmg = _cap_reflect(
+        monster,
+        raw_reflect,
+        cfg,
+        waifu_max_hp=int(waifu.max_hp or 0),
+    )
 
     result: dict = {
         "damage_dealt": int(damage),
@@ -532,8 +654,9 @@ async def handle_abyss_attack(
         result["waifu_hp_remaining"] = int(waifu.current_hp or 0)
         result["waifu_unconscious"] = int(waifu.current_hp or 0) <= 0
         _mark_monster_dirty(progress)
-        await session.commit()
-        return result
+        return await _finish_abyss_result(
+            session, player_id, result, commit=commit, monster=monster, waifu=waifu
+        )
 
     # --- Monster reached 0 HP: boss revive / split before truly dying ---
     if monster.get("is_boss"):
@@ -542,16 +665,18 @@ async def handle_abyss_attack(
             result["waifu_hp_remaining"] = int(waifu.current_hp or 0)
             result["boss_revived"] = True
             _mark_monster_dirty(progress)
-            await session.commit()
-            return result
+            return await _finish_abyss_result(
+                session, player_id, result, commit=commit, monster=monster, waifu=waifu
+            )
         if _try_split(monster):
             result["monster_hp_remaining"] = int(monster["current_hp"])
             result["waifu_hp_remaining"] = int(waifu.current_hp or 0)
             result["boss_split"] = True
             result["monster_name"] = monster.get("name")
             _mark_monster_dirty(progress)
-            await session.commit()
-            return result
+            return await _finish_abyss_result(
+                session, player_id, result, commit=commit, monster=monster, waifu=waifu
+            )
 
     # --- Monster truly dies ---
     result["monster_killed"] = True
@@ -604,8 +729,10 @@ async def handle_abyss_attack(
         progress.current_monster = nxt
         result["next_monster"] = await absvc.serialize_monster(session, nxt)
         result["waifu_hp_remaining"] = int(waifu.current_hp or 0)
-        await session.commit()
-        return result
+        result["monster_hp_remaining"] = 0
+        return await _finish_abyss_result(
+            session, player_id, result, commit=commit, monster=nxt, waifu=waifu
+        )
 
     # --- Floor complete ---
     result["floor_complete"] = True
@@ -614,6 +741,9 @@ async def handle_abyss_attack(
     if is_cp:
         result["is_checkpoint_complete"] = True
         cp_rewards = await _award_checkpoint(session, player_id, waifu, floor, cfg, progress, rng)
+        heal = _apply_checkpoint_heal(cfg, waifu)
+        if heal:
+            cp_rewards["hp_healed"] = heal
         result["checkpoint_rewards"] = cp_rewards
         progress.current_checkpoint = floor
         progress.revive_scrolls_used_this_block = 0
@@ -629,8 +759,11 @@ async def handle_abyss_attack(
             "awaiting_grace": bool(choices),
         }
         result["waifu_hp_remaining"] = int(waifu.current_hp or 0)
-        await session.commit()
-        return result
+        result["monster_hp_remaining"] = 0
+        result["monster_max_hp"] = int(monster.get("max_hp") or 0)
+        return await _finish_abyss_result(
+            session, player_id, result, commit=commit, monster=None, waifu=waifu
+        )
 
     # Ordinary floor complete → auto-advance to next floor.
     await absvc.generate_floor(session, cfg, progress, floor + 1, rng)
@@ -643,8 +776,11 @@ async def handle_abyss_attack(
         "is_checkpoint": ar.is_checkpoint(floor + 1),
     }
     result["waifu_hp_remaining"] = int(waifu.current_hp or 0)
-    await session.commit()
-    return result
+    result["monster_hp_remaining"] = 0
+    result["monster_max_hp"] = int(monster.get("max_hp") or 0)
+    return await _finish_abyss_result(
+        session, player_id, result, commit=commit, monster=progress.current_monster, waifu=waifu
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -718,6 +854,22 @@ async def _monster_retaliation(
     dmg_after = _apply_incoming_grace(dmg_after, grace)
     _damage_waifu(waifu, dmg_after)
     return int(dmg_after)
+
+
+def _apply_checkpoint_heal(cfg: dict[str, str], waifu: MainWaifu) -> int:
+    """Heal 75% of missing HP at a checkpoint. KO stays KO."""
+    if int(waifu.current_hp or 0) <= 0:
+        return 0
+    pct = cfg_float(cfg, "abyss_checkpoint_heal_missing_pct", 0.75)
+    max_hp = int(waifu.max_hp or 0)
+    cur = int(waifu.current_hp or 0)
+    if max_hp <= 0 or cur >= max_hp:
+        return 0
+    amount = max(0, round((max_hp - cur) * pct))
+    if amount <= 0:
+        return 0
+    waifu.current_hp = min(max_hp, cur + amount)
+    return int(amount)
 
 
 def _regen_between_monsters(cfg: dict[str, str], waifu: MainWaifu, grace) -> int:
@@ -823,7 +975,13 @@ async def _award_checkpoint(
             item = await _generate_drop(session, player_id, floor, rarity=rarity)
         mats = await _roll_abyss_checkpoint_mats(session, player_id, floor, cfg, progress, rng)
     else:
-        mats = {"essence": 0, "ember": 0, "pity": int(getattr(progress, "ember_pity_paid_checkpoints", 0) or 0)}
+        mats = {
+            "core": 0,
+            "essence": 0,
+            "ember": 0,
+            "pity": int(getattr(progress, "ember_pity_paid_checkpoints", 0) or 0),
+        }
+    mats["pity_n"] = cfg_int(cfg, "reforge.abyss_ember_pity_n", 8)
     return {
         "shards": int(shards),
         "item": item,

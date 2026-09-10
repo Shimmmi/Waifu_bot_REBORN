@@ -345,6 +345,8 @@ async def _group_solo_combat_and_abyss(
     media_type: MediaType,
     message_text: str | None,
     msg_len: int,
+    run_solo: bool = True,
+    run_abyss: bool = True,
 ) -> None:
     """Solo combat + abyss on their own DB session so GD/rewards cannot delay HP publish."""
     from waifu_bot.services import solo_active_cache as solo_active_cache_mod
@@ -359,75 +361,78 @@ async def _group_solo_combat_and_abyss(
                 else None
             )
             if v1 and cfg_bool(cfg, "gd_v1_skip_group_solo_while_active", default=False):
+                # Also skips Abyss in this chat (same hot-path gate).
                 break
-            try:
-                result = await combat_service.process_message_damage(
-                    session=session,
-                    player_id=player_id,
-                    media_type=media_type,
-                    message_text=message_text,
-                    message_length=msg_len,
-                    source_chat_id=chat_id,
-                    source_chat_type=getattr(message.chat, "type", None),
-                    source_message_id=message.message_id,
-                )
-            except Exception as combat_exc:
-                logger.exception("solo combat failed pid=%s chat=%s", player_id, chat_id)
+            if run_solo:
                 try:
-                    await session.rollback()
-                    from waifu_bot.services.combat import log_solo_combat_processing_error
-
-                    await log_solo_combat_processing_error(
-                        session,
-                        player_id,
+                    result = await combat_service.process_message_damage(
+                        session=session,
+                        player_id=player_id,
                         media_type=media_type,
+                        message_text=message_text,
                         message_length=msg_len,
-                        error_summary=str(combat_exc)[:200],
                         source_chat_id=chat_id,
+                        source_chat_type=getattr(message.chat, "type", None),
                         source_message_id=message.message_id,
                     )
-                except Exception:
-                    logger.exception(
-                        "failed to log solo combat error pid=%s chat=%s",
-                        player_id,
-                        chat_id,
-                    )
-            else:
-                if result.get("error"):
-                    logger.info(
-                        "group combat result: error=%s player=%s chat_id=%s",
-                        result.get("error"), player_id, chat_id,
-                    )
+                except Exception as combat_exc:
+                    logger.exception("solo combat failed pid=%s chat=%s", player_id, chat_id)
+                    try:
+                        await session.rollback()
+                        from waifu_bot.services.combat import log_solo_combat_processing_error
+
+                        await log_solo_combat_processing_error(
+                            session,
+                            player_id,
+                            media_type=media_type,
+                            message_length=msg_len,
+                            error_summary=str(combat_exc)[:200],
+                            source_chat_id=chat_id,
+                            source_message_id=message.message_id,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "failed to log solo combat error pid=%s chat=%s",
+                            player_id,
+                            chat_id,
+                        )
                 else:
-                    logger.info(
-                        "group combat hit: player=%s chat_id=%s dmg=%s",
-                        player_id, chat_id, result.get("damage"),
-                    )
-                    if result.get("dungeon_completed"):
-                        await solo_active_cache_mod.mark_solo_inactive(_redis, player_id)
+                    if result.get("error"):
+                        logger.info(
+                            "group combat result: error=%s player=%s chat_id=%s",
+                            result.get("error"), player_id, chat_id,
+                        )
+                    else:
+                        logger.info(
+                            "group combat hit: player=%s chat_id=%s dmg=%s",
+                            player_id, chat_id, result.get("damage"),
+                        )
+                        if result.get("dungeon_completed"):
+                            await solo_active_cache_mod.mark_solo_inactive(_redis, player_id)
 
-            try:
-                from waifu_bot.services.abyss_combat import handle_abyss_attack
-                from waifu_bot.services import abyss_notify
+            if run_abyss:
+                try:
+                    from waifu_bot.services.abyss_combat import handle_abyss_attack
+                    from waifu_bot.services import abyss_notify
 
-                abyss_res = await handle_abyss_attack(
-                    session,
-                    player_id=player_id,
-                    media_type=media_type,
-                    message_text=message_text,
-                    message_length=msg_len,
-                )
-                if abyss_res and not abyss_res.get("error"):
-                    logger.info(
-                        "group abyss hit: player=%s chat_id=%s floor=%s dmg=%s killed=%s",
-                        player_id, chat_id, abyss_res.get("floor"),
-                        abyss_res.get("damage_dealt"), abyss_res.get("monster_killed"),
+                    abyss_res = await handle_abyss_attack(
+                        session,
+                        player_id=player_id,
+                        media_type=media_type,
+                        message_text=message_text,
+                        message_length=msg_len,
                     )
-                    await abyss_notify.notify_abyss_event(
-                        bot, session, player_id, chat_id, abyss_res
-                    )
-            except Exception:
-                logger.exception("abyss attack failed pid=%s chat=%s", player_id, chat_id)
+                    if abyss_res and not abyss_res.get("error"):
+                        logger.info(
+                            "group abyss hit: player=%s chat_id=%s floor=%s dmg=%s killed=%s",
+                            player_id, chat_id, abyss_res.get("floor"),
+                            abyss_res.get("damage"), abyss_res.get("monster_killed"),
+                        )
+                        await abyss_notify.notify_abyss_event(
+                            bot, session, player_id, chat_id, abyss_res
+                        )
+                except Exception:
+                    logger.exception("abyss attack failed pid=%s chat=%s", player_id, chat_id)
         finally:
             break
 
@@ -443,11 +448,15 @@ async def _group_message_damage_body(
     msg_len: int,
 ) -> None:
     try:
+        from waifu_bot.services import abyss_active_cache as abyss_active_cache_mod
         from waifu_bot.services import solo_active_cache as solo_active_cache_mod
 
         _redis = redis_core.get_redis()
         solo_cached = await solo_active_cache_mod.has_solo_active_cached(_redis, player_id)
-        if solo_cached is not False:
+        abyss_cached = await abyss_active_cache_mod.has_abyss_active_cached(_redis, player_id)
+        run_solo = solo_cached is not False
+        run_abyss = abyss_cached is not False
+        if run_solo or run_abyss:
             await _group_solo_combat_and_abyss(
                 bot,
                 message,
@@ -456,6 +465,8 @@ async def _group_message_damage_body(
                 media_type=media_type,
                 message_text=message_text,
                 msg_len=msg_len,
+                run_solo=run_solo,
+                run_abyss=run_abyss,
             )
 
         async for session in get_session():

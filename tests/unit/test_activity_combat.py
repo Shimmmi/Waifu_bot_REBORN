@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from waifu_bot.game.constants import MediaType
-from waifu_bot.game.economy import ECONOMY_ACTIVITY, SOURCE_MOBILE_STEPS, SOURCE_STEAM_CLICKS
+from waifu_bot.game.economy import ECONOMY_TELEGRAM, SOURCE_MOBILE_STEPS, SOURCE_STEAM_CLICKS
 from waifu_bot.services import activity_combat
 
 
@@ -46,22 +46,22 @@ async def test_claim_buffers_below_min_chars(monkeypatch):
     # unarmed → min_chars 1 via resolve; patch to 3
     monkeypatch.setattr(activity_combat, "resolve_main_weapon_attack_speed", lambda _eq: 3)
 
-    combat = MagicMock()
-    combat.process_message_damage = AsyncMock()
+    apply = AsyncMock()
+    monkeypatch.setattr(activity_combat, "apply_message_combat", apply)
 
     out = await activity_combat.claim_activity_input(
         session,
         42,
         source=SOURCE_MOBILE_STEPS,
         units=2,
-        combat_service=combat,
+        combat_service=MagicMock(),
     )
 
     assert out["accepted_units"] == 2
     assert out["buffer_left"] == 2
     assert out["hits_applied"] == 0
     assert out["units_to_next_hit"] == 1
-    combat.process_message_damage.assert_not_awaited()
+    apply.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -84,23 +84,26 @@ async def test_claim_applies_text_hit_when_buffer_enough(monkeypatch):
     )
     monkeypatch.setattr(activity_combat, "resolve_main_weapon_attack_speed", lambda _eq: 3)
 
-    combat = MagicMock()
-    combat.process_message_damage = AsyncMock(return_value={"damage_done": 10})
+    apply = AsyncMock(return_value={"damage": 10, "combat_mode": "solo"})
+    monkeypatch.setattr(activity_combat, "apply_message_combat", apply)
 
     out = await activity_combat.claim_activity_input(
         session,
         42,
         source=SOURCE_STEAM_CLICKS,
         units=3,
-        combat_service=combat,
+        combat_service=MagicMock(),
     )
 
     assert out["hits_applied"] == 1
     assert out["buffer_left"] == 0
-    assert out["economy"] == ECONOMY_ACTIVITY
-    call = combat.process_message_damage.await_args
-    assert call.kwargs.get("economy") == ECONOMY_ACTIVITY
+    assert out["economy"] == ECONOMY_TELEGRAM
+    assert out["results"][0]["damage"] == 10
+    call = apply.await_args
+    assert call.kwargs.get("economy") == ECONOMY_TELEGRAM
     assert call.kwargs.get("message_length") == 3
+    assert call.kwargs.get("commit_abyss") is False
+    assert call.kwargs.get("skip_spam_check") is True
     assert call.args[2] == MediaType.TEXT
 
 

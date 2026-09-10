@@ -22,6 +22,7 @@ from waifu_bot.game.economy import (
 _ACTIVITY_COMBAT_ECONOMY = ECONOMY_TELEGRAM
 from waifu_bot.game.effective_stats import fetch_equipped_inventory_items, resolve_main_weapon_attack_speed
 from waifu_bot.services.combat import CombatService
+from waifu_bot.services.combat_dispatch import apply_message_combat
 from waifu_bot.services.game_config_service import cfg_int, get_game_config_map
 
 logger = logging.getLogger(__name__)
@@ -153,13 +154,15 @@ async def claim_activity_input(
             if spend < min_chars:
                 break
 
-        result = await combat.process_message_damage(
+        result = await apply_message_combat(
             session,
             player_id,
             MediaType.TEXT,
             message_text=None,
             message_length=spend,
-            skip_spam_check=False,
+            skip_spam_check=True,
+            commit_abyss=False,
+            combat_service=combat,
             economy=_ACTIVITY_COMBAT_ECONOMY,
         )
         if result.get("error"):
@@ -173,11 +176,24 @@ async def claim_activity_input(
         state.buffer_units = int(state.buffer_units) - spend
         hits_applied += 1
         state.hits_applied_today = int(state.hits_applied_today or 0) + 1
+        damage = result.get("damage")
+        if damage is None:
+            damage = result.get("damage_dealt", result.get("damage_done"))
         results.append(
             {
                 "spend": spend,
-                "damage_done": result.get("damage_done"),
-                "monster_hp": result.get("monster_hp") or result.get("current_monster_hp"),
+                "damage": damage,
+                "damage_done": damage,
+                "damage_dealt": damage,
+                "monster_hp": result.get("monster_hp")
+                if result.get("monster_hp") is not None
+                else result.get("monster_hp_remaining", result.get("current_monster_hp")),
+                "monster_max_hp": result.get("monster_max_hp"),
+                "is_crit": result.get("is_crit"),
+                "monster_defeated": result.get("monster_defeated", result.get("monster_killed")),
+                "waifu_current_hp": result.get("waifu_current_hp", result.get("waifu_hp_remaining")),
+                "waifu_max_hp": result.get("waifu_max_hp"),
+                "combat_mode": result.get("combat_mode"),
                 "error": result.get("error"),
             }
         )

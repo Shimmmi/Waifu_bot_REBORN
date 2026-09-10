@@ -388,4 +388,5 @@ def test_handle_abyss_attack_no_session_skips_for_update(monkeypatch):
             message_length=2,
         )
     )
-    assert result == {"error": "no_session"}
+    assert result["error"] == "no_session"
+    assert result["combat_mode"] == "abyss"
