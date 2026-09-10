@@ -34,7 +34,6 @@
   let syncInFlight = false;
   let forkHideTimer = null;
   let forkUi = { depth: null, hideAt: 0, dismissed: false };
-  let wizard = { step: 0, size: 1, companions: [] };
   let statusEscHandler = null;
 
   const SPECIAL_NODE_RU = {
@@ -115,29 +114,6 @@
     const panel = document.getElementById("tab-expedition");
     if (!panel) return true;
     return panel.style.display !== "none";
-  }
-
-  function emptyCompanion(slot) {
-    const names = (state && state.name_suggestions) || ["Ирида", "Сера", "Кайра"];
-    const stances = ["scout", "shield", "guide"];
-    const tempers = ["curiosity", "temper", "stay"];
-    return {
-      slot,
-      name: names[(slot - 1) % names.length] || "Спутница",
-      stance: stances[(slot - 1) % 3],
-      temper: tempers[(slot - 1) % 3],
-      cloak_color: "ash",
-      image_url: `${DELVE_STATIC}/templates/${stances[(slot - 1) % 3]}.webp`,
-      keep_portrait: false,
-    };
-  }
-
-  function ensureWizardCompanions() {
-    const size = wizard.size;
-    while (wizard.companions.length < size) {
-      wizard.companions.push(emptyCompanion(wizard.companions.length + 1));
-    }
-    wizard.companions = wizard.companions.slice(0, size).map((c, i) => ({ ...c, slot: i + 1 }));
   }
 
   function layerOn() {
@@ -717,166 +693,6 @@
     }
   }
 
-  function remainingSprites() {
-    if (!state) return 3;
-    return Math.max(0, Number(state.sprite_cap || 9) - Number(state.sprite_count || 0));
-  }
-
-  function openWizard(reform) {
-    const remain = reform ? remainingSprites() : 3;
-    wizard = { step: 1, size: Math.min(1, remain) || 1, companions: [], reform: !!reform, maxSize: Math.min(3, remain || 3) };
-    if (!reform) wizard.maxSize = 3;
-    ensureWizardCompanions();
-    renderWizard();
-  }
-
-  function renderWizard() {
-    const root = document.getElementById("delve-root") || document.getElementById("chronicle-root");
-    if (!root) return;
-    stop();
-    ensureWizardCompanions();
-    if (wizard.step === 1) {
-      root.innerHTML = `
-        <div class="delve-camp delve-wizard">
-          <p class="delve-copy">${esc(copy("onboard_1"))}</p>
-          <div class="delve-size">
-            ${[1, 2, 3]
-              .filter((n) => n <= wizard.maxSize)
-              .map(
-                (n) =>
-                  `<button type="button" class="delve-size-btn${wizard.size === n ? " active" : ""}" data-size="${n}">${n}</button>`
-              )
-              .join("")}
-          </div>
-          <p class="muted tiny">${esc(copy("onboard_2"))}</p>
-          <div class="delve-faces">
-            ${wizard.companions
-              .map(
-                (c) => `
-              <div class="delve-face" data-slot="${c.slot}">
-                <img class="delve-bust" src="${esc(c.image_url)}" alt="${esc(c.name || "")}" width="72" height="72" />
-                <input type="text" maxlength="48" value="${esc(c.name)}" data-name="${c.slot}" title="${esc(c.name)}" />
-                <button type="button" class="delve-gen" data-slot="${c.slot}">Портрет</button>
-              </div>`
-              )
-              .join("")}
-          </div>
-          <button type="button" class="delve-cta" id="delve-wiz-next">${esc(copy("faces_next"))}</button>
-        </div>`;
-      root.querySelectorAll(".delve-size-btn").forEach((b) =>
-        b.addEventListener("click", () => {
-          wizard.size = Number(b.getAttribute("data-size"));
-          ensureWizardCompanions();
-          renderWizard();
-        })
-      );
-      root.querySelectorAll("[data-name]").forEach((inp) => {
-        inp.addEventListener("input", () => {
-          const slot = Number(inp.getAttribute("data-name"));
-          const row = wizard.companions.find((c) => c.slot === slot);
-          if (row) row.name = inp.value;
-        });
-      });
-      root.querySelectorAll(".delve-gen").forEach((b) => b.addEventListener("click", () => generatePortrait(Number(b.getAttribute("data-slot")))));
-      document.getElementById("delve-wiz-next").addEventListener("click", () => {
-        wizard.step = 2;
-        renderWizard();
-      });
-      return;
-    }
-    const stances = (state && state.stances) || [];
-    const tempers = (state && state.tempers) || [];
-    root.innerHTML = `
-      <div class="delve-camp delve-wizard">
-        <p class="delve-copy">${esc(copy("onboard_2"))}</p>
-        <div class="delve-roles">
-          ${wizard.companions
-            .map(
-              (c) => `
-            <div class="delve-role-row" data-slot="${c.slot}">
-              <strong title="${esc(c.name)}">${esc(c.name)}</strong>
-              <select data-stance="${c.slot}">${stances
-                .map((s) => `<option value="${esc(s.id)}" ${c.stance === s.id ? "selected" : ""}>${esc(s.label)}</option>`)
-                .join("")}</select>
-              <select data-temper="${c.slot}">${tempers
-                .map((s) => `<option value="${esc(s.id)}" ${c.temper === s.id ? "selected" : ""}>${esc(s.label)}</option>`)
-                .join("")}</select>
-            </div>`
-            )
-            .join("")}
-        </div>
-        <button type="button" class="delve-cta" id="delve-begin">${wizard.reform ? esc(copy("reform")) : esc(copy("go_down"))}</button>
-        <button type="button" class="delve-link" id="delve-wiz-back">Назад</button>
-      </div>`;
-    root.querySelectorAll("[data-stance]").forEach((el) => {
-      el.addEventListener("change", () => {
-        const row = wizard.companions.find((c) => c.slot === Number(el.getAttribute("data-stance")));
-        if (row) row.stance = el.value;
-      });
-    });
-    root.querySelectorAll("[data-temper]").forEach((el) => {
-      el.addEventListener("change", () => {
-        const row = wizard.companions.find((c) => c.slot === Number(el.getAttribute("data-temper")));
-        if (row) row.temper = el.value;
-      });
-    });
-    document.getElementById("delve-wiz-back").addEventListener("click", () => {
-      wizard.step = 1;
-      renderWizard();
-    });
-    document.getElementById("delve-begin").addEventListener("click", submitStart);
-  }
-
-  async function generatePortrait(slot) {
-    const row = wizard.companions.find((c) => c.slot === slot);
-    if (!row) return;
-    try {
-      const res = await apiFetch("/delve/portrait/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slot,
-          name: row.name,
-          stance: row.stance,
-          temper: row.temper,
-          cloak_color: row.cloak_color,
-        }),
-      });
-      if (res && res.image_url) {
-        row.image_url = res.image_url + "?t=" + Date.now();
-        row.keep_portrait = true;
-        renderWizard();
-      }
-    } catch (e) {
-      showToast("Портрет не вышел — будет шаблон", "error");
-    }
-  }
-
-  async function submitStart() {
-    const path = wizard.reform ? "/delve/reform" : "/delve/start";
-    try {
-      const payload = await apiFetch(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          size: wizard.size,
-          companions: wizard.companions.map((c) => ({
-            name: c.name,
-            stance: c.stance,
-            temper: c.temper,
-            cloak_color: c.cloak_color,
-            keep_portrait: Boolean(c.keep_portrait) || String(c.image_url || "").includes("/portraits/"),
-          })),
-        }),
-      });
-      state = payload;
-      wizard.step = 0;
-      render();
-    } catch (e) {
-      showToast("Не вышло собрать отряд", "error");
-    }
-  }
-
   function closeStatusModal() {
     const el = document.getElementById("delve-status-modal");
     if (el) el.remove();
@@ -1061,10 +877,6 @@
     const root = document.getElementById("delve-root") || document.getElementById("chronicle-root");
     if (!root) return;
     const frame = clientFrame(Date.now()) || state.frame || {};
-    const reform =
-      state.reform_ready
-        ? `<button type="button" class="delve-link" id="delve-reform">${esc(copy("reform"))}</button>`
-        : "";
     const legacy =
       state.migration_from_chronicle && !state.legacy_seen
         ? `<div class="delve-legacy">${esc(copy("legacy"))}</div>`
@@ -1083,13 +895,10 @@
           </div>
           <div id="delve-frame-host">${renderFrameCard(frame)}</div>
         </div>
-        ${reform}
       </div>`;
     lastFrameHtml = document.getElementById("delve-frame-host")?.innerHTML || "";
     const sheetBtn = document.getElementById("delve-sheet-btn");
     if (sheetBtn) sheetBtn.addEventListener("click", openStatusModal);
-    const reformBtn = document.getElementById("delve-reform");
-    if (reformBtn) reformBtn.addEventListener("click", () => openWizard(true));
     bindSleeves(root);
     startLocalTick();
     startLinePoll();

@@ -27,7 +27,6 @@ from waifu_bot.game.delve_catalog import (
     fog_spine_type,
     PALETTES,
     PALETTE_IDS,
-    REFORM_CD_DAYS,
     SHAFT_BIOMES,
     SPRITE_CAP,
     STANCES,
@@ -748,17 +747,6 @@ async def build_sync_payload(
             overlay_flavor_phrase(state, frame, companions)
         frame["record"] = int(state.pb_depth or 0)
         frame["title"] = title_for_record(int(state.pb_depth or 0))
-    reform_ok = False
-    reform_reason = None
-    if state is not None and started:
-        if int(state.sprite_count or 0) >= SPRITE_CAP:
-            reform_ok = False
-            reform_reason = "sprite_cap"
-        elif not reform_ready(state.last_reform_at, now):
-            reform_ok = False
-            reform_reason = "cooldown"
-        else:
-            reform_ok = True
     gold_today = int(state.gold_granted_today or 0) if state else 0
     xp_today = int(state.xp_granted_today or 0) if state else 0
     from waifu_bot.services.companion_living import living_preview_rows
@@ -797,9 +785,6 @@ async def build_sync_payload(
         "living_preview": living_preview_rows(seated),
         "sprite_count": int(state.sprite_count or 0) if state else 0,
         "sprite_cap": SPRITE_CAP,
-        "reform_ready": reform_ok,
-        "reform_reason": reform_reason,
-        "reform_cd_days": REFORM_CD_DAYS,
         "stances": list(STANCES.values()),
         "tempers": list(TEMPERS.values()),
         "palettes": [
