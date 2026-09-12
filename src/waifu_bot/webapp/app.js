@@ -7265,10 +7265,12 @@ function renderSellPage() {
       if (shopState.sellSelected.has(it.id)) card.classList.add("selected");
       const nm = String(it?.display_name || "").trim() || String(it?.name || "Предмет");
       const iconHtml = itemArtHtml(it);
+      const lockBadge = itemLockBadgeHtml(it, "bag");
       const priceBottomStr = it?.sell_price != null
         ? `🪙 ${Number(it.sell_price).toLocaleString()}`
         : "—";
       card.innerHTML = `
+        ${lockBadge}
         <div class="item-icon">${iconHtml}</div>
         <div class="item-level">lvl ${it.level ?? "?"}</div>
         <div class="item-price">${escapeHtml(String(priceBottomStr))}</div>
@@ -8399,6 +8401,107 @@ function rarityPillModifierClass(r) {
   return "";
 }
 
+function itemIsLocked(item) {
+  return Boolean(item?.is_locked);
+}
+
+function itemLockBadgeHtml(item, context = "bag") {
+  const id = Number(item?.id || 0);
+  if (!id) return "";
+  const locked = itemIsLocked(item);
+  const title = locked ? "Закрыт: не уйдёт в пакет" : "Открыт: можно пакетно продать";
+  const cls = `item-lock-badge item-lock-badge--${context}${locked ? " is-locked" : " is-open"}`;
+  return `<span class="${cls}" role="button" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}" data-item-id="${id}" onclick="event.stopPropagation();event.preventDefault();WaifuApp.toggleInventoryItemLock(${id})">${locked ? "🔒" : "🔓"}</span>`;
+}
+
+function applyItemLockToClientState(itemId, isLocked) {
+  const id = Number(itemId);
+  const flag = Boolean(isLocked);
+  const patch = (it) => {
+    if (!it || Number(it.id) !== id) return it;
+    return { ...it, is_locked: flag };
+  };
+  if (Array.isArray(shopState.sellItems)) {
+    shopState.sellItems = shopState.sellItems.map(patch);
+  }
+  if (Array.isArray(profileState.inventory)) {
+    profileState.inventory = profileState.inventory.map(patch);
+  }
+  if (profileState.selectedItem && Number(profileState.selectedItem.id) === id) {
+    profileState.selectedItem = { ...profileState.selectedItem, is_locked: flag };
+  }
+}
+
+function syncItemModalLockButton() {
+  const lockBtn = document.getElementById("item-modal-lock");
+  if (!lockBtn) return;
+  const item = profileState.selectedItem;
+  const isEquipped = item?.equipment_slot != null;
+  const hasInvId = item?.id != null;
+  const show = Boolean(hasInvId && !isEquipped);
+  lockBtn.style.display = show ? "" : "none";
+  if (!show) return;
+  const locked = itemIsLocked(item);
+  lockBtn.textContent = locked ? "🔒" : "🔓";
+  const title = locked ? "Открыть для пакета" : "Закрыть от пакета";
+  lockBtn.setAttribute("aria-label", title);
+  lockBtn.setAttribute("title", title);
+  lockBtn.classList.toggle("is-locked", locked);
+}
+
+let inventoryLockBusy = false;
+
+async function toggleInventoryItemLock(itemId, next) {
+  const id = Number(itemId);
+  if (!id || inventoryLockBusy) return;
+  let current = null;
+  if (profileState.selectedItem && Number(profileState.selectedItem.id) === id) {
+    current = profileState.selectedItem;
+  } else {
+    current =
+      (Array.isArray(shopState.sellItems) && shopState.sellItems.find((it) => Number(it?.id) === id)) ||
+      (Array.isArray(profileState.inventory) && profileState.inventory.find((it) => Number(it?.id) === id)) ||
+      null;
+  }
+  const nextLocked = next == null ? !itemIsLocked(current) : Boolean(next);
+  inventoryLockBusy = true;
+  try {
+    const res = await apiFetch(`/inventory/${id}/lock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_locked: nextLocked }),
+    });
+    applyItemLockToClientState(id, Boolean(res?.is_locked));
+    titleHaptic("light");
+  } catch (e) {
+    try {
+      showToast(String(e?.message || e || "Не удалось сменить замок"), "error");
+    } catch (_) {
+      /* Telegram popup may throw */
+    }
+    inventoryLockBusy = false;
+    return;
+  }
+  inventoryLockBusy = false;
+  if (document.getElementById("shop-sell-grid")) {
+    try {
+      renderSellPage();
+    } catch (_) {}
+  }
+  if (document.getElementById("profile-inventory")) {
+    try {
+      renderProfileInventory();
+    } catch (_) {}
+  }
+  syncItemModalLockButton();
+}
+
+function toggleInventoryItemLockFromModal() {
+  const id = Number(profileState.selectedItem?.id || 0);
+  if (!id) return;
+  toggleInventoryItemLock(id);
+}
+
 function itemEnchantOverlayHtml(item, context = "bag") {
   const ctx = ["bag", "slot", "modal"].includes(context) ? context : "bag";
   const br = Boolean(item?.is_broken);
@@ -9374,12 +9477,14 @@ function renderProfileInventory() {
       const name = escapeHtml(String(item?.display_name || item?.name || "Предмет"));
       const iconHtml = itemArtHtml(item);
       const upgrade = isProfileUpgradeItem(item);
-      const locked = item?.can_equip === false;
+      const cannotEquip = item?.can_equip === false;
       const enchantOverlay = itemEnchantOverlayHtml(item, "bag");
+      const lockBadge = itemLockBadgeHtml(item, "bag");
       cells.push(`
-        <button type="button" class="item-card profile-inv-item ${rarity} ${locked ? "empty" : ""}" title="${name}" onclick="WaifuApp.openItemById(${Number(
+        <button type="button" class="item-card profile-inv-item ${rarity} ${cannotEquip ? "empty" : ""}" title="${name}" onclick="WaifuApp.openItemById(${Number(
           item?.id || 0
         )})">
+          ${lockBadge}
           <div class="item-icon">${iconHtml}${enchantOverlay}</div>
           ${upgrade ? `<div class="upgrade-arrow" title="Улучшение относительно экипировки">▲</div>` : ""}
           <div class="item-level">Ур. ${item?.level ?? "?"}</div>
@@ -10020,25 +10125,35 @@ function requirementPillOk(item, waifu, key, fallbackHave, need) {
   return !hasWaifu || safeNumber(fallbackHave, 0) >= safeNumber(need, 0);
 }
 
+function itemIsPlusRequirement(item) {
+  if (item?.is_plus === true) return true;
+  return safeNumber(item?.power_rank, 0) > 0;
+}
+
+function requirementPillHaveLabel(have) {
+  if (have == null || (typeof have === "number" && !Number.isFinite(have))) return "—";
+  return String(have);
+}
+
 function buildItemModalRequirementsPillsHtml(item, waifu) {
   const req = item?.requirements && typeof item.requirements === "object" ? item.requirements : {};
   const w = waifu || {};
-  const hasWaifu = Boolean(w && (w.level != null || w.id != null));
   const entries = [];
 
-  const pushPill = (lbl, val, ok) => {
-    entries.push({ lbl, val, ok });
+  const pushPill = (lbl, val, ok, have) => {
+    entries.push({ lbl, val, ok, have });
   };
 
   if (Boolean(item?.is_broken)) {
-    pushPill("Сост.", "Сломан", false);
+    pushPill("Сост.", "Сломан", false, "—");
   }
 
   const lvlNeed = safeNumber(req.level, 0);
   if (lvlNeed > 0) {
     const have = safeNumber(w.level, 0);
     const ok = requirementPillOk(item, w, "level", have, lvlNeed);
-    pushPill("Ур.", String(lvlNeed), ok);
+    const hideLevelOnPlus = itemIsPlusRequirement(item) && ok;
+    if (!hideLevelOnPlus) pushPill("Ур.", String(lvlNeed), ok, have);
   }
 
   const statBits = [
@@ -10054,32 +10169,34 @@ function buildItemModalRequirementsPillsHtml(item, waifu) {
     if (need <= 0) return;
     const have = profileStatValue(w, wk);
     const ok = requirementPillOk(item, w, rk, have, need);
-    pushPill(abbrev, String(need), ok);
+    pushPill(abbrev, String(need), ok, have);
   });
 
   if (req.waifu_race != null && req.waifu_race !== "") {
     const need = Number(req.waifu_race);
     const have = w.race != null ? Number(w.race) : NaN;
     const ok = requirementPillOk(item, w, "waifu_race", have, need);
-    pushPill("Раса", raceName(need), ok);
+    pushPill("Раса", raceName(need), ok, Number.isFinite(have) ? raceName(have) : "—");
   }
   if (req.waifu_class != null && req.waifu_class !== "") {
     const need = Number(req.waifu_class);
     const wc = w.class != null ? w.class : w.class_;
     const have = wc != null ? Number(wc) : NaN;
     const ok = requirementPillOk(item, w, "waifu_class", have, need);
-    pushPill("Класс", className(need), ok);
+    pushPill("Класс", className(need), ok, Number.isFinite(have) ? className(have) : "—");
   }
 
   if (!entries.length) return "";
 
   return entries
-    .map(
-      (e) =>
-        `<div class="item-modal-v2-rpil${e.ok ? "" : " item-modal-v2-rpil--fail"}"><span class="item-modal-v2-rpil-lbl">${escapeHtml(
-          e.lbl
-        )}</span><span class="item-modal-v2-rpil-val">${escapeHtml(e.val)}</span></div>`
-    )
+    .map((e) => {
+      const title = `нужно ${e.val}, у вас ${requirementPillHaveLabel(e.have)}`;
+      return `<div class="item-modal-v2-rpil${e.ok ? "" : " item-modal-v2-rpil--fail"}" title="${escapeHtml(
+        title
+      )}"><span class="item-modal-v2-rpil-lbl">${escapeHtml(e.lbl)}</span><span class="item-modal-v2-rpil-val">${escapeHtml(
+        e.val
+      )}</span></div>`;
+    })
     .join("");
 }
 
@@ -10200,6 +10317,7 @@ function openItemModal(item) {
 
   if (sellBtn) sellBtn.style.display = isEquipped ? "none" : "";
   if (dismantleBtn) dismantleBtn.style.display = isEquipped ? "none" : "";
+  syncItemModalLockButton();
   if (unequipBtn) unequipBtn.style.display = isEquipped ? "" : "none";
   if (replaceBtn) replaceBtn.style.display = isEquipped ? "" : "none";
   if (equipBtn) {
@@ -10217,12 +10335,14 @@ function openItemModal(item) {
   let visibleFooter = 0;
   if (sellBtn && sellBtn.style.display !== "none") visibleFooter += 1;
   if (dismantleBtn && dismantleBtn.style.display !== "none") visibleFooter += 1;
+  const lockBtn = document.getElementById("item-modal-lock");
+  if (lockBtn && lockBtn.style.display !== "none") visibleFooter += 1;
   if (enchBtn && enchBtn.style.display !== "none") visibleFooter += 1;
   if (unequipBtn && unequipBtn.style.display !== "none") visibleFooter += 1;
   if (replaceBtn && replaceBtn.style.display !== "none") visibleFooter += 1;
   if (equipBtn && equipBtn.style.display !== "none") visibleFooter += 1;
   if (actionsRow) {
-    actionsRow.setAttribute("data-cols", String(Math.max(1, Math.min(visibleFooter, 4))));
+    actionsRow.setAttribute("data-cols", String(Math.max(1, Math.min(visibleFooter, 5))));
   }
 
   const atticEl = document.querySelector("header.attic, .attic");
@@ -18135,6 +18255,8 @@ window.WaifuApp = Object.assign(window.WaifuApp || {}, {
   changeProfileInventoryPage,
   openProfileSlot,
   openItemById,
+  toggleInventoryItemLock,
+  toggleInventoryItemLockFromModal,
   closeSlotModal,
   setSlotSort,
   toggleSlotSortDir,

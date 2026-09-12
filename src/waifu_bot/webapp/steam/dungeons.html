@@ -6,17 +6,17 @@
     <title>Подземелья</title>
     <link rel="stylesheet" href="./steam-pages.css?v=waifu-webapp-v100" />
     <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v100" />
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v100" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v57'" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v122" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v122'" />
     <link rel="stylesheet" href="/webapp/bundle/waifu-combat-island.css?v=waifu-webapp-v100" />
     <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
     <link rel="preload" href="/webapp/assets/fonts/manrope-var.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="stylesheet" href="/webapp/dungeons-redesign.css?v=waifu-webapp-v119" />
+    <link rel="stylesheet" href="/webapp/dungeons-redesign.css?v=waifu-webapp-v120" />
     <script defer src="/webapp/vendor/telegram-web-app.js"></script>
     <script defer src="/webapp/assets/tutorial.js"></script>
     <script defer src="/webapp/bundle/combat-island.min.js?v=waifu-webapp-v100" onerror="console.warn('combat island skipped')"></script>
-    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v118" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v118'"></script>
+    <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v122" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v122'"></script>
     <script defer src="/webapp/combat-format.js?v=waifu-webapp-v119"></script>
-    <script defer src="/webapp/pages/dungeons.js?v=waifu-webapp-v100"></script>
+    <script defer src="/webapp/pages/dungeons.js?v=waifu-webapp-v120"></script>
     <script defer src="/webapp/pages/delve.js?v=waifu-webapp-v121"></script>
     <style>
       .hp-fill-monster.monster-hp-fill--unknown {
@@ -3191,7 +3191,6 @@
           </div>
           <div class="item-modal-v2-foot">
             <div class="item-modal-v2-req" id="item-modal-req-section" style="display:none;">
-              <span class="item-modal-v2-req-hd">Требования</span>
               <div class="item-modal-v2-req-pills" id="item-modal-requirements" aria-live="polite"></div>
             </div>
             <div class="item-modal-v2-cta">
@@ -3200,6 +3199,7 @@
                 <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
                 <button class="item-modal-v2-btn item-modal-v2-btn--ench item-modal-v2-btn--icon" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;" aria-label="Кузница" title="Кузница">⚒</button>
                 <button class="item-modal-v2-btn item-modal-v2-btn--neutral item-modal-v2-btn--icon" id="item-modal-dismantle" type="button" onclick="WaifuApp.openItemDismantleConfirmOverlay()" style="display:none;" aria-label="Распылить" title="Распылить">✨</button>
+                <button class="item-modal-v2-btn item-modal-v2-btn--neutral item-modal-v2-btn--icon" id="item-modal-lock" type="button" onclick="WaifuApp.toggleInventoryItemLockFromModal()" style="display:none;" aria-label="Замок пакета" title="Замок пакета">🔓</button>
                 <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
                 <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
               </div>

@@ -138,6 +138,7 @@ class InventoryItem(Base):
     enchant_arm_step: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     enchant_sec_step: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     is_broken: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Instance secondary snapshot (template / awaken / craft)
     secondary_bonus_type: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -15,6 +15,7 @@ from waifu_bot.game.effective_stats import (
     fetch_equipped_inventory_items,
     stat_multipliers_from_passive_hidden,
 )
+from waifu_bot.game.item_requirements import resolve_runtime_requirements
 from waifu_bot.services.hidden_skills import get_hidden_skill_bonuses
 from waifu_bot.services.passive_skills import get_passive_skill_bonuses
 
@@ -162,7 +163,7 @@ def _build_requirements_status(
     stats: EffectiveWaifuStats,
     waifu: MainWaifu,
 ) -> dict[str, dict[str, Any]]:
-    req = inv.requirements or {}
+    req = resolve_runtime_requirements(inv)
     status: dict[str, dict[str, Any]] = {}
 
     lvl_need = int(req.get("level") or 0)
@@ -204,7 +205,7 @@ def _evaluate_requirements(
     if bool(getattr(inv, "is_broken", False)):
         errors.append("Предмет сломан — экипировка недоступна")
 
-    req = inv.requirements or {}
+    req = resolve_runtime_requirements(inv)
 
     lvl_need = int(req.get("level") or 0)
     if lvl_need > stats.level:

@@ -24,6 +24,7 @@ from waifu_bot.services.item_art import (
 )
 from waifu_bot.services.passive_skills import normalize_passive_level_affix_value
 from waifu_bot.game.legendary_bonuses.loader import fetch_legendary_bonus_payloads
+from waifu_bot.game.item_requirements import requirements_export
 
 
 def _direct_base_template_id(inv: m.InventoryItem) -> int | None:
@@ -211,6 +212,7 @@ def serialize_inventory_item(
     if not flavor:
         flavor = getattr(getattr(inv, "item", None), "description", None)
     description = str(flavor).strip() if flavor else None
+    req_out, power_rank, is_plus = requirements_export(inv)
 
     return {
         "id": inv.id,
@@ -244,12 +246,15 @@ def serialize_inventory_item(
         "enchant_arm_step": int(getattr(inv, "enchant_arm_step", 0) or 0),
         "enchant_sec_step": float(getattr(inv, "enchant_sec_step", 0.0) or 0.0),
         "is_broken": bool(getattr(inv, "is_broken", False)),
+        "is_locked": bool(getattr(inv, "is_locked", False)),
         "is_legendary": inv.is_legendary,
         "refined_grade": int(getattr(inv, "refined_grade", 0) or 0),
         "temper_reroll_count": int(getattr(inv, "temper_reroll_count", 0) or 0),
         "reforge_reroll_count": int(getattr(inv, "reforge_reroll_count", 0) or 0),
         "legendary_bonuses": legendary_bonuses or [],
-        "requirements": inv.requirements,
+        "requirements": req_out,
+        "power_rank": power_rank or None,
+        "is_plus": is_plus,
         "affixes": affixes,
         "slot_type": inv.slot_type,
         "economy": getattr(inv, "economy", None) or "telegram",
