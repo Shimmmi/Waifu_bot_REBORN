@@ -4758,10 +4758,14 @@ function abyssIsSteam() {
   return Boolean(window.waifuDesktop) || document.documentElement.classList.contains("desktop-client");
 }
 
+function abyssIsUnconscious(st) {
+  return Number(st?.waifu_hp || 0) <= 0;
+}
+
 function abyssResolveMode(st) {
   if (!st?.is_available) return "locked";
   if (st.pending_grace_choices?.length) return "awaiting_grace";
-  if (st.session_active && st.waifu_unconscious) return "unconscious";
+  if (st.session_active && abyssIsUnconscious(st)) return "unconscious";
   if (st.session_active) return "battle";
   const used = Number(st.checkpoints_today || 0);
   const limit = Number(st.daily_limit || 0);
@@ -4849,7 +4853,9 @@ function abyssBattleShell() {
       </div>
       <div class="abyss-ko-layer" id="abyss-ko" hidden>
         <div>ОВ без сознания</div>
-        <button type="button" class="primary abyss-revive-btn" id="abyss-revive-btn" onclick="WaifuApp.abyssRevive()">Воскресить</button>
+        <p class="muted tiny" id="abyss-ko-hint">Удары не проходят, пока HP не восстановится. Можно подождать реген или один раз за блок воскресить за осколки.</p>
+        <button type="button" class="primary abyss-revive-btn" id="abyss-revive-btn" onclick="WaifuApp.abyssRevive()">Воскресить за осколки</button>
+        <p class="muted tiny" id="abyss-ko-cost"></p>
       </div>
       <button type="button" class="primary btn-block" id="abyss-pick-grace-btn" hidden onclick="WaifuApp.openAbyssGraceModal()">Выбрать благодать</button>
       <p class="muted tiny abyss-hint" id="abyss-hint"></p>
@@ -4982,13 +4988,22 @@ function patchAbyssHud(st) {
   if (wFill) wFill.style.width = `${wpct}%`;
 
   const ko = document.getElementById("abyss-ko");
-  if (ko) ko.hidden = !st.waifu_unconscious;
+  const unconscious = abyssIsUnconscious(st);
+  if (ko) ko.hidden = !unconscious;
   const rev = document.getElementById("abyss-revive-btn");
+  const costEl = document.getElementById("abyss-ko-cost");
+  const need = Number(st.revive_cost || 50);
+  const have = Number(st.revive_have ?? st.wallet?.shards ?? st.abyss_shards ?? 0);
+  const used = Number(st.revive_used || 0);
+  const maxRev = Number(st.revive_max || 1);
   if (rev) {
-    const need = Number(st.revive_cost || 50);
-    const have = Number(st.revive_have ?? st.abyss_shards ?? 0);
-    rev.textContent = `Воскресить · надо ${abyssFmt(need)} / есть ${abyssFmt(have)}`;
-    rev.disabled = have < need || Number(st.revive_used || 0) >= Number(st.revive_max || 1);
+    rev.textContent = `Воскресить за ${abyssFmt(need)} осколков`;
+    rev.disabled = !unconscious || have < need || used >= maxRev;
+  }
+  if (costEl) {
+    costEl.textContent = used >= maxRev
+      ? `Свиток на этот блок уже использован. У вас ${abyssFmt(have)} осколков.`
+      : `Цена ${abyssFmt(need)} осколков · у вас ${abyssFmt(have)}. Это не таймер регена.`;
   }
   const graceBtn = document.getElementById("abyss-pick-grace-btn");
   if (graceBtn) graceBtn.hidden = !(st.pending_grace_choices && st.pending_grace_choices.length);
@@ -5039,7 +5054,7 @@ function applyAbyssSsePayload(payload) {
       abyssState.waifu_hp = payload.waifu_current_hp ?? payload.waifu_hp_remaining;
     }
     if (payload.waifu_max_hp != null) abyssState.waifu_max_hp = payload.waifu_max_hp;
-    abyssState.waifu_unconscious = Boolean(payload.waifu_unconscious);
+    abyssState.waifu_unconscious = abyssIsUnconscious(abyssState);
     patchAbyssHud(abyssState);
   }
   if (payload.monster_defeated || payload.is_checkpoint_complete || payload.floor_complete) {
