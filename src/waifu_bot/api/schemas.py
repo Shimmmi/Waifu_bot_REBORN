@@ -537,9 +537,12 @@ class GearItemOut(BaseModel):
     enchant_arm_step: int = 0
     enchant_sec_step: float = 0.0
     is_broken: bool = False
+    is_locked: bool = False
     is_legendary: bool = False
     legendary_bonuses: List[dict] = Field(default_factory=list)
     requirements: Optional[dict] = None
+    power_rank: Optional[int] = None
+    is_plus: bool = False
     affixes: List[AffixOut] = []
     slot_type: Optional[str] = None
     image_key: Optional[str] = None

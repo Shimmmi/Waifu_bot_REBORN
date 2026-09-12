@@ -190,6 +190,10 @@ class BulkDisposeRequest(BaseModel):
     max_rarity: int = Field(..., ge=1, le=5)
 
 
+class ItemLockRequest(BaseModel):
+    is_locked: bool
+
+
 @router.post("/inventory/bulk-dispose", tags=["inventory"])
 async def post_inventory_bulk_dispose(
     payload: BulkDisposeRequest,
@@ -208,6 +212,26 @@ async def post_inventory_bulk_dispose(
     if err in ("invalid_action", "invalid_rarity"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
     return result
+
+
+@router.post("/inventory/{item_id}/lock", tags=["inventory"])
+async def post_inventory_lock(
+    item_id: int,
+    body: ItemLockRequest,
+    player_id: int = Depends(get_player_id),
+    session: AsyncSession = Depends(get_db),
+):
+    inv = await session.scalar(
+        select(m.InventoryItem).where(
+            m.InventoryItem.id == int(item_id),
+            m.InventoryItem.player_id == int(player_id),
+        )
+    )
+    if not inv:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="item_not_found")
+    inv.is_locked = bool(body.is_locked)
+    await session.commit()
+    return {"id": int(inv.id), "is_locked": bool(inv.is_locked)}
 
 
 @router.post("/inventory/{item_id}/enchant", tags=["inventory"])

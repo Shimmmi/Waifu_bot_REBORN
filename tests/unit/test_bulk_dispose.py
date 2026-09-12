@@ -39,6 +39,7 @@ def _inv(
         tier=tier,
         equipment_slot=equipped,
         item=item,
+        is_locked=False,
     )
 
 
@@ -138,3 +139,39 @@ def test_dismantle_skips_active_shop_offer() -> None:
     assert cells["1"]["dust_total"] == calculate_dismantle_dust(rarity=1, tier=1, cfg=_DEFAULT_CFG)
     dust_only = select_bulk_items(items, 1, shop_ids={2}, skip_shop=True)
     assert [i.id for i in dust_only] == [1]
+
+
+def test_locked_common_skipped_on_every_threshold() -> None:
+    locked = _inv(1, 1)
+    locked.is_locked = True
+    open_item = _inv(2, 1)
+    assert is_bulk_candidate(locked, 5) is False
+    assert is_bulk_candidate(open_item, 5) is True
+    got = select_bulk_items([locked, open_item], 5)
+    assert [i.id for i in got] == [2]
+    cells = summarize_bulk_cells(
+        [locked, open_item],
+        shop_ids=set(),
+        price_fn=lambda inv: 10,
+        cfg=_DEFAULT_CFG,
+    )
+    for r in range(1, 6):
+        assert cells[str(r)]["count"] == 1
+        assert cells[str(r)]["dismantle_count"] == 1
+        assert cells[str(r)]["gold_total"] == 10
+
+
+def test_locked_legendary_not_in_legendary_count() -> None:
+    locked = _inv(1, 5)
+    locked.is_locked = True
+    open_leg = _inv(2, 5)
+    cells = summarize_bulk_cells(
+        [locked, open_leg],
+        shop_ids=set(),
+        price_fn=lambda inv: 1,
+        cfg=_DEFAULT_CFG,
+    )
+    assert cells["5"]["count"] == 1
+    assert cells["5"]["legendary_count"] == 1
+    assert cells["5"]["dismantle_legendary_count"] == 1
+    assert select_bulk_items([locked], 5) == []

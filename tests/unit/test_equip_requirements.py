@@ -73,6 +73,9 @@ def _inv(**kwargs):
         base_stat_value=None,
         affixes=[],
         is_broken=False,
+        tier=1,
+        power_rank=0,
+        plus_level_source=0,
     )
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -336,5 +339,64 @@ def test_armor_swap_passes_when_candidate_provides_strength() -> None:
         assert result.stats.strength == 15
         assert result.can_equip is True
         assert result.requirements_status["strength"]["ok"] is True
+
+    asyncio.run(_run())
+
+
+def test_plus70_armor_mule_cannot_self_equip() -> None:
+    """10 INT + high-roll self (20×12.5=250) < T10 offhand 325 at ilvl 750."""
+    waifu = _waifu(intelligence=10, level=60)
+    candidate = _inv(
+        slot_type="offhand",
+        tier=10,
+        power_rank=750,
+        base_stat="intelligence",
+        base_stat_value=250,
+        requirements={"level": 46, "intelligence": 20},
+    )
+
+    async def _run() -> None:
+        with _patch_zero_passives_and_paragon():
+            result = await check_item_requirements(
+                session=None,
+                player_id=1,
+                inv=candidate,
+                waifu=waifu,
+                target_slot=2,
+                equipped_items=[],
+            )
+
+        assert result.requirements_status["intelligence"]["required"] == 325
+        assert result.stats.intelligence == 260
+        assert result.can_equip is False
+
+    asyncio.run(_run())
+
+
+def test_plus70_weapon_mule_cannot_self_equip() -> None:
+    waifu = _waifu(strength=10, level=60)
+    candidate = _inv(
+        slot_type="weapon_1h",
+        tier=10,
+        power_rank=750,
+        base_stat="strength",
+        base_stat_value=250,
+        requirements={"level": 46, "strength": 20},
+    )
+
+    async def _run() -> None:
+        with _patch_zero_passives_and_paragon():
+            result = await check_item_requirements(
+                session=None,
+                player_id=1,
+                inv=candidate,
+                waifu=waifu,
+                target_slot=1,
+                equipped_items=[],
+            )
+
+        assert result.requirements_status["strength"]["required"] == 475
+        assert result.stats.strength == 260
+        assert result.can_equip is False
 
     asyncio.run(_run())

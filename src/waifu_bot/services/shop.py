@@ -522,10 +522,9 @@ class ShopService:
         resolved = getattr(inv, "_resolved_secondaries", None) or resolve_item_secondaries(inv, None)
         _, frac_val = effective_fraction_combat(inv, resolved)
         eff = get_effective_params(inv, armor_base=ab, secondary_bonus_value=frac_val or 0.0)
-        req_raw = getattr(inv, "requirements", None)
-        if not isinstance(req_raw, dict) and getattr(inv, "item", None) is not None:
-            req_raw = getattr(inv.item, "requirements", None)
-        requirements_out = req_raw if isinstance(req_raw, dict) else None
+        from waifu_bot.game.item_requirements import requirements_export
+
+        requirements_out, power_rank, is_plus = requirements_export(inv)
         display_name_for_art = full_name or base_name
         image_key = derive_image_key(inv.slot_type, inv.weapon_type, display_name_for_art)
         art_key = resolve_inventory_item_art_key(inv, display_base_name=base_name)
@@ -574,5 +573,7 @@ class ShopService:
             "price": price,
             "sold": False,  # Будет переопределено в get_shop_inventory
             "requirements": requirements_out,
+            "power_rank": power_rank or None,
+            "is_plus": is_plus,
         }
 

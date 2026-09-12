@@ -590,6 +590,8 @@ class GuildService:
             "slot_type": serialized.get("slot_type"),
             "affixes": serialized.get("affixes") or [],
             "requirements": serialized.get("requirements"),
+            "power_rank": serialized.get("power_rank"),
+            "is_plus": bool(serialized.get("is_plus")),
             "image_key": serialized.get("image_key"),
             "art_key": serialized.get("art_key"),
             "image_url": serialized.get("image_url"),

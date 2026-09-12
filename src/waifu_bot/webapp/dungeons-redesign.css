@@ -1439,6 +1439,9 @@ body.page-dungeons {
   color: rgba(232, 220, 200, 0.7);
   font-size: 12px;
 }
+.page-dungeons #tab-abyss [hidden] {
+  display: none !important;
+}
 .page-dungeons #tab-abyss .abyss-ko-layer {
   position: absolute;
   inset: 0;
@@ -1447,9 +1450,14 @@ body.page-dungeons {
   align-items: center;
   justify-content: center;
   gap: 10px;
+  padding: 16px;
+  text-align: center;
   background: rgba(8, 4, 4, 0.72);
   border-radius: 12px;
   z-index: 2;
+}
+.page-dungeons #tab-abyss .abyss-ko-layer[hidden] {
+  display: none !important;
 }
 .page-dungeons #tab-abyss .abyss-battle-wrap { position: relative; }
 .page-dungeons #tab-abyss .abyss-battle-head {

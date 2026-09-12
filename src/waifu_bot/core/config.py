@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     routerai_base_url: str = Field("https://routerai.ru/api/v1", alias="ROUTERAI_BASE_URL")
     routerai_model: str | None = Field(None, alias="ROUTERAI_MODEL")
     routerai_model_image: str = Field(
-        "google/gemini-3.1-flash-lite-image",
+        "openai/gpt-image-2.5-sunburst",
         alias="ROUTERAI_MODEL_IMAGE",
     )
 

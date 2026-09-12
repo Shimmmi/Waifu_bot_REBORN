@@ -12,7 +12,11 @@ from sqlalchemy.orm import selectinload
 
 from waifu_bot.db import models as m
 from waifu_bot.game.affix_display_names import resolve_prefix_name_ru, resolve_suffix_name_ru
-from waifu_bot.game.item_ilvl_scaling import apply_ilvl_scale_to_fresh_item, stamp_ilvl_scale_meta
+from waifu_bot.game.item_ilvl_scaling import (
+    apply_ilvl_scale_to_fresh_item,
+    item_scale_ilvl,
+    stamp_ilvl_scale_meta,
+)
 from waifu_bot.game.passive_affix_ilvl import passive_node_level_add_allowed
 from waifu_bot.game.item_secondary import snapshot_secondaries_from_template, template_row_from_mapping
 from waifu_bot.game.item_requirements import compute_item_requirements
@@ -103,6 +107,7 @@ def _requirements_from_base_template(
     slot_type: str,
     base_tier: int,
     level_min: int,
+    req_ilvl: int = 0,
 ) -> dict:
     base_stat_code = str(base.get("stat1_type") or "").upper()
     base_stat = _STAT_CODE_TO_NAME.get(base_stat_code)
@@ -133,6 +138,7 @@ def _requirements_from_base_template(
         has_class_lock=has_class,
         required_race=required_race,
         required_class=required_class,
+        req_ilvl=int(req_ilvl or 0),
     )
 
 
@@ -235,6 +241,7 @@ class ItemService:
             slot_type=slot_type,
             base_tier=effective_tier,
             level_min=level_min,
+            req_ilvl=item_scale_ilvl(inv),
         )
         inv.requirements = req
         item.required_level = req.get("level")

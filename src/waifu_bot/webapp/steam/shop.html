@@ -6,7 +6,7 @@
   <title>Магазин</title>
   <link rel="stylesheet" href="./steam-pages.css?v=waifu-webapp-v100" />
     <link rel="stylesheet" href="/webapp/desktop-theme.css?v=waifu-webapp-v100" />
-    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v100" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v50'" />
+    <link rel="stylesheet" href="/webapp/bundle/styles.min.css?v=waifu-webapp-v122" onerror="this.onerror=null;this.href='/webapp/styles.css?v=waifu-webapp-v122'" />
   <style>
     :root {
       --ink: #0d0a08; /* основной фон */
@@ -317,6 +317,10 @@
       box-shadow:
         0 0 0 2px rgba(255, 220, 140, 0.95),
         0 0 18px rgba(255, 200, 80, 0.4);
+    }
+    body.page-shop .shop-sell-card .item-lock-badge {
+      top: 3px;
+      right: 3px;
     }
 
     /* Название под иконкой (не gamble — там тип сверху) */
@@ -1882,7 +1886,7 @@
   <link rel="stylesheet" href="/webapp/assets/tutorial.css" />
   <script defer src="/webapp/vendor/telegram-web-app.js"></script>
   <script defer src="/webapp/assets/tutorial.js"></script>
-  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v119" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v119'"></script>
+  <script defer src="/webapp/bundle/app.min.js?v=waifu-webapp-v122" onerror="this.onerror=null;this.src='/webapp/app.js?v=waifu-webapp-v122'"></script>
 </head>
 <body class="page-shop page-steam-shell">
   <header class="attic" style="display:none !important" aria-hidden="true">
@@ -2250,7 +2254,6 @@
         </div>
         <div class="item-modal-v2-foot">
           <div class="item-modal-v2-req" id="shop-offer-modal-req-section" style="display:none;">
-            <span class="item-modal-v2-req-hd">Требования</span>
             <div class="item-modal-v2-req-pills" id="shop-offer-modal-requirements" aria-live="polite"></div>
           </div>
           <div class="item-modal-v2-cta shop-offer-modal-cta">
@@ -2335,7 +2338,6 @@
         </div>
         <div class="item-modal-v2-foot">
           <div class="item-modal-v2-req" id="item-modal-req-section" style="display:none;">
-            <span class="item-modal-v2-req-hd">Требования</span>
             <div class="item-modal-v2-req-pills" id="item-modal-requirements" aria-live="polite"></div>
           </div>
           <div class="item-modal-v2-cta">
@@ -2344,6 +2346,7 @@
               <button class="item-modal-v2-btn item-modal-v2-btn--sell" id="item-modal-sell" type="button" onclick="WaifuApp.openItemSellConfirmOverlay()" style="display:none;">Продать</button>
               <button class="item-modal-v2-btn item-modal-v2-btn--ench item-modal-v2-btn--icon" id="item-modal-enchant" type="button" onclick="WaifuApp.goShopSmithEnchantFromModal()" style="display:none;" aria-label="Кузница" title="Кузница">⚒</button>
               <button class="item-modal-v2-btn item-modal-v2-btn--neutral item-modal-v2-btn--icon" id="item-modal-dismantle" type="button" onclick="WaifuApp.openItemDismantleConfirmOverlay()" style="display:none;" aria-label="Распылить" title="Распылить">✨</button>
+              <button class="item-modal-v2-btn item-modal-v2-btn--neutral item-modal-v2-btn--icon" id="item-modal-lock" type="button" onclick="WaifuApp.toggleInventoryItemLockFromModal()" style="display:none;" aria-label="Замок пакета" title="Замок пакета">🔓</button>
               <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-unequip" type="button" onclick="WaifuApp.unequipItemFromModal()" style="display:none;">Снять</button>
               <button class="item-modal-v2-btn item-modal-v2-btn--neutral" id="item-modal-replace" type="button" onclick="WaifuApp.openProfileSlotReplacementFromModal()" style="display:none;">Заменить</button>
             </div>

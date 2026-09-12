@@ -37,6 +37,7 @@ from waifu_bot.game.equip_requirements import (
     can_equip_to_any_slot,
     check_item_requirements,
     check_item_requirements_for_display,
+    resolve_effective_waifu_stats,
 )
 from waifu_bot.game.affix_effect_ui import effect_stat_description_ru
 from waifu_bot.game.item_display_name import compose_item_display_name_ru
@@ -675,6 +676,9 @@ def _to_gear_item(
     if not flavor and inv.item is not None:
         flavor = getattr(inv.item, "description", None)
     description = str(flavor).strip() if flavor else None
+    from waifu_bot.game.item_requirements import requirements_export
+
+    req_out, power_rank, is_plus = requirements_export(inv)
     return schemas.GearItemOut(
         id=inv.id,
         slot=slot,
@@ -707,9 +711,12 @@ def _to_gear_item(
         enchant_arm_step=int(getattr(inv, "enchant_arm_step", 0) or 0),
         enchant_sec_step=float(getattr(inv, "enchant_sec_step", 0.0) or 0.0),
         is_broken=bool(getattr(inv, "is_broken", False)),
+        is_locked=bool(getattr(inv, "is_locked", False)),
         is_legendary=inv.is_legendary,
         legendary_bonuses=list(legendary_bonuses or []),
-        requirements=inv.requirements,
+        requirements=req_out,
+        power_rank=power_rank or None,
+        is_plus=is_plus,
         affixes=affixes,
         slot_type=inv.slot_type,
         image_key=image_key,
@@ -981,6 +988,31 @@ async def get_profile(
                 logger.exception("apply_regen failed in /profile (player_id=%s)", player_id)
 
             if lite:
+                base_strength = main_waifu.strength
+                base_agility = main_waifu.agility
+                base_intelligence = main_waifu.intelligence
+                base_endurance = main_waifu.endurance
+                base_charm = main_waifu.charm
+                base_luck = main_waifu.luck
+                try:
+                    eff_lite = await resolve_effective_waifu_stats(session, player_id, main_waifu)
+                    lite_strength = eff_lite.strength
+                    lite_agility = eff_lite.agility
+                    lite_intelligence = eff_lite.intelligence
+                    lite_endurance = eff_lite.endurance
+                    lite_charm = eff_lite.charm
+                    lite_luck = eff_lite.luck
+                except Exception:
+                    logger.exception(
+                        "resolve_effective_waifu_stats in /profile lite failed player_id=%s",
+                        player_id,
+                    )
+                    lite_strength = base_strength
+                    lite_agility = base_agility
+                    lite_intelligence = base_intelligence
+                    lite_endurance = base_endurance
+                    lite_charm = base_charm
+                    lite_luck = base_luck
                 main_payload = schemas.MainWaifuProfile(
                     id=main_waifu.id,
                     name=main_waifu.name,
@@ -988,15 +1020,29 @@ async def get_profile(
                     class_=main_waifu.class_,
                     level=main_waifu.level,
                     experience=main_waifu.experience,
-                    strength=main_waifu.strength,
-                    agility=main_waifu.agility,
-                    intelligence=main_waifu.intelligence,
-                    endurance=main_waifu.endurance,
-                    charm=main_waifu.charm,
-                    luck=main_waifu.luck,
+                    strength=lite_strength,
+                    agility=lite_agility,
+                    intelligence=lite_intelligence,
+                    endurance=lite_endurance,
+                    charm=lite_charm,
+                    luck=lite_luck,
                     stat_points=int(getattr(main_waifu, "stat_points", 0) or 0),
                     current_hp=main_waifu.current_hp,
                     max_hp=main_waifu.max_hp,
+                    base_strength=base_strength,
+                    base_agility=base_agility,
+                    base_intelligence=base_intelligence,
+                    base_endurance=base_endurance,
+                    base_charm=base_charm,
+                    base_luck=base_luck,
+                    bonus_strength=int(lite_strength) - int(base_strength or 0),
+                    bonus_agility=int(lite_agility) - int(base_agility or 0),
+                    bonus_intelligence=int(lite_intelligence) - int(base_intelligence or 0),
+                    bonus_endurance=int(lite_endurance) - int(base_endurance or 0),
+                    bonus_charm=int(lite_charm) - int(base_charm or 0),
+                    bonus_luck=int(lite_luck) - int(base_luck or 0),
+                    race_flat_bonuses=race_flat_bonuses_for(main_waifu.race),
+                    class_flat_bonuses=class_flat_bonuses_for(main_waifu.class_),
                     bio=getattr(main_waifu, "bio", None),
                 )
             else:

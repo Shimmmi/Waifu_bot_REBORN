@@ -133,9 +133,15 @@ def is_raid_rarity(rarity: int) -> bool:
     return int(rarity) >= RAID_RARITY_MIN
 
 
+def item_is_locked(inv: Any) -> bool:
+    return bool(getattr(inv, "is_locked", False))
+
+
 def is_bulk_candidate(inv: Any, max_rarity: int) -> bool:
-    """Unequipped, not raid, rarity within the threshold."""
+    """Unequipped, unlocked, not raid, rarity within the threshold."""
     if getattr(inv, "equipment_slot", None) is not None:
+        return False
+    if item_is_locked(inv):
         return False
     r = bulk_item_rarity(inv)
     if is_raid_rarity(r):
@@ -316,6 +322,14 @@ async def bulk_dispose(
             else 0
         ),
         "equipped": 0,
+        "locked": sum(
+            1
+            for inv in items
+            if item_is_locked(inv)
+            and getattr(inv, "equipment_slot", None) is None
+            and not is_raid_rarity(bulk_item_rarity(inv))
+            and bulk_item_rarity(inv) <= cap
+        ),
     }
 
     legendary_count = sum(1 for inv in selected if bulk_item_rarity(inv) == 5)
