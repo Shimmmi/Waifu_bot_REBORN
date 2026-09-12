@@ -26,7 +26,7 @@
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
 | `ROUTERAI_API_KEY` | Обязателен для image API | — |
-| `ROUTERAI_MODEL_IMAGE` | Портреты, item/monster/expedition art | `google/gemini-3.1-flash-lite-image` |
+| `ROUTERAI_MODEL_IMAGE` | Портреты, item/monster/expedition art | `openai/gpt-image-2.5-sunburst` |
 
 Код: `get_image_model()` / `has_image_llm_configured()` в [`llm_client.py`](../src/waifu_bot/services/llm_client.py).
 

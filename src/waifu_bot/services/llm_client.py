@@ -6,7 +6,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any, Sequence
 
 import httpx
 
@@ -15,8 +15,8 @@ from waifu_bot.core.config import settings
 logger = logging.getLogger(__name__)
 
 FALLBACK_HTTP_STATUSES: tuple[int, ...] = (402,)
-DEFAULT_IMAGE_MODEL = "google/gemini-3.1-flash-lite-image"
-# Gemini image models expect both modalities; image-only often returns empty message.images.
+DEFAULT_IMAGE_MODEL = "openai/gpt-image-2.5-sunburst"
+# Prefer image+text first; image-only is a fallback if the provider returns empty message.images.
 IMAGE_MODALITY_ATTEMPTS: tuple[tuple[str, ...], ...] = (("image", "text"), ("image",))
 _LLM_MAX_CONCURRENT = 2
 _FUSION_MAX_CONCURRENT = 1
@@ -49,6 +49,128 @@ class LlmProvider:
 
 def chat_completions_url(base_url: str) -> str:
     return f"{base_url.rstrip('/')}/chat/completions"
+
+
+def images_url(base_url: str) -> str:
+    return f"{base_url.rstrip('/')}/images"
+
+
+def uses_images_endpoint(model: str | None) -> bool:
+    """RouterAI gpt-image-* models use POST /images, not chat/completions."""
+    slug = (model or "").strip().lower()
+    return slug.startswith("openai/gpt-image")
+
+
+def _image_ref_url(part: Any) -> str:
+    if isinstance(part, str):
+        return part.strip()
+    if not isinstance(part, dict):
+        return ""
+    direct = part.get("url")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+    nested = part.get("image_url")
+    if isinstance(nested, str) and nested.strip():
+        return nested.strip()
+    if isinstance(nested, dict):
+        u = nested.get("url")
+        if isinstance(u, str) and u.strip():
+            return u.strip()
+    return ""
+
+
+def chat_payload_to_images_body(payload: dict) -> dict:
+    """Convert chat/completions image payload to RouterAI POST /images body."""
+    texts: list[str] = []
+    refs: list[dict[str, Any]] = []
+    for msg in payload.get("messages") or []:
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            if content.strip():
+                texts.append(content.strip())
+            continue
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if isinstance(part, str):
+                if part.strip():
+                    texts.append(part.strip())
+                continue
+            if not isinstance(part, dict):
+                continue
+            ptype = str(part.get("type") or "")
+            if ptype in ("text", "") and part.get("text"):
+                t = str(part.get("text") or "").strip()
+                if t:
+                    texts.append(t)
+            url = _image_ref_url(part)
+            if url:
+                refs.append({"type": "image_url", "image_url": {"url": url}})
+    cfg = payload.get("image_config") if isinstance(payload.get("image_config"), dict) else {}
+    body: dict[str, Any] = {
+        "model": payload.get("model"),
+        "prompt": "\n".join(texts),
+        "n": 1,
+    }
+    aspect = str(cfg.get("aspect_ratio") or "").strip()
+    if aspect:
+        body["aspect_ratio"] = aspect
+    size = str(cfg.get("image_size") or "").strip()
+    if size:
+        body["resolution"] = size
+    if refs:
+        body["input_references"] = refs
+    return body
+
+
+def images_response_as_chat(data: dict) -> dict:
+    """Wrap POST /images JSON so existing message.images extractors keep working."""
+    images: list[dict[str, Any]] = []
+    for item in data.get("data") or []:
+        if not isinstance(item, dict):
+            continue
+        b64 = item.get("b64_json")
+        if isinstance(b64, str) and b64.strip():
+            images.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{b64.strip()}"},
+                }
+            )
+            continue
+        url = item.get("url")
+        if isinstance(url, str) and url.strip():
+            images.append({"type": "image_url", "image_url": {"url": url.strip()}})
+    return {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "images": images,
+                }
+            }
+        ],
+        "usage": data.get("usage") if isinstance(data.get("usage"), dict) else {},
+    }
+
+
+def _wrap_images_http_response(resp: httpx.Response) -> httpx.Response:
+    if not resp.is_success:
+        return resp
+    try:
+        data = resp.json()
+    except Exception:
+        return resp
+    if not isinstance(data, dict):
+        return resp
+    return httpx.Response(
+        status_code=resp.status_code,
+        json=images_response_as_chat(data),
+        request=resp.request,
+    )
 
 
 def llm_request_headers(api_key: str) -> dict[str, str]:
@@ -252,10 +374,22 @@ async def _post_chat_completions_locked(
     last: httpx.Response | None = None
     for idx, provider in enumerate(chain):
         body = _payload_with_model(payload, provider, use_image_model=use_image_model)
-        url = chat_completions_url(provider.base_url)
+        model = str(body.get("model") or "")
+        use_images = bool(use_image_model and uses_images_endpoint(model))
+        if use_images:
+            url = images_url(provider.base_url)
+            request_body: dict[str, Any] = chat_payload_to_images_body(body)
+            logger.info("LLM %s: POST /images model=%s", caller, model)
+        else:
+            url = chat_completions_url(provider.base_url)
+            request_body = body
         t0 = time.perf_counter()
         try:
-            last = await client.post(url, headers=llm_request_headers(provider.api_key), json=body)
+            last = await client.post(
+                url, headers=llm_request_headers(provider.api_key), json=request_body
+            )
+            if use_images:
+                last = _wrap_images_http_response(last)
         except Exception:
             from waifu_bot.services.llm_usage import record_llm_response
 
